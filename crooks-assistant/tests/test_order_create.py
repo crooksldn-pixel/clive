@@ -84,6 +84,28 @@ class OrderStore(FakeStore):
         self.draft_number = 4000
         self.refuse_complete = False
         self.complete_without_order = False
+        self.drop_lines = False               # a Shopify that makes a draft without its lines
+
+    @staticmethod
+    def _priced(index: int, line: dict) -> dict:
+        """A draft line as Shopify prices it: the catalogue's price for a variant, the given
+        price for a custom line, less the line's own discount — a fixed amount off each unit."""
+        if "variantId" in line:
+            product, variant = VARIANTS[str(line["variantId"])]
+            unit, title, variant_title = float(variant["price"]), product["title"], variant["title"]
+        else:
+            unit, title, variant_title = float(line["originalUnitPrice"]), line["title"], None
+        off = line.get("appliedDiscount") or {}
+        each = (unit * float(off["value"]) / 100.0 if off.get("valueType") == "PERCENTAGE"
+                else min(unit, float(off["value"])) if off.get("valueType") == "FIXED_AMOUNT" else 0.0)
+        return {
+            "id": f"gid://shopify/DraftOrderLineItem/{index}", "title": title, "variantTitle": variant_title,
+            "quantity": int(line["quantity"]), "custom": "variantId" not in line,
+            "variant": {"id": line["variantId"]} if "variantId" in line else None,
+            "appliedDiscount": dict(off) or None,
+            "originalUnitPriceSet": {"shopMoney": {"amount": f"{unit:.2f}", "currencyCode": "GBP"}},
+            "discountedTotalSet": {"shopMoney": {"amount": f"{(unit - each) * int(line['quantity']):.2f}", "currencyCode": "GBP"}},
+        }
 
     # ---- reads
 
@@ -163,11 +185,12 @@ class OrderStore(FakeStore):
         self.mutations.append((name, copy.deepcopy(variables)))
         if name == "draft_order_create":
             body = dict(variables["input"])
-            lines = [(str(x["variantId"]), int(x["quantity"])) for x in body["lineItems"]]
-            goods = round(sum(float(VARIANTS[v][1]["price"]) * q for v, q in lines), 2)
+            lines = [self._priced(i, line) for i, line in enumerate(body["lineItems"])]
+            goods = round(sum(float(line["discountedTotalSet"]["shopMoney"]["amount"]) for line in lines), 2)
             postage = round(float((body.get("shippingLine") or {}).get("price") or 0.0), 2)
             off = body.get("appliedDiscount") or {}
-            cut = round(goods * float(off.get("value") or 0) / 100.0, 2) if off.get("valueType") == "PERCENTAGE" else 0.0
+            cut = (round(goods * float(off.get("value") or 0) / 100.0, 2) if off.get("valueType") == "PERCENTAGE"
+                   else round(min(goods, float(off.get("value") or 0)), 2) if off.get("valueType") == "FIXED_AMOUNT" else 0.0)
             total = round(goods - cut + postage, 2)
             self.draft_number += 1
             draft_id = f"gid://shopify/DraftOrder/{self.draft_number}"
@@ -177,14 +200,18 @@ class OrderStore(FakeStore):
                 "subtotalPriceSet": {"shopMoney": {"amount": f"{goods - cut:.2f}", "currencyCode": "GBP"}},
                 "totalShippingPriceSet": {"shopMoney": {"amount": f"{postage:.2f}", "currencyCode": "GBP"}},
                 "totalTaxSet": {"shopMoney": {"amount": "0.00", "currencyCode": "GBP"}},
+                "appliedDiscount": dict(off) or None,
                 "customer": {"id": body["customerId"], "displayName": self.people[body["customerId"]]["name"]},
                 "email": body.get("email") or "",
+                # Where it goes, as Shopify keeps it: the customer's own address when asked for
+                # (the one `CrooksCustomerForOrder` answers with), or the one given.
+                "shippingAddress": (
+                    {"address1": "12 Kiln Road", "address2": None, "city": "Windsor", "zip": "SL4 1AA", "countryCodeV2": "GB"}
+                    if body.get("useCustomerDefaultAddress") and self.people[body["customerId"]].get("orders")
+                    else ({**{k: v for k, v in body["shippingAddress"].items() if k != "countryCode"},
+                           "countryCodeV2": body["shippingAddress"].get("countryCode")} if body.get("shippingAddress") else None)),
                 "order": None,
-                "lineItems": {"edges": [{"node": {
-                    "id": f"gid://shopify/DraftOrderLineItem/{i}", "title": VARIANTS[v][0]["title"],
-                    "variantTitle": VARIANTS[v][1]["title"], "quantity": q,
-                    "originalUnitPriceSet": {"shopMoney": {"amount": VARIANTS[v][1]["price"], "currencyCode": "GBP"}},
-                }} for i, (v, q) in enumerate(lines)]},
+                "lineItems": {"edges": [{"node": line} for line in lines if not self.drop_lines]},
             }
             self.drafts[draft_id] = node
             return {"data": {"draftOrderCreate": {"draftOrder": copy.deepcopy(node), "userErrors": []}}}
@@ -292,7 +319,7 @@ def test_making_an_order_is_red_money_a_drag_and_two_reviewed_mutations():
 
     family = families.get("order_create")
     assert family is not None and family.operations == ("draft_order_complete",)
-    assert family.scopes == ("write_draft_orders",) and set(family.tools) == {OPEN, WRITE}
+    assert family.scopes == ("write_draft_orders",) and set(family.tools) == {OPEN, oc.BUILD_TOOL, WRITE}
 
 
 def test_the_gate_stages_it_only_with_a_workspace_id_and_takes_nothing_else():
@@ -425,11 +452,15 @@ async def test_an_item_that_matches_several_variants_is_not_added(store, session
 
 @AS_THE_OWNER
 async def test_an_item_that_matches_one_variant_is_added_at_the_catalogues_price(store, session, branch):
+    """Tapped: the words typed into the field and "Add the item". (Said, the same item goes on
+    when the workspace is opened — round 12's first complaint, held in tests/test_r12_orders.py.)"""
     from app.reads.scheduler import run_plan
     from app.recipes import RECIPES
     from app.recipes import Ctx as RecipeCtx
 
-    workspace = await open_workspace(session, customer="Poppy", item="cap", quantity=2)
+    workspace = await open_workspace(session, customer="Poppy")
+    ws.type_into(workspace, oc.FIELDS, "item", "cap")
+    ws.type_into(workspace, oc.FIELDS, "quantity", "2")
     recipe = RECIPES["order_line"]
     ctx = RecipeCtx(runtime=None, session=session, branch=branch, slots={"product": "cap"})
     result = await run_plan(recipe.plan(ctx), session=session, timeout_s=5.0)
@@ -447,6 +478,18 @@ async def test_an_item_that_matches_one_variant_is_added_at_the_catalogues_price
     result = await run_plan(recipe.plan(ctx), session=session, timeout_s=5.0)
     recipe.render(ctx, result)
     assert len(oc._lines(workspace)) == 1 and oc._lines(workspace)[0]["quantity"] == 3
+
+
+@AS_THE_OWNER
+async def test_an_item_said_when_the_order_is_opened_is_on_it(store, session, branch):
+    """Round 12. Until now an item given to shopify_order_open was typed into the "Add an item"
+    field and never added — the card said "nothing on it yet" under the words he had said."""
+    workspace = await open_workspace(session, customer="Poppy", item="cap", quantity=2)
+    lines = oc._lines(workspace)
+    assert len(lines) == 1 and lines[0]["variant_id"] == CAP and lines[0]["quantity"] == 2
+    assert lines[0]["price"] == "18.00" and oc._blocked(workspace) == ""
+    rows = oc.workspace_surface(workspace).data["rows"]
+    assert [(r["title"], r["quantity"], r["amount"]) for r in rows] == [("Crooks Cap", "× 2", "£36.00")]
 
 
 @AS_THE_OWNER
@@ -484,7 +527,8 @@ async def test_the_draft_is_made_and_priced_and_no_order_exists(store, engine, s
     assert proposal.risk == "RED" and proposal.interaction == "hold_drag_target"
     assert proposal.status is ActionStatus.PENDING and proposal.entity_kind == "draft_order"
     assert dict(proposal.execution)["total"] == "101.00"
-    assert proposal.before == {"status": "OPEN", "order": "", "total": "101.00"}
+    assert {k: proposal.before[k] for k in ("status", "order", "total")} == {"status": "OPEN", "order": "", "total": "101.00"}
+    assert proposal.before["lines"] == dict(proposal.execution)["lines"], "the lines authorised are the draft's own"
     assert proposal.expected_after["status"] == "COMPLETED"
     facts = {f["label"]: f["value"] for f in registry.get(WRITE).write.present(proposal)["facts"]}
     assert facts["Customer"] == "Poppy De-Witt · poppy@example.com" and facts["Total"] == "£101.00"
@@ -516,7 +560,7 @@ async def test_a_discount_is_shopifys_arithmetic_and_the_payment_state_is_the_ow
     assert dict(proposal.execution)["total"] == "45.00"
     assert dict(proposal.execution)["payment_pending"] is False
     facts = {f["label"]: f["value"] for f in registry.get(WRITE).write.present(proposal)["facts"]}
-    assert facts["Discount"] == "25% off" and facts["Payment"] == "marked as already paid"
+    assert facts["Discount"] == "25% off the order" and facts["Payment"] == "marked as already paid"
     assert facts["Going to"] == "12 Kiln Road, Windsor, SL4 1AA", "Mia has ordered; her address is read at prepare"
 
 
@@ -588,7 +632,8 @@ async def test_a_drag_completes_the_draft_once_and_proves_it_by_re_reading_it(st
     _text, proposal = await stage(session, str(workspace["workspace_id"]))
     result = await drag(engine, proposal)
     assert result.code == "verified", result.detail
-    assert result.spoken == "Order D4001 is created, £60.00."
+    # The draft's name is not the order's number, so it is not said as one (round 12).
+    assert result.spoken == "The order is created, £60.00."
     completes = [v for name, v in store.mutations if name == "draft_order_complete"]
     assert len(completes) == 1 and completes[0]["paymentPending"] is True
     assert proposal.status is ActionStatus.VERIFIED and proposal.undo_id is None
@@ -617,7 +662,8 @@ async def test_a_draft_changed_in_admin_between_the_card_and_the_gesture_is_stal
     store.drafts[dict(proposal.execution)["draft_id"]]["status"] = "INVOICE_SENT"
     result = await drag(engine, proposal)
     assert result.code == "stale" and proposal.status is ActionStatus.STALE
-    assert result.spoken == "The draft changed since this was prepared, so I haven't completed it."
+    # Round 12's second check: the same line now covers the card changing as well as the draft.
+    assert result.spoken == "The order or its draft changed since this was prepared, so I haven't created it. Prepare it again."
     assert not any(n == "draft_order_complete" for n, _ in store.mutations)
 
 

@@ -278,8 +278,8 @@ async function atSize(browser, size) {
      at 601 CSS px.
      What is measured is the FIXED controls: the landing, the trail step, the list steps and
      the Split chip. `#stack` is deliberately exempt — it is the context TRAIL, it grows with
-     the conversation, and the stylesheet has a fade mask for exactly that
-     (`.context-nav[data-overflow="1"]`). A trail that scrolls is a design; a control that is
+     the conversation, and its ends fade for exactly that while there is more beyond them
+     (web/edges.js). A trail that scrolls is a design; a control that is
      cut off is a defect, and the difference is whether its position depends on how long the
      conversation has been going. */
   async function railFits(where) {

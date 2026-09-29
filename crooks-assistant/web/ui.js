@@ -150,6 +150,13 @@
     return dl.childNodes && dl.childNodes.length === 0 && !opts ? null : dl;
   }
 
+  // A card that can be held and put on a screen (web/lift.js) can be reached from the keyboard too:
+  // focused, the context-menu key or Shift+F10 opens the same Displays tray a held finger does.
+  function holdable(node) {
+    if (node && text(node.dataset.ref)) node.setAttribute('tabindex', '0');
+    return node;
+  }
+
   function card(kind, children, opts) {
     opts = opts || {};
     const el = h('article', { class: `card card-${kind}${opts.className ? ' ' + opts.className : ''}`, data: { type: kind } }, children);
@@ -872,6 +879,7 @@
     if (!d.detail) {
       const brief = card('order', [head, orderTimeline(d), overview, h('p', { class: 'card-note', text: 'Ask for the order to see its items and shipping.' })], opts);
       brief.dataset.ref = text(d.order_id);
+      holdable(brief);
       return brief;
     }
     const pending = Array.isArray(d.pending) ? d.pending.map((x) => text(x)) : [];
@@ -916,6 +924,7 @@
       tabs(panels, { initial: tabFor('order', d, opts), onChange: tabReporter('order', d, opts) }),
     ], opts);
     full.dataset.ref = text(d.order_id);
+    holdable(full);
     full.dataset.pending = pending.join(' ');
     // Kept on the node because /context/order redraws this region later and its payload is
     // about the ORDER's regions, not about who it belongs to (app/presentation.py
@@ -2751,6 +2760,7 @@
     const facts = list(d.facts, 10);
     const choices = list(d.choices, 4);
     const blocked = text(d.blocked);
+    const settled = text(d.settled) === 'created' || text(d.settled) === 'unconfirmed' ? text(d.settled) : '';
 
     const factRows = facts.length ? h('dl', { class: 'ws-facts' }, facts.map((f) => h('div', { class: `ws-fact${text(f.tone) ? ' tone-' + text(f.tone) : ''}` }, [
       h('dt', { text: text(f.label) }),
@@ -2773,6 +2783,44 @@
       rows: num(f.rows) || null, placeholder: text(f.placeholder),
     }, settings));
 
+    // What is ON it (an order's lines) and what is on OFFER for it ("which of these?"): rows the
+    // Mac drew, each with at most one button, which names a command and the row it is about —
+    // "Remove" posts the line's key, "Add" the variant the Mac offered — and nothing of what
+    // either means. A discount and a stock warning are words on the row, never colour alone.
+    const wsRow = (r, offered) => {
+      const button = r.button && typeof r.button === 'object' && text(r.button.command) ? r.button : null;
+      const shade = text(r.tone);
+      const meta = [
+        text(r.discount) ? h('span', { class: 'ws-row-off', text: text(r.discount) }) : null,
+        text(r.stock) ? h('span', { class: `ws-row-stock${shade ? ' tone-' + shade : ''}`, text: text(r.stock) }) : null,
+      ].filter(Boolean);
+      return h('li', { class: `ws-row${offered ? ' is-offer' : ''}`, data: { key: text(r.key) } }, [
+        num(r.number) !== null ? h('span', { class: 'ws-row-no', 'aria-hidden': 'true', text: String(r.number) }) : null,
+        h('div', { class: 'ws-row-main' }, [
+          h('span', { class: 'ws-row-title', text: text(r.title, '—') }),
+          text(r.detail) ? h('span', { class: 'ws-row-detail', text: text(r.detail) }) : null,
+          meta.length ? h('span', { class: 'ws-row-meta' }, meta) : null,
+        ]),
+        h('div', { class: 'ws-row-side' }, [
+          h('span', { class: 'ws-row-amount', text: text(r.amount) }),
+          text(r.was) ? h('s', { class: 'ws-row-was', text: text(r.was) }) : null,
+          text(r.quantity) ? h('span', { class: 'ws-row-qty', text: text(r.quantity) }) : null,
+        ]),
+        button ? h('button', {
+          class: `ws-row-btn${offered ? ' is-add' : ''}`, type: 'button',
+          'aria-label': `${text(button.label)} ${text(r.title)} ${text(r.detail)}`.trim(),
+          data: { command: text(button.command), args: text(button.args) },
+        }, [h('span', { text: text(button.label) })]) : null,
+      ]);
+    };
+    const lineRows = list(d.rows, 20);
+    const pickRows = list(d.picks, 8);
+    const lines = lineRows.length ? h('ol', { class: 'ws-rows', 'aria-label': 'On it' }, lineRows.map((r) => wsRow(r, false))) : null;
+    const picks = pickRows.length ? h('div', { class: 'ws-picks', role: 'group', 'aria-label': text(d.picks_title, 'Which one?') }, [
+      h('p', { class: 'ws-picks-title', text: text(d.picks_title, 'Which one?') }),
+      h('ul', { class: 'ws-rows' }, pickRows.map((r) => wsRow(r, true))),
+    ]) : null;
+
     const buttons = list(d.actions, 4).map((a) => {
       const button = h('button', {
         class: `compose-btn${text(a.risk) === 'red' ? ' risk-red' : ''}${a.enabled === false ? ' quiet' : ''}`,
@@ -2793,15 +2841,20 @@
           h('h2', { class: 'card-title', text: text(d.title, 'Building') }),
           h('p', { class: 'card-sub', text: text(d.subtitle) }),
         ]),
-        h('div', { class: 'badges' }, [badge(blocked ? 'Not ready' : 'Draft', blocked ? 'warn' : '')]),
+        // Once it has made what it was for, it says so: "Created", or "Not confirmed" when the
+        // change left and no answer came back (app/families/_workspace.py `settled`).
+        h('div', { class: 'badges' }, [settled === 'created' ? badge(text(d.settled_word, 'Created'), 'ok')
+          : settled ? badge(text(d.settled_word, 'Not confirmed'), 'warn') : badge(blocked ? 'Not ready' : 'Draft', blocked ? 'warn' : '')]),
       ]),
+      lines,
+      picks,
       factRows,
       inputs.length ? h('div', { class: 'ws-fields' }, inputs) : null,
       choiceRows.length ? h('div', { class: 'ws-choices' }, choiceRows) : null,
       blocked ? h('p', { class: 'card-note tone-warn', text: blocked }) : null,
       strings(d.notes, 4).map((n) => h('p', { class: 'card-note', text: n })),
       buttons.length ? h('div', { class: 'compose-actions', role: 'group', 'aria-label': 'What to do with this' }, buttons) : null,
-      h('p', { class: 'future', text: 'Nothing is created until you authorise the card that follows.' }),
+      settled ? null : h('p', { class: 'future', text: 'Nothing is created until you authorise the card that follows.' }),
     ], settings);
     node.dataset.workspace = id;
     return node;
@@ -3046,6 +3099,7 @@
     ]), settings);
     node.dataset.ref = text(d.ref);
     node.dataset.workspace = 'order';
+    holdable(node);
     return node;
   }
 
@@ -3139,6 +3193,13 @@
     ], opts);
   }
 
+  // One of the owner's objectives, in the shape of its kind (round 12). Drawn by
+  // web/objective-cards.js, which the page loads beside this file; without it nothing is drawn.
+  function renderObjective(d, opts) {
+    const cards = typeof window !== 'undefined' ? window.CliveObjectiveCards : globalThis.CliveObjectiveCards;
+    return cards ? cards.card(d, opts) : null;
+  }
+
   const RENDERERS = {
     assistant: renderAssistant,
     order: renderOrder,
@@ -3174,6 +3235,7 @@
     workspace: renderWorkspace,
     workspace_plan: renderWorkspacePlan,
     screen_remote: renderScreenRemote,
+    objective: renderObjective,
   };
   const TYPES = Object.keys(RENDERERS).concat(['context_stack']);
   // Both Phase 5 workstreams added to this list and the merge produced two declarations of
@@ -3182,7 +3244,14 @@
   const CONTEXT_TYPES = ['order', 'order_list', 'customer', 'customer_list', 'customer_workspace', 'order_workspace', 'product', 'inventory', 'sales_summary', 'email_list', 'email_thread', 'email_draft', 'attention', 'confirmation', 'success', 'assistant',
     'metric_group', 'ranking', 'table', 'comparison', 'variant_matrix', 'trend', 'working_set', 'batch_action', 'batch_result', 'capability', 'summary_list',
     // The remote's card stays in the deck behind the remote, to open it again (round 9).
-    'screen_remote'];
+    'screen_remote',
+    // Something being built — an order, a discount, a credit (app/families/_workspace.py).
+    // Round 12: a spoken change to an order returns that order's card and nothing else, and
+    // without this the page took a turn whose only card was the workspace for a turn with
+    // nothing to show, and went back to the orb — the edit made, the screen gone.
+    'workspace',
+    // An objective opened, shown or changed by voice is what the owner asked to see (round 12).
+    'objective'];
 
   function isValid(item) {
     return Boolean(item) && typeof item === 'object' && typeof item.type === 'string'
@@ -3277,6 +3346,7 @@
     trend: ['title', 'metric'],
     working_set: ['set_id'],
     screen_remote: ['screen_id'],
+    objective: ['objective_id'],
     capability: ['build'],
     summary_list: ['task', 'title'],
     reply_state: ['thread_id'],
@@ -3457,6 +3527,180 @@
     return node;
   }
 
+  // ------------------------------------------------------------------ what stays on the glass
+  //
+  // Round 12. George: "a task is asked, a screen is shown, an edit is asked, the edit succeeds,
+  // however the screen disappears." The Mac now says when an answer CONTINUES the screen that
+  // is up (app/screen.py): the cards it carried over are marked `kept` (the card already on the
+  // glass) or `refreshed` (the same record, read again). These three functions are the glass's
+  // half of that, and nothing here decides what is on screen — the Mac's list does.
+
+  // Which card a node on the glass is. A folded card is its wrapper on the glass and its card
+  // inside it, and it is the card that has an identity.
+  function renderIdOf(node) {
+    if (!node || !node.dataset) return '';
+    if (node.dataset.render) return node.dataset.render;
+    if (node.dataset.type !== 'folded') return '';
+    // `folded` wraps the card two levels down (the fold's body, then the card).
+    for (const kid of node.children || []) {
+      for (const inner of [kid].concat(kid.children || [])) {
+        if (inner && inner.dataset && inner.dataset.render) return text(inner.dataset.render);
+      }
+    }
+    return '';
+  }
+
+  // A card still waiting on the owner's hand — armed, held, being applied. Never redrawn by an
+  // answer: its clock and its gesture are the owner's, and only the Mac settles it.
+  function liveUnderHand(node) {
+    const surface = node && node.querySelector ? node.querySelector('.action-surface') : null;
+    if (!surface || !surface.dataset) return false;
+    const machine = actionState();
+    return machine ? machine.isLive(surface.dataset.state) : true;
+  }
+
+  // Draw an answer that continues the screen on `host`, keeping every node it can.
+  //
+  //   `kept`       the node already there stays exactly as it is: not redrawn, not re-animated,
+  //                its tab, its open rows and anything typed into it untouched;
+  //   `refreshed`  the same card with the Mac's newer copy, drawn in the old one's place;
+  //   anything else already on the glass under the same identity is redrawn in its place too,
+  //   except a card waiting on the owner's hand, which is never redrawn under it;
+  //   anything new is drawn and comes in as new cards do;
+  //   and a card on the glass the answer does not carry is taken away.
+  //
+  // Returns null — having touched nothing — when the answer is not a continuation, or when a
+  // card the Mac says is kept is not on this glass (a reload, a local Back, a half switched):
+  // the caller then draws the answer whole, which is what it always did. Otherwise it returns
+  // what `render` returns, plus how many were kept, redrawn, added and removed, and `first`,
+  // the first new card, so the caller can bring it into view.
+  function continueScreen(host, items, opts) {
+    if (!host || !Array.isArray(items) || !items.some((i) => i && (i.kept === true || i.refreshed === true))) return null;
+    const onGlass = new Map();
+    for (const node of Array.prototype.slice.call(host.children || [])) {
+      const id = renderIdOf(node);
+      if (id && !onGlass.has(id)) onGlass.set(id, node);
+    }
+    for (const item of items) {
+      if (item && item.kept === true && isValid(item) && !onGlass.has(surfaceId(item))) return null;
+    }
+    const out = { nodes: [], skipped: [], stack: null, errors: [], hasContext: true, kept: 0, redrawn: 0, added: 0, removed: 0, first: null };
+    for (const item of items.slice(0, 16)) {
+      if (!isValid(item)) { out.skipped.push(item && typeof item.type === 'string' ? item.type : 'invalid'); continue; }
+      if (item.type === 'context_stack') { out.stack = list(item.data.entries, 6); continue; }
+      if (item.type === 'error') out.errors.push(item.data);
+      const id = surfaceId(item);
+      const there = onGlass.get(id);
+      if (there && (item.kept === true || liveUnderHand(there))) {
+        // Moving a node that is already up must not play its entrance again.
+        there.dataset.patched = '1';
+        out.nodes.push(there);
+        out.kept += 1;
+        continue;
+      }
+      let node = renderItem(item, opts);
+      if (!node) { out.skipped.push(item.type); continue; }
+      if (item.data && item.data.secondary === true) node = folded(node, foldLabel(item));
+      if (there) {
+        // In the old node's place: swapped now, so the reordering below finds it there.
+        node.dataset.patched = '1';
+        host.replaceChild(node, there);
+        out.redrawn += 1;
+      } else {
+        out.added += 1;
+        if (!out.first) out.first = node;
+      }
+      out.nodes.push(node);
+    }
+    // The glass becomes the list: what the answer does not carry goes, and each node takes its
+    // place in the Mac's order. A node already in its place is not touched.
+    const keep = new Set(out.nodes);
+    for (const node of Array.prototype.slice.call(host.children || [])) {
+      if (!keep.has(node)) { host.removeChild(node); out.removed += 1; }
+    }
+    out.nodes.forEach((node, index) => {
+      const at = host.children[index] || null;
+      if (at !== node) host.insertBefore(node, at);
+    });
+    return out;
+  }
+
+  // Whether the first patches of a NEW turn replace the screen that is up (§7's glass, round
+  // 12). The last answer's screen stays until the new turn has something of its own to show:
+  // a new record, a new list, a skeleton for something the screen does not already show.
+  // Patches that only address cards already up — the same order read again, a skeleton for
+  // the kind of card already there — change nothing yet ('hold'): the turn's own answer
+  // settles those cards, and an order he is working on does not blink into a skeleton and
+  // back while CLIVE thinks. Nor does a card for a change (`CHANGE_TYPES`): the card to tap
+  // is ABOUT a screen, and it can reach the glass as a patch a moment before the answer that
+  // says where it goes — on top of the record it changes, or as a screen of its own when it
+  // changes something else. The context stack rides with it and is never a card at all.
+  const CHANGE_TYPES = new Set(['confirmation', 'batch_action', 'success', 'batch_result', 'error', 'email_draft', 'variant_picker']);
+  function landingOf(host, patches) {
+    const shownTypes = new Set();
+    const shownIds = new Set();
+    for (const node of Array.prototype.slice.call((host && host.children) || [])) {
+      const id = renderIdOf(node);
+      if (id) shownIds.add(id);
+      if (node.dataset && node.dataset.type && !node.dataset.shell) shownTypes.add(node.dataset.type);
+    }
+    for (const patch of patches || []) {
+      if (!patch || typeof patch !== 'object' || text(patch.op) === 'remove') continue;
+      const id = text(patch.id);
+      if (!id) continue;
+      const type = text(patch.type) || id.split(':')[0];
+      if (CHANGE_TYPES.has(type) || type === 'context_stack') continue;
+      if (id.endsWith(`:${SHELL_SUFFIX}`)) {
+        if (!shownTypes.has(text(patch.type) || id.split(':')[0])) return 'replace';
+        continue;
+      }
+      if (!shownIds.has(id)) return 'replace';
+    }
+    return 'hold';
+  }
+
+  // What the glass does with a turn's answer — as the Mac says, never guessed (round 12, the
+  // second pass). Every /turn answer carries `screen` (app/screen.py `state_of`):
+  //   'carry'  the Mac kept the screen and sent its cards, marked: drawn onto it (continueScreen);
+  //   'keep'   the Mac kept the screen and sent no card of it: the glass stays as it is;
+  //   'clear'  the Mac cleared it — words about another order (round 9's D2-05), "close that" —
+  //            or there is nothing to show: the orb;
+  //   'draw'   a screen of its own.
+  // An answer from a Mac that does not say is drawn as answers always were: its cards, or the orb.
+  function answerLanding(items, screen, glassUp) {
+    const cards = (Array.isArray(items) ? items : []).filter((i) => i && typeof i === 'object' && i.type !== 'context_stack');
+    if (screen === 'cleared') return 'clear';
+    if (screen === 'kept') {
+      if (cards.some((i) => i.kept === true || i.refreshed === true)) return 'carry';
+      if (glassUp) return 'keep';
+    }
+    return cards.length ? 'draw' : 'clear';
+  }
+
+  // Whether a control is on the card of the half's cursor (round 12, C3). A listening chip —
+  // Add a note, Reply — binds the CURSOR, never the card it is drawn on (web/app.js
+  // `primeAction`), so on any other card it must not listen. The Mac takes the family off such
+  // a chip and has the card redrawn (app/screen.py `listening_on_cursor`); this is the glass's
+  // own check, for a node it kept from before the cursor moved. A control that is not on a
+  // record's card has nothing to disagree with; a record's card with no cursor is not his.
+  function onCursor(node, entity) {
+    let card = node;
+    while (card && !(card.dataset && card.dataset.render)) card = card.parentNode;
+    if (!card || !text(card.dataset.ref)) return true;
+    const here = entity && typeof entity === 'object' ? entity : null;
+    if (!here || !text(here.ref)) return false;
+    return sameRecord(text(card.dataset.ref), text(here.ref));
+  }
+
+  // One record, whether its id came with a query or not ("gid://shopify/Order/1938").
+  function sameRecord(a, b) {
+    if (a === b) return true;
+    const gid = /^gid:\/\/[^/]+\/([^/]+)\/([^/?#]+)/;
+    const x = gid.exec(a);
+    const y = gid.exec(b);
+    return Boolean(x && y && x[1] === y[1] && x[2] === y[2]);
+  }
+
   function render(items, opts) {
     const out = { nodes: [], skipped: [], stack: null, errors: [], hasContext: false };
     const moved = [];
@@ -3496,6 +3740,9 @@
     // The progressive workspace's seams: a patch applied to a card already drawn, and the
     // identity a patch addresses it by (web/app.js, tests/web/progressive.test.js).
     applyPatches, surfaceId, KEY_OF,
+    // What stays on the glass (round 12): an answer that continues the screen, and whether a
+    // new turn's first patches replace it (web/app.js, tests/web/keep.test.js).
+    continueScreen, landingOf, renderIdOf, onCursor, answerLanding,
     // The email workspace's own seams: a proven archive applied to the deck on screen, and
     // the unsaved-typing store a redraw must not delete (web/app.js, tests/web/email.test.js).
     settleThread, clearFieldDrafts, ageFieldDrafts, fieldDraft, FIELD_DRAFT_TTL_MS,

@@ -155,7 +155,10 @@
   async function refresh() {
     let needsYou = 0;
     try {
-      const data = await api('/objectives');
+      // With this page's conversation, so each objective listed is one it has been shown: held, it
+      // can be put on a screen (web/lift.js, app/displays/put.py).
+      const conversation = window.CliveAlpha && window.CliveAlpha.sessionId ? window.CliveAlpha.sessionId() : '';
+      const data = await api(conversation ? `/objectives?session_id=${encodeURIComponent(conversation)}` : '/objectives');
       objectives = data.objectives || [];
       needsYou = data.needs_you || 0;
       renderHome(needsYou);
@@ -220,7 +223,8 @@
       const last = rows[rows.length - 1];
       return !last || (last.progress !== 'blocked' && last.progress !== 'needs the owner');
     };
-    const needs = objectives.filter((o) => !beingBuilt(o) && (o.attention === 'needs_you' || o.attention === 'blocked'));
+    // A check-in the owner asked for that has lapsed needs him as much as a question does.
+    const needs = objectives.filter((o) => !beingBuilt(o) && (o.attention === 'needs_you' || o.attention === 'blocked' || o.attention === 'check_in'));
     const moving = objectives.filter((o) => needs.indexOf(o) < 0 && o.attention !== 'dropped');
     const summary = needs.length
       ? `${needs.length === 1 ? 'One thing needs' : `${needs.length} things need`} you.${moving.length ? ' The rest is in motion.' : ''}`
@@ -229,17 +233,24 @@
     const row = (o) => {
       const blocked = o.attention === 'blocked';
       const building = o.kind === 'build' ? buildLine(o) : '';
+      // A project's row says the stage it is at and carries its progression; delegated tasks
+      // say how far each person has got (web/objective-cards.js). A question or a blocker
+      // still comes first.
+      const shaped = window.CliveObjectiveCards ? window.CliveObjectiveCards.row(o) : null;
       const sub = o.attention === 'needs_you' && o.needs_you.length ? o.needs_you[0]
         : building || (o.blocked_by.length ? `Waiting for: ${o.blocked_by[0]}`
-        : o.doing || (o.next.length ? `Next: ${o.next[0]}` : ''));
+        : (shaped && shaped.sub) || o.doing || (o.next.length ? `Next: ${o.next[0]}` : ''));
       const when = whenFor(o);
       const lead = o.kind === 'build' && !(o.attention === 'needs_you' && o.needs_you.length)
         ? h('span', { class: 'alpha-tile is-build' }, icon(ICON.build, 18))
         : needs.indexOf(o) >= 0
-        ? h('span', { class: `alpha-tile${blocked ? ' is-blocked' : ''}` }, icon(blocked ? ICON.wait : ICON.ask, 18))
+        ? h('span', { class: `alpha-tile${blocked ? ' is-blocked' : ''}` }, icon(blocked || o.attention === 'check_in' ? ICON.wait : ICON.ask, 18))
         : h('span', { class: `alpha-state is-${o.attention}` }, o.attention === 'done' ? icon(ICON.tick, 15) : null);
-      return h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'objective', 'data-attention': o.attention, onclick: () => openObjective(o.id) },
-        lead, rowMain(o.title, sub, when), icon(ICON.chev, 16));
+      const main = rowMain(o.title, sub, when);
+      if (shaped && shaped.track) main.append(shaped.track);
+      // `data-objective`: which objective the row is, for holding it and putting it on a screen (web/lift.js).
+      return h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'objective', 'data-attention': o.attention, 'data-kind': o.kind, 'data-objective': o.id, onclick: () => openObjective(o.id) },
+        lead, main, icon(ICON.chev, 16));
     };
 
     home.classList.toggle('is-first', firstRender);
@@ -270,7 +281,7 @@
   }
 
   function labelFor(attention) {
-    return { needs_you: 'Needs you', blocked: 'Blocked', doing: 'Doing', idle: 'Idle', done: 'Done', dropped: 'Dropped' }[attention] || attention;
+    return { needs_you: 'Needs you', blocked: 'Blocked', check_in: 'Check-in due', doing: 'Doing', idle: 'Idle', done: 'Done', dropped: 'Dropped' }[attention] || attention;
   }
 
   // ------------------------------------------------------------------ one gap
@@ -319,8 +330,27 @@
   async function openObjective(id) {
     let o;
     try { o = await api(`/objectives/${encodeURIComponent(id)}`); } catch (err) { flash(String(err.message || err)); return; }
+    drawObjective(o);
+  }
+
+  // The sheet for one objective, from the record the Mac returned. Drawn again, in place and at
+  // the same scroll, when a tick on it comes back, so its header and history agree with it.
+  function drawObjective(o, keepScroll) {
     const open = (list) => list.filter((x) => !x.resolved_at);
-    const blocks = [head(o.title, o.deadline ? `By ${o.deadline} · ${labelFor(o.summary.attention)}` : labelFor(o.summary.attention))];
+    const cards = window.CliveObjectiveCards;
+    const shapedKind = cards && o.card && (o.kind === 'project' || o.kind === 'tasks');
+    // A project or delegated tasks say what they are and where they stand; any other objective
+    // keeps the line it always had.
+    const standing = ['needs_you', 'blocked', 'check_in', 'done', 'dropped'].includes(o.summary.attention) ? labelFor(o.summary.attention) : '';
+    const sub = shapedKind
+      ? [cards.KIND_WORD[o.kind], cards.statusLine(o.card), standing].filter(Boolean).join(' · ')
+      : o.deadline ? `By ${o.deadline} · ${labelFor(o.summary.attention)}` : labelFor(o.summary.attention);
+    // The head and the shape are the objective itself: held, either lifts it to put on a screen
+    // (web/lift.js); the head is focusable for the context-menu key to do the same.
+    const lead = head(o.title, sub);
+    lead.dataset.objective = o.id;
+    lead.setAttribute('tabindex', '0');
+    const blocks = [lead];
 
     const asks = open(o.attention);
     if (asks.length) {
@@ -337,6 +367,13 @@
         }, answer, h('button', { class: 'btn primary', type: 'submit', text: 'Answer', 'data-alpha': 'answer' }))));
       }
     }
+
+    // The objective's shape — a project's stages, the tasks by person — and what the owner said
+    // it is for, drawn from the same payload as the conversation's card. A tick redraws the sheet
+    // and the home. Nothing is drawn for a field nobody filled, so an older objective reads as before.
+    const body = cards && o.card
+      ? cards.shape(o.card, { sheet: true, onChange: (record) => { drawObjective(record, true); refresh(); } }) : null;
+    if (body && body.childNodes.length) blocks.push(h('div', { class: 'alpha-shape', 'data-objective': o.id }, body));
 
     const live = o.items.filter((i) => i.state !== 'verified');
     if (live.length) {
@@ -404,7 +441,11 @@
         await api(`/objectives/${o.id}/status`, { status: 'done' }).catch((err) => flash(String(err.message || err)));
         closeSheet(); refresh();
       } })));
+    const was = sheet.querySelector('.sheet-scroll');
+    const top = keepScroll && was ? was.scrollTop : 0;
     openSheet(...blocks);
+    const now = sheet.querySelector('.sheet-scroll');
+    if (keepScroll && now) now.scrollTop = top;
   }
 
   function openNewObjective() {

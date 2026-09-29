@@ -22,7 +22,7 @@ sentence reaches is what the model calls. Tests are read as syntax trees and nev
 here runs a tool, and nothing here can reach a mutation: the audit is a read of
 registries and of source text, so it is safe against a shop it may not touch.
 
-62 tools — 38 reads, 19 writes, 5 bulk.
+65 tools — 41 reads, 19 writes, 5 bulk.
 
 ## Tools
 
@@ -33,6 +33,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `batch_email_send` | RED | yes | — | yes | — | batch | one proposal per member, through gmail_send_new | each member proven by gmail_send_new | the change's own card | — | — |
 | `batch_order_tags_add` | AMBER | yes | — | yes | — | batch | one proposal per member, through shopify_order_tags_add | each member proven by shopify_order_tags_add | the change's own card | — | — |
 | `batch_order_tags_remove` | AMBER | yes | — | yes | — | batch | one proposal per member, through shopify_order_tags_remove | each member proven by shopify_order_tags_remove | the change's own card | — | — |
+| `close_screen` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `commerce_aggregate` | GREEN | yes | yes | yes | none needed | read | — | — | the read layer's cards | — | read |
 | `commerce_capabilities` | GREEN | yes | yes | — | none needed | read | — | — | — | — | — |
 | `commerce_query` | AMBER | yes | yes | yes | none needed | read | — | — | the read layer's cards | — | read |
@@ -50,10 +51,10 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `gmail_send_reply` | RED | yes | yes | yes | gmail.compose | write | prepared from a fresh read, held as gmail_send_reply, tap_commit | a predicate over the re-read, after settling | the change's own card | gmail | — |
 | `gmail_thread_archive` | AMBER | yes | yes | yes | gmail.modify | write | prepared from a fresh read, held as gmail_thread_archive, tap_commit | the re-read must equal what was expected | the change's own card | gmail | — |
 | `inventory_query` | GREEN | yes | yes | yes | none needed | read | — | — | the read layer's cards | — | read |
-| `objective_list` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
-| `objective_note` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
-| `objective_open` | GREEN | yes | yes | — | none needed | read | — | — | — | — | — |
-| `objective_show` | GREEN | yes | yes | — | none needed | read | — | — | — | — | — |
+| `objective_list` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
+| `objective_note` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
+| `objective_open` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
+| `objective_show` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
 | `screen_list` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `screen_off` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `screen_pair` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
@@ -74,12 +75,13 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_list_orders` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | shopify | read |
 | `shopify_order_add_item` | RED | yes | yes | yes | write_order_edits | write | prepared from a fresh read, held as order_edit_add_line, tap_commit | a predicate over the re-read | the change's own card | shopify | staged, never applied |
 | `shopify_order_address` | AMBER | yes | yes | — | none needed | read | — | — | — | shopify | — |
+| `shopify_order_build` | AMBER | yes | yes | yes | write_draft_orders | read | — | — | a workspace | shopify | read |
 | `shopify_order_cancel` | RED | yes | yes | yes | write_orders | write | prepared from a fresh read, held as order_cancel, tap_commit | a predicate over the re-read, after settling | the change's own card | shopify | — |
 | `shopify_order_create` | RED | yes | yes | yes | write_draft_orders | write | prepared from a fresh read, held as draft_order_complete, tap_commit | a predicate over the re-read | the change's own card | shopify | staged, never applied |
 | `shopify_order_detail` | AMBER | yes | yes | yes | none needed | read | — | — | presentation.py | shopify | read |
 | `shopify_order_fulfil` | RED | yes | yes | yes | write_orders | write | prepared from a fresh read, held as fulfillment_create, tap_commit | a predicate over the re-read | the change's own card | shopify | — |
 | `shopify_order_note_append` | AMBER | yes | yes | yes | write_orders | write | prepared from a fresh read, held as order_note_append, tap_commit | the re-read must equal what was expected | the change's own card | shopify | — |
-| `shopify_order_open` | AMBER | yes | yes | yes | write_draft_orders | read | — | — | a workspace | shopify | — |
+| `shopify_order_open` | AMBER | yes | yes | yes | write_draft_orders | read | — | — | a workspace | shopify | read |
 | `shopify_order_shipping_address_set` | RED | yes | yes | yes | write_orders | write | prepared from a fresh read, held as order_shipping_address_set, tap_commit | a predicate over the re-read | the change's own card | shopify | — |
 | `shopify_order_tags_add` | AMBER | yes | yes | yes | write_orders | write | prepared from a fresh read, held as order_tags_add, tap_commit | the re-read must equal what was expected | the change's own card | shopify | — |
 | `shopify_order_tags_remove` | AMBER | yes | yes | yes | write_orders | write | prepared from a fresh read, held as order_tags_remove, tap_commit | the re-read must equal what was expected | the change's own card | shopify | — |
@@ -89,6 +91,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_store_credit` | AMBER | yes | yes | yes | write_store_credit_account_transactions | read | — | — | a workspace | shopify | read |
 | `shopify_store_credit_add` | RED | yes | yes | yes | write_store_credit_account_transactions | write | prepared from a fresh read, held as store_credit_credit, tap_commit | a predicate over the re-read | the change's own card | shopify | staged, never applied |
 | `shopify_variant_search` | GREEN | yes | yes | yes | write_order_edits | read | — | — | presentation.py | shopify | read |
+| `show_again` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
 | `submit_engineering_request` | RED | yes | yes | yes | — | write | prepared from a fresh read, held as engineering_request_file, tap_commit | a predicate over the re-read | the change's own card | — | — |
 
 ### What cites each tool
@@ -100,6 +103,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `batch_email_send` | the model only | test_tool_boundary.py | — |
 | `batch_order_tags_add` | the model only | test_batch.py, test_council_fixes.py | — |
 | `batch_order_tags_remove` | the model only | test_batch.py | — |
+| `close_screen` | family:put_away | test_r12_surfaces.py | — |
 | `commerce_aggregate` | recipe:landing_sales, recipe:landing_products, family:analytics | test_analytics_tools.py, test_council_fixes.py, test_working_sets.py | landing_products, landing_sales |
 | `commerce_capabilities` | family:capability_reads | — | — |
 | `commerce_query` | recipe:landing_orders, family:analytics | test_analytics_tools.py, test_council_fixes.py, test_n_plus_one.py, test_needs_reply_inbox.py, test_query_engine_p3.py, test_r11_families.py, test_read_budget.py, test_working_sets.py | landing_orders, next_previous |
@@ -118,9 +122,9 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `gmail_thread_archive` | command:a tapped control, family:email_archive | test_gmail_writes.py | — |
 | `inventory_query` | recipe:landing_products, family:product_reads | test_analytics_tools.py | landing_products |
 | `objective_list` | family:objectives | test_displays.py, test_tool_boundary.py | — |
-| `objective_note` | family:objectives | test_objectives.py, test_tool_boundary.py | — |
-| `objective_open` | family:objectives | — | — |
-| `objective_show` | family:objectives | — | — |
+| `objective_note` | family:objectives | test_objective_design.py, test_objectives.py, test_tool_boundary.py | — |
+| `objective_open` | family:objectives | test_objective_design.py | — |
+| `objective_show` | family:objectives | test_objective_design.py | — |
 | `screen_list` | family:screens | test_displays.py, test_r11_screens_server.py, test_screens_r10.py, test_tool_boundary.py | — |
 | `screen_off` | family:screens | test_displays.py, test_screens_r10.py | — |
 | `screen_pair` | family:screens | test_displays.py | — |
@@ -134,19 +138,20 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_discount_create` | command:a tapped control, family:discount_create | test_discounts.py | discount_new_code, discount_sentence_defers |
 | `shopify_discount_open` | family:discount_create | test_discounts.py | discount_sentence_defers |
 | `shopify_find_customer` | recipe:order_customer, family:customer_reads | test_r11_turn.py, test_shopify_tools.py, test_tool_args_redaction.py | — |
-| `shopify_find_order` | family:order_reads | test_context.py, test_experience.py, test_progressive_turn.py, test_r11_turn.py, test_read_dedupe.py, test_shopify_tools.py, test_tap_reads_only.py, test_tool_args_redaction.py, test_tool_boundary.py, test_turn_boundary.py, test_write_walkthrough.py | back, customer_history, enrichment, graph_order_to_email, linked_entities, nav_branch_isolation, nav_home_landing, order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers, order_add_item_stale_picker, order_lookup, recording_is_observability, split_branches, store_credit_give, store_credit_not_on_this_store, tabs, unsupported_edit |
+| `shopify_find_order` | family:order_reads | test_context.py, test_experience.py, test_progressive_turn.py, test_r11_turn.py, test_read_dedupe.py, test_shopify_tools.py, test_tap_reads_only.py, test_tool_args_redaction.py, test_tool_boundary.py, test_turn_boundary.py, test_write_walkthrough.py | back, customer_history, enrichment, graph_order_to_email, linked_entities, nav_branch_isolation, nav_home_landing, order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers, order_add_item_stale_picker, order_by_voice, order_lookup, recording_is_observability, split_branches, store_credit_give, store_credit_not_on_this_store, tabs, unsupported_edit |
 | `shopify_fulfillment_tracking_set` | family:order_fulfil | test_tracking.py | — |
 | `shopify_inventory` | family:product_reads | test_n_plus_one.py, test_shopify_tools.py, test_tool_args_redaction.py | — |
 | `shopify_inventory_adjust` | family:inventory_set | test_inventory.py | — |
 | `shopify_list_orders` | family:order_reads | test_shopify_tools.py | today_orders |
 | `shopify_order_add_item` | command:a tapped control, family:order_edit | test_order_edit.py | order_add_item_picker, order_add_item_sentence_defers |
 | `shopify_order_address` | family:order_reads | — | — |
+| `shopify_order_build` | family:order_create | test_r12_orders.py | order_by_voice |
 | `shopify_order_cancel` | family:order_cancel | test_cancel.py, test_tap_reads_only.py, test_tool_boundary.py, test_turn_boundary.py | — |
-| `shopify_order_create` | command:a tapped control, family:order_create | test_order_create.py | order_new |
+| `shopify_order_create` | command:a tapped control, family:order_create | test_order_create.py | order_by_voice, order_new |
 | `shopify_order_detail` | command:cursor:orders, family:order_reads | test_capability_gaps.py, test_context.py, test_gate.py, test_progressive_turn.py, test_shopify_tools.py, test_tool_boundary.py, test_turn_authority_path.py, test_turn_boundary.py | back, customer_history, enrichment, graph_order_to_email, linked_entities, nav_branch_isolation, nav_home_landing, order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers, order_add_item_stale_picker, order_lookup, recording_is_observability, split_branches, store_credit_give, store_credit_not_on_this_store, tabs, unsupported_edit |
 | `shopify_order_fulfil` | family:order_fulfil | test_fulfil.py | — |
-| `shopify_order_note_append` | family:order_notes | test_actions.py, test_engine_hooks.py, test_r11_no_authority.py, test_r11_turn.py, test_turn_boundary.py | — |
-| `shopify_order_open` | family:order_create | test_order_create.py | — |
+| `shopify_order_note_append` | family:order_notes | test_actions.py, test_engine_hooks.py, test_r11_no_authority.py, test_r11_turn.py, test_r12_surfaces.py, test_turn_boundary.py | — |
+| `shopify_order_open` | family:order_create | test_order_create.py | order_by_voice |
 | `shopify_order_shipping_address_set` | command:a tapped control, family:order_address | test_address.py | — |
 | `shopify_order_tags_add` | family:order_notes | test_tags.py | — |
 | `shopify_order_tags_remove` | family:order_notes | test_tags_remove.py | — |
@@ -156,29 +161,30 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_store_credit` | family:store_credit | test_r11_turn.py, test_store_credit.py | store_credit_give, store_credit_not_on_this_store |
 | `shopify_store_credit_add` | command:a tapped control, family:store_credit | test_r11_turn.py, test_store_credit.py | store_credit_give |
 | `shopify_variant_search` | recipe:order_line, recipe:order_add_item, family:order_edit | test_order_edit.py | order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers |
+| `show_again` | family:recall | test_r12_surfaces.py | — |
 | `submit_engineering_request` | family:engineering | test_build_from_clive.py, test_capability_gaps.py, test_engineering_bridge.py, test_r11_engineering_off.py | — |
 
 ## What this matrix cannot vouch for
 
-**no test calls it (4)**
+**no test calls it (2)**
 
-`commerce_capabilities`, `objective_open`, `objective_show`, `shopify_order_address`
+`commerce_capabilities`, `shopify_order_address`
 
-**no golden scenario reaches it (41)**
+**no golden scenario reaches it (42)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_draft_reply`, `gmail_find_in_email`, `gmail_read_thread`, `gmail_send_reply`, `gmail_thread_archive`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `shopify_find_customer`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_note_append`, `shopify_order_open`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `submit_engineering_request`
+`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_draft_reply`, `gmail_find_in_email`, `gmail_read_thread`, `gmail_send_reply`, `gmail_thread_archive`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `shopify_find_customer`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_note_append`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `show_again`, `submit_engineering_request`
 
 **nothing but the model reaches it (5)**
 
 `batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`
 
-**no card is drawn from it (14)**
+**no card is drawn from it (11)**
 
-`commerce_capabilities`, `engineering_status`, `gmail_find_in_email`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_off`, `screen_pair`, `screen_show`, `screen_video`, `shopify_discount_check`, `shopify_order_address`
+`close_screen`, `commerce_capabilities`, `engineering_status`, `gmail_find_in_email`, `screen_list`, `screen_off`, `screen_pair`, `screen_show`, `screen_video`, `shopify_discount_check`, `shopify_order_address`
 
-**no named error card (24)**
+**no named error card (26)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `commerce_aggregate`, `commerce_capabilities`, `commerce_query`, `commerce_summary`, `email_query`, `engineering_status`, `inventory_query`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `submit_engineering_request`
+`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_aggregate`, `commerce_capabilities`, `commerce_query`, `commerce_summary`, `email_query`, `engineering_status`, `inventory_query`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `show_again`, `submit_engineering_request`
 
 ## The rules the audit itself keeps
 

@@ -188,7 +188,11 @@ const MATRIX = [
     owner: 'workstream D — progressive hydration (§6)',
     unreachable: '`present(pending=…)` has no live caller, so no section is ever drawn as loading: `progressive.observe()` passes no session on purpose and `_compose_workspace` returns without one, and the final `present()` of a turn runs after every read has landed. There is no promised-but-unread card on the glass to photograph. Diagnosed in docs/phase5/PHASE_5_PRODUCT_EXPERIENCE_REPORT.md §8; the fix is a composition that runs while reads are in flight, which is work rather than a line',
     reach: (p, k) => k.settleLast(),
-    need: { noShell: true, minCards: 1 },
+    /* `drewOwn`, round 12: an answer that draws nothing now keeps the screen it was asked over
+       (app/screen.py), so "what's happened today?" answered in words leaves the last shot's
+       cards up, marked `kept`. Those are not a progressive workspace that completed, and
+       without this the exemption read as stale on a screen this turn never drew. */
+    need: { noShell: true, minCards: 1, drewOwn: true },
   },
   { id: '20', name: 'split-creation', reach: async (p, k) => { await k.dock('orders'); await k.split(); }, need: { branches: 2 } },
   {
@@ -422,6 +426,13 @@ async function judge(page, need, vp) {
       };
     })(),
     height: window.innerHeight,
+    // How many cards the last turn the walk asked (`askAndCatch`) drew of its own — not the
+    // ones it carried over from the screen it was asked over (`kept`, app/screen.py).
+    drewOwn: (() => {
+      const d = window.__shotLast;
+      if (!d || !Array.isArray(d.ui)) return 0;
+      return d.ui.filter((i) => i && i.type !== 'context_stack' && i.kept !== true).length;
+    })(),
   }));
 
   const no = (why) => ({ ok: false, why });
@@ -462,6 +473,7 @@ async function judge(page, need, vp) {
   if (need.shell && !g.shells) return no('nothing on the glass is a promised-but-unread card, so there is no progressive stage to photograph');
   if (need.noShell && g.shells) return no(`${g.shells} card(s) are still unread`);
   if (need.minCards && g.types.length < need.minCards) return no(`${g.types.length} cards`);
+  if (need.drewOwn && !g.drewOwn) return no('the turn drew nothing of its own: the cards on the glass are the screen it kept');
   if (need.note === 'workspace' && !g.notes.workspace) return no('no workspace message is on the glass');
   if (need.note === 'global' && !g.notes.global) return no('no global message is on the glass');
   if (need.shortViewport && g.height > vp.height * 0.7) return no(`the viewport is ${g.height}px, so the keyboard is not open`);

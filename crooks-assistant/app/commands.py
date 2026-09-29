@@ -321,6 +321,13 @@ def move_nav(branch: Any, direction: str) -> dict[str, Any]:
 
 def _navigate(ctx: Ctx, direction: str, *, nowhere: str, words) -> Outcome:
     moved = move_nav(ctx.branch, direction)
+    if direction == "back" and moved.get("landed"):
+        # Back off something being built puts it away, as "close that" does: it stays held,
+        # and it is not what the next sentence changes (app/families/_workspace.py `put_away`).
+        # The screen it was on is still the one the Mac last drew: the route draws the new one.
+        from app.families import _workspace as workspaces
+
+        workspaces.put_away(ctx.branch)
     if not moved.get("landed"):
         # Nowhere to go, and the branch has not moved. Said rather than refused: the owner
         # tapped something that does not apply, which is not a fault.
@@ -364,6 +371,10 @@ def _home(ctx: Ctx) -> Outcome:
     area, recipe = home_target(ctx.branch)
     if not recipe:
         return Outcome.refused("no_landing", "I have no landing to go back to.")
+    # Home off something being built puts it away, as "close that" does.
+    from app.families import _workspace as workspaces
+
+    workspaces.put_away(ctx.branch)
     return Outcome(answer="", changed={"recipe": recipe, "area": area, "home": True})
 
 

@@ -263,19 +263,80 @@ ACTIONS: tuple[ws.Action, ...] = (
     ws.Action(id="prepare", label="Prepare the credit", command="credit.stage", risk="red"),
     ws.Action(id="discard", label="Discard", command="credit.discard"),
 )
+# What the card says when a hold card prepared from it was withdrawn because it changed.
+CHANGED = "The credit changed — prepare it again."
 
 
-def workspace_surface(workspace: dict[str, Any]):
+def _makes(workspace: dict[str, Any]) -> dict[str, Any]:
+    """What this card would give (app/families/_workspace.py `makes`): whose account, how much,
+    in what currency. The reason is on the card for the record and is not sent."""
+    return {"customer": _customer(workspace).get("customer_id"),
+            "amount": ws.value(workspace, "amount") if ws.status(workspace, "amount") == "ok" else None,
+            "currency": ws.value(workspace, "currency", "GBP").upper()}
+
+
+ws.makes(KIND, _makes)
+
+
+def given(workspace: dict[str, Any] | None) -> str:
+    """Why nothing more may be done to this card — the credit is given, or it left and was not
+    proven — or "" while it is still his to decide (app/families/_workspace.py "made once")."""
+    made = ws.finished(workspace)
+    if made is None:
+        return ""
+    person = _customer(workspace or {})
+    currency = ws.value(workspace, "currency", "GBP")
+    amount = display(_amount(workspace), currency)
+    if made.get("state") == ws.DONE:
+        return (f"This credit is given — {amount} is on {person.get('name') or 'their'} account; "
+                "open a new credit to give more.")
+    return (f"This credit of {amount} was sent to Shopify and it has not said whether it was given; "
+            "check the customer's account before giving it again.")
+
+
+def _given_surface(workspace: dict[str, Any], made: dict[str, str]):
+    """The card once its credit has gone: what was given and what they have now, and nothing to
+    type, tap or prepare. The same card in the same place."""
     person = _customer(workspace)
     currency = ws.value(workspace, "currency", "GBP")
     amount = _amount(workspace)
+    done = made.get("state") == ws.DONE
+    facts = [{"label": "Customer", "value": f"{person.get('name') or ''} · {person.get('email') or 'no address'}"},
+             {"label": "Given" if done else "Sent", "value": display(amount, currency), "tone": "ok" if done else "warn"}]
+    if done and made.get("balance"):
+        facts.append({"label": "Has now", "value": str(made["balance"])})
+    if ws.value(workspace, "reason"):
+        facts.append({"label": "Why", "value": ws.value(workspace, "reason")})
+    return ws.surface(
+        workspace, fields=(),
+        kicker="Store credit · given" if done else "Store credit · sent, not confirmed",
+        title=person.get("name") or "Store credit",
+        subtitle=f"{display(amount, currency)} onto their account",
+        facts=facts, actions=(),
+        notes=["More credit is a new credit: open one for them again."] if done
+        else ["Check the customer's account before giving it again."],
+        settled="created" if done else "unconfirmed", settled_word="Given" if done else "Not confirmed",
+        spoken=f"{display(amount, currency)} is on their account." if done else "Sent to Shopify, not confirmed.",
+    )
+
+
+def workspace_surface(workspace: dict[str, Any]):
+    made = ws.finished(workspace)
+    if made is not None:
+        return _given_surface(workspace, made)
+    person = _customer(workspace)
+    currency = ws.value(workspace, "currency", "GBP")
+    amount = _amount(workspace)
+    notes = _notes(workspace)
+    if ws.failed(workspace):
+        notes = [f"The credit was not given: {ws.failed(workspace)}. Nothing was credited; prepare it again.", *notes]
     return ws.surface(
         workspace, fields=FIELDS,
         kicker="Store credit · not given",
         title=person.get("name") or "Store credit",
         subtitle=(f"{display(amount, currency)} onto their account" if amount is not None
                   else "nothing decided yet"),
-        facts=_facts(workspace), notes=_notes(workspace), actions=ACTIONS,
+        facts=_facts(workspace), notes=notes, actions=ACTIONS,
         field_command="credit.field", blocked=_blocked(workspace),
         spoken="Nothing is credited until you authorise the card that follows.",
     )
@@ -389,14 +450,18 @@ async def _observe(execution: dict) -> Observed:
 async def _execute(execution: dict) -> dict:
     """The one mutation. `id` is the customer — Shopify's own `storeCreditAccountCredit`
     accepts the account or its owner — and the amount is the one stored at staging time."""
-    payload = await _c().mutate("store_credit_credit", {
+    # Noted as sending before it leaves, and as failed when Shopify refused it or it never left
+    # (app/families/_workspace.py `sending`): money, of all things, is never sent twice.
+    payload = await ws.sending(str(execution.get("workspace_id") or ""), _c().mutate("store_credit_credit", {
         "id": str(execution["customer_id"]),
         "creditInput": dict(execution["input"]),
-    })
+    }))
     body = ((payload.get("data") or {}).get("storeCreditAccountCredit") or {}).get("storeCreditAccountTransaction") or {}
     account = body.get("account") or {}
     if not account.get("id"):
         raise ShopifyError("Shopify did not confirm the credit.")
+    # Shopify has said the credit went on the account: it is given, proven or not.
+    ws.note(str(execution.get("workspace_id") or ""), ws.DONE)
     return {"account_id": str(account["id"])}
 
 
@@ -506,6 +571,8 @@ async def shopify_store_credit_add(workspace_id: str) -> Prepared:
     workspace = ws.held(branch, KIND, str(workspace_id))
     if workspace is None:
         raise ToolError("There is no store credit open on this half to give.")
+    if given(workspace):
+        raise ToolError(given(workspace))
     person = _customer(workspace)
     # Read again at the moment of preparing: the balance on the card is the balance the
     # engine will hold the change to, and it must be one read seconds ago rather than one
@@ -528,6 +595,7 @@ async def shopify_store_credit_add(workspace_id: str) -> Prepared:
         if len(state["accounts"]) > 1 else ""
     )
     read_back = f"credit {person.get('name') or 'them'} with {display(amount, currency)} of store credit"
+    ws.prepared(workspace)
     return Prepared(
         execution={
             "workspace_id": str(workspace["workspace_id"]),
@@ -568,18 +636,27 @@ def _field(ctx: CommandCtx) -> Outcome:
     workspace = ws.held(ctx.branch, KIND, ctx.arg("workspace_id") or ctx.arg("compose_id"))
     if workspace is None:
         return _no_workspace()
+    if given(workspace):
+        return Outcome.refused("already_given", given(workspace))
+    before = ws.card_state(workspace)
     ok, why = ws.type_into(workspace, FIELDS, ctx.arg("field"), str(ctx.args.get("value") or ""))
     if not ok:
         return Outcome.refused("unknown_field", why)
+    # Withdrawn only when the credit it would give changes: the same amount again, or the
+    # reason (which is on the card for the record and is not sent), leaves the hold card.
+    gone = ws.touched(ctx.session, workspace, CHANGED, before=before)
     return Outcome(answer="", surfaces=[workspace_surface(workspace)],
                    changed={"workspace_id": str(workspace["workspace_id"]), "field": ctx.arg("field"),
-                            "status": ws.status(workspace, ctx.arg("field"))})
+                            "status": ws.status(workspace, ctx.arg("field")),
+                            **({"withdrawn": gone, "withdrawn_words": CHANGED} if gone else {})})
 
 
 def _stage(ctx: CommandCtx) -> Outcome:
     workspace = ws.held(ctx.branch, KIND, ctx.arg("workspace_id"))
     if workspace is None:
         return _no_workspace()
+    if given(workspace):
+        return Outcome.refused("already_given", given(workspace))
     blocked = _blocked(workspace)
     if blocked:
         return Outcome.refused("not_ready", blocked)
@@ -599,9 +676,16 @@ def _discard(ctx: CommandCtx) -> Outcome:
     workspace = ws.held(ctx.branch, KIND, ctx.arg("workspace_id"))
     if workspace is None:
         return _no_workspace()
+    made = ws.finished(workspace)
+    gone = ws.withdraw(ctx.session, workspace, "The credit was discarded.")
     ws.discard(ctx.branch)
+    if made is not None:
+        return Outcome(answer="The card is put away; the credit it gave stays given." if made.get("state") == ws.DONE
+                       else "The card is put away. Check the customer's account for the credit it was sending.",
+                       changed={"workspace": None, "discarded": str(workspace["workspace_id"])})
     return Outcome(answer="Gone. Nothing was credited.",
-                   changed={"workspace": None, "discarded": str(workspace["workspace_id"])})
+                   changed={"workspace": None, "discarded": str(workspace["workspace_id"]),
+                            **({"withdrawn": gone, "withdrawn_words": "The credit was discarded."} if gone else {})})
 
 
 # Touch only. There is no `credit.open`: opening this workspace needs a READ of the balance,

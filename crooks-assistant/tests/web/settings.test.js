@@ -551,3 +551,22 @@ test('when shown, the three are wired to the same commands as before', () => {
   assert.ok(SOURCE.includes("const goPrevious = () => stepSet('workflow.previous', 'previous');"));
   assert.ok(cut('async function goBack()', '\n}\n').includes("semanticCommand('navigation.back')"));
 });
+
+// Round 12 (the owner, 29 September: "text ... hidden behind an invisible barrier looks cheap"):
+// the "Speech offline" pill floats over the top right of the answer line, and the line used to
+// run under it. While it shows, the line keeps its width clear; hidden, the room is given back.
+test('while the pill shows, the answer line keeps clear of it, and gets the room back when it goes', () => {
+  const page = boot();
+  const root = shim.document.createElement('html');
+  page.sandbox.document.documentElement = root;
+  page.el.conn.getBoundingClientRect = () => ({ width: 132.4 });
+  page.sandbox.setConn('degraded', 'x', { speech: { ok: false } });
+  assert.equal(page.el.conn.hidden, false);
+  assert.equal(root.style.getPropertyValue('--conn-room'), '141px', 'its width, rounded up, and a gap');
+  page.sandbox.setConn('ok', 'Connected', { speech: { ok: true } });
+  assert.equal(page.el.conn.hidden, true);
+  assert.equal(root.style.getPropertyValue('--conn-room'), '0px');
+  const css = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'alpha.css'), 'utf8');
+  assert.ok(css.includes('body.alpha[data-mode="context"] .orb-zone{padding-right:calc(64px + var(--conn-room, 0px))}'),
+    'the line in context mode leaves the settings button and the pill their room');
+});

@@ -51,9 +51,13 @@ CUSTOMER = (
 )
 
 register(ToolDescriptors(
-    tool="shopify_find_order", label="Orders found", records="orders", record_id="order_id", fields=ORDER,
-    arguments=("query", "limit"),
-    facts=(F("orders", COUNT, "Orders found"), F("ambiguous", STATUS, "More than one customer matched")),
+    # Found by a number or a person, or by what the owner remembered — a name, an email, part
+    # of the address, an item (round 12). An order found by evidence says where it went as the
+    # town and the postcode's first half, which is still a person's address.
+    tool="shopify_find_order", label="Orders found", records="orders", record_id="order_id",
+    fields=ORDER + (F("ships_to", TEXT, "Ships to", pii=True),),
+    arguments=("query", "limit", "name", "email", "address", "item"),
+    facts=(F("orders", COUNT, "Orders found"), F("ambiguous", STATUS, "More than one matched")),
 ))
 
 register(ToolDescriptors(

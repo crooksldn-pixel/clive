@@ -130,12 +130,14 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     from app.tools import (  # noqa: F401
         analytics_tools,
         batch_tools,
+        close_screen,
         display_tools,
         engineering_tools,
         gmail_tools,
         gmail_writes,
         shopify_tools,
         shopify_writes,
+        show_again,
     )
 
     # The engineering bridge and the screens are imported here for the same reason as the
@@ -320,7 +322,50 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # or none, which pane, a level and seconds, each bounded). The rules for when to use each are
     # one paragraph of the system prompt. What it
     # buys is "play the Heat trailer on the TV" and "turn it up" doing exactly that.
-    assert total <= 38_425, f"the tool block is {total} bytes"
+    #
+    # 40_443 is round 12's orders (app/families/order_create.py, app/tools/shopify_tools.py,
+    # tests/test_r12_orders.py), +2,018 bytes measured (38,420 before, 40,438 after):
+    #
+    #   shopify_order_build   1,583   new. Every spoken change to an order being built — an
+    #                                 item by words, SKU or variant, a custom item (title and
+    #                                 price), a line's quantity or discount, a discount on the
+    #                                 order, postage, note, customer, where it goes, paid. The
+    #                                 owner: "it couldn't add the item, or a custom item … a line
+    #                                 discount or percent discount". Nested properties carry no
+    #                                 bounds or descriptions: the tool checks every value itself
+    #                                 and says which it could not use.
+    #   shopify_find_order    +224    name, email, address and item as evidence, each checked.
+    #   shopify_order_open    +143    customer_id, order_id, variant_id and size_step: a new
+    #                                 order from a found one, "in the next size up".
+    #   shopify_find_customer +68     one sentence pointing "who bought this, sent where" at
+    #                                 shopify_find_order instead of a customer screen first.
+    #
+    # 38_895 is bringing a screen back (app/tools/show_again.py, tests/test_r12_surfaces.py),
+    # +474 bytes measured (38,420 before, 38,894 after): show_again, an id or a kind, both
+    # optional. What it buys is "pull that up again", "show me the order again" and "bring back
+    # the draft" doing exactly that — the owner's round-12 complaint that pulling a screen up
+    # again was not something he could say. When to use it is one line of the system prompt.
+    #
+    # 39_950 is objectives with a shape (round 12, app/objectives/tools.py,
+    # tests/test_objective_design.py), +1,529 bytes measured (38,420 before, 39,949 after):
+    # objective_open +644 (the kind now required and chosen from four, and the design it is opened
+    # with: purpose, done_when, people, a check-in cadence, a project's stages, the stage it is at
+    # and who that stage waits on, delegated tasks with who and when) and objective_note +885 (four
+    # actions that keep the design editable by voice — set, stage, task, drop — with their
+    # arguments, on the existing tool rather than a fifth one on the gate's allow-list). The rules
+    # for choosing a kind are in the system prompt once. What it buys is "samples have started for
+    # the AW drop" opening a project at its sampling stage, and "give Rosa and Kit these for later"
+    # opening their tasks by person, instead of both becoming the same list of proposed items.
+    #
+    # Together, as merged for round 12: 42,441 bytes measured (38,420 + 2,018 + 474 + 1,529 — the
+    # three add exactly, as none of them touched another's tool).
+    #
+    # 42_706 is putting the screen away (round 12's second pass, app/tools/close_screen.py,
+    # tests/test_r12_surfaces.py), +261 bytes measured (42,423 before, 42,684 after): close_screen,
+    # no arguments. What it buys is "close that", "clear the screen" and "put it away" doing it,
+    # now that an answer in words leaves the screen he is working on up. The ceiling is raised by
+    # exactly what was measured.
+    assert total <= 42_706, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

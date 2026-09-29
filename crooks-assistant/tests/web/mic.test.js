@@ -222,8 +222,16 @@ test('web/alpha.js never asks for the microphone, itself or through app.js', () 
   for (const name of [...MIC, 'talk', 'orb-frame', 'mic-test', 'dispatchEvent', '.click(']) {
     assert.ok(!ALPHA.includes(name), `web/alpha.js has ${JSON.stringify(name)}`);
   }
-  assert.deepEqual([...new Set(ALPHA.match(/\bwindow\.\w+/g))], ['window.CliveAlpha']);
-  assert.deepEqual([...new Set(ALPHA.match(/\bCliveAlpha\.\w+/g))].sort(), ['CliveAlpha.ask', 'CliveAlpha.isBusy']);
+  // Its second door, round 12: window.CliveObjectiveCards draws an objective's shape
+  // (web/objective-cards.js), and that file is held to the same rule as this one.
+  assert.deepEqual([...new Set(ALPHA.match(/\bwindow\.\w+/g))].sort(), ['window.CliveAlpha', 'window.CliveObjectiveCards']);
+  const CARDS = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'objective-cards.js'), 'utf8');
+  for (const name of [...MIC, 'talk', 'orb-frame', 'mic-test', 'dispatchEvent', '.click(', 'CliveAlpha']) {
+    assert.ok(!CARDS.includes(name), `web/objective-cards.js has ${JSON.stringify(name)}`);
+  }
+  // Round 12: it also reads which conversation the page is in, to list objectives to it (web/lift.js
+  // puts them on screens). A string, and nothing near the microphone: the loop below holds the door.
+  assert.deepEqual([...new Set(ALPHA.match(/\bCliveAlpha\.\w+/g))].sort(), ['CliveAlpha.ask', 'CliveAlpha.isBusy', 'CliveAlpha.sessionId']);
 
   const door = cut('window.CliveAlpha = {', '\n};');
   assert.match(door, /submit\(\{ text: value, [^\n]*\}, false\)/, 'a typed ask is a text turn');

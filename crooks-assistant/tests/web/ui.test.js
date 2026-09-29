@@ -41,6 +41,8 @@ test('the vocabulary is exactly the presentation layer\'s', () => {
     'summary_list',
     // The owner's app becoming the remote for one of his screens (round 9, web/remote.js).
     'screen_remote',
+    // One of his objectives, in the shape of its kind (round 12, web/objective-cards.js).
+    'objective',
   ]));
 });
 

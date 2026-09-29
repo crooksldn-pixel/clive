@@ -148,6 +148,114 @@ def follow_up_shape(question: str) -> str | None:
     return None
 
 
+# ------------------------------------------------------- "it's on your screen" when it is not
+#
+# The other claim an answer can make that the Mac can hold it to: that something is ON the
+# owner's screen. George, 29 September: "it can say stuff like confirmed order xyz on screen
+# but there is nothing." This is read from the ANSWER — what the model said — and judged against
+# what the turn actually drew (app/routes/turn.py `_hold_to_the_screen`); it never reads, routes
+# or answers the owner's sentence.
+#
+# Narrow on purpose (the round-12 independent check, C2): a claim is a sentence that says,
+# positively, that something is on HIS screen — "on your screen", "on the tablet", "on screen" —
+# or up here. Not "up" on its own ("they're up again this week", "I've put the price up"), not
+# a sentence that says it is not there or cannot be ("I can't show that on the screen"), and
+# never one of his TVs or named screens ("on the office screen", "on the screen in the shop",
+# "up on the office TV"), which `screen_show` keeps honest itself. And only something said to be
+# there NOW, or just put there (the second pass): a question, an offer, the future and a
+# condition are not claims ("Shall I put #1940 on your screen too?", "it will appear on your
+# screen").
+
+# His own screen: said as his, as the one he is looking at, or as the app's own view of a record
+# ("on your tablet screen", "on the order screen", "on the app").
+_VIEWS = r"(?:tablet|app|order|orders|customer|customers|email|inbox)"
+_HIS_SCREEN = rf"(?:your|the|this)\s+(?:{_VIEWS}\s+)?screen|(?:your|the|this)\s+(?:tablet|app(?!\s+store))"
+ON_SCREEN_RE = re.compile(
+    r"\bon[- ]?screen\b"
+    rf"|\bon\s+(?:{_HIS_SCREEN})\b"
+    r"|\b(?:up|showing|shown|open|displayed)\s+(?:right\s+)?here\b"
+    r"|\bin\s+front\s+of\s+you\b"
+    r"|\bpulled\s+(?:(?:it|that|this|them|those)\s+(?:back\s+)?up\b|up\s+(?:the|your|order|orders|#))",
+    re.I,
+)
+# Said before the phrase, in its own clause: the sentence says it is not there, or cannot be.
+_NEGATED = re.compile(
+    r"\b(?:not|no|never|nothing|cannot|unable)\b|n['’]t\b",
+    re.I,
+)
+# Said before the phrase, in its own clause: it is not there NOW — it will be, it could be, he
+# is being offered it (the second pass of the round-12 check: "Shall I put #1940 on your screen
+# too?", "it will appear on your screen").
+_NOT_NOW = re.compile(
+    r"\b(?:will|shall|would|could|can|may|might|should|going\s+to|gonna|let\s+me|want\s+me\s+to|like\s+me\s+to)\b"
+    r"|['’](?:ll|d)\b",
+    re.I,
+)
+# Anywhere before the phrase in the sentence: it is so only on a condition ("If you say show it,
+# it's on your screen", "Once it's read, it goes on your screen").
+_CONDITION = re.compile(r"\b(?:if|once|when|whenever|unless|as\s+soon\s+as)\b", re.I)
+# Where a clause starts: what comes before it is another thing said ("Not shipped yet, but it's
+# on your screen" makes the claim; "Paid, not shipped" does not take it back).
+_CLAUSE = re.compile(r"[,;:—–]|\b(?:but|and|so|though|although)\b", re.I)
+# A television or a screen he has named, in the clause that makes the claim: that screen, not
+# this one. In another clause it is the contrast — "It's on your screen, not the TV" — and the
+# claim stands.
+_ELSEWHERE = re.compile(
+    r"\b(?:tv|tvs|telly|television|projector)\b"
+    rf"|\b(?!(?:your|the|this|on|my|a|an|home|{_VIEWS})\b)[a-z]+\s+screen\b"
+    r"|\bscreen\s+(?:in|at|by|over|on)\s+the\b",
+    re.I,
+)
+# The correction, when nothing is on the screen and the Mac cannot tell what the answer meant.
+NOT_ON_SCREEN = "I haven't put it on screen; say “show it” and I will."
+_SENTENCES = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def _sentences(answer: str) -> list[str]:
+    return [s.strip() for s in _SENTENCES.split(str(answer or "")) if s and s.strip()]
+
+
+def _claims(sentence: str) -> bool:
+    """Whether this one sentence asserts that something is on his screen NOW, or was just put
+    there. A question is not that, nor an offer, the future or a condition."""
+    if sentence.rstrip(" \"'”’)]").endswith("?"):
+        return False
+    for found in ON_SCREEN_RE.finditer(sentence):
+        before, after = sentence[:found.start()], sentence[found.end():]
+        clause_before = _CLAUSE.split(before)[-1]
+        clause_after = _CLAUSE.split(after)[0]
+        if _NEGATED.search(clause_before) or _NOT_NOW.search(clause_before) or _CONDITION.search(before):
+            continue
+        if _ELSEWHERE.search(clause_before + found.group(0) + clause_after):
+            continue
+        return True
+    return False
+
+
+def claiming_sentences(answer: str) -> list[str]:
+    """The sentences of an answer that say something is on his screen, in order."""
+    return [s for s in _sentences(answer) if _claims(s)]
+
+
+def claims_on_screen(answer: str) -> bool:
+    return bool(claiming_sentences(answer))
+
+
+def without_the_claim(answer: str) -> str:
+    """The answer with every sentence that claims something is on the screen taken out, and
+    the correction said instead. What else the answer said stands: "Paid, not shipped. It's on
+    your screen." keeps the first sentence."""
+    kept = [s for s in _sentences(answer) if not _claims(s)]
+    return " ".join([*kept, NOT_ON_SCREEN])
+
+
+def screen_claim(*, drew: str = "", corrected: bool = False, named: list[str] | None = None) -> dict[str, Any]:
+    """The timeline's record of an answer that said something was on the screen when this turn
+    had put nothing there: what the Mac drew to make it true, or that it corrected the answer.
+    Written as `unsupported_claim` with `claim: on_screen`, beside the decline claims."""
+    return {"claim": "on_screen", "drew": drew or None, "corrected": bool(corrected), "named": list(named or []) or None}
+
+
 def registered() -> frozenset[str]:
     """The tools this process holds, for a claim judged at turn time."""
     try:
@@ -158,4 +266,6 @@ def registered() -> frozenset[str]:
         return frozenset()
 
 
-__all__ = ["CANNOT_RE", "CAPABILITIES", "Capability", "bulk_request", "claim", "declined", "follow_up_shape", "match_capabilities", "registered"]
+__all__ = ["CANNOT_RE", "CAPABILITIES", "NOT_ON_SCREEN", "ON_SCREEN_RE", "Capability", "bulk_request", "claim", "claiming_sentences",
+           "claims_on_screen", "declined", "follow_up_shape", "match_capabilities", "registered", "screen_claim",
+           "without_the_claim"]

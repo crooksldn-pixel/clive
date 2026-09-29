@@ -32,7 +32,7 @@ import time
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse
 
-from app import commands
+from app import commands, screen
 from app.observability import timeline
 from app.presentation import compact, present
 from app.reads import budget
@@ -175,6 +175,14 @@ async def _tap(request: Request, runtime, session, branch, name: str, named: dic
     # The same compaction a spoken turn gets: a tap on Inbox draws the queue and the recent
     # threads, and two email lists do not fit an eight-inch screen (brief section 22).
     ui = compact(ui)
+    if name != "branch.show" and any(item.get("type") != "context_stack" for item in ui):
+        # A tap whose only card is a change — Add on the variant picker, Save draft on the
+        # composer — is drawn beside what this half was showing, not instead of it
+        # (app/screen.py). `branch.show` is exempt because its cards ARE that screen.
+        ui = screen.carry(ui, branch=branch, session=session)
+    # A listening control only on the cursor's card, the cursor as this tap left it: a tap that
+    # opened #1940 beside #1938 leaves #1938's Add a note binding #1940 otherwise (C3).
+    ui = screen.listening_on_cursor(ui, getattr(branch, "entity", None))
     if any(item.get("type") != "context_stack" for item in ui):
         # What this half now shows, kept on the Mac: a tap that drew cards is as much this
         # half's workspace as a sentence that did, and `branch.show` redraws it after a

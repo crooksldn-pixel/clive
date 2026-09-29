@@ -317,15 +317,26 @@ class Branch:
     last_answer: str = ""
     last_question: str = ""
     last_at: float = 0.0
+    # What this half has had on the screen before, most recent first: each record, workspace,
+    # list or saved draft it drew, once, as last drawn. Held so that "pull that up again" can
+    # bring back a screen the owner closed or moved on from (app/tools/show_again.py) — the
+    # screen was not something that could be asked for again. Presentation already sent, like
+    # `last_ui`, and bounded; it grants nothing: showing a record again reads it with the id
+    # this conversation was issued, as every read does.
+    shown_before: list[dict[str, Any]] = field(default_factory=list)
 
     def shown(self, ui: list[dict[str, Any]], answer: str, question: str, *, clock=time.time) -> None:
         """The screen this half now has. Cards only (never the context stack, which the
         tablet keeps for itself), at most six, and never an error card standing in for a
         record the branch still holds."""
-        kept = [u for u in (ui or []) if isinstance(u, dict) and u.get("type") not in ("context_stack",)]
+        # Without the flags an answer carries to say which of its cards were already on the glass
+        # (app/screen.py): this is the screen itself, not an instruction about drawing it.
+        kept = [{k: v for k, v in u.items() if k not in ("kept", "refreshed")}
+                for u in (ui or []) if isinstance(u, dict) and u.get("type") not in ("context_stack",)]
         if kept or not self.last_ui:
             self.last_ui = kept[:6]
             self.area = area_of(kept) or self.area
+            self._log_shown(kept[:6], clock())
         self.last_answer = str(answer or "")[:400]
         self.last_question = str(question or "")[:200]
         self.last_at = clock()
@@ -336,6 +347,32 @@ class Branch:
         if entry is not None and entry.is_workspace and kept:
             entry.ui = kept[:MAX_STOP_UI]
             entry.answer = self.last_answer
+
+    def cleared(self, answer: str, question: str, *, clock=time.time) -> None:
+        """This half's screen goes (round 12): an answer that drew nothing and does not carry
+        the screen on — words about another order — or the owner closing it (`close_screen`).
+        What it showed stays on `shown_before`, so "pull that back up" still finds it; the
+        cursor and the trail are untouched."""
+        self.last_ui = []
+        self.last_answer = str(answer or "")[:400]
+        self.last_question = str(question or "")[:200]
+        self.last_at = clock()
+
+    # How many screens a half remembers having shown. A handful: "the order I had up before the
+    # email" is a question about the last few minutes, not about the morning.
+    MAX_SHOWN_BEFORE: ClassVar[int] = 8
+
+    def _log_shown(self, cards: list[dict[str, Any]], at: float) -> None:
+        """Put what this screen showed at the front of `shown_before`, one entry per thing."""
+        from app import screen
+
+        for card in reversed(cards):
+            if not screen.recallable(card):
+                continue
+            identity = screen.identity(card)
+            self.shown_before = [e for e in self.shown_before if e.get("identity") != identity]
+            self.shown_before.insert(0, {"identity": identity, "card": card, "at": at})
+        del self.shown_before[self.MAX_SHOWN_BEFORE:]
 
     # ------------------------------------------------------------------ work
 

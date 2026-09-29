@@ -52,6 +52,22 @@ class ShopifyRefused(ShopifyError):
     refused = True
 
 
+class ShopifyUnreached(ShopifyError):
+    """Shopify could not be reached at all: the connection was never made, so no request left
+    this Mac and nothing can have been applied. Told apart from an answer that never came back,
+    which is a request that DID leave (round 12's second check: a completion that never left
+    must not lock the card it was prepared from as "sent")."""
+
+    unsent = True
+
+
+class ShopifyWithheld(ShopifyError):
+    """A change this Mac refused to send: not a reviewed mutation, or not the reviewed shape.
+    Nothing left, so nothing can have been applied."""
+
+    unsent = True
+
+
 class ShopifyPreconditionFailed(ShopifyError):
     """Shopify refused a change because the entity was not as the sender assumed — a
     compare-and-swap that found another quantity, an order that cannot be cancelled as it
@@ -427,10 +443,18 @@ REVIEWED_MUTATIONS: dict[str, ReviewedMutation] = {
                   subtotalPriceSet { shopMoney { amount currencyCode } }
                   totalShippingPriceSet { shopMoney { amount currencyCode } }
                   totalTaxSet { shopMoney { amount currencyCode } }
+                  appliedDiscount { title value valueType }
                   customer { id displayName }
                   email
+                  shippingAddress { address1 address2 city zip countryCodeV2 }
                   lineItems(first: 20) {
-                    edges { node { id title quantity variantTitle originalUnitPriceSet { shopMoney { amount currencyCode } } } }
+                    edges { node {
+                      id title quantity custom variantTitle
+                      variant { id }
+                      appliedDiscount { title value valueType }
+                      originalUnitPriceSet { shopMoney { amount currencyCode } }
+                      discountedTotalSet { shopMoney { amount currencyCode } }
+                    } }
                   }
                 }
                 userErrors { field message }
@@ -667,6 +691,10 @@ MAX_DISCOUNT_USES = 10_000
 MAX_DISCOUNT_AMOUNT = 1_000.0
 MAX_DRAFT_LINES = 20
 MAX_DRAFT_QUANTITY = 50
+# A custom line's unit price, and a fixed amount off a line or an order. The owner says these
+# out loud, and "twelve pounds" misheard as "twelve hundred" is the mistake this bound is for.
+MAX_CUSTOM_LINE_PRICE = 1_000.0
+MAX_CUSTOM_TITLE_CHARS = 60
 MAX_STORE_CREDIT = 1_000.0
 
 
@@ -725,10 +753,54 @@ def discount_code_input_ok(value: Any) -> bool:
     return 0 < float(amount["amount"]) <= MAX_DISCOUNT_AMOUNT
 
 
+def _applied_discount_ok(off: Any) -> bool:
+    """A DraftOrderAppliedDiscountInput, on a line or on the whole draft: a title, a value, and
+    whether the value is a percentage (at most 100) or a fixed amount of money (bounded)."""
+    if not isinstance(off, dict) or set(off) != {"title", "value", "valueType"}:
+        return False
+    if off["valueType"] not in ("PERCENTAGE", "FIXED_AMOUNT"):
+        return False
+    if isinstance(off["value"], bool) or not isinstance(off["value"], (int, float)) or not 0 < float(off["value"]):
+        return False
+    if off["valueType"] == "PERCENTAGE" and float(off["value"]) > 100:
+        return False
+    if off["valueType"] == "FIXED_AMOUNT" and float(off["value"]) > MAX_CUSTOM_LINE_PRICE:
+        return False
+    return isinstance(off["title"], str) and 1 <= len(off["title"]) <= 60 and "<" not in off["title"]
+
+
+def _draft_line_ok(line: Any) -> bool:
+    """One DraftOrderLineItemInput, of exactly two kinds.
+
+    A CATALOGUE line is a variant id and a quantity, and never a price: Shopify prices it from
+    the catalogue, and a variant line carrying `originalUnitPrice` would be a price of ours
+    overriding the shop's. A CUSTOM line — a print, a repair, a thing the shop does not list —
+    has no catalogue price to read, so it carries the title and the unit price the owner gave,
+    and no variant. Either may carry its own discount.
+    """
+    if not isinstance(line, dict):
+        return False
+    quantity = line.get("quantity")
+    if not isinstance(quantity, int) or isinstance(quantity, bool) or not 1 <= quantity <= MAX_DRAFT_QUANTITY:
+        return False
+    if "appliedDiscount" in line and not _applied_discount_ok(line["appliedDiscount"]):
+        return False
+    keys = set(line) - {"appliedDiscount"}
+    if keys == {"variantId", "quantity"}:
+        return bool(_GID.match(str(line["variantId"])))
+    if keys == {"title", "originalUnitPrice", "quantity"}:
+        title, price = line["title"], line["originalUnitPrice"]
+        if not isinstance(title, str) or not 1 <= len(title) <= MAX_CUSTOM_TITLE_CHARS or "<" in title or any(ord(c) < 32 for c in title):
+            return False
+        return isinstance(price, str) and bool(_DECIMAL.match(price)) and 0 <= float(price) <= MAX_CUSTOM_LINE_PRICE
+    return False
+
+
 def draft_order_input_ok(value: Any) -> bool:
     """The DraftOrderInput shape this project sends: whose order it is, what is on it, where
-    it goes, and what the shop charges for postage. Never a price of ours — every line is a
-    variant id and a quantity, and Shopify prices it.
+    it goes, what the shop charges for postage, and any discount. A catalogue line is a
+    variant id and a quantity and Shopify prices it; a custom line carries the owner's own
+    title and price because the catalogue has none (`_draft_line_ok`).
 
     A draft with no lines is not an order anybody meant, and a draft with no customer is one
     nobody can be told about; both are refused here as well as where the workspace is built.
@@ -744,13 +816,8 @@ def draft_order_input_ok(value: Any) -> bool:
     lines = value["lineItems"]
     if not isinstance(lines, list) or not lines or len(lines) > MAX_DRAFT_LINES:
         return False
-    for line in lines:
-        if not isinstance(line, dict) or set(line) != {"variantId", "quantity"}:
-            return False
-        if not _GID.match(str(line["variantId"])):
-            return False
-        if not isinstance(line["quantity"], int) or isinstance(line["quantity"], bool) or not 1 <= line["quantity"] <= MAX_DRAFT_QUANTITY:
-            return False
+    if not all(_draft_line_ok(line) for line in lines):
+        return False
     if "email" in value and (not isinstance(value["email"], str) or not 3 <= len(value["email"]) <= 254 or "@" not in value["email"]):
         return False
     if "note" in value and (not isinstance(value["note"], str) or len(value["note"]) > 500):
@@ -770,19 +837,7 @@ def draft_order_input_ok(value: Any) -> bool:
             return False
         if not _DECIMAL.match(str(postage["price"])):
             return False
-    off = value.get("appliedDiscount")
-    if off is not None:
-        if not isinstance(off, dict) or set(off) != {"title", "value", "valueType"}:
-            return False
-        if off["valueType"] not in ("PERCENTAGE", "FIXED_AMOUNT"):
-            return False
-        if isinstance(off["value"], bool) or not isinstance(off["value"], (int, float)) or not 0 < float(off["value"]):
-            return False
-        if off["valueType"] == "PERCENTAGE" and float(off["value"]) > 100:
-            return False
-        if not isinstance(off["title"], str) or not 1 <= len(off["title"]) <= 60 or "<" in off["title"]:
-            return False
-    return True
+    return "appliedDiscount" not in value or _applied_discount_ok(value["appliedDiscount"])
 
 
 def store_credit_input_ok(value: Any) -> bool:
@@ -952,21 +1007,21 @@ class ShopifyClient:
         readonly.assert_writable(f"the Shopify mutation {name!r}")
         reviewed = REVIEWED_MUTATIONS.get(name)
         if reviewed is None:
-            raise ShopifyError(f"Refused: {name!r} is not a reviewed mutation.")
+            raise ShopifyWithheld(f"Refused: {name!r} is not a reviewed mutation.")
         if not isinstance(variables, dict) or set(variables) != set(reviewed.variables):
-            raise ShopifyError(f"Refused: {name} variables do not match the reviewed set.")
+            raise ShopifyWithheld(f"Refused: {name} variables do not match the reviewed set.")
         for key, kind in reviewed.variables.items():
             value = variables[key]
             if not isinstance(value, kind) or isinstance(value, bool) and kind is not bool:
-                raise ShopifyError(f"Refused: {name}.{key} has the wrong type.")
+                raise ShopifyWithheld(f"Refused: {name}.{key} has the wrong type.")
             if isinstance(value, str) and (not value.strip() if key == "id" else len(value) > reviewed.max_chars):
-                raise ShopifyError(f"Refused: {name}.{key} is out of bounds.")
+                raise ShopifyWithheld(f"Refused: {name}.{key} is out of bounds.")
             if isinstance(value, list):
                 # A list carries strings only, each bounded, and not too many of them.
                 if not value or len(value) > 20 or any(not isinstance(v, str) or not v.strip() or len(v) > reviewed.max_chars for v in value):
-                    raise ShopifyError(f"Refused: {name}.{key} is out of bounds.")
+                    raise ShopifyWithheld(f"Refused: {name}.{key} is out of bounds.")
             if isinstance(value, dict) and reviewed.validate is not None and not reviewed.validate(key, value):
-                raise ShopifyError(f"Refused: {name}.{key} does not match the reviewed shape.")
+                raise ShopifyWithheld(f"Refused: {name}.{key} does not match the reviewed shape.")
         self.mutations_sent += 1
         log.info("mutation %s sent", name)
         try:
@@ -1030,6 +1085,8 @@ class ShopifyClient:
                 },
                 json={"query": query, "variables": variables or {}},
             )
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+            raise ShopifyUnreached(f"Could not reach Shopify: {exc}") from exc
         except httpx.HTTPError as exc:
             raise ShopifyError(f"Could not reach Shopify: {exc}") from exc
 

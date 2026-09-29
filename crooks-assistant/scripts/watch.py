@@ -434,6 +434,9 @@ class Watch:
             return [f"{head}    claude {_ms(event.get('ms'))}  {steps} step(s), {calls} tool call(s)"]
         if kind == "working_set":
             return [f"{head}    set {event.get('set_id')} {event.get('count')} {event.get('set_kind')}"]
+        if kind == "unsupported_claim" and event.get("claim") == "on_screen":
+            done = f"drew {event.get('drew')}" if event.get("drew") else "corrected the answer"
+            return [f"{head}    {self.tint(f'said it was on screen when nothing was; {done}', 'warn')}"]
         if kind == "unsupported_claim":
             return [f"{head}    {self.tint('said it cannot, though it can', 'warn')}"]
         if kind in ("prediction", "anticipation"):

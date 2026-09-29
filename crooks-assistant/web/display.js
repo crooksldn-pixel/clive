@@ -45,6 +45,14 @@
  * it (NEW-B-LOCAL-SLIP): never by a dissolve that leaves the page up while it plays. And marked
  * packed, the dots that drew the slip let go of it at once: they never form it again on their way
  * to the check, which comes out of the orb (web/dots.js packOut, B2-04).
+ *
+ * Round 12. The owner: "if i ask for something new, it reverts to home screen for a second then
+ * reverts to the new screen." Something new in place of what is up is now one change (swap): the
+ * old page dissolves where it is while the new one's dots come out of the orb in the corner, and
+ * the new page resolves under them — no clock in between, nothing blank, and readable in about a
+ * second where it took seven. A pane that stays across the change (one beside it came or went)
+ * stays up and moves to its new place, its pages and its video playing on. The clock comes back
+ * only when nothing is left to show. None of the old page's dots draws the new one.
  */
 'use strict';
 
@@ -58,6 +66,16 @@
   const OFFLINE_CLEAR_MS = 120000;     // out of reach this long, and what is shown is taken down
   const POLL_TIMEOUT_MS = 15000;       // an ask that hangs is given up, so it counts as out of reach
   const LINE_MS = 6000;
+  // Something new in place of what is up (round 12, swap): how long the old page takes to go the
+  // rest of the way once the new one is coming in (display.css cs-wipe), the longest it is ever
+  // kept, how long a pane that stays takes to reach its new place, and when and for how long the
+  // new page resolves out of blur under its dots (seconds, from when they set off).
+  const LEAVE_MS = 950;
+  const LEAVE_MAX_MS = 2500;
+  const MOVE_MS = 520;
+  const MAKE_WAY_MS = 160;   // a pane that goes, when one that stays is moving over its place
+  const REVEAL_AT_S = 0.45;
+  const REVEAL_S = 0.9;
   const KEY = 'clive.screen';
   const BOOT_KEY = 'clive.screen.startup';
   const $ = (id) => document.getElementById(id);
@@ -70,7 +88,7 @@
   const weak = (navigator.hardwareConcurrency || 8) <= 4 || /[?&]lite\b/.test(location.search);
   const calm = reduced;
   if (calm) board.classList.add('is-calm');
-  if (weak) $('bloom').hidden = true;
+  if (weak) { $('bloom').hidden = true; board.classList.add('is-weak'); }
 
   // ---- what this device is --------------------------------------------------------------
   // A screen is the device holding its key (app/displays/store.py), and since round 10 (B2-01)
@@ -122,7 +140,7 @@
     showing: null,         // the first pane CLIVE says is up
     beside: null,          // the second, beside it (round 9)
     lastDone: null,
-    phase: 'boot',         // boot · naming · idle · forming · revealing · shown · packing · clearing
+    phase: 'boot',         // boot · naming · idle · forming · revealing · shown · swapping · packing · clearing
     busy: true,
     pending: false,
     drawnKey: '',          // the keys of the panes drawn, in order
@@ -138,6 +156,7 @@
     gen: 0,                // bumped when what is shown is wiped; a drawing begun before it is dropped
     lastOk: Date.now(),    // when CLIVE last answered this screen
     skew: 0,               // CLIVE's clock less this device's
+    leaving: null,         // the page on its way out of a change (round 12): its layer, its panes
   };
   // The videos on this screen (YouTube), by the key of the pane each plays in: kept while the
   // page is drawn again around them, so a video never starts over because the other pane changed.
@@ -585,8 +604,7 @@
       clearTimeout(ACK.timer);
       ACK.timer = setTimeout(() => { ACK.timer = 0; ackPane(P); }, Math.max(50, Math.min(10000, Number(ms) || 1000)));
     };
-    if (!S.screen || S.phase !== 'shown' || P.packed || !v || (v.kind !== 'order' && v.kind !== 'list')) return;
-    if (!S.drawnView || S.drawnView.indexOf(P) === -1) return;
+    if (!S.screen || !paneLive(P) || P.packed || !v || (v.kind !== 'order' && v.kind !== 'list')) return;
     if (!PAGE.total || !PAGE.per || typeof P.v !== 'number' || P.v < 0) return;
     if (ACK.version !== P.v || ACK.per !== PAGE.per) {
       // Something new, or its pages laid out again (a resize): told again from the first item.
@@ -631,7 +649,7 @@
     return new Promise((resolve) => {
       const check = () => {
         if (acksHeard(P)) { resolve(true); return; }
-        if (Date.now() >= until || S.phase !== 'shown' || !S.drawnView || S.drawnView.indexOf(P) === -1) { resolve(false); return; }
+        if (Date.now() >= until || !paneLive(P)) { resolve(false); return; }
         ackPane(P);
         setTimeout(check, 200);
       };
@@ -842,7 +860,8 @@
     return frag;
   }
   function renderPane(P) {
-    const box = el('section', 'cs-pane' + (P.view.kind === 'video' ? ' cs-vpane' : ''));
+    // A pane new to a change (round 12, swap) is drawn hidden, for its dots to form it.
+    const box = el('section', 'cs-pane' + (P.view.kind === 'video' ? ' cs-vpane' : '') + (P.forming ? ' is-forming' : ''));
     box.setAttribute('data-pane', String(P.index));
     const v = P.view;
     box.appendChild(P.packed ? renderDone(P) : v.kind === 'order' ? renderOrder(P) : v.kind === 'objective' ? renderObjective(P)
@@ -895,8 +914,9 @@
     return window.CliveDots.textTargets(t, L.name, L.W, L.H, { r: 240, g: 234, b: 255 }, 0.92, FAM);
   }
   // The real page, drawn off screen from its live layout (panels, pills, every letter where the
-  // browser put it) and sampled into dot targets that carry its colours.
-  function sampleUi() {
+  // browser put it) and sampled into dot targets that carry its colours: the whole page, or
+  // (round 12, swap) only the panes new to a change, each looked at as if it were already shown.
+  function sampleUi(roots) {
     const R0 = board.getBoundingClientRect();
     const k = R0.width / L.W || 1;
     const c = offscreen();
@@ -904,9 +924,10 @@
       const r = node.getBoundingClientRect();
       return { x: (r.left - R0.left) / k, y: (r.top - R0.top) / k, w: r.width / k, h: r.height / k };
     };
+    let root = ui;
     const opacityOf = (node) => {
       let op = 1;
-      for (let e = node; e && e !== ui; e = e.parentElement) {
+      for (let e = node; e && e !== root; e = e.parentElement) {
         const v = parseFloat(getComputedStyle(e).opacity);
         if (!isNaN(v)) op *= v;
       }
@@ -931,48 +952,51 @@
       tick: ['rgba(10,132,255,.95)', null],
       tile: ['rgba(120,118,140,.75)', 'rgba(255,255,255,.2)'],
     };
-    const marked = ui.querySelectorAll('[data-dot]');
-    for (let i = 0; i < marked.length; i++) {
-      const node = marked[i];
-      const f = fills[node.getAttribute('data-dot')];
-      const b = box(node);
-      if (!f || !b.w || !b.h) continue;
-      const rad = Math.min(b.h / 2, b.w / 2, parseFloat(getComputedStyle(node).borderTopLeftRadius) || 0);
-      c.globalAlpha = opacityOf(node);
-      shape(b, rad);
-      if (f[0]) { c.fillStyle = f[0]; c.fill(); }
-      if (f[1]) { c.lineWidth = 2; c.strokeStyle = f[1]; c.stroke(); }
-    }
-    const walker = document.createTreeWalker(ui, NodeFilter.SHOW_TEXT);
-    const range = document.createRange();
-    let node = walker.nextNode();
-    while (node) {
-      const text = node.nodeValue || '';
-      const parent = node.parentElement;
-      if (parent && text.trim()) {
-        const cs = getComputedStyle(parent);
-        c.globalAlpha = opacityOf(parent);
-        c.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
-        c.fillStyle = cs.color;
-        c.textBaseline = 'alphabetic';
-        const up = cs.textTransform === 'uppercase';
-        const fs = parseFloat(cs.fontSize) || 16;
-        const m = c.measureText('Hg');
-        const asc = m.fontBoundingBoxAscent || fs * 0.8, dsc = m.fontBoundingBoxDescent || fs * 0.2;
-        const clip = box(parent);
-        for (let i = 0; i < text.length && i < 400; i++) {
-          const ch = text[i];
-          if (ch === ' ' || ch === '\n' || ch === '\t' || ch === ' ') continue;
-          range.setStart(node, i);
-          range.setEnd(node, i + 1);
-          const r = range.getBoundingClientRect();
-          if (!r.width) continue;
-          const x = (r.left - R0.left) / k, y = (r.top - R0.top) / k, h = r.height / k;
-          if (x > clip.x + clip.w + 2 || y > clip.y + clip.h + 2) continue;   // clipped by an ellipsis or a line clamp
-          c.fillText(up ? ch.toUpperCase() : ch, x, y + (h - asc - dsc) / 2 + asc);
-        }
+    for (const within of (roots && roots.length ? roots : [ui])) {
+      root = within;
+      const marked = root.querySelectorAll('[data-dot]');
+      for (let i = 0; i < marked.length; i++) {
+        const node = marked[i];
+        const f = fills[node.getAttribute('data-dot')];
+        const b = box(node);
+        if (!f || !b.w || !b.h) continue;
+        const rad = Math.min(b.h / 2, b.w / 2, parseFloat(getComputedStyle(node).borderTopLeftRadius) || 0);
+        c.globalAlpha = opacityOf(node);
+        shape(b, rad);
+        if (f[0]) { c.fillStyle = f[0]; c.fill(); }
+        if (f[1]) { c.lineWidth = 2; c.strokeStyle = f[1]; c.stroke(); }
       }
-      node = walker.nextNode();
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const range = document.createRange();
+      let node = walker.nextNode();
+      while (node) {
+        const text = node.nodeValue || '';
+        const parent = node.parentElement;
+        if (parent && text.trim()) {
+          const cs = getComputedStyle(parent);
+          c.globalAlpha = opacityOf(parent);
+          c.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+          c.fillStyle = cs.color;
+          c.textBaseline = 'alphabetic';
+          const up = cs.textTransform === 'uppercase';
+          const fs = parseFloat(cs.fontSize) || 16;
+          const m = c.measureText('Hg');
+          const asc = m.fontBoundingBoxAscent || fs * 0.8, dsc = m.fontBoundingBoxDescent || fs * 0.2;
+          const clip = box(parent);
+          for (let i = 0; i < text.length && i < 400; i++) {
+            const ch = text[i];
+            if (ch === ' ' || ch === '\n' || ch === '\t' || ch === ' ') continue;
+            range.setStart(node, i);
+            range.setEnd(node, i + 1);
+            const r = range.getBoundingClientRect();
+            if (!r.width) continue;
+            const x = (r.left - R0.left) / k, y = (r.top - R0.top) / k, h = r.height / k;
+            if (x > clip.x + clip.w + 2 || y > clip.y + clip.h + 2) continue;   // clipped by an ellipsis or a line clamp
+            c.fillText(up ? ch.toUpperCase() : ch, x, y + (h - asc - dsc) / 2 + asc);
+          }
+        }
+        node = walker.nextNode();
+      }
     }
     c.globalAlpha = 1;
     const img = c.getImageData(0, 0, L.W, L.H).data;
@@ -1020,26 +1044,35 @@
   // mid-pack, when an ordinary change would wait for the animation to end. A pane beside it that
   // is still within its time comes back from the next ask, which starts afresh.
   function expireDrawn() {
-    if (!(S.drawnView || []).some((P) => tooOld(P.view))) return false;
-    wipe('');
-    return true;
+    if ((S.drawnView || []).some((P) => tooOld(P.view))) { wipe(''); return true; }
+    // The old page of a change on its way out (round 12, swap): past its time, it goes now, not
+    // when its dissolve ends; what replaced it is within its own time and stays.
+    if (S.leaving && S.leaving.panes.some((P) => tooOld(P.view))) dropLeaving();
+    return false;
   }
   function reconcile() {
     if (expireDrawn()) return;
+    if (E && (S.phase === 'forming' || S.phase === 'revealing')) {
+      // The first thing still coming out of the orb, and something new wanted in its place.
+      const next = wanted();
+      if (next.length && (layoutKey(next) !== S.drawnKey || next.some((w, n) => !stays(S.drawnView[n], w)))) { S.pending = false; overtake(next); return; }
+    }
     if (S.busy || !E) { S.pending = true; return; }
     const want = wanted();
     if (S.phase === 'idle') { if (want.length) push(want); return; }
     if (S.phase === 'shown') {
+      // Nothing left to show: only now does the screen go home to its clock.
       if (!want.length) { clearScreen(); return; }
-      if (layoutKey(want) !== S.drawnKey) { S.pending = true; clearScreen(); return; }
-      // The same things as are drawn: one newly done, or put up afresh at another version (drawn
-      // again), or only the owner's ticks and page turns, which change the page in place.
-      for (let n = 0; n < want.length; n++) {
-        const w = want[n], P = S.drawnView[n];
-        // Looked at again once the check has been drawn, for anything that came with it.
-        if (w.view.done_at && !P.packed) { S.pending = true; markedDone(P, w.view); return; }
-        if (!w.view.done_at && typeof w.view.v === 'number' && w.view.v !== P.v) { S.pending = true; clearScreen(); return; }
+      // A pane still up that CLIVE now says is done: its check first, and anything else that
+      // came with it is looked at again once the check has been drawn.
+      for (const w of want) {
+        const P = (S.drawnView || []).find((x) => x.key === keyOf(w.view));
+        if (P && w.view.done_at && !P.packed) { S.pending = true; markedDone(P, w.view); return; }
       }
+      // Something new, taken off, moved, or put up afresh at another version: one change,
+      // straight from what is up to what is wanted (round 12).
+      if (layoutKey(want) !== S.drawnKey || want.some((w, n) => !stays(S.drawnView[n], w))) { swap(want); return; }
+      // The same things as are drawn: only the owner's ticks and page turns, in place.
       want.forEach((w, n) => follow(S.drawnView[n], w));
     }
   }
@@ -1066,7 +1099,202 @@
       P.page.fill(P.page.index);
     }
   }
+  // ---- something new in place of what is up (round 12) ----------------------------------
+  // The owner asked for one thing on a screen and then for another. It goes straight from the
+  // one to the other: the old page dissolves where it is while the new page's dots come out of
+  // the orb in the corner to its letters and panels, and the new page resolves out of blur under
+  // them — one change, with no clock in between and nothing blank. A pane that stays across the
+  // change (one beside it came or went) stays up: it moves to its new place and size, and keeps
+  // its pages, its acknowledgements and, for a video, its player, playing. The clock comes back
+  // only when nothing is left to show (clearScreen).
+  //
+  // What the old page showed of a customer goes with it, as round 11 has it: the dots let go of
+  // it before anything new is drawn (E.forget), none of them draws the new page from where it was
+  // (web/dots.js swap starts every dot in the orb), and the old page leaves on a layer of its own
+  // that is gone within LEAVE_MS — at once if its time runs out on the way (expireDrawn), and with
+  // everything else if the screen is refused or out of reach (wipe).
+  //
+  // Reduced motion: the new page is there at once and nothing flies. A weak screen: the same
+  // change with fewer dots, and without the blur a large layer costs it (display.css .is-weak).
+
+  // A pane drawn here that is the same as one now wanted: the same thing put up at the same
+  // version, packed or not alike. It stays up across a change.
+  function stays(P, w) {
+    if (!P || !w || P.key !== keyOf(w.view) || P.packed !== !!w.view.done_at) return false;
+    return !!w.view.done_at || typeof w.view.v !== 'number' || w.view.v === P.v;
+  }
+  // A pane the owner can work here: drawn, not still forming, on a screen that is showing things
+  // (not forming its first page, dissolving home or drawing a check).
+  function paneLive(P) {
+    return !!P && !!S.drawnView && S.drawnView.indexOf(P) !== -1 && !P.forming && (S.phase === 'shown' || S.phase === 'swapping');
+  }
+  // Where a node is on the board, in the board's own pixels.
+  function boxOf(node) {
+    if (!node) return null;
+    const R0 = board.getBoundingClientRect(), k = R0.width / L.W || 1, r = node.getBoundingClientRect();
+    return { x: (r.left - R0.left) / k, y: (r.top - R0.top) / k, w: r.width / k, h: r.height / k };
+  }
+  // A pane that stays takes what came with it: its place (the second may now be the first), and
+  // the owner's ticks, page and video commands, as follow does in place.
+  function carry(P, w) {
+    P.index = w.index;
+    if (P.packed) return;
+    P.turned = P.view.kind !== 'video' && pageOf(w.view) !== P.serverPage;
+    if (P.turned) P.serverPage = pageOf(w.view);
+    P.view = w.view;
+  }
+  // ...and once it is drawn in its new place: the page the owner turned to, and his commands to
+  // its video, applied once.
+  function carried(P) {
+    if (P.turned && P.page.fill) P.page.fill(startPage(P));
+    P.turned = false;
+    const Y = P.view.kind === 'video' ? VIDEOS.get(P.key) : null;
+    if (Y && P.view.player) videoApply(Y, P.view.player);
+  }
+  // The old page, moved as it is onto a layer of its own that mirrors the page, beneath the new
+  // one: a pane that goes dissolves there to a veil, and goes the rest of the way as the new page
+  // comes in (leaveNow), so the screen is never blank between them; a pane that stays fades as
+  // its new self arrives in its new place.
+  function leave(was, kept) {
+    dropLeaving();
+    if (calm || !ui.firstChild) return;
+    const layer = el('div', 'cs-ui is-shown cs-leave' + (ui.classList.contains('cs-two') ? ' cs-two' : ''));
+    layer.setAttribute('aria-hidden', 'true');
+    while (ui.firstChild) layer.appendChild(ui.firstChild);
+    // The bar across the top is the new page's at once: the same bar, in the same place.
+    const top = layer.querySelector('.cs-top');
+    if (top) top.style.visibility = 'hidden';
+    const going = was.filter((P) => kept.indexOf(P) === -1);
+    for (const P of was) if (P.node) P.node.classList.add(going.indexOf(P) !== -1 ? 'is-leaving' : 'is-stay');
+    board.insertBefore(layer, ui);
+    S.leaving = { layer, panes: going, timer: setTimeout(dropLeaving, LEAVE_MAX_MS) };
+  }
+  function leaveNow() {
+    const gone = S.leaving;
+    if (!gone) return;
+    gone.layer.classList.add('is-gone');
+    clearTimeout(gone.timer);
+    gone.timer = setTimeout(dropLeaving, LEAVE_MS);
+  }
+  function dropLeaving() {
+    const gone = S.leaving;
+    if (!gone) return;
+    S.leaving = null;
+    clearTimeout(gone.timer);
+    if (gone.layer.parentNode) gone.layer.parentNode.removeChild(gone.layer);
+  }
+  // How a pane that stays moves from where it was to where it is now, or null when it has not
+  // moved: it slides across when there is as much room as before, and grows from its old size
+  // when there is more.
+  function moveOf(P, was) {
+    const now = boxOf(P.node);
+    if (!was || !now || !now.w || !now.h) return null;
+    const dx = (was.x + was.w / 2) - (now.x + now.w / 2), dy = (was.y + was.h / 2) - (now.y + now.h / 2);
+    const k = Math.max(0.4, Math.min(1, was.w / now.w, was.h / now.h));
+    return Math.abs(dx) < 2 && Math.abs(dy) < 2 && k > 0.98 ? null : { dx, dy, k };
+  }
+  // How long a pane that stays and moves holds where it was first: long enough for the panes that
+  // go to get out of its way, when any do.
+  function makingWay() {
+    return S.phase === 'swapping' && S.leaving && S.leaving.panes.length ? MAKE_WAY_MS : 0;
+  }
+  // ...played as a transform the compositor runs, after `delay` ms held where it was.
+  function moveFrom(P, m, delay) {
+    if (!m || typeof P.node.animate !== 'function') return;
+    P.node.animate([
+      { transform: 'translate(' + m.dx.toFixed(1) + 'px,' + m.dy.toFixed(1) + 'px) scale(' + m.k.toFixed(3) + ')', opacity: 0.55 },
+      { transform: 'none', opacity: 1 },
+    ], { duration: MOVE_MS, delay, fill: 'backwards', easing: 'cubic-bezier(.32,.72,0,1)' });
+  }
+  // A pane new to a change, as it resolves ('is-revealing') and once it is up (''): a video's
+  // player comes in with it and plays once it is up.
+  function paneIn(P, state) {
+    if (!P.node) return;
+    P.node.classList.remove('is-forming', 'is-revealing');
+    if (state) P.node.classList.add(state);
+    else P.forming = false;
+    const Y = P.view.kind === 'video' ? VIDEOS.get(P.key) : null;
+    if (Y && !Y.parked) {
+      Y.host.classList.add('is-in');
+      if (!state) videoStart(Y);
+    }
+  }
+  // Each change's own count: what it set going later is dropped once the page has moved on (a
+  // resize finishes a change at once and lays the page out afresh).
+  let swapRun = 0;
+  function swap(list) {
+    const run = ++swapRun;
+    S.busy = true;
+    S.phase = 'swapping';
+    status(false);
+    hint('');
+    const was = S.drawnView || [];
+    const next = list.map((w) => {
+      const P = was.find((x) => stays(x, w));
+      if (P) { carry(P, w); return P; }
+      const fresh = paneOf(w);
+      fresh.forming = !calm;
+      return fresh;
+    });
+    const kept = next.filter((P) => was.indexOf(P) !== -1);
+    const fresh = next.filter((P) => was.indexOf(P) === -1);
+    const from = new Map(kept.map((P) => [P, boxOf(P.node)]));
+    for (const P of was) if (kept.indexOf(P) === -1) ackReset(P);
+    // Round 11 and 12: no dot keeps anything of the page that was up before the new one is drawn.
+    if (E) E.forget();
+    leave(was, kept);
+    S.drawnKey = layoutKey(list);
+    S.drawnView = next;
+    S.what = whatOf(list);
+    draw(next);
+    kept.forEach(carried);
+    const gen = S.gen;
+    const current = () => gen === S.gen && run === swapRun;
+    const once = (fn) => { let done = false; return () => { if (done || !current()) return; done = true; fn(); }; };
+    let flying = null;       // when, by the dots' clock, the new page's dots set off
+    // The new page starts to resolve, and the old one goes the rest of the way...
+    const reveal = once(() => {
+      for (const P of fresh) paneIn(P, 'is-revealing');
+      leaveNow();
+      // A screen too slow to keep the dots' pace: the page comes when it should, and dots that
+      // are still far from it are let go of rather than left to arrive over it afterwards.
+      if (flying === null) flying = -1;
+      else if (E && E.time() - flying < REVEAL_AT_S * 0.6) E.forget();
+    });
+    // ...and the new one is up.
+    const swapped = once(() => {
+      reveal();
+      for (const P of fresh) paneIn(P, '');
+      S.phase = 'shown';
+      ackPage();
+      settle();
+    });
+    if (calm) { swapped(); return; }
+    // A pane that stays and moves passes over where the others were: those that go get out of its
+    // way first, quickly, rather than dissolve under it; then it moves.
+    const moves = kept.map((P) => [P, moveOf(P, from.get(P))]).filter((x) => x[1]);
+    const delay = moves.length ? makingWay() : 0;
+    if (delay) for (const P of S.leaving.panes) if (P.node) P.node.classList.add('is-quick');
+    for (const [P, m] of moves) moveFrom(P, m, delay);
+    if (!fresh.length) { leaveNow(); setTimeout(swapped, MOVE_MS + delay); return; }
+    // By the dots' own clock, as their first land — and never later than the same moments by the
+    // wall's: on a screen too slow to keep the dots' pace (the engine's time runs slower than the
+    // wall's there) the new page still comes when it should, and the dots catch it up.
+    setTimeout(reveal, REVEAL_AT_S * 1000 + 150);
+    setTimeout(swapped, (REVEAL_AT_S + REVEAL_S) * 1000 + 300);
+    afterPaint(() => {
+      if (!E || !current() || flying !== null) return;   // taken down, laid out afresh, or already up: nothing to form
+      const T0 = flying = E.time();
+      E.swap(sampleUi(fresh.map((P) => P.node)), { at: REVEAL_AT_S, d: REVEAL_S });
+      E.at(T0 + REVEAL_AT_S, reveal);
+      E.at(T0 + REVEAL_AT_S + REVEAL_S, swapped);
+    });
+  }
+  // Each push's own count (round 12): what it set going later does nothing once something new has
+  // overtaken it (overtake).
+  let pushRun = 0;
   function push(list) {
+    const run = ++pushRun;
     S.busy = true;
     S.phase = 'forming';
     S.drawnKey = layoutKey(list);
@@ -1077,8 +1305,9 @@
     idleEl.classList.add('is-out');
     hint('');
     const gen = S.gen;
+    const current = () => gen === S.gen && run === pushRun;
     afterPaint(() => {
-      if (!E || gen !== S.gen) return;   // taken down meanwhile (wipe): nothing is drawn from it
+      if (!E || !current()) return;   // taken down (wipe) or overtaken meanwhile: nothing is drawn from it
       const tg = sampleUi();
       const T0 = E.time();
       S.pushT0 = T0;
@@ -1087,16 +1316,36 @@
         E.simulate(T0 + 4.8);
         E.sweepOut(E.time(), 0.01);
         S.phase = 'revealing'; uiState('is-revealing');
-        later(0.6, () => { S.phase = 'shown'; uiState('is-shown'); status(false); ackPage(); settle(); });
+        later(0.6, () => { if (!current()) return; S.phase = 'shown'; uiState('is-shown'); status(false); ackPage(); settle(); });
         return;
       }
       status(true);
       scanEl.classList.remove('is-run');
       void scanEl.offsetWidth;
       scanEl.classList.add('is-run');
-      E.at(T0 + 3.1, () => { E.sweepOut(T0 + 3.1, 1.3); S.phase = 'revealing'; uiState('is-revealing'); });
-      E.at(T0 + 4.5, () => { S.phase = 'shown'; uiState('is-shown'); status(false); scanEl.classList.remove('is-run'); ackPage(); settle(); });
+      E.at(T0 + 3.1, () => { if (!current()) return; E.sweepOut(T0 + 3.1, 1.3); S.phase = 'revealing'; uiState('is-revealing'); });
+      E.at(T0 + 4.5, () => { if (!current()) return; S.phase = 'shown'; uiState('is-shown'); status(false); scanEl.classList.remove('is-run'); ackPage(); settle(); });
     });
+  }
+  // Something new while the first thing is still coming out of the orb (round 12): it does not
+  // wait for that journey to end. The journey stops where it is — its dots let go of what they
+  // were forming — and the new thing replaces it as any replacement does: from what was already
+  // on the screen, if its page had started to show, or straight into place if it had not.
+  function overtake(want) {
+    pushRun++;
+    status(false);
+    scanEl.classList.remove('is-run');
+    if (E) E.forget();
+    if (S.phase === 'forming') {
+      // Nothing of it on the screen yet but its dots, and they have gone: nothing to leave.
+      for (const P of S.drawnView || []) ackReset(P);
+      S.drawnView = null;
+      S.drawnKey = '';
+      draw(null);
+    }
+    uiState('is-shown');
+    S.phase = 'shown';
+    swap(want);
   }
   // One pane marked done: the dots swirl into a check, and the page comes back with that pane in
   // its done state (the other, if any, as it was). What the pane showed of the customer goes the
@@ -1168,7 +1417,7 @@
   let marking = false;
   async function markDone(P, event) {
     if (event) event.stopPropagation();
-    if (marking || S.phase !== 'shown' || P.packed || !S.screen || !S.drawnView || S.drawnView.indexOf(P) === -1) return;
+    if (marking || !paneLive(P) || P.packed || !S.screen) return;
     const PAGE = P.page;
     if ((P.view.kind === 'order' || P.view.kind === 'list') && packedLocked(P)) {
       hint(P.view.kind === 'order' ? 'Show every item first: tap Next items.' : 'Show every page first: tap Next page.', true);
@@ -1257,7 +1506,7 @@
   }
   let ticking = false;
   async function tickRow(P, item) {
-    if (ticking || !S.screen || S.phase !== 'shown' || P.packed || !S.drawnView || S.drawnView.indexOf(P) === -1) return;
+    if (ticking || !S.screen || !paneLive(P) || P.packed) return;
     ticking = true;
     const stale = asked();
     try {
@@ -1394,7 +1643,7 @@
       keep.add(P.key);
       videoFit(P);
       Y.host.classList.toggle('is-small', !!P.two);
-      videoPlace(Y, P.slot);
+      videoPlace(Y, P.slot, !calm);
       videoSay(Y);
     }
     for (const Y of VIDEOS.values()) {
@@ -1423,16 +1672,29 @@
     // The picture and its title stay together, in the middle of a pane taller than they are.
     P.vwrap.style.flex = '0 0 ' + height;
   }
-  function videoPlace(Y, slot) {
+  // Over the place drawn for it. When that place moved (round 12: the pane beside it came or
+  // went) and the player is showing, it glides there from where it was, as a transform the
+  // compositor runs, so it keeps pace with its pane on a busy screen; both places are 16:9, so
+  // growing or shrinking on the way never stretches the picture.
+  function videoPlace(Y, slot, glide) {
     if (!slot) return;
     const R0 = board.getBoundingClientRect();
     const k = R0.width / L.W || 1;
     const r = slot.getBoundingClientRect();
     const s = Y.host.style;
-    s.left = ((r.left - R0.left) / k).toFixed(1) + 'px';
-    s.top = ((r.top - R0.top) / k).toFixed(1) + 'px';
-    s.width = (r.width / k).toFixed(1) + 'px';
-    s.height = (r.height / k).toFixed(1) + 'px';
+    const was = { x: parseFloat(s.left), y: parseFloat(s.top), w: parseFloat(s.width), h: parseFloat(s.height) };
+    const now = { x: (r.left - R0.left) / k, y: (r.top - R0.top) / k, w: r.width / k, h: r.height / k };
+    s.left = now.x.toFixed(1) + 'px';
+    s.top = now.y.toFixed(1) + 'px';
+    s.width = now.w.toFixed(1) + 'px';
+    s.height = now.h.toFixed(1) + 'px';
+    const moved = was.w > 0 && now.w > 0 && (Math.abs(was.x - now.x) > 2 || Math.abs(was.y - now.y) > 2 || Math.abs(was.w - now.w) > 2);
+    if (!glide || !moved || !Y.host.classList.contains('is-in') || typeof Y.host.animate !== 'function') return;
+    const g = was.w / now.w;
+    Y.host.animate([
+      { transformOrigin: '0 0', transform: 'translate(' + (was.x - now.x).toFixed(1) + 'px,' + (was.y - now.y).toFixed(1) + 'px) scale(' + g.toFixed(4) + ')' },
+      { transformOrigin: '0 0', transform: 'none' },
+    ], { duration: MOVE_MS, delay: makingWay(), fill: 'backwards', easing: 'cubic-bezier(.32,.72,0,1)' });
   }
   function videoAt(Y) {
     const I = Y.info;
@@ -1445,7 +1707,7 @@
     videoSend(Y, 'addEventListener', ['onStateChange']);
     videoSend(Y, 'addEventListener', ['onError']);
     for (const [func, args] of Y.queue.splice(0)) videoSend(Y, func, args);
-    if (S.phase === 'shown' && !Y.parked) videoStart(Y);
+    if (paneLive(Y.P) && !Y.parked) videoStart(Y);
   }
   // Shown: it plays (unless the owner paused it), at the volume he chose.
   function videoStart(Y) {
@@ -1592,10 +1854,10 @@
   // agree, and applied here from CLIVE's answer.
   function videoKeys(event) {
     pressedHere();
-    if (!S.screen || S.phase !== 'shown' || !S.drawnView) return;
+    if (!S.screen || !S.drawnView) return;
     const target = event.target;
     if (target && target.closest && target.closest('button, input, form')) return;
-    const P = S.drawnView.find((x) => x.view.kind === 'video');
+    const P = S.drawnView.find((x) => x.view.kind === 'video' && paneLive(x));
     const Y = P ? VIDEOS.get(P.key) : null;
     if (!Y || Y.parked) return;
     const k = event.key;
@@ -1842,10 +2104,11 @@
   // memory go now, and the next ask starts afresh, so what comes back is only what CLIVE sends
   // again.
   function wipe(why) {
-    const drawn = !!S.drawnView || ['forming', 'revealing', 'shown', 'packing', 'clearing'].indexOf(S.phase) !== -1;
+    const drawn = !!S.drawnView || ['forming', 'revealing', 'shown', 'swapping', 'packing', 'clearing'].indexOf(S.phase) !== -1;
     S.gen++;
     S.showing = null; S.beside = null; S.lastDone = null; S.version = -1;
     for (const P of S.drawnView || []) ackReset(P);
+    dropLeaving();
     draw(null);
     videoDropAll();
     S.drawnView = null; S.drawnKey = ''; S.what = '';
@@ -2329,7 +2592,11 @@
       // Straight to where things are, without the journey.
       if (S.phase === 'naming') { E.nameIntro(); E.nameTo(nameTargets(input.value)); return; }
       if (S.phase === 'pairing' && S.screen) { E.nameIntro(); E.nameTo(nameTargets(S.screen.name)); return; }
-      if (S.drawnView && (S.phase === 'shown' || S.phase === 'forming' || S.phase === 'revealing' || S.phase === 'packing')) {
+      if (S.drawnView && ['shown', 'forming', 'revealing', 'swapping', 'packing'].indexOf(S.phase) !== -1) {
+        // A change under way (round 12) ends where it was going: the old page gone, the new one up.
+        swapRun++;
+        dropLeaving();
+        for (const P of S.drawnView) P.forming = false;
         draw(S.drawnView);
         ackPage();
         uiState('is-shown');

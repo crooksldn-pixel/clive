@@ -524,7 +524,11 @@ def test_a_proved_change_replaces_its_own_affordance_and_retires_the_others():
     # a name, ran a different function of the same name and never reached this one. The
     # assertion is the same; it now names the function the call site above actually calls.
     replace = function_body(APP_JS, "function replaceCardNodes(oldNode, newNodes)")
-    assert "entry.nodes.splice(at, 1, ...newNodes)" in replace and "refreshEntityCards(node)" in replace
+    # Round 12: a node whose card is already up (the order kept under the change) is redrawn in
+    # its own place (refreshInPlace), and only the rest take the affordance's slot, in the glass
+    # and in the deck's history alike.
+    assert "refreshInPlace(oldNode, newNodes)" in replace
+    assert "entry.nodes.splice(at, 1, ...here)" in replace and "refreshEntityCards(node)" in replace
 
 
 def test_no_two_functions_in_the_page_share_a_name():

@@ -20,7 +20,7 @@ from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app import progressive
+from app import progressive, screen
 from app.actions import engine as action_engine
 from app.actions.grammar import AFFIRMATION_BLOCKED, affirmation_for, words_for
 from app.actions.grammar import FIXED_LINES as GRAMMAR_FIXED_LINES
@@ -632,6 +632,13 @@ def _branch_line(branch) -> str:
     workflow = getattr(branch, "workflow", None)
     if workflow is not None and workflow.total:
         bits.append(f"working through {workflow.total} {workflow.kind}, at {workflow.position}")
+    # A new order being built on this half: "add a print to it" is a change to THAT card, and
+    # the model is told it is there rather than left to open another (round 12).
+    from app.families.order_create import where_line
+
+    building = where_line(branch)
+    if building:
+        bits.append(building)
     recent = getattr(branch, "recent_results", None) or []
     if recent:
         bits.append("just read: " + "; ".join(str(r.get("summary") or "")[:60] for r in recent[:2]))
@@ -956,6 +963,27 @@ def _spoken_orders(numbers) -> str:
     return " and ".join(f"#{n}" for n in sorted(numbers))
 
 
+def _numbers_said(text: str, session, proposed: list[str]) -> frozenset[str]:
+    """Every number he said that could be an order's — said as one, or a bare number of three
+    to seven digits that is not money — less the numbers inside what this turn's changes write.
+
+    Wider than `_orders_named`, deliberately, and for a narrower purpose. That set decides
+    where a change GOES, so it counts only what he plainly said as an order. This one decides
+    only whether the screen he is looking at may stay under the answer (app/screen.py): "where
+    is 1940" with #1938 up is about something that is not on the screen, whether or not this
+    conversation has met #1940, and #1938's card must not stand under it. Staying off the
+    screen when unsure costs a redraw; staying on it wrongly shows the owner one order's card
+    under another's answer."""
+    words = str(text or "")
+    said = set(_ORDER_SAID.findall(words)) | set(_NUMBER.findall(words))
+    for proposal_id in proposed or []:
+        proposal = session.proposal(proposal_id) if session is not None and not str(proposal_id).startswith("batch_") else None
+        if proposal is not None:
+            said -= _written_numbers(proposal)
+            said -= {str(v) for v in (getattr(proposal, "model_args", None) or {}).values() if isinstance(v, (int, float))}
+    return frozenset(said)
+
+
 #: A key whose value names a record rather than saying anything: an order's id, a gid.
 _ID_KEY = re.compile(r"(?:^|_)(?:id|ids|ref|refs|gid)$", re.I)
 _ANY_NUMBER = re.compile(r"(?<!\d)(\d{3,7})(?!\d)")
@@ -1049,7 +1077,7 @@ def _stand_on_what_was_shown(branch, ui: list, named: frozenset[str] = frozenset
     left the cursor on the record before (the 2026-09-28 deploy review, round 9, D2-04,
     D1-02). Staying put is safe for the write boundary: the one control that binds the cursor
     to a change — a listening chip such as Add a note — is only offered on the card that IS
-    the cursor (`_bind_listening_to_cursor`), and every other change names its own record (a
+    the cursor (app/screen.py `listening_on_cursor`), and every other change names its own record (a
     row's id, an open chip's arguments, or the words said).
 
     Nor does it follow an order the owner did not name when he named one (`named`): "what's
@@ -1068,27 +1096,112 @@ def _stand_on_what_was_shown(branch, ui: list, named: frozenset[str] = frozenset
     branch.visit(kind, ref, label)
 
 
-def _bind_listening_to_cursor(ui: list, entity: dict | None) -> None:
-    """Keep a listening control only on the card whose record is the half's cursor.
+# ------------------------------------------------ "it's on your screen" held to the screen
+#
+# George, 29 September: "it can say stuff like confirmed order xyz on screen but there is
+# nothing." What the model SAID is held against what this turn DREW, after the model, as
+# `_off_target` holds a staged change against the order he named. The words that make a claim
+# are the model's (app/observability/claims.py `ON_SCREEN_RE`), never the owner's sentence.
 
-    A rail chip in "ask" mode that names a spoken control (`family`, e.g. order.add_note) binds
-    the next sentence to the record the tablet holds as this half's entity — the cursor — and
-    not to the card the chip is drawn on (web/app.js `primeAction`). On a screen with two
-    records, or with one the cursor did not move to, that chip would bind a record other than
-    the one under the owner's thumb, and the note he dictates would be staged against it. So
-    on every other card the chip loses its `family`: a tap still primes its words, which name
-    that card's own record ("Add a note to #1940"), and the model reads the record from the
-    words. Nothing is removed and nothing can bind the wrong record.
+
+async def _hold_to_the_screen(answer: str, ui: list, *, session, branch, calls, said: frozenset[str],
+                              rail: dict | None) -> tuple[str, list, dict | None]:
+    """(answer, ui, what was done) for an answer that says something is on his screen.
+
+    What the claim is about is read from the sentences that MAKE it, never from the rest of the
+    answer: "Order #1938 is on your screen. #1940 shipped yesterday." is a claim about #1938,
+    and with #1938 up it is true and nothing changes (the round-12 independent check, C1: it
+    used to take #1940 from the second sentence and swap the cards, or, for an order never
+    shown, cut the true claim).
+
+    True already when the screen shows something — this turn's cards or the ones kept up —
+    and every order the claim names as an order is on it. Otherwise the Mac makes it true
+    when it can tell, unambiguously, which one record the answer is about: the one order it
+    names that the screen does not show; else the one order the owner named that it does not
+    show; else, when he named none, the record this half is on. That record is drawn from what
+    the conversation already holds, through the gate's own issued-id rule. When none of that
+    settles it — two orders named, one the conversation was never shown, nothing to stand on —
+    the claim is taken out of the answer and he is told plainly how to get it shown.
+
+    A turn that used one of his named TV screens is not judged: "it's on the screen" there is
+    about that screen, which `screen_show` keeps honest itself.
     """
-    here = entity or {}
-    cursor = _record_key(str(here.get("kind") or ""), str(here.get("ref") or "")) if here.get("ref") else ""
-    for item in ui or []:
-        record = _card_record(item)
-        if record is None or (cursor and _record_key(record[0], record[1]) == cursor):
-            continue
-        for action in (item["data"].get("actions") or []):
-            if isinstance(action, dict) and action.get("family") and str(action.get("mode") or "ask") == "ask":
-                action["family"] = ""
+    from app.observability import claims
+
+    claiming = claims.claiming_sentences(answer) if session is not None and branch is not None else []
+    if not claiming:
+        return answer, ui, None
+    if any(str(getattr(c, "name", "") or "").startswith("screen_") for c in calls or []):
+        return answer, ui, None
+    showing = [item for item in ui if item.get("type") not in screen.BOOKKEEPING and item.get("type") != "error"]
+    named_in_claim = frozenset(n for sentence in claiming for n in _ORDER_SAID.findall(sentence))
+    on_it = screen.numbers_on(showing)
+    missing = named_in_claim - on_it
+    if showing and not missing:
+        return answer, ui, None
+    target = None
+    if len(missing) == 1:
+        target = _order_held(session, branch, next(iter(missing)))
+    elif not missing and len(said - on_it) == 1:
+        target = _order_held(session, branch, next(iter(said - on_it)))
+    elif not missing and not (said - on_it) and not showing:
+        entity = getattr(branch, "entity", None) or {}
+        if entity.get("kind") in _ID_OF_KIND and entity.get("ref"):
+            target = (str(entity["kind"]), str(entity["ref"]), str(entity.get("label") or ""))
+    drawn = await _draw_held(session, target, rail) if target is not None else []
+    if drawn:
+        bookkeeping = [item for item in ui if item.get("type") in screen.BOOKKEEPING]
+        return answer, drawn + bookkeeping, claims.screen_claim(drew=target[2] or target[0], named=sorted(missing))
+    return claims.without_the_claim(answer), ui, claims.screen_claim(corrected=True, named=sorted(missing | (said - on_it)))
+
+
+def _order_held(session, branch, number: str) -> tuple[str, str, str] | None:
+    """(kind, ref, label) of the order this conversation holds by this number — from what the
+    half drew, the context stack, or a change it staged — or None."""
+    for entry in getattr(branch, "shown_before", None) or []:
+        card = entry.get("card") if isinstance(entry, dict) else None
+        record = screen.record_of(card) if isinstance(card, dict) else None
+        if record is not None and record[0] == "order" and number in screen.numbers_on([card]):
+            data = card.get("data") or {}
+            return "order", str(data.get("order_id") or data.get("ref") or ""), f"#{number}"
+    for entry in getattr(session, "context", None) or []:
+        if isinstance(entry, dict) and entry.get("kind") == "order" and _order_number(entry.get("label")) == number and entry.get("ref"):
+            return "order", str(entry["ref"]), f"#{number}"
+    for proposal in reversed(getattr(session, "proposals", None) or []):
+        if getattr(proposal, "entity_kind", "") == "order" and _order_number(getattr(proposal, "entity_label", "")) == number:
+            return "order", str(proposal.entity_ref), f"#{number}"
+    return None
+
+
+async def _draw_held(session, target: tuple[str, str, str], rail: dict | None) -> list:
+    """The record's cards, from the copy the Mac holds or, failing that, one gated read — and
+    nothing when the conversation was never shown it. The rail is this caller's, as it was."""
+    from app.commands import REPLAY_TOOL, Ctx, may_open
+    from app.memory import ENTITY
+    from app.memory import current as memory
+
+    kind, ref, _label = target
+    tool_name = REPLAY_TOOL.get(kind, "")
+    if not tool_name or not ref or not may_open(Ctx(runtime=None, session=session, branch=None), kind, ref):
+        return []
+    held = memory().get(ENTITY, f"{kind}:{ref}", allow_stale=True)
+    body = held.value if held is not None and isinstance(getattr(held, "value", None), dict) else None
+    if body is None:
+        from app.reads.scheduler import Read, ReadPlan, run_plan
+
+        try:
+            result = await run_plan(ReadPlan([Read("claimed", tool_name, {_ID_OF_KIND[kind]: ref},
+                                                   source="gmail" if kind == "email_thread" else "shopify")],
+                                             label="on_screen_claim"),
+                                    session=session, timeout_s=6.0, turn_id=getattr(session, "turn_id", ""))
+            body = result.values.get("claimed")
+        except Exception as exc:  # noqa: BLE001 — a record that cannot be read is a claim corrected
+            log.info("the claimed record could not be read: %s", type(exc).__name__)
+            body = None
+    if not isinstance(body, dict):
+        return []
+    drawn = compact(present([ToolCall(name=tool_name, args={}, ok=True, result=body)], session=session, writes=rail))
+    return [item for item in drawn if item.get("type") != "context_stack"]
 
 
 #: Where each record a replay rebuilds keeps its id (app/commands.py REPLAY_TOOL).
@@ -1342,14 +1455,6 @@ async def _answer(
             runtime.batches.deliver(proposal_id)
         else:
             runtime.actions.deliver(proposal_id)
-    if speak and answer and not abandoned:
-        # Start the voice now: by the time the tablet has this JSON and asks /speak, the MP3
-        # is already generating. The same request it would make anyway, just earlier. An
-        # error line is a fixed sentence: synthesised once, kept, free and instant after that.
-        # A question the owner abandoned (/cancel) gets no voice: nobody will ask for it.
-        runtime.voice.prefetch(
-            to_speakable(answer, max_chars=runtime.voice.max_chars), pin=bool(error_kind) or answer in FIXED_LINES
-        )
     # Replaced, as opposed to merely cancelled: a newer instruction to this half is running
     # now, and everything that says what this half is doing belongs to it — the session's
     # state, the chip's WORKING, the count of turns in flight (which that instruction reset
@@ -1366,6 +1471,9 @@ async def _answer(
     # The turn's own id, not the session's: the session's is the NEXT turn's as soon as one
     # has started, and an answer that finished late must not be filed under its replacement.
     turn_id = turn_id or (getattr(session, "turn_id", "") if session is not None else "")
+    # What the Mac did about an answer that said something was on the screen when this turn
+    # had put nothing there (`_hold_to_the_screen`); written beside the decline claims below.
+    on_screen_claim: dict[str, Any] | None = None
     if abandoned:
         # Nobody is waiting for this answer, and the half has moved on to another question
         # (the 2026-09-28 deploy review, round 9, D2-01). It publishes nothing: no cards, so the
@@ -1376,6 +1484,8 @@ async def _answer(
         # the newer turn's. What it read is still kept where a replay finds it — reads are
         # facts, and Back onto that order later need not ask the shop again.
         ui: list[dict[str, Any]] = []
+        # The newer turn's answer says what happens to the screen; this one leaves it alone.
+        screen_state = screen.SCREEN_KEPT
         scene = None
         timings["workspace"] = (time.perf_counter() - started) * 1000
         if branch is not None and not replaced:
@@ -1394,6 +1504,29 @@ async def _answer(
         scene = _turn_scene(question or str((transcript or {}).get("text") or ""), answer, calls, session_id)
         # One cursor, one headline per kind, the rest folded (brief section 22).
         ui = compact(ui)
+        # The screen this half is showing stays up unless this answer brings a new subject:
+        # an answer whose only card is the change — the note waiting for his tap, a refusal —
+        # or that answers in words is drawn beside the record he was working on, never
+        # instead of it (app/screen.py, round 12).
+        said_numbers = _numbers_said(question, session, proposed) if seq is not None else frozenset()
+        if branch is not None:
+            ui = screen.carry(ui, branch=branch, session=session, calls=calls, named=said_numbers)
+        # Never "it's on your screen" when nothing is: an answer that says so over a screen
+        # this turn left empty is made true — the one record it is about is drawn — or, when
+        # that cannot be told, corrected before a word of it is spoken (round 12).
+        if seq is not None and not error_kind:
+            answer, ui, on_screen_claim = await _hold_to_the_screen(
+                answer, ui, session=session, branch=branch, calls=calls, said=said_numbers, rail=rail)
+        if speak and answer:
+            # Start the voice now: by the time the tablet has this JSON and asks /speak, the MP3
+            # is already generating. The same request it would make anyway, just earlier. An
+            # error line is a fixed sentence: synthesised once, kept, free and instant after that.
+            # A question the owner abandoned (/cancel) gets no voice: nobody will ask for it —
+            # which is why this is here, on the path of an answer somebody is waiting for, and
+            # after the check above, so that what is prefetched is what will be said.
+            runtime.voice.prefetch(
+                to_speakable(answer, max_chars=runtime.voice.max_chars), pin=bool(error_kind) or answer in FIXED_LINES
+            )
         # When the Mac had cards to show, as a fact and not an inference (brief section 25
         # asks for time-to-first-useful-workspace measured APART from the whole turn). Taken
         # here, after present(), because this is the moment the workspace exists.
@@ -1424,9 +1557,18 @@ async def _answer(
             # it sits on (web/app.js `primeAction` posts the branch's entity). So only the card
             # that IS the cursor keeps one; every other card's chip primes its words and binds
             # nothing, and those words name its own record (D2-04, D1-02).
-            _bind_listening_to_cursor(ui, getattr(branch, "entity", None))
+            ui = screen.listening_on_cursor(ui, getattr(branch, "entity", None))
+        # Whether the half's screen stands, is replaced or goes — said to the tablet on every
+        # answer, so the glass obeys rather than guesses, and held the same way on the Mac
+        # (round 12, the second pass: words about #1940 must not leave #1938 standing on one
+        # side of the two and not the other).
+        screen_state = screen.state_of(ui)
+        if branch is not None:
             # What this half now shows, kept on the Mac so tapping it later draws it (branch.show).
-            branch.shown(ui, answer, question)
+            if screen_state == screen.SCREEN_CLEARED:
+                branch.cleared(answer, question)
+            else:
+                branch.shown(ui, answer, question)
         for call in calls or []:
             if branch is not None and getattr(call, "ok", False):
                 branch.remember_result(call.name, summary=_call_summary(call), ref=_call_ref(call), ms=float(getattr(call, "duration_ms", 0.0) or 0.0))
@@ -1436,7 +1578,10 @@ async def _answer(
         # and one that gained its rail or an enrichment is patched in place. The numbers come
         # back for the performance record; the patches themselves the tablet has already
         # collected from /state.
-        glass = progressive.complete(session, ui, branch_id=getattr(branch, "branch_id", "") or "")
+        # A card carried from the screen already up is not this turn's to stage: it is on the
+        # glass, and restaging it would draw it again (app/screen.py).
+        glass = progressive.complete(session, [item for item in ui if not item.get("kept")],
+                                     branch_id=getattr(branch, "branch_id", "") or "")
     # How this turn actually went, in numbers. Every field is measured; none of it is content.
     # This is what the report's speed section and the bench read (brief section 32).
     performance = _performance(timings, branch=branch, calls=calls, session=session, measures=measures or {}, ui=ui, glass=glass)
@@ -1456,9 +1601,15 @@ async def _answer(
     if timeline.current().active is not None:
         if signal is not None:
             timeline.emit("unsupported_claim", session_id=session_id, turn_id=turn_id or None, **signal)
+        if on_screen_claim is not None:
+            timeline.emit("unsupported_claim", session_id=session_id, turn_id=turn_id or None, **on_screen_claim)
         timeline.emit(
             "turn_performance", session_id=session_id, turn_id=turn_id or None, **performance,
         )
+        # What THIS turn drew. A card kept up from the screen before it (app/screen.py) is on the
+        # glass but was not drawn by this answer, and the report reads these fields as what the
+        # turn produced; how many were kept is its own field.
+        drew = [item for item in ui if not item.get("kept")]
         timeline.emit(
             "turn_finished", session_id=session_id, turn_id=turn_id or None, ms=round(timings["total"], 1),
             timings={k: round(v, 1) for k, v in timings.items()}, question=_written(question or (transcript or {}).get("text") or "", names) or None,
@@ -1466,16 +1617,20 @@ async def _answer(
             # answer may carry a street address the owner asked to be read out. He may hear
             # it; the timeline and the report built from it get "[address]".
             answer=_written(answer, names), error_kind=error_kind, lost_thread=lost_thread, abandoned=abandoned,
-            ui=[item["type"] for item in ui], ui_entities=_ui_entities(ui), proposed=proposed or None, revoked=list(revoked or []) or None,
+            ui=[item["type"] for item in drew], ui_entities=_ui_entities(drew), proposed=proposed or None, revoked=list(revoked or []) or None,
             # What the owner was actually shown, as a fact separate from which components drew
             # it: the surfaces this turn produced, whether anything was shown at all, and what
             # it offered to do next. A turn that answered in words and drew nothing is the
             # failure this pass exists for, and `surfaces: []` is what it looks like here.
-            surfaces=[item.get("surface") or item["type"] for item in ui if item["type"] != "context_stack"] or None,
-            showed_nothing=not any(item["type"] != "context_stack" for item in ui),
+            surfaces=[item.get("surface") or item["type"] for item in drew if item["type"] != "context_stack"] or None,
+            showed_nothing=not any(item["type"] != "context_stack" for item in drew),
+            # The screen already up, kept under this answer rather than drawn by it: a turn that
+            # drew nothing new and left the record he was working on in front of him is not the
+            # same as one that left him nothing.
+            kept=(len(ui) - len(drew)) or None,
             actions=sorted({
                 str(a.get("operation") or a.get("id") or "")
-                for item in ui if isinstance(item.get("data"), dict)
+                for item in drew if isinstance(item.get("data"), dict)
                 for a in (item["data"].get("actions") or []) if isinstance(a, dict)
             }) or None,
             writes_code=(None if writes is None or writes.get("allowed") else writes.get("code")),
@@ -1507,6 +1662,9 @@ async def _answer(
         "transcript": transcript,
         "timings_ms": {k: round(v, 1) for k, v in timings.items()},
         "ui": ui,
+        # What this answer does to the half's screen: "kept", "new" or "cleared" (app/screen.py
+        # `state_of`). The tablet obeys it (web/app.js `renderTurn`).
+        "screen": screen_state,
         # Which lane answered — always the model's on this route; a tap is TOUCH on /command —
         # and where the conversation now is. The tablet renders its navigation from this
         # rather than from what it can see on screen.

@@ -182,6 +182,10 @@ _CREATED_FROM = re.compile(r"created_at:>='([^']+)'")
 _CREATED_TO = re.compile(r"created_at:<'([^']+)'")
 _NAME = re.compile(r"\bname:#?(\d+)")
 _EMAIL = re.compile(r'\bemail:"?([^"\s]+)"?')
+# `(customer_id:7001 OR customer_id:7002)` and `(sku:A OR sku:B)`: each group is an OR, and the
+# groups are ANDed, which is the only way the application combines them (shopify_find_order).
+_CUSTOMER_ID = re.compile(r"\bcustomer_id:(\d+)")
+_SKU = re.compile(r"\bsku:([^\s()]+)")
 
 
 def _iso(value: str) -> str:
@@ -205,6 +209,12 @@ def _matches(spec: OrderSpec, search: str) -> bool:
     if email and spec.person.email.lower() != email.group(1).strip('"').lower():
         return False
     if "fulfillment_status:unfulfilled" in search and spec.fulfillment == "FULFILLED":
+        return False
+    customers = _CUSTOMER_ID.findall(search)
+    if customers and spec.person.customer_id.rsplit("/", 1)[-1] not in customers:
+        return False
+    skus = _SKU.findall(search)
+    if skus and not any(VARIANTS[variant]["sku"] in skus for variant, _ in spec.items):
         return False
     # A bare term, as `shopify_find_order` sends for a number it could not strip to digits.
     bare = search.strip()
@@ -329,10 +339,15 @@ def _variant_stock(_store: FixtureShopify, v: dict) -> dict:
 
 def _product_nodes(term: str, limit: int) -> list[dict[str, Any]]:
     term = term.strip().strip('"').lower()
+    if term.startswith("sku:"):
+        wanted = term[4:].strip().strip('"')
+        found = [p for p in PRODUCTS if any(v["sku"].lower() == wanted for v in p["variants"])]
+        term = None
     for prefix in ("title:", "product_type:"):
-        if term.startswith(prefix):
+        if term and term.startswith(prefix):
             term = term[len(prefix):].strip().strip('"')
-    found = [p for p in PRODUCTS if not term or term in p["title"].lower()] or []
+    if term is not None:
+        found = [p for p in PRODUCTS if not term or term in p["title"].lower()] or []
     out = []
     for product in found[: max(1, limit)]:
         out.append({
@@ -470,9 +485,44 @@ def _order_edit_add_variant(store: FixtureShopify, v: dict) -> dict:
     }}}
 
 
+def _variant_siblings(_store: FixtureShopify, v: dict) -> dict:
+    """A variant and every variant of its product, with the product's options in the order its
+    variants list them — which is how Shopify returns a product's option values. What "the
+    next size up" is worked out from (app/families/_sizes.py)."""
+    variant = VARIANTS.get(str(v.get("id") or ""))
+    if variant is None:
+        return {"data": {"productVariant": None}}
+    product = variant["product"]
+    options: dict[str, list[str]] = {}
+    for sibling in product["variants"]:
+        for name, value in sibling["options"]:
+            options.setdefault(name, [])
+            if value not in options[name]:
+                options[name].append(value)
+    return {"data": {"productVariant": {
+        "id": variant["id"], "title": variant["title"],
+        "selectedOptions": [{"name": n, "value": val} for n, val in variant["options"]],
+        "product": {
+            "id": product["id"], "title": product["title"], "status": product["status"],
+            "options": [{"name": name, "values": values} for name, values in options.items()],
+            "variants": {"edges": [{"node": {
+                "id": sibling["id"], "title": sibling["title"], "sku": sibling["sku"], "price": sibling["price"],
+                "availableForSale": sibling["inventoryQuantity"] > 0,
+                "inventoryQuantity": sibling["inventoryQuantity"],
+                "selectedOptions": [{"name": n, "value": val} for n, val in sibling["options"]],
+            }} for sibling in product["variants"]]},
+        },
+    }}}
+
+
 _HANDLERS["CrooksOrderEditState"] = _order_by_id
 _HANDLERS["CrooksVariantForOrderEdit"] = _variant_for_edit
 _HANDLERS["CrooksVariantSearch"] = _products
+# Orders found by what the owner remembers (app/tools/shopify_tools.py `_find_by_evidence`),
+# a product's sizes (app/families/order_create.py), and the order a new one is made from.
+_HANDLERS["CrooksOrderEvidence"] = _orders_search
+_HANDLERS["CrooksVariantSiblings"] = _variant_siblings
+_HANDLERS["CrooksOrderForNewOrder"] = _order_by_id
 
 # The only two mutations this fixture answers. Adding a third is adding a way for a fixture
 # run to look as though it changed the shop, which is the one thing it must never do.
@@ -618,17 +668,57 @@ _HANDLERS["CrooksDraftOrder"] = _draft_order
 # the refusal with every other mutation in the application.
 
 
+def draft_line(index: int, line: dict[str, Any]) -> dict[str, Any]:
+    """One line of a draft as Shopify prices it: a catalogue variant at the catalogue's price,
+    or a custom line at the price it was given, less its own discount — a percentage of the
+    unit price, or a fixed amount off EACH unit — the reading the order's card gives it ("£5.00
+    off each"). Which one Shopify applies to a line of more than one is Shopify's to say; the
+    card the owner holds carries the draft's own figures either way (app/families/order_create.py)."""
+    if line.get("variantId"):
+        variant = VARIANTS[str(line["variantId"])]
+        unit, title, variant_title = float(variant["price"]), variant["product"]["title"], variant["title"]
+    else:
+        unit, title, variant_title = float(line["originalUnitPrice"]), str(line["title"]), None
+    quantity = int(line["quantity"])
+    off = line.get("appliedDiscount") or {}
+    if off.get("valueType") == "PERCENTAGE":
+        cut = unit * float(off["value"]) / 100.0
+    elif off.get("valueType") == "FIXED_AMOUNT":
+        cut = min(unit, float(off["value"]))
+    else:
+        cut = 0.0
+    return {
+        "id": f"gid://shopify/DraftOrderLineItem/{index}",
+        "title": title, "variantTitle": variant_title, "quantity": quantity,
+        "custom": not line.get("variantId"),
+        "variant": {"id": str(line["variantId"])} if line.get("variantId") else None,
+        "appliedDiscount": ({"title": off.get("title"), "value": float(off["value"]), "valueType": off["valueType"]} if off else None),
+        "originalUnitPriceSet": data._money(f"{unit:.2f}"),
+        "discountedTotalSet": data._money(f"{round((unit - cut) * quantity, 2):.2f}"),
+    }
+
+
 def _draft_order_create(store: FixtureShopify, v: dict) -> dict:
     body = dict(v.get("input") or {})
     person = PEOPLE.get(str(body.get("customerId") or ""))
-    lines = [(str(line["variantId"]), int(line["quantity"])) for line in (body.get("lineItems") or [])]
-    goods = round(sum(float(VARIANTS[variant]["price"]) * quantity for variant, quantity in lines), 2)
+    lines = [draft_line(index, line) for index, line in enumerate(body.get("lineItems") or [])]
+    goods = round(sum(float(line["discountedTotalSet"]["shopMoney"]["amount"]) for line in lines), 2)
     postage = round(float((body.get("shippingLine") or {}).get("price") or 0.0), 2)
     off = body.get("appliedDiscount") or {}
-    discount = round(goods * float(off.get("value") or 0) / 100.0, 2) if off.get("valueType") == "PERCENTAGE" else 0.0
+    if off.get("valueType") == "PERCENTAGE":
+        discount = round(goods * float(off.get("value") or 0) / 100.0, 2)
+    elif off.get("valueType") == "FIXED_AMOUNT":
+        discount = round(min(goods, float(off.get("value") or 0)), 2)
+    else:
+        discount = 0.0
     total = round(goods - discount + postage, 2)
     store.draft_number += 1
     draft_id = f"gid://shopify/DraftOrder/{store.draft_number}"
+    # Where it goes, as Shopify keeps it: the address given, or the customer's own when that was
+    # asked for — and the golden world's people have none (`_customer_for_order`).
+    given = body.get("shippingAddress") or None
+    shipping = ({**{k: v for k, v in given.items() if k != "countryCode"}, "countryCodeV2": given.get("countryCode")}
+                if given else None)
     node = {
         "id": draft_id,
         "name": f"#D{store.draft_number}",
@@ -637,19 +727,12 @@ def _draft_order_create(store: FixtureShopify, v: dict) -> dict:
         "subtotalPriceSet": data._money(f"{round(goods - discount, 2):.2f}"),
         "totalShippingPriceSet": data._money(f"{postage:.2f}"),
         "totalTaxSet": data._money("0.00"),
+        "appliedDiscount": ({"title": off.get("title"), "value": float(off["value"]), "valueType": off["valueType"]} if off else None),
         "customer": ({"id": person.customer_id, "displayName": person.name} if person else None),
         "email": str(body.get("email") or ""),
         "order": None,
-        "lineItems": {"edges": [
-            {"node": {
-                "id": f"gid://shopify/DraftOrderLineItem/{index}",
-                "title": VARIANTS[variant]["product"]["title"],
-                "variantTitle": VARIANTS[variant]["title"],
-                "quantity": quantity,
-                "originalUnitPriceSet": data._money(VARIANTS[variant]["price"]),
-            }}
-            for index, (variant, quantity) in enumerate(lines)
-        ]},
+        "shippingAddress": shipping,
+        "lineItems": {"edges": [{"node": line} for line in lines]},
     }
     store.drafts.append(copy.deepcopy(body))
     store.drafts_by_id[draft_id] = node

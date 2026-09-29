@@ -17,7 +17,7 @@ import time
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse
 
-from app import readonly
+from app import readonly, screen
 from app.actions import grammar
 from app.observability import timeline
 from app.presentation import present, present_action, present_proposal_state
@@ -387,6 +387,12 @@ async def row(request: Request, session_id: str = Form(default=""), action: str 
     runtime.actions.deliver(proposal_id)
     timeline.emit("row_action", session_id=session_id, turn_id=getattr(owner_session, "turn_id", "") or None, action=str(action)[:40], ok=True, proposal_id=proposal_id)
     ui = present(calls, session=owner_session, writes=await writes_context(request))
+    # The list the row was on stays, with the card beside it (app/screen.py); and it is what
+    # this half now shows, so a reload or a switch of halves draws the same.
+    half = owner_session.branch(row_half)
+    ui = screen.carry(ui, branch=half, session=owner_session)
+    ui = screen.listening_on_cursor(ui, getattr(half, "entity", None))
+    half.shown(ui, half.last_answer, half.last_question)
     return {"staged": True, "proposal_id": proposal_id, "ui": ui}
 
 
@@ -503,7 +509,23 @@ async def commit(request: Request, proposal_id: str, session_id: str = Form(defa
     # The arming token travels as a header: the body carries the session and nothing else,
     # and the token is an authorisation, not an argument.
     nonce = request.headers.get("x-crooks-arm", "").strip()[:64]
+    # A change prepared from a workspace (an order, a code, a credit): a card that has already
+    # made its one thing — or is making it now — makes nothing more, whichever hold card is
+    # held; and while this one is being applied the card is finished, so a second Prepare
+    # meanwhile cannot make a second (app/families/_workspace.py "made once").
+    from app.families import _workspace as workspaces
+
+    if pending is not None:
+        already = workspaces.commit_refused(pending)
+        if already:
+            runtime.actions.revoke_ids([pending.proposal_id], "its card has already made what it was for")
+            timeline.emit("action_commit_refused", session_id=session_id.strip(), proposal_id=proposal_id,
+                          code="already_made", ms=_elapsed(started))
+            return _refuse(409, "already_made", already)
+        workspaces.before_commit(pending)
     result = await runtime.actions.commit(proposal_id, session_id.strip(), caller=caller, spec_lookup=spec_lookup, nonce=nonce)
+    if result.proposal is not None:
+        workspaces.after_commit(result.proposal, session=owner_session)
     if result.proposal is None:
         timeline.emit("action_commit_refused", session_id=session_id.strip(), proposal_id=proposal_id, code=result.code, detail="no such proposal", ms=_elapsed(started))
         return _refuse(404 if result.code == "unknown" else 403, result.code, "No such proposal for this session.")
@@ -541,11 +563,19 @@ async def commit(request: Request, proposal_id: str, session_id: str = Form(defa
         undo_proposal = session.proposal(proposal.undo_id)
         if undo_proposal is not None:
             undo = undo_proposal.public()
+    writes = await writes_context(request, proposal.operation)
+    # The record the change was about stays where the owner left it, redrawn with its new
+    # state — as the workspace it was shown as, with what can be done with it now — and the
+    # half's own copy of its screen is settled to match what the tablet draws (app/screen.py).
+    ui = screen.after_gesture(
+        present_action(result, session=session, writes=writes), session=session, proposal_id=proposal.proposal_id,
+        undo_of=proposal.undo_of or "", entity=proposal.entity, entity_kind=proposal.entity_kind, writes=writes,
+    )
     return {
         **proposal.public(),
         "code": result.code,
         "spoken": result.spoken,
-        "ui": present_action(result, session=session, writes=await writes_context(request, proposal.operation)),
+        "ui": ui,
         "undo": undo,
     }
 

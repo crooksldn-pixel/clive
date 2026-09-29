@@ -18,10 +18,16 @@
 <link rel="stylesheet" href="/static/startup.css">
 <!-- Round 9: the remote for the owner's screens (web/remote.js). -->
 <link rel="stylesheet" href="/static/remote.css">
+<link rel="stylesheet" href="/static/objective-cards.css">
+<!-- Round 12: hold an order or an objective and put it on a screen (web/lift.js). -->
+<link rel="stylesheet" href="/static/lift.css">
+<!-- Round 12: soft scroll edges (web/edges.js) and cards that form from CLIVE's dots (web/dots-app.js). -->
+<link rel="stylesheet" href="/static/edges.css">
+<link rel="stylesheet" href="/static/dots-app.css">
 </head>
 <body data-mode="orb">
 
-<!-- The start-up (web/startup.js): a point of light, a flash, CLIVE's orb, then the name. The
+<!-- The start-up (web/startup.js): CLIVE's orb waking out of the dark, then the name. The
      whole of it the first time the app opens on a day and after CLIVE has been updated; the name
      alone otherwise. Above the system layer until CLIVE has answered, then it fades onto the app. -->
 <div id="startup" class="startup" aria-hidden="true">
@@ -322,10 +328,18 @@
 <script src="/static/action-state.js"></script>
 <script src="/static/live-state.js"></script>
 <script src="/static/jobs.js"></script>
+<!-- Round 12: an objective drawn in the shape of its kind, for ui.js's card and alpha.js's sheet. -->
+<script src="/static/objective-cards.js"></script>
 <script src="/static/ui.js"></script>
 <script src="/static/app.js"></script>
 <script src="/static/alpha.js"></script>
 <!-- Round 9: the remote for the owner's screens, opened by CLIVE's screen_remote card. -->
 <script src="/static/remote.js"></script>
+<!-- Round 12: hold an order or an objective, and drop it on one of the screens. -->
+<script src="/static/lift.js"></script>
+<!-- Round 12: every scrolling area fades out at an edge with more beyond it (web/edges.js). -->
+<script src="/static/edges.js"></script>
+<!-- Round 12: a card forms out of the orb's dots as it arrives, and goes back as dots (web/dots-app.js). -->
+<script src="/static/dots-app.js"></script>
 </body>
 </html>

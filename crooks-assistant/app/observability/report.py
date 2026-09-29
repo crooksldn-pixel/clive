@@ -1312,10 +1312,13 @@ def _spoken_capability(turn: Turn, states: dict[str, dict[str, Any]] | None = No
 def _false_claim(turn: Turn) -> dict[str, Any] | None:
     """The turn's claim signal, from the timeline when the Mac wrote one, else from the same
     rule applied now to the words (an older timeline, a session without the signal)."""
-    for c in turn.claims:
+    # The decline claims only: an answer that said something was on the screen when nothing was
+    # is written under the same event name with `claim: on_screen` (round 12) and is not one.
+    declines = [c for c in turn.claims if c.get("claim") != "on_screen"]
+    for c in declines:
         if c.get("false_unsupported"):
             return {"capabilities": [str(x) for x in c.get("capabilities") or []], "composable_via": [str(x) for x in c.get("composable_via") or []]}
-    if turn.claims:
+    if declines:
         return None
     signal = claims.claim(turn.question, turn.answer, [{"tool": t.tool, "ok": t.outcome in ("ok", "staged")} for t in turn.tools], _registered_for_claims())
     return signal if signal and signal.get("false_unsupported") else None

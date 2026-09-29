@@ -116,6 +116,13 @@ _KNOWN_TOOLS = frozenset({
     "shopify_discount_check", "shopify_discount_open",
     "shopify_abandoned_checkouts",
     "shopify_order_open", "shopify_store_credit",
+    # Round 12: the spoken changes to an order being built (app/families/order_create.py) —
+    # an item, a custom item, a quantity, a discount, the postage, where it goes. Like
+    # shopify_order_open it changes only the Mac's own copy of a workspace that has not been
+    # prepared: no store is touched, nothing is staged, and the one write it could lead to is
+    # still shopify_order_create, behind the owner's tap and hold. Named "build" because the
+    # verbs above read "add_" and "update" as a store write.
+    "shopify_order_build",
     # The summary read (app/families/summaries.py). One cache view and pure aggregation on
     # the Mac: it reads no record individually, stages nothing, and returns a count with a
     # few rows. Named here one by one like every other, because this is an allow-list.
@@ -150,6 +157,16 @@ _KNOWN_TOOLS = frozenset({
     # them, screen_video plays, pauses or turns it up. Each changes only CLIVE's own record of
     # screens; nothing in a store or an inbox is reachable from either.
     "screen_play", "screen_video",
+    # Round 12: putting back on the owner's own app something this conversation already showed
+    # him (app/tools/show_again.py). A read: it reads the record again through the registered
+    # read tool, draws a composer or a half-built workspace from the Mac's own copy, and stages
+    # nothing. The id it is handed must be an issued one (its ToolSpec names `ref`, which this
+    # file checks like every issued-id argument).
+    "show_again",
+    # Round 12, the second pass: "close that", "put it away" — clearing the owner's own app
+    # (app/tools/close_screen.py). It takes no arguments, reads nothing and writes nothing but
+    # the Mac's own record of what this half shows; no store, inbox or TV is reachable from it.
+    "close_screen",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops

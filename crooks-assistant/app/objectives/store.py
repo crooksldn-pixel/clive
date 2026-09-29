@@ -18,19 +18,60 @@ The work-item ladder is the product invariant, enforced here rather than asked o
 
 Nothing here performs an action in the world. A "booking" work item is a record that a booking
 is needed; making it is a separate capability that does not exist yet, and saying so is a blocker.
+
+An objective also has a shape that fits what it is for (round 12, the owner on 29 September:
+"telling clive that samples have started xyz shows the same as saying give [two of the team]
+these tasks to do later"). Its kind says which:
+
+* ``project`` moves through stages to a finish: a drop's sampling, approval, production and
+  delivery. It holds its stages in order, the one it is at now, and for each a date and who or
+  what it is waiting on. Moving a stage records where the project is; it books, orders and pays
+  for nothing.
+* ``tasks`` is jobs handed to named people ("give Rosa and Kit these to do later"): each task
+  has who, what, an optional date, and done or not. It is the owner's list. Nothing is sent to
+  the people on it.
+* ``build`` is a change to CLIVE itself, filed with the engineering loop.
+* ``business`` is any other goal CLIVE works through in steps (a trip, an application).
+
+Any of them can carry its purpose (why), what finished looks like, the people involved, a
+deadline and a check-in cadence. The cadence is not a scheduler: nothing runs between
+conversations. It is a promise the record keeps by itself: when an objective has gone quiet for
+longer than the owner asked, its headline says a check-in is due (``attention_``).
+
+Where the design lives, and why (rollback safety). A deploy that fails rolls back to the
+previous build, and the owner can roll back by hand; the store before round 12 reads a record with
+``Objective(**data)``, which refuses any key it does not know. So ``obj_x.json`` keeps exactly the
+keys that store knows (``RECORD_FIELDS``), and the design is written beside it, atomically and
+first, to ``design/obj_x.json``: a folder the old store never lists, since it reads only
+``obj_*.json`` at the top. After a rollback every objective still lists and opens, as a plain one;
+rolled forward again, its design is where it was. A record with no design file (written before
+round 12, or by an older build after a rollback) is whole without one (``_from_record``).
+
+Two files must never split an objective, so a design is used only when it agrees with its record
+(same id, same kind, this format, and the record has the very event the design was written after)
+and a write goes down in three atomic steps: the new design as a pending file, the record, then
+the pending design becomes the design (``ObjectiveStore._write`` says why that order is safe). A
+design that cannot be read or does not agree never hides or breaks the objective: it reads as its
+plain kind from its record, and the file is logged (never its content) and kept aside, renamed
+``.damaged``, never overwritten.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import os
 import re
 import secrets
 import threading
-from dataclasses import asdict, dataclass, field
+import time
+from dataclasses import asdict, dataclass, field, fields
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger("crooks.objectives")
 
 __all__ = [
     "LADDER",
@@ -44,11 +85,36 @@ __all__ = [
 LADDER = ("proposed", "authorised", "started", "completed", "verified")
 STATUSES = ("active", "waiting", "blocked", "done", "dropped")
 BLOCKER_KINDS = ("missing_info", "missing_capability", "needs_owner", "external")
-# "build": the owner wants CLIVE itself changed (a capability it lacks, a screen, a fix), and the
-# work goes to the engineering loop. Everything else is the owner's business in the world.
-KINDS = ("business", "build")
+# What an objective is for, which decides its shape (the module docstring says each). "build":
+# the owner wants CLIVE itself changed, and the work goes to the engineering loop. "business" is
+# the kind every record had before kinds were designed, and stays the kind of any other goal.
+KINDS = ("business", "build", "project", "tasks")
+STAGE_STATES = ("done", "current", "upcoming")
 _ID = re.compile(r"^obj_[0-9a-f]{8}$")
 MAX_TEXT = 2000
+# The design file's own format. 3: the design fields, with the record they were written with (its
+# id, kind and last event), so a design is only ever read with that record or one grown from it
+# (``_verdict``). 2 was round 12's first sidecar, never deployed: it named no record, and is set
+# aside when met. 1 is a record without a design.
+VERSION = 3
+# A design file whose record is gone (a creation cut short) is tidied once it is this old.
+ORPHAN_AGE_S = 24 * 3600
+TIDY_EVERY_S = 3600
+# The keys of obj_x.json: exactly what the store before round 12 reads (547f652f), in that order.
+RECORD_FIELDS = ("id", "title", "request", "created_at", "updated_at", "status", "status_set_by", "deadline",
+                 "facts", "unknowns", "blockers", "items", "attention", "events", "kind", "engineering")
+# The keys of design/obj_x.json, beside ``version``.
+DESIGN_FIELDS = ("purpose", "done_when", "people", "stages", "tasks", "check_every_days")
+DESIGN_DIR = "design"
+# Bounds that keep a record a thing a person reads, not a spreadsheet.
+MAX_STAGES = 10
+MAX_TASKS = 60
+MAX_PEOPLE = 12
+MAX_NAME = 60
+MAX_CHECK_EVERY = 90
+# What each field `missing` can name means, in the words the model asks in.
+_MEANS = {"deadline": "the date it has to be done by", "tasks": "who is to do what"}
+_ROLE = re.compile(r"^(?P<name>[^()]+?)\s*\((?P<role>[^()]*)\)\s*$")
 
 
 class ObjectiveError(ValueError):
@@ -68,6 +134,71 @@ def _clean(text: Any, *, limit: int = MAX_TEXT, what: str = "text") -> str:
 
 def _new_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(4)}"
+
+
+def _date(value: Any, *, what: str = "date") -> str | None:
+    """An ISO date, or None for nothing. Anything else is refused, never guessed at."""
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw).isoformat()
+    except ValueError as exc:
+        raise ObjectiveError(f"The {what} {raw!r} is not a date (YYYY-MM-DD).") from exc
+
+
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _on(iso: str | None) -> str:
+    """A date as the owner reads it in the history: "14 Nov 2026", never "2026-11-14"."""
+    try:
+        day = date.fromisoformat(str(iso))
+    except ValueError:
+        return str(iso or "")
+    return f"{day.day} {_MONTHS[day.month - 1]} {day.year}"
+
+
+def _optional(text: Any, *, limit: int = 400) -> str | None:
+    """Free text that may be cleared: empty means none."""
+    value = " ".join(str(text or "").split())
+    return value[:limit] or None
+
+
+def _key(name: Any) -> str:
+    return " ".join(str(name or "").split()).casefold()
+
+
+def _proper(name: str) -> str:
+    """A name as a person writes it. A transcript hands names over in lower case ("rosa"); a
+    name the speaker capitalised is kept exactly as given."""
+    return name.title() if name == name.lower() else name
+
+
+def _person(entry: Any) -> dict[str, str | None]:
+    """"Northfield (factory)" -> a name and a role; a plain name has no role."""
+    if isinstance(entry, dict):
+        name, role = entry.get("name"), entry.get("role")
+    else:
+        found = _ROLE.match(" ".join(str(entry or "").split()))
+        name, role = (found.group("name"), found.group("role")) if found else (entry, None)
+    clean = _clean(name, limit=MAX_NAME, what="person's name")
+    return {"name": _proper(clean), "role": _optional(role, limit=MAX_NAME)}
+
+
+def _check_every(value: Any) -> int | None:
+    """Days between check-ins, 1 to 90; nought or nothing means no cadence."""
+    if value in (None, ""):
+        return None
+    try:
+        days = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ObjectiveError("A check-in cadence is a number of days.") from exc
+    if days <= 0:
+        return None
+    if days > MAX_CHECK_EVERY:
+        raise ObjectiveError(f"A check-in cadence is at most {MAX_CHECK_EVERY} days.")
+    return days
 
 
 @dataclass
@@ -90,6 +221,16 @@ class Objective:
     # The engineering requests filed for a build objective, newest last: request id, the host
     # whose loop builds it, the branch its work lands on, when it was filed.
     engineering: list[dict] = field(default_factory=list)
+    # ---- the design (version 2). Every one of them optional, so a version-1 record is whole.
+    purpose: str | None = None                  # why, in the owner's words
+    done_when: str | None = None                # what finished looks like
+    people: list[dict] = field(default_factory=list)   # {name, role}: who is involved
+    # A project's stages, in order: {id, name, state (done/current/upcoming), due, waiting_on,
+    # started_at, done_at}. At most one is current; none current and none done is "not started".
+    stages: list[dict] = field(default_factory=list)
+    # Jobs for named people: {id, who, text, due, done, done_at, at}.
+    tasks: list[dict] = field(default_factory=list)
+    check_every_days: int | None = None
 
     def __post_init__(self) -> None:
         # Legacy JSON written before status_set_by existed has no such field, so the dataclass
@@ -106,11 +247,54 @@ class Objective:
     def open_(self, key: str) -> list[dict]:
         return [x for x in getattr(self, key) if not x.get("resolved_at")]
 
+    def current_stage(self) -> tuple[int, dict] | None:
+        """The stage the project is at now, with its place in the order."""
+        return next(((i, s) for i, s in enumerate(self.stages) if s.get("state") == "current"), None)
+
+    def stage_line(self) -> str | None:
+        """"Sampling · waiting on Northfield": where a project is, in a line. None when it is
+        not a project or has not started; "Every stage done" when it has finished them all."""
+        if self.kind != "project" or not self.stages:
+            return None
+        here = self.current_stage()
+        if here is None:
+            return "Every stage done" if all(s.get("state") == "done" for s in self.stages) else None
+        stage = here[1]
+        waiting = stage.get("waiting_on")
+        return f"{stage['name']} · waiting on {waiting}" if waiting else stage["name"]
+
+    def task_groups(self) -> list[dict[str, Any]]:
+        """The tasks by person, in the order each person first appears, open tasks first."""
+        groups: dict[str, dict[str, Any]] = {}
+        for task in self.tasks:
+            group = groups.setdefault(_key(task.get("who")), {"who": task.get("who"), "tasks": []})
+            group["tasks"].append(task)
+        for group in groups.values():
+            group["tasks"].sort(key=lambda t: bool(t.get("done")))
+            group["open"] = sum(1 for t in group["tasks"] if not t.get("done"))
+            group["done"] = len(group["tasks"]) - group["open"]
+        return list(groups.values())
+
+    def check_in(self, today: date | None = None) -> dict[str, Any] | None:
+        """The cadence the owner asked for, and whether it has lapsed: due once the record has
+        been quiet (no change of any kind) for as many days as he said."""
+        if not self.check_every_days:
+            return None
+        today = today or datetime.now(UTC).date()
+        try:
+            last = date.fromisoformat(str(self.updated_at)[:10])
+        except ValueError:
+            return {"every_days": self.check_every_days, "quiet_days": None, "due": False}
+        quiet = (today - last).days
+        return {"every_days": self.check_every_days, "quiet_days": quiet, "due": quiet >= self.check_every_days}
+
     def attention_(self) -> tuple[str, str]:
         """The one rule for the headline everywhere, derived from open records, not the stored
         status: needs_you (an open question, or a proposed item needing the owner) beats blocked
-        (an open blocker) beats doing (an item started) beats idle. Only owner-set done/dropped
-        (status_set_by == "owner") stand; any other or unproven done/dropped status is ignored."""
+        (an open blocker) beats check_in (the cadence he asked for has lapsed) beats doing (an
+        item started, a project at a stage, a task still open) beats idle. Only owner-set
+        done/dropped (status_set_by == "owner") stand; any other or unproven done/dropped status
+        is ignored."""
         if self.status in ("done", "dropped") and self.status_set_by == "owner":
             return self.status, f"the owner set this objective to {self.status}"
         question = next(iter(self.open_("attention")), None)
@@ -122,16 +306,60 @@ class Objective:
         blocker = next(iter(self.open_("blockers")), None)
         if blocker:
             return "blocked", f"blocked by: {blocker['text']}"
+        cadence = self.check_in()
+        if cadence and cadence["due"]:
+            return "check_in", (f"no update for {cadence['quiet_days']} days; "
+                                f"you check in every {cadence['every_days']}")
         doing = next((i for i in self.items if i["state"] == "started"), None)
         if doing:
             return "doing", f"in progress: {doing['text']}"
+        if self.kind == "project" and self.current_stage() is not None:
+            return "doing", f"at {self.stage_line()}"
+        open_tasks = sum(1 for t in self.tasks if not t.get("done"))
+        if open_tasks:
+            return "doing", f"{open_tasks} task{'s' if open_tasks != 1 else ''} open"
+        if self.kind == "project" and self.stages and all(s.get("state") == "done" for s in self.stages):
+            return "idle", "every stage is done"
+        if self.tasks:
+            return "idle", "every task is done"
         return "idle", "nothing open"
+
+    def missing(self) -> list[str]:
+        """What this kind cannot do without and the owner has not said: the only things CLIVE may
+        ask when it opens the objective, and nothing else. A drop, a sample round or a shoot has a
+        date, so a project without a deadline asks for one. Where a project is now is not asked:
+        one he has not said has started is simply not started. Tasks "for later" need no date,
+        and a business or build objective asks what it needs as questions on the record."""
+        if self.kind == "project" and not self.deadline:
+            return ["deadline"]
+        if self.kind == "tasks" and not self.tasks:
+            return ["tasks"]
+        return []
+
+    def ask(self) -> str:
+        """The one line the model is handed with `missing`, so that it asks exactly that."""
+        wanted = self.missing()
+        if not wanted:
+            return "Nothing essential is missing: ask no question about it."
+        return f"Ask only for {' and '.join(_MEANS[f] for f in wanted)}, in one short question; nothing else."
 
     def summary(self) -> dict[str, Any]:
         """What the home screen and the model's list need: short, current, no history."""
         items = [i for i in self.items if i["state"] not in ("completed", "verified")]
         now_doing = next((i["text"] for i in items if i["state"] == "started"), None)
         attention, attention_reason = self.attention_()
+        waiting = [i["text"] for i in items if i["state"] in ("proposed", "authorised")]
+        kind = self.kind if self.kind in KINDS else "business"
+        here = self.current_stage()
+        # "Doing" and "next" in the shape's own terms, which is what the screens read: a
+        # project is doing its stage and next are the stages after it; delegated tasks are next.
+        if kind == "project":
+            now_doing = now_doing or (self.stage_line() if here is not None else None)
+            after = [s["name"] for s in self.stages[(here[0] + 1 if here else 0):] if s.get("state") == "upcoming"]
+            waiting = waiting + after
+        elif kind == "tasks":
+            waiting = waiting + [f"{t['who']}: {t['text']}" for g in self.task_groups() for t in g["tasks"] if not t.get("done")]
+        cadence = self.check_in()
         return {
             "id": self.id,
             "title": self.title,
@@ -141,18 +369,157 @@ class Objective:
             "deadline": self.deadline,
             "days_left": _days_left(self.deadline),
             "doing": now_doing,
-            "next": [i["text"] for i in items if i["state"] in ("proposed", "authorised")][:3],
+            "next": waiting[:3],
             "blocked_by": [b["text"] for b in self.open_("blockers")][:3],
             "needs_you": [a["text"] for a in self.open_("attention")],
             "unknowns": len(self.open_("unknowns")),
             "facts": len(self.facts),
             "updated_at": self.updated_at,
-            "kind": self.kind if self.kind in KINDS else "business",
+            "kind": kind,
             "engineering": [{"request_id": e.get("request_id"), "host": e.get("host")} for e in self.engineering][-3:],
+            # The shape, as short as a home row needs it.
+            "stage": ({"name": here[1]["name"], "index": here[0], "count": len(self.stages),
+                       "waiting_on": here[1].get("waiting_on"), "due": here[1].get("due")} if here else None),
+            "stages": [{"name": s["name"], "state": s["state"]} for s in self.stages],
+            "people_tasks": [{"who": g["who"], "open": g["open"], "done": g["done"]} for g in self.task_groups()],
+            "check_in": cadence,
         }
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+_FIELDS = frozenset(f.name for f in fields(Objective))
+assert _FIELDS == set(RECORD_FIELDS) | set(DESIGN_FIELDS)
+
+
+def _from_record(raw: Any, design: Any = None) -> Objective:
+    """An objective from its record and its design file, as any build of the store wrote them.
+
+    The record (obj_x.json) is read as it always was: one written before kinds existed has no
+    kind, engineering or status_set_by, and gets "business", none and None. The design
+    (design/obj_x.json) may be absent — a record from before round 12, or one an older build made
+    after a rollback — and every design field then means "none", so the objective reads exactly
+    as it did. A record that carries the design inline (round 12's first cut, never deployed) is
+    read too, and split on its next write. A key in the record that no build of this store writes
+    is refused, as a damaged file is, rather than dropped on the next write; a design key this
+    build does not know is kept and written back as it was, under the version that wrote it
+    (``Objective._design_extra``, ``_design_version``).
+    """
+    if not isinstance(raw, dict):
+        raise ValueError("an objective record is a JSON object")
+    if design is not None and not isinstance(design, dict):
+        raise ValueError("an objective's design is a JSON object")
+    data = dict(raw)
+    inline = {k: data.pop(k) for k in (*DESIGN_FIELDS, "version") if k in data}
+    unknown = set(data) - set(RECORD_FIELDS)
+    if unknown:
+        raise ValueError(f"unknown fields {sorted(unknown)}")
+    data.setdefault("kind", "business")
+    data.setdefault("engineering", [])
+    shape = {**inline, **(design or {})}
+    for stamp in _STAMP:
+        shape.pop(stamp, None)
+    try:
+        written_as = int(shape.pop("version", None) or VERSION)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("an objective's design has no readable version") from exc
+    extra = {k: v for k, v in shape.items() if k not in DESIGN_FIELDS}
+    for name in ("people", "stages", "tasks"):
+        data[name] = list(shape.get(name) or [])
+    for name in ("purpose", "done_when", "check_every_days"):
+        data[name] = shape.get(name)
+    obj = Objective(**data)
+    obj._design_extra = extra
+    obj._design_version = max(VERSION, written_as)
+    return obj
+
+
+def _split(obj: Objective) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The two files an objective is written as: the record the store before round 12 can read,
+    key for key, and its design, stamped with that record."""
+    data = obj.to_dict()
+    record = {k: data[k] for k in RECORD_FIELDS}
+    design = {"version": getattr(obj, "_design_version", VERSION), **_stamp_of(record),
+              **getattr(obj, "_design_extra", {}), **{k: data[k] for k in DESIGN_FIELDS}}
+    return record, design
+
+
+# The keys that tie a design to its record.
+_STAMP = ("id", "kind", "events", "after")
+# Verdicts that mean the file itself is wrong, not merely out of step with its record.
+_DAMAGE = frozenset({"unreadable", "foreign", "version"})
+
+
+def _mark(event: Any) -> str:
+    """One event, as a short fingerprint: the record's history never rewrites an event, so the
+    same event at the same place means the same history up to there."""
+    return hashlib.sha256(json.dumps(event, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+
+
+def _stamp_of(record: dict[str, Any]) -> dict[str, Any]:
+    events = record.get("events") or []
+    return {"id": record.get("id"), "kind": record.get("kind") or "business", "events": len(events),
+            "after": _mark(events[-1]) if events else None}
+
+
+def _well_formed(design: Any) -> bool:
+    """Whether a design has the shape the rest of this file reads without checking again."""
+    if not isinstance(design, dict):
+        return False
+    def text_or_none(value: Any) -> bool:
+        return value is None or isinstance(value, str)
+
+    try:
+        return all((
+            isinstance(design.get("version"), int), isinstance(design.get("id"), str),
+            isinstance(design.get("kind"), str), isinstance(design.get("events"), int) and design["events"] >= 0,
+            text_or_none(design.get("after")),
+            text_or_none(design.get("purpose")), text_or_none(design.get("done_when")),
+            design.get("check_every_days") is None or isinstance(design.get("check_every_days"), int),
+            isinstance(design.get("people", []), list) and all(
+                isinstance(p, dict) and isinstance(p.get("name"), str) and text_or_none(p.get("role"))
+                for p in design.get("people", [])),
+            isinstance(design.get("stages", []), list) and all(
+                isinstance(st, dict) and isinstance(st.get("name"), str) and st.get("state") in STAGE_STATES
+                and text_or_none(st.get("due")) and text_or_none(st.get("waiting_on"))
+                for st in design.get("stages", [])),
+            isinstance(design.get("tasks", []), list) and all(
+                isinstance(t, dict) and isinstance(t.get("id"), str) and isinstance(t.get("who"), str)
+                and isinstance(t.get("text"), str) and isinstance(t.get("done", False), bool) and text_or_none(t.get("due"))
+                for t in design.get("tasks", [])),
+        ))
+    except (TypeError, AttributeError):
+        return False
+
+
+def _verdict(design: Any, record: dict[str, Any]) -> str:
+    """Whether this design belongs with this record: "agrees", or why not.
+
+    unreadable  not a design of the shape this file reads
+    foreign     another objective's
+    version     a format this build does not know
+    ahead       written with a record that has more history than this one: a write that stopped
+                before its record went down
+    history     written after an event this record does not have at that place
+    kind        written for another kind than the record now is (the store production rolls back
+                to can make any objective a build)
+    """
+    if not _well_formed(design):
+        return "unreadable"
+    if design["id"] != record.get("id"):
+        return "foreign"
+    if design["version"] != VERSION:
+        return "version"
+    events = record.get("events") or []
+    count = design["events"]
+    if count > len(events):
+        return "ahead"
+    if (_mark(events[count - 1]) if count else None) != design.get("after"):
+        return "history"
+    if design["kind"] != (record.get("kind") or "business"):
+        return "kind"
+    return "agrees"
 
 
 def _days_left(deadline: str | None) -> int | None:
@@ -175,29 +542,170 @@ class ObjectiveStore:
             raise ObjectiveError(f"There is no objective {objective_id!r}.")
         return self.root / f"{objective_id}.json"
 
-    def _write(self, obj: Objective) -> None:
-        self.root.mkdir(parents=True, exist_ok=True)
-        path = self._path(obj.id)
+    def _design_path(self, objective_id: str) -> Path:
+        return self._path(objective_id).parent / DESIGN_DIR / f"{objective_id}.json"
+
+    def _pending_path(self, objective_id: str) -> Path:
+        return self._path(objective_id).parent / DESIGN_DIR / f"{objective_id}.next.json"
+
+    @staticmethod
+    def _atomic(path: Path, data: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(obj.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, path)
+
+    def _write(self, obj: Objective) -> None:
+        """Three atomic steps, in an order that leaves the whole old objective or the whole new
+        one wherever it stops:
+
+        1. the new design, as design/obj_x.next.json, stamped with the new record;
+        2. the record, obj_x.json;
+        3. the pending design becomes design/obj_x.json.
+
+        Stopped before 2 finishes, the record is the old one: the pending design is ahead of it
+        (written for a record with an event this one does not have) and is not read, and the
+        design is the old one, which agrees — the old objective. Stopped after 2, the record is
+        the new one and both designs agree with it (its history holds the old design's event
+        too); the one written after more of that history is read — the pending one, the new
+        objective. After 3 there is one design and it is the new one. Every write adds an event
+        (a change that changes nothing is not written, ``_change``), which is what makes "more
+        history" certain. The store before round 12 reads only obj_x.json, and at every point
+        that is a whole record, old or new.
+        """
+        record, design = _split(obj)
+        self._settle(obj.id)
+        pending = self._pending_path(obj.id)
+        self._atomic(pending, design)
+        self._atomic(self._path(obj.id), record)
+        os.replace(pending, self._design_path(obj.id))
+
+    def _settle(self, objective_id: str) -> None:
+        """Before a write: finish or discard what the last one left. A pending design the record
+        has (step 3 did not happen) becomes the design; one it does not have (the write stopped
+        before its record) is discarded, since the change it carried was never made."""
+        path = self._path(objective_id)
+        if not path.exists():
+            return
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if not isinstance(record, dict):
+            return
+        chosen = self._design_for(objective_id, record)
+        pending = self._pending_path(objective_id)
+        if chosen is not None and chosen[0] == "pending":
+            os.replace(pending, self._design_path(objective_id))
+        elif pending.exists():
+            pending.unlink()
+            log.info("objective %s: a change that stopped before its record was written was not applied", objective_id)
+
+    def _design_for(self, objective_id: str, record: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+        """The design that belongs with this record — ("design" or "pending", the design) — or
+        None, and what to do with the files that do not.
+
+        A pending design that agrees is the newer of the two (step 3 of a write did not happen),
+        and the design it supersedes is left for ``_settle`` to replace, whatever its verdict,
+        unless it is damage of its own (unreadable, another objective's, an unknown format). A
+        pending design that is only ahead of its record is an unfinished write, also left for
+        ``_settle``. Anything else that cannot be used is set aside."""
+        slots = {"design": self._design_path(objective_id), "pending": self._pending_path(objective_id)}
+        judged: dict[str, tuple[str, Any]] = {}
+        for slot, path in slots.items():
+            if not path.exists():
+                continue
+            try:
+                design = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                design = None
+            judged[slot] = (_verdict(design, record), design)
+        agreeing = {slot: design for slot, (verdict, design) in judged.items() if verdict == "agrees"}
+        chosen = None
+        if agreeing:
+            slot = max(agreeing, key=lambda k: (agreeing[k]["events"], k == "pending"))
+            chosen = (slot, agreeing[slot])
+        for slot, (verdict, _design) in judged.items():
+            if verdict == "agrees":
+                continue
+            if slot == "pending" and verdict in ("ahead", "kind"):
+                continue                                   # an unfinished write: _settle discards it
+            if slot == "design" and chosen and chosen[0] == "pending" and verdict not in _DAMAGE:
+                continue                                   # superseded: _settle replaces it
+            self._set_aside(objective_id, slots[slot], verdict, record)
+        return chosen
+
+    def _set_aside(self, objective_id: str, path: Path, verdict: str, record: dict[str, Any]) -> None:
+        """Keep a design that cannot be used, renamed where no read or write will touch it again,
+        and say so without a word of what is in it."""
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        kept = path.with_name(f"{objective_id}.{stamp}.{verdict}.damaged")
+        try:
+            os.replace(path, kept)
+        except OSError:
+            log.warning("objective %s: its design file (%s) could not be used or set aside; it reads as a plain %s",
+                        objective_id, verdict, record.get("kind") or "business")
+            return
+        log.warning("objective %s: its design file could not be used (%s) and is kept aside as %s; the objective "
+                    "reads as a plain %s from its record", objective_id, verdict, kept.name, record.get("kind") or "business")
+
+    def _read(self, path: Path) -> Objective:
+        with self._lock:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                raise ValueError("an objective record is a JSON object")
+            chosen = self._design_for(path.stem, raw) if _ID.fullmatch(path.stem) else None
+            return _from_record(raw, chosen[1] if chosen else None)
 
     def get(self, objective_id: str) -> Objective:
         path = self._path(objective_id)
         if not path.exists():
             raise ObjectiveError(f"There is no objective {objective_id!r}.")
-        return Objective(**json.loads(path.read_text(encoding="utf-8")))
+        try:
+            return self._read(path)
+        except (OSError, ValueError, TypeError) as exc:
+            # The record itself is damaged: skipped on the home (all), and said, not a 500, here.
+            raise ObjectiveError(f"The record of objective {objective_id!r} cannot be read; it is kept as it is.") from exc
 
     def all(self) -> list[Objective]:
         if not self.root.exists():
             return []
-        out = []
-        for path in sorted(self.root.glob("obj_*.json")):
-            try:
-                out.append(Objective(**json.loads(path.read_text(encoding="utf-8"))))
-            except (ValueError, TypeError):
-                continue  # a damaged file is skipped, never silently rewritten
+        with self._lock:
+            self._tidy()
+            out = []
+            for path in sorted(self.root.glob("obj_*.json")):
+                try:
+                    out.append(self._read(path))
+                except (OSError, ValueError, TypeError):
+                    continue  # a damaged file is skipped, never silently rewritten
         return sorted(out, key=lambda o: o.updated_at, reverse=True)
+
+    def _tidy(self) -> None:
+        """At most hourly: a design file (or its pending one, or a half-written one) whose record
+        does not exist is a creation that stopped before its record was written; once it is a day
+        old it is removed. Files kept aside as .damaged are evidence and stay. Objectives are never
+        deleted, so a design with a record is never removed."""
+        now = time.time()
+        if now - getattr(self, "_tidied", 0.0) < TIDY_EVERY_S:
+            return
+        self._tidied = now
+        folder = self.root / DESIGN_DIR
+        if not folder.is_dir():
+            return
+        for path in folder.iterdir():
+            name = path.name
+            if not (name.endswith(".json") or name.endswith(".json.tmp")):
+                continue
+            objective_id = name.split(".", 1)[0]
+            if not _ID.fullmatch(objective_id) or (self.root / f"{objective_id}.json").exists():
+                continue
+            try:
+                if now - path.stat().st_mtime < ORPHAN_AGE_S:
+                    continue
+                path.unlink()
+            except OSError:
+                continue
+            log.info("objective %s: a design file with no record, a day old, was removed", objective_id)
 
     def live(self) -> list[Objective]:
         return [o for o in self.all() if o.status not in ("done", "dropped")]
@@ -207,30 +715,294 @@ class ObjectiveStore:
         obj.updated_at = _now()
 
     def _change(self, objective_id: str, fn, *, by: str) -> Objective:
+        """One change, under the lock. A change that changes nothing is not written: every write
+        then adds an event, which is what ties a design to its record without doubt (_write)."""
         with self._lock:
             obj = self.get(objective_id)
+            before = _split(obj)
             fn(obj)
-            self._write(obj)
+            if _split(obj) != before:
+                self._write(obj)
             return obj
 
     # ---- creation ---------------------------------------------------------------
     def create(self, *, title: str, request: str, deadline: str | None = None, by: str = "clive",
-               kind: str = "business") -> Objective:
+               kind: str = "business", purpose: str = "", done_when: str = "", people: list | None = None,
+               check_every_days: int | None = None, stages: list | None = None, stage: str = "",
+               waiting_on: str = "", tasks: list | None = None) -> Objective:
+        """A new objective, shaped by its kind. A project is opened with its stages (and the one
+        it is at, when that is known); a tasks objective with its tasks, each with who does it.
+        Everything else in the design is optional and can be added later (`design`)."""
         if kind not in KINDS:
             raise ObjectiveError(f"An objective is one of {', '.join(KINDS)}.")
-        if deadline:
-            try:
-                deadline = date.fromisoformat(str(deadline)).isoformat()
-            except ValueError as exc:
-                raise ObjectiveError(f"The deadline {deadline!r} is not a date (YYYY-MM-DD).") from exc
+        if kind == "project" and not stages:
+            raise ObjectiveError("A project needs its stages, in order (for a drop: sampling, approval, "
+                                 "production, delivery, or the stages he named).")
+        if stages and kind != "project":
+            raise ObjectiveError("Only a project has stages; open it as kind project.")
+        if kind == "tasks" and not tasks:
+            raise ObjectiveError("A tasks objective needs its tasks, each with who is to do it.")
         now = _now()
         obj = Objective(id=_new_id("obj"), title=_clean(title, limit=120, what="title"),
                         request=_clean(request, limit=4000, what="request"), created_at=now, updated_at=now,
-                        deadline=deadline or None, kind=kind)
+                        deadline=_date(deadline, what="deadline"), kind=kind,
+                        purpose=_optional(purpose), done_when=_optional(done_when),
+                        people=self._people(people or []), check_every_days=_check_every(check_every_days))
+        if stages:
+            obj.stages = self._stages([], stages)
+            if stage:
+                self._move(obj, self._stage_index(obj, stage))
+            if waiting_on:
+                here = obj.current_stage()
+                if here is None:
+                    raise ObjectiveError("waiting_on belongs to the stage it is at now; say which stage that is.")
+                here[1]["waiting_on"] = _optional(waiting_on, limit=MAX_NAME * 2)
+        for task in (tasks or [])[:MAX_TASKS]:
+            if not isinstance(task, dict):
+                raise ObjectiveError("Each task has who and text.")
+            self._add_task(obj, who=task.get("who"), text=task.get("text"), due=task.get("due"))
         self._event(obj, "created", "Objective recorded from the owner's request.", by)
         with self._lock:
             self._write(obj)
         return obj
+
+    # ---- the design: stages, tasks, people, dates -------------------------------------
+    @staticmethod
+    def _people(entries: list) -> list[dict]:
+        out: list[dict] = []
+        for entry in list(entries)[:MAX_PEOPLE]:
+            person = _person(entry)
+            if all(_key(p["name"]) != _key(person["name"]) for p in out):
+                out.append(person)
+        return out
+
+    @staticmethod
+    def _stages(existing: list[dict], names: list) -> list[dict]:
+        """The stages in the order given. A stage that already exists (by name, in any case)
+        keeps its state, dates and who it waits on; a new one is upcoming. If the stage the
+        project was at is gone, it is at none until it is told."""
+        if not isinstance(names, list) or not names:
+            raise ObjectiveError("Stages are a list of names, in order.")
+        if len(names) > MAX_STAGES:
+            raise ObjectiveError(f"A project has at most {MAX_STAGES} stages.")
+        by_name = {_key(s["name"]): s for s in existing}
+        out: list[dict] = []
+        for raw in names:
+            name = _clean(raw.get("name") if isinstance(raw, dict) else raw, limit=MAX_NAME, what="stage name")
+            if any(_key(s["name"]) == _key(name) for s in out):
+                raise ObjectiveError(f"The stage {name!r} is named twice.")
+            kept = by_name.get(_key(name))
+            out.append({**kept, "name": name} if kept else {
+                "id": _new_id("s"), "name": name, "state": "upcoming", "due": None, "waiting_on": None,
+                "started_at": None, "done_at": None,
+            })
+        return out
+
+    @staticmethod
+    def _stage_index(obj: Objective, stage: str) -> int:
+        """Which stage `stage` names: its name in any case, or "next" (the one after the stage it
+        is at, or the first when it has not started). len(stages) means past the last one."""
+        wanted = _key(stage)
+        if not obj.stages:
+            raise ObjectiveError("This objective has no stages; only a project does.")
+        if wanted == "next":
+            here = obj.current_stage()
+            if here is not None:
+                return here[0] + 1
+            if all(s.get("state") == "done" for s in obj.stages):
+                raise ObjectiveError("Every stage is already done.")
+            return next(i for i, s in enumerate(obj.stages) if s.get("state") != "done")
+        for index, candidate in enumerate(obj.stages):
+            if _key(candidate["name"]) == wanted:
+                return index
+        names = ", ".join(s["name"] for s in obj.stages)
+        raise ObjectiveError(f"There is no stage {stage!r}; the stages are {names}.")
+
+    @staticmethod
+    def _move(obj: Objective, index: int) -> None:
+        """The project is now at stage `index`: every stage before it done, it current, every
+        stage after it upcoming. Past the last stage, every stage is done. A stage keeps the
+        time it was first done; moving back makes the stages after it upcoming again."""
+        now = _now()
+        for i, stage in enumerate(obj.stages):
+            if i < index:
+                if stage["state"] != "done":
+                    stage["state"], stage["done_at"] = "done", now
+                    stage["started_at"] = stage.get("started_at") or now
+            elif i == index:
+                if stage["state"] != "current":
+                    stage["state"], stage["started_at"], stage["done_at"] = "current", now, None
+            elif stage["state"] != "upcoming":
+                stage["state"], stage["started_at"], stage["done_at"] = "upcoming", None, None
+
+    def _who(self, obj: Objective, who: Any) -> str:
+        """A person as this objective already spells them, or as given."""
+        name = _clean(who, limit=MAX_NAME, what="name of who is to do it")
+        for known in [t.get("who") for t in obj.tasks] + [p["name"] for p in obj.people]:
+            if known and _key(known) == _key(name):
+                return known
+        return _proper(name)
+
+    def _add_task(self, obj: Objective, *, who: Any, text: Any, due: Any) -> dict:
+        person, words = self._who(obj, who), _clean(text, limit=300, what="task")
+        same = next((t for t in obj.tasks if not t.get("done") and _key(t["who"]) == _key(person)
+                     and _key(t["text"]) == _key(words)), None)
+        if same is not None:
+            return same  # said twice is one task, not two
+        if len(obj.tasks) >= MAX_TASKS:
+            raise ObjectiveError(f"An objective holds at most {MAX_TASKS} tasks.")
+        task = {"id": _new_id("t"), "who": person, "text": words, "due": _date(due, what="task's date"),
+                "done": False, "done_at": None, "at": _now()}
+        obj.tasks.append(task)
+        return task
+
+    def design(self, objective_id: str, *, by: str = "clive", title: str | None = None, kind: str | None = None,
+               deadline: str | None = None, purpose: str | None = None, done_when: str | None = None,
+               people: list | None = None, check_every_days: int | None = None, stages: list | None = None,
+               stage: str | None = None, waiting_on: str | None = None, due: str | None = None) -> Objective:
+        """Change what the objective is: only what is passed changes, and an empty string clears
+        a text or a date. `stages` is the whole list in its new order. With `stage`, `due` and
+        `waiting_on` are that stage's and nothing moves (moving is `move_stage`)."""
+        def fn(o: Objective) -> None:
+            said: list[str] = []
+            if title is not None:
+                o.title = _clean(title, limit=120, what="title")
+                said.append(f"Called {o.title}")
+            if kind is not None and kind != o.kind:
+                if kind not in KINDS:
+                    raise ObjectiveError(f"An objective is one of {', '.join(KINDS)}.")
+                if o.engineering and kind != "build":
+                    raise ObjectiveError("A build objective with an engineering request filed stays a build.")
+                if kind == "project" and not (stages or o.stages):
+                    raise ObjectiveError("A project needs its stages, in order.")
+                if o.kind == "project" and kind != "project":
+                    o.stages = []
+                o.kind = kind
+                said.append(f"Now a {kind} objective")
+            if stages is not None:
+                if o.kind != "project":
+                    raise ObjectiveError("Only a project has stages; make it kind project first.")
+                o.stages = self._stages(o.stages, stages)
+                said.append("Stages: " + ", ".join(s["name"] for s in o.stages))
+            if deadline is not None:
+                o.deadline = _date(deadline, what="deadline")
+                said.append(f"Deadline {_on(o.deadline)}" if o.deadline else "No deadline")
+            if purpose is not None:
+                o.purpose = _optional(purpose)
+                said.append(f"Why: {o.purpose}" if o.purpose else "No purpose")
+            if done_when is not None:
+                o.done_when = _optional(done_when)
+                said.append(f"Done when: {o.done_when}" if o.done_when else "No finish line")
+            if people is not None:
+                o.people = self._people(people)
+                said.append("People: " + (", ".join(p["name"] for p in o.people) or "none"))
+            if check_every_days is not None:
+                o.check_every_days = _check_every(check_every_days)
+                said.append(f"Check in every {o.check_every_days} days" if o.check_every_days else "No check-ins")
+            if stage is not None:
+                target = o.stages[self._stage_index(o, stage)] if _key(stage) != "next" else None
+                if target is None:
+                    raise ObjectiveError("Name the stage to change; to move on, use the stage action.")
+                said.extend(self._stage_details(target, waiting_on=waiting_on, due=due))
+            elif waiting_on is not None or due is not None:
+                raise ObjectiveError("waiting_on and due belong to a stage here; name it with stage.")
+            if not said:
+                raise ObjectiveError("Nothing to change was given.")
+            self._event(o, "design", "; ".join(said) + ".", by)
+        return self._change(objective_id, fn, by=by)
+
+    @staticmethod
+    def _stage_details(stage: dict, *, waiting_on: str | None, due: str | None) -> list[str]:
+        said = []
+        if waiting_on is not None:
+            stage["waiting_on"] = _optional(waiting_on, limit=MAX_NAME * 2)
+            said.append(f"{stage['name']} waiting on {stage['waiting_on']}" if stage["waiting_on"]
+                        else f"{stage['name']} waiting on nobody")
+        if due is not None:
+            stage["due"] = _date(due, what="stage's date")
+            said.append(f"{stage['name']} by {_on(stage['due'])}" if stage["due"] else f"{stage['name']} has no date")
+        return said
+
+    def move_stage(self, objective_id: str, stage: str, *, waiting_on: str | None = None, due: str | None = None,
+                   by: str = "clive") -> Objective:
+        """The project is now at `stage` (its name, or "next"). What that stage waits on and its
+        date may be said in the same breath. A record of where the project is: nothing is
+        ordered, booked or sent by moving it."""
+        def fn(o: Objective) -> None:
+            if o.kind != "project":
+                raise ObjectiveError("Only a project has stages.")
+            index = self._stage_index(o, stage)
+            before = o.current_stage()
+            self._move(o, index)
+            if index >= len(o.stages):
+                if waiting_on is not None or due is not None:
+                    raise ObjectiveError("Every stage is done, so no stage is waiting on anything.")
+                last = f"; {before[1]['name']} was the last" if before else ""
+                self._event(o, "stage", f"Every stage done{last}.", by)
+                return
+            here = o.stages[index]
+            extra = self._stage_details(here, waiting_on=waiting_on, due=due)
+            left = f"; {before[1]['name']} done" if before and before[0] < index else ""
+            self._event(o, "stage", f"Now at {here['name']}{left}{'; ' + '; '.join(extra) if extra else ''}.", by)
+        return self._change(objective_id, fn, by=by)
+
+    def task(self, objective_id: str, *, item_id: str = "", who: str | None = None, text: str | None = None,
+             due: str | None = None, done: bool | None = None, by: str = "clive") -> Objective:
+        """One task added (who and text, and a date if one was said), or, with item_id, that
+        task changed: who, what, when, done or not. With only who and done, every one of that
+        person's tasks: "mark Rosa's done". Nothing is sent to anybody."""
+        def fn(o: Objective) -> None:
+            if item_id:
+                found = next((t for t in o.tasks if t["id"] == item_id), None)
+                if found is None:
+                    raise ObjectiveError(f"There is no task {item_id!r} on this objective.")
+                if who is None and text is None and due is None and done is None:
+                    raise ObjectiveError("Nothing to change on that task was given.")
+                self._edit_task(o, found, who=who, text=text, due=due, done=done, by=by)
+                return
+            if text is None and who is not None and done is not None:
+                theirs = [t for t in o.tasks if _key(t["who"]) == _key(who) and bool(t.get("done")) != done]
+                if not theirs:
+                    state = "done" if done else "open"
+                    raise ObjectiveError(f"{_proper(str(who))} has no task that is not already {state}.")
+                for found in theirs:
+                    self._edit_task(o, found, who=None, text=None, due=None, done=done, by=by)
+                return
+            if who is None or text is None:
+                raise ObjectiveError("A new task needs who is to do it and what it is.")
+            added = self._add_task(o, who=who, text=text, due=due)
+            if done:
+                self._edit_task(o, added, who=None, text=None, due=None, done=True, by=by)
+            self._event(o, "task", f"For {added['who']}: {added['text']}"
+                                   f"{' by ' + _on(added['due']) if added.get('due') else ''}.", by)
+        return self._change(objective_id, fn, by=by)
+
+    def _edit_task(self, o: Objective, task: dict, *, who: Any, text: Any, due: Any, done: bool | None,
+                   by: str) -> None:
+        said = []
+        if who is not None:
+            task["who"] = self._who(o, who)
+            said.append(f"now {task['who']}'s")
+        if text is not None:
+            task["text"] = _clean(text, limit=300, what="task")
+            said.append("reworded")
+        if due is not None:
+            task["due"] = _date(due, what="task's date")
+            said.append(f"by {_on(task['due'])}" if task["due"] else "no date")
+        if done is not None and bool(task.get("done")) != bool(done):
+            task["done"], task["done_at"] = bool(done), (_now() if done else None)
+            said.append("done" if done else "not done after all")
+        if said:
+            self._event(o, "task", f"{task['who']}: {task['text']} — {', '.join(said)}.", by)
+
+    def drop_task(self, objective_id: str, item_id: str, *, by: str = "clive") -> Objective:
+        def fn(o: Objective) -> None:
+            found = next((t for t in o.tasks if t["id"] == item_id), None)
+            if found is None:
+                raise ObjectiveError(f"There is no task {item_id!r} on this objective.")
+            o.tasks.remove(found)
+            self._event(o, "task", f"Taken off {found['who']}'s list: {found['text']}.", by)
+        return self._change(objective_id, fn, by=by)
 
     # ---- what CLIVE records as it works --------------------------------------------
     def add_fact(self, objective_id: str, text: str, *, source: str, by: str = "clive") -> Objective:
@@ -303,10 +1075,26 @@ class ObjectiveStore:
 
     def propose(self, objective_id: str, text: str, *, needs_owner: bool, by: str = "clive") -> Objective:
         def fn(o):
+            self._not_the_plan_again(o, text)
             o.items.append({"id": _new_id("w"), "text": _clean(text), "state": "proposed", "needs_owner": bool(needs_owner),
                             "evidence": None, "history": [{"state": "proposed", "at": _now(), "by": by}]})
             self._event(o, "proposed", f"{text}{' (needs your approval)' if needs_owner else ''}", by)
         return self._change(objective_id, fn, by=by)
+
+    @staticmethod
+    def _not_the_plan_again(o: Objective, text: str) -> None:
+        """A work item that repeats one of the people's tasks or a stage is the design written out
+        a second time as a to-do list, which is exactly the complaint round 12 answers: refused,
+        with what to do instead. "Rosa: steam the samples" and "Steam the samples" both repeat
+        Rosa's task."""
+        said = _key(text)
+        for task in o.tasks:
+            if said in (_key(task["text"]), _key(f"{task['who']}: {task['text']}")):
+                raise ObjectiveError(f"That is already {task['who']}'s task; tasks are not work items. "
+                                     "Use action task to change it.")
+        for stage in o.stages:
+            if said == _key(stage["name"]):
+                raise ObjectiveError(f"{stage['name']} is already a stage of this project; move it with action stage.")
 
     def advance(self, objective_id: str, item_id: str, to: str, *, evidence: str = "", by: str = "clive") -> Objective:
         """Move a work item up the ladder. The owner's approval is never taken from here."""

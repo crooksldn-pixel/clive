@@ -441,6 +441,7 @@ def build(settings: Settings | None = None) -> Runtime:
     from app.tools import (  # noqa: F401
         analytics_tools,
         batch_tools,
+        close_screen,
         display_tools,
         engineering_tools,
         gmail_tools,
@@ -448,6 +449,7 @@ def build(settings: Settings | None = None) -> Runtime:
         mock,
         shopify_tools,
         shopify_writes,
+        show_again,
     )
 
     objectives = install_objectives(settings.objectives_dir)
