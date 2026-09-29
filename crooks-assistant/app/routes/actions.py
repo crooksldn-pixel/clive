@@ -509,7 +509,23 @@ async def commit(request: Request, proposal_id: str, session_id: str = Form(defa
     # The arming token travels as a header: the body carries the session and nothing else,
     # and the token is an authorisation, not an argument.
     nonce = request.headers.get("x-crooks-arm", "").strip()[:64]
+    # A change prepared from a workspace (an order, a code, a credit): a card that has already
+    # made its one thing — or is making it now — makes nothing more, whichever hold card is
+    # held; and while this one is being applied the card is finished, so a second Prepare
+    # meanwhile cannot make a second (app/families/_workspace.py "made once").
+    from app.families import _workspace as workspaces
+
+    if pending is not None:
+        already = workspaces.commit_refused(pending)
+        if already:
+            runtime.actions.revoke_ids([pending.proposal_id], "its card has already made what it was for")
+            timeline.emit("action_commit_refused", session_id=session_id.strip(), proposal_id=proposal_id,
+                          code="already_made", ms=_elapsed(started))
+            return _refuse(409, "already_made", already)
+        workspaces.before_commit(pending)
     result = await runtime.actions.commit(proposal_id, session_id.strip(), caller=caller, spec_lookup=spec_lookup, nonce=nonce)
+    if result.proposal is not None:
+        workspaces.after_commit(result.proposal, session=owner_session)
     if result.proposal is None:
         timeline.emit("action_commit_refused", session_id=session_id.strip(), proposal_id=proposal_id, code=result.code, detail="no such proposal", ms=_elapsed(started))
         return _refuse(404 if result.code == "unknown" else 403, result.code, "No such proposal for this session.")

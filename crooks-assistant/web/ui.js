@@ -2843,8 +2843,8 @@
         ]),
         // Once it has made what it was for, it says so: "Created", or "Not confirmed" when the
         // change left and no answer came back (app/families/_workspace.py `settled`).
-        h('div', { class: 'badges' }, [settled === 'created' ? badge('Created', 'ok')
-          : settled ? badge('Not confirmed', 'warn') : badge(blocked ? 'Not ready' : 'Draft', blocked ? 'warn' : '')]),
+        h('div', { class: 'badges' }, [settled === 'created' ? badge(text(d.settled_word, 'Created'), 'ok')
+          : settled ? badge(text(d.settled_word, 'Not confirmed'), 'warn') : badge(blocked ? 'Not ready' : 'Draft', blocked ? 'warn' : '')]),
       ]),
       lines,
       picks,

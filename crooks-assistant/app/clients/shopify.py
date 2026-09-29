@@ -52,6 +52,22 @@ class ShopifyRefused(ShopifyError):
     refused = True
 
 
+class ShopifyUnreached(ShopifyError):
+    """Shopify could not be reached at all: the connection was never made, so no request left
+    this Mac and nothing can have been applied. Told apart from an answer that never came back,
+    which is a request that DID leave (round 12's second check: a completion that never left
+    must not lock the card it was prepared from as "sent")."""
+
+    unsent = True
+
+
+class ShopifyWithheld(ShopifyError):
+    """A change this Mac refused to send: not a reviewed mutation, or not the reviewed shape.
+    Nothing left, so nothing can have been applied."""
+
+    unsent = True
+
+
 class ShopifyPreconditionFailed(ShopifyError):
     """Shopify refused a change because the entity was not as the sender assumed — a
     compare-and-swap that found another quantity, an order that cannot be cancelled as it
@@ -991,21 +1007,21 @@ class ShopifyClient:
         readonly.assert_writable(f"the Shopify mutation {name!r}")
         reviewed = REVIEWED_MUTATIONS.get(name)
         if reviewed is None:
-            raise ShopifyError(f"Refused: {name!r} is not a reviewed mutation.")
+            raise ShopifyWithheld(f"Refused: {name!r} is not a reviewed mutation.")
         if not isinstance(variables, dict) or set(variables) != set(reviewed.variables):
-            raise ShopifyError(f"Refused: {name} variables do not match the reviewed set.")
+            raise ShopifyWithheld(f"Refused: {name} variables do not match the reviewed set.")
         for key, kind in reviewed.variables.items():
             value = variables[key]
             if not isinstance(value, kind) or isinstance(value, bool) and kind is not bool:
-                raise ShopifyError(f"Refused: {name}.{key} has the wrong type.")
+                raise ShopifyWithheld(f"Refused: {name}.{key} has the wrong type.")
             if isinstance(value, str) and (not value.strip() if key == "id" else len(value) > reviewed.max_chars):
-                raise ShopifyError(f"Refused: {name}.{key} is out of bounds.")
+                raise ShopifyWithheld(f"Refused: {name}.{key} is out of bounds.")
             if isinstance(value, list):
                 # A list carries strings only, each bounded, and not too many of them.
                 if not value or len(value) > 20 or any(not isinstance(v, str) or not v.strip() or len(v) > reviewed.max_chars for v in value):
-                    raise ShopifyError(f"Refused: {name}.{key} is out of bounds.")
+                    raise ShopifyWithheld(f"Refused: {name}.{key} is out of bounds.")
             if isinstance(value, dict) and reviewed.validate is not None and not reviewed.validate(key, value):
-                raise ShopifyError(f"Refused: {name}.{key} does not match the reviewed shape.")
+                raise ShopifyWithheld(f"Refused: {name}.{key} does not match the reviewed shape.")
         self.mutations_sent += 1
         log.info("mutation %s sent", name)
         try:
@@ -1069,6 +1085,8 @@ class ShopifyClient:
                 },
                 json={"query": query, "variables": variables or {}},
             )
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+            raise ShopifyUnreached(f"Could not reach Shopify: {exc}") from exc
         except httpx.HTTPError as exc:
             raise ShopifyError(f"Could not reach Shopify: {exc}") from exc
 

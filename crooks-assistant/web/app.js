@@ -3622,6 +3622,16 @@ function settleProposals(ids, state, label) {
   return AS.settleProposals(ids, state, label, visibleCards());
 }
 
+// Hold cards the Mac withdrew because the card they were prepared from has just been changed by
+// a tap (app/families/_workspace.py `touched`): settled where they stand, in the Mac's words —
+// "The order changed — prepare it again." — so the card beside the changed one is never a hold
+// for what it used to say (round 12's second check).
+function settleWithdrawn(answered) {
+  const changed = answered && answered.changed;
+  if (!changed || !Array.isArray(changed.withdrawn) || !changed.withdrawn.length) return;
+  settleProposals(changed.withdrawn.map(String), 'revoked', String(changed.withdrawn_words || 'Withdrawn'));
+}
+
 // A settled action replaces its card, and a verified re-read of the entity replaces every
 // card that showed that entity, so the screen shows Shopify as it now is.
 //
@@ -4751,6 +4761,7 @@ async function composeFieldChanged(control) {
   // workspace line — a message about the screen, printed for something that happened inside
   // one control, 788px from the thumb that typed it.
   if (!answered.ok) { notifyControl(String(answered.detail || 'That could not be applied.'), control, { tone: 'bad', code: 'field_refused' }); return; }
+  settleWithdrawn(answered);
   if (!Array.isArray(answered.ui) || !answered.ui.length || !card) return;
   const fresh = replaceComposeCard(card, answered.ui);
   if (!fresh) return;
@@ -4845,6 +4856,7 @@ if (!window.__crooksCommandDelegate) {
     // is a message about the screen, and this is not one.
     if (!answered) { notifyControl('The server did not answer.', button, { tone: 'bad', code: 'offline' }); return; }
     if (!answered.ok) { notifyControl(String(answered.detail || 'That could not be done.'), button, { tone: 'bad', code: codeOf(answered.code, 'command_refused') }); return; }
+    settleWithdrawn(answered);
     /* A card the Mac has just taken away goes off the glass (§19: visual state outranks
        the spoken claim). `compose.discard` answers "Gone. Nothing was saved." and sends
        `changed.discarded` — the composer's own id — and NO `ui`, because there is nothing
