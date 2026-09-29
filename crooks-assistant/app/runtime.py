@@ -448,6 +448,7 @@ def build(settings: Settings | None = None) -> Runtime:
         mock,
         shopify_tools,
         shopify_writes,
+        show_again,
     )
 
     objectives = install_objectives(settings.objectives_dir)

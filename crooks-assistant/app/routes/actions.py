@@ -17,7 +17,7 @@ import time
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse
 
-from app import readonly
+from app import readonly, screen
 from app.actions import grammar
 from app.observability import timeline
 from app.presentation import present, present_action, present_proposal_state
@@ -387,6 +387,11 @@ async def row(request: Request, session_id: str = Form(default=""), action: str 
     runtime.actions.deliver(proposal_id)
     timeline.emit("row_action", session_id=session_id, turn_id=getattr(owner_session, "turn_id", "") or None, action=str(action)[:40], ok=True, proposal_id=proposal_id)
     ui = present(calls, session=owner_session, writes=await writes_context(request))
+    # The list the row was on stays, with the card beside it (app/screen.py); and it is what
+    # this half now shows, so a reload or a switch of halves draws the same.
+    half = owner_session.branch(row_half)
+    ui = screen.carry(ui, branch=half, session=owner_session)
+    half.shown(ui, half.last_answer, half.last_question)
     return {"staged": True, "proposal_id": proposal_id, "ui": ui}
 
 
@@ -541,11 +546,19 @@ async def commit(request: Request, proposal_id: str, session_id: str = Form(defa
         undo_proposal = session.proposal(proposal.undo_id)
         if undo_proposal is not None:
             undo = undo_proposal.public()
+    writes = await writes_context(request, proposal.operation)
+    # The record the change was about stays where the owner left it, redrawn with its new
+    # state — as the workspace it was shown as, with what can be done with it now — and the
+    # half's own copy of its screen is settled to match what the tablet draws (app/screen.py).
+    ui = screen.after_gesture(
+        present_action(result, session=session, writes=writes), session=session, proposal_id=proposal.proposal_id,
+        undo_of=proposal.undo_of or "", entity=proposal.entity, entity_kind=proposal.entity_kind, writes=writes,
+    )
     return {
         **proposal.public(),
         "code": result.code,
         "spoken": result.spoken,
-        "ui": present_action(result, session=session, writes=await writes_context(request, proposal.operation)),
+        "ui": ui,
         "undo": undo,
     }
 

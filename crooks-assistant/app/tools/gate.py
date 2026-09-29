@@ -157,6 +157,12 @@ _KNOWN_TOOLS = frozenset({
     # them, screen_video plays, pauses or turns it up. Each changes only CLIVE's own record of
     # screens; nothing in a store or an inbox is reachable from either.
     "screen_play", "screen_video",
+    # Round 12: putting back on the owner's own app something this conversation already showed
+    # him (app/tools/show_again.py). A read: it reads the record again through the registered
+    # read tool, draws a composer or a half-built workspace from the Mac's own copy, and stages
+    # nothing. The id it is handed must be an issued one (its ToolSpec names `ref`, which this
+    # file checks like every issued-id argument).
+    "show_again",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops

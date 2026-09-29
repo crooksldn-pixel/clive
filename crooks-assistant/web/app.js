@@ -1654,6 +1654,62 @@ function adoptContext(nodes, items, question) {
   // two snapshots of one screen is half of D-8's seven renders of one turn.
 }
 
+/* --------------------------------------------- what stays on the glass (round 12)
+ *
+ * George: "a task is asked, a screen is shown, an edit is asked, the edit succeeds, however the
+ * screen disappears. This is a persistent issue." An answer whose only card was the change —
+ * the note waiting for his tap, a refusal — or that answered in words was drawn as a screen of
+ * its own, and the order he was working on went with the screen before it.
+ *
+ * The Mac now says when an answer continues the screen (app/screen.py): the cards it carried
+ * over are marked, and web/ui.js `continueScreen` draws the answer onto the glass keeping every
+ * node it can. What is decided here is only what the deck makes of that: it is the same stop
+ * on the deck, not a new one, the owner is not thrown back to the top of it, and a card that
+ * has just arrived — the one to tap — is brought into view if it is out of it. */
+
+// The answer drawn onto the screen that is up, or null when it does not continue it (or the
+// glass is not the screen the Mac thinks it is, and the answer must be drawn whole).
+function continueDeck(items) {
+  if (!window.CrooksUI || typeof window.CrooksUI.continueScreen !== 'function' || historyIndex < 0) return null;
+  return window.CrooksUI.continueScreen(el.cards, items, renderOpts());
+}
+
+// The deck's own copy of a screen that carried on: this stop, as it now stands.
+function carryContext(carried, items, question) {
+  history[historyIndex] = { nodes: carried.nodes.slice(), entities: entitiesOf(items), question: question || '' };
+  showHistory(historyIndex, { keep: true });
+  renderRecent();
+  armDeckExpiry();
+  for (const node of carried.nodes) collectPending(node);
+  if (carried.first) bringIntoView(carried.first);
+  T.record('navigate', {
+    nav: 'carried', index: historyIndex, entities: history[historyIndex].entities,
+    kept: carried.kept || undefined, changed: carried.redrawn || undefined, added: carried.added || undefined,
+    removed: carried.removed || undefined,
+  });
+}
+
+// A card that has just arrived above where the owner is reading is scrolled to, the least
+// distance that shows it; one already in view is left alone. Calm, and instant when he has
+// asked for less motion.
+function bringIntoView(node) {
+  if (!node || typeof node.scrollIntoView !== 'function') return;
+  const go = () => {
+    try { node.scrollIntoView({ block: 'nearest', behavior: REDUCED.matches ? 'auto' : 'smooth' }); } catch { /* an old WebView: it is there when he scrolls */ }
+  };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(go); else go();
+}
+
+// An answer to a tap, drawn: onto the screen when it carries it on, as a new stop otherwise.
+function drawTapAnswer(items, words) {
+  const carried = continueDeck(items);
+  if (carried) { carryContext(carried, items, words); return true; }
+  const rendered = window.CrooksUI.render(items, renderOpts());
+  if (!rendered.nodes.length) return false;
+  pushContext(rendered.nodes, items, words);
+  return true;
+}
+
 /* ------------------------------------------- the workspace, as it arrives (§7, D-5)
  *
  * The Mac stages the screen in pieces now: a skeleton the moment it knows what kind of thing
@@ -1665,7 +1721,9 @@ function adoptContext(nodes, items, question) {
  * `turn_c8eb4cffe077` put nothing on the glass for 7,975 ms and the owner said the system
  * "waits and then dumps a large chunk". This is the other end of that.
  */
-const glass = { turn: '', cursor: 0, applied: 0, stale: false };
+// `fresh`: a new turn has begun and nothing of it is on the glass yet — the last answer's
+// screen is still the one up (round 12).
+const glass = { turn: '', cursor: 0, applied: 0, stale: false, fresh: false };
 
 // Rule: never move a control the owner is touching, and never take the keyboard or the
 // microphone away mid-gesture. While any of these is true the whole batch waits — the cursor
@@ -1680,6 +1738,7 @@ function resetGlass() {
   glass.cursor = 0;
   glass.applied = 0;
   glass.stale = false;
+  glass.fresh = false;
 }
 
 // A turn that never answered — the Mac asleep, the tailnet dropped, two minutes gone — leaves
@@ -1707,15 +1766,31 @@ function applyWorkspace(payload) {
   if (!window.CrooksUI || typeof window.CrooksUI.applyPatches !== 'function') return false;
   const turnId = String(payload.turn_id || '');
   if (turnId && glass.turn !== turnId) {
-    // A new question. Its shell takes the screen the last answer had; the last answer's own
-    // nodes are still in the history array, so Back still reaches it.
+    // A new question. The last answer's screen stays up until this one has something of its
+    // own to show (round 12): the glass used to be cleared at the first poll, so the order the
+    // owner was editing vanished the moment he asked for the edit, and stayed gone while CLIVE
+    // thought — and for good when the answer was only the card for the change.
     resetGlass();
     glass.turn = turnId;
-    clear(el.cards);
+    glass.fresh = true;
   }
   if (payload.gap) { glass.stale = true; return false; }
   const patches = Array.isArray(payload.patches) ? payload.patches : [];
   if (!patches.length) return false;
+  if (glass.fresh) {
+    // The first patches of this turn. New cards take the screen: the old one's nodes are
+    // still in the history array, so Back still reaches it. Patches that only touch cards
+    // already up are held — the cursor does not move, so they come again with whatever
+    // follows — and the turn's own answer settles those cards (`renderTurn`).
+    const landing = window.CrooksUI.landingOf ? window.CrooksUI.landingOf(el.cards, patches) : 'replace';
+    // Held only while that screen is actually up: over the orb there is nothing to keep.
+    if (landing === 'hold' && historyIndex >= 0 && el.body.dataset.mode === 'context') return false;
+    // And never taken away from under a finger: the whole batch waits for the hand, as a
+    // patch does (web/ui.js applyPatches, rule 2).
+    if (deckHeld()) { T.record('workspace_deferred', { count: patches.length, name: recording ? 'recording' : 'gesture' }); return false; }
+    clear(el.cards);
+    glass.fresh = false;
+  }
   const out = window.CrooksUI.applyPatches(el.cards, patches, { held: deckHeld, opts: renderOpts() });
   if (out.deferred) {
     T.record('workspace_deferred', { count: out.deferred, name: recording ? 'recording' : 'gesture' });
@@ -2270,7 +2345,11 @@ function renderAttentionSurface() {
 
 // The answer to a turn: cards first, then the mode they need.
 function renderTurn(data) {
-  const ui = window.CrooksUI ? window.CrooksUI.render(data.ui, renderOpts()) : { nodes: [], skipped: [], stack: null, errors: [], hasContext: false };
+  // An answer that continues the screen that is up (the Mac marked what it carried over) is
+  // drawn onto it, keeping every card it can — round 12, "the screen disappears". Anything
+  // else is drawn whole, as it always was.
+  const carried = continueDeck(data.ui);
+  const ui = carried || (window.CrooksUI ? window.CrooksUI.render(data.ui, renderOpts()) : { nodes: [], skipped: [], stack: null, errors: [], hasContext: false });
   // Round 9, the screens remote: CLIVE's screen_remote card (his answer when the owner asks for a
   // remote) opens the remote for its screen over the app (web/remote.js). The card is drawn as usual.
   if (window.CliveRemote) window.CliveRemote.fromTurn(data.ui);
@@ -2292,6 +2371,17 @@ function renderTurn(data) {
   // block, end of this file). Deferred inside, because this turn is still in flight.
   const answer = data.answer || '';
   const renderInfo = { skipped: ui.skipped.length ? ui.skipped : undefined, errors: ui.errors.length ? ui.errors.map((e) => e.title || 'error') : undefined, attention: attentionItems.length || undefined, answer_chars: answer.length };
+  if (carried) {
+    if (answer.length > 200 && window.CrooksUI) {
+      // Too long to read in the band above the cards: it gets a card of its own, on top of the
+      // screen it is about rather than instead of it.
+      const said = window.CrooksUI.renderItem({ type: 'assistant', data: { text: answer } });
+      if (said) { el.cards.insertBefore(said, el.cards.firstChild); carried.nodes.unshift(said); carried.first = said; }
+    }
+    carryContext(carried, data.ui, data.question);
+    snapshotSoon(Object.assign({ kept: true }, renderInfo));
+    return;
+  }
   if (ui.hasContext && onlyLiveCardsAlreadyShown(data.ui)) {
     // The Mac re-presented a card that is already live on this screen (a spoken yes): the
     // deck stays as it is, the order beside it included — but it is brought back into view,
@@ -3108,12 +3198,9 @@ async function rowAction(action, ref, button) {
       return;
     }
     if (label) label.textContent = 'Waiting for you';
-    if (data && Array.isArray(data.ui) && data.ui.length) {
-      const rendered = window.CrooksUI.render(data.ui, renderOpts());
-      if (rendered.nodes.length) {
-        pushContext(rendered.nodes, data.ui, 'Archive');
-        speakAnswer('That one is ready to archive. Tap the card.');
-      }
+    if (data && Array.isArray(data.ui) && data.ui.length && window.CrooksUI) {
+      // The list the row is on stays, with the card above it (round 12).
+      if (drawTapAnswer(data.ui, 'Archive')) speakAnswer('That one is ready to archive. Tap the card.');
     }
   } catch {
     T.record('row_action', { action, status: 0, outcome: 'refused' });
@@ -3319,6 +3406,9 @@ function settleAction(node, payload, status) {
     // Mac has just re-read it, and the undo as a control of its own. The deck's history is
     // patched in place (replaceCardNodes), so where the owner is does not move.
     replaceCardNodes(node, rendered.nodes);
+    // The record the proof re-read goes on filling in as a turn's does: its history and its
+    // inbox are collected after it is up rather than left saying "reading…" (round 12).
+    for (const fresh of rendered.nodes) collectPending(fresh);
   } else {
     settleActionNode(node, code === 'verified' ? 'verified' : code, AS.labelFor(code, 'Not applied'));
   }
@@ -3484,20 +3574,52 @@ function settleProposals(ids, state, label) {
 // the first, so every call here silently reached the other one and settleAction handed DOM
 // nodes to CrooksUI.render. The name says which one it is now.
 function replaceCardNodes(oldNode, newNodes) {
-  const first = newNodes[0];
-  const rest = newNodes.slice(1);
+  // Round 12: the record the proof re-read is usually already up — the order under the card,
+  // kept there while the change waited. It is redrawn where it stands, with its new state; only
+  // the rest (the proof) take the card's place. Appending it after the proof put the same
+  // order on the glass twice, the stale copy above the fresh one.
+  const inPlace = refreshInPlace(oldNode, newNodes);
+  const here = newNodes.filter((node) => inPlace.indexOf(node) === -1);
   for (const entry of history) {
     const at = entry.nodes.indexOf(oldNode);
-    if (at !== -1) entry.nodes.splice(at, 1, ...newNodes);
+    if (at !== -1) entry.nodes.splice(at, 1, ...here);
   }
   if (oldNode.parentNode) {
-    oldNode.parentNode.replaceChild(first, oldNode);
-    let after = first;
-    for (const node of rest) { after.parentNode.insertBefore(node, after.nextSibling); after = node; }
+    const parent = oldNode.parentNode;
+    if (here.length) {
+      parent.replaceChild(here[0], oldNode);
+      let after = here[0];
+      for (const node of here.slice(1)) { parent.insertBefore(node, after.nextSibling); after = node; }
+    } else {
+      parent.removeChild(oldNode);
+    }
   }
   for (const node of newNodes) {
     if (node.dataset && node.dataset.type === 'order' && node.dataset.ref) refreshEntityCards(node);
   }
+}
+
+// Each new node whose card is already on the glass, elsewhere than `oldNode`, put in that
+// card's place (and in the deck's copies of it), without replaying its entrance. Returns the
+// nodes placed.
+function refreshInPlace(oldNode, newNodes) {
+  const placed = [];
+  if (!el.cards || !window.CrooksUI || typeof window.CrooksUI.renderIdOf !== 'function') return placed;
+  const up = Array.prototype.slice.call(el.cards.children).filter((node) => node !== oldNode);
+  for (const fresh of newNodes) {
+    const id = window.CrooksUI.renderIdOf(fresh);
+    const stale = id ? up.find((node) => window.CrooksUI.renderIdOf(node) === id) : null;
+    if (!stale || !stale.parentNode) continue;
+    fresh.dataset.patched = '1';
+    stale.parentNode.replaceChild(fresh, stale);
+    for (const entry of history) {
+      const at = entry.nodes.indexOf(stale);
+      if (at !== -1) entry.nodes[at] = fresh;
+    }
+    up.splice(up.indexOf(stale), 1);
+    placed.push(fresh);
+  }
+  return placed;
 }
 
 function refreshEntityCards(fresh) {
@@ -4684,8 +4806,9 @@ if (!window.__crooksCommandDelegate) {
       T.record('render', { name: 'compose_discarded', items: [], id: gone });
     }
     if (Array.isArray(answered.ui) && answered.ui.length && window.CrooksUI) {
-      const rendered = window.CrooksUI.render(answered.ui, renderOpts());
-      if (rendered.nodes.length) pushContext(rendered.nodes, answered.ui, answered.answer || '');
+      // Onto the screen when the answer carries it on — Add on the variant picker, Save draft
+      // on the composer: the order or the thread stays with the card under it (round 12).
+      drawTapAnswer(answered.ui, answered.answer || '');
     }
     if (answered.answer) { el.answer.textContent = answered.answer; speakAnswer(answered.answer); }
   });

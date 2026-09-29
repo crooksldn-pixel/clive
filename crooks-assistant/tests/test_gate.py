@@ -248,10 +248,14 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     assert {"screen_list", "screen_show", "screen_pair"} <= gate._KNOWN_TOOLS
     assert {"screen_off", "screen_remote"} <= gate._KNOWN_TOOLS
     assert {"screen_play", "screen_video"} <= gate._KNOWN_TOOLS
-    assert "shopify_order_build" in gate._KNOWN_TOOLS
-    assert len(gate._KNOWN_TOOLS) == 42, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
+    # Round 12: shopify_order_build, every spoken change to an order being built (a Mac-side
+    # edit; creating still goes through shopify_order_create's hold), and show_again, a read
+    # that puts back on the owner's app what the conversation already showed him; its `ref` is
+    # an issued-id argument declared on its ToolSpec.
+    assert {"shopify_order_build", "show_again"} <= gate._KNOWN_TOOLS
+    assert len(gate._KNOWN_TOOLS) == 43, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
                                           "screen_off and screen_remote, then screen_play and screen_video, "
-                                          "then round 12's shopify_order_build")
+                                          "then round 12's shopify_order_build and show_again")
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",
