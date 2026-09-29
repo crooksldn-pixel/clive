@@ -8,7 +8,7 @@ objectives on his home, and a model scripted for the three sentences the script 
 the page then does — the orders it is shown, the ids that issues, the drops, the TV page drawing
 what was dropped — is the real code. Skipped, and said so, where there is no browser.
 
-Screenshots go to CROOKS_LIFT_SHOTS when it is set (the round-12 report's pictures), and nowhere
+Screenshots go to R12_LIFT_SHOTS when it is set (the round-12 report's pictures), and nowhere
 otherwise.
 """
 
@@ -61,7 +61,7 @@ async def _run(tmp_path) -> dict:
         goals = objectives_module.install(tmp_path / "goals")
         goals.create(title="Autumn drop shoot", request="Get the autumn drop shot by Friday", deadline="2026-10-03", by="owner")
         goals.create(title="Restock the black caps", request="Restock the black caps before the weekend", by="owner")
-        shots = os.environ.get("CROOKS_LIFT_SHOTS", "")
+        shots = os.environ.get("R12_LIFT_SHOTS", "")
         result = await asyncio.to_thread(
             subprocess.run, ["node", str(SCRIPT), f"http://127.0.0.1:{port}", shots],
             cwd=browser.ROOT, capture_output=True, text=True, timeout=600,

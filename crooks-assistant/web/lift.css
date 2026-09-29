@@ -102,14 +102,15 @@ html[data-lite] .lift-tray{-webkit-backdrop-filter:none;backdrop-filter:none;bac
 .lift-done-words{min-width:0}
 @keyframes lift-arrive{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
-/* ---- the chip under the finger ---- */
-.lift-chip{position:fixed;left:0;top:0;z-index:31;pointer-events:none;will-change:transform;opacity:0;transition:opacity 160ms ease}
+/* ---- the chip under the finger: moved by its transform alone, every frame, without a transition;
+   one only when it goes back into its card or into the screen it was dropped on ---- */
+.lift-chip{position:fixed;left:0;top:0;z-index:31;pointer-events:none;will-change:transform;opacity:0;transition:opacity 160ms ease;
+  display:flex;align-items:center;gap:12px;box-sizing:border-box;max-width:min(300px,calc(100vw - 24px));padding:9px 18px 9px 9px;
+  border-radius:18px;color:#fff;background:rgba(44,44,50,.95);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.2),0 0 0 1.5px rgba(var(--lift-acc),.85),0 22px 44px -14px rgba(0,0,0,.78)}
 .lift-chip.is-up{opacity:1}
 .lift-chip.is-going{opacity:0;transition:transform 250ms var(--lift-spring),opacity 250ms ease}
 .lift-chip.is-gone{opacity:0;transition:opacity 180ms ease}
-.lift-chip{display:flex;align-items:center;gap:12px;box-sizing:border-box;max-width:min(300px,calc(100vw - 24px));padding:9px 18px 9px 9px;
-  border-radius:18px;color:#fff;background:rgba(44,44,50,.95);
-  box-shadow:inset 0 1px 1px rgba(255,255,255,.2),0 0 0 1.5px rgba(var(--lift-acc),.85),0 22px 44px -14px rgba(0,0,0,.78)}
 .lift-chip.is-up .lift-chip-glyph,.lift-chip.is-up .lift-chip-words{animation:lift-pop 260ms var(--lift-spring) both}
 @keyframes lift-pop{from{transform:scale(.86);opacity:.2}to{transform:none;opacity:1}}
 .lift-chip-glyph{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;color:#fff;

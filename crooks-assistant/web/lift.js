@@ -294,6 +294,11 @@
   function drawScreens() {
     const U = build();
     const L = P.lift;
+    // From the keyboard, the screen that has the focus keeps it through a redraw, and focus on the
+    // tray's other controls is left where it is.
+    const active = doc.activeElement;
+    const focused = active && active.dataset ? active.dataset.screen || '' : '';
+    const elsewhere = Boolean(active && !focused && U.tray.contains(active));
     while (U.list.firstChild) U.list.removeChild(U.list.firstChild);
     const all = Array.isArray(P.screens) ? P.screens : [];
     const ready = all.filter((s) => !s.pending);
@@ -327,7 +332,10 @@
       ? 'Waiting for approval: ' + waiting.join(', ') + '. Tell CLIVE the code it shows.' : '';
     U.note.className = 'lift-note';
     measureList();
-    if (L.keyboard && L.mode === 'pick' && L.tiles.length) { try { L.tiles[0].el.focus(); } catch (e) { /* not focusable */ } }
+    if (L.keyboard && L.mode === 'pick' && L.tiles.length && !elsewhere) {
+      const again = L.tiles.find((t) => t.screen.id === focused) || L.tiles[0];
+      try { again.el.focus(); } catch (e) { /* not focusable */ }
+    }
   }
 
   // A list longer than the tray is marked, so its edges fade as it scrolls (web/lift.css).
@@ -382,13 +390,13 @@
     L.chip.style.transform = 'translate3d(' + at.left + 'px,' + at.top + 'px,0)' + (L.over && L.over.screen ? ' scale(1.03)' : '');
   }
   // The chip goes somewhere and fades: back into the card it came from, or into the screen it went to.
-  function sendChip(L, rect, then) {
+  function sendChip(L, rect) {
     const chip = L.chip;
     L.chip = null;
-    if (!chip) { if (then) then(); return; }
+    if (!chip) return;
     if (calm() || !rect) {
       chip.classList.add('is-gone');
-      setTimeout(() => { chip.remove(); if (then) then(); }, calm() ? 120 : 200);
+      setTimeout(() => chip.remove(), calm() ? 120 : 200);
       return;
     }
     const size = L.chipSize || { w: 240, h: 56 };
@@ -396,7 +404,7 @@
     const cy = Math.max(0, Math.min(view().h, rect.top + rect.height / 2)) - size.h / 2;
     chip.classList.add('is-going');
     chip.style.transform = 'translate3d(' + Math.round(cx) + 'px,' + Math.round(cy) + 'px,0) scale(.55)';
-    setTimeout(() => { chip.remove(); if (then) then(); }, 260);
+    setTimeout(() => chip.remove(), 260);
   }
 
   // ---- pressing and holding -----------------------------------------------------------------

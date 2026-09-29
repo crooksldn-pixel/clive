@@ -32,6 +32,7 @@ order here, with no exception for either.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 from typing import Any
 
@@ -48,6 +49,8 @@ from app.tools.gate import Disposition, classify
 ARGUMENT = {"order": "order_id", "objective": "objective_id"}
 
 MAX_REF = 200
+
+log = logging.getLogger("crooks.displays")
 
 
 class Refused(Exception):
@@ -107,7 +110,23 @@ def _words(said: str, call: Any, name: str) -> str:
 
 async def put_held(request: Request, screen_id: str, kind: str, ref: str, *, session_id: str) -> dict[str, Any]:
     """Put the record the owner held on the screen he dropped it on, or say exactly why not.
-    Returns what the screen now shows and whether it is on; raises Refused otherwise."""
+    Returns what the screen now shows and whether it is on; raises Refused otherwise. Either way
+    the test-session timeline is told what kind of record went where, and how it ended — never
+    the record's words."""
+    from app.observability import timeline
+
+    try:
+        out = await _put(request, screen_id, kind, ref, session_id=session_id)
+    except Refused as exc:
+        log.info("a held %s was not put on a screen: %s", kind, exc.code)
+        timeline.emit("screen_drop", session_id=str(session_id)[:MAX_REF], record=kind, ok=False, code=exc.code)
+        raise
+    timeline.emit("screen_drop", session_id=str(session_id)[:MAX_REF], record=kind, ok=True, screen_id=out["screen_id"],
+                  on=out["on"])
+    return out
+
+
+async def _put(request: Request, screen_id: str, kind: str, ref: str, *, session_id: str) -> dict[str, Any]:
     from app.tools.dispatch import dispatch
 
     argument = ARGUMENT.get(kind)
