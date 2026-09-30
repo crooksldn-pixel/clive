@@ -18,10 +18,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from app.capabilities.families import CapabilityFamily, register
 from app.clients import instagram as client
 from app.tools.gate import Tier
 from app.tools.registry import ToolError, tool
 
+TOOLS = ("instagram_inbox", "instagram_thread", "instagram_comments")
 TIMEOUT_S = 25.0
 INBOX_MAX = 25
 COMMENTS_MAX = 50
@@ -43,6 +45,24 @@ def configure(*, api_version: str | None = None, state_path: Path | None = None)
 def health() -> tuple[bool, str]:
     """For /health: configuration and what the last calls learned, with no network call."""
     return client.health()
+
+
+async def _probe(_runtime: Any) -> dict[str, str]:
+    """The family's state, from what this machine knows and without a call to Meta: no token
+    is DISCONNECTED, which takes the three tools off what the model is offered (so a server
+    without Instagram pays nothing for them each turn); a refused or expiring token is
+    TEMPORARILY_UNAVAILABLE, which keeps them offered so the owner hears why they fail."""
+    if not client.token():
+        return {"state": "DISCONNECTED", "detail": "no token stored"}
+    ok, detail = client.health()
+    return {"state": "READY" if ok else "TEMPORARILY_UNAVAILABLE", "detail": detail}
+
+
+register(CapabilityFamily(
+    key="instagram", label="Instagram", area="customers",
+    what="read the CROOKS Instagram account's direct messages and the comments on its posts",
+    tools=TOOLS, state="READY", detail="ready", probe=_probe,
+))
 
 
 def _when(value: str) -> datetime | None:
@@ -83,20 +103,13 @@ def _failed(exc: client.InstagramUnavailable) -> ToolError:
 
 @tool(
     name="instagram_inbox",
-    description=(
-        "Read the CROOKS Instagram account's direct messages: recent conversations, newest first, "
-        "each with the other person's handle, their latest message and whether it is waiting for a "
-        "reply from CROOKS (and for how long). Read-only: CLIVE cannot send Instagram messages."
-    ),
+    description=("The CROOKS Instagram DMs: recent conversations, whether each waits on a reply from "
+                 "CROOKS and for how long, longest waiting first."),
     input_schema={
         "type": "object",
         "properties": {
-            "limit": {"type": "integer", "description": "Maximum conversations (1-25).", "default": 10},
-            "waiting_only": {
-                "type": "boolean",
-                "description": "Only conversations where the last message is theirs, so CROOKS owes a reply.",
-                "default": False,
-            },
+            "limit": {"type": "integer", "description": "1-25, default 10."},
+            "waiting_only": {"type": "boolean", "description": "Only those waiting on CROOKS."},
         },
     },
     tier=Tier.AMBER,
@@ -137,16 +150,11 @@ async def instagram_inbox(limit: int = 10, waiting_only: bool = False) -> dict[s
 
 @tool(
     name="instagram_thread",
-    description=(
-        "Read one Instagram direct-message conversation: its most recent messages (Instagram gives "
-        "at most 20), oldest first, each with sender 'them' or 'us'. Needs a conversation_id from "
-        "instagram_inbox. Read-only."
-    ),
+    description=("One Instagram DM conversation: its last 20 messages, oldest first, sender 'them' or "
+                 "'us'. Needs a conversation_id from instagram_inbox."),
     input_schema={
         "type": "object",
-        "properties": {
-            "conversation_id": {"type": "string", "description": "The conversation_id from instagram_inbox."},
-        },
+        "properties": {"conversation_id": {"type": "string"}},
         "required": ["conversation_id"],
     },
     tier=Tier.AMBER,
@@ -185,21 +193,14 @@ async def instagram_thread(conversation_id: str) -> dict[str, Any]:
 
 @tool(
     name="instagram_comments",
-    description=(
-        "Read comments on the CROOKS Instagram account's recent posts: who commented, what they "
-        "said, on which post, and whether CROOKS has replied. By default only comments nobody from "
-        "CROOKS has answered, longest waiting first. Read-only: CLIVE cannot reply to comments."
-    ),
+    description=("Comments on the CROOKS Instagram account's recent posts, by default only those "
+                 "CROOKS has not replied to, longest waiting first."),
     input_schema={
         "type": "object",
         "properties": {
-            "days": {"type": "integer", "description": "Comments from the last this many days (1-60).", "default": 7},
-            "limit": {"type": "integer", "description": "Maximum comments (1-50).", "default": 20},
-            "unanswered_only": {
-                "type": "boolean",
-                "description": "Only comments with no reply from CROOKS.",
-                "default": True,
-            },
+            "days": {"type": "integer", "description": "1-60, default 7."},
+            "limit": {"type": "integer", "description": "1-50, default 20."},
+            "unanswered_only": {"type": "boolean", "description": "Default true."},
         },
     },
     tier=Tier.AMBER,

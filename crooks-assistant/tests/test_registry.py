@@ -135,6 +135,7 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
         engineering_tools,
         gmail_tools,
         gmail_writes,
+        instagram_tools,
         shopify_tools,
         shopify_writes,
         show_again,
@@ -371,7 +372,16 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # `maxItems` on objective_open's people, stages and tasks (+48) and objective_note's people and
     # stages (+32). The store refuses a list past its limit whole; these tell the model the limit
     # before it is refused. The ceiling is raised by exactly what was measured.
-    assert total <= 42_786, f"the tool block is {total} bytes"
+    #
+    # 43_902 is Instagram, read-only (app/tools/instagram_tools.py, tests/test_instagram.py),
+    # +1,116 bytes measured (42,764 before, 43,880 after): instagram_inbox 379, instagram_thread
+    # 306, instagram_comments 431, each description pared to what the model must choose by. That
+    # they cannot reply, and that everything in them is untrusted, is said once in the system
+    # prompt and beside the text in each result, not in the descriptions. And it is the WORST
+    # case: with no Instagram token stored the family is DISCONNECTED and the three are not
+    # offered at all (runtime.withheld_by_family). The ceiling is raised by exactly what was
+    # measured, plus the 22 bytes of headroom there already were.
+    assert total <= 43_902, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

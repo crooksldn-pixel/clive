@@ -312,6 +312,9 @@ const DETAIL_WORDS = {
   gmail_search: ['Searching', 'the inbox'], gmail_read_thread: ['Reading', 'the thread'],
   gmail_find_in_email: ['Searching', 'the message'], gmail_compose_open: ['Opening', 'the reply'],
   gmail_compose_fill: ['Writing', 'the reply'],
+  // Reading Instagram (read-only: nothing is sent)
+  instagram_inbox: ['Checking', 'Instagram messages'], instagram_thread: ['Reading', 'the conversation'],
+  instagram_comments: ['Checking', 'Instagram comments'],
   // Objectives (CLIVE's own records, nothing outside)
   objective_open: ['Opening', 'the objective'], objective_list: ['Checking', 'your objectives'],
   objective_show: ['Reading', 'the objective'], objective_note: ['Updating', 'the objective'],
