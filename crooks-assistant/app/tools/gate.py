@@ -167,6 +167,13 @@ _KNOWN_TOOLS = frozenset({
     # (app/tools/close_screen.py). It takes no arguments, reads nothing and writes nothing but
     # the Mac's own record of what this half shows; no store, inbox or TV is reachable from it.
     "close_screen",
+    # Instagram (app/tools/instagram_tools.py): the account's direct messages, one conversation,
+    # and the comments on its recent posts. GET requests only (app/clients/instagram.py): nothing
+    # on Instagram can be sent, replied to, hidden or deleted through them. Each is AMBER on its
+    # ToolSpec, because it surfaces people's handles and words, and instagram_thread's
+    # conversation_id is an issued-id argument declared there. Named here one by one, because
+    # this is an allow-list.
+    "instagram_inbox", "instagram_thread", "instagram_comments",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops

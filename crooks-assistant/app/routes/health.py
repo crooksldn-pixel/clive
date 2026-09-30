@@ -339,6 +339,14 @@ async def _health(runtime) -> dict:
 
     await asyncio.gather(*running)
 
+    # Instagram, read-only: whether a token is stored, how long it has left and whether its last
+    # call was refused. No network call: /health is polled, and the API has its own allowance.
+    # Not connected is a configuration, not a fault, so it reads ok (app/clients/instagram.py).
+    from app.clients import instagram as instagram_client
+
+    ok, detail = instagram_client.health()
+    checks["instagram"] = {"ok": ok, "detail": detail}
+
     # The voice is a configuration and credential check, never a synthesis: a health page that
     # spends ElevenLabs credit on every fifteen-second poll is a bill, not a check. Once an
     # hour it also asks ElevenLabs what it calls the configured id — free — so a .env still

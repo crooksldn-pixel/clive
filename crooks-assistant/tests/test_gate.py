@@ -256,9 +256,14 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     # And close_screen, which clears the owner's own app ("close that", "put it away"): no
     # arguments, and nothing but the Mac's record of what the half shows is touched.
     assert "close_screen" in gate._KNOWN_TOOLS
-    assert len(gate._KNOWN_TOOLS) == 44, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
+    # Instagram's three reads (app/tools/instagram_tools.py): AMBER on their ToolSpecs, and
+    # instagram_thread's conversation_id an issued-id argument declared there, so the other
+    # tables below are unchanged.
+    assert {"instagram_inbox", "instagram_thread", "instagram_comments"} <= gate._KNOWN_TOOLS
+    assert len(gate._KNOWN_TOOLS) == 47, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
                                           "screen_off and screen_remote, then screen_play and screen_video, "
-                                          "then round 12's shopify_order_build, show_again and close_screen")
+                                          "then round 12's shopify_order_build, show_again and close_screen, "
+                                          "then instagram_inbox, instagram_thread and instagram_comments")
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",

@@ -63,6 +63,16 @@ HELP = {
         "Credentials -> Create credentials -> API key, restricted to that API. CLIVE searches "
         "YouTube with it to play videos on your screens."
     ),
+    "instagram_access_token": (
+        "Meta for Developers -> the CLIVE app -> Instagram -> API setup with Instagram login -> "
+        "Generate token for the crooksldn account (a long-lived token, 60 days). CLIVE reads "
+        "messages and comments with it, and renews it itself before it runs out."
+    ),
+    "instagram_app_id": "Meta for Developers -> the CLIVE app -> Instagram -> API setup: Instagram app ID.",
+    "instagram_app_secret": (
+        "Same page: Instagram app secret. Only needed to exchange a new short-lived token by hand "
+        "(scripts/instagram.py exchange)."
+    ),
 }
 
 # What `make secrets` walks through on this host, in the order production needs them.

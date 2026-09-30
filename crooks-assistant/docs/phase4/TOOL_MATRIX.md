@@ -22,7 +22,7 @@ sentence reaches is what the model calls. Tests are read as syntax trees and nev
 here runs a tool, and nothing here can reach a mutation: the audit is a read of
 registries and of source text, so it is safe against a shop it may not touch.
 
-65 tools — 41 reads, 19 writes, 5 bulk.
+68 tools — 44 reads, 19 writes, 5 bulk.
 
 ## Tools
 
@@ -50,6 +50,9 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `gmail_send_new` | RED | yes | yes | yes | https://www.googleapis.com/auth/gmail.compose | write | prepared from a fresh read, held as gmail_send_new, tap_commit | a predicate over the re-read, after settling | the change's own card | gmail | staged, never applied |
 | `gmail_send_reply` | RED | yes | yes | yes | gmail.compose | write | prepared from a fresh read, held as gmail_send_reply, tap_commit | a predicate over the re-read, after settling | the change's own card | gmail | — |
 | `gmail_thread_archive` | AMBER | yes | yes | yes | gmail.modify | write | prepared from a fresh read, held as gmail_thread_archive, tap_commit | the re-read must equal what was expected | the change's own card | gmail | — |
+| `instagram_comments` | AMBER | yes | — | yes | none needed | read | — | — | — | — | — |
+| `instagram_inbox` | AMBER | yes | — | yes | none needed | read | — | — | — | — | — |
+| `instagram_thread` | AMBER | yes | — | yes | none needed | read | — | — | — | — | — |
 | `inventory_query` | GREEN | yes | yes | yes | none needed | read | — | — | the read layer's cards | — | read |
 | `objective_list` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
 | `objective_note` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
@@ -120,6 +123,9 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `gmail_send_new` | command:a tapped control, family:email_compose | test_compose_provenance.py, test_gmail_writes.py, test_r13_new_email_order_content.py | compose_send_instead, compose_send_spoken |
 | `gmail_send_reply` | command:a tapped control, family:email_sends | test_gmail_writes.py, test_reply_order_binding.py, test_tool_boundary.py | — |
 | `gmail_thread_archive` | command:a tapped control, family:email_archive | test_gmail_writes.py | — |
+| `instagram_comments` | the model only | test_instagram.py | — |
+| `instagram_inbox` | the model only | test_instagram.py | — |
+| `instagram_thread` | the model only | test_instagram.py | — |
 | `inventory_query` | recipe:landing_products, family:product_reads | test_analytics_tools.py | landing_products |
 | `objective_list` | family:objectives | test_displays.py, test_tool_boundary.py | — |
 | `objective_note` | family:objectives | test_objective_design.py, test_objectives.py, test_tool_boundary.py | — |
@@ -170,21 +176,21 @@ registries and of source text, so it is safe against a shop it may not touch.
 
 `commerce_capabilities`, `shopify_order_address`
 
-**no golden scenario reaches it (42)**
+**no golden scenario reaches it (45)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_draft_reply`, `gmail_find_in_email`, `gmail_read_thread`, `gmail_send_reply`, `gmail_thread_archive`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `shopify_find_customer`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_note_append`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `show_again`, `submit_engineering_request`
+`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_draft_reply`, `gmail_find_in_email`, `gmail_read_thread`, `gmail_send_reply`, `gmail_thread_archive`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `shopify_find_customer`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_note_append`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `show_again`, `submit_engineering_request`
 
-**nothing but the model reaches it (5)**
+**nothing but the model reaches it (8)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`
+`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `instagram_comments`, `instagram_inbox`, `instagram_thread`
 
-**no card is drawn from it (11)**
+**no card is drawn from it (14)**
 
-`close_screen`, `commerce_capabilities`, `engineering_status`, `gmail_find_in_email`, `screen_list`, `screen_off`, `screen_pair`, `screen_show`, `screen_video`, `shopify_discount_check`, `shopify_order_address`
+`close_screen`, `commerce_capabilities`, `engineering_status`, `gmail_find_in_email`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `screen_list`, `screen_off`, `screen_pair`, `screen_show`, `screen_video`, `shopify_discount_check`, `shopify_order_address`
 
-**no named error card (26)**
+**no named error card (29)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_aggregate`, `commerce_capabilities`, `commerce_query`, `commerce_summary`, `email_query`, `engineering_status`, `inventory_query`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `show_again`, `submit_engineering_request`
+`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_aggregate`, `commerce_capabilities`, `commerce_query`, `commerce_summary`, `email_query`, `engineering_status`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `inventory_query`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `show_again`, `submit_engineering_request`
 
 ## The rules the audit itself keeps
 
