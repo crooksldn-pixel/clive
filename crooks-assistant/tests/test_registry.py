@@ -381,7 +381,17 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # case: with no Instagram token stored the family is DISCONNECTED and the three are not
     # offered at all (runtime.withheld_by_family). The ceiling is raised by exactly what was
     # measured, plus the 22 bytes of headroom there already were.
-    assert total <= 43_902, f"the tool block is {total} bytes"
+    #
+    # 43_918 is two owner builds landed together (claude/land-owner-builds-2026-09-30), +38 bytes
+    # measured (43,880 before, 43,918 after): a draft order's payment link
+    # (tests/test_expose_draft_order_s_payment_link_2.py) shopify_find_order +18, the `query`
+    # field saying a draft (#D12) gives its payment link; and closing an objective out, complete
+    # or removed (tests/test_let_objectives_marked_complete_or_removed_2.py) objective_list +52
+    # (`closed` and `search`), objective_note +25 (`complete` and `remove`, less the status and
+    # state values the store always refused), objective_open -7 and objective_show -50. Each fit
+    # under 43,902 on its own, in the 22 bytes of headroom; together they pass it by 16, and
+    # the ceiling is raised by exactly that, leaving no headroom.
+    assert total <= 43_918, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.
