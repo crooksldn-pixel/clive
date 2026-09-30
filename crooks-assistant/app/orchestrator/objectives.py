@@ -82,7 +82,9 @@ _SAFE_ID = r"^[a-z0-9][a-z0-9.-]{2,79}$"
 # and the GitHub acceptance gate); then the tests that hold all of these. CLIVE's own
 # engineering bridge joined on 2026-09-27 (the deploy review's F-ENG): it decides what a
 # request CLIVE files may name, which checks judge it, which base it starts from and where it
-# is written, so a build CLIVE files must not be able to change it for the next one.
+# is written, so a build CLIVE files must not be able to change it for the next one. The declaration of
+# the loop's own generators and the module that runs them joined on 2026-09-30 (OWNER_DECISIONS_2026-09-30,
+# "go"): the loop runs what the declaration names, so no build may add to it.
 PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/app/orchestrator/lifecycle.py",
     "crooks-assistant/app/orchestrator/contracts.py",
@@ -96,6 +98,8 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/app/orchestrator/dispatcher.py",
     "crooks-assistant/app/orchestrator/workspaces.py",
     "crooks-assistant/app/orchestrator/checks.py",
+    "crooks-assistant/app/orchestrator/generated.py",
+    "crooks-assistant/config/generated_files.json",
     "crooks-assistant/app/orchestrator/workers",
     "crooks-assistant/app/orchestrator/reviewers",
     "crooks-assistant/scripts/engineering_kernel.py",
@@ -153,6 +157,8 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/tests/test_review_routing.py",            # routing.py
     "crooks-assistant/tests/test_engineering_objective_intake.py",  # objectives.py
     "crooks-assistant/tests/test_engineering_dispatcher.py",    # dispatcher.py, workspaces.py
+    "crooks-assistant/tests/test_loop_generated.py",            # dispatcher.py, generated.py: generated files
+    "crooks-assistant/tests/test_loop_landing.py",              # dispatcher.py: the loop's landing on the trunk
     "crooks-assistant/tests/test_engineering_kernel_gate.py",   # scripts/engineering_kernel.py
     "crooks-assistant/tests/test_check_sandbox.py",             # checks.py
     "crooks-assistant/tests/test_builder_check_server.py",      # workers/check_server.py

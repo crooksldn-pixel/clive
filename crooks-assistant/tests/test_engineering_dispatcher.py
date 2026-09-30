@@ -187,12 +187,23 @@ class FakeReviewer:
 
 
 class FakeAcceptance:
-    """The GitHub acceptance gate double: every SHA is green unless a test says otherwise."""
+    """The GitHub acceptance gate double: every SHA is green unless a test says otherwise.
+
+    Like the real gate it reads a red run's failed job (``failure_log``): ``logs`` holds what it answers per SHA,
+    as keyword arguments of a ``FailureLog``; a SHA without one answers that no log could be read."""
 
     def __init__(self, state: GateState = GateState.GREEN) -> None:
         self.state = state
         self.by_sha: dict[str, GateState] = {}
         self.asked: list[tuple[str, str]] = []
+        self.logs: dict[str, dict] = {}
+        self.logs_asked: list[tuple[str, str, tuple[int, ...]]] = []
+
+    def failure_log(self, repository: str, sha: str, run_ids: tuple[int, ...]):
+        from app.orchestrator.github_acceptance import FailureLog
+
+        self.logs_asked.append((repository, sha, tuple(run_ids)))
+        return FailureLog(sha=sha, **self.logs.get(sha, {"problem": "the fake gate holds no log for this commit"}))
 
     def check(self, repository: str, sha: str) -> GateResult:
         self.asked.append((repository, sha))
@@ -951,8 +962,12 @@ def test_review_is_dispatched_only_once_github_acceptance_is_green_on_the_exact_
 def test_a_review_is_dispatched_only_on_a_green_answer_asked_at_that_moment(tmp_path):
     """The 2026-09-30 re-pin review, F-01: a green answer remembered from a tick whose dispatch the kernel
     refused (the target ref no longer matched) must not start a review once the run has gone red inside the
-    poll interval."""
-    w = World(tmp_path, acceptance_poll_s=60)
+    poll interval.
+
+    Since the owner's "go" of 30 September (OWNER_DECISIONS_2026-09-30: a red GitHub run is a repair round, not
+    a block), red at review dispatch routes a repair revision while repair rounds remain; with none left
+    (``max_repair_rounds=0`` here) it blocks as it always did, which is what this test pins."""
+    w = World(tmp_path, acceptance_poll_s=60, max_repair_rounds=0)
     w.scenarios(EDIT_HELLO)
     w.objective()
     w.acceptance.state = GateState.PENDING
@@ -985,7 +1000,11 @@ def test_a_review_is_dispatched_only_on_a_green_answer_asked_at_that_moment(tmp_
 
 
 def test_a_red_candidate_blocks_before_review_and_is_resumable_once_green(tmp_path):
-    w = World(tmp_path)
+    """Red at review dispatch blocks once the objective has no repair round left. Before the owner's "go" of 30
+    September it blocked at once whatever the rounds; since then (OWNER_DECISIONS_2026-09-30: a red GitHub run is a
+    repair round) a red run with rounds left routes a repair (``test_red_github_becomes_a_repair_revision...``), so
+    this test pins the block with ``max_repair_rounds=0``, and everything it asserted still holds."""
+    w = World(tmp_path, max_repair_rounds=0)
     w.scenarios(EDIT_HELLO)
     w.objective()
     w.acceptance.state = GateState.RED
@@ -1004,6 +1023,227 @@ def test_a_red_candidate_blocks_before_review_and_is_resumable_once_green(tmp_pa
     w.reviewer.answers.append(lambda ctx: review(ctx))
     w.run_until(lambda: w.stage() == "COMPLETE")
     assert w.store.read_acceptances(OBJ)[0].accepted_sha == sha
+
+
+# ---------------------------------------------- a red run is a repair round (OWNER_DECISIONS_2026-09-30, "go")
+
+def _red_log(token: str, secret: str) -> str:
+    """A failed acceptance job's log as GitHub serves it: timestamps, colours, pytest's failures and summary."""
+    stamp = "2026-09-30T12:00:00.1234567Z "
+    lines = [f"{stamp}##[group]Run the acceptance tests", f"{stamp}collected 912 items"]
+    lines += [f"{stamp}tests/test_filler_{n}.py ........................................ [ {n}%]" for n in range(150)]
+    lines += [
+        f"{stamp}\x1b[31m___ test_the_checked_in_document_is_the_generated_one ___\x1b[0m",
+        f"{stamp}    def test_the_checked_in_document_is_the_generated_one():",
+        f"{stamp}>       assert DOC.read_text() == tool_matrix.markdown()",
+        f"{stamp}E       AssertionError: docs/phase4/TOOL_MATRIX.md is out of date; run make tool-matrix",
+        f"{stamp}E       assert 'old' == 'new'",
+        f"{stamp}GH_TOKEN={token} leaked by a test that printed its environment",
+        f"{stamp}fatal: unable to access 'https://bot:{secret}@github.com/o/r.git/'",
+        f"{stamp}=========================== short test summary info ============================",
+        f"{stamp}FAILED tests/test_tool_matrix.py::test_the_checked_in_document_is_the_generated_one - AssertionError",
+        f"{stamp}ERROR tests/test_broken_import.py - ModuleNotFoundError: No module named 'nothing'",
+        f"{stamp}1 failed, 910 passed, 1 error in 61.02s",
+        f"{stamp}##[error]Process completed with exit code 1.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _red_then_green(w: World) -> str:
+    """The first candidate is red on GitHub (with a log); every later SHA is green. Returns the red SHA."""
+    w.acceptance.state = GateState.PENDING
+    w.run_until(w.status_is(TaskStatus.EVIDENCE_READY))
+    sha = _candidate(w).result_sha
+    w.acceptance.by_sha[sha] = GateState.RED
+    w.acceptance.state = GateState.GREEN
+    return sha
+
+
+def test_red_github_becomes_a_repair_revision_whose_prompt_carries_the_failure_redacted(tmp_path):
+    from tests.fake_credentials import github_token, password
+
+    token, secret = github_token("red-run-log"), password("red-run-log")
+    w = World(tmp_path)
+    w.scenarios(EDIT_HELLO, {"edits": [["pkg/hello.txt", "hello, again\n"]]})
+    w.objective()
+    red = _red_then_green(w)
+    w.acceptance.logs[red] = {"run_id": 4242, "job_id": 77, "job_name": "acceptance",
+                              "failed_steps": ("Run the acceptance tests",), "text": _red_log(token, secret)}
+    w.run_until(lambda: w.state_of().task_revision == 2 and w.invocations() >= 2)
+    r1, r2 = sorted((t for t in w.store.read_tasks() if t.task_id == OBJ), key=lambda t: t.revision)
+    assert r2.kind is TaskKind.REPAIR and r2.base_sha == r1.base_sha and red in r2.objective
+    assert r2.authorising_reference.startswith(f"GitHub acceptance red on {red}")
+    assert w.store.read_task_state(OBJ, 1).status is TaskStatus.OBSOLETE
+    a1 = w.store.read_attempts(OBJ)[0]
+    assert not w.store.read_dispatches(OBJ, a1.attempt_id)             # nothing red was ever reviewed
+    assert w.acceptance.logs_asked == [("crooksldn-pixel/clive", red, (4242,))]
+
+    prompt = (w.state / "prompt.1.txt").read_text()
+    assert "REPAIR OF A RED GITHUB ACCEPTANCE RUN" in prompt and red in prompt
+    assert "- FAILED tests/test_tool_matrix.py::test_the_checked_in_document_is_the_generated_one" in prompt
+    assert "- ERROR tests/test_broken_import.py - ModuleNotFoundError" in prompt
+    assert "E       AssertionError: docs/phase4/TOOL_MATRIX.md is out of date" in prompt
+    assert "Run: https://github.com/crooksldn-pixel/clive/actions/runs/4242" in prompt
+    assert "Failed job: acceptance (https://github.com/crooksldn-pixel/clive/actions/runs/4242/job/77)" in prompt
+    assert "Failed step(s): Run the acceptance tests" in prompt
+    assert "do not report owner_decision_required" in prompt and "nobody re-runs the red one" in prompt
+    assert token not in prompt and secret not in prompt and "[redacted]" in prompt
+    assert "\x1b[" not in prompt and "2026-09-30T12:00:00" not in prompt
+    tail = prompt.split("LAST OUTPUT OF THE FAILED JOB")[1].split("```")[1]
+    assert len(tail.strip()) <= 4000 and "Process completed with exit code 1." in tail
+    assert "test_filler_0.py" not in tail                              # the tail, not the whole log
+    # the repair starts at the red SHA and is a new SHA of its own
+    evidence = json.loads((tmp_path / "runtime" / "evidence" / a1.attempt_id / "github-failure.json").read_text())
+    assert evidence["sha"] == red and evidence["failing_tests"][0].startswith("tests/test_tool_matrix.py::")
+    assert token not in json.dumps(evidence) and secret not in json.dumps(evidence)
+    w.reviewer.answers.append(lambda ctx: review(ctx))
+    w.run_until(lambda: w.stage() == "COMPLETE")
+    repaired = next(r for r in w.store.read_results() if r.task_revision == 2).result_sha
+    assert repaired != red and _git(w.repo, "merge-base", "--is-ancestor", red, repaired) == ""
+    item = w.dispatcher().status()[0]
+    assert item["repairs"] == {"review": 0, "ci": 1, "max": 2}
+    assert [(a["revision"], a["outcome"]) for a in item["attempts"]] == [(1, "blocked"), (2, "candidate")]
+    assert item["attempts"][0]["reason"].startswith("red GitHub acceptance, repair routed:")
+    a2 = next(a for a in w.store.read_attempts(OBJ) if a.task_revision == 2)
+    packet = (w.store.root / w.store.read_dispatches(OBJ, a2.attempt_id)[-1].packet_path).read_text()
+    assert "## Red GitHub acceptance runs of earlier revisions" in packet and red in packet
+    assert token not in json.dumps(item, default=str)
+
+
+def test_red_repairs_stop_at_max_repair_rounds_then_block_with_the_last_failure(tmp_path):
+    w = World(tmp_path, max_repair_rounds=1)
+    w.scenarios(EDIT_HELLO, {"edits": [["pkg/hello.txt", "hello, again\n"]]})
+    w.acceptance.state = GateState.RED
+    w.objective()
+    log = {"run_id": 4242, "job_id": 77, "job_name": "acceptance", "text": _red_log("t", "s")}
+    real = w.acceptance.failure_log
+    w.acceptance.failure_log = lambda repository, sha, run_ids: (w.acceptance.logs.setdefault(sha, log),
+                                                                real(repository, sha, run_ids))[1]
+    w.run_until(lambda: w.state_of().status is TaskStatus.BLOCKED and w.state_of().task_revision == 2, timeout=30)
+    state = w.state_of()
+    second = next(r for r in w.store.read_results() if r.task_revision == 2).result_sha
+    assert f"GitHub acceptance is red on {second}" in state.blocker_reason
+    assert "1 of 1 repair round(s) are used, so no repair is routed" in state.blocker_reason
+    assert "last failure: failing: tests/test_tool_matrix.py::test_the_checked_in_document_is_the_generated_one" \
+        in state.blocker_reason
+    assert state.blocker_class is BlockerClass.DETERMINISTIC and not state.owner_gate    # never an owner decision
+    assert w.invocations() == 2 and len([t for t in w.store.read_tasks() if t.task_id == OBJ]) == 2
+    for _ in range(2):
+        w.dispatcher().tick()
+    assert w.state_of() == state                                         # the dispatcher never lifts it
+    assert w.dispatcher().status()[0]["repairs"] == {"review": 0, "ci": 1, "max": 1}
+
+
+def test_review_and_red_repairs_share_the_rounds(tmp_path):
+    w = World(tmp_path, max_repair_rounds=1)
+    w.scenarios({"edits": [["pkg/hello.txt", "bye\n"]]}, EDIT_HELLO)
+    w.objective()
+    w.reviewer.answers.append(lambda ctx: review(ctx, "CHANGES_REQUIRED", findings=[FINDING]))
+    w.acceptance.state = GateState.PENDING
+    w.run_until(w.status_is(TaskStatus.EVIDENCE_READY))
+    w.acceptance.by_sha[_candidate(w).result_sha] = GateState.GREEN     # the first candidate is reviewed...
+    w.acceptance.state = GateState.RED                                  # ...and its review repair is red on GitHub
+    w.run_until(lambda: w.state_of().status is TaskStatus.BLOCKED and w.state_of().task_revision == 2)
+    assert "1 of 1 repair round(s) are used" in w.state_of().blocker_reason
+    assert w.dispatcher().status()[0]["repairs"] == {"review": 1, "ci": 0, "max": 1}
+
+
+class GateWithoutLogs(FakeAcceptance):
+    """A gate that answers ``check`` and cannot read job logs at all."""
+
+    failure_log = None
+
+
+@pytest.mark.parametrize("gate", ["no-log", "no-reader"])
+def test_a_red_run_whose_log_cannot_be_fetched_still_repairs_and_says_so(tmp_path, gate):
+    w = World(tmp_path)
+    if gate == "no-reader":
+        w.acceptance = GateWithoutLogs()
+    w.scenarios(EDIT_HELLO, {"edits": [["pkg/hello.txt", "hello, again\n"]]})
+    w.objective()
+    red = _red_then_green(w)
+    if gate == "no-log":
+        w.acceptance.logs[red] = {"run_id": 4242, "job_id": 77, "job_name": "acceptance",
+                                  "failed_steps": ("Run the acceptance tests",),
+                                  "problem": "GitHub could not give the job log (HTTP 404)"}
+    w.run_until(lambda: w.state_of().task_revision == 2 and w.invocations() >= 2)
+    prompt = (w.state / "prompt.1.txt").read_text()
+    assert "REPAIR OF A RED GITHUB ACCEPTANCE RUN" in prompt and "The failed job's log could not be fetched" in prompt
+    assert "Run: https://github.com/crooksldn-pixel/clive/actions/runs/4242" in prompt
+    if gate == "no-log":
+        assert "(GitHub could not give the job log (HTTP 404))" in prompt
+        assert "Failed job: acceptance" in prompt and "Failed step(s): Run the acceptance tests" in prompt
+    else:
+        assert "this acceptance gate cannot read job logs" in prompt
+    r2 = w.store.read_task(OBJ, 2)
+    assert r2.kind is TaskKind.REPAIR and "its log could not be fetched" in r2.objective
+
+
+def test_a_restart_between_the_red_block_and_the_repair_revision_completes_the_repair(tmp_path):
+    w = World(tmp_path)
+    w.scenarios(EDIT_HELLO, {"edits": [["pkg/hello.txt", "hello, again\n"]]})
+    w.objective()
+    _red_then_green(w)
+    d = w.dispatcher()
+
+    def crash(*args, **kwargs):
+        raise RuntimeError("the host lost power between the block and the repair")
+
+    d._route_red_repair = crash
+    with pytest.raises(RuntimeError):
+        d.tick()
+    assert w.state_of().status is TaskStatus.BLOCKED and w.state_of().task_revision == 1
+    w.run_until(lambda: w.state_of().task_revision == 2)                # a fresh dispatcher completes it
+    assert w.store.read_task(OBJ, 2).kind is TaskKind.REPAIR
+    assert len([t for t in w.store.read_tasks() if t.task_id == OBJ]) == 2
+
+
+def test_red_at_integration_and_at_a_ready_verdict_still_refuses_with_repair_rounds_left(tmp_path):
+    """Only review dispatch turns red into a repair (OWNER_DECISIONS_2026-09-30); a READY verdict and an integration
+    still ask afresh and refuse red, exactly as before, whatever rounds remain."""
+    w = World(tmp_path, max_repair_rounds=2)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.REVIEWING))
+    w.reviewer.answers.append(lambda ctx: review(ctx))
+    d = w.dispatcher()
+    original = d._integrate
+
+    def red_before_integration(obj, task, state_):
+        w.acceptance.state = GateState.RED
+        d._integrate = original
+        return original(obj, task, state_)
+
+    d._integrate = red_before_integration
+    w.run_until(w.status_is(TaskStatus.BLOCKED), dispatcher=d)
+    assert "integration refused" in w.state_of().blocker_reason and not w.store.read_integrations()
+    assert len([t for t in w.store.read_tasks() if t.task_id == OBJ]) == 1          # no repair was routed
+    assert w.dispatcher().status()[0]["repairs"] == {"review": 0, "ci": 0, "max": 2}
+
+    (tmp_path / "ready").mkdir()
+    v = World(tmp_path / "ready", max_repair_rounds=2)
+    v.scenarios(EDIT_HELLO)
+    v.objective()
+    v.run_until(v.status_is(TaskStatus.REVIEWING))
+    v.acceptance.state = GateState.RED
+    v.reviewer.answers.append(lambda ctx: review(ctx, "READY"))
+    v.run_until(v.status_is(TaskStatus.BLOCKED))
+    assert "accepting a READY verdict refused" in v.state_of().blocker_reason
+    assert len([t for t in v.store.read_tasks() if t.task_id == OBJ]) == 1
+
+
+def test_the_failure_summary_is_redacted_and_bounded():
+    from app.orchestrator.dispatcher import summarise_failure_log
+    from tests.fake_credentials import github_token
+
+    token = github_token("summary")
+    text = "\n".join([f"line {n}" for n in range(5000)] + [f"FAILED tests/test_x.py::test_{n} - {token}"
+                                                             for n in range(50)] + ["E       " + "y" * 1000])
+    parts = summarise_failure_log(text)
+    assert len(parts["tail"]) <= 4000 and not parts["tail"].startswith("ine")
+    assert len(parts["short_summary"]) <= 30 and len(parts["failing_tests"]) == 30
+    assert all(len(line) <= 300 for line in parts["short_summary"] + parts["assertions"])
+    assert token not in json.dumps(parts)
 
 
 @pytest.mark.parametrize("state", [GateState.MISSING, GateState.PENDING, GateState.UNAVAILABLE])

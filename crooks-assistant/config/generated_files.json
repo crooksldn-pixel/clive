@@ -1,0 +1,16 @@
+{
+  "schema": "clive.generated_files.v1",
+  "generators": [
+    {
+      "name": "tool-matrix",
+      "argv": [
+        "{python}",
+        "-c",
+        "import sys; sys.path.insert(0, '.'); from experience import tool_matrix; tool_matrix.write()"
+      ],
+      "cwd": "crooks-assistant",
+      "outputs": ["crooks-assistant/docs/phase4/TOOL_MATRIX.md"],
+      "timeout_s": 600
+    }
+  ]
+}

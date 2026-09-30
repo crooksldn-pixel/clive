@@ -23,7 +23,8 @@ Example:
 
 A candidate is reviewed, accepted and integrated only once GitHub's ``acceptance`` run is green
 on its exact SHA (app/orchestrator/github_acceptance.py), asked with the credential git already
-holds for the publish remote. Nothing here deploys, restarts a service, changes runtime, grants a
+holds for the publish remote. The loop then lands it on clive/trunk itself, under the same gates
+asked again (OWNER_DECISIONS_2026-09-30); ``tick --no-land`` and ``run --no-land`` switch that off. Nothing here deploys, restarts a service, changes runtime, grants a
 permission or lifts an owner gate. Every stage is a kernel record (app/orchestrator/lifecycle.py,
 unchanged); the dispatcher's own files under --runtime-root are execution notes.
 Exit status: 0 done, 2 refused, 4 another dispatcher is running.
@@ -157,10 +158,14 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--repository", default="crooksldn-pixel/clive")
     g.add_argument("--product-memory-ref", default=PRODUCT_MEMORY_REF)
 
-    sub.add_parser("tick", help="one deterministic pass")
+    t = sub.add_parser("tick", help="one deterministic pass")
     r = sub.add_parser("run", help="tick until every objective is terminal")
     r.add_argument("--interval", type=float, default=15.0)
     r.add_argument("--max-ticks", type=int, default=0, help="0: no limit")
+    for verb in (t, r):
+        verb.add_argument("--no-land", action="store_true",
+                          help="never land on clive/trunk: the loop as it was before the owner's decision of "
+                               "2026-09-30 that it lands its own work (landing is on by default)")
     s = sub.add_parser("status", help="what the records and the host say")
     s.add_argument("--json", action="store_true")
     v = sub.add_parser("submit-review", help="relay only: a typed review result carried back by a person")
@@ -186,7 +191,8 @@ def _parts(args):
                               oauth_token_file=Path(args.worker_token_file) if args.worker_token_file else None)
     config = DispatcherConfig(runtime_root=runtime, workspace_root=Path(args.workspace_root), repo=Path(args.repo),
                               publish_remote=args.publish_remote, lease_s=args.lease_s, stall_s=args.stall_s,
-                              init_timeout_s=args.init_timeout_s, max_concurrent=args.max_concurrent)
+                              init_timeout_s=args.init_timeout_s, max_concurrent=args.max_concurrent,
+                              land=not getattr(args, "no_land", False))
     sandbox = NamespaceSandbox(ro_paths=tuple(args.check_ro_path))
     # The GitHub acceptance gate asks with the credential git already holds for the remote candidates go to.
     acceptance = GitHubAcceptance(git_remote_token(Path(args.repo), args.publish_remote or "origin"))
@@ -280,8 +286,11 @@ def run(argv: list[str] | None = None) -> int:
                 for line in dispatcher.tick():
                     print(line, flush=True)
                 ticks += 1
-                stages = {s["objective_id"]: s.get("stage") for s in dispatcher.status()}
-                if all(stage in TERMINAL for stage in stages.values()):
+                items = dispatcher.status()
+                stages = {s["objective_id"]: s.get("stage") for s in items}
+                # A completed objective still waiting to land, or being refreshed onto the trunk, is not finished.
+                landing = any((s.get("landing") or {}).get("state") in ("waiting", "refreshing") for s in items)
+                if all(stage in TERMINAL for stage in stages.values()) and not landing:
                     print(json.dumps(stages, indent=2))
                     break
                 if args.max_ticks and ticks >= args.max_ticks:

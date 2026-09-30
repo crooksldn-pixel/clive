@@ -135,6 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("poll", help="intake the bounded inbox once")
     _add_transport_args(p)
     p.add_argument("--json", action="store_true")
+    _add_land_arg(p)
 
     s = sub.add_parser("status", help="print the read-only lifecycle projection")
     s.add_argument("--json", action="store_true")
@@ -149,7 +150,15 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--interval", type=float, default=15.0,
                    help=f"seconds between cycles; {MIN_INTERVAL_S}-{MAX_INTERVAL_S}s")
     r.add_argument("--max-cycles", type=int, default=0, help="0 means run until stopped")
+    _add_land_arg(r)
     return parser
+
+
+def _add_land_arg(parser: argparse.ArgumentParser) -> None:
+    # The loop lands its own work on clive/trunk (OWNER_DECISIONS_2026-09-30); this switches it off. ``poll``
+    # never advances the dispatcher, so it never lands; it takes the flag so a unit can pass both verbs one set.
+    parser.add_argument("--no-land", action="store_true",
+                        help="never land on clive/trunk: the loop exactly as it was before landing (default: land)")
 
 
 def _kernel_parts(args):
@@ -214,6 +223,7 @@ def _dispatcher(args, kernel: Kernel, objectives: ObjectiveStore) -> Dispatcher:
         repo=Path(args.repo),
         publish_remote=args.publish_remote,
         max_concurrent=args.max_concurrent,
+        land=not getattr(args, "no_land", False),
     )
     sandbox = NamespaceSandbox(ro_paths=tuple(args.check_ro_path))
     # The GitHub acceptance gate asks with the credential git already holds for the remote the
