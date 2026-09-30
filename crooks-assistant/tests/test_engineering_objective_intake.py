@@ -177,6 +177,8 @@ PROTECTED_TESTS = {
     "test_review_routing.py": "app.orchestrator.routing",
     "test_engineering_objective_intake.py": "app.orchestrator.objectives",
     "test_engineering_dispatcher.py": "app.orchestrator.dispatcher",
+    "test_loop_generated.py": "app.orchestrator.generated",
+    "test_loop_landing.py": "app.orchestrator.dispatcher",
     "test_engineering_kernel_gate.py": "engineering_kernel",
     "test_check_sandbox.py": "app.orchestrator.checks",
     "test_builder_check_server.py": "app.orchestrator.workers.check_server",

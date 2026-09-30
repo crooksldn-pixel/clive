@@ -12,6 +12,16 @@ SHA to the independent reviewer. Nothing here accepts, pushes or integrates.
 
 A conflict is not resolved here. The attempt reports ``blocked`` with the conflicting
 paths, so the task blocks with them; resolving it is a separate objective for a builder.
+The one exception is a conflict confined to files the loop regenerates itself (the job's
+``regenerate`` list: the declared outputs of ``config/generated_files.json`` at the task's
+base, written by the dispatcher, never by a builder). Such a file is derived from the rest of
+the tree, so neither side's copy is the answer: the merge takes the start SHA's copy of it, and
+the dispatcher regenerates it from the merged tree before any check runs
+(OWNER_DECISIONS_2026-09-30, "go": generated files are the loop's job).
+
+The same driver makes the loop's refresh before a landing (OWNER_DECISIONS_2026-09-30, "the
+loop lands its own work"): the job is ``{"base": <trunk head>, "integrate": [<the objective's
+integrated SHA>]}``, and the dispatcher records the merged tree as a merge commit of both.
 """
 
 from __future__ import annotations
@@ -21,6 +31,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from .base import LaunchSpec, Started
@@ -76,8 +87,11 @@ def _ancestor(repo: str, a: str, b: str) -> bool:
     return _git(repo, "merge-base", "--is-ancestor", a, b, ok=(0, 1)).returncode == 0
 
 
-def merge(repo: str, base: str, shas: list[str]) -> tuple[str | None, list[str]]:
-    """(merged commit, []) or (None, conflicting paths). Writes objects only; moves no ref."""
+def merge(repo: str, base: str, shas: list[str], regenerated: tuple[str, ...] = ()) -> tuple[str | None, list[str]]:
+    """(merged commit, []) or (None, conflicting paths). Writes objects only; moves no ref.
+
+    A conflict confined to ``regenerated`` paths is not one: those files take the start SHA's copy, and the
+    dispatcher regenerates them from the merged tree before anything checks it."""
     current = base
     for sha in shas:
         if _ancestor(repo, sha, current):
@@ -87,14 +101,39 @@ def merge(repo: str, base: str, shas: list[str]) -> tuple[str | None, list[str]]
             continue
         proc = _git(repo, "merge-tree", "--write-tree", "--no-messages", current, sha, ok=(0, 1))
         lines = proc.stdout.decode().splitlines()
+        tree = lines[0]
         if proc.returncode == 1:
-            return None, sorted({line.split("\t", 1)[1] for line in lines[1:] if "\t" in line})
+            conflicts = sorted({line.split("\t", 1)[1] for line in lines[1:] if "\t" in line})
+            if not conflicts or not set(conflicts) <= set(regenerated):
+                return None, conflicts
+            tree = _take_side(repo, tree, current, conflicts)
         env = dict(os.environ, GIT_AUTHOR_NAME="CLIVE integrator", GIT_AUTHOR_EMAIL="clive@localhost",
                    GIT_COMMITTER_NAME="CLIVE integrator", GIT_COMMITTER_EMAIL="clive@localhost")
-        current = subprocess.run(["git", "-C", repo, "commit-tree", lines[0], "-p", current, "-p", sha,
+        current = subprocess.run(["git", "-C", repo, "commit-tree", tree, "-p", current, "-p", sha,
                                   "-m", f"integrate {sha}"], capture_output=True, env=env, check=True,
                                  timeout=60).stdout.decode().strip()
     return current, []
+
+
+def _take_side(repo: str, tree: str, side: str, paths: list[str]) -> str:
+    """``tree`` with each of ``paths`` as ``side`` has it (or absent, as ``side`` has it), in a private index."""
+    with tempfile.TemporaryDirectory(prefix="clive-integrate-") as scratch:
+        env = dict(os.environ, GIT_INDEX_FILE=str(Path(scratch) / "index"))
+
+        def run(*args: str) -> str:
+            proc = subprocess.run(["git", "-C", repo, *args], capture_output=True, env=env, timeout=120)
+            if proc.returncode != 0:
+                raise RuntimeError(f"git {' '.join(args[:2])} failed: {proc.stderr.decode(errors='replace')[:300]}")
+            return proc.stdout.decode()
+
+        run("read-tree", tree)
+        for path in paths:
+            listed = run("ls-tree", side, "--", path).split()
+            if listed:
+                run("update-index", "--add", "--cacheinfo", f"{listed[0]},{listed[2]},{path}")
+            else:
+                run("update-index", "--force-remove", "--", path)
+        return run("write-tree").strip()
 
 
 def main(argv: list[str]) -> int:
@@ -108,7 +147,8 @@ def main(argv: list[str]) -> int:
            "tools": [INTEGRATOR_TOOL], "mcp_servers": [], "plugins": [], "skills": [], "slash_commands": [],
            "permissionMode": None, "model": "deterministic", "apiKeySource": "none"})
     try:
-        merged, conflicts = merge(args.repo, job["base"], job["integrate"])
+        regenerated = tuple(p for p in job.get("regenerate", ()) if isinstance(p, str) and p)
+        merged, conflicts = merge(args.repo, job["base"], job["integrate"], regenerated)
         if conflicts:
             _emit({"type": "result", "subtype": "success", "is_error": False, "session_id": args.session_id,
                    "structured_output": {"status": "blocked", "summary": "the accepted candidates conflict",

@@ -327,3 +327,23 @@ def test_the_prompt_tells_clive_how_to_file_a_build(tmp_path):
     prompt = build_system_prompt(load(tmp_path))
     assert "kind 'build'" in prompt and "submit_engineering_request" in prompt and "areas true" in prompt
     assert "You never write code" in prompt
+
+
+def test_the_prompt_says_the_loop_repairs_and_lands_builds_and_clive_reports_them_from_engineering_status(tmp_path):
+    """The owner re-filed builds that had failed, and each failed the same way: CLIVE had said it could not see
+    whether the loop retries. The loop's builders write the change, CLIVE's tests and a reviewer check it, the
+    loop repairs it by itself up to a limit, and lands it on the trunk once its landing is on; deploying stays
+    the owner's. CLIVE says what happened from engineering_status and does not suggest re-filing a blocked build
+    unless the request itself was the cause."""
+    from app.kb.loader import build_system_prompt, load
+
+    prompt = build_system_prompt(load(tmp_path))
+    assert "the owner merges it" not in prompt
+    assert (
+        "You never write code: the engineering loop's builders write it, CLIVE's tests and a reviewer check it, "
+        "and the loop repairs it by itself when the checks, GitHub's tests or the review fail, up to a limit. "
+        "When the loop's landing is on, the loop lands it on the trunk; deploying stays the owner's. "
+        "To say what happened to a build, call engineering_status and use its words; never suggest filing a "
+        "blocked build again unless the request itself was the cause. To file one, call engineering_status with "
+        "areas true, then submit_engineering_request"
+    ) in prompt

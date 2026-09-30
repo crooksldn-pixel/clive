@@ -273,8 +273,17 @@ def test_receipts_carry_pointers_only_never_a_second_lifecycle_store():
     }
 
 
+def _other_commit(env: SimpleNamespace) -> str:
+    """A commit the engineering repo has, which is not the one `main` resolves to.
+
+    A declared sha the repo does not have at all is no longer a mismatch: the loop waits for it
+    (the 2026-09-30 base wait, below). A mismatch is a ref naming a different commit that exists."""
+    return _git(env.checkout, "-c", "user.name=t", "-c", "user.email=t@t",
+                "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "elsewhere")
+
+
 def test_base_ref_must_resolve_to_the_declared_sha(env, tmp_path):
-    commit_request(env.origin, "r-eleven", valid_request(env, request_id="r-eleven", base_sha="f" * 40))
+    commit_request(env.origin, "r-eleven", valid_request(env, request_id="r-eleven", base_sha=_other_commit(env)))
     _kernel, objectives, _receipts, controller = make_controller(env, tmp_path)
     outcomes = controller.poll_once()
     assert outcomes[0]["outcome"] == "refused"
@@ -811,7 +820,7 @@ def test_an_unbounded_base_ref_is_refused_before_git_and_never_echoed(env, tmp_p
 
 def test_a_resolvable_ref_that_disagrees_with_the_declared_sha_is_refused_without_echoing_it(env, tmp_path):
     commit_request(env.origin, "r-mismatch",
-                   valid_request(env, request_id="r-mismatch", base_ref="main", base_sha="f" * 40))
+                   valid_request(env, request_id="r-mismatch", base_ref="main", base_sha=_other_commit(env)))
     _kernel, objectives, receipts, controller = make_controller(env, tmp_path)
     outcomes = controller.poll_once()
     assert outcomes[0]["outcome"] == "refused"
@@ -2052,3 +2061,666 @@ def test_run_restarted_on_an_existing_store_replays_it_admits_nothing_twice_and_
         assert _git(state, "status", "--porcelain", "--untracked-files=all") == ""
     finally:
         _kill_builders(store)
+
+
+# ------------------------ the 2026-09-30 base wait: a base the engineering repo has not fetched yet waits, not refuses
+#
+# On 30 Sep a request named a trunk commit merged minutes earlier; the engineering repo had not fetched
+# it, and the request was refused with its id burned. The filing tool names the trunk head it reads at
+# filing time, so any filing right after a merge is at risk. The loop now fetches the trunk once, and
+# while the commit is still absent defers the request -- no claim, no receipt -- for a bound recorded
+# at first sight under the adapter root. A ref that names a different commit is refused as before.
+# The new names are imported inside the tests, after each one's first behavioural assertion, so on
+# code without the wait every test here fails on what the loop did, not on an import.
+
+class _Clock:
+    """A host clock the test moves by hand."""
+
+    def __init__(self, now: datetime = NOW) -> None:
+        self.now = now
+
+    def __call__(self) -> datetime:
+        return self.now
+
+
+def _origin_commit(env: SimpleNamespace, branch: str, text: str) -> str:
+    """A commit on origin's ``branch`` (made from main when new), made after the engineering repo was
+    cloned: that repo does not have it until it fetches something that contains it."""
+    exists = subprocess.run(["git", "rev-parse", "--verify", "--quiet", branch], cwd=env.origin,
+                            capture_output=True).returncode == 0
+    _git(env.origin, "checkout", "-q", branch) if exists else _git(env.origin, "checkout", "-q", "-b", branch, "main")
+    (env.origin / "b.txt").write_text(text)
+    _git(env.origin, "add", "-A")
+    _git(env.origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", text)
+    sha = _git(env.origin, "rev-parse", "HEAD")
+    _git(env.origin, "checkout", "-q", "main")
+    return sha
+
+
+def _has(env: SimpleNamespace, sha: str) -> bool:
+    return GitFacts(env.checkout).commit_exists(sha)
+
+
+def _waiting_controller(env: SimpleNamespace, tmp_path: Path, clock: _Clock):
+    """make_controller's controller over the same store, with a clock the test moves (a fresh one is a restart)."""
+    store = LifecycleStore(tmp_path / "engineering")
+    kernel = Kernel(store=store, registry=PrincipalRegistry.load(REGISTRY), git=GitFacts(env.checkout),
+                    operator="remote-test", journal=False, clock=lambda: NOW)
+    objectives = ObjectiveStore(store, journal=False)
+    receipts = ReceiptLog(store.root / "remote_engineering")
+    config = RemoteControllerConfig(repo=env.checkout, repository="crooksldn-pixel/clive", product_memory_ref="main")
+    return kernel, objectives, receipts, RemoteController(kernel=kernel, objectives=objectives, config=config,
+                                                          receipts=receipts, clock=clock)
+
+
+def _as_filed(env: SimpleNamespace, request_id: str, base: str) -> dict:
+    """A request as CLIVE's filing tool writes it: the base named by its SHA, as the ref and the sha."""
+    return valid_request(env, request_id=request_id, base_ref=base, base_sha=base)
+
+
+def test_an_unfetched_trunk_base_is_fetched_once_and_admitted(env, tmp_path):
+    """The 30 Sep case: the base is the trunk head, merged after the engineering repo last fetched."""
+    _git(env.origin, "branch", "clive/trunk", "main")
+    merged = _origin_commit(env, "clive/trunk", "merged minutes ago")
+    assert not _has(env, merged)
+    commit_request(env.origin, "r-fresh-base", _as_filed(env, "r-fresh-base", merged))
+    kernel, objectives, receipts, controller = _waiting_controller(env, tmp_path, _Clock())
+
+    outcomes = controller.poll_once()
+
+    assert [o["outcome"] for o in outcomes] == ["accepted"]
+    assert objectives.read("r-fresh-base").base_sha == merged
+    assert kernel.store.read_task_state("r-fresh-base", 1).status is TaskStatus.READY
+    assert _git(env.checkout, "rev-parse", "refs/remotes/origin/clive/trunk") == merged   # the trunk, fetched
+    assert receipts.get("r-fresh-base").outcome == "accepted"
+    assert not (receipts.dir.parent / "waits").exists() or not any((receipts.dir.parent / "waits").iterdir())
+
+
+def test_a_base_still_missing_defers_with_nothing_burned_and_is_admitted_once_it_arrives(env, tmp_path):
+    _git(env.origin, "branch", "clive/trunk", "main")
+    pending = _origin_commit(env, "feature/elsewhere", "not on the trunk yet")
+    commit_request(env.origin, "r-wait-base", _as_filed(env, "r-wait-base", pending))
+    clock = _Clock()
+    kernel, objectives, receipts, controller = _waiting_controller(env, tmp_path, clock)
+
+    [first] = controller.poll_once()
+
+    assert first["outcome"] == "waiting"
+    from app.remote_engineering import BASE_WAIT_REASON, WaitLog
+
+    assert first["reason"] == BASE_WAIT_REASON and first["durable"] is False
+    assert first["waiting_since"] == NOW.isoformat()
+    assert first["refuse_after"] == (NOW + timedelta(hours=1)).isoformat()
+    assert pending not in json.dumps(first)                     # the declared sha is never echoed
+    # nothing burned: no claim, no receipt, no objective, no task; only the wait
+    assert controller.claims.get("r-wait-base") is None and receipts.get("r-wait-base") is None
+    assert objectives.read("r-wait-base") is None and kernel.store.read_tasks() == ()
+    assert [w.request_id for w in WaitLog(receipts.dir.parent).read_all()] == ["r-wait-base"]
+    status = build_status(store=kernel.store, receipts=receipts, now=NOW)
+    assert status["requests"] == []
+    [shown] = status["waiting_requests"]
+    assert shown["request_id"] == "r-wait-base" and shown["outcome"] == "waiting"
+    assert shown["reason"] == BASE_WAIT_REASON and pending not in json.dumps(status)
+
+    clock.now = NOW + timedelta(minutes=10)
+    [again] = controller.poll_once()
+    assert again["outcome"] == "waiting" and again["waiting_since"] == NOW.isoformat()   # still counted from first sight
+
+    _git(env.origin, "branch", "-f", "clive/trunk", pending)    # it is merged
+    clock.now = NOW + timedelta(minutes=20)
+    [admitted] = controller.poll_once()
+
+    assert admitted["outcome"] == "accepted"
+    assert objectives.read("r-wait-base").base_sha == pending
+    assert controller.claims.get("r-wait-base").claimed_at == NOW + timedelta(minutes=20)
+    assert WaitLog(receipts.dir.parent).read_all() == ()
+    status = build_status(store=kernel.store, receipts=receipts, now=clock.now)
+    assert status["waiting_requests"] == [] and [r["request_id"] for r in status["requests"]] == ["r-wait-base"]
+    assert controller.poll_once() == [admitted]                 # and a replay repeats the receipt
+
+
+def test_a_ref_naming_another_commit_is_refused_at_once_while_a_missing_base_waits(env, tmp_path):
+    """Only a missing base waits. A ref that resolves to a different commit is refused in the same poll,
+    exactly as before: same wording, its id decided, and it never waits."""
+    _git(env.origin, "branch", "clive/trunk", "main")
+    pending = _origin_commit(env, "feature/elsewhere", "not on the trunk yet")
+    commit_request(env.origin, "r-missing", _as_filed(env, "r-missing", pending))
+    commit_request(env.origin, "r-other", valid_request(env, request_id="r-other", base_ref="main",
+                                                        base_sha=_other_commit(env)))
+    _kernel, objectives, receipts, controller = _waiting_controller(env, tmp_path, _Clock())
+
+    outcomes = {o["request_id"]: o for o in controller.poll_once()}
+
+    assert outcomes["r-missing"]["outcome"] == "waiting"
+    refused = outcomes["r-other"]
+    assert refused["outcome"] == "refused"
+    assert refused["reason"] == "request r-other: base ref does not resolve to the declared base sha <redacted>"
+    assert "'main'" not in refused["reason"]
+    assert receipts.get("r-other").outcome == "refused" and controller.claims.get("r-other") is not None
+    assert objectives.read("r-other") is None
+    from app.remote_engineering import WaitLog
+
+    assert [w.request_id for w in WaitLog(receipts.dir.parent).read_all()] == ["r-missing"]
+
+
+def test_a_base_still_missing_past_its_bound_is_refused_and_the_id_is_decided(env, tmp_path):
+    _git(env.origin, "branch", "clive/trunk", "main")
+    never = _origin_commit(env, "feature/abandoned", "never merged")
+    commit_request(env.origin, "r-too-late", _as_filed(env, "r-too-late", never))
+    clock = _Clock()
+    _kernel, objectives, receipts, controller = _waiting_controller(env, tmp_path, clock)
+
+    assert [o["outcome"] for o in controller.poll_once()] == ["waiting"]
+    clock.now = NOW + timedelta(minutes=59, seconds=59)
+    assert [o["outcome"] for o in controller.poll_once()] == ["waiting"]
+    clock.now = NOW + timedelta(hours=1)
+    [refused] = controller.poll_once()
+
+    assert refused["outcome"] == "refused"
+    assert refused["reason"] == (
+        "request r-too-late: base ref does not resolve to the declared base sha <redacted>; the engineering "
+        "repo still did not have that commit 1 hour after the loop first saw the request"
+    )
+    assert never not in json.dumps(refused)
+    assert receipts.get("r-too-late").outcome == "refused"
+    assert controller.claims.get("r-too-late") is not None and objectives.read("r-too-late") is None
+    from app.remote_engineering import WaitLog
+
+    assert WaitLog(receipts.dir.parent).read_all() == ()
+    # decided means decided: the base arriving afterwards changes nothing
+    _git(env.origin, "branch", "-f", "clive/trunk", never)
+    clock.now = NOW + timedelta(hours=2)
+    assert controller.poll_once() == [refused]
+    assert objectives.read("r-too-late") is None
+
+
+def test_a_restart_mid_wait_keeps_counting_from_first_sight(env, tmp_path):
+    _git(env.origin, "branch", "clive/trunk", "main")
+    pending = _origin_commit(env, "feature/slow", "merged later")
+    commit_request(env.origin, "r-restart-wait", _as_filed(env, "r-restart-wait", pending))
+
+    _k1, _o1, _r1, first = _waiting_controller(env, tmp_path, _Clock(NOW))
+    assert [o["outcome"] for o in first.poll_once()] == ["waiting"]
+
+    # a new process, the same adapter root, half an hour on: still waiting, still counted from NOW
+    _k2, _o2, receipts, second = _waiting_controller(env, tmp_path, _Clock(NOW + timedelta(minutes=30)))
+    [waiting] = second.poll_once()
+    assert waiting["outcome"] == "waiting"
+    assert waiting["waiting_since"] == NOW.isoformat()
+    assert waiting["refuse_after"] == (NOW + timedelta(hours=1)).isoformat()
+    assert second.claims.get("r-restart-wait") is None and receipts.get("r-restart-wait") is None
+
+    # restarted again once the bound from first sight has passed: refused, not given a fresh hour
+    _k3, objectives, receipts, third = _waiting_controller(env, tmp_path, _Clock(NOW + timedelta(hours=1)))
+    [refused] = third.poll_once()
+    assert refused["outcome"] == "refused" and "1 hour after the loop first saw the request" in refused["reason"]
+    assert objectives.read("r-restart-wait") is None
+
+
+def test_a_restart_mid_wait_admits_the_request_once_its_base_arrives(env, tmp_path):
+    _git(env.origin, "branch", "clive/trunk", "main")
+    pending = _origin_commit(env, "feature/slow", "merged later")
+    commit_request(env.origin, "r-restart-admit", _as_filed(env, "r-restart-admit", pending))
+    _k1, _o1, _r1, first = _waiting_controller(env, tmp_path, _Clock(NOW))
+    assert [o["outcome"] for o in first.poll_once()] == ["waiting"]
+
+    _git(env.origin, "branch", "-f", "clive/trunk", pending)
+    kernel, objectives, receipts, second = _waiting_controller(env, tmp_path, _Clock(NOW + timedelta(minutes=45)))
+    [admitted] = second.poll_once()
+
+    assert admitted["outcome"] == "accepted"
+    assert objectives.read("r-restart-admit").base_sha == pending
+    assert len(kernel.store.read_tasks()) == 1
+    from app.remote_engineering import WaitLog
+
+    assert WaitLog(receipts.dir.parent).read_all() == ()
+
+
+def test_the_trunk_is_fetched_once_per_poll_however_many_requests_wait(env, tmp_path, monkeypatch):
+    from app.remote_engineering import controller as controller_module
+
+    _git(env.origin, "branch", "clive/trunk", "main")
+    one = _origin_commit(env, "feature/one", "one")
+    two = _origin_commit(env, "feature/two", "two")
+    commit_request(env.origin, "r-wait-one", _as_filed(env, "r-wait-one", one))
+    commit_request(env.origin, "r-wait-two", _as_filed(env, "r-wait-two", two))
+    fetched: list[str] = []
+    real = controller_module.fetch_trunk
+    monkeypatch.setattr(controller_module, "fetch_trunk",
+                        lambda repo, **kw: fetched.append(kw["branch"]) or real(repo, **kw))
+    _kernel, _objectives, _receipts, controller = _waiting_controller(env, tmp_path, _Clock())
+
+    assert [o["outcome"] for o in controller.poll_once()] == ["waiting", "waiting"]
+    assert fetched == ["clive/trunk"]                            # once, for both
+    controller.poll_once()
+    assert fetched == ["clive/trunk", "clive/trunk"]             # and again next poll
+
+
+def test_a_base_present_needs_no_fetch_and_a_trunk_that_cannot_be_fetched_only_keeps_it_waiting(env, tmp_path,
+                                                                                                  monkeypatch):
+    from app.remote_engineering import TRUNK_UNAVAILABLE
+    from app.remote_engineering import controller as controller_module
+
+    fetched: list[str] = []
+    real = controller_module.fetch_trunk
+    monkeypatch.setattr(controller_module, "fetch_trunk",
+                        lambda repo, **kw: fetched.append(kw["branch"]) or real(repo, **kw))
+    commit_request(env.origin, "r-present", valid_request(env, request_id="r-present"))
+    _kernel, _objectives, _receipts, controller = _waiting_controller(env, tmp_path, _Clock())
+    assert [o["outcome"] for o in controller.poll_once()] == ["accepted"]
+    assert fetched == [] and controller.trunk_fetch_error is None
+
+    # origin has no clive/trunk at all: the fetch fails, and the request waits rather than being refused
+    pending = _origin_commit(env, "feature/elsewhere", "somewhere")
+    commit_request(env.origin, "r-no-trunk", _as_filed(env, "r-no-trunk", pending))
+    outcomes = {o["request_id"]: o for o in controller.poll_once()}
+    assert outcomes["r-no-trunk"]["outcome"] == "waiting"
+    assert controller.trunk_fetch_error == TRUNK_UNAVAILABLE
+    assert str(env.origin) not in json.dumps(outcomes)
+
+
+def test_the_published_status_shows_a_waiting_request_and_why_the_trunk_could_not_be_fetched(env, tmp_path):
+    pending = _origin_commit(env, "feature/elsewhere", "somewhere")
+    commit_request(env.origin, "r-shown-waiting", _as_filed(env, "r-shown-waiting", pending))
+    kernel, _objectives, _receipts, controller = _waiting_controller(env, tmp_path, _Clock())
+    published: list[dict] = []
+
+    result = _loop(controller, _Ticker(), kernel.store, lambda status: published.append(status) or "a" * 40).cycle()
+
+    assert [o["outcome"] for o in result["outcomes"]] == ["waiting"]
+    from app.remote_engineering import BASE_WAIT_REASON, TRUNK_UNAVAILABLE
+
+    [status] = published
+    assert status["requests"] == [] and status["refused_records"] == []
+    [waiting] = status["waiting_requests"]
+    assert waiting == {
+        "request_id": "r-shown-waiting", "source": "requests/r-shown-waiting.json",
+        "request_sha256": result["outcomes"][0]["request_sha256"], "outcome": "waiting",
+        "reason": BASE_WAIT_REASON, "waiting_since": NOW.isoformat(),
+        "refuse_after": (NOW + timedelta(hours=1)).isoformat(),
+    }
+    assert status["adapter"] == {"intake_error": None, "trunk_fetch_error": TRUNK_UNAVAILABLE}
+    for text in (json.dumps(published), json.dumps(result, default=str)):
+        assert pending not in text and str(env.origin) not in text
+
+
+def test_a_request_that_leaves_the_inbox_while_waiting_stops_being_shown(env, tmp_path):
+    _git(env.origin, "branch", "clive/trunk", "main")
+    pending = _origin_commit(env, "feature/elsewhere", "somewhere")
+    commit_request(env.origin, "r-withdrawn", _as_filed(env, "r-withdrawn", pending))
+    kernel, _objectives, receipts, controller = _waiting_controller(env, tmp_path, _Clock())
+    assert [o["outcome"] for o in controller.poll_once()] == ["waiting"]
+
+    _git(env.origin, "checkout", "-q", DEFAULT_INBOX_BRANCH)
+    _git(env.origin, "rm", "-q", f"{DEFAULT_INBOX_DIRECTORY}/r-withdrawn.json")
+    _git(env.origin, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "withdrawn")
+    _git(env.origin, "checkout", "-q", "main")
+
+    assert controller.poll_once() == []
+    assert build_status(store=kernel.store, receipts=receipts, now=NOW)["waiting_requests"] == []
+
+
+def test_the_base_wait_is_host_configuration_bounded_and_never_a_request_field(env):
+    from app.remote_engineering import DEFAULT_BASE_WAIT_S, DEFAULT_TRUNK_BRANCH
+
+    config = RemoteControllerConfig(repo=env.checkout, repository="crooksldn-pixel/clive", product_memory_ref="main")
+    assert config.base_wait_s == DEFAULT_BASE_WAIT_S == 3600.0 and config.trunk_branch == DEFAULT_TRUNK_BRANCH
+    for bad in (float("nan"), float("inf"), 0, -1, 59, 86_401):
+        with pytest.raises(InboxError):
+            RemoteControllerConfig(repo=env.checkout, repository="o/r", product_memory_ref="main", base_wait_s=bad)
+    for bad in ("../trunk", "-x", "a..b", "https://evil.example/x"):
+        with pytest.raises(InboxError):
+            RemoteControllerConfig(repo=env.checkout, repository="o/r", product_memory_ref="main", trunk_branch=bad)
+    with pytest.raises(RequestSchemaError):
+        parse_request(json.dumps(valid_request(env, request_id="r-wait-own", base_wait_s=1)).encode())
+
+
+def test_poll_refuses_to_start_while_the_waits_directory_would_be_unignored_store_state(
+        env, tmp_path, capsys, no_host_git_config):
+    """A deferred request writes its wait beside the claims and receipts; the journal must not see it either.
+    These rules do ignore the claims and receipts directories (without a trailing slash, so git matches them
+    before they exist), which alone used to be enough to start."""
+    state = _journalled_state(tmp_path)
+    store_dir = state / "engineering"
+    (state / ".gitignore").write_text("/engineering/remote_engineering/claims\n/engineering/remote_engineering/receipts\n")
+    _git(state, "add", ".gitignore")
+    _git(state, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "ignore two record dirs")
+    for directory in ("claims", "receipts"):
+        assert subprocess.run(["git", "check-ignore", "-q", "--", f"engineering/remote_engineering/{directory}"],
+                              cwd=state).returncode == 0, directory
+
+    with pytest.raises(InboxError) as refusal:
+        adapter_root_preconditions(store_dir, store_dir / "remote_engineering")
+    assert str(refusal.value) == ADAPTER_ROOT_NOT_IGNORED
+    rc = cli.run(["--store", str(store_dir), "--repo", str(env.checkout),
+                  "poll", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main"])
+    assert rc == 2 and ADAPTER_ROOT_NOT_IGNORED in capsys.readouterr().err
+    assert not (store_dir / "remote_engineering").exists()
+
+
+def test_under_the_hosts_exclude_rule_a_wait_leaves_the_journalled_store_clean(env, tmp_path, capsys,
+                                                                              no_host_git_config):
+    """clive-worker-01's layout: the default adapter root, ignored whole by the store's own exclude rule."""
+    state = _journalled_state(tmp_path)
+    store_dir = state / "engineering"
+    exclude = state / ".git" / "info" / "exclude"
+    exclude.write_text((exclude.read_text() if exclude.exists() else "") + "/engineering/remote_engineering/\n")
+    _git(env.origin, "branch", "clive/trunk", "main")
+    pending = _origin_commit(env, "feature/elsewhere", "somewhere")
+    commit_request(env.origin, "r-host-wait", _as_filed(env, "r-host-wait", pending))
+    flags = ["--store", str(store_dir), "--repo", str(env.checkout),
+             "poll", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main"]
+
+    assert cli.run(flags) == 0
+    first = capsys.readouterr()
+    assert first.err == "" and [o["outcome"] for o in json.loads(first.out)] == ["waiting"]
+    adapter = store_dir / "remote_engineering"
+    assert sorted(p.relative_to(adapter).as_posix() for p in adapter.rglob("*.json")) == ["waits/r-host-wait.json"]
+    assert _git(state, "status", "--porcelain", "--untracked-files=all") == ""
+
+    _git(env.origin, "branch", "-f", "clive/trunk", pending)
+    assert cli.run(flags) == 0
+    second = capsys.readouterr()
+    assert [o["outcome"] for o in json.loads(second.out)] == ["accepted"]
+    assert sorted(p.relative_to(adapter).as_posix() for p in adapter.rglob("*.json")) == \
+        ["claims/r-host-wait.json", "receipts/r-host-wait.json"]
+    assert _git(state, "status", "--porcelain", "--untracked-files=all") == ""
+
+
+# ------------------------ the 2026-09-30 build truth: what each build went through, published per request
+#
+# The owner asked CLIVE whether the loop retries a failed build, and CLIVE could not see that it does:
+# the status carried a stage and a reason only. The projection now carries, per request, what the
+# kernel's own records say (``build_history``: attempts per revision, the retries among them and why,
+# the review's requests for changes, the repair limit), and the Dispatcher's per-build keys when it
+# reports them (``attempts``, ``repairs``, ``generated``, ``landing``), rebuilt bounded and redacted.
+# As above, new names are imported after each test's first behavioural assertion.
+
+CUSTOMER_EMAIL = "mia.kowalski@example.com"
+CUSTOMER_PHONE = "07700 900123"
+PROJECTION_TOKEN = github_token("remote-engineering-projection", kind="p")
+PROJECTION_KEY = openai_key("remote-engineering-projection", kind="")
+PROJECTION_URL = credential_url(github_token("remote-engineering-projection-url", kind="s"))
+LANDED = "abc1234" + "0" * 33
+DISPATCHER_KEYS = {
+    "attempts": [
+        {"attempt_id": "r-built-a1", "revision": 1, "outcome": "cancelled", "reason": "transient: the provider timed out",
+         "at": "2026-09-30T10:00:00+00:00"},
+        {"attempt_id": "r-built-a2", "revision": 1, "outcome": "candidate", "reason": None,
+         "at": "2026-09-30T10:20:00+00:00"},
+        {"attempt_id": "r-built-a3", "revision": 2, "outcome": "blocked",
+         "reason": "GitHub's tests failed — tests/test_x.py::test_y", "at": "2026-09-30T11:00:00+00:00"},
+    ],
+    "repairs": {"review": 1, "ci": 1, "max": 2},
+    "generated": ["crooks-assistant/docs/phase4/TOOL_MATRIX.md"],
+    "landing": {"state": "landed", "sha": LANDED, "at": "2026-09-30T11:30:00+00:00", "reason": None},
+}
+PROJECTED_BASE_KEYS = {"request_id", "source", "request_sha256", "outcome", "reason", "objective_id", "task_id",
+                       "recorded_at"}
+
+
+class _QuietIntake:
+    def poll_once(self):
+        return []
+
+
+class _Reporting:
+    """A Dispatcher whose ``status()`` says what it is given, as the one on the teammate's branch is to."""
+
+    def __init__(self, entries=None, *, error: Exception | None = None):
+        self.entries, self.error = entries, error
+
+    def tick(self):
+        return []
+
+    def status(self):
+        if self.error is not None:
+            raise self.error
+        return self.entries
+
+
+def _decided(tmp_path: Path, *ids: str) -> tuple[LifecycleStore, ReceiptLog]:
+    store = LifecycleStore(tmp_path / "engineering")
+    receipts = ReceiptLog(store.root / "remote_engineering")
+    for rid in ids:
+        receipts.put(Receipt(request_id=rid, request_sha256="0" * 64, outcome="accepted", objective_id=rid,
+                             task_id=rid, source=f"requests/{rid}.json", recorded_at=NOW))
+    return store, receipts
+
+
+def _published(tmp_path: Path, dispatcher, *ids: str) -> dict:
+    store, receipts = _decided(tmp_path, *ids)
+    published: list[dict] = []
+    RemoteEngineeringLoop(controller=_QuietIntake(), dispatcher=dispatcher, store=store, receipts=receipts,
+                          publish=lambda status: published.append(status) or "a" * 40, clock=lambda: NOW).cycle()
+    [status] = published
+    json.dumps(status)   # plain JSON, as it is pushed
+    return status
+
+
+def _built_world(tmp_path: Path):
+    """A real Dispatcher's run to COMPLETE: revision 1's first builder dies (a transient failure, retried),
+    its second is sent back by the review; the repair's first builder changes nothing (a result CLIVE
+    refuses, retried) and its second passes review."""
+    from tests.test_engineering_dispatcher import FINDING, OBJ, World, review
+
+    w = World(tmp_path)
+    w.scenarios({"die": True}, {"edits": [["pkg/hello.txt", "bye\n"]]}, {"edits": []},
+                {"edits": [["pkg/hello.txt", "hello\n"]]})
+    w.objective()
+    w.reviewer.answers.append(lambda ctx: review(ctx, "CHANGES_REQUIRED", findings=[FINDING])
+                              if ctx.task_revision == 1 else review(ctx, "READY"))
+    w.run_until(lambda: w.stage() == "COMPLETE")
+    receipts = ReceiptLog(w.store.root / "remote_engineering")
+    receipts.put(Receipt(request_id="r-built", request_sha256="0" * 64, outcome="accepted", objective_id=OBJ,
+                         task_id=OBJ, source="requests/r-built.json", recorded_at=NOW))
+    return w, receipts
+
+
+def test_the_projection_counts_each_revisions_attempts_and_retries_from_the_kernels_records(tmp_path):
+    """Before the Dispatcher reports anything new, the records alone show the owner that the loop retried
+    and repaired by itself: four builds, two of them retries, one review asking for changes."""
+    w, receipts = _built_world(tmp_path)
+    notes = [e.note or "" for a in w.store.read_attempts("demo-objective")
+             for e in w.store.read_events("demo-objective", a.attempt_id) if e.kind.value == "cancelled"]
+    assert [n.split(":", 1)[0] for n in notes] == ["transient", "result_refused"]   # what the world did
+
+    [item] = build_status(store=w.store, receipts=receipts, now=w.clock())["requests"]
+
+    assert item["revision"] == 2 and item["stage"] == "COMPLETE"
+    assert item["build_history"] == {
+        "attempts": 4,
+        "revisions": [
+            {"revision": 1, "kind": "build", "attempts": 2, "transient": 1, "refused": 0},
+            {"revision": 2, "kind": "repair", "attempts": 2, "transient": 0, "refused": 1},
+        ],
+        "review_changes_requested": 1,
+        "max_repair_rounds": 2,
+    }
+    # counts and fixed words only: no note the Dispatcher wrote is copied
+    assert all(note[:40] not in json.dumps(item["build_history"]) for note in notes)
+    from app.remote_engineering import build_history
+
+    assert build_history(w.store, "no-such-task") == {"attempts": 0, "revisions": [], "review_changes_requested": 0,
+                                                      "max_repair_rounds": None}
+
+
+def test_the_records_projection_says_plainly_that_the_loop_retried_by_itself(tmp_path):
+    """End to end, from the kernel's records to the words CLIVE is handed for "did the loop retry?"."""
+    from app.tools import engineering_tools
+
+    w, receipts = _built_world(tmp_path)
+    [item] = build_status(store=w.store, receipts=receipts, now=w.clock())["requests"]
+
+    row = engineering_tools.progress(item)
+
+    assert row["progress"] == "done"
+    assert row["history"] == ("Built 4 times; the loop retried it by itself twice (1 transient failure, 1 result "
+                              "refused by CLIVE's checks); the review asked for changes once.")
+
+
+def test_an_unreadable_record_leaves_the_history_out_and_never_stops_the_projection(tmp_path):
+    w, receipts = _built_world(tmp_path)
+    [item] = build_status(store=w.store, receipts=receipts, now=w.clock())["requests"]
+    assert item["build_history"]["attempts"] == 4
+    [attempt, *_] = w.store.read_attempts("demo-objective")
+    events = w.store.events_dir / "demo-objective" / f"{attempt.attempt_id}.jsonl"
+    events.write_text(events.read_text() + "{not json\n")
+
+    [item] = build_status(store=w.store, receipts=receipts, now=w.clock())["requests"]
+
+    assert item["stage"] == "COMPLETE" and "build_history" not in item
+
+
+def test_the_dispatchers_per_build_keys_are_published_when_it_reports_them(tmp_path):
+    status = _published(tmp_path, _Reporting([{"objective_id": "r-built", "stage": "BLOCKED", **DISPATCHER_KEYS},
+                                              {"objective_id": "r-plain", "stage": "RUNNING"}]), "r-built", "r-plain")
+
+    built, plain = status["requests"]
+    assert built["attempts"] == DISPATCHER_KEYS["attempts"]
+    assert built["repairs"] == {"review": 1, "ci": 1, "max": 2}
+    assert built["generated"] == ["crooks-assistant/docs/phase4/TOOL_MATRIX.md"]
+    assert built["landing"] == DISPATCHER_KEYS["landing"]
+    # an entry that reports none of them publishes none of them: absent means unknown, never "none"
+    assert set(plain) == PROJECTED_BASE_KEYS
+    assert status["schema_version"] == "clive.remote_engineering_status.v1"
+
+
+def test_a_key_the_dispatcher_reports_as_null_or_misshapen_is_null_and_one_it_omits_is_absent(tmp_path):
+    entries = [{"objective_id": "r-null", "landing": None, "repairs": None},
+               {"objective_id": "r-odd", "attempts": "three", "repairs": [1, 2], "generated": "TOOL_MATRIX.md",
+                "landing": "landed"}]
+    null, odd = _published(tmp_path, _Reporting(entries), "r-null", "r-odd")["requests"]
+
+    assert null["landing"] is None and null["repairs"] is None
+    assert not {"attempts", "generated"} & set(null)
+    assert odd["attempts"] is None and odd["repairs"] is None and odd["generated"] is None and odd["landing"] is None
+
+
+def test_every_dispatcher_value_is_rebuilt_bounded_and_carries_no_secret_or_customer_data(tmp_path):
+    long_reason = "the check failed: " + "one more step passed; " * 400
+    entry = {
+        "objective_id": "r-built",
+        "attempts": [{"attempt_id": f"r-built-a{n}", "revision": 1, "outcome": "cancelled", "reason": f"retry {n}",
+                      "at": "2026-09-30T10:00:00+00:00"} for n in range(30)]
+        + [{"attempt_id": "bad id with spaces", "revision": True, "outcome": "exploded",
+            "reason": f"push failed for {PROJECTION_URL}\nand {PROJECTION_TOKEN}, api_key={PROJECTION_KEY}; "
+                      f"the fixture mailed {CUSTOMER_EMAIL} on {CUSTOMER_PHONE}", "at": "yesterday"},
+           {"attempt_id": "r-built-naive", "revision": 0, "outcome": ["refused"], "reason": long_reason,
+            "at": "2026-09-30T10:00:00"}],
+        "repairs": {"review": -1, "ci": True, "max": "2"},
+        "generated": [f"docs/generated_{n}.md" for n in range(25)] + [PROJECTION_KEY, "../escape.md", CUSTOMER_EMAIL],
+        "landing": {"state": "merged-by-magic", "sha": "ABCDEF0123" * 4, "at": 12,
+                    "reason": f"{long_reason} {PROJECTION_TOKEN}"},
+    }
+    [item] = _published(tmp_path, _Reporting([entry]), "r-built")["requests"]
+
+    assert len(item["attempts"]) == 20 and item["attempts"][0]["attempt_id"] == "r-built-a12"   # the latest 20
+    odd, naive = item["attempts"][-2:]
+    assert odd["attempt_id"] is None and odd["revision"] is None and odd["outcome"] is None and odd["at"] is None
+    assert "\n" not in odd["reason"] and "[redacted]@" in odd["reason"] and "[email]" in odd["reason"]
+    assert "[phone]" in odd["reason"]
+    assert naive["revision"] is None and naive["outcome"] is None and naive["at"] is None   # a naive time: unknown
+    assert len(naive["reason"]) <= 500 and naive["reason"].endswith("...")
+    assert item["repairs"] == {"review": None, "ci": None, "max": None}
+    assert item["generated"] == [f"docs/generated_{n}.md" for n in range(20)]
+    assert item["landing"]["state"] is None and item["landing"]["sha"] is None and item["landing"]["at"] is None
+    assert len(item["landing"]["reason"]) <= 500
+    text = json.dumps(item)
+    for leaked in (PROJECTION_TOKEN, PROJECTION_KEY, PROJECTION_URL, CUSTOMER_EMAIL, CUSTOMER_PHONE, "../escape"):
+        assert leaked not in text, leaked
+
+
+def test_a_dispatcher_without_the_view_or_that_cannot_answer_publishes_none_of_it_and_the_cycle_goes_on(tmp_path):
+    for n, dispatcher in enumerate((_Ticker(), _Reporting(error=RuntimeError("notes unreadable")),
+                                    _Reporting("nonsense"), _Reporting([None, "x", {"objective_id": 5, **DISPATCHER_KEYS}]))):
+        [item] = _published(tmp_path / str(n), dispatcher, "r-built")["requests"]
+        assert set(item) == PROJECTED_BASE_KEYS, type(dispatcher).__name__
+    # and one that answers is published, beside the ones that do not
+    [item] = _published(tmp_path / "answers", _Reporting([{"objective_id": "r-built", **DISPATCHER_KEYS}]),
+                        "r-built")["requests"]
+    assert item["repairs"] == {"review": 1, "ci": 1, "max": 2}
+
+
+def test_a_kernel_failure_raised_by_the_dispatchers_status_view_still_stops_the_loop(tmp_path):
+    """Fail closed, as from the tick: the projection read swallows ordinary failures, never the store's."""
+    store, receipts = _decided(tmp_path, "r-built")
+    published: list[dict] = []
+    loop = RemoteEngineeringLoop(controller=_QuietIntake(), dispatcher=_Reporting(error=LifecycleError("torn")),
+                                 store=store, receipts=receipts,
+                                 publish=lambda status: published.append(status) or "a" * 40, clock=lambda: NOW)
+    with pytest.raises(LifecycleError):
+        loop.cycle()
+    assert published == []
+
+
+def test_the_dispatcher_on_the_trunk_today_publishes_its_records_history_and_none_of_the_new_keys(tmp_path):
+    """The real Dispatcher as this lands against it: its status view is read after the tick, the keys it does
+    not report yet are absent, the records' history is there regardless, and the keys appear once reported."""
+    from app.orchestrator.github_acceptance import GateState
+    from tests.test_engineering_dispatcher import OBJ, World
+
+    w = World(tmp_path)
+    w.scenarios({"edits": [["pkg/hello.txt", "hello\n"]]})
+    w.objective()
+    w.acceptance.state = GateState.PENDING
+    w.run_until(lambda: w.state_of().status is TaskStatus.EVIDENCE_READY)
+    receipts = ReceiptLog(w.store.root / "remote_engineering")
+    receipts.put(Receipt(request_id=OBJ, request_sha256="0" * 64, outcome="accepted", objective_id=OBJ,
+                         task_id=OBJ, source=f"requests/{OBJ}.json", recorded_at=NOW))
+    dispatcher = w.dispatcher()
+
+    def publish_once(d) -> dict:
+        published: list[dict] = []
+        RemoteEngineeringLoop(controller=_QuietIntake(), dispatcher=d, store=w.store, receipts=receipts,
+                              publish=lambda status: published.append(status) or "d" * 40, clock=w.clock).cycle()
+        [item] = published[0]["requests"]
+        return item
+
+    item = publish_once(dispatcher)
+    assert item["stage"] == "EVIDENCE_READY"
+    assert item["build_history"]["attempts"] == 1
+    reported = {entry["objective_id"]: entry for entry in dispatcher.status()}[OBJ]
+    for name in ("attempts", "repairs", "generated", "landing"):
+        assert (name in item) == (name in reported), name
+
+    class WithKeys:
+        """The same dispatcher, reporting the four keys as the teammate's Dispatcher.status() is to."""
+
+        def tick(self):
+            return dispatcher.tick()
+
+        def acceptance_gates(self):
+            return dispatcher.acceptance_gates()
+
+        def status(self):
+            return [{**entry, **DISPATCHER_KEYS} for entry in dispatcher.status()]
+
+    item = publish_once(WithKeys())
+    assert item["stage"] == "EVIDENCE_READY" and item["repairs"] == {"review": 1, "ci": 1, "max": 2}
+    assert item["landing"]["state"] == "landed" and len(item["attempts"]) == 3
+
+
+def test_a_waiting_request_is_listed_until_it_is_decided(tmp_path):
+    store, receipts = _decided(tmp_path, "r-decided")
+    waits_dir = receipts.dir.parent / "waits"
+
+    status = build_status(store=store, receipts=receipts, now=NOW)
+    assert status.get("waiting_requests") == []
+
+    from app.remote_engineering import BASE_WAIT_REASON, WaitLog
+
+    waits = WaitLog(receipts.dir.parent)
+    for rid in ("r-decided", "r-waiting"):
+        waits.note(request_id=rid, request_sha256="1" * 64, source=f"requests/{rid}.json", now=NOW, bound_s=3600)
+    status = build_status(store=store, receipts=receipts, now=NOW)
+    assert [r["request_id"] for r in status["requests"]] == ["r-decided"]
+    assert status["waiting_requests"] == [{
+        "request_id": "r-waiting", "source": "requests/r-waiting.json", "request_sha256": "1" * 64,
+        "outcome": "waiting", "reason": BASE_WAIT_REASON, "waiting_since": NOW.isoformat(),
+        "refuse_after": (NOW + timedelta(hours=1)).isoformat(),
+    }]
+    # an unreadable wait record is not published and does not stop the projection
+    (waits_dir / "r-garbled.json").write_text("{not json")
+    assert [w["request_id"] for w in build_status(store=store, receipts=receipts, now=NOW)["waiting_requests"]] == \
+        ["r-waiting"]

@@ -179,6 +179,54 @@ class WorkspaceManager:
         return WorkspaceManager.head(path)
 
     @staticmethod
+    def blob_at(path: Path, sha: str, rel: str) -> bytes | None:
+        """The bytes of regular file ``rel`` in commit ``sha`` of the attempt's git directory, or None."""
+        sha = validate_exact_sha(sha)
+        gd = WorkspaceManager.git_dir_for(path)
+        listed = WorkspaceManager.wgit(path, "ls-tree", sha, "--", rel).split()
+        if len(listed) < 3 or listed[1] != "blob" or listed[0] not in ("100644", "100755"):
+            return None
+        proc = subprocess.run(["git", *_SAFE, f"--git-dir={gd}", "cat-file", "blob", listed[2]], cwd=str(gd),
+                              env=_env(gd), capture_output=True, timeout=120)
+        if proc.returncode != 0:
+            raise WorkspaceError(f"git cat-file failed for {rel} at {sha}")
+        return proc.stdout
+
+    @staticmethod
+    def commit_files(path: Path, files: dict[str, bytes], *, message: str, author: str) -> str:
+        """The loop's own commit on top of the attempt's HEAD: exactly ``files`` (path to bytes), nothing else.
+
+        For files CLIVE itself generated (``Dispatcher._regenerate``). The blobs go into the attempt's git
+        directory with ``hash-object`` (no path, so no attribute or filter of the tree applies), the index is
+        updated entry by entry, and git writes the same bytes into the tree, never through a link. The commit
+        is then proved to change exactly those paths, or refused. Returns the new HEAD."""
+        if not files:
+            raise WorkspaceError("the loop's commit names no file")
+        gd = WorkspaceManager.git_dir_for(path)
+        before = WorkspaceManager.head(path)
+        for rel, data in sorted(files.items()):
+            parts = rel.split("/")
+            if not rel or rel.startswith("/") or any(p in ("", ".", "..", ".git") for p in parts):
+                raise WorkspaceError(f"{rel!r} is not a repository-relative file path")
+            proc = subprocess.run(["git", *_SAFE, f"--git-dir={gd}", "hash-object", "-w", "--stdin"], input=data,
+                                  cwd=str(gd), env=_env(gd), capture_output=True, timeout=120)
+            if proc.returncode != 0:
+                raise WorkspaceError(f"git hash-object failed for {rel}: {proc.stderr.decode(errors='replace')[:300]}")
+            blob = proc.stdout.decode().strip()
+            listed = WorkspaceManager.wgit(path, "ls-tree", "HEAD", "--", rel).split()
+            mode = "100755" if listed[:1] == ["100755"] else "100644"
+            WorkspaceManager.wgit(path, "update-index", "--add", "--cacheinfo", f"{mode},{blob},{rel}")
+        name, email = COMMITTER
+        WorkspaceManager.wgit(path, "-c", f"user.name={name}", "-c", f"user.email={email}", "commit", "--quiet",
+                              "--no-verify", f"--author={author}", "-m", message)
+        WorkspaceManager.wgit(path, "checkout-index", "--force", "--", *sorted(files))
+        after = WorkspaceManager.head(path)
+        moved = WorkspaceManager.wgit(path, "diff", "--name-only", "--no-renames", "-z", before, after)
+        if sorted(p for p in moved.split("\0") if p) != sorted(files):
+            raise WorkspaceError(f"the loop's commit {after} changed {moved.split(chr(0))}, not exactly {sorted(files)}")
+        return after
+
+    @staticmethod
     def export(path: Path, sha: str, destination: Path) -> Path:
         """A fresh copy of exactly the committed tree at ``sha``: what a check runs on, never the live tree."""
         sha = validate_exact_sha(sha)

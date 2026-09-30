@@ -11,6 +11,9 @@ Failure isolation, all fail-closed:
   already recorded: their leases, heartbeats and reviews keep advancing;
 - a projection that cannot be published is reported and retried next cycle; it is never
   authority, so losing one changes nothing;
+- what the Dispatcher reports about each build (``Dispatcher.status``: attempts, repairs, generated
+  files, landing) is read after the tick for the projection only; a Dispatcher that cannot answer
+  publishes none of it and the cycle goes on, unless what it raised is an authoritative-state failure;
 - anything the kernel, the store or the Dispatcher raises propagates and stops the loop.
 
 What this cycle reports is bounded, and identically so on the public projection and in the
@@ -77,8 +80,13 @@ class RemoteEngineeringLoop:
         dispatcher_events = list(self.dispatcher.tick())
 
         status = build_status(store=self.store, receipts=self.receipts, now=self.clock(), refusals=refusals,
-                              gates=self._acceptance_gates())
+                              gates=self._acceptance_gates(), progress=self._build_progress())
         status["adapter"] = {"intake_error": intake_error}
+        # Published only when this cycle needed the trunk for a missing base and could not fetch it:
+        # fixed words (controller.TRUNK_UNAVAILABLE), never git's.
+        trunk_error = getattr(self.controller, "trunk_fetch_error", None)
+        if intake_error is None and isinstance(trunk_error, str) and trunk_error:
+            status["adapter"]["trunk_fetch_error"] = trunk_error
         publish_error: str | None = None
         try:
             projection_commit: str | None = self.publish(status)
@@ -92,6 +100,29 @@ class RemoteEngineeringLoop:
             "projection_commit": projection_commit,
             "intake_error": intake_error,
             "publish_error": publish_error,
+        }
+
+    def _build_progress(self) -> dict[str, dict]:
+        """What the Dispatcher says each build went through (``Dispatcher.status``), by objective id,
+        for the projection only. A dispatcher that has no such view, or one that fails to answer,
+        publishes none of it -- the fields are then simply absent, meaning unknown -- and does not
+        stop the cycle: supervision matters more than this report. The kernel's and the store's own
+        failures still stop it, exactly as they do from the tick."""
+        read = getattr(self.dispatcher, "status", None)
+        if not callable(read):
+            return {}
+        try:
+            entries = read()
+        except (JournalError, LifecycleError, RecordConflictError, StateConflictError):
+            raise  # authoritative-state failures stop the loop, wherever they surface: fail closed
+        except Exception:  # noqa: BLE001 -- anything else in a projection read must never end supervision
+            return {}
+        if not isinstance(entries, (list, tuple)):
+            return {}
+        return {
+            entry["objective_id"]: entry
+            for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get("objective_id"), str)
         }
 
     def _acceptance_gates(self) -> dict[str, dict]:
