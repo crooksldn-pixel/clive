@@ -72,7 +72,9 @@ _MAIL_SCHEME = re.compile(r"(?i)\b(mailto|xmpp):")
 _EMAIL_AT = re.compile(r"(?<=[A-Za-z0-9._+-])@(?=[A-Za-z0-9-]+\.)")
 
 
-def render(result: DigestResult) -> str:
+def render(result: DigestResult, *, curated: bool = False) -> str:
+    """The report; `curated` says the result was proposed with the owner's own list of this
+    artifact's skills (propose.proposals), which the Proposals section then says."""
     artifact = result.artifact
     lines = [f"# Digest of {_code(artifact.source.origin)}", ""]
     secrets = _secret_places(result.findings)
@@ -84,7 +86,7 @@ def render(result: DigestResult) -> str:
     lines += _findings(result.findings)
     lines += _units(artifact.units, secrets, relations)
     lines += _relations(result, secrets)
-    lines += _proposals(result, secrets, relations)
+    lines += _proposals(result, secrets, relations, curated)
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
@@ -286,7 +288,7 @@ def _relations(result: DigestResult, secrets: dict[str, set[int | None]]) -> lis
 
 
 def _proposals(result: DigestResult, secrets: dict[str, set[int | None]],
-               relations: dict[str, Relation]) -> list[str]:
+               relations: dict[str, Relation], curated: bool = False) -> list[str]:
     if result.purpose == "self":
         return _self(result, secrets)
     lines = ["## Proposals", ""]
@@ -299,7 +301,10 @@ def _proposals(result: DigestResult, secrets: dict[str, set[int | None]],
         f"{len(result.proposals)} proposal(s) made against the self-model above, each proposed "
         f"by CLIVE and decided by no one: the owner decides. {len(owner)} say they need the "
         "owner. What a proposal would add is its removal handle: taking exactly that out again "
-        "undoes it.",
+        "undoes it." + (
+            " The owner listed this artifact's skills himself (OWNER_DECISIONS_2026-09-30), so "
+            "its builder skills need no further sign-off and none is held back by the budget."
+            if curated else ""),
         "",
         "| Target | Proposals | Need the owner |",
         "|---|---:|---:|",
@@ -312,8 +317,11 @@ def _proposals(result: DigestResult, secrets: dict[str, set[int | None]],
             group = by_target[target]
             lines.append(f"| {target} | {len(group)} | {sum(1 for p in group if needs_owner(p))} |")
     lines.append("")
-    if result.held:
-        counted = "; ".join(f"{target} {len(ids)}" for target, ids in result.held)
+    # curated, builder skills are not budgeted, so the budget held none of them back
+    held = [(target, ids) for target, ids in result.held
+            if not (curated and target == "builder_skill")]
+    if held:
+        counted = "; ".join(f"{target} {len(ids)}" for target, ids in held)
         lines += [
             f"Held back by the budget per target, as weaker than those above or repeating them: "
             f"{counted}. They are not recorded as proposals; the digest still lists them by "

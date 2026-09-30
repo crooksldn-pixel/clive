@@ -307,7 +307,8 @@ class DigestResult:
 def digest(root: str | os.PathLike[str], source: Source,
            store: DigestStore | None = None, *, self_model: SelfModel | None = None,
            recorded_at: str | None = None, purpose: str = "absorb",
-           withheld: Iterable[tuple[str, str]] = (), notes: Iterable[str] = ()) -> DigestResult:
+           withheld: Iterable[tuple[str, str]] = (), notes: Iterable[str] = (),
+           curated: bool = False) -> DigestResult:
     """Recognise, scan and decompose the quarantined directory at root, as the artifact source
     names, and write the source, artifact, units and findings to store when one is given.
     Given CLIVE's self_model, and unless the artifact was blocked, relate every Unit to it and
@@ -323,7 +324,8 @@ def digest(root: str | os.PathLike[str], source: Source,
     "self" (CLIVE digesting its own repository: traced to the product memory, nothing proposed);
     either way the Units are only what the scanner read, redacted. `withheld` ((path, why)
     pairs) and `notes` are what the intake said about the copy (intake.Intake), carried into
-    the result and the report."""
+    the result and the report. `curated` says the owner listed this artifact's skills himself,
+    and is passed to proposing (propose.proposals)."""
     if not isinstance(source, Source):
         raise ValueError("a digest needs the artifact's Source")
     if scan.redact(source.origin) != source.origin:
@@ -469,7 +471,7 @@ def digest(root: str | os.PathLike[str], source: Source,
             made = propose_ranked(
                 artifact.id, artifact.units, relations, recorded_at=recorded_at or utc_now(),
                 licence=source.licence, licences=licences, findings=ordered,
-                self_model=self_model,
+                self_model=self_model, curated=curated,
             )
             proposals, held = made.kept, made.held
 
