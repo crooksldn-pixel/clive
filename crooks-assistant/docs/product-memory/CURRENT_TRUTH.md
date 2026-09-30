@@ -15,7 +15,8 @@ Where anything further down this file disagrees with this section, this section 
 | | SHA | What it is |
 |---|---|---|
 | **Production** (`/opt/crooks-os`) | `87e10c33` | Round 13 (PR #58), deployed 29 Sep, 23:10–23:49 UTC. The owner waived a further exact-SHA review at 22:23 ("give me a prompt to get this shipped and deployed now"), so no multi-part review was run. The installed tree is identical to `1c8f1636`, the tree GitHub acceptance was green on. `healthcheck.py -v` exits 0 and the phone check passed (`through=tailscale owner=true refusal=none`). Record: `claude/deploy-round-13-record` (`090d6f8f`, `crooks-assistant/reports/deploy-round-13.md`). |
-| **Trunk** | `87e10c33` | The same as production. |
+| **Trunk** | ahead of production | PR #59 and the re-pin record are product memory. PR #60 changes the loop's dispatcher, not the assistant. `c191de7a` adds Instagram read-only, which lands inert until the owner stores a token (`docs/INSTAGRAM.md`). |
+| **The loop on clive-worker-01** | `40e6a73f` | Re-pinned on 30 Sep at 15:19 UTC under the owner's waiver, with builder checks, the green GitHub gate and product memory from the trunk. Three follow-ups are open ([OWNER_DECISIONS_2026-09-30.md](./OWNER_DECISIONS_2026-09-30.md)). |
 
 **Decided on 30 September** ([OWNER_DECISIONS_2026-09-30.md](./OWNER_DECISIONS_2026-09-30.md)):
 - **The ship rule is regression-only, with one exception.** A finding blocks a deploy when this change makes production worse, or when it is shown to leak customer data or to write to the shop or send an email the owner did not confirm, whether new or old. Everything else is a follow-up for the next build. This answers decision 5 of the self-shipping plan.
@@ -28,7 +29,6 @@ Where anything further down this file disagrees with this section, this section 
 **Next.**
 1. The owner:
    - clears clive-worker-01's hardware items: power supply 2 without input, and the iLO password and firmware ([INFRASTRUCTURE_2026-09-25.md](./INFRASTRUCTURE_2026-09-25.md));
-   - runs the re-pin that has been owed since 26 Sep;
    - creates the runner's registration token.
 2. The first build: skills adopted whole. That means:
    - holding per skill rather than per collection, with the scanner's false positives fixed;
@@ -38,6 +38,7 @@ Where anything further down this file disagrees with this section, this section 
    - a sandboxed runner for skills that carry scripts.
 
    Acceptance then moves onto the runner.
+3. The loop's three re-pin follow-ups, by hand, because they touch protected paths.
 
 **Still the owner's to rule:**
 - whether a TV's own "Mark packed" counts as packed (B-04);
