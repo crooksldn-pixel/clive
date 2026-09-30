@@ -71,7 +71,7 @@ HELP = {
     "instagram_app_id": "Meta for Developers -> the CLIVE app -> Instagram -> API setup: Instagram app ID.",
     "instagram_app_secret": (
         "Same page: Instagram app secret. Only needed to exchange a new short-lived token by hand "
-        "(scripts/instagram.py exchange)."
+        "(scripts/instagram.py exchange), which runs outside the service: store it with --plain."
     ),
 }
 

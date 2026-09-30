@@ -39,7 +39,13 @@ Everything a customer wrote is **untrusted**, exactly like an email:
    python scripts/provision_secrets.py instagram_access_token
    ```
 
-   Optionally store `instagram_app_id` and `instagram_app_secret` too. Only `scripts/instagram.py exchange` needs the secret.
+   The token is a *mutable* secret, kept in the root-only store (`/etc/crooks-os/secrets`). The service reads it at its next call, so no restart is needed.
+
+   The app ID and secret are optional. Only `scripts/instagram.py exchange` reads them, and it runs from the shell, outside the service. Store them with `--plain` so the shell can read them:
+
+   ```
+   python scripts/provision_secrets.py instagram_app_secret --plain
+   ```
 4. **Check it** (prints counts and the account's own handle, never a customer's words):
 
    ```
