@@ -4,7 +4,11 @@ They read and change only CLIVE's own objective records (app/objectives/store.py
 no Gmail, no booking, no payment, no message leaves this machine through them. That is why they
 sit on the gate's read allow-list beside the composer's tools, which likewise change only the
 Mac's own copy of something (app/tools/gate.py). What they cannot do is the owner's: authorise a
-work item or close an objective. The store refuses both unless the owner's own screen asks.
+work item, or set an objective's status to done or dropped. The store refuses both unless the
+owner's own screen asks. When the owner says an objective is complete or to remove it,
+objective_note's `close` takes it off the live list with the owner's words in its history and
+deletes nothing: objective_show still opens it, objective_list's `search` still finds it, and
+status active puts it back.
 
 Round 12 gave an objective a shape (the store's docstring): objective_open takes the kind and
 its design, and objective_note's `set`, `stage`, `task` and `drop` change it, so everything the
@@ -34,7 +38,7 @@ from app.tools.gate import Tier
 from app.tools.registry import ToolError, tool
 
 _ACTIONS = ("fact", "unknown", "blocker", "ask_owner", "propose", "advance", "progress", "resolve", "status",
-            "set", "stage", "task", "drop")
+            "set", "stage", "task", "drop", "close")
 # The kinds the model chooses from, in the order the prompt explains them.
 _KIND_CHOICE = ["project", "tasks", "business", "build"]
 assert set(_KIND_CHOICE) == set(KINDS)
@@ -102,19 +106,28 @@ async def objective_open(title: str, request: str, kind: str = "business", deadl
 @tool(
     name="objective_list",
     description=(
-        "The owner's live objectives: doing, next, blocked by, needs the owner. Call it when the "
-        "owner refers to something ongoing, and before opening one."
+        "The owner's live objectives. Call it when the owner refers to something ongoing, and "
+        "before opening one. search: words, in closed ones too."
     ),
-    input_schema={"type": "object", "properties": {}},
+    input_schema={"type": "object", "properties": {"search": {"type": "string"}}},
     tier=Tier.GREEN,
 )
-async def objective_list() -> dict:
-    return {"objectives": [_short(o) for o in store().live()]}
+async def objective_list(search: str = "") -> dict:
+    # The byte budget on the tool block (tests/test_registry.py) paid for `search` and `close`
+    # with the list's and objective_show's descriptions of fields their results show anyway.
+    if not str(search or "").strip():
+        return {"objectives": [_short(o) for o in store().live()]}
+    try:
+        found = store().search(search)
+    except ObjectiveError as exc:
+        raise ToolError(str(exc)) from exc
+    return {"search": search, "objectives": [_short(o) for o in found],
+            "note": "Live and closed (status done or dropped); objective_show opens any of them in full."}
 
 
 @tool(
     name="objective_show",
-    description="One objective in full: facts and sources, unknowns, blockers, items, questions, history.",
+    description="One objective in full, closed ones too.",
     input_schema={"type": "object", "properties": {"objective_id": {"type": "string"}}, "required": ["objective_id"]},
     tier=Tier.GREEN,
 )
@@ -144,7 +157,7 @@ async def objective_show(objective_id: str) -> dict:
                 "set: change the design, only what you pass (stages: the whole list; with stage, its "
                 "due or waiting_on). stage: the project is now at stage (a name or next). task: add "
                 "(who, text, due), or change item_id (done true/false); only who and done: all theirs. "
-                "drop: remove task item_id.")},
+                "drop: remove task item_id. close: status done or dropped.")},
             "text": {"type": "string"},
             "source": {"type": "string"},
             "kind": {"type": "string", "enum": list(BLOCKER_KINDS) + _KIND_CHOICE,
@@ -155,7 +168,7 @@ async def objective_show(objective_id: str) -> dict:
             "state": {"type": "string", "enum": [s for s in LADDER if s != "authorised"]},
             "evidence": {"type": "string"},
             "entry_id": {"type": "string"},
-            "status": {"type": "string", "enum": ["active", "waiting", "blocked", "dropped"]},
+            "status": {"type": "string", "enum": ["active", "waiting", "blocked", "done", "dropped"]},
             "title": {"type": "string"},
             "deadline": {"type": "string"},
             "purpose": {"type": "string"},
@@ -210,10 +223,16 @@ async def objective_note(objective_id: str, action: str, text: str = "", source:
             obj = s.resolve(objective_id, entry_id, note=text)
         elif action == "status":
             obj = s.set_status(objective_id, status, note=text)
+        elif action == "close":
+            obj = s.close(objective_id, status, note=text)
         else:
             raise ObjectiveError(f"Unknown action {action!r}.")
     except ObjectiveError as exc:
         raise ToolError(str(exc)) from exc
+    if action == "close":
+        return {"recorded": action, "objective": _short(obj), "_surfaces": [cards.surface(obj)],
+                "kept": ("Off the live list; nothing was deleted. objective_show opens it by id, objective_list "
+                         "search finds it, and status active puts it back.")}
     ids: dict[str, Any] = {"items": [(i["id"], i["text"][:60], i["state"]) for i in obj.items[-5:]],
                            "open": [(e["id"], e["text"][:60]) for k in ("unknowns", "blockers", "attention") for e in obj.open_(k)][-8:]}
     if obj.tasks:
