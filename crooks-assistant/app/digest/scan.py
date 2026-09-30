@@ -476,7 +476,7 @@ def _scan_file(
             content = _content_findings(path, text, exposed)
             if seen is not None:
                 seen[key] = content
-        found.extend(_as_fixture(content) if _is_test_source(rel) else content)
+        found.extend(_as_test_source(rel, content))
     return found, has_licence
 
 
@@ -486,14 +486,31 @@ def _scan_file(
 # almost always a fixture: it is how a scanner, a redactor or a prompt guard is tested (CLIVE's
 # own tests are full of them). There it is reported as a warning, not a block. That is safe only
 # because nothing of such a file's text reaches a Unit: the code adapter reads a Python test file
-# for its test names and imports alone, and no adapter reads Go. JavaScript tests are not
-# included, because the code adapter keeps their test titles, which are strings. A file name
-# that deceives is judged as ever: it is not the file's content.
+# for its test names and imports alone, and no adapter reads Go. A file name that deceives is
+# judged as ever: it is not the file's content.
+#
+# JavaScript and TypeScript tests (*.test.js, *.spec.ts, anything under __tests__/, and their
+# .jsx, .tsx, .mjs, .cjs, .mts and .cts forms) get the same for credentials alone. The code
+# adapter keeps their test titles, which are strings, so an instruction or a deceptive character
+# there could reach a Unit and still blocks. A credential cannot: the scanner keeps every value
+# it finds, warn or block (Reading.secrets), and the pipeline replaces each one in every Unit
+# wherever it is quoted, as it does for a Python test's. So the same condition holds — nothing
+# the downgrade lets past reaches a Unit — and a fake key in a JS test fixture no longer blocks,
+# while the same value in any other JavaScript file does.
 _TEST_SOURCE = re.compile(r"(?:^|/)(?:test_[^/]*\.py|[^/]*_test\.py|[^/]*_test\.go)$")
 _FIXTURE_FAMILIES = ("injection.", "deceptive.", "secret.")
 _FIXTURE_NOTE = (
     " It is in test source code, where such text is almost always a test fixture, and nothing of "
     "a test file's text is read into a Unit, so it is reported rather than blocking."
+)
+_JS_TEST_SOURCE = re.compile(
+    r"(?:^|/)(?:[^/]*\.(?:test|spec)\.[cm]?[jt]sx?|__tests__/(?:[^/]+/)*[^/]*\.[cm]?[jt]sx?)$"
+)
+_JS_FIXTURE_FAMILIES = ("secret.",)
+_JS_FIXTURE_NOTE = (
+    " It is in JavaScript or TypeScript test code, where a credential is almost always a test "
+    "fixture, and its value is replaced in every Unit wherever it is quoted, so it is reported "
+    "rather than blocking."
 )
 
 
@@ -501,12 +518,26 @@ def _is_test_source(rel: str) -> bool:
     return bool(_TEST_SOURCE.search(rel))
 
 
-def _as_fixture(found: list[Finding]) -> list[Finding]:
+def _is_js_test_source(rel: str) -> bool:
+    return bool(_JS_TEST_SOURCE.search(rel))
+
+
+def _as_fixture(found: list[Finding], families: tuple[str, ...] = _FIXTURE_FAMILIES,
+                note: str = _FIXTURE_NOTE) -> list[Finding]:
     return [
-        replace(finding, severity=WARN, message=finding.message + _FIXTURE_NOTE)
-        if finding.severity == BLOCK and finding.rule.startswith(_FIXTURE_FAMILIES) else finding
+        replace(finding, severity=WARN, message=finding.message + note)
+        if finding.severity == BLOCK and finding.rule.startswith(families) else finding
         for finding in found
     ]
+
+
+def _as_test_source(rel: str, found: list[Finding]) -> list[Finding]:
+    """The content findings of the file at rel, as test source code has them (see above)."""
+    if _is_test_source(rel):
+        return _as_fixture(found)
+    if _is_js_test_source(rel):
+        return _as_fixture(found, _JS_FIXTURE_FAMILIES, _JS_FIXTURE_NOTE)
+    return found
 
 
 def _binary_findings(rel: str, path: str, data: bytes) -> list[Finding]:
@@ -891,7 +922,19 @@ _PHRASES = (
         re.compile(r"\b(?:your|the)\s+(?:new|real|actual|updated)\s+(?:instructions|task|role|objective|orders)\s+(?:is|are)\b", re.I),
     ), "tells an AI agent to ignore or replace the instructions it was given"),
     _Phrase("conceal", BLOCK, (
-        re.compile(r"\b(?:do\s+not|don[\u2019']?t|never)\s+(?:tell|inform|alert|notify|warn)\s+(?:the\s+)?(?:user|human|owner|operator)s?\b", re.I),
+        # "Do not tell the user they need to adopt an eval framework" (anthropics/skills) is
+        # advice not to put an obligation on the person, not to keep something from them: after
+        # "tell", a person told that they, he or she needs to, must, has to or should do
+        # something is not concealment. Only that shape is passed over, and only after "tell":
+        # "do not tell the user about the refund", "never tell the owner that you changed it"
+        # and every other verb here are matched as before.
+        re.compile(
+            r"\b(?:do\s+not|don[\u2019']?t|never)\s+(?:"
+            r"tell\s+(?:the\s+)?(?:user|human|owner|operator)s?\b"
+            r"(?!\s+(?:that\s+)?(?:they|he|she)\s+(?:needs?|must|ha(?:s|ve)\s+to|should)\b)"
+            r"|(?:inform|alert|notify|warn)\s+(?:the\s+)?(?:user|human|owner|operator)s?\b)",
+            re.I,
+        ),
         re.compile(
             r"\b(?:do\s+not|don[\u2019']?t|never)\s+(?:mention|reveal|disclose|show)\s+(?:this|these|it|that)\s+"
             r"(?:\w+\s+){0,3}?to\s+(?:the\s+)?(?:user|human|owner|operator)s?\b",
@@ -1044,10 +1087,14 @@ def _injection_findings(path: str, text: str, starts: list[int], *, code: bool =
 # — and a quotation carrying more than the phrase (a payload after it) is not an example.
 _QUOTES = (('"', '"'), ("`", "`"), ("\u201c", "\u201d"), ("\u2018", "\u2019"), ("\u00ab", "\u00bb"))
 _MENTION_CUE = re.compile(
-    r"\b(?:avoid\w*|don[\u2019']?t|do\s+not|never|such\s+as|like|e\.g\.|for\s+(?:example|instance)"
+    r"\b(?:avoid\w*|don[\u2019']?t|do\s+not|never|such\s+as|like|for\s+(?:example|instance)"
     r"|examples?|phrases?|phrasings?|patterns?|wording|language|strings?|words|detect\w*|flag\w*"
     r"|block\w*|refus\w*|reject\w*|watch(?:ing)?\s+(?:out\s+)?for|look(?:ing)?\s+for|attacks?"
-    r"|injections?|jailbreaks?|malicious|adversarial|beware|warn\w*|recogni[sz]\w*|classic|typical)\b",
+    r"|injections?|jailbreaks?|malicious|adversarial|beware|warn\w*|recogni[sz]\w*|classic|typical)\b"
+    # "e.g." ends in a full stop, and no word boundary falls between a full stop and the space
+    # or quotation mark after it, so inside the group above it could never match. It is a cue
+    # on its own, ending wherever the next character is not a letter or digit.
+    r"|\be\.g\.(?!\w)",
     re.I,
 )
 _MAX_QUOTED = 200         # characters inside the quotation
@@ -2180,9 +2227,9 @@ _MAX_TOP_ENTRIES = 2000   # names looked at when finding the artifact's own lice
 
 
 def artifact_licence(root: str | os.PathLike[str]) -> str | None:
-    """The artifact's own licence, as scan_tree judges it: read from the licence files and the
-    package manifests at the top of the tree (one further down covers only what is bundled with
-    it). An SPDX expression when they agree; 'unknown' when there is a licence file whose text is
+    """The artifact's own licence, as scan_tree judges it: read from the licence files, the
+    package manifests and a SKILL.md's front matter at the top of the tree (one further down
+    covers only what is bundled with it). An SPDX expression when they agree; 'unknown' when there is a licence file whose text is
     not recognised; each expression with the file that declares it, joined by '; ', when they
     differ (LICENSE-MIT and LICENSE-APACHE, say); None when there is no licence at the top at all.
 
@@ -2213,13 +2260,18 @@ def artifact_licence(root: str | os.PathLike[str]) -> str | None:
     return "; ".join(f"{expression} ({_display(name)})" for expression, name in found)
 
 
-_MANIFESTS = frozenset(("package.json", "composer.json", "pyproject.toml", "Cargo.toml", "setup.cfg"))
+# The files besides a licence file that can declare a folder's licence, as scan_tree reads them
+# (_declared_licence): the package manifests, and a skill's SKILL.md by its front matter's
+# 'license:' line — so a skill that declares MIT there is licensed MIT for its folder, as a
+# LICENSE file there would make it, and a line that only points at a licence file is passed over.
+_MANIFESTS = frozenset(("package.json", "composer.json", "pyproject.toml", "Cargo.toml", "setup.cfg", "SKILL.md"))
 _MAX_LICENCE_FOLDERS = 2000   # folders looked in for a licence of their own
 
 
 def licence_map(root: str | os.PathLike[str]) -> dict[str, tuple[str, str]]:
-    """Each folder of the artifact that declares a licence of its own — by a licence file or a
-    package manifest in it — as {folder: (expression, the file that declares it)}. "" is the
+    """Each folder of the artifact that declares a licence of its own — by a licence file, a
+    package manifest or a SKILL.md's 'license:' line in it — as {folder: (expression, the file
+    that declares it)}. "" is the
     top of the artifact. A folder's licence covers what is under it until a deeper folder
     declares its own; see licence_for. Read as artifact_licence reads the top, never through a
     link, and bounded."""
