@@ -140,9 +140,43 @@ The review was not skipped: all three results are on the host.
 
 **Also seen in the unit.** The pinned code runs under the interpreter at `/home/user/clive/crooks-assistant/.venv`, which the pin does not cover. If the dependencies change, that environment has to be rebuilt to match.
 
+## Filing is switched on, and the loop lands its own work
+
+The owner was told:
+
+- what the loop can do today: build a written job with nobody in the middle;
+- what it cannot do yet: take work from him, merge its own work, deploy, change its own protected code, or build in parallel.
+
+He was offered four steps: filing on; the loop merging its own work when tests and review pass, stopping at anything protected; the release service; and parallel builders. He answered, verbatim: "I say yes to the first two".
+
+**1. Filing is switched on.** This answers decision 1 of [the self-shipping plan](../plans/2026-09-29-clive-ships-its-own-fixes.md).
+
+- On the production host, `CROOKS_ENGINEERING_HOST=worker-01`.
+- The engineering inbox credential leaves `/etc/crooks-os/credentials-parked/` for the live secret tier. That credential is a fine-grained token for this repository only, with Contents read and write.
+- Nothing else changes about filing. `submit_engineering_request` stays a write: its handler only prepares, and nothing is filed until the owner holds the card.
+- A request is repository-only and never names a protected path, because intake refuses one that does. It goes to `clive/control/worker-01-inbox`, where the DL360's loop reads it.
+- This supersedes, from this change on, the standing deploy rule that the engineering credential stays parked and `CROOKS_ENGINEERING_HOST` stays unset. Every other switch is unchanged: `CROOKS_SCREEN_SNAPSHOTS=false`, `CROOKS_LOCAL_OWNER` unset, `CROOKS_WRITES_LOCAL_OWNER=false`, `CROOKS_TAILSCALE_VERIFY` unset.
+
+**2. The loop lands its own work on the trunk.** This is new, and it is not one of the plan's six decisions. The loop may fast-forward `clive/trunk` to exactly a candidate's SHA when all of these hold:
+
+- GitHub acceptance is green on that exact SHA, asked at that moment;
+- the loop's independent review of that exact SHA is READY;
+- the candidate changes no protected path, checked again at landing and not only at intake;
+- the candidate already contains the trunk head, so the push is a plain fast-forward that git itself refuses if the trunk has moved.
+
+If the trunk has moved, the loop merges the trunk into the candidate's own branch. The new SHA gets its own green acceptance and its own review before it may land, because a review never transfers to a successor SHA. A merge conflict blocks the task for the Director.
+
+What stays:
+
+- The loop still never changes a protected path. The kernel, the gate, the loop's own code and the tests that hold them stay the Director's, by hand, in force only through the owner's re-pin.
+- Deploying to production is unchanged: the exact-SHA deploy review, and the owner's go-ahead. The release service (decision 3) and "may anything ship without his hold" (decision 6) are still his.
+- The Director still lands work the loop does not build.
+
+**How it takes effect.** Filing takes effect through a prompt on the production host: a configuration change, with no code change. Landing is a change to the loop's own code (`app/orchestrator/dispatcher.py` and its tests), so it takes effect only at the next owner-gated re-pin, behind its own switch on the loop's unit. The same change makes intake wait, rather than refuse, when a request names a base commit the engineering repository has not fetched yet. Today such a request is refused and its id burned, which happened to the loop's first request on 30 September.
+
 ## Still open
 
 - **Jev access.** Jev is reachable today through Vercel AI Gateway, because TypeSafe's direct signups were paused on 22 September. Zero data retention there needs Vercel Pro. The recommendation is to decide when the Jev step is reached: after the skills work, and once a labelled test set exists to prove it against. Nothing is paid for now.
 - A written data policy for what business text may leave the host.
 - The reviewer's monthly budget (decision 4 of the self-shipping plan).
-- Decisions 1–3 and 6 of the self-shipping plan.
+- Decisions 3 and 6 of the self-shipping plan: the release service, and whether anything may ship without his hold.
