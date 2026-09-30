@@ -100,11 +100,11 @@ _ORDER_FIELDS = """
 @tool(
     name="shopify_find_order",
     description=(
-        "Find a CROOKS order by its order number, or by a customer's name or email, or by part "
-        "of the delivery address and an item on it — each in its own field, any combination. "
-        "Returns matching orders with fulfilment, payment, total and date; each matches ALL of "
-        "it, with the items that matched. `one` is a clear answer; several are a choice to read "
-        "back. shopify_order_detail is for tracking or the note."
+        "Find a CROOKS order by its number, or by a customer's name or email, or by part of "
+        "the delivery address and an item on it, each in its own field. A draft (D12) gives "
+        "its payment link. Returns orders with fulfilment, payment, total and date; each "
+        "matches ALL of it, with the items that matched. `one` is a clear answer; several are "
+        "a choice to read back. shopify_order_detail is for tracking or the note."
     ),
     input_schema={
         "type": "object",
@@ -128,6 +128,9 @@ async def shopify_find_order(query: str = "", limit: int = 5, name: str = "", em
     ordered the black hoodie to SL4" — and it is answered by `_find_by_evidence`, which asks
     Shopify for what Shopify can search and checks every order that comes back against every
     piece of evidence, so nothing is returned that has not been shown to match.
+
+    The third is a draft order by its name ("D12"), answered by `_find_draft` with the payment
+    link Shopify holds for it.
     """
     limit = max(1, min(int(limit), MAX_PAGE))
     extra = {k: " ".join(str(v or "").split())[:bound] for k, v, bound in
@@ -142,6 +145,9 @@ async def shopify_find_order(query: str = "", limit: int = 5, name: str = "", em
         elif said:
             evidence.setdefault("name", said)
         return await _find_by_evidence(evidence, limit)
+    draft = _draft_asked(query)
+    if draft:
+        return await _find_draft(query, draft)
     return await _find_by_query(query, limit)
 
 
@@ -236,6 +242,116 @@ def _order_summary(node: dict) -> dict:
         "customer_id": customer.get("id"),
         "customer_email": (customer.get("defaultEmailAddress") or {}).get("emailAddress"),
     }
+
+
+# ------------------------------------------------------ draft orders, and their payment link
+#
+# An order being made (app/families/order_create.py) is a DRAFT in Shopify first — "#D12", in
+# Admin, priced — and Shopify gives every draft an invoice page the customer can pay on. That
+# page's address is the draft's `invoiceUrl`, and it is Shopify's to give: this reads it and
+# hands it back exactly as it came, so "what's the payment link for D12" is answered with the
+# link and never with one made up. A read and nothing else: nothing is sent to anybody by it.
+
+MAX_DRAFTS = 10
+
+# "#D12", "D12", "draft 12" and "draft order #D12" are all draft D12. A bare number is not: it
+# is an order, as it always was.
+_DRAFT_NAME_RE = re.compile(r"^\s*(?:draft(?:\s+order)?\s*#?\s*D?|#?\s*D)\s*(\d{1,10})\s*$", re.I)
+_DRAFT_GID_RE = re.compile(r"^gid://shopify/DraftOrder/\d+$")
+
+_DRAFT_FIELDS = """
+  id
+  name
+  status
+  invoiceUrl
+  totalPriceSet { shopMoney { amount currencyCode } }
+  customer { id displayName }
+  order { id name }
+"""
+
+
+def _draft_asked(query: str) -> str:
+    """The draft a query names — "D12", or a DraftOrder gid as it is — or "" when it names none."""
+    text = str(query or "").strip()
+    if _DRAFT_GID_RE.match(text):
+        return text
+    match = _DRAFT_NAME_RE.match(text)
+    return f"D{match.group(1)}" if match else ""
+
+
+def _draft_key(name: Any) -> str:
+    """"#D12" as "D12": a draft's name without its hash, to hold a search's answers to."""
+    return re.sub(r"[^A-Z0-9]", "", str(name or "").upper())
+
+
+def _draft_row(node: dict) -> dict:
+    customer = node.get("customer") or {}
+    order = node.get("order") or {}
+    row: dict[str, Any] = {
+        "draft_id": str(node.get("id") or ""),
+        "draft_name": str(node.get("name") or ""),
+        "status": node.get("status"),
+        # The payment link: Shopify's own invoice page for this draft, exactly as Shopify gave it.
+        "invoice_url": node.get("invoiceUrl") or None,
+        "total": _money(node.get("totalPriceSet")),
+        "customer_name": customer.get("displayName"),
+    }
+    if customer.get("id"):
+        row["customer_id"] = customer["id"]
+    if order.get("id"):
+        # Completed: the draft is an order now, and this is the order it became.
+        row["order_id"] = order["id"]
+        row["order_number"] = order.get("name")
+    return row
+
+
+async def _find_draft(query: str, draft: str) -> dict:
+    """A draft order by its name or its id, with its payment link. Shopify's search finds the
+    draft; its name is then held to exactly what was asked, so a search for D12 that also
+    brought back D120 answers with D12 alone."""
+    client = _c()
+    if draft.startswith("gid://"):
+        payload = await client.graphql(
+            f"query CrooksDraftOrderLink($id: ID!) {{ draftOrder(id: $id) {{ {_DRAFT_FIELDS} }} }}",
+            {"id": draft},
+        )
+        node = (payload.get("data") or {}).get("draftOrder")
+        nodes = [node] if isinstance(node, dict) and node.get("id") == draft else []
+    else:
+        payload = await client.graphql(
+            f"""
+            query CrooksDraftOrdersNamed($q: String!, $n: Int!) {{
+              draftOrders(first: $n, query: $q, sortKey: ID, reverse: true) {{
+                edges {{ node {{ {_DRAFT_FIELDS} }} }}
+              }}
+            }}
+            """,
+            {"q": f"name:{draft}", "n": MAX_DRAFTS},
+        )
+        edges = ((payload.get("data") or {}).get("draftOrders") or {}).get("edges") or []
+        nodes = [n for n in ((e or {}).get("node") or {} for e in edges) if _draft_key(n.get("name")) == draft]
+    drafts = [_draft_row(n) for n in nodes]
+    # `asked` is what the order card says a search that found no ORDER was for; the draft's
+    # own sentence, below, is then what it says.
+    result: dict[str, Any] = {"query": query, "matched_on": f"draft {draft}", "asked": {"draft": draft},
+                              "orders": [], "drafts": drafts}
+    if payload.get("_partial_errors"):
+        result["partial"] = payload["_partial_errors"]
+    if not drafts:
+        result["note"] = f"No draft order {draft} was found."
+        result["instruction"] = "There is no payment link to give for it; say so, and do not make one up."
+        return result
+    if len(drafts) > 1:
+        result["ambiguous"] = True
+    first = drafts[0]
+    became = f" It is order {first['order_number']} now." if first.get("order_number") else ""
+    if first["invoice_url"]:
+        result["note"] = f"Draft {first['draft_name']}: payment link {first['invoice_url']}.{became}"
+        result["instruction"] = "invoice_url is the draft's payment link as Shopify gave it. Give it exactly; never make one up."
+    else:
+        result["note"] = f"Shopify has no payment link for draft {first['draft_name']}.{became}"
+        result["instruction"] = "There is no payment link to give for it; say so, and do not make one up."
+    return result
 
 
 # ------------------------------------------------------------- orders, found by evidence
