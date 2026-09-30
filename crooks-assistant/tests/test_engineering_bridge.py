@@ -647,3 +647,175 @@ async def test_the_token_appears_in_no_log_error_result_or_card(fake, bound, eng
     assert all(TOKEN not in str(call.url) for call in fake.calls)
     for text in [*outputs, caplog.text]:
         assert TOKEN not in text
+
+
+# ------------------------------------------------------------------ what happened to each build (2026-09-30)
+#
+# Asked whether it repairs failed builds or whether the loop retries, CLIVE said it could not see whether
+# the loop retries and could only file a fresh request; the owner filed each failed build twice more, and
+# each failed the same way. The loop does retry and repair within a request. Each line now says what the
+# build went through (`history`) and whether the loop will try again by itself (`next_step`): a blocked
+# build needs the Director, and filing the same request again fails the same way unless the cause differs.
+
+LANDED_SHA = "abc1234" + "0" * 33
+BUILD_EMAIL = "mia.kowalski@example.com"
+BUILD_PHONE = "07700 900123"
+
+
+def _history(attempts: int, *revisions: tuple[str, int], changes: int = 0, limit: int = 2) -> dict:
+    """``build_history`` as the loop derives it from the kernel's records."""
+    return {"attempts": attempts,
+            "revisions": [{"revision": n, "kind": kind, "attempts": tries, "transient": 0, "refused": 0}
+                          for n, (kind, tries) in enumerate(revisions, start=1)],
+            "review_changes_requested": changes, "max_repair_rounds": limit}
+
+
+def _status_rows(result: dict) -> dict[str, dict]:
+    return {row["request_id"]: row for row in result["requests"]}
+
+
+async def test_a_building_build_says_how_often_it_was_built_what_the_review_asked_and_what_it_waits_for(fake, bound):
+    fake.status["requests"] = [{
+        "request_id": "tried-thrice", "outcome": "accepted", "stage": "EVIDENCE_READY",
+        "github_acceptance": {"state": "pending"},
+        "build_history": _history(3, ("build", 1), ("repair", 1), ("repair", 1), changes=2, limit=3),
+    }]
+    row = _status_rows(await engineering_tools.engineering_status())["tried-thrice"]
+
+    assert row["words"] == "tried-thrice is in review."          # the headline reads as it always did
+    assert row["history"] == "Built 3 times; the review asked for changes twice; now waiting for GitHub."
+    assert row["next_step"] == ("The loop will try again by itself if CLIVE's checks or the review fail: "
+                                "1 repair round left. Nothing needs filing again.")
+
+
+async def test_a_build_being_repaired_says_the_loop_retries_by_itself_and_how_many_rounds_are_left(fake, bound):
+    fake.status["requests"] = [{
+        "request_id": "being-repaired", "outcome": "accepted", "stage": "RUNNING", "revision": 2,
+        "attempts": [
+            {"attempt_id": "being-repaired-a1", "revision": 1, "outcome": "cancelled", "reason": "transient: timeout"},
+            {"attempt_id": "being-repaired-a2", "revision": 1, "outcome": "candidate", "reason": None},
+            {"attempt_id": "being-repaired-a3", "revision": 2, "outcome": "launched", "reason": None},
+        ],
+        "repairs": {"review": 0, "ci": 1, "max": 3},
+    }]
+    row = _status_rows(await engineering_tools.engineering_status())["being-repaired"]
+
+    assert row["progress"] == "building"
+    assert row["history"] == ("Built 3 times; the loop retried it by itself once (1 attempt cancelled); "
+                              "GitHub's tests failed once; now building.")
+    assert row["next_step"] == ("The loop will try again by itself if CLIVE's checks, GitHub's tests or the review "
+                                "fail: 2 repair rounds left. Nothing needs filing again.")
+
+
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
+async def test_a_blocked_build_needs_the_director_and_filing_it_again_fails_the_same_way(fake, bound):
+    """The answer the owner needed on 30 Sep: the loop will not retry it by itself, and a re-filing fails alike."""
+    fake.status["requests"] = [
+        {"request_id": "blocked-build", "outcome": "accepted", "stage": "BLOCKED",
+         "blocker": "GitHub's tests failed — tests/test_x.py::test_y",
+         "build_history": _history(3, ("build", 1), ("repair", 1), ("repair", 1), changes=1),
+         "repairs": {"review": 1, "ci": 1, "max": 2}},
+        {"request_id": "blocked-long", "outcome": "accepted", "stage": "BLOCKED",
+         "blocker": "convergence limit: " + "finding F-07 remains on the candidate; " * 80,
+         "build_history": _history(1, ("build", 1))},
+    ]
+    rows = _status_rows(await engineering_tools.engineering_status())
+
+    blocked = rows["blocked-build"]
+    assert blocked["progress"] == "blocked"
+    assert blocked["history"] == ("Built 3 times; the review asked for changes once; GitHub's tests failed once; "
+                                  "blocked after 2 repair rounds: GitHub's tests failed — tests/test_x.py::test_y.")
+    assert blocked["next_step"] == (
+        "The loop will not try again by itself: a blocked build needs the Director. "
+        "Filing the same request again will fail the same way unless the cause is different."
+    )
+    # the blocker in full, up to its bound, where the headline stops at the usual one
+    long = rows["blocked-long"]
+    assert long["history"].startswith("Built once; blocked: convergence limit: finding F-07 remains")
+    assert len(long["history"]) <= engineering_tools.MAX_HISTORY_CHARS
+    assert long["history"].count("F-07") > long["words"].count("F-07") > 1
+    assert "will not try again by itself" in long["next_step"]
+    # and it is what the model is handed
+    text = await dispatch(STATUS_TOOL, {}, session=Session(session_id="eng-blocked"), timeout_s=5)
+    assert "a blocked build needs the Director" in text and "will fail the same way unless the cause" in text
+
+
+async def test_a_landed_build_says_where_it_landed_and_a_refused_landing_needs_the_director(fake, bound):
+    fake.status["requests"] = [
+        {"request_id": "landed-build", "outcome": "accepted", "stage": "COMPLETE", "candidate_sha": "c" * 40,
+         "build_history": _history(1, ("build", 1)),
+         "landing": {"state": "landed", "sha": LANDED_SHA, "at": "2026-09-30T14:05:00+00:00", "reason": None}},
+        {"request_id": "landing-waits", "outcome": "accepted", "stage": "COMPLETE", "candidate_sha": "d" * 40,
+         "landing": {"state": "waiting", "sha": None, "at": None, "reason": "GitHub has not finished on the trunk"}},
+        {"request_id": "landing-refused", "outcome": "accepted", "stage": "COMPLETE", "candidate_sha": "e" * 40,
+         "landing": {"state": "refused", "sha": None, "at": None, "reason": "the trunk moved and the merge conflicts"}},
+        {"request_id": "landing-off", "outcome": "accepted", "stage": "COMPLETE", "candidate_sha": "f" * 40,
+         "landing": {"state": "off", "sha": None, "at": None, "reason": None}},
+    ]
+    rows = _status_rows(await engineering_tools.engineering_status())
+
+    landed = rows["landed-build"]
+    assert landed["words"] == f"landed-build is done: candidate {'c' * 40}."
+    assert landed["history"] == "Built once; landed on the trunk as abc1234."
+    assert "next_step" not in landed
+    assert rows["landing-waits"]["history"] == "Now waiting to land on the trunk: GitHub has not finished on the trunk."
+    assert rows["landing-waits"]["next_step"] == "The loop lands it on the trunk by itself; nothing needs filing again."
+    assert rows["landing-refused"]["history"] == ("The loop would not land it on the trunk: the trunk moved and the "
+                                                  "merge conflicts.")
+    assert rows["landing-refused"]["next_step"].startswith("The loop will not land it by itself: it needs the Director.")
+    assert rows["landing-off"]["history"] == ("Landing is switched off on the loop, so the owner merges it into the "
+                                              "trunk.")
+
+
+async def test_a_request_waiting_for_its_base_is_waiting_not_refused_and_needs_no_refiling(fake, bound, monkeypatch):
+    monkeypatch.setattr(engineering_tools, "_progress_cache", {})
+    fake.status["waiting_requests"] = [{
+        "request_id": "fresh-after-merge", "source": "requests/fresh-after-merge.json", "request_sha256": "1" * 64,
+        "outcome": "waiting", "reason": "waiting for the engineering repo to fetch the base commit it names",
+        "waiting_since": "2026-09-30T12:00:00+00:00", "refuse_after": "2026-09-30T13:00:00+00:00",
+    }]
+    fake.status["adapter"] = {"intake_error": None, "trunk_fetch_error": "the trunk could not be fetched this cycle; "
+                              "a request whose base commit is missing stays waiting"}
+
+    result = await engineering_tools.engineering_status()
+
+    assert _status_rows(result)["fresh-after-merge"] == {
+        "request_id": "fresh-after-merge", "progress": "queued",
+        "words": "fresh-after-merge is waiting for its base commit to reach the build server; the loop takes it in "
+                 "by itself as soon as it arrives, and refuses it if it has not arrived by 2026-09-30 13:00 UTC.",
+        "next_step": "Nothing needs filing again: the loop takes it in by itself once the build server has its base "
+                     "commit.",
+    }
+    assert result["summary"] == (
+        "1 engineering request: 1 queued. The loop could not fetch the trunk last time: the trunk could not be "
+        "fetched this cycle; a request whose base commit is missing stays waiting."
+    )
+    # the owner's build card reads the same row, not "the loop has not picked it up yet"
+    card = await engineering_tools.build_progress(["fresh-after-merge"])
+    assert card["fresh-after-merge"]["words"].startswith("fresh-after-merge is waiting for its base commit")
+
+
+@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
+async def test_nothing_secret_or_customer_shaped_reaches_what_clive_says_about_a_build(fake, bound):
+    """The loop redacts what it publishes; the tool holds to it for whatever a status carries."""
+    from tests.fake_credentials import credential_url, openai_key
+
+    key = openai_key("engineering-bridge-status", kind="")
+    url = credential_url(github_token("engineering-bridge-status-url", kind="s"))
+    leak = f"push to {url} failed; {TOKEN} api_key={key}; the fixture mailed {BUILD_EMAIL} on {BUILD_PHONE}"
+    fake.status["requests"] = [
+        {"request_id": "leaky-blocked", "outcome": "accepted", "stage": "BLOCKED", "blocker": leak,
+         "build_history": _history(2, ("build", 2)),
+         "attempts": [{"attempt_id": "leaky-a1", "revision": 1, "outcome": "refused", "reason": leak}],
+         "generated": [f"docs/{BUILD_EMAIL}.md"], "landing": {"state": "refused", "reason": leak}},
+        {"request_id": "leaky-refused", "outcome": "refused", "reason": leak},
+    ]
+    fake.status["adapter"] = {"intake_error": leak, "trunk_fetch_error": leak}
+
+    text = await dispatch(STATUS_TOOL, {}, session=Session(session_id="eng-leaky"), timeout_s=5)
+
+    rows = _status_rows(json.loads(text))
+    assert "blocked: push to https://[redacted]@" in rows["leaky-blocked"]["history"]
+    assert "[email]" in rows["leaky-blocked"]["words"] and "[phone]" in rows["leaky-refused"]["words"]
+    for leaked in (TOKEN, key, url, BUILD_EMAIL, BUILD_PHONE, "mia.kowalski", "900123"):
+        assert leaked not in text, leaked

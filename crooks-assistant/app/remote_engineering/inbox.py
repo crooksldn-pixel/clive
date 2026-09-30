@@ -22,6 +22,10 @@ from .errors import InboxBoundExceeded, InboxError, TransportError
 
 DEFAULT_INBOX_BRANCH = "clive/control/owner-inbox"
 DEFAULT_INBOX_DIRECTORY = "requests"
+# The branch a request's base is normally on, fetched (once per poll, time-bounded) only when a
+# request names a base the engineering repo does not have yet. Host configuration, never a request's.
+DEFAULT_TRUNK_BRANCH = "clive/trunk"
+TRUNK_FETCH_TIMEOUT_S = 60
 
 REMOTE_NAME_MAX = 64
 REF_NAME_MAX = 200
@@ -83,8 +87,25 @@ def fetch_inbox(
     git cannot auto-follow tags into local refs that a request's ``base_ref`` could then name.
     Failures carry fixed text only -- never the remote, the branch or git's own output.
     """
+    return _fetch_branch(repo, remote=remote, branch=branch, what="inbox", timeout_s=timeout_s)
+
+
+def fetch_trunk(
+    repo: Path, *, remote: str = "origin", branch: str = DEFAULT_TRUNK_BRANCH, timeout_s: int = TRUNK_FETCH_TIMEOUT_S
+) -> str:
+    """Fetch the configured trunk branch into its own tracking ref, exactly as the inbox is fetched.
+
+    Asked only when a request names a base commit the engineering repo does not have yet: a
+    request filed minutes after a merge names a trunk commit this repo has simply not fetched.
+    The same bounds hold -- a configured remote name, one canonical branch, ``--no-tags``, one
+    explicit refspec, a time limit, and fixed failure text.
+    """
+    return _fetch_branch(repo, remote=remote, branch=branch, what="trunk", timeout_s=timeout_s)
+
+
+def _fetch_branch(repo: Path, *, remote: str, branch: str, what: str, timeout_s: int) -> str:
     remote = _validate_remote(remote)
-    branch = _validate_name(branch, what="inbox branch")
+    branch = _validate_name(branch, what=f"{what} branch")
     destination = f"refs/remotes/{remote}/{branch}"
     try:
         proc = subprocess.run(
@@ -95,9 +116,9 @@ def fetch_inbox(
             timeout=timeout_s,
         )
     except subprocess.TimeoutExpired:
-        raise TransportError("inbox fetch exceeded its time bound; output withheld") from None
+        raise TransportError(f"{what} fetch exceeded its time bound; output withheld") from None
     if proc.returncode != 0:
-        raise TransportError(f"inbox fetch failed (git exit {proc.returncode}); output withheld")
+        raise TransportError(f"{what} fetch failed (git exit {proc.returncode}); output withheld")
     rev = subprocess.run(
         ["git", "rev-parse", "--verify", "--quiet", f"{destination}^{{commit}}"],
         cwd=str(repo),
@@ -107,7 +128,7 @@ def fetch_inbox(
     )
     sha = rev.stdout.strip()
     if rev.returncode != 0 or len(sha) != 40:
-        raise TransportError("the inbox branch did not resolve to a commit after fetch")
+        raise TransportError(f"the {what} branch did not resolve to a commit after fetch")
     return sha
 
 
