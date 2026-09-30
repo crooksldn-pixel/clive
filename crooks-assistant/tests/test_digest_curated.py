@@ -249,6 +249,23 @@ def test_digest_passes_curated_through_to_proposing(model, tmp_path):
     assert "tool_connector 1" in line and "builder_skill" not in line
 
 
+def test_the_report_says_curated_even_when_nothing_is_proposed(model, tmp_path):
+    root = _tree(tmp_path / "tree", FILES)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    # nothing related: digested without the self-model, or blocked before decomposition
+    unrelated = digest(root, _source(root), recorded_at=RECORDED, curated=True)
+    blocked = replace(unrelated, blocked=True)
+    # related, but no Units to propose for
+    bare = digest(empty, _source(empty), self_model=model, recorded_at=RECORDED, curated=True)
+    assert not unrelated.related and bare.related and not bare.proposals
+    for result, none in ((unrelated, "None: nothing was related"), (blocked, "None: nothing was related"),
+                         (bare, "None: there were no Units")):
+        section = render(result, curated=True).split("## Proposals")[1]
+        assert none in section and f"{LISTED}, so its builder skills need no further sign-off" in section
+        assert "skills himself" not in render(result)
+
+
 # --- the command line ----------------------------------------------------------------------------
 
 

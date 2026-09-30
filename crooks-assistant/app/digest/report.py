@@ -292,19 +292,19 @@ def _proposals(result: DigestResult, secrets: dict[str, set[int | None]],
     if result.purpose == "self":
         return _self(result, secrets)
     lines = ["## Proposals", ""]
+    listed = (" The owner listed this artifact's skills himself (OWNER_DECISIONS_2026-09-30), so "
+              "its builder skills need no further sign-off and none is held back by the budget."
+              if curated else "")
     if not result.related:
-        return [*lines, "None: nothing was related to CLIVE, so nothing is proposed.", ""]
+        return [*lines, "None: nothing was related to CLIVE, so nothing is proposed." + listed, ""]
     if not result.proposals:
-        return [*lines, "None: there were no Units to propose for.", ""]
+        return [*lines, "None: there were no Units to propose for." + listed, ""]
     owner = [p for p in result.proposals if needs_owner(p)]
     lines += [
         f"{len(result.proposals)} proposal(s) made against the self-model above, each proposed "
         f"by CLIVE and decided by no one: the owner decides. {len(owner)} say they need the "
         "owner. What a proposal would add is its removal handle: taking exactly that out again "
-        "undoes it." + (
-            " The owner listed this artifact's skills himself (OWNER_DECISIONS_2026-09-30), so "
-            "its builder skills need no further sign-off and none is held back by the budget."
-            if curated else ""),
+        "undoes it." + listed,
         "",
         "| Target | Proposals | Need the owner |",
         "|---|---:|---:|",
