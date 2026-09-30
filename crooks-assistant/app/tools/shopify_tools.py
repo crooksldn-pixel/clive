@@ -100,11 +100,11 @@ _ORDER_FIELDS = """
 @tool(
     name="shopify_find_order",
     description=(
-        "Find a CROOKS order by its order number, or by a customer's name or email, or by part "
-        "of the delivery address and an item on it — each in its own field, any combination. "
-        "Returns matching orders with fulfilment, payment, total and date; each matches ALL of "
-        "it, with the items that matched. `one` is a clear answer; several are a choice to read "
-        "back. shopify_order_detail is for tracking or the note."
+        "Find an order by its number, or by a customer's name or email, or by part of the "
+        "delivery address and an item on it, each in its own field, any combination. Returns "
+        "orders with fulfilment, payment, total, date and the items that matched; each matches "
+        "ALL of it. `one` is a clear answer; several, a choice to read back. Tracking or the "
+        "note: shopify_order_detail. A draft (query #D12) has invoice_url, its payment link."
     ),
     input_schema={
         "type": "object",
@@ -142,6 +142,9 @@ async def shopify_find_order(query: str = "", limit: int = 5, name: str = "", em
         elif said:
             evidence.setdefault("name", said)
         return await _find_by_evidence(evidence, limit)
+    draft = _draft_ref(query)
+    if draft is not None:
+        return await _find_draft(query, *draft)
     return await _find_by_query(query, limit)
 
 
@@ -236,6 +239,110 @@ def _order_summary(node: dict) -> dict:
         "customer_id": customer.get("id"),
         "customer_email": (customer.get("defaultEmailAddress") or {}).get("emailAddress"),
     }
+
+
+# ------------------------------------------------------------- draft orders: the payment link
+#
+# A draft order ("#D12") is what app/families/order_create.py prepares before there is an
+# order, and Shopify hosts an invoice page for every one: its `invoiceUrl` is the link a
+# customer pays through. "What's the payment link for D12" is answered by reading that draft
+# and returning the URL exactly as Shopify gave it — never one put together from a name or an
+# id. The store's draft search is free text, and "D12" is inside "D120", so a draft found by
+# name is returned only when its own name IS the name asked for.
+
+MAX_DRAFT_MATCHES = 10
+
+_DRAFT_FIELDS = """
+  id
+  name
+  status
+  createdAt
+  invoiceUrl
+  invoiceSentAt
+  totalPriceSet { shopMoney { amount currencyCode } }
+  customer { id displayName defaultEmailAddress { emailAddress } }
+  order { id name }
+"""
+
+DRAFT_ORDER_BY_ID_QUERY = f"""
+query CrooksDraftOrderLink($id: ID!) {{
+  draftOrder(id: $id) {{ {_DRAFT_FIELDS} }}
+}}
+"""
+
+DRAFT_ORDERS_NAMED_QUERY = f"""
+query CrooksDraftOrderLinks($q: String!, $n: Int!) {{
+  draftOrders(first: $n, query: $q, sortKey: ID, reverse: true) {{
+    edges {{ node {{ {_DRAFT_FIELDS} }} }}
+  }}
+}}
+"""
+
+_DRAFT_GID = re.compile(r"^gid://shopify/DraftOrder/\d+$")
+# "#D12", "D12", "d 12", "draft 12", "draft order #D12": a draft's name as it is said.
+_DRAFT_NAME = re.compile(r"^(?:draft(?:\s*order)?\s*#?\s*d?|#?\s*d)\s*-?\s*(\d{1,7})$", re.I)
+
+
+def _draft_ref(query: str) -> tuple[str, str] | None:
+    """("id", gid) or ("name", "#D12") when the query names a draft order, else None."""
+    said = " ".join(str(query or "").split())
+    if _DRAFT_GID.match(said):
+        return "id", said
+    match = _DRAFT_NAME.match(said)
+    return ("name", f"#D{int(match.group(1))}") if match else None
+
+
+def _draft_key(name: object) -> str:
+    return re.sub(r"[\s#]", "", str(name or "")).upper()
+
+
+def _draft_summary(node: dict) -> dict:
+    customer = node.get("customer") or {}
+    order = node.get("order") or {}
+    url = str(node.get("invoiceUrl") or "")
+    return {
+        "draft_order_id": str(node.get("id") or ""),
+        "draft_name": str(node.get("name") or ""),
+        "status": node.get("status"),
+        # Shopify's own hosted invoice page, as Shopify returned it; nothing else is a link.
+        "invoice_url": url if url.startswith("https://") else None,
+        "invoice_sent_at": node.get("invoiceSentAt"),
+        "total": _money(node.get("totalPriceSet")),
+        "created_at": node.get("createdAt"),
+        "customer_name": customer.get("displayName"),
+        "customer_id": customer.get("id"),
+        "customer_email": (customer.get("defaultEmailAddress") or {}).get("emailAddress"),
+        # A COMPLETED draft is an order now; this is the order it became.
+        "order_id": order.get("id"),
+        "order_number": order.get("name"),
+    }
+
+
+async def _find_draft(query: str, kind: str, value: str) -> dict:
+    """One draft order, by its gid or its name, with its invoice URL."""
+    client = _c()
+    if kind == "id":
+        payload = await client.graphql(DRAFT_ORDER_BY_ID_QUERY, {"id": value})
+        node = (payload.get("data") or {}).get("draftOrder")
+        nodes = [node] if isinstance(node, dict) and node.get("id") == value else []
+        matched_on = f"id:{value}"
+    else:
+        payload = await client.graphql(DRAFT_ORDERS_NAMED_QUERY, {"q": value.lstrip("#"), "n": MAX_DRAFT_MATCHES})
+        edges = ((payload.get("data") or {}).get("draftOrders") or {}).get("edges") or []
+        nodes = [n for n in ((e or {}).get("node") or {} for e in edges) if _draft_key(n.get("name")) == _draft_key(value)]
+        matched_on = f"draft name:{value}"
+    drafts = [_draft_summary(n) for n in nodes if n.get("id")][:1]
+    result: dict[str, Any] = {"query": query, "matched_on": matched_on, "orders": [], "draft_orders": drafts}
+    if payload.get("_partial_errors"):
+        result["partial"] = payload["_partial_errors"]
+    if not drafts:
+        result["note"] = f"No draft order found for {query!r}."
+    elif not drafts[0]["invoice_url"]:
+        result["note"] = f"Shopify returned no invoice link for draft {drafts[0]['draft_name']}."
+    else:
+        result["instruction"] = ("invoice_url is this draft's payment link, hosted by Shopify. Give it exactly as "
+                                 "written; never a link of your own.")
+    return result
 
 
 # ------------------------------------------------------------- orders, found by evidence
