@@ -186,6 +186,25 @@ def test_a_protected_path_anywhere_in_the_diff_from_the_trunk_refuses_the_landin
     assert trunk(w) != w.store.read_results()[0].result_sha and not [p for p in pushes if TRUNK in p[-1]]
 
 
+def test_a_base_ahead_of_the_trunk_refuses_the_landing_because_its_commits_were_never_reviewed(tmp_path, pushes):
+    """The review packet shows base..candidate. A base ahead of the trunk (a Director's unlanded branch) carries
+    commits no reviewer saw, protected or not, so the loop never lands them: only a base already on the trunk."""
+    w = landing_world(tmp_path)
+    (w.repo / "app_unreviewed.py").write_text("UNREVIEWED = True\n")
+    _git(w.repo, "add", "-A")
+    _git(w.repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "someone's unreviewed work")
+    w.base = _git(w.repo, "rev-parse", "HEAD")                    # a descendant of the trunk head, not on it
+    before = trunk(w)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.run_until(lambda: landing_record(w).get("state") == "refused")
+    reason = landing_record(w)["reason"]
+    assert f"base {w.base} is not on {TRUNK}" in reason and "never in the loop's review packet" in reason
+    assert trunk(w) == before and not [p for p in pushes if TRUNK in p[-1]]
+    packets = "\n".join(p.read_text(errors="replace") for p in w.store.root.rglob("*packet*") if p.is_file())
+    assert "pkg/hello.txt" in packets and "app_unreviewed.py" not in packets     # what the reviewer saw
+
+
 # ---------------------------------------------------------------- the trunk moved: the loop's refresh
 
 def test_a_moved_trunk_is_merged_in_and_the_merge_is_accepted_and_reviewed_on_its_own_before_it_lands(

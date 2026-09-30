@@ -1486,6 +1486,13 @@ class Dispatcher:
             return self._landing_refused(obj, task, sha, f"the diff from {TRUNK_BRANCH} {trunk} to {sha} touches "
                                                          f"protected path(s) {', '.join(protected[:10])}; the loop never "
                                                          "lands one, the Director does"), False
+        # Everything that lands was in the review packet, which shows base..SHA: so the task's base must already be
+        # on the trunk. A base ahead of it (a Director's unlanded branch) would carry commits no reviewer saw.
+        if task.base_sha != trunk and not self.kernel.git.is_ancestor(task.base_sha, trunk):
+            return self._landing_refused(obj, task, sha, f"the build's base {task.base_sha} is not on {TRUNK_BRANCH} "
+                                                         f"({trunk}), so the commits between them were never in the "
+                                                         "loop's review packet, which shows only base..candidate; the "
+                                                         "loop never lands them, the Director does"), False
         # (a) GitHub acceptance green on exactly this SHA, asked at this moment
         if self.acceptance is None:
             return self._landing_refused(obj, task, sha, "no GitHub acceptance gate is configured in this dispatcher; "
