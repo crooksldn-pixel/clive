@@ -29,7 +29,8 @@ Where anything further down this file disagrees with this section, this section 
 **Next.**
 1. The owner:
    - clears clive-worker-01's hardware items: power supply 2 without input, and the iLO password and firmware ([INFRASTRUCTURE_2026-09-25.md](./INFRASTRUCTURE_2026-09-25.md));
-   - creates the runner's registration token.
+   - creates the runner's registration token;
+   - runs the production prompt that switches filing on ([OWNER_DECISIONS_2026-09-30.md](./OWNER_DECISIONS_2026-09-30.md), "Filing is switched on").
 2. The first build: skills adopted whole. That means:
    - holding per skill rather than per collection, with the scanner's false positives fixed;
    - an installer that records provenance and licence;
@@ -38,7 +39,8 @@ Where anything further down this file disagrees with this section, this section 
    - a sandboxed runner for skills that carry scripts.
 
    Acceptance then moves onto the runner.
-3. The loop's three re-pin follow-ups, by hand, because they touch protected paths.
+3. The loop's three re-pin follow-ups: done in PR #63, and in force at the next re-pin.
+4. The loop lands its own work: a fast-forward of the trunk to a candidate that is green, READY and free of protected paths. It is built by hand, because it is the loop's own code, and is in force at the next re-pin together with PR #63.
 
 **Still the owner's to rule:**
 - whether a TV's own "Mark packed" counts as packed (B-04);
