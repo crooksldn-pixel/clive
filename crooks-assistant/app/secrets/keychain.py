@@ -62,6 +62,13 @@ KNOWN_KEYS = (
     # Finds videos for the owner's screens (app/clients/youtube.py): a YouTube Data API v3 key,
     # read-only by what that API is. Absent, a YouTube link still plays; only search needs it.
     "youtube_api_key",
+    # Reads the CROOKS Instagram account's messages and comments (app/clients/instagram.py): a
+    # long-lived Instagram User access token, renewed by the application before its 60 days run
+    # out. The app id and secret are the Meta app's, kept for exchanging a new short-lived token
+    # by hand (scripts/instagram.py); nothing reads them on a normal call.
+    "instagram_access_token",
+    "instagram_app_id",
+    "instagram_app_secret",
 )
 
 

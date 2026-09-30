@@ -191,6 +191,11 @@ class Settings(BaseSettings):
     # The interpreter the building host runs a request's checks with, when CLIVE fills them in.
     engineering_check_python: str = "/home/user/clive/crooks-assistant/.venv/bin/python"
 
+    # --- Instagram (read-only; app/clients/instagram.py) ---
+    # The Graph API version its calls name on graph.instagram.com. The token is a secret
+    # (instagram_access_token), never a setting.
+    instagram_api_version: str = "v25.0"
+
     # --- test mode, always on ---
     # On, every day is one test session that the backend starts itself ("always-on"), closes
     # at local midnight and follows with the next: nothing has to be started on the host for

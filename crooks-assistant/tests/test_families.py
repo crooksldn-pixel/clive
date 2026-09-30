@@ -257,7 +257,10 @@ async def test_the_standing_capability_line_is_paid_for_once_per_turn_and_stays_
     assert len(unavailable) >= 5, f"only {len(unavailable)} unavailable — the check would be weak"
 
     block = FAMILY_LINE_PREFIX + "\n".join(families_mod.words(table)) + "]"
-    assert len(block) <= 900, f"{len(block)} chars on every model turn:\n{block}"
+    # 920 is Instagram (app/tools/instagram_tools.py): "- DISCONNECTED — no token stored:
+    # Instagram", +44 characters measured (872 before, 916 after), said only on a server with no
+    # Instagram token stored. Once one is, the family is READY and this line costs nothing.
+    assert len(block) <= 920, f"{len(block)} chars on every model turn:\n{block}"
 
     # The instruction appears once, at the head, and never on a line.
     assert block.count("Do not attempt") == 1, block

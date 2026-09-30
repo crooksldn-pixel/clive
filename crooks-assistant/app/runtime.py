@@ -446,6 +446,7 @@ def build(settings: Settings | None = None) -> Runtime:
         engineering_tools,
         gmail_tools,
         gmail_writes,
+        instagram_tools,
         mock,
         shopify_tools,
         shopify_writes,
@@ -505,6 +506,11 @@ def build(settings: Settings | None = None) -> Runtime:
 
     engineering_tools.bind(engineering_switch.inbox_for(settings.engineering_host))
     engineering_tools.configure(check_python=settings.engineering_check_python)
+    # Instagram (read-only): its token is read from the secret store at each call, so a server
+    # without one builds the same and says it is not connected. What is known about the token's
+    # life (never the token) is kept beside CLIVE's other records, for /health.
+    instagram_tools.configure(api_version=settings.instagram_api_version,
+                              state_path=settings.objectives_dir / "instagram.json")
 
     kb = load(settings.kb_dir)
     provider = MaxAgentSDKProvider(
