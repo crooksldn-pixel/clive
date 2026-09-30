@@ -6,15 +6,31 @@ real CLI writes (an init event with the roster, tool events, a result with
 ``structured_output``), edits files in its cwd and can die, stall or misreport its
 roster. Only the model is replaced: the launch, the sanitised environment, the
 attempt marker, the process checks, the parser and every kernel verb are real.
+
+By default the fake reports the roster the real CLI reports for the launch it was given,
+MCP included: every server its ``--mcp-config`` names is listed ``connected`` and that
+server's tools named in ``--allowedTools`` are in ``tools``, as Claude Code 2.1.285 did
+for the ``clive_checks`` launch on 2026-09-30 (``{"name": "clive_checks", "status":
+"connected"}`` and ``mcp__clive_checks__run_checks``). That default changed with the
+2026-09-30 re-pin review (second run, F-01): a launch with declared checks now requires
+the tool and the connected server, and the old default (no MCP at all) would have made
+every builder launched with checks a refused launch. A scenario's ``tools`` and ``mcp``
+keys still replace the roster exactly, which is how a missing tool or server is tested.
+``ignore_sigterm`` makes the worker ignore SIGTERM, so only SIGKILL stops it;
+``sleep_after_result`` keeps it alive after its result.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -47,14 +63,15 @@ from app.orchestrator.objectives import (
 )
 from app.orchestrator.reviewers import GPT_GAP, GptUnavailable, RelayReviewer, ReviewContext
 from app.orchestrator.workers import ClaudeCodeWorker
-from app.orchestrator.workers.base import worker_marker
+from app.orchestrator.workers.base import LaunchSpec, processes_with_marker, worker_marker
+from app.orchestrator.workers.claude import CHECK_TOOL, MARKER
 
 REGISTRY = Path(__file__).resolve().parent.parent / "config" / "review_principals.json"
 OBJ = "demo-objective"
 ALLOWED = ("pkg",)
 
 FAKE_CLAUDE = r'''#!{python}
-import json, os, sys, time
+import json, os, signal, sys, time
 from pathlib import Path
 state = Path({state!r})
 count_file = state / "invocations"
@@ -62,6 +79,8 @@ n = int(count_file.read_text()) if count_file.exists() else 0
 count_file.write_text(str(n + 1))
 scenarios = json.loads((state / "scenarios.json").read_text())
 sc = scenarios[min(n, len(scenarios) - 1)]
+if sc.get("ignore_sigterm"):
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)   # only SIGKILL stops it; installed before argv.<n>.json exists
 argv = sys.argv[1:]
 def arg(flag):
     return argv[argv.index(flag) + 1] if flag in argv else None
@@ -71,12 +90,18 @@ prompt = arg("-p")
 (state / f"prompt.{{n}}.txt").write_text(prompt or "")
 def emit(obj):
     sys.stdout.write(json.dumps(obj) + "\n"); sys.stdout.flush()
-tools = sc.get("tools") or (arg("--tools").split(",") + ["StructuredOutput"])
+# The roster the real CLI reports for this launch: its --mcp-config servers connected, their allowed tools listed.
+servers = list(json.loads(arg("--mcp-config") or "{{}}").get("mcpServers", {{}}))
+granted = argv[argv.index("--allowedTools") + 1:] if "--allowedTools" in argv else []
+granted = granted[:next((i for i, a in enumerate(granted) if a.startswith("--")), len(granted))]
+mcp_tools = [t for t in granted if any(t.startswith(f"mcp__{{s}}__") for s in servers)]
+tools = sc.get("tools") or (arg("--tools").split(",") + ["StructuredOutput"] + mcp_tools)
 if sc.get("die_before_init"):
     sys.stderr.write(sc.get("stderr", "boom\n")); sys.exit(1)
 time.sleep(sc.get("sleep_before_init", 0))
 emit({{"type": "system", "subtype": "init", "session_id": sc.get("session") or arg("--session-id"),
-      "cwd": os.getcwd(), "tools": tools, "mcp_servers": sc.get("mcp", []),
+      "cwd": os.getcwd(), "tools": tools,
+      "mcp_servers": sc.get("mcp", [{{"name": s, "status": "connected"}} for s in servers]),
       "plugins": [{{"name": "telemetry", "path": "builtin", "source": "telemetry@builtin"}}],
       "skills": [], "slash_commands": [], "permissionMode": arg("--permission-mode"),
       "model": "fake", "apiKeySource": "none"}})
@@ -100,6 +125,7 @@ else:
     report = sc.get("report", {{"status": "completed", "summary": "made the change"}})
     emit({{"type": "result", "subtype": "success", "is_error": False, "structured_output": report,
           "num_turns": 3, "session_id": arg("--session-id")}})
+time.sleep(sc.get("sleep_after_result", 0))
 '''
 
 
@@ -199,8 +225,9 @@ FINDING = {"finding_id": "F-01", "material": True, "finding": "the greeting is w
 
 class World:
     def __init__(self, tmp: Path, *, reviewers=None, checks=(), max_repair_rounds: int = 2, runner=None,
-                 **config) -> None:
+                 worker_options: dict | None = None, **config) -> None:
         self.runner = runner or TreeRunnerForTests()
+        self.worker_options = dict(worker_options or {})
         self.tmp = tmp
         self.repo = tmp / "repo"
         self.repo.mkdir()
@@ -240,8 +267,11 @@ class World:
 
     def dispatcher(self) -> Dispatcher:
         """A fresh dispatcher each call: nothing survives in memory, as after a restart."""
-        return Dispatcher(self.kernel, self.objectives, ClaudeCodeWorker(cli=str(self.cli)), self.reviewers,
+        return Dispatcher(self.kernel, self.objectives, self.worker(), self.reviewers,
                           self.config, checks=self.runner, acceptance=self.acceptance)
+
+    def worker(self) -> ClaudeCodeWorker:
+        return ClaudeCodeWorker(cli=str(self.cli), **self.worker_options)
 
     def objective(self, **overrides) -> dict:
         fields = dict(
@@ -278,6 +308,35 @@ class World:
 
     def status_is(self, *statuses: TaskStatus):
         return lambda: self.state_of().status in statuses
+
+    @staticmethod
+    def marker(attempt) -> str:
+        return worker_marker(attempt.attempt_id, attempt.worker.session.session_id)
+
+    def wait_started(self, n: int, timeout: float = 10.0) -> None:
+        """Wait until the fake's invocation ``n`` runs its scenario, its SIGTERM handling already in place."""
+        deadline = time.monotonic() + timeout
+        while not (self.state / f"argv.{n}.json").exists():
+            assert time.monotonic() < deadline, f"fake invocation {n} never started"
+            time.sleep(0.02)
+
+    def wait_logged(self, attempt, event_type: str, timeout: float = 10.0) -> None:
+        """Wait until the attempt's stream log holds an event of ``event_type`` (``system``, ``result``...)."""
+        log = self.config.runtime_root / "logs" / f"{attempt.attempt_id}.stream.jsonl"
+        deadline = time.monotonic() + timeout
+        while not (log.exists() and any(json.loads(line).get("type") == event_type
+                                         for line in log.read_text().splitlines() if line.strip())):
+            assert time.monotonic() < deadline, f"no {event_type} event in {log}"
+            time.sleep(0.02)
+
+    def kill_leftovers(self) -> None:
+        """SIGKILL any fake worker of this world still alive, found on the host by its marker."""
+        for attempt in self.store.read_attempts(OBJ):
+            for pid in processes_with_marker(MARKER, self.marker(attempt)):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
 
 
 EDIT_HELLO = {"edits": [["pkg/hello.txt", "hello\n"]]}
@@ -1311,3 +1370,230 @@ def test_a_candidate_that_changes_a_protected_path_is_refused_whatever_the_scope
     attempt = latest_attempt(w)
     [note] = [e.note for e in w.store.read_events(OBJ, attempt.attempt_id) if e.kind is EventKind.CANCELLED]
     assert "changes protected paths" in note and protected in note
+
+
+# ------------------------- the 2026-09-30 re-pin review, waived and done by hand: a stopped worker is confirmed gone
+
+FAST_KILL = {"kill_grace_s": 0.5, "kill_confirm_s": 5.0}
+FOREIGN_MCP = [{"name": "claude.ai Shopify", "status": "connected"}]
+HANGS = {"hang": True, **EDIT_HELLO}
+
+
+def _running(w: World) -> None:
+    """The worker is acknowledged and running, its edits observed; it never reports."""
+    w.run_until(w.status_is(TaskStatus.RUNNING))
+    w.dispatcher().tick()
+
+
+def _launched(w: World) -> None:
+    """The worker is launched and running its scenario; its init event has not come yet."""
+    w.dispatcher().tick()
+    assert w.state_of().status is TaskStatus.ASSIGNED
+    w.wait_started(0)
+
+
+def _acknowledged(w: World) -> None:
+    w.run_until(w.status_is(TaskStatus.RUNNING))
+
+
+def _later(seconds: int) -> Callable[[World, pytest.MonkeyPatch], None]:
+    def trigger(w: World, monkeypatch: pytest.MonkeyPatch) -> None:
+        w.clock.offset += timedelta(seconds=seconds)
+    return trigger
+
+
+def _init_logged(w: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    w.wait_logged(latest_attempt(w), "system")
+
+
+def _result_logged(w: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    w.wait_logged(latest_attempt(w), "result")
+
+
+def _scope_protected(w: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(objectives_module, "PROTECTED_PATHS", objectives_module.PROTECTED_PATHS + ("pkg",))
+
+
+@dataclass(frozen=True)
+class StopSite:
+    """One place the dispatcher stops a worker: how the test gets there, what makes the next tick stop it, and
+    what the dispatcher records once the worker is gone (``cancel``, ``block`` or ``candidate``)."""
+
+    scenario: dict
+    reach: Callable[[World], None]
+    trigger: Callable[[World, pytest.MonkeyPatch], None]
+    outcome: str
+    says: str                                   # in the cancellation note, the blocker reason or why it was stopped
+    config: dict = field(default_factory=dict)
+
+
+STOP_SITES = {
+    "stall": StopSite(HANGS, _running, _later(31), "cancel", "worker stalled: no event for 30s", {"stall_s": 30}),
+    "init-timeout": StopSite({"sleep_before_init": 60}, _launched, _later(61), "cancel", "no init event within 60s",
+                             {"init_timeout_s": 60}),
+    "lease-expired": StopSite(HANGS, _running, _later(601), "cancel", "the attempt's lease expired",
+                              {"lease_s": 600, "stall_s": 7200}),
+    "time-limit": StopSite(HANGS, _running, _later(61), "block", "exceeded the attempt time limit of 60s",
+                           {"attempt_timeout_s": 60}),
+    "launch-surface": StopSite({"mcp": FOREIGN_MCP, "sleep_before_init": 0.5, "sleep_after_init": 60}, _launched,
+                               _init_logged, "block",
+                               "worker launch surface refused: MCP servers present: claude.ai Shopify"),
+    "protected-scope": StopSite(HANGS, _running, _scope_protected, "block", "covers protected path(s) pkg"),
+    "after-result": StopSite({**EDIT_HELLO, "sleep_before_result": 2, "sleep_after_result": 60}, _acknowledged,
+                             _result_logged, "candidate", "its result (completed) was read"),
+}
+
+
+def _launch_spec(tmp_path: Path) -> LaunchSpec:
+    (tmp_path / "ws").mkdir(exist_ok=True)
+    return LaunchSpec(task_id="t", task_revision=1, attempt_id="t-a1", fencing_token=1, session_id=str(uuid.uuid4()),
+                      workspace=tmp_path / "ws", home=tmp_path / "home", log_path=tmp_path / "log",
+                      stderr_path=tmp_path / "err", prompt="p")
+
+
+def test_the_driver_sigkills_a_worker_that_ignores_sigterm_and_confirms_it_gone(tmp_path):
+    """F-01: SIGTERM alone never stopped this worker; the driver waits out the grace, SIGKILLs, and confirms."""
+    w = World(tmp_path, worker_options=FAST_KILL)
+    w.scenarios({"ignore_sigterm": True, "hang": True})
+    worker = w.worker()
+    spec = _launch_spec(tmp_path)
+    record = worker.launch(spec)
+    proc = worker._children[record.pid]
+    try:
+        w.wait_started(0)
+        os.killpg(record.pid, signal.SIGTERM)                  # what stopping used to be, and all it was
+        time.sleep(0.3)
+        assert worker.live_pids(spec.marker) == [record.pid]
+        began = time.monotonic()
+        assert worker.kill(spec.marker) == []                  # confirmed gone
+        assert time.monotonic() - began >= FAST_KILL["kill_grace_s"]  # SIGTERM had its grace first
+        assert proc.wait(timeout=10) == -signal.SIGKILL        # then SIGKILL
+        assert worker.live_pids(spec.marker) == [] and worker.kill(spec.marker) == []
+    finally:
+        w.kill_leftovers()
+        if proc.poll() is None:
+            proc.kill()
+
+
+def test_the_driver_stops_a_worker_that_honours_sigterm_without_waiting_out_the_grace(tmp_path):
+    w = World(tmp_path, worker_options={"kill_grace_s": 30, "kill_confirm_s": 30})
+    w.scenarios({"hang": True})
+    worker = w.worker()
+    spec = _launch_spec(tmp_path)
+    record = worker.launch(spec)
+    proc = worker._children[record.pid]
+    try:
+        w.wait_started(0)
+        began = time.monotonic()
+        assert worker.kill(spec.marker) == []
+        assert time.monotonic() - began < 10 and proc.wait(timeout=10) == -signal.SIGTERM   # SIGTERM was enough
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+
+@pytest.mark.parametrize("site", STOP_SITES.values(), ids=STOP_SITES.keys())
+def test_a_worker_that_ignores_sigterm_is_gone_before_the_dispatcher_records_its_stop(tmp_path, monkeypatch, site):
+    """F-01, at every place the dispatcher stops a worker: the worker ignores SIGTERM, is SIGKILLed after the grace,
+    and is gone before the tick that records the cancel, the block or the candidate returns. What is recorded is
+    exactly what was recorded before: a transient cancel that is retried, a block with its own reason, a candidate."""
+    w = World(tmp_path, worker_options=FAST_KILL, **site.config)
+    w.scenarios({**site.scenario, "ignore_sigterm": True}, EDIT_HELLO)
+    w.objective()
+    try:
+        site.reach(w)
+        attempt = latest_attempt(w)
+        assert w.worker().live_pids(w.marker(attempt))
+        site.trigger(w, monkeypatch)
+        w.dispatcher().tick()
+        assert not w.worker().live_pids(w.marker(attempt))     # gone when the tick returns; the test does not wait
+        events = w.store.read_events(OBJ, attempt.attempt_id)
+        if site.outcome == "cancel":
+            [note] = [e.note for e in events if e.kind is EventKind.CANCELLED]
+            assert note.startswith("transient:") and site.says in note
+            w.run_until(w.status_is(TaskStatus.REVIEWING))     # retried, as before
+            assert latest_attempt(w).fencing_token > attempt.fencing_token
+            assert [r.attempt_id for r in w.store.read_results()] == [latest_attempt(w).attempt_id]
+        elif site.outcome == "block":
+            state = w.state_of()
+            assert state.status is TaskStatus.BLOCKED and site.says in state.blocker_reason
+            assert "could not be stopped" not in state.blocker_reason
+            assert not any(e.kind is EventKind.CANCELLED for e in events)
+        else:
+            assert [r.attempt_id for r in w.store.read_results()] == [attempt.attempt_id]
+    finally:
+        w.kill_leftovers()
+
+
+@pytest.mark.parametrize("site", STOP_SITES.values(), ids=STOP_SITES.keys())
+def test_a_worker_that_cannot_be_confirmed_gone_blocks_its_task_and_is_never_recorded_as_stopped(
+        tmp_path, monkeypatch, site):
+    """F-01: when the host still reports the worker after SIGTERM, SIGKILL and both waits, nothing is recorded as
+    if it had stopped: no cancel, no retry, no candidate. The task blocks, naming the attempt, the pids and why it
+    was being stopped. (The host's answer is simulated: ``live_pids`` keeps reporting a process it once saw.)"""
+    w = World(tmp_path, worker_options={"kill_grace_s": 0.3, "kill_confirm_s": 0.3}, **site.config)
+    w.scenarios({**site.scenario, "ignore_sigterm": True}, EDIT_HELLO)
+    w.objective()
+    real = ClaudeCodeWorker.live_pids
+    seen: dict[str, list[int]] = {}
+
+    def never_confirmed_gone(self, marker):
+        pids = real(self, marker)
+        if pids:
+            seen[marker] = pids
+        return pids or seen.get(marker, [])
+
+    monkeypatch.setattr(ClaudeCodeWorker, "live_pids", never_confirmed_gone)
+    try:
+        site.reach(w)
+        attempt = latest_attempt(w)
+        site.trigger(w, monkeypatch)
+        w.dispatcher().tick()
+        state = w.state_of()
+        pids = ", ".join(str(pid) for pid in seen[w.marker(attempt)])
+        assert state.status is TaskStatus.BLOCKED and state.blocker_class is BlockerClass.DETERMINISTIC
+        assert state.blocker_reason.startswith(f"the worker of {attempt.attempt_id} could not be stopped: "
+                                               f"pid(s) {pids} still alive after SIGTERM, SIGKILL")
+        assert site.says in state.blocker_reason                # and why it was being stopped
+        events = w.store.read_events(OBJ, attempt.attempt_id)
+        assert not any(e.kind is EventKind.CANCELLED for e in events)   # never a normal cancel
+        assert not w.store.read_results()                                 # nor a candidate
+        for _ in range(2):                                                # nothing is launched in its place
+            w.dispatcher().tick()
+        assert w.state_of().status is TaskStatus.BLOCKED and len(w.store.read_attempts(OBJ)) == 1
+        assert w.invocations() == 1
+        assert not real(w.worker(), w.marker(attempt))    # it did die: only the confirmation was withheld
+    finally:
+        w.kill_leftovers()
+
+
+# ------------------------- the 2026-09-30 re-pin review, second run, waived and done by hand: declared checks are required
+
+@pytest.mark.parametrize("roster, missing", [
+    ({"tools": ["Read", "Edit", "Write", "Glob", "Grep", "StructuredOutput"]},
+     f"the declared checks' tool {CHECK_TOOL} is missing from the init roster"),
+    ({"mcp": []}, "the declared checks' MCP server clive_checks is not in the init roster"),
+    ({"mcp": [{"name": "clive_checks", "status": "failed"}]},
+     "the declared checks' MCP server clive_checks is not connected (status failed)"),
+], ids=["no-run-checks-tool", "no-checks-server", "checks-server-failed"])
+def test_a_builder_launched_with_declared_checks_is_refused_and_stopped_without_run_checks(tmp_path, roster, missing):
+    """F-01 (second run): the launch asked for the run_checks tool and its server, and the prompt tells the builder
+    it has them; an init roster without either is a refused launch surface, stopped and blocked before any ack."""
+    check = Check(name="hello", argv=("grep", "-qx", "hello", "pkg/hello.txt"))
+    w = World(tmp_path, checks=(check,), runner=SandboxShapedTreeRunner())
+    w.scenarios({**roster, "sleep_after_init": 60, **EDIT_HELLO})
+    w.objective()
+    try:
+        w.run_until(w.status_is(TaskStatus.BLOCKED))
+        reason = w.state_of().blocker_reason
+        assert reason.startswith("worker launch surface refused: ") and missing in reason
+        attempt = latest_attempt(w)
+        assert EventKind.ACKNOWLEDGED not in {e.kind for e in w.store.read_events(OBJ, attempt.attempt_id)}
+        assert not w.worker().live_pids(w.marker(attempt))
+        assert not w.store.read_results()
+        argv = json.loads((w.state / "argv.0.json").read_text())     # the launch did ask for both
+        assert CHECK_TOOL in argv and list(json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]) == \
+            ["clive_checks"]
+        assert RUN_CHECKS_LINE in (w.state / "prompt.0.txt").read_text()
+    finally:
+        w.kill_leftovers()

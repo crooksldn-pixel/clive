@@ -99,6 +99,9 @@ class Started:
     slash_commands: int
     permission_mode: str | None
     api_key_source: str | None
+    # Each MCP server's own status word as the init event reports it (``connected``, ``failed``,
+    # ``pending``, ...), "" when none is reported: a server that is listed is not yet one that works.
+    mcp_server_status: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -139,7 +142,11 @@ class WorkerDriver(Protocol):
 
     def live_pids(self, marker: str) -> list[int]: ...
 
-    def kill(self, marker: str) -> None: ...
+    def kill(self, marker: str) -> list[int]:
+        """Stop every process of the attempt and confirm it: the pids still alive afterwards, [] when gone.
+
+        A caller that gets pids back must not record the attempt as stopped."""
+        ...
 
 
 # ---- host process facts (Linux /proc), shared by drivers --------------------
