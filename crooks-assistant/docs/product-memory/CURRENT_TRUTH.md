@@ -2,7 +2,7 @@
 
 **Purpose:** compact active context for GPT/Claude/Fable/engineering workers  
 **Status:** ACTIVE — update whenever a material product/architecture state changes  
-**As of:** 2026-09-30 (round 13 in production; the ship rule, acceptance, skills and capacity decided; 2026-09-29 and earlier are kept below as history)
+**As of:** 2026-09-30 (round 13 in production; the ship rule, acceptance, skills and capacity decided; filing on; the loop lands its own work from its next re-pin; 2026-09-29 and earlier are kept below as history)
 
 This file is intentionally not a historical transcript. It answers: **what is true and important now?**
 
@@ -15,8 +15,8 @@ Where anything further down this file disagrees with this section, this section 
 | | SHA | What it is |
 |---|---|---|
 | **Production** (`/opt/crooks-os`) | `87e10c33` | Round 13 (PR #58), deployed 29 Sep, 23:10–23:49 UTC. The owner waived a further exact-SHA review at 22:23 ("give me a prompt to get this shipped and deployed now"), so no multi-part review was run. The installed tree is identical to `1c8f1636`, the tree GitHub acceptance was green on. `healthcheck.py -v` exits 0 and the phone check passed (`through=tailscale owner=true refusal=none`). Record: `claude/deploy-round-13-record` (`090d6f8f`, `crooks-assistant/reports/deploy-round-13.md`). |
-| **Trunk** | ahead of production | PR #59 and the re-pin record are product memory. PR #60 changes the loop's dispatcher, not the assistant. `c191de7a` adds Instagram read-only, which lands inert until the owner stores a token (`docs/INSTAGRAM.md`). |
-| **The loop on clive-worker-01** | `40e6a73f` | Re-pinned on 30 Sep at 15:19 UTC under the owner's waiver, with builder checks, the green GitHub gate and product memory from the trunk. Three follow-ups are open ([OWNER_DECISIONS_2026-09-30.md](./OWNER_DECISIONS_2026-09-30.md)). |
+| **Trunk** | `2c8d2caf`, ahead of production | For the assistant it adds `c191de7a` (Instagram read-only, which stays inert until the owner stores a token; `docs/INSTAGRAM.md`), PR #62 (the digester holds per skill), PR #65 (curated mode; the secret prompt refuses control characters), PR #66 and PR #67's `engineering_status` wording. The rest is loop code and product memory. |
+| **The loop on clive-worker-01** | `40e6a73f` | Re-pinned on 30 Sep at 15:19 UTC under the owner's waiver, with builder checks, the green GitHub gate and product memory from the trunk. PR #63 and PR #67 take effect at the next re-pin. |
 
 **Decided on 30 September** ([OWNER_DECISIONS_2026-09-30.md](./OWNER_DECISIONS_2026-09-30.md)):
 - **The ship rule is regression-only, with one exception.** A finding blocks a deploy when this change makes production worse, or when it is shown to leak customer data or to write to the shop or send an email the owner did not confirm, whether new or old. Everything else is a follow-up for the next build. This answers decision 5 of the self-shipping plan.
@@ -35,7 +35,31 @@ Where anything further down this file disagrees with this section, this section 
 
 **The loop's first job has landed.** `digester-curated-skill-list-2`, the owner's curated skill list, took three revisions and ended READY on `039b2599`. It was merged with the trunk by the Director, because the loop does not yet land its own work.
 
+**The owner's first filed builds.** Six builds he filed from CLIVE on 30 September were blocked. Each one failed only `test_tool_matrix`, because it had changed a tool without regenerating `TOOL_MATRIX.md`, and the loop blocked a red run at once.
+- The two that worked were landed by the Director in PR #66 (`11fcbff2`):
+  - a draft order's payment link, read-only through `shopify_find_order`;
+  - closing an objective as complete or removed, where nothing is deleted.
+- `orderEditAddCustomItem` (a custom item on an existing order) needs a Director change to the reviewed Shopify mutations, with the owner's approval.
+
+**PR #67 (`2c8d2caf`) is the loop's fix, in force at the next re-pin.** The loop now:
+- regenerates declared generated files itself (`config/generated_files.json`, read at the base);
+- turns a red GitHub run at review dispatch into a repair round with the failing tests and a redacted log tail;
+- lands its own work by plain fast-forward. It lands only when:
+  - GitHub is green, asked fresh;
+  - a READY review was integrated;
+  - no path in the diff is protected;
+  - the trunk head is contained;
+  - the base is already on the trunk.
+
+  If the trunk has moved, it merges the trunk in and has the merge reviewed on its own. `--no-land` turns landing off.
+
+Intake waits up to an hour for a base the build server has not fetched. CLIVE's `engineering_status` says how many times a build ran, what the review asked, where it stands with the trunk, and that a blocked build needs the Director rather than a re-filing.
+
+At the re-pin, a build already part-way through does not gain the generated outputs in its scope. Re-file it once.
+
 **Open, and in the way of the self-hosted runner.** Two tests fail on a host where they run as root, and pass on GitHub only because they skip there: `test_check_sandbox.py::test_the_host_filesystem_beyond_the_minimal_root_does_not_exist_inside` and `test_engineering_dispatcher.py::test_checks_run_in_the_sandbox_on_a_copy_and_cannot_touch_the_candidate_tree`. They fail identically on `6a29e310`. The deploy record has the detail. A runner that runs them has to either run without root or come after their fix.
+
+A parallel run on one host needs a fix of its own. The builder's marker, `CLIVE_ATTEMPT_ID=<objective>-a<n>`, is matched across the whole host, so dispatcher tests run in parallel stop each other's fake builders. Serial runs, including GitHub's, are unaffected. The marker needs a part unique to each runtime.
 
 **Next.**
 1. The owner:
@@ -49,8 +73,7 @@ Where anything further down this file disagrees with this section, this section 
    - a sandboxed runner for skills that carry scripts.
 
    Acceptance then moves onto the runner.
-3. The loop's three re-pin follow-ups: done in PR #63, and in force at the next re-pin.
-4. The loop lands its own work: a fast-forward of the trunk to a candidate that is green, READY and free of protected paths. It is built by hand, because it is the loop's own code, and is in force at the next re-pin together with PR #63.
+3. The owner re-pins the loop to `2c8d2caf` (PR #63 and PR #67). This needs a clean review or a new waiver, because the last waiver named `40e6a73f` only.
 
 **Still the owner's to rule:**
 - whether a TV's own "Mark packed" counts as packed (B-04);
