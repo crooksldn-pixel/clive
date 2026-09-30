@@ -330,6 +330,81 @@ def test_a_refusal_names_the_permission_a_fine_grained_token_needs():
     result = client(lambda request: httpx.Response(403)).check(REPOSITORY, SHA)
     assert "Actions: read" in result.detail
 
+# ---------------------------------------------------------------- a red run's failed job, for the loop's repair
+# OWNER_DECISIONS_2026-09-30: a red GitHub run is a repair round. ``failure_log`` reads the failed job's log.
+
+LOG_HOST = "pipelines.actions.githubusercontent.invalid"
+
+
+def failing_github(job_list: dict, *, log_status: int = 302, log_body: bytes = b"", seen: list | None = None,
+                   location: str = f"https://{LOG_HOST}/signed/log?sig=abc"):
+    """The jobs of a red run, the job-log endpoint (a redirect to a signed URL) and that signed URL."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(request)
+        if request.url.host == LOG_HOST:
+            return httpx.Response(200, content=log_body)
+        if request.url.path.endswith("/jobs"):
+            return httpx.Response(200, json=job_list)
+        if request.url.path.endswith("/logs"):
+            if log_status == 200:
+                return httpx.Response(200, content=log_body)
+            return httpx.Response(log_status, headers={"location": location})
+        return httpx.Response(404)
+    return handler
+
+
+def failed_job(run_id: int = 5, *, name: str = ACCEPTANCE_CHECK, conclusion: str = "failure", sha: str = SHA) -> dict:
+    return {**job(run_id, name=name, conclusion=conclusion, sha=sha),
+            "steps": [{"name": "Check out", "conclusion": "success"},
+                      {"name": "Run the acceptance tests", "conclusion": "failure"},
+                      {"name": "Upload evidence", "conclusion": "skipped"}]}
+
+
+def test_the_failed_jobs_log_is_fetched_through_the_redirect_without_the_credential():
+    seen: list[httpx.Request] = []
+    log = b"collected 10 items\n" + b"x" * 300_000 + b"\nFAILED tests/test_a.py::test_b - AssertionError\n"
+    listed = jobs(job(5, name="setup"), failed_job(5))
+    got = client(failing_github(listed, log_body=log, seen=seen), token=FAKE_TOKEN).failure_log(REPOSITORY, SHA, (5,))
+    assert got.problem is None and got.run_id == 5 and got.job_id == 500 and got.job_name == ACCEPTANCE_CHECK
+    assert got.failed_steps == ("Run the acceptance tests",)
+    assert got.text.endswith("FAILED tests/test_a.py::test_b - AssertionError\n") and len(got.text) <= 256 * 1024
+    jobs_request, log_request, download = seen
+    assert jobs_request.url.path == f"/repos/{REPOSITORY}/actions/runs/5/jobs"
+    assert log_request.url.path == f"/repos/{REPOSITORY}/actions/jobs/500/logs"
+    assert log_request.headers["authorization"] == f"Bearer {FAKE_TOKEN}"
+    assert download.url.host == LOG_HOST and "authorization" not in download.headers   # the signed URL is its own key
+
+
+def test_the_acceptance_job_is_preferred_and_a_job_of_another_commit_or_run_is_never_taken():
+    listed = jobs(failed_job(5, name="lint"), failed_job(5), failed_job(5, sha=OTHER), job(5))
+    got = client(failing_github(listed, log_body=b"log")).failure_log(REPOSITORY, SHA, (5,))
+    assert got.job_name == ACCEPTANCE_CHECK and got.text == "log"
+    elsewhere = jobs({**failed_job(5), "head_sha": OTHER}, {**failed_job(5), "run_id": 6})
+    got = client(failing_github(elsewhere)).failure_log(REPOSITORY, SHA, (5,))
+    assert got.job_id is None and got.text == "" and "no failed job" in got.problem
+
+
+@pytest.mark.parametrize(("status", "location", "problem"), [
+    (404, "", "HTTP 404"),
+    (403, "", "cannot read Actions logs"),
+    (302, "http://plain.invalid/log", "not to an https address"),
+    (302, "", "not to an https address"),
+])
+def test_a_log_that_cannot_be_read_is_a_problem_sentence_with_the_job_still_named(status, location, problem):
+    got = client(failing_github(jobs(failed_job(5)), log_status=status, location=location),
+                 token=FAKE_TOKEN).failure_log(REPOSITORY, SHA, (5,))
+    assert got.text == "" and problem in got.problem and FAKE_TOKEN not in got.problem
+    assert got.run_id == 5 and got.job_id == 500 and got.failed_steps == ("Run the acceptance tests",)
+
+
+def test_a_failure_log_is_asked_about_an_exact_sha_and_repository_only():
+    gate = client(lambda request: httpx.Response(500))
+    assert "exact commit" in gate.failure_log(REPOSITORY, "HEAD", (1,)).problem
+    assert "owner/name" in gate.failure_log("../x", SHA, (1,)).problem
+    assert gate.requests_made == 0
+
+
 def test_a_transport_failure_is_unavailable_by_type_name_only():
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError(f"cannot reach {request.url} with {FAKE_TOKEN}")

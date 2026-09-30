@@ -42,6 +42,19 @@ credential exists. It is read at the moment of each request, held in a local for
 and never logged, stored or put into an error. Nothing this module reports carries GitHub's own
 text or a URL: every ``detail`` is a sentence built here from counts, run ids, an HTTP status or an
 exception's type name, because it reaches kernel blocker reasons and the public status projection.
+
+One read-only addition serves the loop's repair of a red run (OWNER_DECISIONS_2026-09-30: a red
+GitHub run is a repair round, not a block). ``GitHubAcceptance.failure_log`` tells the repair
+builder what failed, with the same token, repository and transport, all about the one red SHA:
+
+    GET /repos/{repository}/actions/runs/{run_id}/jobs?filter=latest   (each red run, until a failed job)
+    GET /repos/{repository}/actions/jobs/{job_id}/logs                 (answered with a redirect)
+    GET <the redirect's signed URL>                                    (no credential, no further redirect)
+
+Its ``text`` is the failed job's own output (the candidate's test output), returned as data and never
+put into a ``detail`` or a ``problem``: the dispatcher redacts and bounds it before anything records it.
+The job and step names are the workflow's own words, bounded here. A log that cannot be read is a
+``problem`` sentence built here, never an exception; the repair is then routed without the log.
 """
 
 from __future__ import annotations
@@ -50,7 +63,7 @@ import os
 import re
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -65,6 +78,7 @@ __all__ = [
     "ACTIONS_APP",
     "GATE_SCHEMA",
     "AcceptanceChecks",
+    "FailureLog",
     "GateResult",
     "GateState",
     "GitHubAcceptance",
@@ -83,6 +97,9 @@ GATE_SCHEMA = "clive.github_acceptance_gate.v1"
 API_URL = "https://api.github.com"
 TIMEOUT_S = 15.0
 MAX_RUNS = 100                       # one page; a longer list is refused, never guessed at
+MAX_LOG_TAIL = 256 * 1024            # bytes of a failed job's log kept: its end, where pytest summarises
+MAX_LOG_DOWNLOAD = 64 * 1024 * 1024  # a log is read no further than this
+MAX_FAILED_RUNS = 5                  # red runs whose jobs are looked at for a failed job
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
@@ -156,8 +173,28 @@ class GateResult:
         return cls(sha=sha, state=state, detail=detail, runs=runs)
 
 
+@dataclass(frozen=True)
+class FailureLog:
+    """The failed job of a red acceptance run, for the loop's repair. Read-only; it decides nothing.
+
+    ``text`` is the tail of the job's own log: data for the caller to redact and bound, never a reason.
+    ``problem`` is a sentence built here when no log could be read. ``job_name`` and ``failed_steps`` are
+    the workflow's own words, bounded; ``run_id`` and ``job_id`` are GitHub's ids."""
+
+    sha: str
+    run_id: int | None = None
+    job_id: int | None = None
+    job_name: str | None = None
+    failed_steps: tuple[str, ...] = ()
+    text: str = ""
+    problem: str | None = None
+
+
 class AcceptanceChecks(Protocol):
-    """What the dispatcher asks. Test doubles implement this; ``GitHubAcceptance`` is the real one."""
+    """What the dispatcher asks. Test doubles implement this; ``GitHubAcceptance`` is the real one.
+
+    A gate may also offer ``failure_log(repository, sha, run_ids) -> FailureLog`` (the real one does);
+    without it, the repair of a red run is routed with the gate's own answer and no log."""
 
     def check(self, repository: str, sha: str) -> GateResult: ...
 
@@ -180,6 +217,14 @@ def ask(gate: AcceptanceChecks, repository: str, sha: str) -> GateResult:
 
 def _word(value: object) -> str | None:
     return value if isinstance(value, str) and _WORD.fullmatch(value) else None
+
+
+def _bounded(value: object, limit: int) -> str | None:
+    """A name GitHub reports (a job's, a step's), as one printable line of at most ``limit`` characters."""
+    if not isinstance(value, str):
+        return None
+    text = " ".join("".join(c if c.isprintable() else " " for c in value).split())
+    return text[:limit] or None
 
 
 def _ids(runs: list[RunFact]) -> str:
@@ -300,6 +345,85 @@ class GitHubAcceptance:
             return unavailable(sha, str(exc))
         except Exception as exc:  # noqa: BLE001 -- any surprise fails closed, by type name only
             return unavailable(sha, f"the acceptance request failed ({type(exc).__name__})")
+
+    def failure_log(self, repository: str, sha: str, run_ids: tuple[int, ...]) -> FailureLog:
+        """Read-only: the failed job of one of ``run_ids`` (red acceptance runs for ``sha``) and its log's tail.
+
+        The ``acceptance`` job is preferred when several failed. Its log is asked for with the gate's own
+        credential; GitHub answers with a redirect to a short-lived signed URL, fetched with no credential
+        and no further redirect, keeping the last ``MAX_LOG_TAIL`` bytes of at most ``MAX_LOG_DOWNLOAD``.
+        Whatever cannot be read is a ``problem`` sentence built here, with whatever was found before it."""
+        if not isinstance(sha, str) or not _SHA.fullmatch(sha):
+            return FailureLog(sha=str(sha)[:40], problem="the SHA asked about is not an exact commit id")
+        if not isinstance(repository, str) or not _REPOSITORY.fullmatch(repository) or ".." in repository:
+            return FailureLog(sha=sha, problem="the repository asked about is not owner/name")
+        ids = [r for r in run_ids if isinstance(r, int) and not isinstance(r, bool)][:MAX_FAILED_RUNS]
+        found = FailureLog(sha=sha, problem="no failed job of this commit was found in its red acceptance run(s)")
+        try:
+            headers = self._headers(repository)
+            for run_id in ids:
+                body = self._get(f"/repos/{repository}/actions/runs/{run_id}/jobs",
+                                 {"filter": "latest", "per_page": str(MAX_RUNS)}, headers, "jobs")
+                listed = body.get("jobs") if isinstance(body, dict) else None
+                if not isinstance(listed, list):
+                    raise _Unavailable(f"GitHub's jobs answer for acceptance run {run_id} was not in the expected shape")
+                failed = [job for job in listed if isinstance(job, dict) and job.get("run_id") == run_id
+                          and job.get("head_sha") == sha and isinstance(job.get("id"), int)
+                          and not isinstance(job.get("id"), bool)
+                          and _word(job.get("conclusion")) not in (None, "success", "skipped", "neutral")]
+                failed.sort(key=lambda job: job.get("name") != ACCEPTANCE_CHECK)   # the acceptance job first
+                if not failed:
+                    continue
+                job = failed[0]
+                named = (_bounded(step.get("name"), 120) for step in (job.get("steps") or [])[:200]
+                         if isinstance(step, dict) and _word(step.get("conclusion")) not in (None, "success", "skipped"))
+                found = FailureLog(sha=sha, run_id=run_id, job_id=job["id"], job_name=_bounded(job.get("name"), 120),
+                                   failed_steps=tuple(n for n in named if n)[:10], problem=None)
+                return replace(found, text=self._job_log(repository, job["id"], headers))
+            return found
+        except _Unavailable as exc:
+            return replace(found, problem=str(exc))
+        except Exception as exc:  # noqa: BLE001 -- any surprise is a problem sentence, by type name only
+            return replace(found, problem=f"the job log request failed ({type(exc).__name__})")
+
+    def _job_log(self, repository: str, job_id: int, headers: dict[str, str]) -> str:
+        self.requests_made += 1
+        try:
+            with httpx.Client(base_url=self._api_url, transport=self._transport, timeout=self._timeout_s,
+                              follow_redirects=False) as client:
+                response = client.get(f"/repos/{repository}/actions/jobs/{job_id}/logs", headers=headers)
+        except httpx.HTTPError as exc:
+            raise _Unavailable(f"GitHub could not be reached for the job log ({type(exc).__name__})") from None
+        if response.status_code == 200:          # served directly: the body is the log
+            return response.content[-MAX_LOG_TAIL:].decode("utf-8", errors="replace")
+        if response.status_code in (401, 403):
+            raise _Unavailable(f"GitHub refused the job log request (HTTP {response.status_code}): the credential "
+                               "cannot read Actions logs, or the rate limit is exhausted")
+        if response.status_code not in (301, 302, 303, 307, 308):
+            raise _Unavailable(f"GitHub could not give the job log (HTTP {response.status_code})")
+        location = response.headers.get("location") or ""
+        try:
+            target = urlsplit(location)
+        except ValueError:
+            target = None
+        if target is None or target.scheme != "https" or not target.hostname:
+            raise _Unavailable("GitHub's job log redirect was not to an https address")
+        # The signed URL is its own credential: none of ours goes with it, and it is followed no further.
+        self.requests_made += 1
+        kept, read = b"", 0
+        try:
+            with httpx.Client(transport=self._transport, timeout=self._timeout_s, follow_redirects=False) as plain, \
+                    plain.stream("GET", location, headers={"User-Agent": "clive-engineering-dispatcher"}) as download:
+                if download.status_code != 200:
+                    raise _Unavailable(f"the job log download was refused (HTTP {download.status_code})")
+                for chunk in download.iter_bytes():
+                    read += len(chunk)
+                    kept = (kept + chunk)[-MAX_LOG_TAIL:]
+                    if read >= MAX_LOG_DOWNLOAD:
+                        break
+        except httpx.HTTPError as exc:
+            raise _Unavailable(f"the job log could not be downloaded ({type(exc).__name__})") from None
+        return kept.decode("utf-8", errors="replace")
 
     def _token(self, repository: str) -> str | None:
         try:
