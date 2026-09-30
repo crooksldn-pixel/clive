@@ -4,7 +4,16 @@ They read and change only CLIVE's own objective records (app/objectives/store.py
 no Gmail, no booking, no payment, no message leaves this machine through them. That is why they
 sit on the gate's read allow-list beside the composer's tools, which likewise change only the
 Mac's own copy of something (app/tools/gate.py). What they cannot do is the owner's: authorise a
-work item or close an objective. The store refuses both unless the owner's own screen asks.
+work item, or set an objective done or dropped as the owner. The store refuses both unless the
+owner's own screen asks.
+
+What they can do, when the owner says so, is close an objective out (objective_note `complete`
+or `remove`, with his words): it leaves objective_list's live list and nothing on it is deleted.
+objective_show still reads it whole by its id, and objective_list with `closed` lists the closed
+ones, `search` finding one by anything in its record. They were paid for in the tool block's
+budget (tests/test_registry.py) by offering nothing the store always refuses — status `dropped`
+(`remove` drops one now) and state `proposed` (no item advances to it) — and saying "he" for
+"the owner" where the sentence already names him.
 
 Round 12 gave an objective a shape (the store's docstring): objective_open takes the kind and
 its design, and objective_note's `set`, `stage`, `task` and `drop` change it, so everything the
@@ -34,7 +43,9 @@ from app.tools.gate import Tier
 from app.tools.registry import ToolError, tool
 
 _ACTIONS = ("fact", "unknown", "blocker", "ask_owner", "propose", "advance", "progress", "resolve", "status",
-            "set", "stage", "task", "drop")
+            "set", "stage", "task", "drop", "complete", "remove")
+# Closing an objective out, action by action, as the store names how it ended.
+_CLOSING = {"complete": "complete", "remove": "removed"}
 # The kinds the model chooses from, in the order the prompt explains them.
 _KIND_CHOICE = ["project", "tasks", "business", "build"]
 assert set(_KIND_CHOICE) == set(KINDS)
@@ -62,7 +73,7 @@ def _full(obj) -> dict[str, Any]:
 @tool(
     name="objective_open",
     description=(
-        "Open a real-world objective the owner wants kept alive, in his words, shaped by its kind. "
+        "Open a real-world objective he wants kept alive, in his words, shaped by its kind. "
         "Only when objective_list has nothing covering it. Then ask exactly what `ask` says."
     ),
     input_schema={
@@ -102,19 +113,25 @@ async def objective_open(title: str, request: str, kind: str = "business", deadl
 @tool(
     name="objective_list",
     description=(
-        "The owner's live objectives: doing, next, blocked by, needs the owner. Call it when the "
-        "owner refers to something ongoing, and before opening one."
+        "The owner's live objectives: doing, next, blocked by, needs the owner. Call it when he "
+        "refers to something ongoing, and before opening one."
     ),
-    input_schema={"type": "object", "properties": {}},
+    input_schema={"type": "object", "properties": {
+        "closed": {"type": "boolean"},
+        "search": {"type": "string"},
+    }},
     tier=Tier.GREEN,
 )
-async def objective_list() -> dict:
-    return {"objectives": [_short(o) for o in store().live()]}
+async def objective_list(closed: bool = False, search: str = "") -> dict:
+    s = store()
+    if closed:
+        return {"closed": True, "objectives": [_short(o) for o in s.closed(search)]}
+    return {"objectives": [_short(o) for o in s.live() if o.mentions(search)]}
 
 
 @tool(
     name="objective_show",
-    description="One objective in full: facts and sources, unknowns, blockers, items, questions, history.",
+    description="One objective in full, live or closed.",
     input_schema={"type": "object", "properties": {"objective_id": {"type": "string"}}, "required": ["objective_id"]},
     tier=Tier.GREEN,
 )
@@ -130,11 +147,11 @@ async def objective_show(objective_id: str) -> dict:
     description=(
         "Record on an objective. action: fact (source: 'owner', a URL, 'general knowledge, not "
         "verified live'…); unknown; blocker (kind; missing_capability when CLIVE has no tool for "
-        "it); ask_owner (only the owner can answer); propose (needs_owner true for spending, "
+        "it); ask_owner (only he can answer); propose (needs_owner true for spending, "
         "booking, official applications, external messages); advance (item_id to started, "
-        "completed, or verified with evidence; owner-needing items wait for the owner's "
-        "approval); progress; resolve (entry_id now settled); status; and its design (see action). "
-        "Never record a guess as a fact."
+        "completed, or verified with evidence; owner-needing items wait for his "
+        "approval); progress; resolve (entry_id now settled); status; complete, remove (on his "
+        "word, in text); and its design (see action). Never record a guess as a fact."
     ),
     input_schema={
         "type": "object",
@@ -152,10 +169,10 @@ async def objective_show(objective_id: str) -> dict:
             "capability": {"type": "string", "description": "What is missing, in a few words."},
             "needs_owner": {"type": "boolean"},
             "item_id": {"type": "string"},
-            "state": {"type": "string", "enum": [s for s in LADDER if s != "authorised"]},
+            "state": {"type": "string", "enum": [s for s in LADDER if s not in ("proposed", "authorised")]},
             "evidence": {"type": "string"},
             "entry_id": {"type": "string"},
-            "status": {"type": "string", "enum": ["active", "waiting", "blocked", "dropped"]},
+            "status": {"type": "string", "enum": ["active", "waiting", "blocked"]},
             "title": {"type": "string"},
             "deadline": {"type": "string"},
             "purpose": {"type": "string"},
@@ -210,6 +227,8 @@ async def objective_note(objective_id: str, action: str, text: str = "", source:
             obj = s.resolve(objective_id, entry_id, note=text)
         elif action == "status":
             obj = s.set_status(objective_id, status, note=text)
+        elif action in _CLOSING:
+            obj = s.close(objective_id, _CLOSING[action], note=text)
         else:
             raise ObjectiveError(f"Unknown action {action!r}.")
     except ObjectiveError as exc:
