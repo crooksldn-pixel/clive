@@ -2,7 +2,7 @@
 """Take an artifact into quarantine, then digest it: intake, recognise, scan and decompose.
 
     python scripts/digest_intake.py SOURCE [--ref REF] [--kind HANDLER] --quarantine DIR
-        [--store DIR] [--report FILE] [--no-relate | --self-model-root ROOT] [--self]
+        [--store DIR] [--report FILE] [--no-relate | --self-model-root ROOT] [--self] [--curated]
 
 SOURCE is an https URL (a git repository, or a single file or archive to download), a package
 by its registry name (npm:<name>[@<version>], pypi:<name>[==<version>]), an archive, a
@@ -17,7 +17,8 @@ directory, file, or any handler added to app/digest/intakes). The Units are rela
 self-model and CLIVE's proposals made exactly as scripts/digest.py does it, with the same
 arguments: --no-relate skips both, --self-model-root generates the self-model from another
 checkout of CLIVE, and --self takes the artifact as CLIVE itself: traced to its product memory,
-nothing proposed. What intake withheld and noted is carried into the digest's result and report.
+nothing proposed. --curated says the owner listed this artifact's skills himself, as
+scripts/digest.py takes it, and is refused with --self or --no-relate. What intake withheld and noted is carried into the digest's result and report.
 
 One line is printed, as scripts/digest.py prints it, with how many skill folders and files were
 held for the owner; what intake pinned, where the copy is and anything it withheld are said on
@@ -123,14 +124,15 @@ def main(argv: list[str] | None = None) -> int:
             if _same_intake(stored, source):
                 source = stored
         result = digest(taken.path, source, store, self_model=self_model_for(args),
-                        purpose=purpose_of(args), withheld=taken.withheld, notes=taken.notes)
+                        purpose=purpose_of(args), withheld=taken.withheld, notes=taken.notes,
+                        curated=args.curated)
     except ArtifactConflict as error:
         print(f"digest_intake: {shown(error, 2000)}", file=sys.stderr)
         return FAILED
     except (OSError, ValueError) as error:
         print(f"digest_intake: {type(error).__name__}: {shown(error, 2000)}", file=sys.stderr)
         return FAILED
-    return finish(result, args.report, "digest_intake")
+    return finish(result, args.report, "digest_intake", args.curated)
 
 
 def _same_intake(stored: Source, source: Source) -> bool:

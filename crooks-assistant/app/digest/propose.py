@@ -67,6 +67,12 @@ best of them, and each target keeps at most its BUDGET, best first. The rest are
 counted and listed by unit in Proposals.held, still reachable (propose with budget=None
 proposes every one, repeats included), but not recorded as proposals the owner has to read.
 
+Curated (propose with curated=True; OWNER_DECISIONS_2026-09-30): the owner listed this
+artifact's skills himself, so its builder skills need no further sign-off and are not budgeted —
+every one is kept, best first, and none is held back. Nothing else changes: every other target
+keeps its budget and its reasons to need the owner, and the licence still decides what may be
+taken and whether the owner must.
+
 Deterministic: the same units, relations and inputs give the same proposals, best first, ties
 in reading order."""
 
@@ -291,6 +297,8 @@ def _reference(why: str) -> _Plan:
 
 REMOTE_API = ("a connector brings a new credential and sends requests off the host, which is the "
               "owner's to approve")
+CURATED = (" The owner listed this artifact's skills himself (OWNER_DECISIONS_2026-09-30), so it "
+           "needs no further sign-off and does not count against the budget.")
 
 
 def _plan(unit: Unit, relation: Relation, withheld: bool = False) -> _Plan:
@@ -657,9 +665,11 @@ def _licence_plan(plan: _Plan, licence: tuple[str, str] | None) -> _Plan:
     expression, where = licence if licence else ("", "")
     rank = scan.licence_rank(expression or None)
     if rank == 2:
-        return _reference(f"Its licence ({expression}, in {where}) forbids reuse, so nothing is "
-                          "taken from it; it is kept as a pointer, and the owner decides "
-                          "anything more.")
+        return replace(_reference(f"Its licence ({expression}, in {where}) forbids reuse, so "
+                                  "nothing is taken from it; it is kept as a pointer, and the "
+                                  "owner decides anything more."),
+                       needs_owner=f"its licence ({expression}) forbids reuse, so taking anything "
+                                   "from it is the owner's to decide")
     if rank is None:
         return _more(plan, "no licence grants the right to reuse it: the artifact declares none",
                      UNLICENSED_COST, "none found")
@@ -749,18 +759,18 @@ def propose(artifact_id: str, units: Iterable[Unit], relations: Iterable[Relatio
             recorded_at: str | None = None, licence: str | None = None,
             licences: Mapping[str, tuple[str, str]] | None = None,
             findings: Iterable[Finding] = (), self_model: SelfModel | None = None,
-            budget: Mapping[str, int] | None = BUDGET) -> list[Absorption]:
+            budget: Mapping[str, int] | None = BUDGET, curated: bool = False) -> list[Absorption]:
     """The proposals kept for an artifact, best first (see proposals)."""
     return list(proposals(artifact_id, units, relations, recorded_at=recorded_at,
                           licence=licence, licences=licences, findings=findings,
-                          self_model=self_model, budget=budget).kept)
+                          self_model=self_model, budget=budget, curated=curated).kept)
 
 
 def proposals(artifact_id: str, units: Iterable[Unit], relations: Iterable[Relation], *,
               recorded_at: str | None = None, licence: str | None = None,
               licences: Mapping[str, tuple[str, str]] | None = None,
               findings: Iterable[Finding] = (), self_model: SelfModel | None = None,
-              budget: Mapping[str, int] | None = BUDGET) -> Proposals:
+              budget: Mapping[str, int] | None = BUDGET, curated: bool = False) -> Proposals:
     """What CLIVE proposes to take from an artifact: one candidate per skill, per file of
     procedures, or per other unit; each planned, licensed, scored and, within its target's
     budget, recorded — best first, ties in reading order — and the rest held back.
@@ -768,8 +778,10 @@ def proposals(artifact_id: str, units: Iterable[Unit], relations: Iterable[Relat
     `licence` is the artifact's (its Source's); `licences` each folder's own (scan.licence_map),
     which covers what is under it. `findings` are the digest's, for the places a credential was
     found. `self_model` is the one related against, for the registries it could not read.
-    `budget` maps each target to how many proposals it keeps (None: every one). `recorded_at`
-    defaults to now; pass it to make the records, and so their ids, exactly repeatable."""
+    `budget` maps each target to how many proposals it keeps (None: every one). `curated` says
+    the owner listed this artifact's skills himself: its builder skills need no sign-off and
+    are not budgeted (see the module's docstring). `recorded_at` defaults to now; pass it to
+    make the records, and so their ids, exactly repeatable."""
     recorded_at = recorded_at or utc_now()
     by_unit: dict[str, Relation] = {}
     for relation in relations:
@@ -812,6 +824,8 @@ def proposals(artifact_id: str, units: Iterable[Unit], relations: Iterable[Relat
             plan = _reference(f"CLIVE's {', '.join(unread)} could not be read into the "
                               "self-model, so whether CLIVE lacks this is unknown; it is kept as "
                               "a pointer.")
+        if curated and plan.target == "builder_skill":
+            plan = replace(plan, why=plan.why + CURATED, needs_owner="")
         plan = _licence_plan(plan, scan.licence_for(candidate.anchor.location.path, folders))
         score, rank = _score(candidate, plan)
         scored.append((score, (-len(candidate.members), *_reading_order(candidate.anchor)),
@@ -824,9 +838,10 @@ def proposals(artifact_id: str, units: Iterable[Unit], relations: Iterable[Relat
     for _score_value, _order, candidate, plan, rank, withheld in scored:
         words = _words(candidate)
         same = taken.setdefault(plan.target, [])
-        duplicate = budget is not None and any(
+        budgeted = budget is not None and not (curated and plan.target == "builder_skill")
+        duplicate = budgeted and any(
             words and other and len(words & other) / len(words | other) >= DUPLICATE for other in same)
-        room = budget is None or len(same) < budget.get(plan.target, 0)
+        room = not budgeted or len(same) < budget.get(plan.target, 0)
         if duplicate or not room:
             held.setdefault(plan.target, []).append(candidate.anchor.id)
             continue

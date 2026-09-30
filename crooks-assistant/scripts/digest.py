@@ -4,7 +4,7 @@ say what CLIVE proposes to take from it.
 
     python scripts/digest.py PATH --origin ORIGIN [--origin-kind directory]
         [--pinned-ref REF] [--licence L] [--store DIR] [--report FILE]
-        [--no-relate | --self-model-root ROOT] [--self]
+        [--no-relate | --self-model-root ROOT] [--self] [--curated]
 
 PATH is the quarantined copy, already in place: this reads it and never executes, imports or
 installs anything in it, and uses no network. The content digest is computed from the tree
@@ -20,15 +20,17 @@ from the repository this script belongs to; --self-model-root generates it from 
 checkout of CLIVE instead, and --no-relate digests without it: no relations, no proposals.
 --self digests CLIVE's own repository as itself: everything is related and traced to the
 product memory (the why-index, and where code and memory have drifted apart), and nothing is
-proposed.
+proposed. --curated says the owner listed this artifact's skills himself
+(OWNER_DECISIONS_2026-09-30): its builder skills need no sign-off and are not budgeted; it is
+refused with --self or --no-relate, which propose nothing.
 
 --origin is stored and shown, so it must not carry a credential: a URL with a user or password
 in it, or anything shaped like a token, is refused (exit 1), as intake refuses it.
 
 One line is printed: the artifact, its Units, how many skill folders and files were held for the
 owner, its findings by severity, its kinds and, when it was related, its relations by kind and
-its proposals by target. It is printed before the report is written, so it is there even when
-the report cannot be.
+its proposals by target; and 'curated' with --curated. It is printed before the report is
+written, so it is there even when the report cannot be.
 
 Exit status: 0 digested — including when skill folders or files were held for the owner by a
 block-severity finding, each left out whole while the rest was digested (pipeline stage 2);
@@ -105,12 +107,19 @@ def add_relating(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--self", dest="itself", action="store_true",
                         help="the artifact is CLIVE itself: trace it to the product memory and "
                              "propose nothing")
+    parser.add_argument("--curated", action="store_true",
+                        help="the owner listed this artifact's skills himself: no sign-off and no "
+                             "budget for its builder skills (OWNER_DECISIONS_2026-09-30)")
 
 
 def relating_problem(args: argparse.Namespace) -> str | None:
     """Why the relating arguments cannot go together, or None."""
     if args.itself and args.no_relate:
         return "--self is not allowed with --no-relate: --self relates the artifact to CLIVE"
+    if args.curated and args.itself:
+        return "--curated is not allowed with --self: CLIVE digesting itself proposes nothing"
+    if args.curated and args.no_relate:
+        return "--curated is not allowed with --no-relate: nothing is proposed without relating"
     return None
 
 
@@ -144,13 +153,13 @@ def origin_problem(origin: str) -> str | None:
     return None
 
 
-def write_report(result: DigestResult, path: Path | None, prog: str) -> bool:
+def write_report(result: DigestResult, path: Path | None, prog: str, curated: bool = False) -> bool:
     """Write the report, if one was asked for: False, said on standard error, if it could not be."""
     if path is None:
         return True
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(render(result), encoding="utf-8")
+        path.write_text(render(result, curated=curated), encoding="utf-8")
     except OSError as error:
         print(f"{prog}: the report could not be written: {type(error).__name__}: {shown(error)}",
               file=sys.stderr)
@@ -158,18 +167,23 @@ def write_report(result: DigestResult, path: Path | None, prog: str) -> bool:
     return True
 
 
-def finish(result: DigestResult, report: Path | None, prog: str) -> int:
+def finish(result: DigestResult, report: Path | None, prog: str, curated: bool = False) -> int:
     """Print the summary, then write the report, and say how it went: 2 whenever the artifact
     was blocked, whatever else fails; 1 when the report could not be written; else 0, whether
     or not skill folders or files were held for the owner."""
-    print(summary(result))
-    written = write_report(result, report, prog)
+    print(summary(result, curated))
+    written = write_report(result, report, prog, curated)
     if result.blocked:
         return BLOCKED
     return DIGESTED if written else FAILED
 
 
-def summary(result: DigestResult) -> str:
+def summary(result: DigestResult, curated: bool = False) -> str:
+    line = _summary(result)
+    return f"{line}; curated" if curated else line
+
+
+def _summary(result: DigestResult) -> str:
     counts = {severity: 0 for severity in SEVERITIES}
     for finding in result.findings:
         counts[finding.severity] += 1
@@ -218,14 +232,14 @@ def main(argv: list[str] | None = None) -> int:
             if _same_intake(stored, source):
                 source = stored
         result = digest(args.path, source, store, self_model=self_model_for(args),
-                        purpose=purpose_of(args))
+                        purpose=purpose_of(args), curated=args.curated)
     except ArtifactConflict as error:
         print(f"digest: {shown(error, 2000)}", file=sys.stderr)
         return FAILED
     except (OSError, ValueError) as error:
         print(f"digest: {type(error).__name__}: {shown(error, 2000)}", file=sys.stderr)
         return FAILED
-    return finish(result, args.report, "digest")
+    return finish(result, args.report, "digest", args.curated)
 
 
 def _same_intake(stored: Source, source: Source) -> bool:

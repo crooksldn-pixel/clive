@@ -109,6 +109,12 @@ def encrypt(key: str, value: str) -> None:
     target.chmod(0o600)
 
 
+def control_characters(value: str) -> int:
+    """How many characters of a typed value are control characters (C0, DEL or C1): what an arrow
+    key or an escape code captured at the hidden prompt leaves behind. A key never holds one."""
+    return sum(1 for ch in value if ord(ch) < 0x20 or 0x7F <= ord(ch) < 0xA0)
+
+
 def store_one(key: str, *, plain: bool) -> int:
     tier_is_static = key in linux_store.STATIC_KEYS and not plain
     if tier_is_static and not have_systemd_creds():
@@ -126,6 +132,15 @@ def store_one(key: str, *, plain: bool) -> int:
     value = getpass.getpass("value: ").strip()
     if not value:
         print("Nothing entered — skipped.")
+        return 1
+    bad = control_characters(value)
+    if bad:
+        # getpass keeps an arrow key or a terminal's escape code literally, and strip() removes
+        # only whitespace, so a key pasted after one was stored with the escape inside it and every
+        # call with it failed (the engineering token, 30 September, twice). No key holds one.
+        print(f"The value holds {bad} control character(s) — an arrow key or an escape code from "
+              "the terminal, never part of a key — so nothing was stored. Run it again: paste, "
+              "then press only Enter.")
         return 1
 
     if tier_is_static:

@@ -24,13 +24,23 @@ Where anything further down this file disagrees with this section, this section 
 - **A skill on a list the owner supplies is his decision.** It needs no further sign-off and has no proposal budget. It is still pinned, scanned per skill, licence-checked and installed with provenance. Anything that runs on its own stays his.
 - **Builders run on the owner's one Max plan**, and a second is added when usage becomes the limit.
 
+**Filing is on** since 30 Sep 17:53 UTC (production, by the owner's prompt on the host; no code deploy):
+- `CROOKS_ENGINEERING_HOST=worker-01` is set in `/opt/crooks-os/crooks-assistant/.env`. The service reads that `.env` itself, and the unit has no `EnvironmentFile`.
+- `github_engineering_inbox_token` is a new fine-grained token, encrypted at `/etc/crooks-os/credentials/`. It is declared by a fourth `LoadCredentialEncrypted=` line in the unit, and reaches `worker-01-inbox` and `worker-01-status`.
+- Every filing still waits for the owner's hold on its card.
+- The old parked token was dead (401). Two stored copies of the new one carried an arrow key's escape code, so `provision_secrets.py` now refuses control characters.
+- **Hazard:** if that credential is ever removed or re-parked, its unit line must come out too, because systemd will not start a unit whose credential source is missing.
+- GitHub does not report the token's expiry. The owner keeps the date.
+- Backups are in `/root/clive-activation/engineering-filing-on-2026-09-30/`.
+
+**The loop's first job has landed.** `digester-curated-skill-list-2`, the owner's curated skill list, took three revisions and ended READY on `039b2599`. It was merged with the trunk by the Director, because the loop does not yet land its own work.
+
 **Open, and in the way of the self-hosted runner.** Two tests fail on a host where they run as root, and pass on GitHub only because they skip there: `test_check_sandbox.py::test_the_host_filesystem_beyond_the_minimal_root_does_not_exist_inside` and `test_engineering_dispatcher.py::test_checks_run_in_the_sandbox_on_a_copy_and_cannot_touch_the_candidate_tree`. They fail identically on `6a29e310`. The deploy record has the detail. A runner that runs them has to either run without root or come after their fix.
 
 **Next.**
 1. The owner:
    - clears clive-worker-01's hardware items: power supply 2 without input, and the iLO password and firmware ([INFRASTRUCTURE_2026-09-25.md](./INFRASTRUCTURE_2026-09-25.md));
-   - creates the runner's registration token;
-   - runs the production prompt that switches filing on ([OWNER_DECISIONS_2026-09-30.md](./OWNER_DECISIONS_2026-09-30.md), "Filing is switched on").
+   - creates the runner's registration token.
 2. The first build: skills adopted whole. That means:
    - holding per skill rather than per collection, with the scanner's false positives fixed;
    - an installer that records provenance and licence;
