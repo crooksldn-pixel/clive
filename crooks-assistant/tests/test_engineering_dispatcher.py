@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from app.orchestrator import objectives as objectives_module
 from app.orchestrator.checks import NamespaceSandbox
 from app.orchestrator.contracts import BlockerClass, TaskKind, TaskStatus
 from app.orchestrator.dispatcher import Dispatcher, DispatcherBusy, DispatcherConfig
@@ -29,6 +30,7 @@ from app.orchestrator.lifecycle import (
     EventKind,
     GitFacts,
     Kernel,
+    LifecycleError,
     LifecycleStore,
     PrincipalRegistry,
     VerdictOutcome,
@@ -72,6 +74,7 @@ def emit(obj):
 tools = sc.get("tools") or (arg("--tools").split(",") + ["StructuredOutput"])
 if sc.get("die_before_init"):
     sys.stderr.write(sc.get("stderr", "boom\n")); sys.exit(1)
+time.sleep(sc.get("sleep_before_init", 0))
 emit({{"type": "system", "subtype": "init", "session_id": sc.get("session") or arg("--session-id"),
       "cwd": os.getcwd(), "tools": tools, "mcp_servers": sc.get("mcp", []),
       "plugins": [{{"name": "telemetry", "path": "builtin", "source": "telemetry@builtin"}}],
@@ -886,6 +889,42 @@ def test_review_is_dispatched_only_once_github_acceptance_is_green_on_the_exact_
     w.run_until(lambda: w.stage() == "COMPLETE")
 
 
+def test_a_review_is_dispatched_only_on_a_green_answer_asked_at_that_moment(tmp_path):
+    """The 2026-09-30 re-pin review, F-01: a green answer remembered from a tick whose dispatch the kernel
+    refused (the target ref no longer matched) must not start a review once the run has gone red inside the
+    poll interval."""
+    w = World(tmp_path, acceptance_poll_s=60)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.acceptance.state = GateState.PENDING
+    w.run_until(w.status_is(TaskStatus.EVIDENCE_READY))
+    attempt = latest_attempt(w)
+    d = w.dispatcher()
+    real = w.kernel.dispatch_review
+
+    def target_moved(*args, **kwargs):
+        raise LifecycleError("the target ref no longer matches the candidate")
+
+    w.acceptance.state = GateState.GREEN
+    w.clock.offset = timedelta(seconds=61)              # past the interval: GitHub is asked, and says green
+    w.kernel.dispatch_review = target_moved
+    lines = d.tick()
+    assert any("kernel refused (evidence_ready)" in line for line in lines)
+    assert w.state_of().status is TaskStatus.EVIDENCE_READY and not w.store.read_dispatches(OBJ, attempt.attempt_id)
+    notes = json.loads((tmp_path / "runtime" / "attempts" / f"{attempt.attempt_id}.json").read_text())
+    assert notes["github_acceptance"]["green"] is True   # the green answer is remembered...
+
+    w.kernel.dispatch_review = real                      # ...the ref is put right...
+    w.acceptance.state = GateState.RED                   # ...and a re-run goes red, all inside the interval
+    w.clock.offset = timedelta(seconds=70)
+    asked = len(w.acceptance.asked)
+    d.tick()
+    assert len(w.acceptance.asked) == asked + 1          # asked again, not the remembered green
+    assert not w.store.read_dispatches(OBJ, attempt.attempt_id)
+    state = w.state_of()
+    assert state.status is TaskStatus.BLOCKED and "review dispatch refused" in state.blocker_reason
+
+
 def test_a_red_candidate_blocks_before_review_and_is_resumable_once_green(tmp_path):
     w = World(tmp_path)
     w.scenarios(EDIT_HELLO)
@@ -1222,6 +1261,44 @@ def test_an_objective_recorded_before_its_scope_was_protected_loads_but_never_ad
     reason = w.state_of().blocker_reason
     assert "covers protected path(s) crooks-assistant/app/remote_engineering" in reason
     assert w.invocations() == 0 and not w.store.read_attempts(OBJ)
+
+
+@pytest.mark.parametrize("stage", [TaskStatus.ASSIGNED, TaskStatus.RUNNING], ids=["assigned", "running"])
+def test_a_worker_whose_scope_becomes_protected_is_stopped_and_its_task_blocked_after_a_restart(
+        tmp_path, monkeypatch, stage):
+    """The 2026-09-30 re-pin review, F-02: a task launched before its scope was protected is not left to work
+    on until its candidate is refused; the next dispatcher, after a restart, stops the worker and blocks it."""
+    w = World(tmp_path)
+    if stage is TaskStatus.ASSIGNED:
+        w.scenarios({"sleep_before_init": 30, **EDIT_HELLO})
+        w.objective()
+        w.dispatcher().tick()                            # launched; its init event has not come yet
+    else:
+        w.scenarios({"hang": True, **EDIT_HELLO})
+        w.objective()
+        w.run_until(w.status_is(TaskStatus.RUNNING))
+    assert w.state_of().status is stage
+    attempt = latest_attempt(w)
+    marker = worker_marker(attempt.attempt_id, attempt.worker.session.session_id)
+    worker = ClaudeCodeWorker(cli=str(w.cli))
+    deadline = time.monotonic() + 10
+    while not worker.live_pids(marker) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert worker.live_pids(marker)
+
+    monkeypatch.setattr(objectives_module, "PROTECTED_PATHS", objectives_module.PROTECTED_PATHS + ("pkg",))
+    w.dispatcher().tick()                                # a fresh dispatcher: nothing survives in memory
+    state = w.state_of()
+    assert state.status is TaskStatus.BLOCKED
+    assert "covers protected path(s) pkg" in state.blocker_reason
+    deadline = time.monotonic() + 10
+    while worker.live_pids(marker) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not worker.live_pids(marker)
+    assert not w.store.read_results()
+    for _ in range(2):                                   # it stays blocked: nothing is launched again
+        w.dispatcher().tick()
+    assert w.state_of().status is TaskStatus.BLOCKED and len(w.store.read_attempts(OBJ)) == 1
 
 
 @pytest.mark.parametrize("protected", [".gitleaks.toml", "crooks-assistant/tests/test_gate.py"])
