@@ -11,21 +11,29 @@ already in quarantine and already pinned by its Source:
 2. Scan: scan.scan_tree reads the tree for what it would do to us. Each of its findings
    becomes a model Finding in the "safety" category, its severity mapped by SCAN_SEVERITY.
    A block-severity finding stops the artifact here, before decomposition: the Artifact is
-   returned (and stored) with its findings and no Units. One kind of block is scoped
-   (SCOPED_BLOCKS): a licence that forbids reuse, declared by a licence file or manifest
-   below the top of the artifact, covers only its own folder — so that folder is left out
-   (the finding says so, at SCOPED_SEVERITY) and the rest is digested. Everything else that
-   blocks — an instruction aimed at an agent, a credential, a deceptive name, a file that
-   would run — says something about the whole artifact and whoever made it, and adapters
-   read across folders (a README at the top describes the folder below), so it still stops
-   everything; so does a licence that forbids reuse at the top.
+   returned (and stored) with its findings and no Units — unless it holds only part of it.
+   A licence that forbids reuse (SCOPED_BLOCKS), declared by a licence file or manifest below
+   the top of the artifact, covers only its own folder, so that folder is left out (the
+   finding says so, at SCOPED_SEVERITY) and the rest is digested. Any other block, in a file
+   the scanner read as it is written, holds only the nearest skill folder above that file —
+   a folder with a SKILL.md the scanner read — or, outside every skill folder of an artifact
+   that has one, only that file (the owner's decision of 30 September 2026: skills are scanned
+   per skill, not per collection). What is held is left out whole, the finding says so at
+   SCOPED_SEVERITY, and the result's `holds` carry each finding with its flagged line quoted
+   from the quarantined copy, credentials redacted, for the owner (never a credential rule's
+   line). Still stopping everything: a licence that forbids reuse at the top; the rules in
+   WHOLE_ARTIFACT_BLOCKS (characters that make what a reviewer sees differ from what a machine
+   reads, which say the author set out to deceive); a finding whose path the scanner escaped,
+   redacted or did not read as text; more credentials than the scanner keeps; any block in an
+   artifact with no skill folder, or in a skill at its very top. Only what the scanner read
+   reaches an adapter, and nothing left out does, so no adapter reads across into what is held.
 3. Decompose: every adapter in the app.digest.adapters namespace whose HANDLES meet the
    detected kinds reads the tree into Units — but only what the scanner read. The adapters
    are given a private view of the tree holding exactly the files the scanner read and
-   scanned as text, byte for byte as it read them (scan.Reading), outside any folder left
-   out: a file it skipped (binary, too large, hard-linked, unreadable, past its limits) or
-   that changed after it was scanned is never read by an adapter, since what could not be
-   scanned is never passed as clean. Adapters are discovered with pkgutil.iter_modules at
+   scanned as text, byte for byte as it read them (scan.Reading), outside any folder or file
+   left out or held: a file it skipped (binary, too large, hard-linked, unreadable, past its
+   limits) or that changed after it was scanned is never read by an adapter, since what could
+   not be scanned is never passed as clean. Adapters are discovered with pkgutil.iter_modules at
    every call, never from a list kept here, so a module dropped into the namespace is used
    from the next digest on. An adapter that raises, or returns something that is not its
    artifact's Units, is contained: a quality finding names it and the others carry on.
@@ -181,6 +189,26 @@ RECOGNISER_FAILURE_SEVERITY = "low"      # one kind may have been missed
 # the severity such a block is recorded at once that folder is left out.
 SCOPED_BLOCKS = frozenset({"licence.forbids_reuse"})
 SCOPED_SEVERITY = "high"
+# Scan rules whose block stops the whole artifact even inside a skill collection, where any
+# other block holds only its skill folder or its file (see _held_place). Each is a technique
+# for making what a person reviews differ from what a machine reads: a direction override
+# reorders the line on screen, tag characters and runs of variation selectors spell out text
+# nobody sees, and a file name with them displays as another name. Unlike a phrase aimed at an
+# agent — which documentation about agents quotes, advises against or uses in plain prose, and
+# which per-skill holding exists to recover from — none has an innocent use in a skill (none of
+# the 34 block findings measured on five public collections was one). Each is invisible in the
+# raw source too, in every editor and on GitHub, where no escape is written for the reviewer as
+# the report writes one; so each shows an author working to deceive whoever reviews the
+# collection, and nothing else of theirs can be vouched for by the patterns this one got past.
+# A path the scanner had to escape or redact is never held either (it is not in reading.text),
+# so most deceptive file names stop everything twice over; the rule covers the rest (a Hangul
+# filler prints, so its path is shown as it is).
+WHOLE_ARTIFACT_BLOCKS = frozenset({
+    "deceptive.bidi", "deceptive.tag", "deceptive.variation", "deceptive.filename",
+})
+SKILL_FILE = "skill.md"                  # a skill folder's file, named in any case (as the adapter)
+CREDENTIAL_RULES = "secret."             # a held credential's line is never quoted
+MAX_QUOTE = 240                          # characters of a flagged line quoted for the owner
 REDACTED_TAG = "redacted"
 # The scan rules that mean a file was not read as text, so not decomposed.
 UNSCANNED_RULES = frozenset({
@@ -274,6 +302,27 @@ def discover_adapters() -> tuple[tuple[Adapter, ...], tuple[tuple[str, str], ...
 
 
 @dataclass(frozen=True)
+class Hold:
+    """One block-severity finding that holds only its skill folder or its file for the owner,
+    rather than stopping the artifact (stage 2). `place` is what is left out — the skill folder
+    ("skill") or the file ("file") — and `path`, `line`, `rule` and `message` are the scanner's.
+    `quote` is the flagged line as it stands in the quarantined copy, at most MAX_QUOTE
+    characters, with every credential the scanner found replaced by '[redacted]', every shape of
+    one by '[redacted <kind>]' and every invisible or direction-changing character written as an
+    escape; None, with `unquoted` saying why, for a credential rule, a finding about a file as a
+    whole, a line where a credential was found, or a copy that changed after it was scanned."""
+
+    place: str
+    scope: str                               # "skill" or "file"
+    rule: str
+    path: str
+    line: int
+    message: str
+    quote: str | None = None
+    unquoted: str = ""
+
+
+@dataclass(frozen=True)
 class DigestResult:
     """One digest: the Artifact as the store keeps it, what was found on the way, and — when
     it was related to CLIVE's self-model — each Unit's relation and CLIVE's proposals."""
@@ -293,10 +342,16 @@ class DigestResult:
     excluded: tuple[str, ...] = ()           # folders left out under their own licence
     withheld: tuple[tuple[str, str], ...] = ()  # (path, why) the intake did not copy
     notes: tuple[str, ...] = ()              # what the intake said about the copy
+    holds: tuple[Hold, ...] = ()             # block findings holding only a skill folder or file
 
     @property
     def units(self) -> tuple[Unit, ...]:
         return self.artifact.units
+
+    @property
+    def held_places(self) -> tuple[tuple[str, str], ...]:
+        """Each skill folder or file held for the owner, as (place, scope), once, in order."""
+        return tuple(dict.fromkeys((hold.place, hold.scope) for hold in self.holds))
 
     @property
     def related(self) -> bool:
@@ -366,22 +421,29 @@ def digest(root: str | os.PathLike[str], source: Source,
     blocked = False
     excluded: set[str] = set()
     unscanned = 0
-    for found in scan.scan_tree(base, reading=reading):
+    scanned = scan.scan_tree(base, reading=reading)
+    skills = _skill_folders(reading)
+    holding: list[tuple[scan.Finding, str, str]] = []   # (finding, place, scope)
+    for found in scanned:
         unscanned += found.rule in UNSCANNED_RULES
         if found.severity in (scan.INFO, scan.WARN):
             keep(_from_scan(artifact_id, found))
             continue
         folder = _scoped_folder(found, reading)
-        if folder is None:
-            blocked = True
-            keep(_from_scan(artifact_id, found))
-        else:
+        if folder is not None:
             excluded.add(folder)
             keep(_from_scan(
                 artifact_id, found, SCOPED_SEVERITY,
                 f" Only {folder}/ is under this licence, so only it is left out: nothing in it is "
                 "decomposed, and the rest of the artifact is digested.",
             ))
+            continue
+        held = _held_place(found, reading, skills)
+        if held is None:
+            blocked = True
+            keep(_from_scan(artifact_id, found))
+        else:
+            holding.append((found, *held))
     if reading.overflowed:
         blocked = True
         keep(Finding(
@@ -390,6 +452,14 @@ def digest(root: str | os.PathLike[str], source: Source,
             "Unit could be vouched free of them: nothing is decomposed.",
         ))
     secrets = reading.secrets
+    # A finding that would hold only its skill folder or file holds it only when nothing stops
+    # the artifact; when something does, it is one more reason the artifact stopped.
+    holds: tuple[Hold, ...] = ()
+    for found, place, scope in holding:
+        keep(_from_scan(artifact_id, found) if blocked else _from_scan(
+            artifact_id, found, SCOPED_SEVERITY, _held_note(found, place, scope, secrets)))
+    if holding and not blocked:
+        holds = _holds(base, reading, holding, scanned)
     detections = tuple(_redacted_detection(found, secrets) for found in detection.kinds)
 
     # 3. decompose, unless blocked: only what the scanner read, and never a credential
@@ -397,7 +467,7 @@ def digest(root: str | os.PathLike[str], source: Source,
     ran: list[str] = []
     licences: dict[str, tuple[str, str]] = {}
     if not blocked:
-        view, changed = _scanned_view(base, reading, excluded)
+        view, changed = _scanned_view(base, reading, excluded | {hold.place for hold in holds})
         try:
             adapters, broken = discover_adapters()
             for module, reason in broken:
@@ -484,7 +554,7 @@ def digest(root: str | os.PathLike[str], source: Source,
         relations=relations, proposals=proposals, self_model=related_to, purpose=purpose,
         held=held, trace=trace, excluded=tuple(sorted(excluded)),
         withheld=tuple((scan.redact(path, secrets), scan.redact(why, secrets)) for path, why in withheld),
-        notes=tuple(scan.redact(note, secrets) for note in notes),
+        notes=tuple(scan.redact(note, secrets) for note in notes), holds=holds,
     )
 
 
@@ -520,12 +590,127 @@ def _scoped_folder(found: scan.Finding, reading: scan.Reading) -> str | None:
     return posixpath.dirname(found.path) or None
 
 
+# --- held for the owner -------------------------------------------------------------------------
+#
+# The owner's decision of 30 September 2026 (OWNER_DECISIONS_2026-09-30.md): skills are scanned
+# per skill, not per collection, and a held skill is shown to the owner with the exact flagged
+# line. Measured on five public collections, 94% of 353 skills were lost to whole-collection
+# blocks, 27 of the 34 block findings were false positives, and the 7 real ones sat outside every
+# skill folder (hooks, MCP configuration, agent settings). So a block finding in a file the
+# scanner read as written holds only the nearest skill folder above it — or, outside every skill
+# folder of an artifact that has one, only that file — and the rest is digested. Nothing held is
+# decomposed, related or proposed. What still stops the artifact: a licence that forbids reuse at
+# its top (SCOPED_BLOCKS keeps its own rule), a rule in WHOLE_ARTIFACT_BLOCKS, a finding whose
+# path the scanner escaped, redacted or did not read as text (so where it is cannot be told
+# exactly), more credentials than the scanner keeps, any block in an artifact with no skill
+# folder, and any block inside a skill at the top of the artifact, which is the whole of it.
+
+
+def _skill_folders(reading: scan.Reading) -> frozenset[str]:
+    """Every folder holding a SKILL.md (in any case) that the scanner read as text; "" is the
+    top of the artifact."""
+    return frozenset(
+        posixpath.dirname(rel) for rel in reading.text if posixpath.basename(rel).lower() == SKILL_FILE
+    )
+
+
+def _held_place(found: scan.Finding, reading: scan.Reading,
+                skills: frozenset[str]) -> tuple[str, str] | None:
+    """What a block finding holds, as (place, scope): the nearest skill folder above its file
+    ("skill"), or, in an artifact with skill folders, the file alone when none is above it
+    ("file"). None when it stops the whole artifact (see above)."""
+    if found.rule in SCOPED_BLOCKS or found.rule in WHOLE_ARTIFACT_BLOCKS or found.path not in reading.text:
+        return None
+    folder = posixpath.dirname(found.path)
+    while True:
+        if folder in skills:
+            return (folder, "skill") if folder else None
+        if not folder:
+            break
+        folder = posixpath.dirname(folder)
+    return (found.path, "file") if skills else None
+
+
+def _held_note(found: scan.Finding, place: str, scope: str, secrets: Iterable[str]) -> str:
+    shown = scan.redact(place, secrets)
+    what = (f"Only the skill folder {shown}/ is held and left out" if scope == "skill"
+            else "Only this file is held and left out")
+    sees = ("where it is (a credential's line is never quoted)" if found.rule.startswith(CREDENTIAL_RULES)
+            else "the flagged line")
+    return (f" {what}: nothing in it is decomposed, the rest of the artifact is digested, and the "
+            f"owner sees {sees}.")
+
+
+def _holds(base: Path, reading: scan.Reading, holding: list[tuple[scan.Finding, str, str]],
+           scanned: Iterable[scan.Finding]) -> tuple[Hold, ...]:
+    """Each held finding with its flagged line quoted from the quarantined copy, as Hold
+    describes. Each file is read once, bounded as the scanner read it, and only if its bytes are
+    still the ones scanned."""
+    credited: dict[str, set[int]] = {}      # lines where a credential was found; 0: the file
+    for found in scanned:
+        if found.rule.startswith(CREDENTIAL_RULES):
+            credited.setdefault(found.path, set()).add(found.line)
+        elif found.rule == "scan.truncated" and f"'{CREDENTIAL_RULES}" in found.message:
+            credited.setdefault(found.path, set()).add(0)   # the lines not listed are unknown
+    secrets = sorted({value for value in reading.secrets if value}, key=lambda value: (-len(value), value))
+    texts: dict[str, list[str] | None] = {}
+    holds: list[Hold] = []
+    for found, place, scope in holding:
+        quote, unquoted = None, ""
+        lines = credited.get(found.path, set())
+        if found.rule.startswith(CREDENTIAL_RULES):
+            unquoted = "a credential's line is never quoted"
+        elif found.line < 1:
+            unquoted = "the finding is about the file as a whole, not one line"
+        elif found.line in lines or 0 in lines:
+            unquoted = "a credential was found on this line or past the scanner's count in this file"
+        else:
+            if found.path not in texts:
+                data = _read_scanned(base, found.path)
+                texts[found.path] = (
+                    scan._decode(data).split("\n")
+                    if data is not None and hashlib.sha256(data).hexdigest() == reading.text[found.path]
+                    else None
+                )
+            text = texts[found.path]
+            if text is None:
+                unquoted = "the quarantined copy changed after it was scanned"
+            elif found.line > len(text):
+                unquoted = "the file has no such line"
+            else:
+                quote = _quotable(text[found.line - 1], secrets)
+        holds.append(Hold(place, scope, found.rule, found.path, found.line, _clean(found.message),
+                          quote, unquoted))
+    return tuple(sorted(holds, key=lambda hold: (hold.place, hold.path, hold.line, hold.rule, hold.message)))
+
+
+def _quotable(line: str, secrets: list[str]) -> str:
+    """A line of the artifact as it can be shown to the owner: every credential value found
+    replaced by '[redacted]' (longest first, however short), every credential shape by
+    '[redacted <kind>]', every character that does not print or that hides or reorders text
+    written as an escape, and at most MAX_QUOTE characters."""
+    line = line.rstrip("\r")
+    for value in secrets:
+        if value in line:
+            line = line.replace(value, scan.REDACTED)
+    line = scan.redact(line)
+    shown = "".join(scan._escape(ch) if _hides(ch) else ch for ch in line)
+    return shown if len(shown) <= MAX_QUOTE else shown[:MAX_QUOTE - 1] + "…"
+
+
+def _hides(ch: str) -> bool:
+    """Whether a character does not print, or can hide or reorder text on screen (the zero-width
+    and filler characters, direction controls, tag characters, variation selectors)."""
+    return not ch.isprintable() or scan._is_hidden_char(ch) or scan._is_variation(ord(ch)) or bool(
+        scan._INVISIBLE.fullmatch(ch))
+
+
 def _scanned_view(base: Path, reading: scan.Reading,
                   excluded: Iterable[str]) -> tuple[Path, list[str]]:
     """A private directory holding exactly the files the scanner read as text, byte for byte as
-    it read them, outside the excluded folders: what the adapters decompose. It has the tree's
-    own name, inside a private temporary directory the caller removes. A file whose bytes are
-    no longer the ones scanned is left out, and returned."""
+    it read them, outside the excluded folders and files: what the adapters decompose. It has
+    the tree's own name, inside a private temporary directory the caller removes. A file whose
+    bytes are no longer the ones scanned is left out, and returned."""
     excluded = tuple(sorted(excluded))
     holder = Path(tempfile.mkdtemp(prefix=VIEW_PREFIX))
     view = holder / (base.resolve().name or "artifact")

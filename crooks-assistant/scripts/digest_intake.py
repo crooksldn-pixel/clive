@@ -19,12 +19,15 @@ arguments: --no-relate skips both, --self-model-root generates the self-model fr
 checkout of CLIVE, and --self takes the artifact as CLIVE itself: traced to its product memory,
 nothing proposed. What intake withheld and noted is carried into the digest's result and report.
 
-One line is printed, as scripts/digest.py prints it; what intake pinned, where the copy is and
-anything it withheld are said on standard error.
+One line is printed, as scripts/digest.py prints it, with how many skill folders and files were
+held for the owner; what intake pinned, where the copy is and anything it withheld are said on
+standard error.
 
-Exit status: 0 digested; 2 blocked — refused in quarantine as unsafe (a name that escapes, a
-decompression bomb, a tree that is not its commit's) or stopped there by a block-severity
-finding before decomposition; 1 could not digest (bad arguments, a source refused or not
+Exit status: 0 digested — including when skill folders or files were held for the owner by a
+block-severity finding, each left out whole while the rest was digested; 2 blocked — refused in
+quarantine as unsafe (a name that escapes, a decompression bomb, a tree that is not its
+commit's) or stopped there by a block-severity finding that stops the whole artifact before
+decomposition; 1 could not digest (bad arguments, a source refused or not
 fetched, past a limit, a different record already stored under this artifact's id, or a file
 that cannot be written)."""
 
