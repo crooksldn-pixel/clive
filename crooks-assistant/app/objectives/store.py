@@ -86,6 +86,9 @@ __all__ = [
 
 LADDER = ("proposed", "authorised", "started", "completed", "verified")
 STATUSES = ("active", "waiting", "blocked", "done", "dropped")
+# The statuses that close an objective out: complete ("done") or removed ("dropped"). A closed
+# objective is off the live list and nothing of it is deleted (``ObjectiveStore.close``).
+CLOSED = ("done", "dropped")
 BLOCKER_KINDS = ("missing_info", "missing_capability", "needs_owner", "external")
 # What an objective is for, which decides its shape (the module docstring says each). "build":
 # the owner wants CLIVE itself changed, and the work goes to the engineering loop. "business" is
@@ -344,6 +347,18 @@ class Objective:
         if not wanted:
             return "Nothing essential is missing: ask no question about it."
         return f"Ask only for {' and '.join(_MEANS[f] for f in wanted)}, in one short question; nothing else."
+
+    def said(self) -> str:
+        """Every word written on the record, in one string, for a search: its title and request,
+        its design, its facts and their sources, its unknowns, blockers, questions, items and
+        tasks with how they were settled, and its history."""
+        parts = [self.title, self.request, self.purpose, self.done_when, self.deadline]
+        parts += [p.get("name") for p in self.people] + [s.get("name") for s in self.stages]
+        for key in ("facts", "unknowns", "blockers", "attention", "items", "tasks", "events"):
+            for entry in getattr(self, key):
+                parts += [entry.get("text"), entry.get("source"), entry.get("resolution"), entry.get("who"),
+                          entry.get("evidence")]
+        return _key(" ".join(str(p) for p in parts if p))
 
     def summary(self) -> dict[str, Any]:
         """What the home screen and the model's list need: short, current, no history."""
@@ -773,7 +788,20 @@ class ObjectiveStore:
             log.info("objective %s: a design file with no record, a day old, was removed", objective_id)
 
     def live(self) -> list[Objective]:
-        return [o for o in self.all() if o.status not in ("done", "dropped")]
+        return [o for o in self.all() if o.status not in CLOSED]
+
+    def closed(self) -> list[Objective]:
+        """The objectives closed out, complete or removed: off the live list, whole on the disk."""
+        return [o for o in self.all() if o.status in CLOSED]
+
+    def search(self, words: str, *, closed: bool = False) -> list[Objective]:
+        """The live objectives (or, with `closed`, the closed ones) whose record holds every one
+        of these words anywhere: title, request, facts, notes or history (``Objective.said``)."""
+        wanted = _key(words).split()
+        pool = self.closed() if closed else self.live()
+        if not wanted:
+            return pool
+        return [o for o in pool if all(word in o.said() for word in wanted)]
 
     def _event(self, obj: Objective, kind: str, text: str, by: str) -> None:
         obj.events.append({"at": _now(), "kind": kind, "text": text[:MAX_TEXT], "by": by})
@@ -1243,6 +1271,30 @@ class ObjectiveStore:
             o.status = status
             o.status_set_by = by
             self._event(o, "status", f"{status}{' — ' + note if note else ''}", by)
+        return self._change(objective_id, fn, by=by)
+
+    def close(self, objective_id: str, status: str, *, words: str, by: str = "clive") -> Objective:
+        """Close an objective out, complete ("done") or removed ("dropped"), because the owner said
+        so. It leaves the live list and nothing on it is deleted: its facts, notes, blockers, items
+        and history stay on the disk, it opens by its id, it is found among the closed ones
+        (``closed``, ``search``), and setting its status active again puts it back.
+
+        Closing stays the owner's decision, never CLIVE's own judgment: without the owner's words
+        asking for it, it is refused, and those words are kept in its history. It is recorded as
+        done by whoever made the change (``by``), not as the owner's own tap, so the rules that
+        trust only an owner-set status (``attention_``) are unchanged."""
+        if status not in CLOSED:
+            raise ObjectiveError("An objective is closed as done (complete) or dropped (removed).")
+        said = " ".join(str(words or "").split())
+        if not said:
+            raise ObjectiveError("Close an objective only when the owner asks; pass the owner's words as text.")
+
+        def fn(o):
+            if o.status in CLOSED:
+                raise ObjectiveError(f"This objective is already closed ({o.status}).")
+            o.status = status
+            o.status_set_by = by
+            self._event(o, "status", f"{status} — closed as the owner asked: {said}", by)
         return self._change(objective_id, fn, by=by)
 
     def link_engineering(self, objective_id: str, *, request_id: str, host: str, target_branch: str,

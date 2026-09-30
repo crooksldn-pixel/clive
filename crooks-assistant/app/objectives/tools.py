@@ -4,7 +4,11 @@ They read and change only CLIVE's own objective records (app/objectives/store.py
 no Gmail, no booking, no payment, no message leaves this machine through them. That is why they
 sit on the gate's read allow-list beside the composer's tools, which likewise change only the
 Mac's own copy of something (app/tools/gate.py). What they cannot do is the owner's: authorise a
-work item or close an objective. The store refuses both unless the owner's own screen asks.
+work item, which the store refuses unless the owner's own screen asks. Closing an objective out
+(objective_note `close`: complete or removed) is the owner's decision too, so the store takes it
+only with the owner's words asking for it, keeps those words in the history, and deletes nothing:
+a closed objective leaves objective_list's live list, and objective_list `closed` (with `query`
+to find it by its words) and objective_show by its id still read all of it.
 
 Round 12 gave an objective a shape (the store's docstring): objective_open takes the kind and
 its design, and objective_note's `set`, `stage`, `task` and `drop` change it, so everything the
@@ -34,7 +38,7 @@ from app.tools.gate import Tier
 from app.tools.registry import ToolError, tool
 
 _ACTIONS = ("fact", "unknown", "blocker", "ask_owner", "propose", "advance", "progress", "resolve", "status",
-            "set", "stage", "task", "drop")
+            "close", "set", "stage", "task", "drop")
 # The kinds the model chooses from, in the order the prompt explains them.
 _KIND_CHOICE = ["project", "tasks", "business", "build"]
 assert set(_KIND_CHOICE) == set(KINDS)
@@ -102,14 +106,14 @@ async def objective_open(title: str, request: str, kind: str = "business", deadl
 @tool(
     name="objective_list",
     description=(
-        "The owner's live objectives: doing, next, blocked by, needs the owner. Call it when the "
-        "owner refers to something ongoing, and before opening one."
+        "The owner's live objectives, or with closed the closed-out ones; query: words to find one "
+        "by. Call it when the owner refers to something ongoing, and before opening one."
     ),
-    input_schema={"type": "object", "properties": {}},
+    input_schema={"type": "object", "properties": {"closed": {"type": "boolean"}, "query": {"type": "string"}}},
     tier=Tier.GREEN,
 )
-async def objective_list() -> dict:
-    return {"objectives": [_short(o) for o in store().live()]}
+async def objective_list(closed: bool = False, query: str = "") -> dict:
+    return {"objectives": [_short(o) for o in store().search(query, closed=bool(closed))]}
 
 
 @tool(
@@ -128,13 +132,12 @@ async def objective_show(objective_id: str) -> dict:
 @tool(
     name="objective_note",
     description=(
-        "Record on an objective. action: fact (source: 'owner', a URL, 'general knowledge, not "
-        "verified live'…); unknown; blocker (kind; missing_capability when CLIVE has no tool for "
-        "it); ask_owner (only the owner can answer); propose (needs_owner true for spending, "
-        "booking, official applications, external messages); advance (item_id to started, "
-        "completed, or verified with evidence; owner-needing items wait for the owner's "
-        "approval); progress; resolve (entry_id now settled); status; and its design (see action). "
-        "Never record a guess as a fact."
+        "Record on an objective. action: fact (source: 'owner', a URL…); unknown; blocker (kind; "
+        "missing_capability when CLIVE has no tool for it); ask_owner; propose (needs_owner true "
+        "for spending, booking, official applications, external messages); advance (item_id to "
+        "started, completed, or verified with evidence); progress; resolve (entry_id now settled); "
+        "status; close (only when the owner asks: status done or dropped, text the owner's words); "
+        "and its design (see action). Never record a guess as a fact."
     ),
     input_schema={
         "type": "object",
@@ -149,13 +152,13 @@ async def objective_show(objective_id: str) -> dict:
             "source": {"type": "string"},
             "kind": {"type": "string", "enum": list(BLOCKER_KINDS) + _KIND_CHOICE,
                      "description": "a blocker's; with set, the objective's"},
-            "capability": {"type": "string", "description": "What is missing, in a few words."},
+            "capability": {"type": "string"},
             "needs_owner": {"type": "boolean"},
             "item_id": {"type": "string"},
             "state": {"type": "string", "enum": [s for s in LADDER if s != "authorised"]},
             "evidence": {"type": "string"},
             "entry_id": {"type": "string"},
-            "status": {"type": "string", "enum": ["active", "waiting", "blocked", "dropped"]},
+            "status": {"type": "string", "enum": ["active", "waiting", "blocked", "done", "dropped"]},
             "title": {"type": "string"},
             "deadline": {"type": "string"},
             "purpose": {"type": "string"},
@@ -210,6 +213,8 @@ async def objective_note(objective_id: str, action: str, text: str = "", source:
             obj = s.resolve(objective_id, entry_id, note=text)
         elif action == "status":
             obj = s.set_status(objective_id, status, note=text)
+        elif action == "close":
+            obj = s.close(objective_id, status, words=text)
         else:
             raise ObjectiveError(f"Unknown action {action!r}.")
     except ObjectiveError as exc:
