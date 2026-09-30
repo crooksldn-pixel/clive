@@ -2,15 +2,54 @@
 
 **Purpose:** compact active context for GPT/Claude/Fable/engineering workers  
 **Status:** ACTIVE — update whenever a material product/architecture state changes  
-**As of:** 2026-09-28 (the screens and the deploy pipeline; 2026-09-27 and earlier are kept below as history)
+**As of:** 2026-09-30 (round 13 in production; the ship rule, acceptance, skills and capacity decided; 2026-09-29 and earlier are kept below as history)
 
 This file is intentionally not a historical transcript. It answers: **what is true and important now?**
 
 For historical rationale, use Git and DECISIONS.md. For release evolution rules, use EVOLUTION_POLICY.md.
 
-## Now — 2026-09-29
+## Now — 2026-09-30
 
 Where anything further down this file disagrees with this section, this section is the current truth and the text below is history.
+
+| | SHA | What it is |
+|---|---|---|
+| **Production** (`/opt/crooks-os`) | `87e10c33` | Round 13 (PR #58), deployed 29 Sep, 23:10–23:49 UTC. The owner waived a further exact-SHA review at 22:23 ("give me a prompt to get this shipped and deployed now"), so no multi-part review was run. The installed tree is identical to `1c8f1636`, the tree GitHub acceptance was green on. `healthcheck.py -v` exits 0 and the phone check passed (`through=tailscale owner=true refusal=none`). Record: `claude/deploy-round-13-record` (`090d6f8f`, `crooks-assistant/reports/deploy-round-13.md`). |
+| **Trunk** | `87e10c33` | The same as production. |
+
+**Decided on 30 September** ([OWNER_DECISIONS_2026-09-30.md](./OWNER_DECISIONS_2026-09-30.md)):
+- **The ship rule is regression-only, with one exception.** A finding blocks a deploy when this change makes production worse, or when it is shown to leak customer data or to write to the shop or send an email the owner did not confirm, whether new or old. Everything else is a follow-up for the next build. This answers decision 5 of the self-shipping plan.
+- **Acceptance moves to a self-hosted runner on clive-worker-01**, isolated, with no production credential.
+- **A skill on a list the owner supplies is his decision.** It needs no further sign-off and has no proposal budget. It is still pinned, scanned per skill, licence-checked and installed with provenance. Anything that runs on its own stays his.
+- **Builders run on the owner's one Max plan**, and a second is added when usage becomes the limit.
+
+**Open, and in the way of the self-hosted runner.** Two tests fail on a host where they run as root, and pass on GitHub only because they skip there: `test_check_sandbox.py::test_the_host_filesystem_beyond_the_minimal_root_does_not_exist_inside` and `test_engineering_dispatcher.py::test_checks_run_in_the_sandbox_on_a_copy_and_cannot_touch_the_candidate_tree`. They fail identically on `6a29e310`. The deploy record has the detail. A runner that runs them has to either run without root or come after their fix.
+
+**Next.**
+1. The owner:
+   - clears clive-worker-01's hardware items: power supply 2 without input, and the iLO password and firmware ([INFRASTRUCTURE_2026-09-25.md](./INFRASTRUCTURE_2026-09-25.md));
+   - runs the re-pin that has been owed since 26 Sep;
+   - creates the runner's registration token.
+2. The first build: skills adopted whole. That means:
+   - holding per skill rather than per collection, with the scanner's false positives fixed;
+   - an installer that records provenance and licence;
+   - builders told which skills to use;
+   - a read-only skill tool at runtime;
+   - a sandboxed runner for skills that carry scripts.
+
+   Acceptance then moves onto the runner.
+
+**Still the owner's to rule:**
+- whether a TV's own "Mark packed" counts as packed (B-04);
+- whether "open the inbox" after binding Add a note is held only by his tap (round 9, I-tests5 I-01);
+- whether an email may be put on a TV;
+- whether CLIVE may delete the unused drafts its Prepare leaves in Shopify Admin;
+- decisions 1–4 and 6 of the self-shipping plan;
+- Jev access, deferred to the Jev step (it needs Vercel Pro for zero retention);
+- a written data policy for what business text leaves the host;
+- a recipient tap on new emails.
+
+## 2026-09-29 (history)
 
 | | SHA | What it is |
 |---|---|---|
