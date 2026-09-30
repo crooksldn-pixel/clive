@@ -41,8 +41,9 @@ trunk (``landing_branches``): an objective's candidate lives on its own branch, 
 trunk moves only by a landing made after acceptance, outside the loop.
 
 Protected paths: a task whose scope covers a PROTECTED_PATHS entry (possible only for an
-objective recorded before that entry was added) is blocked before it can advance, and a
-candidate that changes a protected path is refused whatever the task's scope says.
+objective recorded before that entry was added) is blocked before it can advance, its
+worker stopped first if one is assigned or running, and a candidate that changes a
+protected path is refused whatever the task's scope says.
 
 What it never does: manufacture a state (a launch is not an acknowledgement, a
 live process is not progress, a worker's "done" is not a candidate, a candidate is
@@ -275,6 +276,10 @@ class Dispatcher:
         try:
             refusal = self._policy_refusal(task, status)
             if refusal is not None:
+                if status in (TaskStatus.ASSIGNED, TaskStatus.RUNNING):
+                    # Stopped before the block, so nothing the worker does afterwards is supervised,
+                    # ingested or published (the 2026-09-30 re-pin review, F-02).
+                    self._worker_for(obj).kill(_marker(self._current_attempt(task, state)))
                 return self._block(obj, task, refusal), True
             if status is TaskStatus.READY:
                 return self._start_attempt(obj, task, state)
@@ -299,11 +304,14 @@ class Dispatcher:
         """Why a task recorded under an older policy may not advance under this one, or None.
 
         Intake refuses a protected scope for every new objective, so this arises only for an objective
-        recorded before a path joined PROTECTED_PATHS (``ObjectiveStore`` still loads it). A worker already
-        running is left to finish: its candidate is refused at ingestion if it touches a protected path.
-        The trunk is refused as a target before any work starts; ``_publish`` refuses it for the rest."""
-        if status not in (TaskStatus.READY, TaskStatus.EVIDENCE_READY, TaskStatus.REVIEWING, TaskStatus.REJECTED,
-                          TaskStatus.ACCEPTED):
+        recorded before a path joined PROTECTED_PATHS (``ObjectiveStore`` still loads it). It holds at every
+        stage that can still advance, a worker's own included: an ASSIGNED or RUNNING worker under such a
+        scope is stopped and its task blocked at once (``_step``), not left to work on under a scope the
+        owner has taken out of the loop until its candidate is refused at ingestion (the 2026-09-30 re-pin
+        review, F-02). The trunk is refused as a target before any work starts; ``_publish`` refuses it for
+        the rest."""
+        if status not in (TaskStatus.READY, TaskStatus.ASSIGNED, TaskStatus.RUNNING, TaskStatus.EVIDENCE_READY,
+                          TaskStatus.REVIEWING, TaskStatus.REJECTED, TaskStatus.ACCEPTED):
             return None
         covered = protected_paths_in(task.allowed_paths)
         if covered:
@@ -693,8 +701,8 @@ class Dispatcher:
         """GitHub's answer about exactly ``sha``, asked at most once per ``acceptance_poll_s`` and recorded.
 
         A remembered answer is reused only inside that interval and never across a resume. With ``fresh``
-        (admitting a READY, which records the acceptance, and integrating) a remembered green answer is
-        never reused: GitHub may have gone pending, red or unavailable since (a re-run, an outage), so the
+        (dispatching a review, admitting a READY, which records the acceptance, and integrating) a
+        remembered green answer is never reused: GitHub may have gone pending, red or unavailable since (a re-run, an outage), so the
         step that authorises something asks again at that moment. A remembered answer that is not green
         authorises nothing, so it may still spare GitHub a question inside the interval."""
         now = self.now()
@@ -759,8 +767,11 @@ class Dispatcher:
         attempt = self._current_attempt(task, state)
         result = next(r for r in self.store.read_results()
                       if r.task_id == task.task_id and r.attempt_id == attempt.attempt_id)
-        # Nothing is reviewed, so nothing can be accepted, before GitHub acceptance is green on exactly this SHA.
-        waiting = self._await_green(obj, task, attempt, result.result_sha, "review dispatch")
+        # Nothing is reviewed, so nothing can be accepted, before GitHub acceptance is green on exactly this SHA,
+        # asked at this moment: a green answer remembered from a tick whose dispatch the kernel refused (a
+        # target ref that no longer matched) must not start a review after the run has gone pending or red
+        # (the 2026-09-30 re-pin review, F-01).
+        waiting = self._await_green(obj, task, attempt, result.result_sha, "review dispatch", fresh=True)
         if waiting is not None:
             return waiting
         author = attempt.worker.principal.principal_id.strip().casefold()
