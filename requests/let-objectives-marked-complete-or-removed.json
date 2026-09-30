@@ -1,0 +1,82 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "let-objectives-marked-complete-or-removed",
+  "title": "Let objectives be marked complete or removed from the live list, without deleting the data",
+  "requested_outcome": "There is currently no way to mark an objective complete or remove it so it stops showing in objective_list — only its individual facts, blockers and unknowns can be resolved one by one, and the objective itself stays active. Build a way to close an objective out (complete or removed) so it no longer appears in the live list, while keeping its full record — facts, notes, history — intact and retrievable later by its id or by searching, in case it turns out to hold something useful. Nothing should be deleted outright.",
+  "base_ref": "56562ebb8e2358d0c18127b63942196b930ac672",
+  "base_sha": "56562ebb8e2358d0c18127b63942196b930ac672",
+  "allowed_paths": [
+    "crooks-assistant/app/objectives",
+    "crooks-assistant/app/tools/registry.py",
+    "crooks-assistant/app/tools/dispatch.py",
+    "crooks-assistant/tests/test_let_objectives_marked_complete_or_removed.py"
+  ],
+  "acceptance_criteria": [
+    "An objective can be marked complete or removed through a tool call, given its objective_id",
+    "A closed objective (complete or removed) no longer appears in objective_list's live results",
+    "A closed objective's full record — facts, notes, blockers, history — is still retrievable afterwards, either by its id directly or by a search/listing of closed objectives",
+    "No data belonging to a closed objective is deleted",
+    "The change is proven by tests in crooks-assistant/tests/test_let_objectives_marked_complete_or_removed.py, and they pass."
+  ],
+  "checks": [
+    {
+      "name": "tests",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_let_objectives_marked_complete_or_removed.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "regression",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-m",
+        "not live",
+        "tests/test_gate.py",
+        "tests/test_readonly.py",
+        "tests/test_actions.py",
+        "tests/test_actions_routes.py",
+        "tests/test_engine_hooks.py",
+        "tests/test_batch.py",
+        "tests/test_available.py",
+        "tests/test_judgment.py",
+        "tests/test_judgment_construction.py",
+        "tests/test_judgment_chain.py",
+        "tests/test_judgment_ledger.py",
+        "tests/test_cancel.py",
+        "tests/test_refund.py",
+        "tests/test_address.py",
+        "tests/test_fulfil.py",
+        "tests/test_inventory.py",
+        "tests/test_tracking.py",
+        "tests/test_order_edit.py",
+        "tests/test_gmail_writes.py",
+        "tests/test_compose.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/let-objectives-marked-complete-or-removed",
+  "max_repair_rounds": 2
+}
