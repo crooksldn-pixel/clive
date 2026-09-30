@@ -62,7 +62,7 @@ def adapter_root_preconditions(store_root: Path, adapter_root: Path) -> None:
     store would have every request refused after its id was already claimed. A store outside
     any checkout has no journal, and an adapter root outside the store's work tree cannot be
     swept into one; otherwise both record directories must be ignored by the work tree's own
-    rules, or nothing starts.
+    rules, or nothing starts. So must the ``waits`` directory the adapter writes beside them.
 
     The directories themselves are what is checked, never a sample file inside them: git
     cannot re-include anything beneath an ignored directory, so that is the one answer that
@@ -76,7 +76,9 @@ def adapter_root_preconditions(store_root: Path, adapter_root: Path) -> None:
     if not adapter.is_relative_to(work_tree):
         return
     relative = adapter.relative_to(work_tree)
-    for directory in ("claims", "receipts"):
+    # ``waits`` holds requests deferred for a base commit not fetched yet (waits.py): it is written
+    # beside the claims and receipts, so it must be just as invisible to the journal.
+    for directory in ("claims", "receipts", "waits"):
         probe = (relative / directory).as_posix()
         ignored = subprocess.run(
             ["git", "check-ignore", "-q", "--", probe], cwd=str(work_tree), capture_output=True, text=True
