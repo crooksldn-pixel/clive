@@ -98,6 +98,48 @@ The owner, verbatim: "Just max currently if we need more i can get another max p
 
 Builders share the plan's 5-hour and weekly allowances with the owner's own use of Claude. The dispatcher should therefore pause launches before the allowance runs out rather than fail mid-task.
 
+## The loop is re-pinned to 40e6a73f, under the owner's waiver
+
+The owner, verbatim: "waive". He said it after being told that the second review's findings were not regressions against the loop the host was running, and that under the ship rule of the same day neither would block.
+
+**What happened.** The owner-gated re-pin of clive-worker-01, owed since 26 September, ran from his own terminal. The host script reviews the loop's code from the current pin (`4c32bb3d`) to the target, on `gpt-6-sol` at medium effort, and continues only on READY.
+
+| Target | Review | Findings | Outcome |
+|---|---|---|---|
+| `78945750` (PR #47) | CHANGES_REQUIRED | F-01: review dispatch could reuse a remembered green GitHub answer. F-02: a task whose scope became protected was not stopped while its worker was assigned or running. | Both fixed in PR #60, with tests that fail on the old dispatcher. |
+| `40e6a73f` (PR #60) | CHANGES_REQUIRED | F-01: stopping a worker sends SIGTERM and does not confirm it exited. F-02: the restart test exercises `poll`, not the long-running `run` against an existing store. | Waived by the owner. |
+| `40e6a73f`, run again | CHANGES_REQUIRED | F-01: a builder launched with declared checks is acknowledged even if its init roster lacks the `run_checks` tool or its server. | Applied under the owner's waiver. |
+
+The waiver was made on the host by editing line 183 of `/home/george/clive-review/repin/root-repin.sh`. The review verdict may be other than READY only for exactly `40e6a73fb5095e9415b1e07283ed084bec82f2fd`, and the log line reads "OWNER WAIVER (George, 30 Sep 2026)". Any other SHA still needs READY. Each review's full result is kept at `/home/george/clive-review/repin/out/review-<sha>.json`.
+
+**Why the waiver was sound.** Every finding describes a protection that could be stronger. None describes something the new pin does worse than `4c32bb3d`. The old pin had:
+
+- no GitHub acceptance gate;
+- a shorter protected list;
+- no builder checks;
+- the same unconfirmed SIGTERM.
+
+The review was not skipped: all three results are on the host.
+
+**The result, 30 September, 15:19 UTC.**
+
+- `clive-remote-engineering` runs the pinned tree at `/srv/clive-engineering/remote-control/40e6a73f…`: `active running`, 0 restarts.
+- Flags: `--publish-remote origin` and `--product-memory-ref origin/clive/trunk` (previously `origin/claude/product-memory-truth-2026-09-23`).
+- Reviewer: `gpt-6-luna` at medium effort, the code default at the pin.
+- First tick: no intake or publish error, and no dispatcher events.
+- The unit's backup is `clive-remote-engineering.service.bak-4c32bb3d…-20260930T151856Z`.
+- The restart waited until no builder or review was running.
+
+**Cost.** The three `gpt-6-sol` reviews took 170–178k input tokens each, about $1.15 in all.
+
+**Follow-ups, done by hand.** All three touch protected paths (`app/orchestrator/dispatcher.py`, `app/orchestrator/workers/claude.py` and their tests). Intake refuses any objective that names a protected path, so the loop cannot take them. The Director does them by hand, through a PR:
+
+1. **A stopped worker is confirmed gone.** SIGTERM, a bounded wait, then SIGKILL, then confirm. The task is blocked or cancelled only once the process group has exited, or the task says it could not be stopped. This applies at every place the dispatcher stops a worker.
+2. **A restart test of `run`.** The long-running mode is restarted against an existing store, runtime notes, claims and receipts. Replay preserves them, admits nothing twice, and blocks a newly protected objective with its reason.
+3. **Declared checks are required.** A builder launched with declared checks is refused and stopped if its init roster lacks the `run_checks` tool or its server. CLIVE's own sandboxed run of the checks at ingestion remains the run that counts.
+
+**Also seen in the unit.** The pinned code runs under the interpreter at `/home/user/clive/crooks-assistant/.venv`, which the pin does not cover. If the dependencies change, that environment has to be rebuilt to match.
+
 ## Still open
 
 - **Jev access.** Jev is reachable today through Vercel AI Gateway, because TypeSafe's direct signups were paused on 22 September. Zero data retention there needs Vercel Pro. The recommendation is to decide when the Jev step is reached: after the skills work, and once a labelled test set exists to prove it against. Nothing is paid for now.
