@@ -93,6 +93,9 @@ Needs: the service installed with the authority to deploy (**decision 3**), the 
    lose data or leak data, including what is already in production), or the regression-only rule
    proposed on 28 September (block only on what this change makes worse). *His call; the service
    applies whichever he chooses, word for word.*
+   **Decided 30 September:** regression-only, with one exception: anything shown to leak
+   customer data, or to write to the shop or send an email he did not confirm, blocks whether
+   new or old. The rule, word for word: [OWNER_DECISIONS_2026-09-30.md](../product-memory/OWNER_DECISIONS_2026-09-30.md).
 6. **May anything ship without his hold?** *Recommendation: no. Not styling, not copy, nothing,
    until the service has a record he trusts.*
 
