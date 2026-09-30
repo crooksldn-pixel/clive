@@ -253,7 +253,10 @@ def _order_summary(node: dict) -> dict:
 # The newest drafts looked through when Shopify's search does not find the name asked for.
 MAX_DRAFTS_SCANNED = 50
 
-_DRAFT_NAME_RE = re.compile(r"^\s*(?:draft(?:\s+order)?\s*#?\s*D?|#?\s*D)\s*-?\s*(\d+)\s*$", re.I)
+# Matched against the query with its whitespace collapsed to single spaces (`_draft_ref`): the
+# `\s*` runs sit side by side, and on a raw query a long run of spaces made the match take
+# minutes (O(n^4)) while blocking the event loop. The digits are bounded for the same reason.
+_DRAFT_NAME_RE = re.compile(r"^(?:draft(?:\s+order)?\s*#?\s*D?|#?\s*D)\s*-?\s*(\d{1,10})$", re.I)
 _DRAFT_GID_RE = re.compile(r"^gid://shopify/DraftOrder/\d+$")
 
 _DRAFT_FIELDS = """
@@ -285,7 +288,7 @@ query CrooksDraftsPaymentLink($q: String, $n: Int!) {{
 def _draft_ref(query: str) -> str | None:
     """'#D12', 'D12', 'draft 12' and 'draft order #D12' are draft #D12; a DraftOrder gid is
     itself. Anything else — an order number, a name — is not a draft."""
-    text = str(query or "").strip()
+    text = " ".join(str(query or "").split())
     if _DRAFT_GID_RE.match(text):
         return text
     match = _DRAFT_NAME_RE.match(text)

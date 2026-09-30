@@ -115,6 +115,21 @@ async def test_a_completed_draft_says_which_order_it_became():
     assert "CROOKS-1930" in result["note"]
 
 
+def test_a_long_run_of_whitespace_is_read_at_once():
+    """The draft's name is matched on the query with its whitespace collapsed. On the raw query,
+    side-by-side `\\s*` runs made "draft" and a few hundred spaces take seconds, and a few
+    thousand take hours, with the event loop blocked the whole time."""
+    import time
+
+    started = time.perf_counter()
+    assert shopify_tools._draft_ref("draft" + " " * 5000 + "x") is None
+    assert shopify_tools._draft_ref("#" + "\t" * 5000 + "D") is None
+    assert shopify_tools._draft_ref("  draft   order \t #D12 ") == "#D12"
+    assert time.perf_counter() - started < 1.0
+    # A draft's number is a number of sensible length; anything longer is not a draft.
+    assert shopify_tools._draft_ref("D" + "1" * 11) is None
+
+
 async def test_order_numbers_and_names_are_not_taken_for_drafts():
     assert shopify_tools._draft_ref("1928") is None
     assert shopify_tools._draft_ref("#1928") is None
@@ -176,4 +191,7 @@ def test_the_tool_block_stays_within_its_budget():
     specs = registry.all_specs()
     offered = [s for s in specs if s.name not in withheld_tools(specs, writes_enabled=True)]
     total = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered)
-    assert total <= 43_902, f"the tool block is {total} bytes"
+    # The same ceiling as tests/test_registry.py, moved with it: 43,902 when this change fitted
+    # alone, 43,918 once closing an objective out landed beside it (+16, measured; that file says
+    # tool by tool where the bytes went).
+    assert total <= 43_918, f"the tool block is {total} bytes"

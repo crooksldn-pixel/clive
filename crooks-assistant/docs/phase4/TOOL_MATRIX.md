@@ -127,10 +127,10 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `instagram_inbox` | family:instagram | test_instagram.py | — |
 | `instagram_thread` | family:instagram | test_instagram.py | — |
 | `inventory_query` | recipe:landing_products, family:product_reads | test_analytics_tools.py | landing_products |
-| `objective_list` | family:objectives | test_displays.py, test_tool_boundary.py | — |
-| `objective_note` | family:objectives | test_objective_design.py, test_objectives.py, test_tool_boundary.py | — |
+| `objective_list` | family:objectives | test_displays.py, test_let_objectives_marked_complete_or_removed_2.py, test_tool_boundary.py | — |
+| `objective_note` | family:objectives | test_let_objectives_marked_complete_or_removed_2.py, test_objective_design.py, test_objectives.py, test_tool_boundary.py | — |
 | `objective_open` | family:objectives | test_objective_design.py, test_r13_objective_design_rules.py | — |
-| `objective_show` | family:objectives | test_objective_design.py | — |
+| `objective_show` | family:objectives | test_let_objectives_marked_complete_or_removed_2.py, test_objective_design.py | — |
 | `screen_list` | family:screens | test_displays.py, test_r11_screens_server.py, test_screens_r10.py, test_tool_boundary.py | — |
 | `screen_off` | family:screens | test_displays.py, test_screens_r10.py | — |
 | `screen_pair` | family:screens | test_displays.py, test_r13_screens.py | — |
@@ -144,7 +144,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_discount_create` | command:a tapped control, family:discount_create | test_discounts.py | discount_new_code, discount_sentence_defers |
 | `shopify_discount_open` | family:discount_create | test_discounts.py | discount_sentence_defers |
 | `shopify_find_customer` | recipe:order_customer, family:customer_reads | test_r11_turn.py, test_shopify_tools.py, test_tool_args_redaction.py | — |
-| `shopify_find_order` | family:order_reads | test_context.py, test_experience.py, test_progressive_turn.py, test_r11_turn.py, test_r13_timeline_names.py, test_read_dedupe.py, test_shopify_tools.py, test_tap_reads_only.py, test_tool_args_redaction.py, test_tool_boundary.py, test_turn_boundary.py, test_write_walkthrough.py | back, customer_history, enrichment, graph_order_to_email, linked_entities, nav_branch_isolation, nav_home_landing, order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers, order_add_item_stale_picker, order_by_voice, order_lookup, recording_is_observability, split_branches, store_credit_give, store_credit_not_on_this_store, tabs, unsupported_edit |
+| `shopify_find_order` | family:order_reads | test_context.py, test_experience.py, test_expose_draft_order_s_payment_link_2.py, test_progressive_turn.py, test_r11_turn.py, test_r13_timeline_names.py, test_read_dedupe.py, test_shopify_tools.py, test_tap_reads_only.py, test_tool_args_redaction.py, test_tool_boundary.py, test_turn_boundary.py, test_write_walkthrough.py | back, customer_history, enrichment, graph_order_to_email, linked_entities, nav_branch_isolation, nav_home_landing, order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers, order_add_item_stale_picker, order_by_voice, order_lookup, recording_is_observability, split_branches, store_credit_give, store_credit_not_on_this_store, tabs, unsupported_edit |
 | `shopify_fulfillment_tracking_set` | family:order_fulfil | test_tracking.py | — |
 | `shopify_inventory` | family:product_reads | test_n_plus_one.py, test_shopify_tools.py, test_tool_args_redaction.py | — |
 | `shopify_inventory_adjust` | family:inventory_set | test_inventory.py | — |
