@@ -40,8 +40,8 @@ Owner provenance is recorded as declared (`os_user`, `host`, `channel: cli`) wit
 | Stage (kernel) | What the dispatcher does | Kernel verbs |
 | --- | --- | --- |
 | READY | Check the retry budget and backoff (from the kernel's cancellation records) and the concurrency limit. Create a fresh workspace at the base, assign with a CLIVE-chosen session id, launch. | `assign` |
-| ASSIGNED | Wait for the worker's own `system/init` event and check it against the launch policy. A pass is the acknowledgement. A widened surface kills the worker and blocks. No init within `init_timeout_s` cancels (transient). | `ack` / `block` / `cancel` |
-| RUNNING | Stream events renew the lease. A successful Edit/Write is progress, and edits seen before a result are flushed as progress before the candidate. No event for `stall_s`: kill, cancel (transient). Process gone with no result: diagnose; authentication is deterministic, anything else transient. On a result, see below. | `heartbeat`, `heartbeat --progress`, `evidence`, `candidate`, `cancel`, `block` |
+| ASSIGNED | Wait for the worker's own `system/init` event and check it against the launch policy. A pass is the acknowledgement. A widened surface, or a launch with declared checks whose roster lacks `run_checks` or its connected server, stops the worker and blocks. No init within `init_timeout_s` stops the worker and cancels (transient). | `ack` / `block` / `cancel` |
+| RUNNING | Stream events renew the lease. A successful Edit/Write is progress, and edits seen before a result are flushed as progress before the candidate. No event for `stall_s`: stop, cancel (transient). Process gone with no result: diagnose; authentication is deterministic, anything else transient. On a result, the worker is stopped first; then see below. Every stop is confirmed (see "Stopping a worker"). | `heartbeat`, `heartbeat --progress`, `evidence`, `candidate`, `cancel`, `block` |
 | EVIDENCE_READY | Wait (bounded) for a green GitHub acceptance run on the exact candidate SHA; red, or no green within the bound, blocks. Then choose the first configured reviewer that is registered `may_review`, is not the author principal, and whose driver says it can actually be reached. If none: block with every gap named, and dispatch nothing. | `dispatch` / `block` |
 | REVIEWING | Read the typed result. A result naming another task, revision or attempt is refused at the door. A READY is submitted only while the candidate SHA is green on GitHub (otherwise it waits unconsumed, or the task blocks). Everything else goes to the kernel, which admits, rejects or refuses it. | `verdict` / `block` |
 | REJECTED | Route a repair revision (`kind: repair`, same base, scope and evidence) that names the admitted verdict record. After `max_repair_rounds`, block and leave the next move to the owner. | `task` r+1 / `block` |
@@ -94,7 +94,7 @@ The tests that hold all of that are protected with it, so a builder that cannot 
 - An objective may still name any other test file, including a new one beside a protected test. What it can no longer name is `crooks-assistant/tests` as a whole, because that directory holds protected tests: name the test files the change touches.
 
 - Intake refuses any objective whose allowed paths are, contain or lie beneath one of them, as before, through the same `Objective` door the remote inbox and the bridge use.
-- An objective recorded before its scope became protected still loads (the store reads records without that one rule, so one old record cannot stop the dispatcher reading every objective), but the dispatcher blocks it before it can launch, dispatch, admit, route a repair or integrate, naming the protected paths. A worker already assigned to or running on it is stopped and the task blocked at the next tick, rather than left to work on until its candidate is refused (the 2026-09-30 re-pin review, F-02).
+- An objective recorded before its scope became protected still loads (the store reads records without that one rule, so one old record cannot stop the dispatcher reading every objective), but the dispatcher blocks it before it can launch, dispatch, admit, route a repair or integrate, naming the protected paths. A worker already assigned to or running on it is stopped and the task blocked at the next tick, rather than left to work on until its candidate is refused (the 2026-09-30 re-pin review, F-02). The stop is confirmed like every other (see "Stopping a worker").
 - A candidate that changes a protected path is refused (`result_refused:`) whatever the task's scope says; this covers a worker that was already running when the update took effect.
 
 ### Product memory from the trunk
@@ -105,7 +105,7 @@ The default `--product-memory-ref` of `engineering_dispatcher.py objective` and 
 
 Launch is `claude -p <prompt> --output-format stream-json --verbose --session-id <uuid> --restricted --tools Read,Edit,Write,Glob,Grep --allowedTools Read Edit Write Glob Grep --permission-mode dontAsk --strict-mcp-config --mcp-config '{"mcpServers":{}}' --setting-sources "" --disable-slash-commands --no-session-persistence --max-turns N --json-schema <report schema> [--model M]`. It runs detached (`start_new_session`) with cwd set to the workspace.
 
-When the objective declares checks, the launch differs in exactly two places: `--mcp-config` names one server, CLIVE's own `clive_checks` (`app/orchestrator/workers/check_server.py`, started as `<dispatcher python> -I check_server.py <config>`), and `--allowedTools` adds its one tool, `mcp__clive_checks__run_checks`. The config is written by the dispatcher outside the workspace and lists the objective's declared checks; the builder can name one of them, never an argv. Each run is on a fresh copy of the workspace in the same `NamespaceSandbox` as the dispatcher's own checks (own PID and mount namespaces with a private `/proc`, no network, PATH-only environment, same limits and timeout); the server re-executes itself with a PATH-only environment before reading anything, so the worker's OAuth token is not in its memory or `/proc/<pid>/environ`. Output comes back bounded and redacted. The runs are advisory: the dispatcher still runs every check itself after the builder reports, and only that run is evidence. The launch check accepts that server and tool only when the launch asked for them.
+When the objective declares checks, the launch differs in exactly two places: `--mcp-config` names one server, CLIVE's own `clive_checks` (`app/orchestrator/workers/check_server.py`, started as `<dispatcher python> -I check_server.py <config>`), and `--allowedTools` adds its one tool, `mcp__clive_checks__run_checks`. The config is written by the dispatcher outside the workspace and lists the objective's declared checks; the builder can name one of them, never an argv. Each run is on a fresh copy of the workspace in the same `NamespaceSandbox` as the dispatcher's own checks (own PID and mount namespaces with a private `/proc`, no network, PATH-only environment, same limits and timeout); the server re-executes itself with a PATH-only environment before reading anything, so the worker's OAuth token is not in its memory or `/proc/<pid>/environ`. Output comes back bounded and redacted. The runs are advisory: the dispatcher still runs every check itself after the builder reports, and only that run is evidence. The launch check accepts that server and tool only when the launch asked for them, and, when it did, requires both (the 2026-09-30 re-pin review, second run, F-01): the init roster must list `mcp__clive_checks__run_checks` and the server `clive_checks` with status `connected`. Claude Code 2.1.285 reported exactly that for this launch on 2026-09-30 (`{"name": "clive_checks", "status": "connected", "source": "dynamic"}`). A builder whose prompt says it has `run_checks` and whose launch lacks either is refused, stopped and blocked like any other launch surface; CLIVE's own sandboxed run of the checks at ingestion is still the run that counts.
 
 The environment is built, not inherited. It contains `PATH` (the CLI's directory plus system bins), `HOME` (a fresh directory per attempt, outside the workspace), `LANG`, `TMPDIR` and `CLIVE_ATTEMPT_ID` (the marker `<attempt>/<session uuid>` by which a restarted dispatcher finds the process; the session UUID, chosen by CLIVE and recorded in the kernel, keeps two dispatchers or stores on one host from confusing or killing each other's workers). Nothing else passes through: no GitHub, Shopify, Gmail, cloud or proxy variables. `--worker-token-file` adds `CLAUDE_CODE_OAUTH_TOKEN` from a host-side file. That is the same variable `app/providers/max_agent_sdk.py` already uses for the owner's subscription, and it is the only credential the driver will pass.
 
@@ -126,7 +126,8 @@ The launch check (`verify_started`) fails closed if any of these hold:
 - a tool beyond the requested set plus `StructuredOutput`;
 - any MCP server, or any plugin other than `telemetry@builtin`;
 - any skill or slash command;
-- another cwd, another session, or another permission mode.
+- another cwd, another session, or another permission mode;
+- when the objective declares checks: no `mcp__clive_checks__run_checks` in the tools, or no `clive_checks` server with status `connected` (absent, `failed`, `pending` or no status at all).
 
 The earlier ECC audit found that headless sessions on the owner's host inherit the claude.ai connector roster. This check is the mechanism that catches that, whatever the prompt says.
 
@@ -201,11 +202,22 @@ Restart works like this:
 - Live workers are found through `/proc/*/environ` by their attempt marker. A second launch is refused while one lives, both in the dispatcher and in the driver.
 - A worker that finished while the dispatcher was down is ingested from its log and workspace.
 - A lease that expired while nobody observed cancels the attempt (transient) rather than failing late.
+- The long-running `remote_engineering.py run` is tested restarted, in process, with the host's flags (`--publish-remote origin`, `--product-memory-ref origin/clive/trunk`, a journalled store, the default adapter root under the host's exclude rule) against a store its first life left: v1 claims and receipts (one a refusal), objectives, tasks, an attempt with a live builder and its runtime notes. Replay keeps every record (write-once records byte for byte, event logs only appended to, the runtime notes unchanged), admits and launches nothing twice, and stops and blocks, with its reason, an objective whose scope became protected in between (the 2026-09-30 re-pin review, F-02).
+
+Stopping a worker (the 2026-09-30 re-pin review, F-01). Every place the dispatcher stops one goes through `_stop`: a stall, no init in time, a refused launch surface, an expired lease, a protected scope, the attempt time limit, a result (before its tree is committed) and every cancel. The driver's `kill`:
+
+1. sends SIGTERM to the worker's process group (and to any marked process outside it);
+2. waits up to `kill_grace_s` (5 s by default, a `ClaudeCodeWorker` setting), polling for processes carrying the attempt marker;
+3. sends SIGKILL to whatever remains;
+4. waits up to `kill_confirm_s` (5 s) again;
+5. returns the pids still alive.
+
+A worker that exits on SIGTERM costs no wait. The cancel, block or candidate that follows is recorded only on an empty answer, so it is recorded only once no process of the attempt is alive. If any is still alive, nothing is recorded as a stop: the task is blocked (deterministic) with the reason "the worker of `<attempt>` could not be stopped: pid(s) … still alive after SIGTERM, SIGKILL and a bounded wait …", followed by why it was being stopped. The owner stops it on the host before resuming. It is never a normal cancel, so it is never retried while the old worker may still write.
 
 Failure classes:
 
 - **Transient** (a provider error, a process that died, a stall, no init): the attempt is cancelled with a `transient:` reason. The next attempt waits `backoff_base_s · 2^(n-1)`. After `max_transient_retries`, the task blocks.
-- **Deterministic** (a refused launch surface, authentication, a worker's own `blocked`, the turn budget, a publish refusal, no reviewer): the task blocks once, with the reason.
+- **Deterministic** (a refused launch surface, authentication, a worker's own `blocked`, the turn budget, a publish refusal, no reviewer, a worker that could not be stopped): the task blocks once, with the reason.
 
 ## Observability
 

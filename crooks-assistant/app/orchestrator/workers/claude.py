@@ -31,7 +31,15 @@ What reduces the worker's capability is the launch itself, not the prompt:
 Then the launch is checked, fail-closed: ``verify_started`` compares the init
 event against what was asked for, and any extra tool, any MCP server but that one
 (and it only when asked for), any non-builtin plugin, any skill, another cwd or another session is a deterministic
-refusal; the dispatcher kills the worker and blocks the task.
+refusal; the dispatcher kills the worker and blocks the task. A launch that asked for the
+checks server must also show it: its ``run_checks`` tool in the roster and the server itself
+``connected``; a builder told it has run_checks and started without it is refused the same way
+(the 2026-09-30 re-pin review, second run, F-01).
+
+Stopping is confirmed, not assumed (the 2026-09-30 re-pin review, F-01): ``kill`` sends
+SIGTERM to the worker's process group, waits (bounded) for every process carrying the
+attempt marker to go, sends SIGKILL to whatever remains, waits again, and returns the pids
+still alive. The dispatcher records a cancel or a block as a stop only on an empty answer.
 
 Authentication is whatever the CLI resolves in that clean environment: a host
 provider that authenticates the process, or, when ``oauth_token_file`` is set,
@@ -48,6 +56,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -79,6 +88,10 @@ CHECK_TOOL = check_server.QUALIFIED_TOOL
 # An MCP tool call has its own client-side timeout; a declared check may run for up to 7200s.
 CHECK_TOOL_TIMEOUT_MS = str((7200 + 300) * 1000)
 EDIT_TOOLS = frozenset({"Edit", "Write"})
+# Stopping a worker: how long SIGTERM gets before SIGKILL, and how long SIGKILL gets to be confirmed.
+KILL_GRACE_S = 5.0
+KILL_CONFIRM_S = 5.0
+_KILL_POLL_S = 0.05
 
 WORKER_REPORT_SCHEMA = {
     "type": "object",
@@ -110,6 +123,8 @@ class ClaudeCodeWorker:
         bash_prefixes: tuple[str, ...] = DEFAULT_BASH,
         oauth_token_file: Path | None = None,
         check_python: str = sys.executable,
+        kill_grace_s: float = KILL_GRACE_S,
+        kill_confirm_s: float = KILL_CONFIRM_S,
     ) -> None:
         self.cli = cli
         self.model = model
@@ -118,6 +133,8 @@ class ClaudeCodeWorker:
         self.bash_prefixes = tuple(bash_prefixes)
         self.oauth_token_file = oauth_token_file
         self.check_python = check_python
+        self.kill_grace_s = kill_grace_s
+        self.kill_confirm_s = kill_confirm_s
         self._children: dict[int, subprocess.Popen] = {}
 
     # ---- launch --------------------------------------------------------------
@@ -213,9 +230,7 @@ class ClaudeCodeWorker:
 
     # ---- observe -------------------------------------------------------------
     def read(self, log_path: Path, offset: int = 0) -> tuple[list[Observation], int]:
-        for pid, proc in list(self._children.items()):
-            if proc.poll() is not None:
-                del self._children[pid]  # reap: a finished child is not left a zombie
+        self._reap()
         try:
             data = Path(log_path).read_bytes()
         except FileNotFoundError:
@@ -234,6 +249,7 @@ class ClaudeCodeWorker:
         if spec.check_config is not None:
             allowed.add(CHECK_TOOL)
             allowed_servers.add(CHECK_SERVER)
+            problems += _declared_checks_missing(started)
         extra = sorted(set(started.tools) - allowed)
         if extra:
             problems.append("tools beyond the launch policy: " + ", ".join(extra))
@@ -264,15 +280,74 @@ class ClaudeCodeWorker:
     def live_pids(self, marker: str) -> list[int]:
         return processes_with_marker(MARKER, marker)
 
-    def kill(self, marker: str) -> None:
-        for pid in self.live_pids(marker):
-            try:
-                os.killpg(pid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
+    def kill(self, marker: str) -> list[int]:
+        """Stop every process of the attempt, for sure, and say what is still alive ([] means confirmed gone).
+
+        SIGTERM to each live process's group (the worker leads its own session), then up to ``kill_grace_s``
+        for every process carrying the marker to exit; SIGKILL to whatever remains, then up to
+        ``kill_confirm_s`` again. Both waits poll ``live_pids``, so a worker that ignores SIGTERM costs
+        at most the grace period, and one that is gone at once costs nothing."""
+        alive = self.live_pids(marker)
+        if not alive:
+            return []
+        _signal(alive, signal.SIGTERM)
+        alive = self._wait_gone(marker, self.kill_grace_s)
+        if not alive:
+            return []
+        _signal(alive, signal.SIGKILL)
+        return self._wait_gone(marker, self.kill_confirm_s)
+
+    def _wait_gone(self, marker: str, bound_s: float) -> list[int]:
+        deadline = time.monotonic() + max(0.0, bound_s)
+        while True:
+            alive = self.live_pids(marker)
+            self._reap()
+            if not alive or time.monotonic() >= deadline:
+                return alive
+            time.sleep(_KILL_POLL_S)
+
+    def _reap(self) -> None:
+        for pid, proc in list(self._children.items()):
+            if proc.poll() is not None:
+                del self._children[pid]  # reap: a finished child is not left a zombie
+
+
+def _signal(pids: list[int], sig: signal.Signals) -> None:
+    """``sig`` to each pid's process group, else to the pid alone (a process outside its leader's group).
+
+    A process that is already gone, or that this user may not signal, is left to the caller's
+    confirmation, which reports it if it is still alive."""
+    for pid in pids:
+        try:
+            os.killpg(pid, sig)
+            continue
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            os.kill(pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
+def _declared_checks_missing(started: Started) -> list[str]:
+    """What a launch that asked for the checks server lacks: the tool in the roster, or the server connected.
+
+    Allowing the tool and server is not enough: a builder told it has run_checks (its prompt says so)
+    and started without it is refused, as any other launch surface that is not the one asked for."""
+    problems = []
+    if CHECK_TOOL not in started.tools:
+        problems.append(f"the declared checks' tool {CHECK_TOOL} is missing from the init roster")
+    states = [status for name, status in started.mcp_server_status if name == CHECK_SERVER]
+    if not states:
+        problems.append(f"the declared checks' MCP server {CHECK_SERVER} is not in the init roster")
+    elif "connected" not in states:
+        problems.append(f"the declared checks' MCP server {CHECK_SERVER} is not connected "
+                        f"(status {', '.join(s or 'not reported' for s in states)})")
+    return problems
+
+
+def _server_name(server: object) -> str:
+    return str(server.get("name", server)) if isinstance(server, dict) else str(server)
 
 
 def _at(event: dict) -> datetime | None:
@@ -299,13 +374,15 @@ def parse_events(text: str) -> list[Observation]:
             continue
         kind, sub = event.get("type"), event.get("subtype")
         if kind == "system" and sub == "init":
+            servers = tuple(event.get("mcp_servers") or ())
             out.append(Started(
                 session_id=str(event.get("session_id", "")),
                 cwd=str(event.get("cwd", "")),
                 model=event.get("model"),
                 tools=tuple(event.get("tools") or ()),
-                mcp_servers=tuple(str(s.get("name", s)) if isinstance(s, dict) else str(s)
-                                  for s in event.get("mcp_servers") or ()),
+                mcp_servers=tuple(_server_name(s) for s in servers),
+                mcp_server_status=tuple((_server_name(s), str(s.get("status") or "") if isinstance(s, dict) else "")
+                                        for s in servers),
                 plugins=tuple(str(p.get("source") or p.get("name")) if isinstance(p, dict) else str(p)
                               for p in event.get("plugins") or ()),
                 skills=len(event.get("skills") or ()),

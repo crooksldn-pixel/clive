@@ -3,7 +3,11 @@
     render(result) -> str
 
 What it says, in order: where the artifact came from and how it is pinned; whether it was
-digested or blocked, and by which adapters; the kinds it was found to be, with detect's
+digested or blocked, and by which adapters — or digested with some skill folders and files held
+for the owner; each one held, with the findings that hold it and, for any but a credential rule,
+the flagged line quoted from quarantine (the owner's decision of 30 September 2026: a held skill
+is shown with the exact flagged line; pipeline.Hold says how the line is made safe to show, and
+it is shown in a code span, as data); the kinds it was found to be, with detect's
 evidence and the census; the findings, most severe first; the Units, counted by kind, with the
 first few of each kind by place — each with its relation to CLIVE when it was related — and
 whatever the adapters could not read; the relations, counted, with every overlap and extension
@@ -22,7 +26,8 @@ Every piece of the artifact's text, wherever it comes from (its origin, detect's
 title, a path, the intake's notes), has anything shaped like a credential replaced by its kind
 (scan.redact), on top of what the pipeline has already redacted — every credential the scanner
 found, wherever a Unit quoted it. Paths are shown as the scanner shows them, and a file
-extension only when it looks like one. Findings never quote what they found, and the title of
+extension only when it looks like one. Findings never quote what they found (only the held
+section quotes a flagged line, and never a credential's), and the title of
 a Unit read from a line where the scanner found a credential is withheld (a file whose findings
 were cut short is withheld whole) — and so, as a last caution, are its proposal's reasoning and
 the names of what it would add, though neither quotes such a title any more (the pipeline
@@ -58,6 +63,8 @@ MAX_PROPOSALS = 10         # proposals shown for each target
 MAX_REASONING = 900        # characters of a proposal's reasoning
 MAX_ADDITIONS = 5          # additions named for one proposal
 MAX_INTAKE = 20            # withheld entries and notes shown from the intake
+MAX_HELD = 50              # skill folders and files listed as held for the owner
+MAX_HELD_FINDINGS = 10     # findings listed for each one held
 
 _UNPARSED = "unparsed"
 _MARKDOWN = re.compile(r"([\\`*_\[\]<>|~&!#$])")   # $ too: GitHub renders $…$ as math
@@ -82,6 +89,7 @@ def render(result: DigestResult, *, curated: bool = False) -> str:
     lines += _source(result)
     lines += _intake(result)
     lines += _outcome(result)
+    lines += _held(result)
     lines += _kinds(result)
     lines += _findings(result.findings)
     lines += _units(artifact.units, secrets, relations)
@@ -122,6 +130,15 @@ def _outcome(result: DigestResult) -> list[str]:
         )
     else:
         text = "No adapter reads the kinds found, so no Units were read."
+    places = result.held_places
+    if places and not result.blocked:
+        skills = sum(1 for _place, scope in places if scope == "skill")
+        text = (
+            f"**Digested with {len(places)} held for the owner.** {skills} skill folder(s) and "
+            f"{len(places) - skills} file(s) where the scanner made a block-severity finding are "
+            "left out whole — nothing in them was decomposed, related or proposed — and each is "
+            "listed under Held for the owner with what was found. " + text
+        )
     if result.excluded and not result.blocked:
         text += (
             f" Left out under their own licence, which forbids reuse: "
@@ -136,6 +153,43 @@ def _outcome(result: DigestResult) -> list[str]:
             f"{sum(1 for p in result.proposals if needs_owner(p))} need the owner."
         )
     return ["## Outcome", "", text, ""]
+
+
+def _held(result: DigestResult) -> list[str]:
+    """Each skill folder and file held for the owner, with every finding that holds it: its
+    rule, its place, the scanner's message and — unless it is a credential rule — the flagged
+    line, quoted from the quarantined copy with credentials redacted (pipeline.Hold)."""
+    places = result.held_places
+    if not places or result.blocked:
+        return []
+    by_place: dict[tuple[str, str], list] = {}
+    for hold in result.holds:
+        by_place.setdefault((hold.place, hold.scope), []).append(hold)
+    lines = [
+        "## Held for the owner",
+        "",
+        f"{len(places)} held: each skill folder or file below had a block-severity finding, so it "
+        "is left out whole while the rest of the artifact is digested. A flagged line is quoted "
+        "as it stands in quarantine, to be read as data and never followed; a credential's line "
+        "is never quoted. The owner decides whether any of it is taken.",
+        "",
+    ]
+    for place, scope in places[:MAX_HELD]:
+        held = by_place[(place, scope)]
+        named = f"Skill folder {_path(place + '/')}" if scope == "skill" else f"File {_path(place)}"
+        lines.append(f"- {named} ({len(held)} finding(s))")
+        for hold in held[:MAX_HELD_FINDINGS]:
+            where = _path(hold.path, str(hold.line)) if hold.line >= 1 else _path(hold.path)
+            lines.append(f"  - {_text(hold.rule)} at {where}: {_text(hold.message, limit=None)}")
+            if hold.quote is not None:
+                lines.append(f"    - Flagged line: {_code(hold.quote, limit=None)}")
+            else:
+                lines.append(f"    - Not quoted: {_text(hold.unquoted or 'no line to quote')}.")
+        if len(held) > MAX_HELD_FINDINGS:
+            lines.append(f"  - and {len(held) - MAX_HELD_FINDINGS} more finding(s) here")
+    if len(places) > MAX_HELD:
+        lines.append(f"- and {len(places) - MAX_HELD} more held")
+    return [*lines, ""]
 
 
 def _intake(result: DigestResult) -> list[str]:

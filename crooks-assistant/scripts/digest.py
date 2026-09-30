@@ -27,12 +27,14 @@ refused with --self or --no-relate, which propose nothing.
 --origin is stored and shown, so it must not carry a credential: a URL with a user or password
 in it, or anything shaped like a token, is refused (exit 1), as intake refuses it.
 
-One line is printed: the artifact, its Units, its findings by severity, its kinds and, when it
-was related, its relations by kind and its proposals by target; and 'curated' with --curated.
-It is printed before the report
-is written, so it is there even when the report cannot be.
+One line is printed: the artifact, its Units, how many skill folders and files were held for the
+owner, its findings by severity, its kinds and, when it was related, its relations by kind and
+its proposals by target; and 'curated' with --curated. It is printed before the report is
+written, so it is there even when the report cannot be.
 
-Exit status: 0 digested; 2 blocked in quarantine by a block-severity finding, before
+Exit status: 0 digested — including when skill folders or files were held for the owner by a
+block-severity finding, each left out whole while the rest was digested (pipeline stage 2);
+2 blocked in quarantine by a block-severity finding that stops the whole artifact, before
 decomposition — whatever else then fails, 2 always means blocked; 1 could not digest (bad
 arguments, an origin with a credential, not a directory, too large to pin, a different record
 already stored under this artifact's id, or a file that cannot be written — the report
@@ -167,7 +169,8 @@ def write_report(result: DigestResult, path: Path | None, prog: str, curated: bo
 
 def finish(result: DigestResult, report: Path | None, prog: str, curated: bool = False) -> int:
     """Print the summary, then write the report, and say how it went: 2 whenever the artifact
-    was blocked, whatever else fails; 1 when the report could not be written; else 0."""
+    was blocked, whatever else fails; 1 when the report could not be written; else 0, whether
+    or not skill folders or files were held for the owner."""
     print(summary(result, curated))
     written = write_report(result, report, prog, curated)
     if result.blocked:
@@ -187,7 +190,7 @@ def _summary(result: DigestResult) -> str:
     by_severity = ", ".join(f"{severity} {counts[severity]}" for severity in reversed(SEVERITIES))
     line = (
         f"{'blocked' if result.blocked else 'digested'} {result.artifact.id}: "
-        f"{len(result.artifact.units)} units; findings: {by_severity}; "
+        f"{len(result.artifact.units)} units; {len(result.held_places)} held; findings: {by_severity}; "
         f"kinds: {', '.join(result.artifact.kinds) or 'none'}"
     )
     if not result.related:

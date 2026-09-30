@@ -81,7 +81,10 @@ Needs: the service installed with the authority to deploy (**decision 3**), the 
    out of parking. It was parked after the round-6 review; the request path has since been
    hardened (owner-only, repository-only, filing off unless named). *Recommendation: yes, with the
    "Fix this" hold, so nothing is filed without his gesture.*
-2. **Re-pin the worker loop.** One command, owed since 26 September. *Recommendation: yes.*
+   **Decided 30 September: yes** (filing to worker-01, every request behind his hold); and, beyond
+   this plan, the loop lands its own green, reviewed, unprotected work on the trunk
+   ([OWNER_DECISIONS_2026-09-30.md](../product-memory/OWNER_DECISIONS_2026-09-30.md)).
+2. **Re-pin the worker loop.** One command, owed since 26 September. *Recommendation: yes.* **Done 30 September** (to `40e6a73f`, under his waiver).
 3. **Install a release service with the authority to deploy reviewed SHAs after his hold.** This
    is the real grant: a root service on production that can change what runs, gated on a clean
    review and his hold. *Recommendation: yes, but only after one more round goes through the
