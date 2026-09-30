@@ -1,0 +1,80 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "expose-draft-order-s-payment-link-3",
+  "title": "Expose a draft order's payment link (invoice URL)",
+  "requested_outcome": "There is currently no way to get a draft order's payment link — no tool exposes its invoice or checkout URL. This needs to become available, either as a new read tool for draft order details (including the invoice URL) or by having the draft order creation flow return it, so the owner can ask for a draft order's payment link and be given the actual URL rather than told it cannot be found.",
+  "base_ref": "56562ebb8e2358d0c18127b63942196b930ac672",
+  "base_sha": "56562ebb8e2358d0c18127b63942196b930ac672",
+  "allowed_paths": [
+    "crooks-assistant/app/tools/shopify_tools.py",
+    "crooks-assistant/app/tools/registry.py",
+    "crooks-assistant/tests/test_expose_draft_order_s_payment_link_3.py"
+  ],
+  "acceptance_criteria": [
+    "A draft order already created can have its invoice/checkout URL retrieved through a tool call",
+    "The returned URL is the real Shopify-hosted invoice URL for that draft order, not invented or guessed",
+    "Asking for a draft order's payment link after it is created returns that URL",
+    "The change is proven by tests in crooks-assistant/tests/test_expose_draft_order_s_payment_link_3.py, and they pass."
+  ],
+  "checks": [
+    {
+      "name": "tests",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_expose_draft_order_s_payment_link_3.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "regression",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-m",
+        "not live",
+        "tests/test_gate.py",
+        "tests/test_readonly.py",
+        "tests/test_actions.py",
+        "tests/test_actions_routes.py",
+        "tests/test_engine_hooks.py",
+        "tests/test_batch.py",
+        "tests/test_available.py",
+        "tests/test_judgment.py",
+        "tests/test_judgment_construction.py",
+        "tests/test_judgment_chain.py",
+        "tests/test_judgment_ledger.py",
+        "tests/test_cancel.py",
+        "tests/test_refund.py",
+        "tests/test_address.py",
+        "tests/test_fulfil.py",
+        "tests/test_inventory.py",
+        "tests/test_tracking.py",
+        "tests/test_order_edit.py",
+        "tests/test_gmail_writes.py",
+        "tests/test_compose.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/expose-draft-order-s-payment-link-3",
+  "max_repair_rounds": 2
+}
