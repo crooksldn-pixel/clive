@@ -147,6 +147,47 @@ def test_with_the_check_server_any_further_widening_is_still_refused(tmp_path, c
     assert any(expected in p for p in problems), problems
 
 
+# The init event Claude Code 2.1.285 printed on 2026-09-30 for a launch with the clive_checks server (the
+# roster's tool and server fields verbatim; its plugins and other fields are REAL_INIT's).
+REAL_CHECKS_ROSTER = {"tools": ["Read", "mcp__clive_checks__run_checks"],
+                      "mcp_servers": [{"name": "clive_checks", "status": "connected", "source": "dynamic"}]}
+
+
+def test_the_real_check_server_roster_passes_the_launch_check_that_asked_for_it(tmp_path):
+    started = parse_events(json.dumps({**REAL_INIT, **REAL_CHECKS_ROSTER}))[0]
+    assert started.mcp_server_status == (("clive_checks", "connected"),)
+    assert ClaudeCodeWorker().verify_started(started, spec(tmp_path, check_config=tmp_path / "config.json")) == []
+
+
+@pytest.mark.parametrize("change, expected", [
+    ({"tools": ["Read", "Edit", "Write", "Glob", "Grep", "StructuredOutput"]},
+     f"the declared checks' tool {CHECK_TOOL} is missing from the init roster"),
+    ({"mcp_servers": []}, "the declared checks' MCP server clive_checks is not in the init roster"),
+    ({"mcp_servers": [{"name": "clive_checks", "status": "failed"}]},
+     "the declared checks' MCP server clive_checks is not connected (status failed)"),
+    ({"mcp_servers": [{"name": "clive_checks", "status": "pending"}]},
+     "the declared checks' MCP server clive_checks is not connected (status pending)"),
+    ({"mcp_servers": [{"name": "clive_checks"}]},
+     "the declared checks' MCP server clive_checks is not connected (status not reported)"),
+    ({"mcp_servers": ["clive_checks"]},
+     "the declared checks' MCP server clive_checks is not connected (status not reported)"),
+], ids=["no-tool", "no-server", "server-failed", "server-pending", "no-status", "bare-name"])
+def test_a_launch_with_declared_checks_requires_run_checks_and_its_connected_server(tmp_path, change, expected):
+    """The 2026-09-30 re-pin review, second run, F-01: asked for, the tool and the server are required, not only
+    allowed. Without declared checks neither is required (the launch asked for neither)."""
+    event = {**REAL_INIT, "tools": ["Read", "Edit", "Write", "Glob", "Grep", "StructuredOutput", CHECK_TOOL],
+             "mcp_servers": [{"name": "clive_checks", "status": "connected"}], **change}
+    started = parse_events(json.dumps(event))[0]
+    problems = ClaudeCodeWorker().verify_started(started, spec(tmp_path, check_config=tmp_path / "config.json"))
+    assert expected in problems, problems
+    assert problems == [expected]
+
+
+def test_without_declared_checks_nothing_of_the_check_server_is_required(tmp_path):
+    event = {**REAL_INIT, "tools": ["Read", "Edit", "Write", "Glob", "Grep", "StructuredOutput"]}
+    assert ClaudeCodeWorker().verify_started(parse_events(json.dumps(event))[0], spec(tmp_path)) == []
+
+
 def test_edits_are_named_only_when_the_tool_result_succeeded():
     lines = [
         {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "a", "name": "Edit",

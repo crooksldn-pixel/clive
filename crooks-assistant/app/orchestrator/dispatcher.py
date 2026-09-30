@@ -63,6 +63,14 @@ stall) cancels the attempt and retries with exponential backoff, at most
 ``max_transient_retries`` times, counted from the kernel's cancellation records; a
 deterministic failure (a refused launch surface, missing capability, a worker that
 reports it is blocked, a candidate that cannot be published) blocks the task once.
+
+Stopping a worker is confirmed (the 2026-09-30 re-pin review, F-01): wherever the
+dispatcher stops one (a stall, no init in time, a refused launch surface, an expired lease,
+a protected scope, the attempt time limit, after its result, any cancel), the driver's
+``kill`` sends SIGTERM, waits (bounded), sends SIGKILL to what remains and waits again, and
+the cancel or block is recorded as a stop only once no process of the attempt is alive
+(``_stop``). A worker that cannot be stopped blocks the task with a reason that says so and
+names the attempt; it is never recorded as a normal cancel.
 """
 
 from __future__ import annotations
@@ -279,7 +287,9 @@ class Dispatcher:
                 if status in (TaskStatus.ASSIGNED, TaskStatus.RUNNING):
                     # Stopped before the block, so nothing the worker does afterwards is supervised,
                     # ingested or published (the 2026-09-30 re-pin review, F-02).
-                    self._worker_for(obj).kill(_marker(self._current_attempt(task, state)))
+                    stuck = self._stop(obj, task, self._current_attempt(task, state), refusal)
+                    if stuck is not None:
+                        return stuck, True
                 return self._block(obj, task, refusal), True
             if status is TaskStatus.READY:
                 return self._start_attempt(obj, task, state)
@@ -486,7 +496,7 @@ class Dispatcher:
             if started is None:
                 if live:
                     if launched_at and now - launched_at > timedelta(seconds=self.config.init_timeout_s):
-                        self._worker_for(obj).kill(_marker(attempt))
+                        # _cancel stops the worker first, and cancels only once it is confirmed gone.
                         return self._cancel(obj, attempt, f"{TRANSIENT} no init event within "
                                                           f"{self.config.init_timeout_s}s"), True
                     return self._note(obj.objective_id, f"{attempt.attempt_id}: process alive, no init event yet"), False
@@ -508,8 +518,11 @@ class Dispatcher:
                             "api_key_source": started.api_key_source, "problems": problems}
             self._save_runtime(attempt.attempt_id, rt)
             if problems:
-                self._worker_for(obj).kill(_marker(attempt))
-                return self._block(obj, task, "worker launch surface refused: " + "; ".join(problems)), True
+                refused = "worker launch surface refused: " + "; ".join(problems)
+                stuck = self._stop(obj, task, attempt, refused)
+                if stuck is not None:
+                    return stuck, True
+                return self._block(obj, task, refused), True
             self.kernel.acknowledge(attempt.attempt_id, token=attempt.fencing_token, base_sha=attempt.base_sha)
             return self._note(obj.objective_id, f"{attempt.attempt_id} acknowledged from the worker's init event "
                                                 f"(tools {', '.join(started.tools)}; MCP servers: "
@@ -518,8 +531,7 @@ class Dispatcher:
         # RUNNING
         if now > self.kernel.lease(attempt)["expires_at"]:
             # Nothing renewed the lease in time (the dispatcher was not observing): the kernel would fence
-            # every submission of this attempt, so it is cancelled rather than left to fail late.
-            self._worker_for(obj).kill(_marker(attempt))
+            # every submission of this attempt, so it is cancelled rather than left to fail late (once stopped).
             return self._cancel(obj, attempt, f"{TRANSIENT} the attempt's lease expired before its result "
                                               "was ingested"), True
         consumed = int(rt.get("consumed", 0))
@@ -549,11 +561,13 @@ class Dispatcher:
             return self._block(obj, task, reason), True
         last_activity = _parse(rt.get("last_activity_at")) or launched_at or now
         if now - last_activity > timedelta(seconds=self.config.stall_s):
-            self._worker_for(obj).kill(_marker(attempt))
             return self._cancel(obj, attempt, f"{TRANSIENT} worker stalled: no event for {self.config.stall_s}s"), True
         if launched_at and now - launched_at > timedelta(seconds=self.config.attempt_timeout_s):
-            self._worker_for(obj).kill(_marker(attempt))
-            return self._block(obj, task, f"worker exceeded the attempt time limit of {self.config.attempt_timeout_s}s"), True
+            limit = f"worker exceeded the attempt time limit of {self.config.attempt_timeout_s}s"
+            stuck = self._stop(obj, task, attempt, limit)
+            if stuck is not None:
+                return stuck, True
+            return self._block(obj, task, limit), True
         return None, False
 
     def _renew(self, obj: Objective, attempt: Attempt, rt: dict, now: datetime, *, flush_edits: bool = False) -> None:
@@ -577,7 +591,11 @@ class Dispatcher:
         self._save_runtime(attempt.attempt_id, rt)
 
     def _finished(self, obj: Objective, task: EngineeringTask, attempt: Attempt, fin: Finished) -> str:
-        self._worker_for(obj).kill(_marker(attempt))  # a result is final; nothing of this attempt keeps running
+        # A result is final; nothing of this attempt keeps running, above all not while CLIVE commits its tree.
+        stuck = self._stop(obj, task, attempt, f"its result ({fin.status}) was read and nothing of the attempt may "
+                                               "keep running while CLIVE takes its tree")
+        if stuck is not None:
+            return stuck
         if fin.status == "blocked":
             return self._block(obj, task, f"worker reported blocked: {fin.reason or fin.summary}")
         if fin.status == "owner_decision_required":
@@ -944,9 +962,30 @@ class Dispatcher:
         return self._note(obj.objective_id, f"{'OWNER_GATE' if owner else 'BLOCKED'}: {reason}")
 
     def _cancel(self, obj: Objective, attempt: Attempt, reason: str) -> str:
-        self._worker_for(obj).kill(_marker(attempt))
+        """Cancel the attempt once its worker is confirmed gone; a worker that cannot be stopped blocks instead."""
+        task = self.store.read_task(attempt.task_id, attempt.task_revision)
+        stuck = self._stop(obj, task, attempt, f"its attempt was to be cancelled ({reason})")
+        if stuck is not None:
+            return stuck
         self.kernel.cancel_attempt(attempt.attempt_id, reason=reason[:990])
         return self._note(obj.objective_id, f"{attempt.attempt_id} cancelled: {reason}")
+
+    def _stop(self, obj: Objective, task: EngineeringTask, attempt: Attempt, why: str) -> str | None:
+        """Stop the attempt's worker and confirm it: None once no process of it is alive, else the block recorded.
+
+        Whatever the dispatcher records after a stop (a cancel, a block, a candidate) presumes nothing of the
+        attempt still runs, so it is recorded only once the driver confirms every process carrying the attempt
+        marker has exited (SIGTERM, a bounded wait, SIGKILL, a bounded wait: ``WorkerDriver.kill``). A worker
+        still alive after that is not recorded as stopped: the task blocks, naming the attempt and the pids,
+        so the owner stops them before anything is resumed (the 2026-09-30 re-pin review, F-01)."""
+        alive = self._worker_for(obj).kill(_marker(attempt))
+        if not alive:
+            return None
+        pids = ", ".join(str(pid) for pid in alive)
+        return self._block(obj, task, f"the worker of {attempt.attempt_id} could not be stopped: pid(s) {pids} still "
+                                      "alive after SIGTERM, SIGKILL and a bounded wait; it is not cancelled or "
+                                      f"recorded as stopped, so stop it on the host before resuming. It was being "
+                                      f"stopped because {why}")
 
     # ------------------------------------------------------------ texts
     def worker_prompt(self, obj: Objective, task: EngineeringTask, attempt: Attempt, start_sha: str | None) -> str:

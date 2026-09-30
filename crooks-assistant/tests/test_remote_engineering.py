@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
+import sys
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -1889,3 +1892,163 @@ def test_a_github_gated_loop_does_not_start_without_a_publication_remote(tmp_pat
     for verb in ("tick", "run"):
         assert dispatcher_cli.run([*common, verb]) == 2
         assert dispatcher_cli.NO_PUBLISH_REMOTE in capsys.readouterr().err
+
+
+# ------------------------------- the 2026-09-30 re-pin review of 40e6a73f, F-02 (waived, done by hand): `run` restarted
+
+def _files(root: Path) -> dict[str, bytes]:
+    return {path.relative_to(root).as_posix(): path.read_bytes() for path in sorted(root.rglob("*")) if path.is_file()}
+
+
+def _kill_builders(store: LifecycleStore) -> None:
+    """SIGKILL every builder this store launched that is still alive, found on the host by its attempt marker."""
+    from app.orchestrator.workers.base import processes_with_marker, worker_marker
+    from app.orchestrator.workers.claude import MARKER
+
+    for task in store.read_tasks():
+        for attempt in store.read_attempts(task.task_id):
+            for pid in processes_with_marker(MARKER, worker_marker(attempt.attempt_id, attempt.worker.session.session_id)):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+
+def test_run_restarted_on_an_existing_store_replays_it_admits_nothing_twice_and_blocks_a_newly_protected_objective(
+        env, tmp_path, capsys, monkeypatch, no_host_git_config):
+    """The re-pin review of 40e6a73f, F-02: the long-running mode, restarted against what a host's store holds.
+
+    The flags are clive-worker-01's (OWNER_DECISIONS_2026-09-30): ``run`` with ``--publish-remote origin`` and
+    ``--product-memory-ref origin/clive/trunk``, a journalled store and no ``--adapter-root``, so claims and receipts
+    live at the default <store>/remote_engineering under the host's own exclude rule; only the paths (store, repo,
+    runtime, workspaces) and the builder CLI (the dispatcher tests' fake claude) are the test's. Its first life
+    leaves what a restart finds: v1 claims and receipts (one of them a refusal), objectives, tasks, an attempt
+    whose builder is alive, the dispatcher's runtime notes, and one objective waiting for the worker slot. Then a
+    path is newly protected, a new request arrives, and ``run`` starts again with the same flags. Replay keeps
+    every record, admits and launches nothing twice, stops the builder of the objective whose scope is now
+    protected and blocks it with its reason, launches the waiting one once, and admits the new request once."""
+    from app.orchestrator import objectives as objectives_module
+    from app.orchestrator.workers import ClaudeCodeWorker
+    from app.orchestrator.workers.base import worker_marker
+    from app.remote_engineering import DEFAULT_STATUS_PATH
+    from tests.test_engineering_dispatcher import FAKE_CLAUDE
+
+    state = _journalled_state(tmp_path)
+    store_dir = state / "engineering"
+    exclude = state / ".git" / "info" / "exclude"
+    exclude.write_text((exclude.read_text() if exclude.exists() else "") + "/engineering/remote_engineering/\n")
+    _git(env.origin, "branch", "clive/trunk", "main")            # product memory lives on the trunk
+    _git(env.checkout, "fetch", "-q", "origin")
+    fake_state = tmp_path / "fake-state"
+    fake_state.mkdir()
+    (fake_state / "scenarios.json").write_text(json.dumps([{"hang": True}]))   # every builder starts and works on
+    fake = tmp_path / "claude"
+    fake.write_text(FAKE_CLAUDE.format(python=sys.executable, state=str(fake_state)))
+    fake.chmod(0o755)
+    runtime, workers = tmp_path / "runtime", tmp_path / "workers"
+    host = ["--store", str(store_dir), "--repo", str(env.checkout), "--runtime-root", str(runtime),
+            "--workspace-root", str(workers), "--worker-cli", str(fake), "--publish-remote", "origin",
+            "run", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "origin/clive/trunk",
+            "--max-cycles", "1"]
+    commit_request(env.origin, "r-guarded", valid_request(env, request_id="r-guarded",
+                                                         allowed_paths=["crooks-assistant/app/guarded"]))
+    commit_request(env.origin, "r-kept", valid_request(env, request_id="r-kept"))
+    commit_request(env.origin, "r-refused", valid_request(env, request_id="r-refused",
+                                                         allowed_paths=["crooks-assistant/app/remote_engineering"]))
+    store = LifecycleStore(store_dir)
+    worker = ClaudeCodeWorker(cli=str(fake))
+    try:
+        # ---- the loop's first life
+        assert cli.run(host) == 0
+        first = capsys.readouterr()
+        assert first.err == ""
+        before = json.loads(first.out)
+        assert before["intake_error"] is None and before["publish_error"] is None
+        assert {o["request_id"]: o["outcome"] for o in before["outcomes"]} == \
+            {"r-guarded": "accepted", "r-kept": "accepted", "r-refused": "refused"}
+        [guarded] = store.read_attempts("r-guarded")
+        marker = worker_marker(guarded.attempt_id, guarded.worker.session.session_id)
+        deadline = time.monotonic() + 10
+        while not worker.live_pids(marker) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert worker.live_pids(marker)                           # its builder is alive when the loop restarts
+        assert store.read_task_state("r-guarded", 1).status in (TaskStatus.ASSIGNED, TaskStatus.RUNNING)
+        assert store.read_task_state("r-kept", 1).status is TaskStatus.READY and not store.read_attempts("r-kept")
+        assert any("r-kept: waiting: the concurrent-worker limit" in line for line in before["dispatcher_events"])
+
+        adapter = store_dir / "remote_engineering"
+        records = _files(adapter)
+        assert sorted(records) == [f"{kind}/{rid}.json" for kind in ("claims", "receipts")
+                                   for rid in ("r-guarded", "r-kept", "r-refused")]
+        assert {json.loads(data)["schema_version"] for name, data in records.items() if name.startswith("claims/")} \
+            == {"clive.remote_engineering_claim.v1"}
+        assert {json.loads(data)["schema_version"] for name, data in records.items() if name.startswith("receipts/")} \
+            == {"clive.remote_engineering_receipt.v1"}
+        lifecycle = {name: data for name, data in _files(store_dir).items() if not name.startswith("remote_engineering/")}
+        assert any(name.startswith("objectives/") for name in lifecycle) and any(name.startswith("attempts/")
+                                                                                 for name in lifecycle)
+        notes = _files(runtime / "attempts")
+        assert list(notes) == [f"{guarded.attempt_id}.json"]
+        assert json.loads(notes[f"{guarded.attempt_id}.json"])["phase"] == "launched"
+        assert _git(state, "status", "--porcelain", "--untracked-files=all") == ""
+
+        # ---- a path is newly protected, a new request arrives, and the loop restarts with the same flags
+        monkeypatch.setattr(objectives_module, "PROTECTED_PATHS",
+                            objectives_module.PROTECTED_PATHS + ("crooks-assistant/app/guarded",))
+        commit_request(env.origin, "r-new", valid_request(env, request_id="r-new"))
+        assert cli.run(host) == 0
+        second = capsys.readouterr()
+        assert second.err == ""
+        after = json.loads(second.out)
+        assert after["intake_error"] is None and after["publish_error"] is None
+
+        # replay: every earlier decision is repeated from its record, byte for byte; only r-new is new
+        old = {o["request_id"]: o for o in before["outcomes"]}
+        new = {o["request_id"]: o for o in after["outcomes"]}
+        assert {rid: new[rid] for rid in old} == old
+        assert new["r-new"]["outcome"] == "accepted"
+        assert _files(adapter) == {**records, **{f"{kind}/r-new.json": _files(adapter)[f"{kind}/r-new.json"]
+                                                 for kind in ("claims", "receipts")}}
+        # nothing admitted twice: one objective entry and one task per admitted id, none for the refusal
+        subjects = _git(state, "log", "--format=%s").splitlines()
+        for rid in ("r-guarded", "r-kept", "r-new"):
+            assert sum(s.startswith(f"objective {rid} entered") for s in subjects) == 1, rid
+            assert sum(s.startswith(f"kernel: task {rid} r1 created") for s in subjects) == 1, rid
+        assert not any("r-refused" in s for s in subjects)
+        # the lifecycle records are kept: write-once records unchanged, event logs only appended to
+        now = {name: data for name, data in _files(store_dir).items() if not name.startswith("remote_engineering/")}
+        states = store.task_states_dir.relative_to(store_dir).as_posix() + "/"
+        for name, data in lifecycle.items():
+            if name.startswith(states) or name.endswith(".lock"):
+                continue                                          # the kernel's current-state projection moves on
+            if name.endswith(".jsonl"):
+                assert now[name].startswith(data), name
+            else:
+                assert now[name] == data, name
+        # the runtime notes of the attempt the loop found are kept as they were
+        assert _files(runtime / "attempts")[f"{guarded.attempt_id}.json"] == notes[f"{guarded.attempt_id}.json"]
+
+        # the newly protected objective: its builder stopped and confirmed gone, its task blocked with the reason
+        blocked = store.read_task_state("r-guarded", 1)
+        assert blocked.status is TaskStatus.BLOCKED and blocked.blocker_class is BlockerClass.DETERMINISTIC
+        assert "covers protected path(s) crooks-assistant/app/guarded" in blocked.blocker_reason
+        assert "could not be stopped" not in blocked.blocker_reason
+        assert not worker.live_pids(marker)
+        assert [a.attempt_id for a in store.read_attempts("r-guarded")] == [guarded.attempt_id]
+        # the one waiting for the slot is launched once; the new one waits for it; one builder per launch
+        [kept] = store.read_attempts("r-kept")
+        assert store.read_task_state("r-kept", 1).status in (TaskStatus.ASSIGNED, TaskStatus.RUNNING)
+        assert store.read_task_state("r-new", 1).status is TaskStatus.READY and not store.read_attempts("r-new")
+        assert int((fake_state / "invocations").read_text()) == 2
+        events = after["dispatcher_events"]
+        assert any(line.startswith("r-guarded: BLOCKED: the task's scope covers protected path(s) "
+                                   "crooks-assistant/app/guarded") for line in events), events
+        assert any(line.startswith(f"r-kept: assigned {kept.attempt_id}") for line in events), events
+        assert any(line.startswith("r-new: waiting: the concurrent-worker limit") for line in events), events
+        # and the published projection says so
+        published = json.loads(_git(env.origin, "show", f"{after['projection_commit']}:{DEFAULT_STATUS_PATH}"))
+        item = next(i for i in published["requests"] if i["request_id"] == "r-guarded")
+        assert item["stage"] == "BLOCKED" and "covers protected path(s) crooks-assistant/app/guarded" in item["blocker"]
+        assert _git(state, "status", "--porcelain", "--untracked-files=all") == ""
+    finally:
+        _kill_builders(store)
