@@ -665,9 +665,11 @@ def _licence_plan(plan: _Plan, licence: tuple[str, str] | None) -> _Plan:
     expression, where = licence if licence else ("", "")
     rank = scan.licence_rank(expression or None)
     if rank == 2:
-        return _reference(f"Its licence ({expression}, in {where}) forbids reuse, so nothing is "
-                          "taken from it; it is kept as a pointer, and the owner decides "
-                          "anything more.")
+        return replace(_reference(f"Its licence ({expression}, in {where}) forbids reuse, so "
+                                  "nothing is taken from it; it is kept as a pointer, and the "
+                                  "owner decides anything more."),
+                       needs_owner=f"its licence ({expression}) forbids reuse, so taking anything "
+                                   "from it is the owner's to decide")
     if rank is None:
         return _more(plan, "no licence grants the right to reuse it: the artifact declares none",
                      UNLICENSED_COST, "none found")

@@ -178,6 +178,8 @@ def test_under_curated_the_licence_still_decides_and_still_needs_the_owner(model
     assert curated[vendor].target == "reference_only" and curated[vendor].removal.additions == ()
     assert "forbids reuse" in curated[vendor].reasoning
     assert "the owner decides anything more" in curated[vendor].reasoning
+    assert needs_owner(plain[vendor]) and needs_owner(curated[vendor])
+    assert "forbids reuse" in explain(curated[vendor]).needs_owner
     # conditions that travel with it are still the owner's to accept
     assert curated[copyleft].target == "builder_skill"
     assert "conditions" in explain(curated[copyleft]).needs_owner
