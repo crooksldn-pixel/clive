@@ -1,0 +1,82 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "fix-item-search-failures-order-creation",
+  "title": "Fix item search failures in order creation; support custom line items",
+  "requested_outcome": "When adding an item to a new order by name, the same words that already match in variant search must successfully add that item to the order card — right now an active, in-stock item repeatedly fails to add even though variant search finds it, leaving the order card empty. Also, there is currently no way to add a custom or inactive-product line item (for example, ten sticker packs, no longer an active product) to a new or existing order — this needs to become possible, with a title and price at minimum. Nothing else about how orders are built, priced or shown should change.",
+  "base_ref": "56562ebb8e2358d0c18127b63942196b930ac672",
+  "base_sha": "56562ebb8e2358d0c18127b63942196b930ac672",
+  "allowed_paths": [
+    "crooks-assistant/app/tools/shopify_tools.py",
+    "crooks-assistant/app/tools/dispatch.py",
+    "crooks-assistant/app/tools/registry.py",
+    "crooks-assistant/tests/test_fix_item_search_failures_order_creation.py"
+  ],
+  "acceptance_criteria": [
+    "An active, in-stock product that matches in variant search by name can be added as a line item to a new order without the add failing or the order card staying empty",
+    "A custom line item (a title and a price, with no matching product) can be added to a new order",
+    "A custom line item (a title and a price, with no matching product) can be added to an existing order",
+    "Adding a custom or inactive-product line item does not require or invent a variant_id",
+    "The change is proven by tests in crooks-assistant/tests/test_fix_item_search_failures_order_creation.py, and they pass."
+  ],
+  "checks": [
+    {
+      "name": "tests",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_fix_item_search_failures_order_creation.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "regression",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-m",
+        "not live",
+        "tests/test_gate.py",
+        "tests/test_readonly.py",
+        "tests/test_actions.py",
+        "tests/test_actions_routes.py",
+        "tests/test_engine_hooks.py",
+        "tests/test_batch.py",
+        "tests/test_available.py",
+        "tests/test_judgment.py",
+        "tests/test_judgment_construction.py",
+        "tests/test_judgment_chain.py",
+        "tests/test_judgment_ledger.py",
+        "tests/test_cancel.py",
+        "tests/test_refund.py",
+        "tests/test_address.py",
+        "tests/test_fulfil.py",
+        "tests/test_inventory.py",
+        "tests/test_tracking.py",
+        "tests/test_order_edit.py",
+        "tests/test_gmail_writes.py",
+        "tests/test_compose.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/fix-item-search-failures-order-creation",
+  "max_repair_rounds": 2
+}
