@@ -97,11 +97,11 @@ def test_the_secret_scanner_is_pinned_to_a_digest(workflow: dict, steps: list[di
     assert "if [ -n" not in scanner and "warning" not in scanner
 
 
-def test_a_pull_request_from_this_repository_is_not_run_twice(workflow: dict) -> None:
-    """Its push already ran on the very same SHA; a pull request from elsewhere still runs."""
-    condition = workflow["jobs"]["acceptance"]["if"]
-    assert "github.event_name != 'pull_request'" in condition
-    assert "github.event.pull_request.head.repo.full_name != github.repository" in condition
+def test_every_trigger_runs_the_job(workflow: dict) -> None:
+    """CLIVE's own gate (app/orchestrator/github_acceptance.py) reads every run for a commit and calls
+    it red unless each one's acceptance job succeeded, so a job skipped for one trigger would turn
+    every pull request red. Duplicate runs cost minutes; a skipped one costs the gate."""
+    assert "if" not in workflow["jobs"]["acceptance"]
     assert set(workflow[True]) >= {"push", "pull_request"}                    # yaml reads `on:` as True
 
 

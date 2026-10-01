@@ -42,10 +42,6 @@ env:
 
 jobs:
   acceptance:
-    # A pull request from a branch of this repository is the same commit its push already
-    # tested: the push run's evidence is about that exact SHA, so a second full run would only
-    # spend minutes. A pull request from anywhere else still runs here.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
