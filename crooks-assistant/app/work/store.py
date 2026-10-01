@@ -198,6 +198,16 @@ class WorkStore:
             found = [self._load(p) for p in sorted(folder.glob("w_*.json"))]
         return [i for i in found if i is not None]
 
+    def archived(self, since: str = "") -> list[WorkItem]:
+        """The jobs put away under items/archive/<yyyy-mm>/, from the month of `since` (YYYY-MM-DD)
+        on: a job ends no earlier than the day it is asked about. Read only; nothing is moved."""
+        with self._lock:
+            folder = self._root() / "items" / "archive"
+            months = sorted(p for p in folder.glob("[0-9][0-9][0-9][0-9]-[0-9][0-9]") if p.is_dir()
+                            and p.name >= since[:7]) if folder.is_dir() else []
+            found = [self._load(p) for month in months for p in sorted(month.glob("w_*.json"))]
+        return [i for i in found if i is not None]
+
     def by_ref(self, ref: str) -> list[WorkItem]:
         return [i for i in self.items() if i.ref == ref]
 

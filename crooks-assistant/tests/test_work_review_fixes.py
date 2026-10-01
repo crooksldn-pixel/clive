@@ -107,6 +107,28 @@ async def test_another_day_shows_the_kept_records_for_it_not_what_is_found_today
     assert [r["ref"] for r in now["found"]] == [ORDER_1] and now["sources"]["orders"]["count"] == 1
 
 
+async def test_another_day_shows_the_jobs_put_away_since_and_moves_nothing(stores, monkeypatch):
+    finding(monkeypatch)
+    work_tools.bind(SimpleNamespace())
+    past = (date.fromisoformat(today()) - timedelta(days=ARCHIVE_AFTER_DAYS + 16)).isoformat()
+    job = work.assign(title="Restock the shelves", by="owner")
+    work.done(job.item_id, who="owner", owner=True)
+    path = stores / "work" / "items" / f"{job.item_id}.json"
+    data = json.loads(path.read_text())
+    data["created_at"] = past + "T08:00:00+00:00"
+    data["done_at"] = past + "T09:00:00+00:00"
+    path.write_text(json.dumps(data))
+    assert work.archive(today()) == 1 and work.get(job.item_id) is None          # put away under items/archive/
+    folder = stores / "work"
+    before = kept_files(folder)
+    with owner():
+        then = await work_tools.work_list(day=past)
+        earlier = await work_tools.work_list(day=(date.fromisoformat(past) - timedelta(days=1)).isoformat())
+    assert [i["item_id"] for i in then["done"]] == [job.item_id]
+    assert earlier["done"] == []
+    assert kept_files(folder) == before                                           # read, never moved
+
+
 @pytest.mark.parametrize("day", ["1 September", "2026-9-1", "20260901", "2026-02-30", "tomorrow"])
 async def test_a_day_that_is_not_a_date_is_refused_in_words(monkeypatch, day):
     finding(monkeypatch)
