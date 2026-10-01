@@ -1,0 +1,69 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "engineering-measures-loop-records",
+  "title": "Engineering measures from the loop's own records: objectives, attempts, repairs, landings and the trunk",
+  "requested_outcome": "The owner judges the build system by how long it takes from asking to the change landing, and by how much it costs in rounds. scripts/engineering_measures.py can only read published loop status documents, which cover none of the work since 26 September, and it has no deploy log or owner-attention log to read. Give it a second source that already exists on the build server: the loop's own records. With --store (the kernel's engineering/ directory) and --runtime-root (the dispatcher's runtime, default /opt/crooks-workers/runtime), it reports per objective, per UTC day and in total: when the objective was recorded; how many task revisions it took, how many of those were repairs (kind repair) and how many were trunk refreshes (kind integration); how many builder attempts; how many admitted review verdicts that were not refused; its current stage, and the blocker class when blocked; when its first candidate was recorded, when it was accepted and integrated; and, from <runtime>/landings/<objective>.json, its landing state, the landed SHA, who landed it and when, with hours from recorded to first candidate, to integration and to landing. From the trunk's first-parent history (git log, as the script already reads it) it counts per day the commits that were the loop's own landings (a landing record with by 'loop' names that SHA), pull-request merges, and other commits. Every figure comes from a record; nothing is estimated. Deploys and owner attention are not recorded anywhere, so the report says so and leaves those measures empty. What must not change: the existing --status report, its schema, its fields and its tests; the reader never writes to the store or the runtime, never creates a directory there and never takes the kernel's lock; it writes only the output files it is given; no review finding or note text is copied into the report.",
+  "base_ref": "b577bc973a50a01d2e2e94aa361fa186b069a5e6",
+  "base_sha": "b577bc973a50a01d2e2e94aa361fa186b069a5e6",
+  "allowed_paths": [
+    "crooks-assistant/app/engineering_measures.py",
+    "crooks-assistant/scripts/engineering_measures.py",
+    "crooks-assistant/tests/test_engineering_loop_measures.py"
+  ],
+  "acceptance_criteria": [
+    "scripts/engineering_measures.py accepts --store <engineering store root> and --runtime-root <dir> (default /opt/crooks-workers/runtime); --status and --store are alternatives, at least one is required, and with --status alone the script's arguments, output and exit codes are unchanged.",
+    "With --store, each objective under <store>/objectives is one row carrying: objective_id, title, recorded_at (the objective's created_at), revisions, repairs (revisions of kind repair), refreshes (revisions of kind integration), attempts (every builder attempt across its revisions), review_rounds (admitted verdicts whose outcome is not refused), stage (its latest revision's stage as lifecycle_view reports it), blocker_class when blocked, first_candidate_at, accepted_at, integrated_at, landing_state, landed_sha, landed_by, landed_at, hours_to_first_candidate, hours_to_integrate and hours_to_land (hours from recorded_at).",
+    "Landing columns come only from <runtime>/landings/<objective>.json records with schema clive.landing.v1; an objective with no landing record has landing_state null, and when the landings directory does not exist the report says landings were not read rather than reporting none landed.",
+    "Per UTC day and in total the report gives: objectives recorded, first candidates, repair revisions created, loop landings, median hours to land, and, when the trunk history was read, trunk first-parent commits split into loop landings, pull-request merges and other commits; without the trunk history those trunk counts are null, not 0.",
+    "Deploys and owner attention are reported as not recorded (null), never estimated or filled with a default.",
+    "A missing or unreadable store exits 2 with the reason on stderr; a readable store with no objectives gives a report with zero rows and zero counts.",
+    "Reading never writes to, creates directories in, or takes the lock of the store or the runtime: a test proves the store and runtime trees are byte-identical before and after a run, and no .kernel.lock is created.",
+    "No review finding, blocker reason or event note text appears in the report; only fixed words, ids, SHAs, counts, times and the objective's title.",
+    "tests/test_engineering_measures.py passes unchanged.",
+    "The change is proven by tests in crooks-assistant/tests/test_engineering_loop_measures.py, built on temporary stores, runtimes and git histories with fake data only, and they pass."
+  ],
+  "checks": [
+    {
+      "name": "tests",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_engineering_loop_measures.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "regression",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-m",
+        "not live",
+        "tests/test_engineering_measures.py",
+        "tests/test_lifecycle_kernel.py",
+        "tests/test_no_dangling_imports.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/engineering-measures-loop-records",
+  "max_repair_rounds": 2
+}
