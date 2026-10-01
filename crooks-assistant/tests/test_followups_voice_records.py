@@ -276,6 +276,50 @@ def test_an_explicit_refusal_still_passes_and_no_key_is_ever_printed(monkeypatch
         assert not any(key in printed for key in KEYS) and "not valid" not in printed, "fixed words only"
 
 
+def _not_the_services() -> list[tuple[str, Any]]:
+    """First words that are not one of the realtime service's messages: none says the key was taken."""
+    return [
+        ("plain text", "Unauthorized"),
+        ("a proxy's page", "<html><body>502 Bad Gateway</body></html>"),
+        ("an empty frame", ""),
+        ("bytes that are not text", b"\xff\xfe\x00garbled"),
+        ("JSON that is a string", json.dumps("session_started")),
+        ("JSON that is a list", json.dumps([{"message_type": "session_started"}])),
+        ("JSON that is null", "null"),
+        ("JSON that is a number", "200"),
+        ("an object with no message_type", json.dumps({"session_id": "x"})),
+        ("an object whose message_type is empty", json.dumps({"message_type": ""})),
+        ("an object whose message_type is not text", json.dumps({"message_type": 1})),
+        ("JSON nested past the parser's depth", "[" * 100_000 + "]" * 100_000),
+    ]
+
+
+def test_a_first_word_that_is_not_one_of_the_services_messages_is_not_asked_never_opened(monkeypatch):
+    """A first word that is not JSON, or not one of the service's own messages, says nothing about the
+    key: it is not the fresh key taken, not a second socket opened (a FAIL), and not a refusal (a pass)."""
+    pytest.importorskip("websockets.sync.client")
+    module = _key_check()
+    for what, word in _not_the_services():
+        _transport(monkeypatch, word)
+        assert module.open_once(ADDRESS, timeout_s=1) == module.NOT_ASKED, what
+
+        code, said, asked = _ask(module, monkeypatch, word)
+        assert code == 2 and len(asked) == 1, (what, said)
+        assert said == ["NOT ASKED: a fresh key would not open the socket even once"], (what, said)
+
+        code, said, _asked = _ask(module, monkeypatch, SESSION_STARTED, word)
+        assert code == 2 and said[-1].startswith("NOT ASKED: the second socket"), (what, said)
+        assert not any(line.startswith(("FAIL", "VERDICT")) or ("single-use" in line and line.startswith("ok"))
+                       for line in said), (what, said)
+
+        code, said, _asked = _ask(module, monkeypatch, SESSION_STARTED, AUTH_ERROR, word, expiry=True)
+        assert code == 2 and said[-1].startswith("NOT ASKED: the held key's socket"), (what, said)
+        assert not any(line.startswith(("FAIL", "VERDICT")) or "opened nothing" in line for line in said), (what, said)
+    # One of the service's own messages that is not an error is still the key taken.
+    _transport(monkeypatch, json.dumps({"message_type": "partial_transcript", "text": ""}))
+    assert module.open_once(ADDRESS, timeout_s=1) == module.OPENED
+
+
 # ------------------------------------------------------------------ O1-02: a malformed count is unknown
 
 
