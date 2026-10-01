@@ -260,9 +260,9 @@ async def order_by_voice(h: Harness) -> Result:
     r.checks.append(check("and it is ready for Prepare", not str(_ws(a).get("blocked") or "") and _red_enabled(a) == [True],
                           f"blocked={_ws(a).get('blocked')!r}"))
 
-    b = await h.ask("add a custom back print at twelve pounds and take ten percent off the hoodie",
+    b = await h.ask("add a custom back print at twelve pounds, take ten percent off the hoodie, and four pounds postage",
                     ("shopify_order_build", {"add": [{"title": "Custom back print", "price": 12}],
-                                             "lines": [{"line": 1, "percent_off": 10}]}),
+                                             "lines": [{"line": 1, "percent_off": 10}], "postage": 4}),
                     reply="Added.", scenario="order_by_voice", session_id=session)
     r.captures.append(b)
     r.checks.append(check("every call is one Claude could make", not b.unmakeable, f"unmakeable={b.unmakeable}"))
@@ -289,8 +289,24 @@ async def order_by_voice(h: Harness) -> Result:
                               (sent.get("shippingAddress") or {}).get("zip") == "SL4 1QN"
                               and sent.get("useCustomerDefaultAddress") is False,
                               f"shippingAddress={sent.get('shippingAddress')}"))
-        r.checks.append(check("the card's total is the draft's own arithmetic: £54 + £12",
-                              _amount(_card_facts(f).get("Total")) == 66.0, f"total={_card_facts(f).get('Total')!r}"))
+        r.checks.append(check("the card's total is the draft's own arithmetic: £54 + £12 + £4 postage",
+                              _amount(_card_facts(f).get("Total")) == 70.0, f"total={_card_facts(f).get('Total')!r}"))
+        # The rest of what the draft carries, each part the card says and the owner holds (round-12
+        # deploy review, X1-03): one draft, for the customer the search found, that customer's
+        # confirmation address, the whole delivery address of the order it was made from, and the
+        # postage said.
+        r.checks.append(check("exactly one draft was made in the shop", len(drafts) == 1, f"drafts={len(drafts)}"))
+        r.checks.append(check("for the customer the search found, with their own address for the confirmation",
+                              sent.get("customerId") == MIA.customer_id and sent.get("email") == MIA.email,
+                              f"customerId={sent.get('customerId')!r} email={sent.get('email')!r}"))
+        r.checks.append(check("going to the whole delivery address on #1938",
+                              sent.get("shippingAddress") == {"firstName": "Mia", "lastName": "Jones",
+                                                              "address1": "12 Bridge Street", "city": "Windsor",
+                                                              "zip": "SL4 1QN", "countryCode": "GB"},
+                              f"shippingAddress={sent.get('shippingAddress')}"))
+        r.checks.append(check("with the postage asked for",
+                              sent.get("shippingLine") == {"title": "Postage", "price": "4.00"},
+                              f"shippingLine={sent.get('shippingLine')}"))
     r.checks.append(check("and no order was created: the fixture refuses the completion outright",
                           getattr(h.store, "mutations_sent", -1) == 0,
                           f"mutations_sent={getattr(h.store, 'mutations_sent', 'NO COUNTER')}"))

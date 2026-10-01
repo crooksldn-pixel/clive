@@ -119,6 +119,19 @@ async def test_a_change_that_could_not_be_prepared_keeps_the_record_and_says_why
     await say(desk, "show me order 1938", "refused")
     body = await say(desk, "add a note saying gift wrap it", "refused")
     assert the_order(body, A).get("kept") is True, kinds(body)
+    # And it WAS refused, and said so: the order staying would also be true of a note for #9999
+    # staged, or of a refusal nobody was told about (round-12 deploy review, T2/F-03).
+    (noted,) = [c for c in body["tool_calls"] if c["name"] == "shopify_order_note_append"]
+    assert noted["ok"] is False and noted["proposal_id"] is None, noted
+    assert "is not an id this conversation has looked up" in noted["error"], noted["error"]
+    assert "confirmation" not in kinds(body), kinds(body)
+    assert not [p for p in desk.runtime.sessions.get("refused").proposals if p.status.value == "PENDING"]
+    assert desk.store.mutations == []
+    refusals = [c["data"] for c in cards(body) if c["type"] == "error"]
+    assert len(refusals) == 1, f"the owner is shown the refusal once: {kinds(body)}"
+    refusal = refusals[0]
+    assert (refusal["kind"], refusal["title"]) == ("blocked", "Refused by the assistant's rules"), refusal
+    assert "Nothing was changed." in refusal["recovery"], refusal
 
 
 async def test_a_change_to_another_order_is_not_drawn_over_this_one(desk):
@@ -553,6 +566,10 @@ async def test_the_claim_is_written_to_the_timeline_beside_the_decline_claims(de
 
     timeline.forget_names()
     store = TestSessions(Path(tmp_path) / "sessions")
+    # The timeline this test displaces, put back exactly as it was: installing a NullTimeline in
+    # its place left every later test in the process without the one it had (round-12 deploy
+    # review, T2/F-01).
+    displaced = timeline.current()
     line = timeline.install(timeline.Timeline(store))
     session = line.start("on-screen claims")
     try:
@@ -568,7 +585,7 @@ async def test_the_claim_is_written_to_the_timeline_beside_the_decline_claims(de
         events = [json.loads(x) for x in store.timeline_path(session).read_text(encoding="utf-8").splitlines() if x.strip()]
     finally:
         line.stop()
-        timeline.install(timeline.NullTimeline())
+        timeline.install(displaced)
         timeline.forget_names()
     claimed = [e for e in events if e.get("kind") == "unsupported_claim" and e.get("claim") == "on_screen"]
     assert [(e["session_id"], bool(e.get("drew")), e["corrected"]) for e in claimed] == [("tl", True, False), ("tl-fresh", False, True)], claimed

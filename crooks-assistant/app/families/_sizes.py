@@ -114,12 +114,23 @@ def step(product: dict[str, Any], variant_id: str, by: int) -> dict[str, Any]:
     options — or why there is none, in the owner's words.
 
     `product` is {"title", "options": [{"name", "values"}], "variants": [{"id", "title",
-    "selectedOptions", ...}]}. Returns {"ok": True, "variant": <the variant>, "from": "M",
-    "to": "L", "basis": "letters"} or {"ok": False, "why": "..."}.
+    "selectedOptions", ...}]}, and may carry "start" — the variant itself, read on its own, which
+    is where its options are taken from when given — and "complete": False when its variants were
+    not all read. A read cut short is refused as incomplete: the size looked for may be among the
+    variants not read, so "there is no such size" would be a guess (round-12 deploy review,
+    S2Ba/F-03). Returns {"ok": True, "variant": <the variant>, "from": "M", "to": "L",
+    "basis": "letters"} or {"ok": False, "why": "..."}.
     """
     title = str(product.get("title") or "That item")
     variants = [v for v in product.get("variants") or [] if isinstance(v, dict) and v.get("id")]
-    start = next((v for v in variants if str(v["id"]) == str(variant_id)), None)
+    if product.get("complete") is False:
+        return {"ok": False, "why": f"I read only the first {len(variants)} of {title}'s variants, so the read was "
+                                    "incomplete and I cannot say which is the next size."}
+    given = product.get("start")
+    if isinstance(given, dict) and str(given.get("id") or "") == str(variant_id):
+        start = given
+    else:
+        start = next((v for v in variants if str(v["id"]) == str(variant_id)), None)
     if start is None:
         return {"ok": False, "why": f"I could not find that variant on {title}."}
     option = size_option(product)

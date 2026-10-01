@@ -763,8 +763,17 @@ def reads_the_number_said() -> Step:
 
     async def step(session, calls, text):
         number = re.search(r"\b(\d{4})\b", text.split("\n")[1]).group(1)
-        return await show_order(number)(session, calls, text)
+        await show_order(number)(session, calls, text)
+        return names_what_it_read(calls)
     return step
+
+
+def names_what_it_read(calls) -> str:
+    """The answer a model gives about the order it read: that order, named as the read named
+    it. "Here it is." named neither the record asked for nor a refusal, so a test that accepted
+    it would pass with any record on the screen (round 9, I-tests2 I-02)."""
+    found = next(c.result for c in calls if c.name == "shopify_find_order" and c.ok)
+    return f"{found['orders'][0]['order_number']} is the order you asked about."
 
 
 @pytest.mark.parametrize(("open_number", "asked_number"), [("1938", "1940"), ("1940", "1938")])
@@ -790,7 +799,9 @@ async def test_a_number_that_is_not_the_open_order_is_drawn_from_what_was_read_f
     assert NAMED_OUTRANKS_SHOWN in prompt
     assert ("order", refs[asked_number]) in records(body) and ("order", refs[open_number]) not in records(body)
     assert body["branch"]["entity"]["ref"] == refs[asked_number]
-    assert body["answer"] == "Here it is.", "the model's answer about the order asked for is what he hears"
+    assert body["answer"] == f"CROOKS-{asked_number} is the order you asked about.", \
+        "the model's answer names the order asked for, and that is what he hears"
+    assert f"CROOKS-{open_number}" not in body["answer"]
     turn_reads = json.dumps(shop.store.queries[before:])
     assert refs[open_number] not in turn_reads, "the Mac read the open order for a sentence about another"
 

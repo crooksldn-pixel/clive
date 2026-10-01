@@ -19,6 +19,7 @@ Every name, address and postcode here is invented.
 from __future__ import annotations
 
 import copy
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -136,13 +137,23 @@ def _money(amount: float) -> dict[str, Any]:
     return {"shopMoney": {"amount": f"{amount:.2f}", "currencyCode": "GBP"}}
 
 
+# The day the orders' "days ago" count back from. A date worked out by subtracting from the day
+# of the month made order 2102, thirty days back, "2026-09--1" (round-12 deploy review, T1-03).
+FIXTURE_DAY = datetime(2026, 9, 29, 10, 0, tzinfo=UTC)
+
+
+def placed(days: int) -> str:
+    """When an order placed `days` before the fixture's day was placed, as Shopify writes it."""
+    return (FIXTURE_DAY - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def order_node(number: int) -> dict[str, Any]:
     _n, customer, days, items, address = next(o for o in ORDERS if o[0] == number)
     person = PEOPLE[customer]
     goods = sum(float(VARIANTS[vid(v)][1]["price"]) * q for v, q in items)
     return {
         "id": f"gid://shopify/Order/{number}", "name": f"CROOKS-{number}",
-        "createdAt": f"2026-09-{29 - days:02d}T10:00:00Z", "processedAt": f"2026-09-{29 - days:02d}T10:00:00Z",
+        "createdAt": placed(days), "processedAt": placed(days),
         "cancelledAt": None, "email": person["email"],
         "displayFulfillmentStatus": "FULFILLED", "displayFinancialStatus": "PAID",
         "currentTotalPriceSet": _money(goods + 5),

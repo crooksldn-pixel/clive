@@ -177,36 +177,57 @@ query CrooksDraftOrder($id: ID!) {
 }
 """
 
-# A variant and all of its product's variants: what "the next size up" is worked out from.
+# A variant and a page of its product's variants: what "the next size up" is worked out from.
+# The variant's own options are read on the variant itself, so where it starts never depends on
+# which page of its product it falls on (`_read_product_of`).
 VARIANT_SIBLINGS_QUERY = """
-query CrooksVariantSiblings($id: ID!) {
+query CrooksVariantSiblings($id: ID!, $n: Int!, $after: String) {
   productVariant(id: $id) {
     id
     title
+    sku
+    price
+    availableForSale
+    inventoryQuantity
     selectedOptions { name value }
     product {
       id
       title
       status
       options { name values }
-      variants(first: 100) { edges { node { id title sku price availableForSale inventoryQuantity selectedOptions { name value } } } }
+      variants(first: $n, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        edges { node { id title sku price availableForSale inventoryQuantity selectedOptions { name value } } }
+      }
     }
   }
 }
 """
+# A product's variants are read this many at a time, to this many pages. Past the bound the read
+# is incomplete and the next size is refused as unknown, never said not to exist (round-12 deploy
+# review, S2Ba/F-03: the read stopped at the first hundred, silently).
+VARIANT_PAGE = 100
+MAX_VARIANT_PAGES = 5
 
-# The order a new one is made from: whose it is, where it went, and what was on it.
+# The order a new one is made from: whose it is, where it went, and a page of what was on it.
 ORDER_FOR_NEW_ORDER_QUERY = """
-query CrooksOrderForNewOrder($id: ID!) {
+query CrooksOrderForNewOrder($id: ID!, $n: Int!, $after: String) {
   order(id: $id) {
     id
     name
     customer { id displayName }
     shippingAddress { firstName lastName company address1 address2 city provinceCode zip countryCodeV2 phone }
-    lineItems(first: 20) { edges { node { title variantTitle quantity variant { id } } } }
+    lineItems(first: $n, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      edges { node { title variantTitle quantity variant { id } } }
+    }
   }
 }
 """
+# The order's lines, read this many at a time to this many pages when a variant is checked
+# against them (`_source_variants`).
+SOURCE_LINE_PAGE = 50
+MAX_SOURCE_LINE_PAGES = 5
 
 
 def _money(node: Any) -> float | None:
@@ -279,27 +300,74 @@ async def _read_draft(client: ShopifyClient, draft_id: str) -> dict[str, Any]:
     return node
 
 
-async def _read_source(client: ShopifyClient, order_id: str) -> dict[str, Any]:
-    payload = await client.graphql(ORDER_FOR_NEW_ORDER_QUERY, {"id": order_id})
+async def _read_source(client: ShopifyClient, order_id: str, after: str | None = None) -> dict[str, Any]:
+    payload = await client.graphql(ORDER_FOR_NEW_ORDER_QUERY, {"id": order_id, "n": SOURCE_LINE_PAGE, "after": after})
     node = (payload.get("data") or {}).get("order")
     if not isinstance(node, dict) or node.get("id") != order_id:
         raise ToolError(f"No order with id {order_id}.")
     return node
 
 
+def _next_page(connection: Any) -> tuple[bool, str]:
+    """(whether Shopify says there is more past this page, the cursor to read it from)."""
+    page = connection.get("pageInfo") if isinstance(connection, dict) else None
+    page = page if isinstance(page, dict) else {}
+    return bool(page.get("hasNextPage")), str(page.get("endCursor") or "")
+
+
+async def _source_variants(client: ShopifyClient, node: dict[str, Any]) -> tuple[set[str], bool]:
+    """The variants on every line of the order a new one is made from, and whether every line
+    was read: the lines run a page at a time from the read already made, to a bound. A variant
+    checked against a partial read is not checked (round-12 deploy review, S2Ba/F-04)."""
+    order_id = str(node.get("id") or "")
+    found: set[str] = set()
+    for page in range(MAX_SOURCE_LINE_PAGES):
+        lines = node.get("lineItems") or {}
+        for edge in lines.get("edges") or []:
+            variant = (((edge or {}).get("node") or {}).get("variant") or {}).get("id")
+            if variant:
+                found.add(str(variant))
+        more, cursor = _next_page(lines)
+        if not more:
+            return found, True
+        if not cursor or page + 1 == MAX_SOURCE_LINE_PAGES:
+            break
+        node = await _read_source(client, order_id, after=cursor)
+    return found, False
+
+
 async def _read_product_of(client: ShopifyClient, variant_id: str) -> dict[str, Any]:
-    """The product a variant belongs to, with every variant and its options, as `_sizes.step`
-    takes it."""
-    payload = await client.graphql(VARIANT_SIBLINGS_QUERY, {"id": variant_id})
-    node = (payload.get("data") or {}).get("productVariant")
-    if not isinstance(node, dict) or node.get("id") != variant_id or not isinstance(node.get("product"), dict):
-        raise ToolError(f"No product variant with id {variant_id}.")
-    product = node["product"]
+    """The product a variant belongs to, with its variants and their options, as `_sizes.step`
+    takes it. `start` is the variant itself, from its own lookup, and `complete` says whether
+    every variant of the product was read: they are read a page at a time to a bound, and a
+    product cut short there is refused by `_sizes.step` rather than searched as if whole
+    (round-12 deploy review, S2Ba/F-03)."""
+    start: dict[str, Any] | None = None
+    product: dict[str, Any] = {}
+    variants: list[dict[str, Any]] = []
+    complete, after = False, None
+    for _ in range(MAX_VARIANT_PAGES):
+        payload = await client.graphql(VARIANT_SIBLINGS_QUERY, {"id": variant_id, "n": VARIANT_PAGE, "after": after})
+        node = (payload.get("data") or {}).get("productVariant")
+        if not isinstance(node, dict) or node.get("id") != variant_id or not isinstance(node.get("product"), dict):
+            raise ToolError(f"No product variant with id {variant_id}.")
+        if start is None:
+            start = {k: v for k, v in node.items() if k != "product"}
+            product = node["product"]
+        connection = node["product"].get("variants") or {}
+        variants += [(e or {}).get("node") or {} for e in connection.get("edges") or []]
+        more, cursor = _next_page(connection)
+        if not more:
+            complete = True
+            break
+        if not cursor:
+            break
+        after = cursor
     return {
         "id": str(product.get("id") or ""), "title": str(product.get("title") or ""),
         "status": str(product.get("status") or ""),
         "options": [o for o in product.get("options") or [] if isinstance(o, dict)],
-        "variants": [(e or {}).get("node") or {} for e in (product.get("variants") or {}).get("edges") or []],
+        "variants": variants, "start": start, "complete": complete,
     }
 
 
@@ -1390,7 +1458,8 @@ async def shopify_order_open(customer: str = "", item: str = "", quantity: int =
     went, and that is where this one goes unless he says otherwise. "What" is words, a SKU or
     a variant id; with `size_step` the variant is one of a found order's lines and the line
     added is the same garment that many sizes along (app/families/_sizes.py), or nothing, with
-    the reason, when there is no such size.
+    the reason, when there is no such size. A variant given with an order is checked against
+    that order's lines, and one on none of them is refused.
 
     The `workspace_id` it returns is issued to the conversation, and that is what lets
     `shopify_order_create` be staged at all — so an order can only be prepared from a
@@ -1443,6 +1512,16 @@ async def _fill_opened(workspace: dict[str, Any], *, customer: str, customer_id:
         owner = str((source.get("customer") or {}).get("id") or "")
         if customer_id and str(customer_id) != owner:
             raise ToolError(f"Order {source.get('name')} is not that customer's, so I will not mix them. Say which.")
+        if variant_id:
+            # The item is the model's choice from his words; that it is on the order he named is
+            # checked here, against every line (round-12 deploy review, S2Ba/F-04).
+            on_it, complete = await _source_variants(_c(), source)
+            if not complete:
+                raise ToolError(f"Order {source.get('name')} has more lines than I read, so the read was incomplete and "
+                                "I cannot check that item is on it. Nothing was opened.")
+            if str(variant_id) not in on_it:
+                raise ToolError(f"That item is not on any line of order {source.get('name')}, so nothing was opened "
+                                f"from it. Say which item on {source.get('name')} he means.")
         customer_id = owner
     if customer_id:
         await _customer_by_id(workspace, str(customer_id))

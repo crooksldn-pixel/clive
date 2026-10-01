@@ -947,17 +947,26 @@ async def test_a_named_person_with_another_customer_s_order_open_is_answered_fro
     """R9-I-tests2-I-02. Daniel's order is open and the owner asks what Mia Kowalski has ordered.
     The words reach the model exactly; the customer drawn and the cursor are Mia's; neither Daniel
     nor his order is drawn under the answer; and the model's own answer is what he hears."""
-    desk.model.steps = [
-        show_order("1938"),
-        reads(("shopify_find_customer", {"query": "Kowalski"}), ("shopify_customer_history", {"customer_id": found_customer})),
-    ]
+    looked_up = reads(("shopify_find_customer", {"query": "Kowalski"}),
+                      ("shopify_customer_history", {"customer_id": found_customer}))
+
+    async def names_who_it_read(session, calls, text):
+        # The answer names the person read, as a model's does: "Here it is." named neither the
+        # person asked for nor a refusal, and passed with anybody on the screen (round 9,
+        # I-tests2 I-02).
+        await looked_up(session, calls, text)
+        found = next(c.result for c in calls if c.name == "shopify_find_customer" and c.ok)
+        return f"{found['customers'][0]['name']}'s orders, read just now."
+
+    desk.model.steps = [show_order("1938"), names_who_it_read]
     await say(desk, "show me order 1938", "person")
     body = await say(desk, "what has Mia Kowalski ordered?", "person")
     shown = records(body)
     assert {ref for kind, ref in shown if kind in ("customer", "customer_workspace")} == {MIA}, shown
     assert DANIEL not in str(shown) and ("order", A) not in shown
     assert body["branch"]["entity"]["ref"] == MIA
-    assert body["answer"] == "Here it is."
+    assert body["answer"] == "Mia Kowalski's orders, read just now.", "the person asked for is named in what he hears"
+    assert "Daniel" not in body["answer"]
 
 
 async def test_a_name_two_customers_share_moves_nothing_and_draws_neither_as_the_answer(desk):

@@ -30,11 +30,46 @@ from experience.fixtures import shopify as golden
 SCRIPT = ROOT / "scripts" / "browser" / "orders.js"
 
 
-def _completed(store, variables: dict) -> dict:
-    """`draftOrderComplete`, as Shopify answers it: the draft completed, with the order it made."""
-    node = store.drafts_by_id[str(variables["id"])]
-    node["status"], node["order"] = "COMPLETED", {"id": "gid://shopify/Order/1999", "name": "#1999"}
-    return {"data": {"draftOrderComplete": {"draftOrder": copy.deepcopy(node), "userErrors": []}}}
+HEADERS = {"Tailscale-User-Login": "owner@example.com", "X-Forwarded-For": "100.64.0.9"}
+
+
+class Completions:
+    """`draftOrderComplete`, as Shopify answers it: the draft completed, with the order it made —
+    and every call counted, by the draft it was for. It used to answer #1999 to every call and
+    count none, so a second completion of one draft, which is one order made twice, would have
+    gone unseen (round-12 deploy review, T7-02). A second call for a draft is answered as Shopify
+    answers a draft already completed, with nothing made, and the count fails the test."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def __call__(self, store, variables: dict) -> dict:
+        draft_id = str(variables["id"])
+        self.calls.append(draft_id)
+        node = store.drafts_by_id[draft_id]
+        if self.calls.count(draft_id) > 1:
+            return {"data": {"draftOrderComplete": {"draftOrder": None, "userErrors": [
+                {"field": ["id"], "message": "This draft order has already been completed."}]}}}
+        node["status"], node["order"] = "COMPLETED", {"id": "gid://shopify/Order/1999", "name": "#1999"}
+        return {"data": {"draftOrderComplete": {"draftOrder": copy.deepcopy(node), "userErrors": []}}}
+
+
+async def _repeat_every_hold(port: int, runtime, sessions: list[str]) -> None:
+    """Each card that made its order, made again as the tablet could ask: Prepare tapped once
+    more, and the hold card it was held from armed and committed a second time."""
+    import httpx
+
+    async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", headers=HEADERS, timeout=30) as client:
+        for session_id in dict.fromkeys(sessions):
+            session = runtime.sessions.peek(session_id)
+            for proposal in [p for p in session.proposals if p.operation == "draft_order_complete"]:
+                again = await client.post("/command", data={"session_id": session_id, "command": "order.stage",
+                                                            "workspace_id": str(proposal.execution["workspace_id"])})
+                assert again.status_code == 200 and again.json()["ok"] is False, again.text
+                armed = await client.post(f"/actions/{proposal.proposal_id}/arm", data={"session_id": session_id})
+                nonce = armed.json().get("nonce", "") if armed.status_code == 200 else ""
+                await client.post(f"/actions/{proposal.proposal_id}/commit", data={"session_id": session_id},
+                                  headers={"X-Crooks-Arm": nonce})
 
 
 def _opened(calls):
@@ -50,13 +85,23 @@ async def test_an_order_built_by_voice_stays_on_the_screen_at_every_size(monkeyp
     from app.main import app
     from app.tools import shopify_tools
 
-    monkeypatch.setitem(golden._DRAFTS, "draft_order_complete", _completed)
+    completions = Completions()
+    monkeypatch.setitem(golden._DRAFTS, "draft_order_complete", completions)
     port = _free_port()
     server, task, _store = await serve_fixture_world(port)
     bound = shopify_tools._client, shopify_tools._hydrator
     try:
         provider = app.state.runtime.provider
         provider.runtime = app.state.runtime
+        # The conversations the page spoke in, so each hold can be tried again after the script.
+        sessions: list[str] = []
+        spoken = provider.turn
+
+        async def turn(session_id: str, text: str):
+            sessions.append(session_id)
+            return await spoken(session_id, text)
+
+        provider.turn = turn
         said = [
             "find the customer who ordered the black medium hoodie to SL4 1QN and make a new order for them in the next size up",
             "add a custom back print at twelve pounds, two of them, and take ten percent off the hoodie",
@@ -74,6 +119,12 @@ async def test_an_order_built_by_voice_stays_on_the_screen_at_every_size(monkeyp
             cwd=ROOT, capture_output=True, text=True, timeout=600,
             env={**os.environ, "CROOKS_CHROMIUM": CHROMIUM},
         )
+        # One hold at each of the four sizes, each its own conversation and its own draft: exactly
+        # one completion for each, and none for any of them when it is tried again.
+        held = list(completions.calls)
+        assert len(held) == 4 and len(set(held)) == 4, (held, (result.stdout + result.stderr)[-800:])
+        await _repeat_every_hold(port, app.state.runtime, sessions)
+        assert completions.calls == held, f"a draft was completed again: {completions.calls}"
     finally:
         await _stop(server, task)
         shopify_tools._client, shopify_tools._hydrator = bound

@@ -1225,11 +1225,18 @@ def _draft_send_instead(ctx: CommandCtx) -> Outcome:
 
 def _draft_discard(ctx: CommandCtx) -> Outcome:
     """"Forget the draft." Withdraws the card, which is synchronous and needs no read. A
-    draft already saved in Gmail is removed by its own undo, which is the engine's business
-    and not this command's."""
+    draft already saved in Gmail (VERIFIED) is not withdrawn and not deleted — deleting it from
+    Gmail is a write, and not this command's — so the answer says it is still saved there
+    rather than "Nothing was saved", which was untrue of it (round-12 deploy review, S2b-04)."""
+    from app.actions.models import ActionStatus
+
     found = _latest_draft(ctx.session, ctx.branch)
     if found is None:
         return Outcome.refused("no_draft", "There is no draft of mine on this half to forget.")
+    if found.status == ActionStatus.VERIFIED:
+        return Outcome(answer="That draft is saved in Gmail and was not deleted: it is still in your Drafts there. "
+                              "Delete it in Gmail if you do not want it.",
+                       changed={"kept": found.proposal_id, "revoked": 0})
     withdrawn = ctx.runtime.actions.revoke_ids([found.proposal_id], "the owner said no draft")
     return Outcome(answer="Forgotten. Nothing was saved.",
                    changed={"discarded": found.proposal_id, "revoked": withdrawn})
