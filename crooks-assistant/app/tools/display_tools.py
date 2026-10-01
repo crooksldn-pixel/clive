@@ -9,7 +9,8 @@ the nearest match — and a list is bounded before anything is done with it (the
 deploy review, B-05). `screen_pair` approves a newly named screen with the six-digit code it
 shows, as the owner read it out: until then nothing goes on it (round 8, B-02). `screen_list`
 says which screens there are, whether each is on, waiting for approval, and what it shows, and
-what was last marked done on them — "has 2048 been packed?" is `screen_list` with the order's id.
+what was last marked done on them — "has 2048 been packed?" is `screen_list` with the order's id
+or its number.
 
 Round 9 adds two more, and a way to show two things at once. `screen_show` with `beside` puts
 the new thing next to what is up (two at most; a third is refused with both named, and
@@ -44,7 +45,14 @@ from typing import Any
 from app.capabilities.families import CapabilityFamily, register
 from app.clients import youtube
 from app.displays import views
-from app.displays.store import MAX_JUMP_S, MAX_SKIP_S, DisplayError, how_marked, store
+from app.displays.store import (
+    MAX_JUMP_S,
+    MAX_SKIP_S,
+    DisplayError,
+    how_marked,
+    no_packed_record,
+    store,
+)
 from app.tools import authority as tool_authority
 from app.tools.context import current_session
 from app.tools.gate import Tier
@@ -124,10 +132,14 @@ def _owner_said(digits: str) -> bool:
 async def screen_list(order_id: str | None = None) -> dict[str, Any]:
     _owners_own()
     s = store()
-    # Each done row says how it was marked, in words to say as they are (round 9, B-04): a
-    # screen's own button is that screen's word, not a check; the remote is the owner's ticks.
-    done = [{**row, "marked": how_marked(row)} for row in s.done(ref=order_id or None)]
+    # Each done row says how it was marked, in words to say as they are. The owner ruled on
+    # 1 October (ruling 12, closing B-04) that a row marked by a screen's own button, his remote
+    # or the remote's controls on a screen counts as packed, so each is said as packed. An order
+    # is found by its Shopify id or by its number as he says it ("1047", "#1047").
+    done = [{**row, "marked": how_marked(row)} for row in s.done(order=order_id or None)]
     out: dict[str, Any] = {"screens": s.screens(), "done": done}
+    if order_id and not done:
+        out["packed_record"] = no_packed_record(order_id)
     if not out["screens"]:
         out["note"] = "No screens yet: open CLIVE's address with /display on a screen and give it a name."
     elif any(x.get("pending") for x in out["screens"]):

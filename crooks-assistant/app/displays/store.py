@@ -47,8 +47,11 @@ word, or "remote", the owner ticking every item and marking it from one of his o
 devices by its login, so it can reach the remote's routes too (its page ticks items through
 them); a done marked there from a device that is a screen — one carrying a screen's key, or
 asking from the tailnet address a screen's key-holder asks from (`screen_device`) — is
-"screen_remote", a screen's word, never "remote" (round 11, B-04). Whether a screen's word is
-to count as packed is the owner's ruling, not this code's. A slip cut at views.MAX_ITEMS is
+"screen_remote", a screen's word, never "remote" (round 11, B-04). The owner ruled on 1 October
+(ruling 12, closing B-04: "yes, the mark packed should be in clive memory, not shopify"): a row
+marked any of the three ways counts as packed, and is CLIVE's own record, here and never in
+Shopify. So CLIVE says each as packed (a list: done), on which screen and how (how_marked), and
+finds it by the order's id or its number (`done`). A slip cut at views.MAX_ITEMS is
 never marked done here. Acknowledgements are held in memory: after a restart the screen shows
 its pages again before it can say done.
 
@@ -167,6 +170,9 @@ _ID = re.compile(r"^scr_[0-9a-f]{12}$")
 _ORDER_TITLE = re.compile(r"^Order #?[0-9]{1,12}$")
 _ORDER_REF = re.compile(r"^gid://shopify/Order/[0-9]{1,20}$")
 _OBJECTIVE_REF = re.compile(r"^obj_[0-9a-f]{8}$")
+# An order's number as the owner says it, and as a done row's title carries it.
+_ORDER_NUMBER = re.compile(r"#?([0-9]{1,12})")
+_TITLE_NUMBER = re.compile(r"Order #?([0-9]{1,12})")
 
 
 def _shown_count(showing: dict[str, Any]) -> int | None:
@@ -194,22 +200,41 @@ def done_summary(showing: dict[str, Any]) -> dict[str, str]:
 
 
 def how_marked(row: dict[str, Any]) -> str:
-    """How a done row was marked, in words CLIVE can say as they are (round 9, B-04): the
-    screen's own button is that screen's word, not a check; the remote is the owner marking it
-    from one of his own devices that is not a screen, once every item was ticked (a packing
-    tablet ticks items too, so where each tick was made is not said); and the remote's controls
-    used from a device that is itself one of the screens are that screen's word as well
-    (round 11, B-04)."""
+    """How a done row was marked, in words CLIVE can say as they are. Each of the three ways
+    counts as packed (the owner's ruling 12, 1 October, closing B-04), so each says plainly that
+    the order was packed (a list: done), on which screen, and how: with the screen's own button;
+    from the owner's remote on one of his own devices that is not a screen, once every item was
+    ticked (a packing tablet ticks items too, so where each tick was made is not said); or with
+    the remote's controls on a device that is itself one of the screens, which is never said to
+    be the owner's own remote (round 11, B-04)."""
     did = "packed" if row.get("kind") == "order" else "done"
     where = str(row.get("screen") or "") or "screen"
     if row.get("how") == "remote":
-        return f"marked {did} from the owner's remote for the {where}, with every item ticked"
+        return f"{did} on the {where}: marked from the owner's remote, with every item ticked"
     if row.get("how") == "screen":
-        return f"marked {did} with the {where}'s own button: that screen's word, not a check"
+        return f"{did} on the {where}: marked with that screen's own button"
     if row.get("how") == "screen_remote":
-        return (f"marked {did} for the {where} with the remote's controls on a device that is itself one of the "
-                "screens, not the owner's own remote: a screen's word, not a check")
+        return (f"{did} on the {where}: marked with the remote's controls on a device that is itself one of the "
+                "screens, not the owner's own remote")
     return f"marked {did} on the {where}"
+
+
+def order_number(said: Any) -> str:
+    """An order's number as the owner says it ("1047" or "#1047"), digits only; '' for anything
+    else."""
+    found = _ORDER_NUMBER.fullmatch(str(said or "").strip())
+    return found.group(1) if found else ""
+
+
+def no_packed_record(said: Any) -> str:
+    """What CLIVE says of an order asked about that has no done row: that it has no packed
+    record within what it keeps (DONE_KEEP_S, MAX_DONE), never that the order was not packed."""
+    number = order_number(said)
+    what = f"order #{number}" if number else "that order"
+    days, rest = divmod(DONE_KEEP_S, 86_400)
+    kept = f"{days} days" if not rest else f"{DONE_KEEP_S // 3600} hours"
+    return (f"CLIVE has no packed record for {what} in what it keeps: packed and done rows from the last {kept}, "
+            f"at most {MAX_DONE} of them.")
 
 
 def _done_showing(showing: Any) -> dict[str, Any] | None:
@@ -451,7 +476,9 @@ _FULL = ("CLIVE's record of its screens is full, so that was not done and nothin
 # How a done row was marked (round 9, B-04): with the screen's own button, which is that screen's
 # word; from the owner's remote on one of his devices that is not a screen, every item ticked; or
 # (round 11) with the remote's controls on a device that is itself one of the screens, which is
-# that screen's word too — a screen never makes a row that says it was the owner's remote.
+# that screen's word too — a screen never makes a row that says it was the owner's remote. The
+# owner ruled on 1 October (ruling 12, closing B-04) that a row made any of the three ways counts
+# as packed; `how` still says which it was.
 DONE_HOW = ("screen", "remote", "screen_remote")
 
 # What a screen is given of each thing it shows (round 11, F-A3B-SCREEN-EVIDENCE): what
@@ -1959,9 +1986,20 @@ class DisplayStore:
         self._prune_acks(screen_id)
         return out
 
-    def done(self, *, ref: str | None = None, limit: int = 10) -> list[dict[str, Any]]:
-        rows = [d for d in self._data["done"] if ref is None or d.get("ref") == ref]
+    def done(self, *, ref: str | None = None, order: str | None = None, limit: int = 10) -> list[dict[str, Any]]:
+        """The latest done rows, newest first: every one, those of `ref`, or those of `order` —
+        an order as the owner names it, by its Shopify id or by its number ("1047", "#1047"),
+        matched against an order row's title, so a list or an objective is never one."""
+        number = order_number(order)
+        rows = [d for d in self._data["done"] if (ref is None or d.get("ref") == ref) and (
+            order is None or d.get("ref") == order
+            or (number and d.get("kind") == "order" and self._title_number(d.get("title")) == number))]
         return list(reversed(rows[-limit:]))
+
+    @staticmethod
+    def _title_number(title: Any) -> str:
+        found = _TITLE_NUMBER.fullmatch(str(title or ""))
+        return found.group(1) if found else ""
 
 
 _STORE: DisplayStore | None = None
