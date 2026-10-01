@@ -37,7 +37,8 @@ defaults:
 
 env:
   GITLEAKS_VERSION: "8.30.1"
-  GITLEAKS_SHA256: ""
+  # gitleaks_8.30.1_linux_x64.tar.gz, as the release's own checksums file gives it.
+  GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
 
 jobs:
   acceptance:
@@ -85,12 +86,8 @@ jobs:
           version="${GITLEAKS_VERSION}"
           url="https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz"
           curl --fail --silent --show-error --location "$url" -o /tmp/gitleaks.tar.gz
-          if [ -n "${GITLEAKS_SHA256}" ]; then
-            echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum --check --strict
-          else
-            echo "::warning::GITLEAKS_SHA256 is unset; the download is pinned by version only. \
-          Set it in the workflow env to pin by digest."
-          fi
+          # Pinned by digest, not only by version: a replaced release asset is refused.
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum --check --strict
           tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
           sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
           gitleaks version
