@@ -21,6 +21,7 @@ from app.engineering_measures import (
     NOT_RECORDED,
     MeasuresError,
     read_loop_records,
+    render_loop_markdown,
 )
 from app.orchestrator.contracts import BlockerClass, EngineeringTask, TaskKind
 from app.orchestrator.lifecycle import (
@@ -549,3 +550,159 @@ def test_status_and_store_together_give_both_reports(world):
     assert report["schema"] == "clive.engineering_measures.v1" and report["objectives"] == []
     assert report["loop_records"]["schema"] == LOOP_SCHEMA
     assert len(report["loop_records"]["objectives"]) == 4
+
+
+# ------------------------------------------------------------------ the landing review's fixes (1 October 2026)
+
+
+def _fact(objective_id: str, base_sha: str, landing: dict | None) -> dict:
+    """One objective's facts as ``read_loop_records`` gives them, for ``measure_loop`` alone."""
+    return {
+        "objective_id": objective_id, "title": objective_id, "recorded_at": T0, "base_sha": base_sha,
+        "revisions": 1, "repairs_created": [], "refreshes": 0, "attempts": 1, "review_rounds": 1,
+        "stage": "COMPLETE", "blocker_class": None, "first_candidate_at": None, "accepted_at": None,
+        "integrated_at": None, "landing": landing,
+    }
+
+
+def _records(*facts: dict) -> dict:
+    return {"store": "store", "runtime_root": "runtime", "landings_read": True, "landings_source": "runtime/landings",
+            "landing_records_ignored": 0, "objectives": list(facts)}
+
+
+def _landed(sha: str, by: str | None = "loop") -> dict:
+    return {"state": "landed", "sha": sha, "by": by, "by_recorded": by is not None,
+            "landed_at": datetime(2026, 9, 30, 15, 0, tzinfo=UTC)}
+
+
+def commit_own(repo: Path, name: str, subject: str, at: str) -> str:
+    """A commit that touches a file of its own, so that the branches below merge cleanly."""
+    (repo / f"{name}.txt").write_text(subject, encoding="utf-8")
+    git_in(repo, "add", f"{name}.txt")
+    git_in(repo, "commit", "-q", "-m", subject, at=at)
+    return git_in(repo, "rev-parse", "HEAD")
+
+
+def build_loop_shaped_trunk(repo: Path) -> dict[str, str]:
+    """The trunk as the loop leaves it, all on 2026-09-30. An objective is built on ``base``; a
+    pull request titled as this repository titles them merges onto the trunk meanwhile; the loop
+    merges the trunk into the objective's branch and lands by fast-forwarding the trunk to that
+    merge; then a pull request merges on the first-parent line, and someone commits by hand."""
+    repo.mkdir()
+    git_in(repo, "init", "-q")
+    git_in(repo, "symbolic-ref", "HEAD", "refs/heads/clive/trunk")
+    base = commit_own(repo, "base", "initial", "2026-09-30T08:00:00Z")
+    git_in(repo, "checkout", "-q", "-b", "clive/objective/omega")
+    built = commit_own(repo, "omega", "omega r2 omega-a1: the change", "2026-09-30T09:00:00Z")
+    git_in(repo, "checkout", "-q", "-b", "feature-a", base)
+    commit_own(repo, "a", "feature a", "2026-09-30T09:30:00Z")
+    git_in(repo, "checkout", "-q", "clive/trunk")
+    git_in(repo, "merge", "-q", "--no-ff", "-m", "Feature A on the trunk (PR #41)", "feature-a", at="2026-09-30T10:00:00Z")
+    unseen = git_in(repo, "rev-parse", "HEAD")
+    git_in(repo, "checkout", "-q", "clive/objective/omega")
+    git_in(repo, "merge", "-q", "--no-ff", "-m",
+           f"Merge clive/trunk {unseen} into clive/objective/omega at {built} (loop)", "clive/trunk",
+           at="2026-09-30T11:00:00Z")
+    landed = git_in(repo, "rev-parse", "HEAD")
+    git_in(repo, "checkout", "-q", "clive/trunk")
+    git_in(repo, "merge", "-q", "--ff-only", "clive/objective/omega")
+    git_in(repo, "checkout", "-q", "-b", "feature-b")
+    commit_own(repo, "b", "feature b", "2026-09-30T12:00:00Z")
+    git_in(repo, "checkout", "-q", "clive/trunk")
+    git_in(repo, "merge", "-q", "--no-ff", "-m", "Feature B on the trunk (PR #42)", "feature-b", at="2026-09-30T13:00:00Z")
+    commit_own(repo, "hand", "a fix by hand", "2026-09-30T14:00:00Z")
+    return {"base": base, "built": built, "landed": landed, "unseen": unseen}
+
+
+def _trunk_figures(report: dict) -> tuple:
+    totals = report["totals"]
+    return (totals["trunk_commits"], totals["trunk_loop_landings"], totals["trunk_with_loop_landings"],
+            totals["trunk_pull_request_merges"], totals["trunk_other"])
+
+
+def test_this_repositorys_pull_request_titles_count_in_the_loop_report_and_the_status_reading_is_unchanged(tmp_path):
+    from app.engineering_measures import measure_loop, pull_request_of
+
+    repo = tmp_path / "repo"
+    shas = build_loop_shaped_trunk(repo)
+    trunk, _graph = cli.read_trunk(repo, "clive/trunk")
+    report = measure_loop(_records(_fact("omega", shas["base"], _landed(shas["landed"]))), trunk=trunk)
+    # First-parent: the hand fix, PR #42's merge, the landing, the builder's commit, the base.
+    assert _trunk_figures(report) == (5, 1, 1, 1, 2)
+    # The --status report's reading of a title is the one it always was.
+    assert pull_request_of("Feature B on the trunk (PR #42)") is None
+    assert pull_request_of("Merge pull request #42 from owner/feature-b") == "#42"
+
+
+def test_the_commits_a_loop_landing_fast_forwarded_count_with_it_down_to_its_base(tmp_path):
+    from app.engineering_measures import measure_loop
+
+    repo = tmp_path / "repo"
+    shas = build_loop_shaped_trunk(repo)
+    trunk, _graph = cli.read_trunk(repo, "clive/trunk")
+    report = measure_loop(_records(_fact("omega", shas["base"], _landed(shas["landed"]))), trunk=trunk)
+    assert report["inputs"]["trunk_landings_untraced"] == []
+    # The builder's commit is the landing's, not other; the base and the hand fix are other.
+    assert report["totals"]["trunk_with_loop_landings"] == 1 and report["totals"]["trunk_other"] == 2
+    # PR #41 merged while omega was built: off the first-parent line once omega landed, and the
+    # report says such merges are not counted.
+    assert shas["unseen"] not in {commit.sha for commit in trunk}
+    assert "is not counted" in report["inputs"]["trunk_not_counted"]
+    markdown = render_loop_markdown(report)
+    assert "Trunk: with a loop landing" in markdown and "Not counted at all:" in markdown
+
+
+def test_a_loop_landing_that_cannot_be_traced_to_its_base_is_named_and_its_commits_stay_other(tmp_path):
+    from app.engineering_measures import measure_loop
+
+    repo = tmp_path / "repo"
+    shas = build_loop_shaped_trunk(repo)
+    trunk, _graph = cli.read_trunk(repo, "clive/trunk")
+    report = measure_loop(_records(_fact("omega", "f" * 40, _landed(shas["landed"]))), trunk=trunk)
+    assert report["inputs"]["trunk_landings_untraced"] == ["omega"]
+    assert _trunk_figures(report) == (5, 1, 0, 1, 3)
+    markdown = render_loop_markdown(report)
+    assert "could not be traced down to their objective's base (omega)" in markdown
+    assert "counted in Trunk: other" in markdown
+
+
+def test_a_landed_record_with_a_malformed_time_is_ignored_and_counted_not_fatal(world):
+    (world.runtime / "landings" / "delta.json").write_text(
+        landing("delta", state="landed", sha=world.trunk["other"], by="other", landed_at="yesterday"))
+    report = run(world)
+    assert report["inputs"]["landing_records_ignored"] == 1
+    assert rows(report)["delta"]["landing_state"] is None
+    assert rows(report)["alpha"]["landing_state"] == "landed"
+
+
+def test_a_landed_record_with_no_by_is_said_to_predate_attribution(world):
+    (world.runtime / "landings" / "alpha.json").write_text(
+        landing("alpha", state="landed", sha=world.trunk["loop"], landed_at="2026-09-27T18:00:00+00:00"))
+    markdown = world.tmp / "loop.md"
+    report = run(world, "--markdown", str(markdown))
+    alpha = rows(report)["alpha"]
+    assert (alpha["landing_state"], alpha["landed_by"]) == ("landed", None)
+    assert report["inputs"]["landings_predating_attribution"] == ["alpha"]
+    assert "predates the loop recording who landed a SHA" in report["inputs"]["landed_by_null_when_landed"]
+    assert report["totals"]["loop_landings"] == 0, "who landed it is not recorded, so it is not the loop's"
+    text = markdown.read_text(encoding="utf-8")
+    alpha_line = next(line for line in text.splitlines() if line.startswith("| alpha |"))
+    assert "predates attribution" in alpha_line
+    assert "Landed by is not recorded for alpha" in text
+
+
+def test_a_by_that_is_not_one_of_the_recorded_words_is_unrecognised(world):
+    (world.runtime / "landings" / "alpha.json").write_text(
+        landing("alpha", state="landed", sha=world.trunk["loop"], by=["loop"], landed_at="2026-09-27T18:00:00+00:00"))
+    assert rows(run(world))["alpha"]["landed_by"] == "unrecognised"
+
+
+def test_the_median_hours_to_land_is_labelled_as_covering_every_landing(world):
+    markdown = world.tmp / "loop.md"
+    report = run(world, "--markdown", str(markdown))
+    assert report["inputs"]["median_hours_to_land_is"].startswith("over every landed objective, whoever landed it")
+    text = markdown.read_text(encoding="utf-8")
+    assert "Median h to land (all landings)" in text
+    assert "Median hours to land is over every landed objective, whoever landed it" in text
+    # 2026-09-29: delta, landed by someone other than the loop, is in the median and not a loop landing.
+    assert (days(report)["2026-09-29"]["loop_landings"], days(report)["2026-09-29"]["median_hours_to_land"]) == (0, 21.0)

@@ -600,7 +600,11 @@ def _earliest(values: Iterable[datetime | None]) -> datetime | None:
 def _landing(path: Path, objective_id: str) -> dict | None:
     """The objective's ``clive.landing.v1`` record as fixed words, a SHA and a time; ``None`` when it is not one.
 
-    Its reason, evidence path and review details are never read into the report."""
+    A landed record whose ``landed_at`` is not an aware ISO-8601 time is not one either: it is
+    ignored and counted like any other, rather than ending the report. A landed record with no
+    ``by`` predates the loop recording who landed a SHA (1 October 2026): who landed it is not
+    recorded, and ``by_recorded`` says so. Its reason, evidence path and review details are never
+    read into the report."""
     try:
         record = json.loads(path.read_text(encoding="utf-8"))
     except ValueError:
@@ -611,17 +615,29 @@ def _landing(path: Path, objective_id: str) -> dict | None:
         or record.get("objective_id") != objective_id
     ):
         return None
-    state = record.get("state") if record.get("state") in _LANDING_STATES else "unrecognised"
+    state = record.get("state")
+    state = state if isinstance(state, str) and state in _LANDING_STATES else "unrecognised"
     landed = state == "landed"
     sha = record.get("sha")
     sha = sha.lower() if isinstance(sha, str) and _EXACT_SHA.match(sha.lower()) else None
+    landed_at = None
+    if landed:
+        try:
+            landed_at = parse_time(record.get("landed_at"), what=f"landing record of {objective_id}")
+        except MeasuresError:
+            return None
+    by = record.get("by")
+    by_recorded = landed and by is not None
+    if not by_recorded:
+        by = None
+    elif not (isinstance(by, str) and by in _LANDED_BY):
+        by = "unrecognised"
     return {
         "state": state,
         "sha": sha if landed else None,
-        "by": record.get("by") if landed and record.get("by") in _LANDED_BY else None,
-        "landed_at": (
-            parse_time(record.get("landed_at"), what=f"landing record of {objective_id}") if landed else None
-        ),
+        "by": by,
+        "by_recorded": by_recorded,
+        "landed_at": landed_at,
     }
 
 
@@ -685,6 +701,7 @@ def read_loop_records(store_root: Path, runtime_root: Path, *, now: datetime | N
                 "objective_id": objective_id,
                 "title": objective.title,
                 "recorded_at": objective.created_at,
+                "base_sha": str(objective.base_sha).lower(),
                 "revisions": len(revisions),
                 "repairs_created": sorted(task.created_at for task in revisions if task.kind is TaskKind.REPAIR),
                 "refreshes": sum(1 for task in revisions if task.kind is TaskKind.INTEGRATION),
@@ -747,10 +764,82 @@ def _loop_row(fact: Mapping) -> dict:
     }
 
 
-def _trunk_kind(commit: TrunkCommit, loop_shas: set[str]) -> str:
+# This repository titles a merged pull request "… (PR #N)". The loop report reads that as well as
+# GitHub's own titles; ``pull_request_of``, which the --status report uses, is left as it is.
+_OWN_PR = re.compile(r"\(PR #(\d+)\)\s*$")
+
+# What the per-day trunk columns mean, said in the report as it is said here.
+TRUNK_OTHER_IS = (
+    "a first-parent commit of the trunk that is not a loop landing, did not come onto the trunk "
+    "with one, and is not a pull request's merge"
+)
+TRUNK_WITH_LANDING_IS = (
+    "a first-parent commit below a loop landing and above its objective's base: the builder's own "
+    "commits and the loop's merges of the trunk into the objective's branch, which the landing "
+    "fast-forwarded onto the trunk"
+)
+TRUNK_UNSEEN = (
+    "a commit that came onto the trunk while an objective was being built (a pull request's merge, "
+    "or another objective's landing) is merged into that objective's branch by the loop; once the "
+    "objective lands by fast-forward, that commit is off the first-parent history and is not counted "
+    "in the trunk columns (Loop landings, read from the landing records, still counts every loop "
+    "landing)"
+)
+MEDIAN_IS = "over every landed objective, whoever landed it; loop landings count only the loop's"
+PREDATES_ATTRIBUTION = (
+    "a landed record with no `by` predates the loop recording who landed a SHA (1 October 2026); "
+    "who landed it is not recorded"
+)
+
+
+def _loop_pull_request(subject: str) -> bool:
+    return bool(pull_request_of(subject) or _OWN_PR.search(subject))
+
+
+def _landing_runs(
+    trunk: Sequence[TrunkCommit], landings: Sequence[tuple[str, str, str | None]]
+) -> tuple[dict[str, str], list[str]]:
+    """Which first-parent commits came onto the trunk with a loop landing, and which landings
+    could not be traced.
+
+    ``landings`` is (objective id, the landed SHA, the objective's base SHA). The loop lands an
+    objective by fast-forwarding the trunk to its branch, whose first-parent line runs from the
+    landed SHA through the builder's commits and the loop's merges of the trunk back to the base
+    the objective was built on. That run is the landing's. A run that reaches the end of the
+    history, another loop landing or a pull request's merge before its base is not traced: its
+    commits stay where they were, and the objective is named as untraced."""
+    on_trunk = {commit.sha: commit for commit in trunk}
+    landed = {sha for _, sha, _ in landings}
+    runs: dict[str, str] = {}
+    untraced: list[str] = []
+    for objective_id, sha, base in landings:
+        if sha not in on_trunk:
+            continue  # not on this first-parent history: nothing of it is counted
+        run: list[str] = []
+        at = on_trunk[sha].parents[0] if on_trunk[sha].parents else None
+        traced = False
+        while at is not None and at in on_trunk and base:
+            if at == base:
+                traced = True
+                break
+            commit = on_trunk[at]
+            if at in landed or _loop_pull_request(commit.subject):
+                break
+            run.append(at)
+            at = commit.parents[0] if commit.parents else None
+        if traced:
+            runs.update((member, objective_id) for member in run)
+        else:
+            untraced.append(objective_id)
+    return runs, sorted(untraced)
+
+
+def _trunk_kind(commit: TrunkCommit, loop_shas: set[str], with_landing: Mapping[str, str]) -> str:
     if commit.sha in loop_shas:
         return "loop"
-    return "pull_request" if pull_request_of(commit.subject) else "other"
+    if commit.sha in with_landing:
+        return "with_landing"
+    return "pull_request" if _loop_pull_request(commit.subject) else "other"
 
 
 def _loop_aggregate(events: Mapping, day: str | None, *, landings_read: bool, have_trunk: bool) -> dict:
@@ -772,6 +861,7 @@ def _loop_aggregate(events: Mapping, day: str | None, *, landings_read: bool, ha
         "median_hours_to_land": _median(hours for event_day, hours in events["land_hours"] if on(event_day)),
         "trunk_commits": len(trunk) if have_trunk else None,
         "trunk_loop_landings": trunk.count("loop") if have_trunk and landings_read else None,
+        "trunk_with_loop_landings": trunk.count("with_landing") if have_trunk and landings_read else None,
         "trunk_pull_request_merges": trunk.count("pull_request") if have_trunk else None,
         "trunk_other": trunk.count("other") if have_trunk and landings_read else None,
         "deploys": None,
@@ -783,22 +873,43 @@ def measure_loop(records: Mapping, *, trunk: Sequence[TrunkCommit] | None = None
     """The loop's measures per objective, per UTC day and in total, from ``read_loop_records``.
 
     ``trunk`` is the trunk's ``git log --first-parent`` history; a commit is a loop landing
-    when a landing record by ``loop`` names its SHA. Without it the trunk counts are ``None``,
-    not 0. Hours are from the objective's ``recorded_at``. A day's median hours to land is
-    over the objectives that landed that day. Deploys and owner attention are not recorded.
+    when a landing record by ``loop`` names its SHA, and came with one when it lies between
+    that SHA and its objective's base (``_landing_runs``). A pull request's merge is titled as
+    GitHub titles it or "… (PR #N)". Without the history the trunk counts are ``None``, not 0.
+    Hours are from the objective's ``recorded_at``. A day's median hours to land is over every
+    objective that landed that day, whoever landed it. Deploys and owner attention are not
+    recorded.
     """
     landings_read = bool(records["landings_read"])
     facts = sorted(records["objectives"], key=lambda fact: (fact["recorded_at"], fact["objective_id"]))
     rows = [_loop_row(fact) for fact in facts]
     landed = [(fact["landing"]["landed_at"], row) for fact, row in zip(facts, rows, strict=True) if row["landed_at"]]
     loop_shas = {row["landed_sha"] for _, row in landed if row["landed_by"] == "loop" and row["landed_sha"]}
+    traceable = trunk is not None and landings_read
+    with_landing, untraced = (
+        _landing_runs(
+            trunk,
+            [
+                (fact["objective_id"], row["landed_sha"], fact.get("base_sha"))
+                for fact, row in zip(facts, rows, strict=True)
+                if row["landed_by"] == "loop" and row["landed_sha"] in loop_shas
+            ],
+        )
+        if traceable
+        else ({}, [])
+    )
+    predating = sorted(
+        fact["objective_id"]
+        for fact in facts
+        if fact["landing"] and fact["landing"]["state"] == "landed" and not fact["landing"].get("by_recorded")
+    )
     events = {
         "recorded": [row["day"] for row in rows],
         "first_candidate": [_day(fact["first_candidate_at"]) for fact in facts if fact["first_candidate_at"]],
         "repair": [_day(at) for fact in facts for at in fact["repairs_created"]],
         "loop_landing": [_day(at) for at, row in landed if row["landed_by"] == "loop"],
         "land_hours": [(_day(at), row["hours_to_land"]) for at, row in landed],
-        "trunk": [(_day(commit.committed_at), _trunk_kind(commit, loop_shas)) for commit in trunk or ()],
+        "trunk": [(_day(commit.committed_at), _trunk_kind(commit, loop_shas, with_landing)) for commit in trunk or ()],
     }
     days = sorted(
         set(events["recorded"])
@@ -817,6 +928,13 @@ def measure_loop(records: Mapping, *, trunk: Sequence[TrunkCommit] | None = None
             "landings_read": landings_read,
             "landing_records_ignored": records["landing_records_ignored"],
             "trunk_history": trunk is not None,
+            "trunk_landings_untraced": untraced if traceable else None,
+            "trunk_other_is": TRUNK_OTHER_IS,
+            "trunk_with_loop_landings_is": TRUNK_WITH_LANDING_IS,
+            "trunk_not_counted": TRUNK_UNSEEN,
+            "landings_predating_attribution": predating,
+            "landed_by_null_when_landed": PREDATES_ATTRIBUTION,
+            "median_hours_to_land_is": MEDIAN_IS,
             "deploys": NOT_RECORDED,
             "owner_attention": NOT_RECORDED,
         },
@@ -854,9 +972,10 @@ _LOOP_AGGREGATE_COLUMNS = (
     ("First candidates", "first_candidates"),
     ("Repair revisions", "repair_revisions"),
     ("Loop landings", "loop_landings"),
-    ("Median h to land", "median_hours_to_land"),
+    ("Median h to land (all landings)", "median_hours_to_land"),
     ("Trunk commits", "trunk_commits"),
     ("Trunk: loop", "trunk_loop_landings"),
+    ("Trunk: with a loop landing", "trunk_with_loop_landings"),
     ("Trunk: PR merges", "trunk_pull_request_merges"),
     ("Trunk: other", "trunk_other"),
     ("Deploys", "deploys"),
@@ -867,6 +986,15 @@ _LOOP_AGGREGATE_COLUMNS = (
 def render_loop_markdown(report: Mapping) -> str:
     inputs = report["inputs"]
     landings = "read" if inputs["landings_read"] else "not read (no landings directory)"
+    # A landed objective whose record has no `by` is said so in its cell, not left blank.
+    objectives = [
+        {**row, "landed_by": "predates attribution"}
+        if row["landing_state"] == "landed" and row["landed_by"] is None
+        else row
+        for row in report["objectives"]
+    ]
+    untraced = inputs.get("trunk_landings_untraced") or []
+    predating = inputs.get("landings_predating_attribution") or []
     lines = [
         "# Engineering measures from the loop's records",
         "",
@@ -875,10 +1003,22 @@ def render_loop_markdown(report: Mapping) -> str:
         "Deploys and owner attention are not recorded anywhere; their columns are empty, never estimated.",
         "Hours are from when the objective was recorded. Days are UTC. An empty cell means no record "
         "holds that fact; nothing is estimated.",
+        f"Median hours to land is {MEDIAN_IS}.",
+        f"Trunk: with a loop landing is {TRUNK_WITH_LANDING_IS}. Trunk: other is {TRUNK_OTHER_IS}. "
+        f"Not counted at all: {TRUNK_UNSEEN}.",
+    ]
+    if untraced:
+        lines.append(
+            f"{len(untraced)} loop landing(s) could not be traced down to their objective's base "
+            f"({', '.join(untraced)}); the commits they brought are counted in Trunk: other."
+        )
+    if predating:
+        lines.append(f"Landed by is not recorded for {', '.join(predating)}: {PREDATES_ATTRIBUTION}.")
+    lines += [
         "",
         "## Per objective",
         "",
-        *_table(_LOOP_OBJECTIVE_COLUMNS, report["objectives"]),
+        *_table(_LOOP_OBJECTIVE_COLUMNS, objectives),
         "",
         "## Per day",
         "",
