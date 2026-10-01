@@ -82,13 +82,15 @@ mount -t proc -o nosuid,nodev,noexec proc "$R/proc"
 mount -o remount,bind,ro "$R"
 # The check's own loopback, in its own otherwise empty network namespace, so a test can serve and
 # connect on 127.0.0.1 inside it. It is not the host's: the canary proves a listener on the host's
-# loopback stays unreachable. iproute2 when there is one, else the same ioctl from python3; if both
-# are missing or refused it stays down, as it was.
-if command -v ip >/dev/null 2>&1; then ip link set lo up 2>/dev/null || true
-elif command -v python3 >/dev/null 2>&1; then python3 -c 'import socket,fcntl,struct
+# loopback stays unreachable. iproute2, else (or if that fails) the same ioctl from python3, run
+# isolated (-I) from / so nothing in a working directory can stand in for its modules; if neither
+# works it stays down, as it was. Never fatal: `|| true` under set -e.
+cd /
+{ command -v ip >/dev/null 2>&1 && ip link set lo up 2>/dev/null; } || \
+{ command -v python3 >/dev/null 2>&1 && python3 -I -c 'import socket,fcntl,struct
 s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
 f=struct.unpack("16sH22x",fcntl.ioctl(s,0x8913,struct.pack("16sH22x",b"lo",0)))[1]
-fcntl.ioctl(s,0x8914,struct.pack("16sH22x",b"lo",f|1))' 2>/dev/null || true; fi
+fcntl.ioctl(s,0x8914,struct.pack("16sH22x",b"lo",f|1))' 2>/dev/null; } || true
 if [ "$drop" = "yes" ]; then who="--reuid 65534 --regid 65534 --clear-groups"; else who=""; fi
 # shellcheck disable=SC2086
 exec chroot "$R" /usr/bin/setpriv $who --no-new-privs --inh-caps=-all --bounding-set=-all -- \
@@ -309,7 +311,7 @@ class NamespaceSandbox:
             if problems:
                 raise SandboxUnavailable("sandbox canary escaped: " + ", ".join(problems))
             who = f"uid {UNPRIVILEGED_UID}" if self.as_root else "a user namespace over the dispatcher's own uid"
-            loopback = "its own loopback up" if facts.get("own_loopback") else "its own loopback down (no iproute2)"
+            loopback = "its own loopback up" if facts.get("own_loopback") else "its own loopback down"
             return True, (f"linux namespaces (mount, net, pid, ipc, uts), chroot, {who}, no capabilities, "
                           f"{loopback}; canary held")
 
