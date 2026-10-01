@@ -99,3 +99,50 @@ def test_terminologys_comment_lines_are_for_the_editor_not_the_model(tmp_path):
     assert "starts a comment" not in kb.text and "Format:" not in kb.text
     assert "Blue Wash Yard Jeans" in kb.text and "cross stars tee" in kb.text
     assert "# Returns" in kb.text, "a heading in any other file is a heading"
+
+
+# ---------------------------------------------------------------- the owner's voice for CLIVE (1 October)
+
+def test_clive_speaks_in_the_owners_voice_whether_or_not_changes_are_switched_on(tmp_path):
+    """George's voice spec is the personality layer, in both prompts. It governs wording only and comes before
+    the speech, honesty and tool rules, which win any conflict with it."""
+    from app.kb.loader import PERSONALITY
+
+    for writes in (False, True):
+        prompt = build_system_prompt(load(tmp_path), writes_enabled=writes)
+        assert prompt.startswith("You are CLIVE, the behind-the-scenes operator for CROOKS LDN")
+        assert PERSONALITY in prompt
+        assert prompt.index("# Voice and personality") < prompt.index("# How to answer") < prompt.index("# Being honest")
+        assert "governs wording only" in PERSONALITY and "every section after it wins any conflict" in PERSONALITY
+        for rule in ("first sentence, twelve words or fewer", 'phrased "Shall I...?"', '"boss" in roughly one reply in three',
+                     "No exclamation marks. No emoji.", "Warn once", "At most about one reply in four",
+                     "anything waiting for his gesture", "in the store's voice, never yours"):
+            assert rule in PERSONALITY, rule
+
+
+def test_the_voice_never_asks_for_a_spoken_confirm_and_never_offers_over_a_waiting_card(tmp_path):
+    """The spec's "Confirm?" would ask for a spoken yes, and a spoken yes applies nothing: a change is read
+    straight and then the card's gesture is named. An offer while a card waits would have his yes land on the
+    card, so there is none then."""
+    from app.kb.loader import PERSONALITY
+
+    assert "Confirm?" not in PERSONALITY
+    assert "then the gesture the card needs" in PERSONALITY
+    assert "Never end on an offer while a change is waiting for his gesture" in PERSONALITY
+    prompt = build_system_prompt(load(tmp_path), writes_enabled=True)
+    assert "Never ask the owner to say yes" in prompt                      # the write rule it sits under
+    assert '"Would you like me to"' in prompt and "No preamble." in prompt and "No preamble and no offers" not in prompt
+
+
+def test_the_voice_examples_say_figures_as_words_and_claim_only_what_clive_can_do():
+    """The reply is spoken, so a figure is a word; the one exception is an order number after "order". And an
+    example never shows CLIVE doing what it has no tool for (deploying, texting, reconnecting Gmail)."""
+    import re
+
+    from app.kb.loader import PERSONALITY
+
+    assert re.findall(r"(?<!order )\b\d+", PERSONALITY) == []
+    assert "order 1043" in PERSONALITY
+    assert "!" not in PERSONALITY and not re.search(r"[\U0001F300-\U0001FAFF☀-➿]", PERSONALITY)
+    for claim in ("Deploying", "SMS", "reconnect", "Going now", "Fixed."):
+        assert claim not in PERSONALITY, claim
