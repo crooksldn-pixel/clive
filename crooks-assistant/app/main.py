@@ -31,6 +31,7 @@ from app.routes import (
     batches,
     branches,
     command,
+    connections,
     context,
     displays,
     environment,
@@ -652,6 +653,7 @@ app.include_router(support.router)
 app.include_router(objectives.router)
 app.include_router(displays.router)
 app.include_router(voice.router)   # POST /voice/live: the live words' single-use key (owner only)
+app.include_router(connections.router)   # the Connections screen: keys and sign-ins, each change with a passkey
 
 if WEB_DIR.exists():
     mimetypes.add_type("application/manifest+json", ".webmanifest")

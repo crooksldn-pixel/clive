@@ -189,6 +189,13 @@ PROTECTED_TESTS = {
     "test_engineering_bridge.py": "app.engineering_bridge",
     "test_build_from_clive.py": "engineering_tools",
     "test_engineering_bridge_bounds.py": "app.engineering_bridge",
+    "test_linux_store.py": "linux_store",
+    "test_secrets_vault.py": "vault",
+    "test_provision_secrets_prompt.py": "provision_secrets",
+    "test_connections_passkeys.py": "app.connections import passkeys",
+    "test_connections_routes.py": "app.connections",
+    "test_connections_testers.py": "app.connections import testers",
+    "fake_passkey.py": "navigator.credentials",
 }
 
 

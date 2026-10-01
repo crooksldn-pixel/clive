@@ -380,6 +380,17 @@ class WriteStatus:
         return "scope_missing"
 
 
+
+def connections_dir(settings: Any) -> Path:
+    """Where the Connections screen keeps passkeys and its record of changes (never a key)."""
+    import sys
+
+    if sys.platform.startswith("linux"):
+        from app.secrets import linux_store, vault
+
+        return linux_store.store_dir() / vault.DIR_NAME
+    return Path(settings.objectives_dir) / "connections"
+
 def build(settings: Settings | None = None) -> Runtime:
     settings = settings or get_settings()
     settings.log_dir.mkdir(parents=True, exist_ok=True)
@@ -511,6 +522,12 @@ def build(settings: Settings | None = None) -> Runtime:
     # life (never the token) is kept beside CLIVE's other records, for /health.
     instagram_tools.configure(api_version=settings.instagram_api_version,
                               state_path=settings.objectives_dir / "instagram.json")
+    # The Connections screen (app/connections): the owner's passkeys and the record of changes to
+    # connections live beside the keys stored from the app, in the root-only secret directory on
+    # Linux; on a Mac, whose keys are in the Keychain, beside CLIVE's other records.
+    from app.connections import service as connections_service
+
+    connections_service.configure(state_dir=connections_dir(settings))
 
     kb = load(settings.kb_dir)
     provider = MaxAgentSDKProvider(

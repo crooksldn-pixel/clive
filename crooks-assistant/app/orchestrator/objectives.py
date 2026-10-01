@@ -123,6 +123,13 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/app/orchestrator/github_acceptance.py",
     "crooks-assistant/app/engineering_bridge",
     "crooks-assistant/app/tools/engineering_tools.py",
+    # Where keys are kept, and what approves a change to one (the owner's decision of 1 October
+    # 2026, keys stored from the app's Connections screen, each change with a passkey): a builder
+    # must not be able to weaken either, nor the prompt that stores them at the server.
+    "crooks-assistant/app/secrets",
+    "crooks-assistant/app/connections",
+    "crooks-assistant/app/routes/connections.py",
+    "crooks-assistant/scripts/provision_secrets.py",
     # The tests that hold the protected code, chosen by what each one imports and exercises (not by
     # a glob over tests/, so an objective may still name any ordinary test file): a builder that
     # cannot change the safety core must not be able to weaken what proves it either. conftest.py
@@ -169,6 +176,13 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/tests/test_engineering_bridge.py",        # app/engineering_bridge, engineering_tools.py
     "crooks-assistant/tests/test_build_from_clive.py",          # ... the base, the checks, the areas
     "crooks-assistant/tests/test_engineering_bridge_bounds.py",  # ... what it can and cannot reach
+    "crooks-assistant/tests/test_linux_store.py",               # app/secrets/linux_store.py, keychain.py
+    "crooks-assistant/tests/test_secrets_vault.py",             # app/secrets/vault.py: keys stored from the app
+    "crooks-assistant/tests/test_provision_secrets_prompt.py",  # scripts/provision_secrets.py
+    "crooks-assistant/tests/test_connections_passkeys.py",      # app/connections/passkeys.py
+    "crooks-assistant/tests/test_connections_routes.py",        # app/routes/connections.py, service.py, instagram.py
+    "crooks-assistant/tests/test_connections_testers.py",       # app/connections/testers.py
+    "crooks-assistant/tests/fake_passkey.py",                   # ... the stand-in authenticator they rest on
     ".github",
     "engineering",
 )
