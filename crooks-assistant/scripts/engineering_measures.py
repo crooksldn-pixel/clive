@@ -10,12 +10,21 @@ lives in ``app.engineering_measures``; this reads the inputs and prints the repo
         --deploy-log deploys.jsonl --attention-log attention.jsonl \\
         --json measures.json --markdown measures.md
 
+The loop's own records are the second source, instead of or as well as ``--status``: the
+kernel's store (its ``engineering/`` directory) and the dispatcher's runtime, whose
+``landings/`` it reads. Deploys and owner attention are recorded in neither, so that report
+leaves them empty.
+
+    python scripts/engineering_measures.py --store engineering \\
+        --runtime-root /opt/crooks-workers/runtime --json loop.json --markdown loop.md
+
 The trunk history is read with ``git log`` on the first-parent history of ``--trunk-ref``
 (default ``clive/trunk``) in ``--repo``, plus the parents of every commit reachable from it.
 When that ref cannot be read, or with ``--no-trunk``, the trunk and production columns
 stay empty and the reason is printed; they are never estimated.
 
-Read-only: it reads files and runs ``git log``. It writes only the output files named.
+Read-only: it reads files and runs ``git log``. It writes only the output files named; it
+never writes to, creates anything in or takes the lock of the store or the runtime.
 """
 
 from __future__ import annotations
@@ -35,14 +44,18 @@ from app.engineering_measures import (  # noqa: E402
     TRUNK_LOG_FORMAT,
     MeasuresError,
     measure,
+    measure_loop,
     parse_graph_log,
     parse_trunk_log,
     read_json_lines,
+    read_loop_records,
+    render_loop_markdown,
     render_markdown,
 )
 
 ASSISTANT = Path(__file__).resolve().parents[1]
 DEFAULT_TRUNK_REF = "clive/trunk"
+DEFAULT_RUNTIME_ROOT = Path("/opt/crooks-workers/runtime")
 
 
 class TrunkUnavailable(RuntimeError):
@@ -70,8 +83,11 @@ def read_trunk(repo: Path, ref: str) -> tuple[list, dict]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--status", type=Path, action="append", required=True,
+    parser.add_argument("--status", type=Path, action="append",
                         help="a loop's published status.json; repeat for several loops")
+    parser.add_argument("--store", type=Path, help="the kernel's engineering store (its engineering/ directory)")
+    parser.add_argument("--runtime-root", type=Path, default=DEFAULT_RUNTIME_ROOT,
+                        help=f"the dispatcher's runtime, whose landings/ is read (default {DEFAULT_RUNTIME_ROOT})")
     parser.add_argument("--repo", type=Path, default=ASSISTANT, help="the repository holding the trunk")
     parser.add_argument("--trunk-ref", default=DEFAULT_TRUNK_REF, help="the trunk ref (default clive/trunk)")
     parser.add_argument("--no-trunk", action="store_true", help="do not read the trunk history")
@@ -82,9 +98,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", type=Path, dest="json_out", help="also write the JSON report here")
     parser.add_argument("--markdown", type=Path, dest="markdown_out", help="also write the markdown here")
     args = parser.parse_args(argv)
+    if not args.status and args.store is None:
+        parser.error("one of --status or --store is required")
+    if not args.status and (args.deploy_log or args.attention_log):
+        parser.error("--deploy-log and --attention-log go with --status; the loop's records hold neither")
+    if args.store is not None:
+        # The reader never writes into the trees it reads: refuse before any directory is made.
+        for path in (args.json_out, args.markdown_out):
+            if path is None:
+                continue
+            for name, root in (("store", args.store), ("runtime", args.runtime_root)):
+                if path.resolve().is_relative_to(root.resolve()):
+                    print(f"engineering_measures: refusing to write {path} inside the {name} {root}",
+                          file=sys.stderr)
+                    return 2
 
+    report = loop_report = None
     try:
-        projections = [json.loads(path.read_text(encoding="utf-8")) for path in args.status]
+        projections = [json.loads(path.read_text(encoding="utf-8")) for path in args.status or ()]
         deploy_log = (
             read_json_lines(args.deploy_log.read_text(encoding="utf-8"), what="deploy log")
             if args.deploy_log
@@ -95,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.attention_log
             else None
         )
+        loop_records = read_loop_records(args.store, args.runtime_root) if args.store is not None else None
         trunk, graph, trunk_note = None, None, "not read (--no-trunk)"
         if not args.no_trunk:
             try:
@@ -103,20 +135,31 @@ def main(argv: list[str] | None = None) -> int:
             except TrunkUnavailable as exc:
                 trunk_note = f"unavailable: {exc}"
                 print(f"engineering_measures: trunk history {trunk_note}", file=sys.stderr)
-        report = measure(
-            status_projections=projections,
-            trunk=trunk,
-            graph=graph,
-            deploy_log=deploy_log,
-            attention_log=attention_log,
-        )
+        if args.status:
+            report = measure(
+                status_projections=projections,
+                trunk=trunk,
+                graph=graph,
+                deploy_log=deploy_log,
+                attention_log=attention_log,
+            )
+        if loop_records is not None:
+            loop_report = measure_loop(loop_records, trunk=trunk)
     except (OSError, json.JSONDecodeError, MeasuresError) as exc:
         print(f"engineering_measures: {exc}", file=sys.stderr)
         return 2
-    report["inputs"]["trunk_source"] = trunk_note
+    if loop_report is not None:
+        loop_report["inputs"]["trunk_source"] = trunk_note
+    if report is None:
+        report, rendered_markdown = loop_report, render_loop_markdown(loop_report)
+    else:
+        report["inputs"]["trunk_source"] = trunk_note
+        rendered_markdown = render_markdown(report)
+        if loop_report is not None:
+            report["loop_records"] = loop_report
+            rendered_markdown += "\n" + render_loop_markdown(loop_report)
 
     rendered_json = json.dumps(report, indent=2, sort_keys=True)
-    rendered_markdown = render_markdown(report)
     print(rendered_json if args.format == "json" else rendered_markdown.rstrip("\n"))
     for path, text in ((args.json_out, rendered_json + "\n"), (args.markdown_out, rendered_markdown)):
         if path:
