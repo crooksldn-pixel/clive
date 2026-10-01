@@ -9,6 +9,10 @@ The sentence does not open the picker: it is the model's, like every sentence, a
 is prepared on the way to it; the picker is reached by touch from the order card's own
 control. `order_add_item_sentence_defers` scripts what Claude then does — reads the catalogue
 and stages the add — and holds it to the same boundary the picker meets.
+
+A custom item (the owner's decision 8, 1 October 2026) is spoken only — there is no picker for
+what the shop does not list — and `order_add_custom_item_sentence` holds it to the same card,
+the same hold and the same "nothing applied" as the variant.
 """
 
 from __future__ import annotations
@@ -274,10 +278,77 @@ async def order_add_item_sentence_defers(h: Harness) -> Result:
     return r
 
 
+async def order_add_custom_item_sentence(h: Harness) -> Result:
+    """"Add a £15 rush alteration to this order", spoken: a custom item, which the catalogue
+    does not list (the owner's decision 8, 1 October 2026).
+
+    Scripted: the harness's model stages `shopify_order_add_custom_item` with the title and the
+    price it heard, and never a currency — the tool has no such argument. What is asserted is
+    the Mac's side: the change comes back as the priced card at the graver tier, the price went
+    to Shopify in the order's own currency, only the two calculation mutations ran, nothing was
+    applied, and the answer does not say it was added.
+    """
+    from app.observability import contract
+
+    r = Result("order_add_custom_item_sentence", "“Add a £15 rush alteration to this order”, spoken")
+    session = "edit6"
+    await _open_order(h, session, "1938")
+    c = await h.ask("add a £15 rush alteration to this order",
+                    ("shopify_order_add_custom_item", {"order_id": ORDER.order_id, "title": "Rush alteration", "price": 15, "quantity": 1}),
+                    reply="It's on the card with what it costs — hold it to add the alteration.",
+                    scenario="order_add_custom_item_sentence", session_id=session)
+    r.captures.append(c)
+    r.checks.append(a_model_turn(c))
+    r.checks += a_surface(c, "confirmation", what="the model's change comes back as the priced card")
+    card = c.data("confirmation")
+    r.checks.append(check("it is this change, waiting, at the graver tier, held to the graver gesture",
+                          card.get("operation") == "order_edit_add_custom_line" and card.get("status") == "pending"
+                          and card.get("risk") == "red" and (card.get("interaction") or {}).get("kind") == "hold_to_arm",
+                          f"operation={card.get('operation')!r} status={card.get('status')!r} risk={card.get('risk')!r} "
+                          f"interaction={(card.get('interaction') or {}).get('kind')!r}"))
+    r.checks.append(check("and it says it cannot be undone", "cannot be undone" in str(card.get("detail") or "").lower() and card.get("reversible") is False,
+                          f"detail={card.get('detail')!r} reversible={card.get('reversible')}"))
+    facts = _facts(c)
+    r.checks.append(check("the card names the custom item and how many", facts.get("Adding") == "1 x Rush alteration",
+                          f"adding={facts.get('Adding')!r}"))
+    if grounded(h):
+        # The order was £89.00 and fully paid; a £15.00 custom line goes on, so Shopify's
+        # calculated order is £104.00 and the customer owes the £15.00.
+        was = 84.0 + data.SHIPPING
+        adds = _amount(facts.get("Adds"))
+        total = _amount(facts.get("New total"))
+        owed = _amount(facts.get("Customer owes"))
+        r.checks.append(check("what the line adds", adds == 15.0, f"adds={facts.get('Adds')!r}"))
+        r.checks.append(check("the new total is the old one plus the line",
+                              total is not None and abs(total - (was + 15.0)) < 0.005, f"was={was} total={facts.get('New total')!r}"))
+        r.checks.append(check("and what the customer will owe is what was added",
+                              owed is not None and abs(owed - 15.0) < 0.005, f"owes={facts.get('Customer owes')!r}"))
+        r.checks.append(check("the customer is not emailed by the change", facts.get("Customer emailed", "").startswith("no"),
+                              f"emailed={facts.get('Customer emailed')!r}"))
+    calculations = list(getattr(h.store, "calculations", []))
+    ran = [name for name, _ in calculations]
+    r.checks.append(check("only the two calculation mutations ran, and nothing was applied",
+                          ran == ["order_edit_begin", "order_edit_add_custom_item"] and getattr(h.store, "mutations_sent", -1) == 0
+                          and all(p.executed_at is None for p in h.runtime.sessions.get(session).proposals),
+                          f"calculations={ran} mutations_sent={getattr(h.store, 'mutations_sent', 'NO COUNTER')}"))
+    sent = calculations[1][1] if len(calculations) > 1 else {}
+    r.checks.append(check("the price went to Shopify in the order's own currency, as the owner said it",
+                          sent.get("price") == {"amount": "15.00", "currencyCode": data.CURRENCY} and sent.get("title") == "Rush alteration",
+                          f"sent={sent}"))
+    r.checks.append(check("and the answer does not say it was added (the report's own FALSE_SUCCESS rule)",
+                          not contract.reports_success(c.answer), f"answer={c.answer[:120]!r}"))
+    e = await h.open_order("1938", said="show me order 1938 again", scenario="order_add_custom_item_sentence", session_id=session)
+    r.captures.append(e)
+    r.checks.append(check("and the order still reads what it did", _amount(e.data("order").get("total")) == 89.0,
+                          f"total={e.data('order').get('total')!r}"))
+    return r
+
+
 SCENARIOS = (
     ("order_add_item_picker", order_add_item_picker),
     ("order_add_item_ambiguous", order_add_item_ambiguous),
     ("order_add_item_cancelled", order_add_item_cancelled),
     ("order_add_item_stale_picker", order_add_item_stale_picker),
     ("order_add_item_sentence_defers", order_add_item_sentence_defers),
+    ("order_add_custom_item_sentence", order_add_custom_item_sentence),
 )

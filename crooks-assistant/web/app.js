@@ -302,6 +302,7 @@ const DETAIL_WORDS = {
   // Changing the shop
   shopify_order_note_append: ['Preparing', 'the note', true], shopify_order_tags_add: ['Tagging', 'the order', true],
   shopify_order_tags_remove: ['Removing', "the order's tag", true], shopify_order_add_item: ['Adding', 'the item', true],
+  shopify_order_add_custom_item: ['Adding', 'the custom item', true],
   shopify_order_cancel: ['Cancelling', 'the order', true], shopify_order_create: ['Creating', 'the order', true],
   shopify_order_fulfil: ['Fulfilling', 'the order', true], shopify_refund_create: ['Refunding', 'the order', true],
   shopify_order_shipping_address_set: ['Changing', 'the delivery address', true],

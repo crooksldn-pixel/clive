@@ -294,8 +294,10 @@ def test_the_read_that_finds_the_variant_is_a_read_and_the_family_declares_both(
     from app.capabilities import families
 
     family = families.get("order_edit")
-    assert family is not None and family.operations == ("order_edit_add_line",) and family.scopes == ("write_order_edits",)
-    assert set(family.tools) == {SEARCH, TOOL}, "the family owns both, so a missing scope hides only the write"
+    # The custom line (decision 8, 1 October 2026) is the same edit and the same scope, so it is
+    # this family's too: tests/test_order_custom_item.py holds it.
+    assert family is not None and family.operations == ("order_edit_add_line", "order_edit_add_custom_line") and family.scopes == ("write_order_edits",)
+    assert set(family.tools) == {SEARCH, TOOL, "shopify_order_add_custom_item"}, "the family owns all three, so a missing scope hides only the writes"
 
 
 # --------------------------------------------------------------------------- preparing

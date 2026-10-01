@@ -29,6 +29,13 @@ the gesture authorises.
 like every other sentence; Claude reads the catalogue and stages `shopify_order_add_item` with
 the same tools. The touch path is complete on its own: a control on the order card, a picker,
 a card, a hold.
+
+**A line that is not in the catalogue** — "add a £15 rush alteration to order 1930", the
+owner's decision 8 of 1 October 2026 — is the same edit with `orderEditAddCustomItem` in place
+of `orderEditAddVariant`: Claude stages `shopify_order_add_custom_item` with a title, a unit
+price and a quantity, the price is in the order's own currency, and the card, the hold and
+the proof are the variant's. It is spoken only: there is no picker for something the shop
+does not list.
 """
 
 from __future__ import annotations
@@ -50,6 +57,9 @@ from app.surfaces import Entity, Freshness, Surface
 WRITE_TOOL = "shopify_order_add_item"
 SEARCH_TOOL = "shopify_variant_search"
 OPERATION = "order_edit_add_line"
+# A line that is not a catalogue product, on the same order edit (spoken only; no command).
+CUSTOM_WRITE_TOOL = "shopify_order_add_custom_item"
+CUSTOM_OPERATION = "order_edit_add_custom_line"
 SCOPE = "write_order_edits"
 
 # What the tablet may post to narrow the picker, and how much of it. Words, not arguments:
@@ -287,9 +297,9 @@ register_family(CapabilityFamily(
     key="order_edit",
     label="Order item editing",
     area="orders",
-    what="Add an item to an existing order, priced by Shopify before you authorise it",
-    operations=(OPERATION,),
-    tools=(SEARCH_TOOL, WRITE_TOOL),
+    what="Add an item, or a custom item, to an existing order, priced by Shopify before you authorise it",
+    operations=(OPERATION, CUSTOM_OPERATION),
+    tools=(SEARCH_TOOL, WRITE_TOOL, CUSTOM_WRITE_TOOL),
     scopes=(SCOPE,),
     state="READY",
     probe=_probe,
