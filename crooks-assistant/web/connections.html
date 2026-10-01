@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#07070a">
+<meta name="referrer" content="no-referrer">
+<title>CLIVE · Connections</title>
+<link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<link rel="stylesheet" href="/static/connections.css?b=__BUILD__">
+</head>
+<body>
+<main class="page">
+  <header class="top">
+    <a class="back" href="/">← CLIVE</a>
+    <h1>Connections</h1>
+    <p class="lede">The keys and sign-ins CLIVE works with. Every change asks for your passkey, and a saved key is never shown again.</p>
+  </header>
+
+  <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+  <section id="passkey" class="panel" aria-labelledby="passkey-title">
+    <h2 id="passkey-title">Your passkey</h2>
+    <p id="passkey-lede" class="muted">Loading…</p>
+    <ul id="passkey-list" class="passkeys"></ul>
+    <div class="actions">
+      <button id="passkey-add" class="btn primary" type="button" hidden>Set up a passkey on this device</button>
+    </div>
+  </section>
+
+  <section id="cards" class="cards" aria-label="Connections"></section>
+
+  <section id="changes" class="panel" aria-labelledby="changes-title">
+    <h2 id="changes-title">Recent changes</h2>
+    <p class="muted">Every change, newest first. If you see one you did not make, remove that passkey and disconnect what it touched.</p>
+    <ol id="change-list" class="changes"></ol>
+  </section>
+</main>
+
+<template id="card-template">
+  <article class="card">
+    <div class="card-head">
+      <h2 class="card-title"></h2>
+      <span class="pill"></span>
+    </div>
+    <p class="card-what muted"></p>
+    <p class="card-detail"></p>
+    <p class="card-note muted small"></p>
+    <div class="signin" hidden>
+      <button class="btn primary signin-go" type="button"></button>
+      <p class="muted small signin-help">Once, in the Meta app (Instagram → API setup with Instagram login → Business login settings → OAuth redirect URIs), add this address exactly:</p>
+      <div class="copy-row"><code class="redirect"></code><button class="btn small copy" type="button">Copy</button></div>
+    </div>
+    <form class="fields" autocomplete="off" novalidate></form>
+    <div class="actions">
+      <button class="btn primary save" type="button">Save</button>
+      <button class="btn test" type="button">Test</button>
+      <button class="btn danger disconnect" type="button">Disconnect</button>
+    </div>
+    <p class="result small" aria-live="polite"></p>
+  </article>
+</template>
+
+<script src="/static/connections.js?b=__BUILD__" defer></script>
+</body>
+</html>

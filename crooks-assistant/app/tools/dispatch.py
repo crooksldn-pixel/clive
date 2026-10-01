@@ -152,9 +152,10 @@ async def dispatch(
         # F-NEW-TOOLS). Refused before the gate is asked, and so before any handler.
         return _outside_service(name, args, held, calls, "not one of the reads this work was given")
     decision = classify(name, args, session.issued_ids)
-    if held.kind != tool_authority.OWNER and decision.disposition not in (Disposition.EXECUTE_NOW, Disposition.DENY):
+    if not held.may_stage() and decision.disposition not in (Disposition.EXECUTE_NOW, Disposition.DENY):
         # And of those reads, only a call the gate would run at once or refuse: service work never
-        # stages a change for the owner, whatever the gate would do with the call.
+        # stages a change for the owner, whatever the gate would do with the call. A staff member's
+        # authority may stage, and only the writes the owner allowed them (permits(), above).
         return _outside_service(name, args, held, calls, "not a read the gate would run now")
     log.info(
         "tool=%s tier=%s disposition=%s args=%s",
@@ -796,7 +797,7 @@ def make_pretooluse_hook(session_getter, on_event=None, authority_getter=None):
                 }
             }
         decision = classify(name, args, session.issued_ids if session else ())
-        if not held.permits(name) or (held.kind != tool_authority.OWNER and decision.disposition
+        if not held.permits(name) or (not held.may_stage() and decision.disposition
                                       not in (Disposition.EXECUTE_NOW, Disposition.DENY)):
             # A service authority's scope, as dispatch holds it (round 8, F-NEW-TOOLS).
             decision = Decision(Tier.RED, "This work was not given that tool.", Disposition.DENY)

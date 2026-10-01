@@ -132,6 +132,11 @@ class Settings(BaseSettings):
     # Mac can write one. Off only on a machine without the CLI, knowingly.
     tailscale_verify: bool = True
     tailscale_cli: str = ""
+    # The address the owner opens CLIVE at, for the Connections screen's passkeys and sign-ins
+    # (app/routes/connections.py): "https://clive-host.your-tailnet.ts.net". Empty means any
+    # https *.ts.net address the request itself came to, which is what `tailscale serve` gives.
+    # Set it only to use another name (a domain of your own in front of Tailscale).
+    public_origin: str = ""
     # What a cancellation does, beyond cancelling: policy, not a model argument, and printed
     # on the card the owner holds. A customer who asked to cancel expects the email; a
     # cancellation for fraud or a declined payment sends none whatever this says.

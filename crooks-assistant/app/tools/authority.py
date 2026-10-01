@@ -2,7 +2,7 @@
 deploy review, round 7, F-NEW-TOOLS, F-NEW-TOOLS-PATH and B-01).
 
 A tool runs only when the work it is part of holds an active Authority, and there are exactly
-two ways to hold one:
+three ways to hold one:
 
 - **owner**: made by the door in app/main.py for a request that passed the owner rule
   (principal_verdict), and revoked the moment that request's response has been sent. Every task
@@ -15,6 +15,11 @@ two ways to hold one:
   which keeps only reads (round 8, F-NEW-TOOLS: SERVICE_READS that the gate also treats as reads,
   never a write or a bulk change, never one of the owner's screens), and expires on its own clock
   whether or not anything revokes it; the work that holds it revokes it when it ends.
+
+- **staff**: made by the door for a request from a member of the team whose login the owner let
+  in with his passkey (app/people/access.py), and revoked like an owner's. It names its tools:
+  every read but the owner's own records, the work list, and the five writes the owner allowed
+  without his OK (app/people/staff.py), which it may stage as cards that member confirms.
 
 Nothing else makes one. No authority, an expired one or a revoked one: the dispatcher refuses
 the tool before its handler is reached (app/tools/dispatch.py), and so does the Agent SDK's
@@ -35,6 +40,7 @@ from dataclasses import dataclass, field
 
 OWNER = "owner"
 SERVICE = "service"
+STAFF = "staff"
 # An owner request that never finishes sending its answer still loses its authority at this age.
 OWNER_BACKSTOP_S = 15 * 60
 MAX_SERVICE_S = 120.0
@@ -88,8 +94,8 @@ class Authority:
             return False
         if self.kind == OWNER:
             return True
-        # A service authority that names no tool can do nothing, and is not held to be anything.
-        return self.kind == SERVICE and bool(self.tools)
+        # A service or staff authority that names no tool can do nothing, and is not held to be anything.
+        return self.kind in (SERVICE, STAFF) and bool(self.tools)
 
     def revoke(self) -> None:
         self.revoked = True
@@ -106,7 +112,18 @@ class Authority:
         from app.tools.registry import normalise_tool_name
 
         name = normalise_tool_name(str(tool_name or ""))
+        if self.kind == STAFF:
+            # Read again now, so a set made by hand widens nothing the owner did not allow.
+            from app.people import staff
+
+            return name in self.tools and staff.may_call(name)
         return name in self.tools and service_read(name)
+
+    def may_stage(self) -> bool:
+        """Whether calls under this authority may stage a change as a card: the owner's, and a
+        staff member's (only for the writes their set names, which permits() has already held).
+        Service work never does: it runs reads that the gate runs at once, or nothing."""
+        return self.active and self.kind in (OWNER, STAFF)
 
     def derive(self, purpose: str, ttl_s: float, *, tools) -> Authority | None:
         """A service authority for bounded work this owner request started, able to call only the
@@ -165,6 +182,16 @@ TOOL_AUTHORITY: ContextVar[Authority | None] = ContextVar("crooks_tool_authority
 def for_owner(who: str) -> Authority:
     """Only the door calls this, and only after the owner rule has passed."""
     return Authority(OWNER, str(who or "owner"), expires_at=time.monotonic() + OWNER_BACKSTOP_S)
+
+
+def for_staff(person_id: str, login: str = "") -> Authority:
+    """Only the door calls this, and only for a login an active grant lets in (app/people/door.py).
+    `who` is the person's id, which the work list records; `purpose` keeps the login they came in
+    with, which the actions ledger records as who confirmed a change."""
+    from app.people import staff
+
+    return Authority(STAFF, str(person_id), purpose=str(login or ""), expires_at=time.monotonic() + OWNER_BACKSTOP_S,
+                     tools=staff.TOOLS)
 
 
 def current() -> Authority | None:

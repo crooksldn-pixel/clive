@@ -261,6 +261,10 @@ class MaxAgentSDKProvider(ClaudeProvider):
         log.info("Claude provider ready (model=%s, auth=%s)", self._model, self._auth_mode)
         self._prewarm_soon()
 
+    @property
+    def started(self) -> bool:
+        return bool(self._started)
+
     async def stop(self) -> None:
         self._started = False   # first, so reset_session does not pre-warm a replacement
         for key in list(self._conversations):

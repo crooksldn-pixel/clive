@@ -16,10 +16,19 @@ by itself, and storing both the same way gets one of them wrong.
       google-auth refreshes about once an hour — and for anything generated once at install
       and then needed unchanged for the life of the machine, such as the media signing key.
 
-Reads look in A and then B. Writes go to B. A write to a key that Tier A already provides
-would be read back as the Tier A value and the caller would never know, so it raises
-SecretShadowed instead — loudly, naming the key and what to do about it. That is the one
-place this backend's contract differs from keyring's, and it is a refusal, never a silence.
+  The app tier — <secret dir>/app/<key>.cred, app/secrets/vault.py.
+      Keys the owner stores from the Connections screen, encrypted with the same machine-bound
+      key as Tier A, written by the running service and read without a restart. It is asked
+      first: a key stored from the app is the owner's latest explicit choice (made with a
+      passkey), and a key disconnected there reads as absent even where A or B still holds it.
+
+Reads ask the app tier, then A, then B. Writes go where the key lives now: to the app tier when
+it holds the key (so a renewal lands where the next read looks), otherwise to B. A write to a
+key that Tier A provides would be read back as the Tier A value and the caller would never know,
+so it raises SecretShadowed instead — loudly, naming the key and what to do about it; a write to
+a key disconnected in the app raises SecretDisconnected (a SecretShadowed), because it would
+quietly connect it again. Those are the places this backend's contract differs from keyring's,
+and each is a refusal, never a silence.
 
 Nothing here is used on macOS. `app/secrets/keychain.py` dispatches on the platform and the
 Mac keeps the Keychain exactly as it always had it.
@@ -106,6 +115,20 @@ class SecretShadowed(RuntimeError):
         self.key = key
 
 
+class SecretDisconnected(SecretShadowed):
+    """A write to a key the owner disconnected in the app (Connections). Writing it would connect
+    it again without the owner, so it is refused; connecting it is the owner's, from that screen."""
+
+    def __init__(self, key: str) -> None:
+        RuntimeError.__init__(
+            self,
+            f"Secret {key!r} was disconnected in the app (Connections), so it cannot be written: "
+            f"that would connect it again without the owner. Connect it from the Connections "
+            f"screen, or store it with `python scripts/provision_secrets.py {key}`.",
+        )
+        self.key = key
+
+
 def store_dir() -> Path:
     """The writable tier's directory, read from the environment each call so a test can move
     it without re-importing the module."""
@@ -145,7 +168,16 @@ def provisioned_by_systemd(key: str) -> bool:
 
 
 def read(key: str) -> str | None:
-    """The secret, from systemd credentials first and the writable store second."""
+    """The secret: from the app tier when it speaks for the key (a value, or None when the key
+    was disconnected there or can no longer be decrypted), else systemd credentials, else the
+    writable store."""
+    from app.secrets import vault
+
+    held = vault.entry(key)
+    if held.kind == "value":
+        return held.value
+    if held.kind != "none":
+        return None
     directory = credentials_dir()
     if directory is not None:
         found = _read_file(directory / key)
@@ -155,8 +187,15 @@ def read(key: str) -> str | None:
 
 
 def where(key: str) -> str:
-    """Which tier holds this secret: "systemd-credential", "file", or "" when neither does.
-    Used by the doctor and the installer to show the operator what is provisioned how."""
+    """Which tier holds this secret: "app" (stored from the Connections screen), "app-off"
+    (disconnected there), "app-unreadable" (stored there, but this machine can no longer decrypt
+    it), "systemd-credential", "file", or "" when none does. Used by the doctor, the installer
+    and the Connections screen to show what is provisioned how; never the value."""
+    from app.secrets import vault
+
+    held = vault.entry(key).kind
+    if held != "none":
+        return {"value": "app", "off": "app-off"}.get(held, "app-unreadable")
     directory = credentials_dir()
     if directory is not None and _read_file(directory / key) is not None:
         return "systemd-credential"
@@ -186,7 +225,18 @@ def write(key: str, value: str) -> None:
     Written to a temporary file in the same directory, chmod'ed before it holds anything
     anyone would want, then renamed over the target: a reader never sees a half-written
     credential, and the secret is never briefly world-readable.
+
+    A key the app tier holds is written there instead, encrypted, so a renewal (the Instagram
+    token's) lands where the next read looks; one disconnected there is refused.
     """
+    from app.secrets import vault
+
+    held = vault.entry(key).kind
+    if held == "off":
+        raise SecretDisconnected(key)
+    if held != "none":
+        vault.store(key, value)
+        return
     if provisioned_by_systemd(key):
         raise SecretShadowed(key)
     directory = ensure_store_dir()
@@ -206,8 +256,12 @@ def write(key: str, value: str) -> None:
 
 
 def remove(key: str) -> None:
-    """Delete a secret from the writable tier. Absent is not an error — keyring's delete is
-    forgiving in the same way, and every caller here treats "gone" as the outcome it wanted."""
+    """Delete a secret from the writable tier, and the app tier's say over it. Absent is not an
+    error — keyring's delete is forgiving in the same way, and every caller here treats "gone"
+    as the outcome it wanted."""
+    from app.secrets import vault
+
+    vault.clear(key)
     if provisioned_by_systemd(key):
         raise SecretShadowed(key)
     (store_dir() / key).unlink(missing_ok=True)
