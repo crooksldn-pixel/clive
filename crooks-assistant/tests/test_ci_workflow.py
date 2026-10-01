@@ -86,6 +86,25 @@ def test_the_secret_scanner_is_pinned_to_a_version(workflow: dict, steps: list[d
     assert "latest" not in scanner["run"]
 
 
+def test_the_secret_scanner_is_pinned_to_a_digest(workflow: dict, steps: list[dict]) -> None:
+    """A version names a release; only a digest says the bytes are the ones reviewed. The check runs
+    whatever the value, so an emptied digest fails the run instead of passing on a warning."""
+    import re
+
+    assert re.fullmatch(r"[0-9a-f]{64}", workflow["env"]["GITLEAKS_SHA256"])
+    scanner = step_named(steps, "secret scanner")["run"]
+    assert 'sha256sum --check --strict' in scanner and "GITLEAKS_SHA256" in scanner
+    assert "if [ -n" not in scanner and "warning" not in scanner
+
+
+def test_a_pull_request_from_this_repository_is_not_run_twice(workflow: dict) -> None:
+    """Its push already ran on the very same SHA; a pull request from elsewhere still runs."""
+    condition = workflow["jobs"]["acceptance"]["if"]
+    assert "github.event_name != 'pull_request'" in condition
+    assert "github.event.pull_request.head.repo.full_name != github.repository" in condition
+    assert set(workflow[True]) >= {"push", "pull_request"}                    # yaml reads `on:` as True
+
+
 def test_the_workflow_token_is_read_only(workflow: dict) -> None:
     assert workflow["permissions"] == {"contents": "read"}
 
