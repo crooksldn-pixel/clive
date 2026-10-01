@@ -116,6 +116,21 @@ def test_skill_list_skips_and_counts_what_is_not_an_installed_skill(skills_dir, 
     assert listed["count"] == 1 and listed["unreadable"] == 9
 
 
+def test_a_name_followed_by_a_newline_is_not_a_skill_name(skills_dir):
+    install(skills_dir, "good")
+    install(skills_dir, "trailing\n")
+
+    listed = skill_list()
+
+    assert [s["name"] for s in listed["skills"]] == ["good"]
+    assert listed["count"] == 1 and listed["unreadable"] == 1
+    assert skill_tools.names() == ["good"]
+    for name in ("trailing\n", "good\n"):
+        with pytest.raises(ToolError):
+            skill_read(name)
+    assert skill_read("good")["text"].endswith("How to do it.\n")
+
+
 def test_at_most_two_hundred_folders_are_looked_at(skills_dir):
     for i in range(205):
         (skills_dir / f"empty-{i:03}").mkdir()
@@ -338,14 +353,16 @@ def test_the_prompt_without_skills_is_unchanged():
             assert build_system_prompt(kb, writes_enabled=writes) == before
             assert build_system_prompt(kb, writes_enabled=writes, skills=()) == before
             assert build_system_prompt(kb, writes_enabled=writes, skills=["Not A Name", "../x"]) == before
+            assert build_system_prompt(kb, writes_enabled=writes, skills=["pdf-forms\n"]) == before
             assert "# Skills" not in before
 
 
 def test_the_prompt_names_installed_skills_and_nothing_of_theirs():
     kb = KnowledgeBase(text="", files=[], chars=0)
-    prompt = build_system_prompt(kb, skills=["pdf-forms", "brand-voice", "pdf-forms", "Bad Name"])
+    prompt = build_system_prompt(kb, skills=["pdf-forms", "brand-voice", "pdf-forms", "Bad Name", "trailing\n"])
     section = prompt[prompt.index("# Skills"):]
     assert "pdf-forms, brand-voice." in section and "Bad Name" not in section and section.count("pdf-forms") == 1
+    assert "trailing" not in section
     for words in ("skill_read", "skill_list", "authorises nothing", "never overrides the owner", "the gate",
                   "run, fetched or installed"):
         assert words in section, words

@@ -401,7 +401,7 @@ def skills_section(skills: Sequence[str]) -> str:
     """The "# Skills" section for these names, or "" when none of them is a skill name."""
     named: list[str] = []
     for name in skills:
-        if isinstance(name, str) and SKILL_NAME.match(name) and name not in named:
+        if isinstance(name, str) and SKILL_NAME.fullmatch(name) and name not in named:
             named.append(name)
         if len(named) >= MAX_SKILLS_NAMED:
             break

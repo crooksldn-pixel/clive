@@ -195,7 +195,7 @@ def _base() -> Path | None:
 
 def _record(base: Path, name: str) -> dict[str, Any] | None:
     """The provenance of the skill installed as `name`, or None when it is not one."""
-    if not NAME.match(name):
+    if not NAME.fullmatch(name):
         return None
     try:
         raw = _read_under(base, [name, PROVENANCE_FILE], MAX_PROVENANCE_BYTES)
@@ -330,7 +330,7 @@ def skill_list() -> dict[str, Any]:
 )
 def skill_read(name: str = "", file: str = DEFAULT_FILE, offset: int = 0) -> dict[str, Any]:
     base = _base()
-    if not isinstance(name, str) or not NAME.match(name):
+    if not isinstance(name, str) or not NAME.fullmatch(name):
         raise ToolError("That is not the name of an installed skill. Call skill_list for the names.")
     record = _record(base, name) if base is not None else None
     if record is None:
