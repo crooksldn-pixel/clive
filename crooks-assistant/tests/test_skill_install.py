@@ -527,6 +527,32 @@ def test_uninstall_removes_an_install_wholly_and_says_whether_it_still_matched(t
     assert os.listdir(skills_dir) == []
 
 
+def test_uninstall_does_not_say_matched_when_anything_was_added_beside_the_recorded_payload(tmp_path):
+    store, quarantine, artifact_id, _units = _approved(tmp_path / "a", STAR)
+    skills_dir = tmp_path / "skills"
+    for add in (lambda folder: (folder / "extra.txt").write_text("added\n", encoding="utf-8"),
+                lambda folder: (folder / "extra").mkdir(),
+                lambda folder: (folder / "licence").mkdir(),
+                lambda folder: os.symlink(tmp_path, folder / "elsewhere")):
+        install(store, quarantine, artifact_id, skills_dir)
+        add(skills_dir / "star-charts")
+        removal = uninstall(skills_dir, "star-charts")
+        assert removal.removed and removal.matched is False and os.listdir(skills_dir) == []
+
+    files = {"LICENSE": "MIT License\n\nCopyright (c) 2026 Example\n",
+             "skills/star-charts/SKILL.md": _skill_md("star-charts").replace("license: MIT\n", "")}
+    store, quarantine, artifact_id, _units = _approved(tmp_path / "b", files)
+    install(store, quarantine, artifact_id, skills_dir)
+    licence_dir = skills_dir / "star-charts" / "licence"
+    os.chmod(licence_dir, 0o755)
+    (licence_dir / "EXTRA").write_text("added\n", encoding="utf-8")
+    removal = uninstall(skills_dir, "star-charts")
+    assert removal.removed and removal.matched is False and os.listdir(skills_dir) == []
+
+    install(store, quarantine, artifact_id, skills_dir)
+    assert uninstall(skills_dir, "star-charts").matched is True
+
+
 def test_uninstall_refuses_a_folder_without_provenance_and_a_link(tmp_path):
     skills_dir = tmp_path / "skills"
     (skills_dir / "plain").mkdir(parents=True)

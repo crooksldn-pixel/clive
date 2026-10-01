@@ -783,6 +783,8 @@ def _still_matches(final: Path, record: dict[str, Any]) -> bool:
             return False
         if tree_digest(skill) != record["skill"]["digest"]:
             return False
+        if not _only_recorded_entries(final, record):
+            return False
         for base, items in ((skill, record["skill"]["files"]), (final, record["licence"]["copied"])):
             for item in items:
                 data = _read_file(base, item["path"], MAX_BYTES)
@@ -791,6 +793,35 @@ def _still_matches(final: Path, record: dict[str, Any]) -> bool:
         return True
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return False
+
+
+def _only_recorded_entries(final: Path, record: dict[str, Any]) -> bool:
+    """Whether the install folder holds exactly skill/, provenance.json and, when the provenance
+    records licence copies, licence/ with exactly those files: nothing more, and no link. The
+    skill folder's own entries are its tree digest's to check."""
+    copied = [item["path"] for item in record["licence"]["copied"]]
+    names = {posixpath.basename(path) for path in copied}
+    if any(path != f"{LICENCE_DIR}/{posixpath.basename(path)}" for path in copied):
+        return False
+    expected = {SKILL_DIR: True, PROVENANCE_FILE: False}
+    if copied:
+        expected[LICENCE_DIR] = True
+    for folder, wanted in ((final, expected), (final / LICENCE_DIR, dict.fromkeys(names, False))):
+        if not wanted:
+            continue
+        with os.scandir(folder) as listing:
+            entries = {entry.name: entry for entry in listing}
+        if set(entries) != set(wanted):
+            return False
+        for entry_name, is_dir in wanted.items():
+            entry = entries[entry_name]
+            if entry.is_symlink():
+                return False
+            if is_dir and not entry.is_dir(follow_symlinks=False):
+                return False
+            if not is_dir and not entry.is_file(follow_symlinks=False):
+                return False
+    return True
 
 
 def uninstall(skills_dir: str | os.PathLike[str], name: str) -> Removal:
