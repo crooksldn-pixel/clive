@@ -129,7 +129,20 @@ What contains it in the meantime:
 * access is over Tailscale only, on a private tailnet;
 * `ProtectSystem=strict` makes the whole filesystem read-only except three named paths, plus
   `NoNewPrivileges`, `PrivateTmp`, and the kernel protections in the unit;
-* writes to the store and the inbox stay off (`CROOKS_WRITES_ENABLED=false`).
+* only the owner asks: every route but the public ones (liveness, `/whoami`, the page shells)
+  needs a login on `CROOKS_ALLOWED_LOGINS`, confirmed by Tailscale (`CROOKS_TAILSCALE_VERIFY`,
+  left unset so it stays on).
+
+Writes are not one of the things that contain it. Production runs with writes to the store and
+the inbox on (`CROOKS_WRITES_ENABLED=true`), behind the owner's own gesture: CLIVE only
+prepares a change, and nothing is sent until he holds (or, for a small undoable change, taps)
+the card on his own device — a commit is checked against the allow-list, Tailscale's identity
+and the scope the store granted, every time. The switches that stay off are the ones that would
+let the host itself act as the owner or keep what the screens showed:
+
+* `CROOKS_WRITES_LOCAL_OWNER=false` — nothing on the server can apply a business write;
+* `CROOKS_LOCAL_OWNER` unset — a request made on the server is not the owner's;
+* `CROOKS_SCREEN_SNAPSHOTS=false` — no copy is kept of what a screen showed.
 
 **Hardening item, once production is proven:** migrate to a dedicated `crooks` service user —
 re-authenticate the Claude CLI as that user, chown the checkout, the secret directory and the

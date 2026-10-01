@@ -91,7 +91,19 @@ def test_a_test_that_runs_a_tool_tests_it():
     gets there, or calling its handler."""
     cases = {
         "dispatched by name": DISPATCH + 'dispatch("probe_tool", {}, session=s, timeout_s=5)',
-        "dispatched through a constant": DISPATCH + 'TOOL = "probe_tool"\nasync def go():\n    await dispatch(TOOL, {})',
+        "dispatched through a constant": DISPATCH + 'TOOL = "probe_tool"\nasync def test_go():\n    await dispatch(TOOL, {})',
+        # A helper credits its dispatch only when a test calls it, directly or through another
+        # helper (the round-12 deploy review's follow-up of round 9's I-05); the same helper with
+        # nothing calling it is among the negatives below.
+        "dispatched in a helper a test calls": DISPATCH + (
+            'TOOL = "probe_tool"\nasync def go():\n    await dispatch(TOOL, {})\n'
+            'async def via():\n    await go()\nasync def test_it():\n    await via()'),
+        "dispatched in a helper a test's fixture calls": DISPATCH + (
+            'import pytest\nTOOL = "probe_tool"\nasync def go():\n    await dispatch(TOOL, {})\n'
+            '@pytest.fixture\nasync def staged():\n    await go()\nasync def test_it(staged):\n    pass'),
+        "dispatched in a test method's own helper": DISPATCH + (
+            'class TestIt:\n    async def _go(self):\n        await dispatch("probe_tool", {})\n'
+            '    async def test_it(self):\n        await self._go()'),
         "dispatched through a loop": DISPATCH + 'for name in ("probe_tool", "other"):\n    dispatch(name, {})',
         "dispatched through a list it iterates": DISPATCH + 'NAMES = ["probe_tool"]\nfor n in NAMES:\n    dispatch(n, {})',
         "dispatched through an app constant": DISPATCH + 'from app.tools import probes\nWRITE = probes.WRITE_TOOL\n'
@@ -102,7 +114,7 @@ def test_a_test_that_runs_a_tool_tests_it():
         "dispatched through the test's own helper": DISPATCH + (
             'async def stage(session, tool, **args):\n    return await dispatch(tool, args, session=session)\n'
             'async def run(session, which):\n    return await stage(session, which)\n'
-            'stage(s, "probe_tool", x=1)\nrun(s, "probe_tool")'),
+            'async def test_it(s):\n    await stage(s, "probe_tool", x=1)\n    await run(s, "probe_tool")'),
         "invoked by the registry": DISPATCH + 'registry.invoke("probe_tool", {}, timeout_s=1)',
         "through the provider's callback": 'provider._dispatch("probe_tool", {}, holder=h)',
         "its handler, imported": 'from app.tools.probes import probe_tool\nprobe_tool(query="x")',
@@ -140,6 +152,28 @@ def test_looking_a_tool_up_asking_the_gate_or_drawing_a_made_up_call_does_not_te
                                             'present([ToolCall(name="probe_tool", args={}, ok=True)])',
         "the name among another tool's arguments": DISPATCH + 'dispatch("other_tool", {"tool": "probe_tool"}, session=s)',
         "a helper that only looks it up": DISPATCH + 'def spec(name):\n    return registry.get(name)\nspec("probe_tool")',
+        # Moved here from the positive cases, where it stood as "dispatched through a constant":
+        # no test calls `go`, so nothing runs it.
+        "a dispatch in a helper no test calls": DISPATCH + 'TOOL = "probe_tool"\nasync def go():\n    await dispatch(TOOL, {})',
+        "a dispatch in a helper only another uncalled helper calls": DISPATCH + (
+            'async def go():\n    await dispatch("probe_tool", {})\nasync def via():\n    await go()\n'
+            'def test_other():\n    assert True'),
+        # The file's top-level code is not a test: a helper it alone calls credits nothing
+        # (the 2026-10-01 repair, F-02). The forwarding helper's calls were a positive case
+        # while top-level calls were followed; the positive case now makes them in a test.
+        "a dispatch in a helper only the top-level code calls": DISPATCH + (
+            'import asyncio\nasync def go():\n    await dispatch("probe_tool", {})\nasyncio.run(go())\n'
+            'def test_other():\n    assert True'),
+        "the test's own helper, called only from the top level": DISPATCH + (
+            'async def stage(session, tool, **args):\n    return await dispatch(tool, args, session=session)\n'
+            'async def run(session, which):\n    return await stage(session, which)\n'
+            'stage(s, "probe_tool", x=1)\nrun(s, "probe_tool")'),
+        # A function a test defines and never calls runs nothing (the 2026-10-01 repair, F-01).
+        "a dispatch in a nested helper the test never calls": DISPATCH + (
+            'async def test_it():\n    async def go():\n        await dispatch("probe_tool", {})\n'),
+        "a dispatch in a fixture no test asks for": DISPATCH + (
+            'import pytest\n@pytest.fixture\nasync def staged():\n    await dispatch("probe_tool", {})\n'
+            'def test_other():\n    assert True'),
         "a local function called dispatch": 'def dispatch(name, args):\n    return name\ndispatch("probe_tool", {})',
         "a monkeypatch replacing it": 'from app.tools import probes\nmonkeypatch.setattr(probes, "probe_tool", None)',
         "the provider's callback, its dispatcher replaced": (
