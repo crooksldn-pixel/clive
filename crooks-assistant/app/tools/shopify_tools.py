@@ -1849,8 +1849,9 @@ _SIZE_PHRASES = (
     (re.compile(r"\b(?:extra|x)[\s-]*large\b", re.I), "XL"),
     (re.compile(r"\b(?:extra|x)[\s-]*small\b", re.I), "XS"),
 )
-# The runs of an item's words asked of Shopify before its single words (`_search_terms`).
-MAX_PHRASE_SEARCHES = 4
+# The runs of an item's words asked of Shopify before its single words (`_search_terms`): the
+# whole run and the name with up to two words said either side of it (`_phrases`).
+MAX_PHRASE_SEARCHES = 5
 
 
 def _sizes_as_one_word(text: str) -> str:
@@ -1913,15 +1914,20 @@ def _search_terms(product: str) -> list[str]:
 
 
 def _phrases(said: str) -> list[str]:
-    """The runs of two or more of the words said, as said, longest first, once the sizes and
-    the filler are out: "black Convict hoodie, medium" is "black Convict hoodie", then "black
-    Convict" and "Convict hoodie". A colour or a size is said either side of a product's name,
-    so one of these is its name; which one is for Shopify's search to say, and every variant it
-    returns is still held to every word (`_describes`)."""
+    """The runs of two or more of the words said, as said, once the sizes and the filler are
+    out: "black Convict hoodie, medium" is "black Convict hoodie", then "Convict hoodie" and
+    "black Convict". A colour or a size is said either side of a product's name, so its name is
+    what is left with the words at one end taken off: those runs first, fewest words taken off
+    first, the end a colour is usually said at (the start) before the other — "washed black
+    Heavy Box Tee" reaches "Heavy Box Tee" fourth, not after every run of its first words. The
+    runs inside both ends follow. Which one is the name is for Shopify's search to say, and
+    every variant it returns is still held to every word (`_describes`)."""
     kept = [token for token in re.split(r"[\s,/]+", _sizes_as_one_word(said))
             if any(not (_size_aliases(w) - {w}) for w in item_words(token))]
-    return [" ".join(kept[start:start + length])
-            for length in range(len(kept), 1, -1) for start in range(len(kept) - length + 1)]
+    runs = [(start, start + length) for length in range(len(kept), 1, -1) for start in range(len(kept) - length + 1)]
+    ends = sorted((run for run in runs if run[0] == 0 or run[1] == len(kept)),
+                  key=lambda run: (len(kept) - (run[1] - run[0]), run[0] == 0))
+    return [" ".join(kept[start:end]) for start, end in ends + [run for run in runs if run not in ends]]
 
 
 async def catalogue_candidates(client: ShopifyClient, product: str = "", colour: str = "",

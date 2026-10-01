@@ -42,7 +42,13 @@ OG_TEE = {"id": "gid://shopify/Product/9006", "title": "OG Tee", "status": "ACTI
 STICKERS = {"id": "gid://shopify/Product/9007", "title": "Sticker Pack", "status": "ARCHIVED", "tags": [], "variants": [
     _variant(9701, "Mixed", None, "CRK-STICK-10", "2.00", 40),
 ]}
-CATALOGUE = [*r12.CATALOGUE, OG_TEE, STICKERS]
+# A name of four words, none of them as long as the colour's: its single words are the colour's.
+CROWN_TEE = {"id": "gid://shopify/Product/9008", "title": "Crown Logo Box Tee", "status": "ACTIVE", "tags": [], "variants": [
+    _variant(9801, "Washed Charcoal", "M", "CRK-CRWN-WCH-M", "32.00", 5),
+    _variant(9802, "Washed Charcoal", "L", "CRK-CRWN-WCH-L", "32.00", 6),
+    _variant(9803, "Bone", "L", "CRK-CRWN-BON-L", "32.00", 2),
+]}
+CATALOGUE = [*r12.CATALOGUE, OG_TEE, STICKERS, CROWN_TEE]
 
 
 class Shop(Counter):
@@ -87,7 +93,7 @@ async def shop(monkeypatch, tmp_path):
     monkeypatch.setattr(ScribeClient, "health", fake_scribe_health)
     monkeypatch.setattr(VoiceClient, "health", lambda self: (True, "fake voice"))
     # The shop prices and reads a variant from the one table; the new products are in it.
-    for product in (OG_TEE, STICKERS):
+    for product in (OG_TEE, STICKERS, CROWN_TEE):
         for variant in product["variants"]:
             monkeypatch.setitem(r12.VARIANTS, variant["id"], (product, variant))
     async with app.router.lifespan_context(app):
@@ -182,12 +188,38 @@ async def test_several_matches_are_still_a_choice_and_nothing_is_guessed(shop):
 
 def test_the_runs_of_the_words_are_asked_before_single_words_and_are_bounded():
     terms = _search_terms("black OG tee M")
-    assert terms[:4] == ["black OG tee M", "black OG tee", "black OG", "OG tee"]
+    assert terms[:4] == ["black OG tee M", "black OG tee", "OG tee", "black OG"]
     assert terms[4:] == ["t-shirt", "black"], "the single words, as before, after the runs"
     long = _search_terms("washed black heavyweight boxy fit OG tee in large")
     assert len(long) <= 1 + MAX_PHRASE_SEARCHES + 3
+    # The name with two words of colour before it, or after it, is among the runs asked.
+    assert "heavyweight boxy fit OG tee" in long
+    assert "heavyweight boxy fit OG tee" in _search_terms("heavyweight boxy fit OG tee in washed black, large")
     # The words already Shopify's own are asked once, as they always were.
     assert _search_terms("Convict hoodie") == ["Convict hoodie", "convict", "hoodie"]
+
+
+async def test_a_longer_name_with_its_colour_and_size_adds_the_variant_search_found(shop):
+    """A name of four words after a colour of two: its own run is past the first four runs of
+    the words, and its single words ("charcoal", "washed") are not in its title. It is still
+    asked, within the bound, and the order gets the variant variant search found."""
+    await say(shop, "find the Crown Logo Box Tee in washed charcoal, large",
+              ("shopify_variant_search", {"product": "Crown Logo Box Tee", "colour": "washed charcoal", "size": "L"}))
+    found = last(shop.model.calls, "shopify_variant_search")
+    assert found["confident"] is True and [c["variant_id"] for c in found["candidates"]] == [vid(9802)]
+
+    await open_for_theo(shop)
+    said = "washed charcoal Crown Logo Box Tee, large"
+    before = len(shop.store.searched)
+    body = await say(shop, f"add a {said}", ("shopify_order_build", {"add": [{"item": said}]}))
+    data = card(body)
+    built = last(shop.model.calls, "shopify_order_build")
+    assert rows(data) == [("Crown Logo Box Tee", "Washed Charcoal / L", "× 1", "£32.00")], built["not_done"]
+    assert data["rows"][0]["stock"] == "6 in stock" and data["blocked"] == ""
+    assert built["not_done"] == [] and built["items"][0]["variant_id"] == vid(9802)
+    asked = shop.store.searched[before:]
+    assert asked[-1] == "Crown Logo Box Tee" and len(asked) <= 1 + MAX_PHRASE_SEARCHES
+    assert len(_search_terms(said)) <= 1 + MAX_PHRASE_SEARCHES + 3
 
 
 async def test_variant_search_asked_apart_asks_shopify_what_it_always_did(shop):
