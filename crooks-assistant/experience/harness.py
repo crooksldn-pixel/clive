@@ -34,6 +34,7 @@ import os
 # once the fixture is in place, and then it is reading the golden world.
 os.environ.setdefault("CROOKS_ANALYTICS_WARM_DAYS", "0")
 
+import copy  # noqa: E402
 import importlib  # noqa: E402
 import time  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
@@ -589,10 +590,11 @@ class Harness:
 # for the length of a run: the Shopify and Gmail clients the reads and writes use, the order
 # cache and inbox helpers the analytics reads use, both write modules' policy — which is the
 # harness runtime's settings, changes switched on — and the engineering tools' inbox and the
-# interpreter their checks name. Each is put back as it was on the way out. These are every
-# `bind` and `configure` call `build` makes; the process-wide stores it `install`s (the action
-# engine, the objectives, the timeline and the rest) are replaced by every runtime that is built
-# and are not bindings of the harness's.
+# interpreter their checks name. Each is put back as it was on the way out. These, with
+# `_TOOL_CONFIG` and `_STORE_CONFIG` below, are every `bind` and `configure` call `build` makes
+# (tests/test_followups_harness.py reads `build` and holds the three lists to it); the
+# process-wide stores it `install`s (the action engine, the objectives, the timeline and the
+# rest) are replaced by every runtime that is built and are not bindings of the harness's.
 _TOOL_BINDINGS = (
     ("app.tools.shopify_tools", ("_client", "_hydrator")),
     ("app.tools.gmail_tools", ("_client", "_customer_lookup")),
@@ -602,31 +604,64 @@ _TOOL_BINDINGS = (
                                    "_inbox_for", "_sent_for")),
     ("app.tools.engineering_tools", ("_inbox", "_check_python")),
 )
-# And what `build` configures by changing a module's dictionary in place rather than rebinding a
-# name (`instagram_tools.configure`: the API version and the state file the client keeps).
+# What `build` configures by changing a module's dictionary or list in place rather than rebinding
+# a name: the Instagram client's API version and state file (`instagram_tools.configure`), where
+# the owner's passkeys and the record of changes to connections are kept
+# (`connections_service.configure`), where the team's grants are kept and the cache of them
+# (`staff_access.configure`), and the runtime the work list reads the shop and the inboxes through
+# (`work_tools.bind`, a one-item list) — the fixture runtime, left there, would outlive the run as
+# the housekeeper once did.
 _TOOL_CONFIG = (
     ("app.clients.instagram", ("_CONFIG", "_STATE")),
+    ("app.connections.passkeys", ("_CONFIG",)),
+    ("app.connections.ledger", ("_CONFIG",)),
+    ("app.people.access", ("_CONFIG", "_CACHE")),
+    ("app.work.tools", ("_RUNTIME",)),
 )
+# And the stores `build` configures by setting an instance's attributes: (module, the instance's
+# name there, its attributes) — the team's cards (`people_store.configure`) and the work list's
+# folder (`work_store.configure`).
+_STORE_CONFIG = (
+    ("app.people.store", "people", ("_path",)),
+    ("app.work.store", "work", ("_folder", "_archived_on")),
+)
+# A `configure` that `build` calls on one module and that sets another module's configuration:
+# the module it calls, and the modules whose configuration `_TOOL_CONFIG` records for it.
+CONFIGURED_THROUGH: dict[str, tuple[str, ...]] = {
+    "app.tools.instagram_tools": ("app.clients.instagram",),
+    "app.connections.service": ("app.connections.passkeys", "app.connections.ledger"),
+}
 
 
 def _tool_bindings() -> dict[tuple[str, str], Any]:
-    """What each of `_TOOL_BINDINGS` holds now, and a copy of each of `_TOOL_CONFIG`."""
+    """What each of `_TOOL_BINDINGS` holds now, a copy of each of `_TOOL_CONFIG`, and the value of
+    each attribute `_STORE_CONFIG` names (keyed `instance.attribute`)."""
     bound = {(module, name): getattr(importlib.import_module(module), name)
              for module, names in _TOOL_BINDINGS for name in names}
-    bound.update({(module, name): dict(getattr(importlib.import_module(module), name))
+    bound.update({(module, name): copy.copy(getattr(importlib.import_module(module), name))
                   for module, names in _TOOL_CONFIG for name in names})
+    bound.update({(module, f"{instance}.{name}"): getattr(getattr(importlib.import_module(module), instance), name)
+                  for module, instance, names in _STORE_CONFIG for name in names})
     return bound
 
 
 def _put_back(bound: dict[tuple[str, str], Any]) -> None:
-    """Every binding and configuration `_tool_bindings` recorded, as it was."""
+    """Every binding and configuration `_tool_bindings` recorded, as it was. A dictionary or list
+    is refilled in place, because the module's own functions hold that very object."""
     in_place = {(module, name) for module, names in _TOOL_CONFIG for name in names}
+    on_stores = {(module, f"{instance}.{name}") for module, instance, names in _STORE_CONFIG for name in names}
     for (module, name), value in bound.items():
         target = importlib.import_module(module)
         if (module, name) in in_place:
             held = getattr(target, name)
-            held.clear()
-            held.update(value)
+            if isinstance(held, dict):
+                held.clear()
+                held.update(value)
+            else:
+                held[:] = value
+        elif (module, name) in on_stores:
+            instance, attribute = name.split(".", 1)
+            setattr(getattr(target, instance), attribute, value)
         else:
             setattr(target, name, value)
 
@@ -655,8 +690,8 @@ async def harness(*, live: bool = False, writes: bool = True, admitted: bool = F
     so what this and the lifespan it runs put on it — every attribute of `app.state` (the
     runtime whose switches `configure` sets, the allow-list the door reads, the housekeeper
     made for that runtime), and the fixture clients, write policies and configuration bound
-    into the tool modules (`_TOOL_BINDINGS`, `_TOOL_CONFIG`) — is put back as it was on the
-    way out, whatever happened inside. A test
+    into the tool modules and the stores (`_TOOL_BINDINGS`, `_TOOL_CONFIG`, `_STORE_CONFIG`) — is
+    put back as it was on the way out, whatever happened inside. A test
     that runs after this one meets the app and the tools as it found them, and never the fixture
     owner's allow-list, an unverified Tailscale header or changes switched on.
 

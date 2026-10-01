@@ -331,6 +331,11 @@ def read_test(text: str, constant: Callable[[str, str], Any] | None = None) -> C
 _HOOKS = ("setup", "teardown")
 
 
+def _targets(node: ast.Assign | ast.AnnAssign) -> list[ast.AST]:
+    """What an assignment binds: its targets, or an annotated one's single target."""
+    return list(node.targets) if isinstance(node, ast.Assign) else [node.target]
+
+
 def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
     """The ids of the calls in a test file that run when its tests do, and of those among them
     that a test reaches (every one but the file's top-level code).
@@ -348,8 +353,12 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
     present at round 12). A function nested inside one that runs is held to the same rule: it
     runs only when the running code around it uses it: calls it (`asyncio.run(go())`), hands it
     to a call (`anyio.run(go)`) or returns it to a caller that will (a model step a test
-    builds). One it defines and never names again runs nothing (the 2026-10-01 repair, F-01). A class nested in running code runs its methods, as a class of the
-    file does when it is made."""
+    builds). One it defines and never names again runs nothing (the 2026-10-01 repair, F-01).
+    The same holds for a class nested in running code — its methods run once that code makes
+    it, hands it on or returns it, as a class of the file's do once it is made — and for a
+    lambda kept under a name, whose body runs once that name is used; a class never named again
+    and a lambda never called run nothing (the landing review of 1 October 2026). A lambda
+    written straight into a call, a return or a container is handed on, and runs."""
     units: dict[str, list[ast.AST]] = {}
     classes: dict[str, list[ast.AST]] = {}
     loose: list[ast.AST] = []            # statements that run on import
@@ -398,14 +407,25 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
                     stack.extend(d for d in node.args.kw_defaults if d is not None)
                     continue
                 if isinstance(node, ast.ClassDef):
-                    out.append(node)
-                    for item in node.body:
-                        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                            out.append(item)
-                            stack.extend(ast.iter_child_nodes(item))
-                        else:
-                            stack.append(item)
+                    # Defining it runs its decorators, its bases and its body's own statements,
+                    # not its methods: those run once the code around it uses the class — makes
+                    # it, hands it on or returns it — as a class of the file runs its methods
+                    # once it is made.
+                    nested.setdefault(node.name, []).append(node)
                     stack.extend([*node.decorator_list, *node.bases, *node.keywords])
+                    stack.extend(item for item in node.body
+                                 if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)))
+                    continue
+                if (isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(node.value, ast.Lambda)
+                        and all(isinstance(t, ast.Name) for t in _targets(node))):
+                    # A lambda kept under a name is a nested function by another spelling: its
+                    # body runs once the code uses that name, and not before. A lambda written
+                    # straight into a call, a return or a container is handed on, and runs.
+                    out.append(node)
+                    for target in _targets(node):
+                        nested.setdefault(target.id, []).append(node.value)
+                    stack.extend(node.value.args.defaults)
+                    stack.extend(d for d in node.value.args.kw_defaults if d is not None)
                     continue
                 out.append(node)
                 stack.extend(ast.iter_child_nodes(node))
@@ -421,7 +441,15 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
                 entered.add(name)
                 for fn in nested[name]:
                     out.append(fn)
-                    visit(fn.body)
+                    if isinstance(fn, ast.ClassDef):
+                        for item in fn.body:
+                            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                                out.append(item)
+                                visit(ast.iter_child_nodes(item))
+                    elif isinstance(fn, ast.Lambda):
+                        visit([fn.body])
+                    else:
+                        visit(fn.body)
         return out
 
     def called(within: ast.AST) -> set[str]:

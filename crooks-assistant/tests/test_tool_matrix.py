@@ -174,6 +174,13 @@ def test_looking_a_tool_up_asking_the_gate_or_drawing_a_made_up_call_does_not_te
         "a dispatch in a fixture no test asks for": DISPATCH + (
             'import pytest\n@pytest.fixture\nasync def staged():\n    await dispatch("probe_tool", {})\n'
             'def test_other():\n    assert True'),
+        # A class or a lambda a test defines and never uses runs nothing, as a nested function
+        # does (the landing review of 1 October 2026).
+        "a dispatch in a nested class the test never uses": DISPATCH + (
+            'async def test_it():\n    class Fake:\n        async def turn(self):\n'
+            '            await dispatch("probe_tool", {})\n    assert True'),
+        "a dispatch in a lambda the test never calls": DISPATCH + (
+            'def test_it():\n    f = lambda: dispatch("probe_tool", {})\n    assert True'),
         "a local function called dispatch": 'def dispatch(name, args):\n    return name\ndispatch("probe_tool", {})',
         "a monkeypatch replacing it": 'from app.tools import probes\nmonkeypatch.setattr(probes, "probe_tool", None)',
         "the provider's callback, its dispatcher replaced": (

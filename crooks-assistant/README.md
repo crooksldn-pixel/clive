@@ -293,9 +293,11 @@ written, whoever wrote it.
 
 The assistant can prepare sixteen changes, through nineteen write tools, and five bulk changes
 that put many of them on one card. While `CROOKS_WRITES_ENABLED` is off (the default) every
-write tool is hidden from Claude and every commit is refused; production runs with it on, and
-every change waits for your gesture on its card. Each follows the one pattern rather than being
-a feature of its own:
+write tool is hidden from Claude and every commit is refused. Production runs with it on, by your
+choice: `deploy/env.production.example` ships it off, and it is on once you set it in the
+server's `.env`. Every change waits for a gesture on its card — yours, or, for the five changes
+you have let the team make without you, the team member's own on theirs (*Who may ask*, below).
+Each follows the one pattern rather than being a feature of its own:
 
     Claude calls a narrow tool → the gate stages it → the Mac reads the entity and decides
     every argument → a card appears on the tablet with the facts the gesture authorises →
@@ -564,15 +566,31 @@ switches each is given.
   (`you@example.com`; open `/whoami` on the device to see it) and, with
   `CROOKS_TAILSCALE_VERIFY` on (the default), Tailscale confirms it: the connection came from
   `tailscaled`, and `tailscale whois` names that login for the device's address. Any other
-  login is refused with a 403; a proxied request with no login at all — Funnel, a tagged node
-  — is refused; and, with that check on, one carrying Tailscale's headers that did not come
-  through `tailscaled` is refused before any route sees it.
+  login is refused with a 403, unless it is a team member's the owner has let in (next); a
+  proxied request with no login at all — Funnel, a tagged node — is refused; and, with that
+  check on, one carrying Tailscale's headers that did not come through `tailscaled` is refused
+  before any route sees it.
+- **A member of the team, let in by the owner.** A staff member's grant is pending when CLIVE
+  is told their Tailscale login, and opens the door only once the owner approves it with his
+  passkey on the Today screen; a suspended grant opens nothing (`app/people/access.py`). The
+  door then lets that login in only through `tailscale serve`, only while the person is on
+  CLIVE's list as active staff, and, with `CROOKS_TAILSCALE_VERIFY` on, only when Tailscale
+  confirms the device is theirs (`app/people/door.py`). It is not an owner request. It reaches
+  only the team's routes — the chat, its cards, and the Today screen with the work list — and
+  nothing of the owner's own: Connections, his objectives and screens, the voice, the test
+  session, the engineering status. Its tools are the reads `app/people/staff.py` names and
+  five changes the owner allowed the team to make without him: fulfilling an order, setting
+  its tracking number, drafting and sending a reply to an email, and adjusting stock. Each is
+  staged as a card like any other, made only when the staff member confirms it on their own
+  device, and recorded as theirs, and the undo of each is open to them too. Every other change
+  is refused to them, whatever card they hold.
 - **Made on the machine itself.** Such a request carries no login. It is the owner's only when
   `CROOKS_LOCAL_OWNER` is on (it may then ask and read, never apply a change) or
   `CROOKS_WRITES_LOCAL_OWNER` is on (it may also apply one). Otherwise it gets the public paths
   and nothing else.
 - **An empty allow-list is nobody.** With `CROOKS_ALLOWED_LOGINS` empty, every route but the
-  public ones is refused, from anywhere, and the backend logs a warning at start.
+  public ones is refused, from anywhere and to the team as well, and the backend logs a warning
+  at start.
 
 The public paths are liveness (`/health`, `/ping`), `/whoami`, and the page shells and their
 static files — code, never data.

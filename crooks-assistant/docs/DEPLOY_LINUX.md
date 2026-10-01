@@ -129,16 +129,25 @@ What contains it in the meantime:
 * access is over Tailscale only, on a private tailnet;
 * `ProtectSystem=strict` makes the whole filesystem read-only except three named paths, plus
   `NoNewPrivileges`, `PrivateTmp`, and the kernel protections in the unit;
-* only the owner asks: every route but the public ones (liveness, `/whoami`, the page shells)
-  needs a login on `CROOKS_ALLOWED_LOGINS`, confirmed by Tailscale (`CROOKS_TAILSCALE_VERIFY`,
-  left unset so it stays on).
+* only the owner, and the members of the team he has let in, ask: every route but the public
+  ones (liveness, `/whoami`, the page shells) needs a login on `CROOKS_ALLOWED_LOGINS`, or a
+  staff member's login whose grant the owner approved with his passkey
+  (`app/people/access.py`, `app/people/door.py`), confirmed by Tailscale either way
+  (`CROOKS_TAILSCALE_VERIFY`, left unset so it stays on). A staff member reaches only the
+  team's routes — the chat, its cards and the Today screen (`app/people/staff.py`) — and with an
+  empty allow-list nobody gets in at all.
 
 Writes are not one of the things that contain it. Production runs with writes to the store and
-the inbox on (`CROOKS_WRITES_ENABLED=true`), behind the owner's own gesture: CLIVE only
-prepares a change, and nothing is sent until he holds (or, for a small undoable change, taps)
-the card on his own device — a commit is checked against the allow-list, Tailscale's identity
-and the scope the store granted, every time. The switches that stay off are the ones that would
-let the host itself act as the owner or keep what the screens showed:
+the inbox on, by the owner's choice: `deploy/env.production.example` ships
+`CROOKS_WRITES_ENABLED=false`, and writes are on only once he sets it to `true` in the server's
+`.env`. CLIVE only prepares a change, and nothing is sent until someone confirms its card on
+their own device: the owner, for any change (a hold, or for a small undoable change a tap), or a
+staff member, for only the five changes the owner let the team make without him — fulfilling an
+order, setting its tracking number, drafting and sending an email reply, and adjusting stock
+(`app/people/staff.py` `WRITES`) — and the undo of each. A commit is checked against who is
+confirming it, Tailscale's identity and the scope the store granted, every time. The switches
+that stay off are the ones that would let the host itself act as the owner or keep what the
+screens showed:
 
 * `CROOKS_WRITES_LOCAL_OWNER=false` — nothing on the server can apply a business write;
 * `CROOKS_LOCAL_OWNER` unset — a request made on the server is not the owner's;

@@ -25,6 +25,7 @@ Every name, address and order here is invented.
 
 from __future__ import annotations
 
+import ast
 import inspect
 import json
 import re
@@ -457,6 +458,38 @@ def test_a_model_double_a_test_makes_runs_its_methods_and_one_nobody_makes_does_
     assert not _cites(MODEL_DOUBLE + 'async def test_it():\n    pass\n')
 
 
+NESTED_DOUBLE = (
+    '    class Fake:\n'
+    '        async def turn(self):\n'
+    '            await dispatch("probe_tool", {})\n'
+)
+
+
+def test_a_class_nested_in_a_test_runs_its_methods_only_once_the_test_uses_it():
+    """A double a test defines and never names again runs nothing, as a nested function does
+    (the landing review of 1 October 2026: such a class was credited for being defined). Made,
+    handed on or returned, its methods run."""
+    assert not _cites(DISPATCH + 'async def test_it():\n' + NESTED_DOUBLE + '    assert True\n')
+    assert not _cites(DISPATCH + 'import pytest\n@pytest.fixture\ndef model():\n' + NESTED_DOUBLE
+                      + '    return None\nasync def test_it(model):\n    pass\n')
+    assert _cites(DISPATCH + 'async def test_it():\n' + NESTED_DOUBLE + '    await Fake().turn()\n')
+    assert _cites(DISPATCH + 'async def test_it(runtime):\n' + NESTED_DOUBLE + '    runtime.provider = Fake\n')
+    assert _cites(DISPATCH + 'import pytest\n@pytest.fixture\ndef model():\n' + NESTED_DOUBLE
+                  + '    return Fake()\nasync def test_it(model):\n    pass\n')
+
+
+def test_a_lambda_kept_under_a_name_runs_only_once_the_name_is_used():
+    """`f = lambda: dispatch(...)` and nothing more runs no tool (the landing review of
+    1 October 2026). Called, or handed on by its name or written straight into a call, it does."""
+    assert not _cites(DISPATCH + 'def test_it():\n    f = lambda: dispatch("probe_tool", {})\n    assert True\n')
+    assert not _cites(DISPATCH + 'from typing import Callable\n'
+                                 'def test_it():\n    f: Callable = lambda: dispatch("probe_tool", {})\n')
+    assert _cites(DISPATCH + 'def test_it():\n    f = lambda: dispatch("probe_tool", {})\n    f()\n')
+    assert _cites(DISPATCH + 'def test_it(monkeypatch, provider):\n    f = lambda: dispatch("probe_tool", {})\n'
+                             '    monkeypatch.setattr(provider, "step", f)\n')
+    assert _cites(DISPATCH + 'def test_it(loop):\n    loop.run(lambda: dispatch("probe_tool", {}))\n')
+
+
 # ====================================================================== H-06: data is not coverage
 
 
@@ -506,17 +539,30 @@ def test_a_tool_name_a_scenario_holds_only_as_data_is_not_handed_on():
 
 async def test_the_harness_puts_back_everything_its_lifespan_and_build_set():
     from app.clients import instagram
+    from app.connections import ledger, passkeys
     from app.main import app
+    from app.people import access as staff_access
+    from app.people.store import people as people_store
     from app.tools import engineering_tools
+    from app.work import tools as work_tools
+    from app.work.store import work as work_store
 
     state_before = dict(app.state._state)
     bound_before = harness_module._tool_bindings()
     engineering_before = (engineering_tools._inbox, engineering_tools._check_python)
     instagram_before = (dict(instagram._CONFIG), dict(instagram._STATE))
+    work_runtime_before = list(work_tools._RUNTIME)
+    stores_before = (people_store._path, work_store._folder, work_store._archived_on)
+    folders_before = (dict(passkeys._CONFIG), dict(ledger._CONFIG), dict(staff_access._CONFIG))
     async with harness_module.harness(admitted=True) as h:
         inside = dict(app.state._state)
         assert inside.get("runtime") is h.runtime
         assert inside["housekeeper"].runtime is h.runtime, "the lifespan's housekeeper holds the harness's runtime"
+        # What trunk's build binds since the team and Connections landed (PR #73): the work list's
+        # runtime is the harness's own, so leaving it there would be the housekeeper again.
+        assert work_tools._RUNTIME[0] is h.runtime, "the work list reads through the harness's runtime"
+        assert people_store._path is not None and work_store._folder is not None
+        assert passkeys._CONFIG["state_dir"] is not None and staff_access._CONFIG["state_dir"] is not None
     after = dict(app.state._state)
     assert after.keys() == state_before.keys(), sorted(set(after) ^ set(state_before))
     for name, value in state_before.items():
@@ -525,24 +571,78 @@ async def test_the_harness_puts_back_everything_its_lifespan_and_build_set():
     assert (engineering_tools._inbox, engineering_tools._check_python) == engineering_before
     assert engineering_tools._inbox is engineering_before[0]
     assert (dict(instagram._CONFIG), dict(instagram._STATE)) == instagram_before
+    assert len(work_tools._RUNTIME) == len(work_runtime_before)
+    assert all(a is b for a, b in zip(work_tools._RUNTIME, work_runtime_before, strict=True)), "the work list's runtime"
+    assert (people_store._path, work_store._folder, work_store._archived_on) == stores_before
+    assert (dict(passkeys._CONFIG), dict(ledger._CONFIG), dict(staff_access._CONFIG)) == folders_before
     bound_after = harness_module._tool_bindings()
+    assert bound_after.keys() == bound_before.keys()
     in_place = {(m, n) for m, names in harness_module._TOOL_CONFIG for n in names}
     for key, value in bound_before.items():
         assert (bound_after[key] == value) if key in in_place else (bound_after[key] is value), key
 
 
+def _imported_names(tree: ast.AST) -> dict[str, str]:
+    """Each name an import binds in this tree -> the dotted path it stands for."""
+    names: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            for alias in node.names:
+                names[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                names[alias.asname or alias.name.split(".")[0]] = alias.name if alias.asname else alias.name.split(".")[0]
+    return names
+
+
 def test_every_module_runtime_build_binds_into_is_one_the_harness_puts_back():
+    """Every `x.bind…(` and `x.configure(` in `runtime.build`, whatever `x` is called — a tool
+    module, a service, a store — names something the harness records and puts back. A binding
+    added to `build` later fails here until the harness learns it."""
     from app import runtime
 
     source = inspect.getsource(runtime.build)
-    bound = set(re.findall(r"\b(\w+_tools|\w+_writes)\.(?:bind\w*|configure)\(", source))
-    assert bound >= {"shopify_tools", "gmail_tools", "gmail_writes", "shopify_writes", "analytics_tools",
-                     "engineering_tools", "instagram_tools"}, bound
-    covered = {module.rsplit(".", 1)[-1] for module, _ in harness_module._TOOL_BINDINGS}
-    # `instagram_tools.configure` writes into the client module's own dictionaries.
-    if ("app.clients.instagram", ("_CONFIG", "_STATE")) in harness_module._TOOL_CONFIG:
-        covered.add("instagram_tools")
-    assert bound <= covered, sorted(bound - covered)
+    called = set(re.findall(r"\b([A-Za-z_]\w*)\.(?:bind\w*|configure)\(", source))
+    assert called >= {"shopify_tools", "gmail_tools", "gmail_writes", "shopify_writes", "analytics_tools",
+                      "engineering_tools", "instagram_tools", "connections_service", "staff_access",
+                      "people_store", "work_store", "work_tools"}, called
+    imported = _imported_names(ast.parse(inspect.getsource(runtime)))
+    unresolved = sorted(name for name in called if name not in imported)
+    assert not unresolved, f"bound or configured, but not imported by name: {unresolved}"
+
+    recorded = {module for module, _ in harness_module._TOOL_BINDINGS}
+    recorded |= {module for module, _ in harness_module._TOOL_CONFIG}
+    recorded |= {f"{module}.{instance}" for module, instance, _ in harness_module._STORE_CONFIG}
+    for through, targets in harness_module.CONFIGURED_THROUGH.items():
+        assert set(targets) <= {module for module, _ in harness_module._TOOL_CONFIG}, through
+        recorded.add(through)
+    missing = sorted(f"{name} ({imported[name]})" for name in called if imported[name] not in recorded)
+    assert not missing, f"runtime.build binds or configures what the harness does not put back: {missing}"
+
+
+def test_every_global_a_bind_in_build_sets_is_one_the_harness_records():
+    """Within a recorded module, a `bind…` or `configure` that `build` calls and that starts
+    setting another global would leave it set after the harness: every name such a function
+    declares `global` is recorded."""
+    import importlib
+
+    from app import runtime
+
+    imported = _imported_names(ast.parse(inspect.getsource(runtime)))
+    calls = set(re.findall(r"\b([A-Za-z_]\w*)\.(bind\w*|configure)\(", inspect.getsource(runtime.build)))
+    recorded = dict(harness_module._TOOL_BINDINGS)
+    checked = set()
+    for alias, function in sorted(calls):
+        module_name = imported.get(alias, "")
+        if module_name not in recorded:
+            continue
+        tree = ast.parse(inspect.getsource(importlib.import_module(module_name)))
+        fn = next(n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == function)
+        declared = {name for node in ast.walk(fn) if isinstance(node, ast.Global) for name in node.names}
+        assert declared <= set(recorded[module_name]), (
+            f"{module_name}.{function} sets {sorted(declared - set(recorded[module_name]))}, not put back")
+        checked.add(module_name)
+    assert checked == set(recorded), sorted(set(recorded) - checked)
 
 
 # ====================================================================== DOC2-02: what "read" means
