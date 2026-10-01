@@ -39,11 +39,13 @@ def _found_state(items: list[WorkItem], since: Any = None) -> dict[str, Any]:
 async def today_for(runtime: Any, *, who: str, owner: bool, day: str = "", fresh: bool = False) -> dict[str, Any]:
     day = as_day(day) if day else today()
     # Today's routines are made, and old finished jobs put away, only on a read of today: any other
-    # day is shown as the kept records have it, with nothing made and nothing moved.
-    if day == today():
+    # day is shown as the kept records have it, with nothing made and nothing moved. What CLIVE finds
+    # live is today's, so another day reads none of it, nor any job made after that day.
+    is_today = day == today()
+    if is_today:
         work.materialise(day)
-    kept = work.items()
-    sources = await live.found(runtime, fresh=fresh)
+    kept = [i for i in work.items() if is_today or i.created_at[:10] <= day]
+    sources = await live.found(runtime, fresh=fresh) if is_today else {}
     by_ref: dict[str, list[WorkItem]] = {}
     for item in kept:
         if item.ref:

@@ -85,6 +85,28 @@ async def test_a_past_or_future_day_makes_and_archives_nothing_and_today_makes_i
     assert work.get(packed.item_id) is not None                                 # finished today: still in hand
 
 
+async def test_another_day_shows_the_kept_records_for_it_not_what_is_found_today(stores, monkeypatch):
+    finding(monkeypatch, orders=[{"ref": ORDER_1, "kind": "pack_order", "title": "Pack #1001", "details": "",
+                                   "since": today() + "T08:00:00Z"}])
+    work_tools.bind(SimpleNamespace())
+    earlier = work.assign(title="Restock the shelves", by="owner")
+    path = stores / "work" / "items" / f"{earlier.item_id}.json"
+    data = json.loads(path.read_text())
+    data["created_at"] = "2026-08-20T09:00:00+00:00"
+    path.write_text(json.dumps(data))
+    work.assign(title="Count the hoodies", by="owner")                       # made today
+    past = "2026-09-01" if today() > "2026-09-01" else "2000-01-01"
+    future = (date.fromisoformat(today()) + timedelta(days=30)).isoformat()
+    with owner():
+        then = await work_tools.work_list(day=past)
+        ahead = await work_tools.work_list(day=future)
+        now = await work_tools.work_list()
+    assert then["found"] == ahead["found"] == [] and then["sources"] == ahead["sources"] == {}
+    assert [i["title"] for i in then["up_for_grabs"]] == (["Restock the shelves"] if past == "2026-09-01" else [])
+    assert sorted(i["title"] for i in ahead["up_for_grabs"]) == ["Count the hoodies", "Restock the shelves"]
+    assert [r["ref"] for r in now["found"]] == [ORDER_1] and now["sources"]["orders"]["count"] == 1
+
+
 @pytest.mark.parametrize("day", ["1 September", "2026-9-1", "20260901", "2026-02-30", "tomorrow"])
 async def test_a_day_that_is_not_a_date_is_refused_in_words(monkeypatch, day):
     finding(monkeypatch)
