@@ -89,6 +89,8 @@ class CustomItemStore(FakeStore):
         self.commit_total_bump = 0.0         # the re-read total differs from the priced one by this
         self.price_echo: str | None = None   # what Shopify says it priced the line at, if not what it was sent
         self.title_echo: str | None = None   # the title Shopify gives the calculated line, if not what it was sent
+        self.currency_echo: str | None = None   # the currency Shopify says it priced the line in, if not the one sent
+        self.more_lines = False              # the order has more lines than one read returns
 
     # ---- reads
 
@@ -104,7 +106,7 @@ class CustomItemStore(FakeStore):
             "currencyCode": self.currency, "presentmentCurrencyCode": self.presentment,
             "currentTotalPriceSet": {"shopMoney": {"amount": f"{total:.2f}", "currencyCode": self.currency}},
             "totalOutstandingSet": {"shopMoney": {"amount": f"{max(0.0, total - self.paid):.2f}", "currencyCode": self.currency}},
-            "lineItems": {"edges": [
+            "lineItems": {"pageInfo": {"hasNextPage": self.more_lines}, "edges": [
                 {"node": {"id": f"gid://shopify/LineItem/{i}", "title": line["title"], "quantity": line["quantity"],
                           "currentQuantity": line["quantity"], "variant": {"id": line["variant"]} if line["variant"] else None}}
                 for i, line in enumerate(self.lines)
@@ -138,7 +140,9 @@ class CustomItemStore(FakeStore):
             return {"data": {"orderEditAddCustomItem": {
                 "calculatedLineItem": {
                     "id": "gid://shopify/CalculatedLineItem/new", "title": title, "quantity": line["quantity"],
-                    "originalUnitPriceSet": money(self.price_echo or variables["price"]["amount"]),
+                    "originalUnitPriceSet": {"shopMoney": {
+                        "amount": self.price_echo or variables["price"]["amount"],
+                        "currencyCode": self.currency_echo or variables["price"]["currencyCode"]}},
                 },
                 "calculatedOrder": {
                     "id": CALCULATED,
@@ -380,11 +384,11 @@ async def test_the_cards_new_total_and_what_the_customer_owes_are_shopifys(store
     assert proposal.expected_after == {"lines": 2, "total": "83.00", "custom_qty": 1, "cancelled": False, "closed": False}
     card = facts(proposal)
     assert card["Adding"] == "1 x Rush alteration" and card["Unit price"] == "£15.00"
-    assert card["Adds"] == "£15.00 to the order" and card["Treated as"] == "taxable · needs no shipping"
+    assert card["Adds"] == "£18.00 to the order" and card["Treated as"] == "taxable · needs no shipping"   # Shopify's change, tax and all
     assert card["New total"] == "£83.00" and card["Customer owes"] == "£18.00 after this"
     assert card["Customer emailed"] == "no — tell them yourself" and card["Customer"] == "Daniel Sear"
     assert len(card) <= 8, "the card prints eight facts at most"
-    assert "£15.00 more, taking the order to £83.00" in proposal.summary["read_back"]
+    assert "£18.00 more, taking the order to £83.00" in proposal.summary["read_back"]
     words = registry.get(TOOL).write.present(proposal)
     assert words["done_title"] == "Custom item added" and "cannot be undone" in words["detail"]
 
@@ -613,3 +617,45 @@ async def test_the_ledger_keeps_the_numbers_and_not_the_customer_or_the_title(st
     line = engine.ledger.read()[-1]
     assert line["event"] == "PROPOSED" and line["facts"] == {"quantity": 1, "adds": "15.00", "currency": "GBP"}
     assert "Daniel" not in str(line)
+
+
+# --------------------------------------------------------------------------- the review's gaps
+
+
+async def test_an_order_whose_total_alone_moved_meanwhile_makes_it_stale(store, engine, session):
+    """Only the total moves: the hoodie's quantity changed in Admin between the card and the hold.
+    The CalculatedOrder was priced on the old order and must not be committed."""
+    _, proposal = await stage(session)
+    store.lines = [{**store.lines[0], "quantity": 2}]
+    result = await hold(engine, proposal)
+    assert result.code == "stale" and store.committed is False and store.sent("order_edit_commit") == []
+
+
+async def test_a_title_shopify_stores_differently_is_the_one_carried_and_proved(store, engine, session):
+    store.title_echo = "Rush Alteration"
+    _, proposal = await stage(session)
+    assert facts(proposal)["Adding"] == "1 x Rush Alteration"
+    await hold(engine, proposal)
+    assert proposal.status is ActionStatus.VERIFIED
+    assert store.sent("order_edit_commit")[0]["staffNote"] == "Added 1 x Rush Alteration (custom item, CROOKS assistant)"
+
+
+@pytest.mark.parametrize("price_echo, currency_echo", [("15.50", None), ("15.01", None), (None, "EUR")])
+async def test_an_echo_off_by_pence_or_in_another_currency_is_refused(price_echo, currency_echo, store, engine, session):
+    store.price_echo, store.currency_echo = price_echo, currency_echo
+    text, _ = await stage(session)
+    assert text.startswith("ERROR") and "nothing was changed" in text, text
+    assert session.proposals == [] and store.sent("order_edit_commit") == []
+
+
+def test_a_proof_for_nothing_added_is_never_a_proof():
+    verify = registry.get(TOOL).write.verify
+    before = {"custom_qty": 1, "total": "80.00"}
+    assert verify(before, {"custom_qty": 1, "total": "80.00"}, {"quantity": 0, "new_total": "80.00"})[0] is False
+
+
+async def test_an_order_with_more_lines_than_one_read_is_refused_before_an_edit_is_opened(store, engine, session):
+    store.more_lines = True
+    text, _ = await stage(session)
+    assert text.startswith("ERROR") and "add a custom item to it in Admin" in text, text
+    assert store.mutations == [] and session.proposals == []

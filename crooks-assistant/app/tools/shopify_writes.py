@@ -1867,7 +1867,7 @@ query CrooksOrderEditState($id: ID!) {
     currentTotalPriceSet { shopMoney { amount currencyCode } }
     totalOutstandingSet { shopMoney { amount currencyCode } }
     customer { displayName }
-    lineItems(first: 50) { edges { node { id title quantity currentQuantity variant { id } } } }
+    lineItems(first: 50) { pageInfo { hasNextPage } edges { node { id title quantity currentQuantity variant { id } } } }
   }
 }
 """
@@ -2304,7 +2304,7 @@ def _present_order_add_custom_item(proposal) -> dict:
         {"label": "Customer", "value": str(s.get("customer") or "")},
         {"label": "Adding", "value": str(s.get("line") or "")},
         {"label": "Unit price", "value": str(s.get("unit_price_display") or "")},
-        {"label": "Adds", "value": f"{_display(float(s.get('subtotal_delta') or 0), currency)} to the order", "tone": "warn"},
+        {"label": "Adds", "value": f"{_display(float(s.get('adds') or 0), currency)} to the order", "tone": "warn"},
         {"label": "Treated as", "value": treated},
         {"label": "New total", "value": _display(float(s.get("amount") or 0), currency)},
         {"label": "Customer owes", "value": f"{_display(float(s.get('amount_outstanding') or 0), currency)} after this", "tone": "bad" if float(s.get("amount_outstanding") or 0) > 0 else ""},
@@ -2388,6 +2388,11 @@ async def shopify_order_add_custom_item(
     if node.get("closedAt"):
         raise ToolError(f"Order {label} is archived; reopen it in Admin before adding to it.")
     currency = _order_currency(node, label)
+    if (((node.get("lineItems") or {}).get("pageInfo")) or {}).get("hasNextPage"):
+        # The proof counts this order's lines; one it cannot read whole could never prove the
+        # line landed, and the owner would be told to check an order that had in fact changed.
+        raise ToolError(f"Order {label} has more lines than CLIVE reads at once; add a custom item to it in Admin.")
+    current_total = _amount(node.get("currentTotalPriceSet"))
 
     # From here on nothing is arithmetic of ours. Shopify opens the scratch order and prices
     # the custom line on it; both mutations leave the real order exactly as it is.
@@ -2432,12 +2437,15 @@ async def shopify_order_add_custom_item(
     ]
     before = order_custom_item_fingerprint(node, stored_title)
     subtotal_delta = unit * quantity
+    # What the order moves by is Shopify's: its new total less the order's total now, which
+    # includes any tax Shopify adds on a taxable line. The line price alone would understate it.
+    adds = (Decimal(f"{new_total:.2f}") - Decimal(f"{current_total:.2f}")) if current_total is not None else subtotal_delta
     customer = str((node.get("customer") or {}).get("displayName") or "")
     digits = label.rsplit("-", 1)[-1].lstrip("#")
     line = f"{quantity} x {stored_title}"
     read_back = (
         f"add {line} (a custom item) to order {digits}{f' for {customer}' if customer else ''}, "
-        f"{_display(float(subtotal_delta), currency)} more, taking the order to {_display(new_total, currency)}"
+        f"{_display(float(adds), currency)} more, taking the order to {_display(new_total, currency)}"
     )
     return Prepared(
         execution={
@@ -2473,6 +2481,7 @@ async def shopify_order_add_custom_item(
             "unit_price": f"{unit:.2f}",
             "unit_price_display": _display(float(unit), currency),
             "subtotal_delta": f"{subtotal_delta:.2f}",
+            "adds": f"{adds:.2f}",
             "taxable": taxable,
             "requires_shipping": requires_shipping,
             # `amount` is what the spoken success line reads out (engine._spoken_amount).
@@ -2481,6 +2490,6 @@ async def shopify_order_add_custom_item(
             "currency": currency,
             "read_back": read_back,
             "spoken_to": _display(new_total, currency),
-            "ledger": {"quantity": quantity, "adds": f"{subtotal_delta:.2f}", "currency": currency[:24]},
+            "ledger": {"quantity": quantity, "adds": f"{adds:.2f}", "currency": currency[:24]},
         },
     )
