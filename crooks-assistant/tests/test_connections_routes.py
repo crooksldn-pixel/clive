@@ -1,0 +1,394 @@
+"""The Connections screen's routes end to end (app/routes/connections.py): the door, a fresh passkey
+for every change, a key tested before it is stored, stored encrypted in the app tier and live at
+once, recorded without its value, and "Sign in with Instagram" from the button to a stored token.
+
+Real passkey signatures (tests/fake_passkey.py), a stand-in cipher (tests/test_secrets_vault.py),
+and every service answered by an httpx.MockTransport: nothing reaches the network or a Keychain.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from urllib.parse import parse_qs, urlsplit
+
+import httpx
+import pytest
+
+from app.clients import instagram as instagram_client
+from app.connections import instagram as sign_in
+from app.connections import ledger, passkeys, service, testers
+from app.logging.quiet import QuietPollsFilter
+from app.main import app
+from app.secrets import keychain, linux_store, vault
+from tests.fake_credentials import DIGITS, HEX, bearer_token, body, elevenlabs_key
+from tests.fake_passkey import ORIGIN, RP_ID, Authenticator
+from tests.test_actions_routes import (  # noqa: F401 - `client` is a fixture
+    OWNER,
+    PROXIED,
+    client,
+    configure,
+)
+from tests.test_secrets_vault import BrokenCipher, FakeCipher
+
+HEADERS = {**PROXIED, "Origin": ORIGIN, "X-Forwarded-Host": RP_ID}
+KEY = elevenlabs_key("connections-route")
+APP_ID = body("ig-app-id", 16, DIGITS)
+APP_SECRET = body("ig-app-secret", 32, HEX)
+SHORT = bearer_token("ig-short")
+LONG = bearer_token("ig-long")
+REDIRECT = f"{ORIGIN}/connections/instagram/callback"
+
+# The genuine functions, captured before conftest's `_no_secrets` replaces them for each test: these
+# tests store through the app tier in a temporary directory and read back through it, as production does.
+_REAL = {name: getattr(keychain, name) for name in ("get", "get_optional", "present", "where")}
+
+
+class Services:
+    """Every service a key is tested against, or a sign-in talks to."""
+
+    def __init__(self) -> None:
+        self.calls: list[httpx.Request] = []
+        self.elevenlabs = 200
+        self.instagram_token = 200
+        self.granted = "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments"
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.calls.append(request)
+        host, path = request.url.host, request.url.path
+        if host == "api.elevenlabs.io":
+            return httpx.Response(self.elevenlabs, json={"detail": {"status": "invalid_api_key"}}
+                                  if self.elevenlabs == 401 else [{"model_id": "scribe_v1"}])
+        if host == "api.instagram.com" and path == "/oauth/access_token":
+            return httpx.Response(self.instagram_token, json={"data": [
+                {"access_token": SHORT, "user_id": "17841400000000000", "permissions": self.granted}]}
+                if self.instagram_token == 200 else {"error_type": "OAuthException", "error_message": "MARKER"})
+        if host == "graph.instagram.com" and path == "/access_token":
+            return httpx.Response(200, json={"access_token": LONG, "token_type": "bearer", "expires_in": 5_183_944})
+        if host == "graph.instagram.com" and path.endswith("/me"):
+            return httpx.Response(200, json={"user_id": "17841400000000000", "username": "crooksldn"})
+        return httpx.Response(404, json={"error": "unexpected call in the test"})
+
+
+@pytest.fixture
+async def world(client, tmp_path, monkeypatch):  # noqa: F811 - fixtures imported from the suite they belong to
+    configure(client, logins=f"{OWNER},partner@example.com")
+    # Only the owner's device, through Tailscale: the server itself does not speak for him here.
+    client.runtime.settings = client.runtime.settings.model_copy(update={"local_owner": False})
+    monkeypatch.setenv(linux_store.STORE_DIR_ENV, str(tmp_path / "secrets"))
+    monkeypatch.delenv(linux_store.CREDENTIALS_ENV, raising=False)
+    monkeypatch.setattr(keychain, "_on_linux", lambda: True)
+    for name, function in _REAL.items():
+        monkeypatch.setattr(keychain, name, function)
+    vault.bind(FakeCipher())
+    service.configure(state_dir=tmp_path / "secrets" / vault.DIR_NAME)
+    passkeys.reset()
+    sign_in.reset()
+    services = Services()
+    transport = httpx.MockTransport(services)
+    monkeypatch.setattr(testers, "http_client", lambda: httpx.AsyncClient(transport=transport))
+    monkeypatch.setattr(instagram_client, "http_client", lambda: httpx.AsyncClient(transport=transport))
+    instagram_client.configure(state_path=tmp_path / "instagram.json")
+    refreshed: list[int] = []
+
+    async def family_states():
+        refreshed.append(1)
+        return {}
+
+    monkeypatch.setattr(client.runtime, "family_states", family_states)
+    client.services = services
+    client.refreshed = refreshed
+    client.device = Authenticator()
+    yield client
+    vault.bind()
+    passkeys.reset()
+    sign_in.reset()
+
+
+async def register(http, device=None, *, approval=None):
+    device = device or http.device
+    begun = await http.post("/connections/passkeys/begin", json={"approval": approval} if approval else {},
+                            headers=HEADERS)
+    assert begun.status_code == 200, begun.text
+    done = await http.post("/connections/passkeys", json={"credential": device.create(begun.json()["publicKey"])},
+                           headers=HEADERS)
+    assert done.status_code == 200, done.text
+    return done.json()["passkey"]
+
+
+async def approval(http, action, device=None):
+    asked = await http.post("/connections/approve", json={"action": action}, headers=HEADERS)
+    assert asked.status_code == 200, asked.text
+    return (device or http.device).get(asked.json()["publicKey"])
+
+
+async def save(http, name, values):
+    return await http.post(f"/connections/{name}", headers=HEADERS,
+                           json={"values": values, "approval": await approval(http, f"save:{name}")})
+
+
+# ------------------------------------------------------------------ the page and the door
+
+async def test_the_screen_and_its_state_are_the_owners_and_hold_no_secret(world):
+    page = await world.get("/connections", headers=PROXIED)
+    assert page.status_code == 200 and "Connections" in page.text and "connections.js" in page.text
+    policy = page.headers["content-security-policy"]
+    assert "script-src 'self'" in policy and "frame-ancestors 'none'" in policy
+    assert page.headers["x-frame-options"] == "DENY" and page.headers["referrer-policy"] == "no-referrer"
+    assert (await world.get("/connections")).status_code == 403          # the server itself, not the owner
+    stranger = {"Tailscale-User-Login": "other@example.com", "X-Forwarded-For": "100.64.0.3"}
+    assert (await world.get("/connections/state", headers=stranger)).status_code == 403
+    await register(world)
+    assert (await save(world, "elevenlabs", {"elevenlabs_api_key": KEY})).status_code == 200
+    state = await world.get("/connections/state", headers={**PROXIED, "X-Forwarded-Host": RP_ID})
+    assert state.status_code == 200 and state.headers["cache-control"] == "no-store"
+    assert KEY not in state.text
+    cards = {c["name"]: c for c in state.json()["connections"]}
+    assert cards["elevenlabs"]["state"] == "connected"
+    assert cards["elevenlabs"]["fields"][0]["where"] == "saved here"
+    assert cards["instagram"]["sign_in"]["redirect_uri"] == REDIRECT
+    assert [p["label"] for p in state.json()["passkeys"]] == ["a device"]
+
+
+# ------------------------------------------------------------------ passkeys at the routes
+
+async def test_a_second_passkey_needs_the_first_to_approve_it(world):
+    await register(world)
+    refused = await world.post("/connections/passkeys/begin", json={}, headers=HEADERS)
+    assert refused.status_code == 403 and refused.json()["code"] == "passkey_missing"
+    second = Authenticator()
+    await register(world, second, approval=await approval(world, "passkey:add"))
+    assert passkeys.count() == 2
+    kinds = [c["action"] for c in ledger.recent()]
+    assert kinds.count("passkey_added") == 2 and "approval_refused" in kinds
+
+
+async def test_removing_a_passkey_needs_a_passkey(world):
+    shown = await register(world)
+    path = f"/connections/passkeys/{shown['id']}/remove"
+    assert (await world.post(path, json={}, headers=HEADERS)).status_code == 403
+    done = await world.post(path, headers=HEADERS,
+                            json={"approval": await approval(world, f"passkey:remove:{shown['id']}")})
+    assert done.status_code == 200 and passkeys.count() == 0
+
+
+async def test_a_change_needs_this_clives_own_address_as_its_origin(world):
+    await register(world)
+    for origin in ("https://elsewhere.ts.net", "http://clive.tailnet-test.ts.net", ""):
+        headers = {**HEADERS, "Origin": origin} if origin else {k: v for k, v in HEADERS.items() if k != "Origin"}
+        asked = await world.post("/connections/approve", json={"action": "save:elevenlabs"}, headers=headers)
+        assert asked.status_code == 403, origin
+
+
+async def test_every_change_needs_its_own_fresh_passkey(world):
+    await register(world)
+    missing = await world.post("/connections/elevenlabs", json={"values": {"elevenlabs_api_key": KEY}},
+                               headers=HEADERS)
+    assert missing.status_code == 403 and missing.json()["code"] == "passkey_missing"
+    other = await approval(world, "save:youtube")
+    wrong = await world.post("/connections/elevenlabs", json={"values": {"elevenlabs_api_key": KEY},
+                                                                 "approval": other}, headers=HEADERS)
+    assert wrong.status_code == 403 and wrong.json()["code"] == "passkey_stale"
+    good = await approval(world, "save:elevenlabs")
+    first = await world.post("/connections/elevenlabs", json={"values": {"elevenlabs_api_key": KEY},
+                                                                 "approval": good}, headers=HEADERS)
+    assert first.status_code == 200
+    again = await world.post("/connections/elevenlabs", json={"values": {"elevenlabs_api_key": KEY},
+                                                                 "approval": good}, headers=HEADERS)
+    assert again.status_code == 403 and again.json()["code"] == "passkey_stale"
+
+
+async def test_an_unknown_action_is_never_given_a_prompt(world):
+    await register(world)
+    for action in ("save:gmail", "save:nothing", "drop:everything", "passkey:remove:../x", "x" * 2000):
+        asked = await world.post("/connections/approve", json={"action": action}, headers=HEADERS)
+        assert asked.status_code == 400, action
+
+
+# ------------------------------------------------------------------ saving a key
+
+async def test_a_saved_key_was_tested_first_is_encrypted_live_at_once_and_recorded_without_its_value(world, caplog):
+    caplog.set_level(logging.DEBUG)
+    await register(world)
+    world.runtime.voice._key = "the-old-cached-key"
+    done = await save(world, "elevenlabs", {"elevenlabs_api_key": "  " + KEY + "\n"})
+    assert done.status_code == 200, done.text
+    assert done.json()["result"]["ok"] is True and KEY not in done.text
+    asked = [c for c in world.services.calls if c.url.host == "api.elevenlabs.io"]
+    assert asked and asked[-1].headers["xi-api-key"] == KEY and KEY not in str(asked[-1].url)
+    assert linux_store.read("elevenlabs_api_key") == KEY and linux_store.where("elevenlabs_api_key") == "app"
+    stored = (linux_store.store_dir() / vault.DIR_NAME / "elevenlabs_api_key.cred").read_bytes()
+    assert KEY.encode() not in stored
+    assert world.runtime.voice._key is None                 # the old key is dropped: live at once
+    assert world.refreshed                                   # and the families asked again
+    change = ledger.recent()[0]
+    assert change["action"] == "saved" and change["keys"] == ["elevenlabs_api_key"]
+    assert KEY not in json.dumps(ledger.recent()) and KEY not in caplog.text
+
+
+async def test_a_key_that_fails_its_test_is_never_stored(world):
+    await register(world)
+    world.services.elevenlabs = 401
+    done = await save(world, "elevenlabs", {"elevenlabs_api_key": KEY})
+    assert done.status_code == 422 and done.json()["code"] == "test_failed"
+    assert "refused that key" in done.json()["detail"]
+    assert linux_store.where("elevenlabs_api_key") == ""
+    assert ledger.recent()[0]["action"] == "refused" and ledger.recent()[0]["ok"] is False
+
+
+@pytest.mark.parametrize("values, code", [
+    ({"shopify_client_secret": "x"}, "bad_field"),
+    ({"elevenlabs_api_key": "\x1b[A" + "k" * 20}, "bad_value"),
+    ({"elevenlabs_api_key": "   "}, "nothing"),
+    ("a string", "bad_request"),
+])
+async def test_what_no_key_could_be_is_refused_before_any_test(world, values, code):
+    await register(world)
+    done = await world.post("/connections/elevenlabs", headers=HEADERS,
+                            json={"values": values, "approval": await approval(world, "save:elevenlabs")})
+    assert done.status_code == 400 and done.json()["code"] == code
+    assert not [c for c in world.services.calls if c.url.host == "api.elevenlabs.io"]
+
+
+async def test_a_server_that_cannot_encrypt_stores_nothing_and_says_why(world):
+    await register(world)
+    vault.bind(BrokenCipher(encrypt_fails=True))
+    done = await save(world, "elevenlabs", {"elevenlabs_api_key": KEY})
+    assert done.status_code == 400 and done.json()["code"] == "store_unavailable"
+    assert "No TPM2 device" in done.json()["detail"]
+    vault.bind(FakeCipher())
+    assert linux_store.where("elevenlabs_api_key") == ""
+
+
+async def test_an_unknown_connection_is_not_found(world):
+    await register(world)
+    assert (await world.post("/connections/nothing/test", json={}, headers=HEADERS)).status_code == 404
+
+
+# ------------------------------------------------------------------ testing and disconnecting
+
+async def test_test_asks_again_with_what_is_stored_and_needs_no_passkey(world):
+    await register(world)
+    await save(world, "elevenlabs", {"elevenlabs_api_key": KEY})
+    world.services.elevenlabs = 401
+    tested = await world.post("/connections/elevenlabs/test", json={}, headers=HEADERS)
+    assert tested.status_code == 200 and tested.json()["result"]["ok"] is False
+    state = await world.get("/connections/state", headers=PROXIED)
+    card = next(c for c in state.json()["connections"] if c["name"] == "elevenlabs")
+    assert card["state"] == "needs_attention"
+
+
+async def test_disconnecting_takes_the_key_away_even_from_the_older_tiers(world):
+    await register(world)
+    await save(world, "elevenlabs", {"elevenlabs_api_key": KEY})
+    linux_store.store_dir().mkdir(parents=True, exist_ok=True)
+    (linux_store.store_dir() / "elevenlabs_api_key").write_text(elevenlabs_key("older"))
+    refused = await world.post("/connections/elevenlabs/disconnect", json={}, headers=HEADERS)
+    assert refused.status_code == 403
+    done = await world.post("/connections/elevenlabs/disconnect", headers=HEADERS,
+                            json={"approval": await approval(world, "disconnect:elevenlabs")})
+    assert done.status_code == 200
+    assert linux_store.read("elevenlabs_api_key") is None
+    state = await world.get("/connections/state", headers=PROXIED)
+    card = next(c for c in state.json()["connections"] if c["name"] == "elevenlabs")
+    assert card["state"] == "not_connected" and card["fields"][0]["where"] == "disconnected here"
+    assert ledger.recent()[0]["action"] == "disconnected"
+
+
+# ------------------------------------------------------------------ Sign in with Instagram
+
+async def _start_sign_in(world) -> str:
+    await register(world)
+    kept = await save(world, "instagram", {"instagram_app_id": APP_ID, "instagram_app_secret": APP_SECRET})
+    assert kept.status_code == 200 and kept.json()["result"]["checked"] is False
+    started = await world.post("/connections/instagram/sign-in", headers=HEADERS,
+                               json={"approval": await approval(world, "signin:instagram")})
+    assert started.status_code == 200, started.text
+    url = started.json()["url"]
+    parts = urlsplit(url)
+    query = parse_qs(parts.query)
+    assert (parts.scheme, parts.netloc, parts.path) == ("https", "www.instagram.com", "/oauth/authorize")
+    assert query["client_id"] == [APP_ID] and query["redirect_uri"] == [REDIRECT]
+    assert query["scope"] == [",".join(sign_in.SCOPES)] and query["response_type"] == ["code"]
+    assert APP_SECRET not in url
+    return query["state"][0]
+
+
+async def test_sign_in_with_instagram_ends_with_a_tested_long_lived_token_in_the_app_tier(world):
+    state = await _start_sign_in(world)
+    back = await world.get(f"/connections/instagram/callback?code=AQBcode123456&state={state}", headers=PROXIED)
+    assert back.status_code == 303 and back.headers["location"] == "/connections?done=signed_in#instagram"
+    token_call = next(c for c in world.services.calls if c.url.host == "api.instagram.com")
+    sent = parse_qs(token_call.content.decode())
+    assert token_call.method == "POST" and APP_SECRET not in str(token_call.url)
+    assert sent["client_secret"] == [APP_SECRET] and sent["redirect_uri"] == [REDIRECT] and sent["code"] == ["AQBcode123456"]
+    assert linux_store.read("instagram_access_token") == LONG
+    assert linux_store.where("instagram_access_token") == "app"
+    assert instagram_client.state()["expires_at"] > instagram_client.state()["refreshed_at"]
+    actions = [c["action"] for c in ledger.recent()]
+    assert actions[0] == "signed_in" and ledger.recent()[0]["ok"] is True
+    replay = await world.get(f"/connections/instagram/callback?code=AQBcode123456&state={state}", headers=PROXIED)
+    assert replay.headers["location"] == "/connections?error=stale#instagram"
+
+
+async def test_a_sign_in_cancelled_on_instagram_changes_nothing(world):
+    state = await _start_sign_in(world)
+    back = await world.get(f"/connections/instagram/callback?error=access_denied&error_reason=user_denied&state={state}",
+                           headers=PROXIED)
+    assert back.headers["location"] == "/connections?error=cancelled#instagram"
+    assert linux_store.where("instagram_access_token") == ""
+    again = await world.get(f"/connections/instagram/callback?code=AQBcode123456&state={state}", headers=PROXIED)
+    assert again.headers["location"] == "/connections?error=stale#instagram"
+
+
+async def test_a_sign_in_cannot_be_finished_by_another_login(world):
+    state = await _start_sign_in(world)
+    partner = {"Tailscale-User-Login": "partner@example.com", "X-Forwarded-For": "100.64.0.10"}
+    back = await world.get(f"/connections/instagram/callback?code=AQBcode123456&state={state}", headers=partner)
+    assert back.headers["location"] == "/connections?error=not_yours#instagram"
+    assert linux_store.where("instagram_access_token") == ""
+
+
+async def test_instagrams_refusal_is_named_in_our_words_never_its_own(world):
+    state = await _start_sign_in(world)
+    world.services.instagram_token = 400
+    back = await world.get(f"/connections/instagram/callback?code=AQBcode123456&state={state}", headers=PROXIED)
+    assert back.headers["location"] == "/connections?error=refused#instagram"
+    assert "MARKER" not in json.dumps(ledger.recent())
+
+
+async def test_permissions_left_unticked_are_named(world):
+    state = await _start_sign_in(world)
+    world.services.granted = "instagram_business_basic"
+    await world.get(f"/connections/instagram/callback?code=AQBcode123456&state={state}", headers=PROXIED)
+    detail = ledger.recent()[0]["detail"]
+    assert "did not allow messages and comments" in detail
+
+
+async def test_sign_in_needs_the_app_id_and_secret_first(world):
+    await register(world)
+    started = await world.post("/connections/instagram/sign-in", headers=HEADERS,
+                               json={"approval": await approval(world, "signin:instagram")})
+    assert started.status_code == 400 and started.json()["code"] == "needs_app"
+
+
+# ------------------------------------------------------------------ the log
+
+def test_the_access_log_never_carries_a_connections_query():
+    record = logging.LogRecord("uvicorn.access", logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d',
+                               ("100.64.0.9:1", "GET", "/connections/instagram/callback?code=AQBsecret&state=s", "1.1", 303),
+                               None)
+    assert QuietPollsFilter().filter(record) is True
+    assert "AQBsecret" not in record.getMessage() and "[not logged]" in record.getMessage()
+    plain = logging.LogRecord("uvicorn.access", logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d',
+                              ("100.64.0.9:1", "GET", "/turn?x=1", "1.1", 200), None)
+    QuietPollsFilter().filter(plain)
+    assert "/turn?x=1" in plain.getMessage()
+
+
+def test_the_app_serves_every_connections_route_where_the_door_walk_can_see_it():
+    # In the schema, so tests/test_proxy_identity.py's walk of every route refuses each to a stranger.
+    paths = {path for path in app.openapi()["paths"] if path.startswith("/connections")}
+    assert {"/connections", "/connections/state", "/connections/approve", "/connections/passkeys/begin",
+            "/connections/passkeys", "/connections/instagram/sign-in", "/connections/instagram/callback",
+            "/connections/{name}", "/connections/{name}/test", "/connections/{name}/disconnect"} <= paths

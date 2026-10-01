@@ -1,0 +1,184 @@
+"""A live test of a key before it replaces the one in use: the service is asked, with the new key,
+the smallest question that only a working key can answer. A key that fails is never stored.
+
+What each asks (read-only, and spending nothing):
+  ElevenLabs   GET /models, as the voice's own health probe does (app/clients/elevenlabs.py)
+  YouTube      GET /videos for one public video, the key in the X-Goog-Api-Key header
+  Shopify      the client-credentials token request for this shop; the token minted is dropped
+  GitHub       GET /repos/<the clive repository>, which says whether the token may write there
+  Instagram    GET /me with the token, which names the account it reads
+
+The key goes in a header or a request body, never in an address. What comes back is described
+in our own words; nothing a service wrote is quoted, and no key appears in any detail.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import httpx
+
+TIMEOUT_S = 10.0
+YOUTUBE_API = "https://www.googleapis.com/youtube/v3"
+YOUTUBE_PROBE_VIDEO = "jNQXAC9IVRw"     # "Me at the zoo": public since 2005
+GITHUB_API = "https://api.github.com"
+
+
+@dataclass(frozen=True)
+class Outcome:
+    ok: bool
+    detail: str
+    who: str = ""            # the account the key belongs to, when the service says
+    checked: bool = True     # False: nothing to ask until the owner signs in
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"ok": self.ok, "detail": self.detail, "who": self.who, "checked": self.checked}
+
+
+def http_client() -> httpx.AsyncClient:
+    """Patched in tests; no redirects followed, so a key is never carried to another host."""
+    return httpx.AsyncClient(timeout=TIMEOUT_S, follow_redirects=False)
+
+
+def _scrub(text: str, values: dict[str, str]) -> str:
+    for value in values.values():
+        if value and len(value) >= 6:
+            text = text.replace(value, "[the key]")
+    return text
+
+
+async def _elevenlabs(values: dict[str, str], settings: Any) -> Outcome:
+    base = str(getattr(settings, "elevenlabs_base_url", "") or "https://api.elevenlabs.io/v1").rstrip("/")
+    async with http_client() as client:
+        response = await client.get(f"{base}/models", headers={"xi-api-key": values["elevenlabs_api_key"]})
+    body = (response.text or "").lower()
+    if response.status_code == 200:
+        return Outcome(True, "ElevenLabs accepted the key.")
+    if "missing_permissions" in body or response.status_code == 403:
+        return Outcome(True, "ElevenLabs accepted the key. It is limited to some products, which is fine "
+                             "if it covers speech-to-text and text-to-speech.")
+    if response.status_code == 401:
+        return Outcome(False, "ElevenLabs refused that key. Check you copied all of it.")
+    return Outcome(False, f"ElevenLabs answered {response.status_code}; nothing was changed.")
+
+
+async def _youtube(values: dict[str, str], settings: Any) -> Outcome:
+    async with http_client() as client:
+        response = await client.get(f"{YOUTUBE_API}/videos", params={"part": "id", "id": YOUTUBE_PROBE_VIDEO},
+                                    headers={"X-Goog-Api-Key": values["youtube_api_key"]})
+    body = (response.text or "").lower()
+    if response.status_code == 200:
+        return Outcome(True, "Google accepted the key for YouTube.")
+    if "api key not valid" in body or "api_key_invalid" in body:
+        return Outcome(False, "Google says that is not a valid API key.")
+    if "accessnotconfigured" in body or "has not been used" in body or "service_disabled" in body:
+        return Outcome(False, "The key works, but the YouTube Data API is not switched on in its Google "
+                              "Cloud project. Enable it there, then try again.")
+    if response.status_code == 403:
+        return Outcome(False, "Google refused the key for YouTube: it may be restricted to other APIs or "
+                              "to other addresses.")
+    return Outcome(False, f"Google answered {response.status_code}; nothing was changed.")
+
+
+async def _shopify(values: dict[str, str], settings: Any) -> Outcome:
+    shop = str(getattr(settings, "shopify_shop_domain", "") or "").strip()
+    if not shop.endswith(".myshopify.com"):
+        return Outcome(False, "No shop is set on the server (CROOKS_SHOPIFY_SHOP_DOMAIN).")
+    async with http_client() as client:
+        response = await client.post(f"https://{shop}/admin/oauth/access_token", json={
+            "client_id": values["shopify_client_id"], "client_secret": values["shopify_client_secret"],
+            "grant_type": "client_credentials"})
+    body = (response.text or "").lower()
+    if response.status_code == 200 and "access_token" in body:
+        return Outcome(True, f"Shopify accepted the app's ID and secret for {shop}.", who=shop)
+    if "shop_not_permitted" in body:
+        return Outcome(False, "Shopify says this app belongs to another organisation than the shop. "
+                              "Make the app in the shop's own organisation.")
+    if response.status_code in (400, 401, 403):
+        return Outcome(False, f"Shopify refused that ID and secret for {shop}. Check the app is "
+                              "released and installed on the shop.")
+    return Outcome(False, f"Shopify answered {response.status_code}; nothing was changed.")
+
+
+async def _github(values: dict[str, str], settings: Any) -> Outcome:
+    from app.engineering_bridge.github import DEFAULT_REPOSITORY
+
+    repository = DEFAULT_REPOSITORY
+    async with http_client() as client:
+        response = await client.get(f"{GITHUB_API}/repos/{repository}", headers={
+            "Authorization": f"Bearer {values['github_engineering_inbox_token']}",
+            "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"})
+    if response.status_code == 401:
+        return Outcome(False, "GitHub refused that token. It may have expired or been copied short.")
+    if response.status_code == 404:
+        return Outcome(False, f"That token cannot see {repository}. Give it that repository.")
+    if response.status_code != 200:
+        return Outcome(False, f"GitHub answered {response.status_code}; nothing was changed.")
+    try:
+        allowed = response.json().get("permissions") or {}
+    except (ValueError, AttributeError):
+        allowed = {}
+    if not allowed.get("push"):
+        return Outcome(False, f"That token can read {repository} but not write to it. Give it Contents: "
+                              "read and write.")
+    return Outcome(True, f"GitHub accepted the token for {repository}.", who=repository)
+
+
+async def _instagram(values: dict[str, str], settings: Any, changed: frozenset[str] = frozenset()) -> Outcome:
+    from app.clients import instagram
+
+    # The app's ID and secret cannot be asked about on their own; they are proved at sign-in. Only
+    # a token that is being stored, or tested, is asked about here.
+    token = values.get("instagram_access_token") or ""
+    if not token or (changed and "instagram_access_token" not in changed):
+        return Outcome(True, "Kept. They are checked when you sign in with Instagram.", checked=False)
+    version = str(getattr(settings, "instagram_api_version", "") or instagram.DEFAULT_VERSION)
+    url, params = f"{instagram.HOST}/{version}/me", {"fields": "user_id,username"}
+    async with http_client() as client:
+        response = await client.get(url, params=params, headers={"Authorization": f"Bearer {token}"})
+        if response.status_code != 200 and instagram._header_not_accepted(response):
+            # As the client itself does (app/clients/instagram.py get): an API that will not read
+            # the header is asked once with the token as a parameter, never logged.
+            response = await client.get(url, params={**params, "access_token": token})
+    if response.status_code == 200:
+        try:
+            name = str(response.json().get("username") or "").strip()
+        except (ValueError, AttributeError):
+            name = ""
+        who = f"@{name}" if name else ""
+        return Outcome(True, f"Instagram accepted the token{f' for {who}' if who else ''}.", who=who)
+    refused = instagram._refusal(response)
+    reasons = {
+        "token": "Instagram refused that token: it has expired, or it was copied short.",
+        "permission": "Instagram accepted the token but it lacks a permission CLIVE needs.",
+        "rate_limited": "Instagram is limiting requests just now. Try again in a few minutes.",
+    }
+    return Outcome(False, reasons.get(refused.kind, "Instagram refused that token; nothing was changed."))
+
+
+TESTERS = {
+    "elevenlabs": _elevenlabs,
+    "youtube": _youtube,
+    "shopify": _shopify,
+    "github": _github,
+    "instagram": _instagram,
+}
+
+
+async def run(name: str, values: dict[str, str], settings: Any, *, changed: frozenset[str] = frozenset()) -> Outcome:
+    """Ask the service with `values` (`changed`: the keys being stored now; empty when testing what is
+    stored). Never raises: an unreachable service is a failed test, so a key that could not be
+    checked is not stored."""
+    tester = TESTERS.get(name)
+    if tester is None:
+        return Outcome(False, "This connection cannot be set from the app yet.")
+    try:
+        outcome = await (tester(values, settings, changed) if name == "instagram" else tester(values, settings))
+    except httpx.TimeoutException:
+        return Outcome(False, "The service did not answer in time; nothing was changed. Try again.")
+    except httpx.HTTPError:
+        return Outcome(False, "The service could not be reached from the server; nothing was changed.")
+    except KeyError:
+        return Outcome(False, "Fill in every field for this connection.")
+    return Outcome(outcome.ok, _scrub(outcome.detail, values), _scrub(outcome.who, values), outcome.checked)

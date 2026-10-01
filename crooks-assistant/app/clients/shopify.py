@@ -980,6 +980,11 @@ class ShopifyClient:
     def token_expires_in(self) -> int | None:
         return self._token.expires_in if self._token else None
 
+    def forget_token(self) -> None:
+        """Drop the minted token, so the next call mints one with the ID and secret stored now
+        (the Connections screen, app/connections/service.py, calls this when they change)."""
+        self._token = None
+
     # ------------------------------------------------------------- graphql
 
     async def graphql(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:

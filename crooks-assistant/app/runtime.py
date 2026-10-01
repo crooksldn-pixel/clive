@@ -73,6 +73,12 @@ class Runtime:
     # The tiered read cache (app/memory). Never consulted by a write.
     memory: Any = None
     started_at: float = field(default_factory=time.time)
+    # Each team member's own assistant (app/people): their prompt, only their tools, their own
+    # conversations. Made the first time they ask, and again when their card changes.
+    staff_providers: dict[str, tuple[str, Any]] = field(default_factory=dict)
+    staff_provider_factory: Any = None
+    # Assistants made again (a card or the knowledge base changed): stopped at the next chance.
+    retired_providers: list[Any] = field(default_factory=list)
     build: str = ""
 
     @property
@@ -132,6 +138,8 @@ class Runtime:
         """Release what the process holds open: the provider's subprocesses and every kept
         HTTPS connection."""
         await self.provider.stop()
+        self._retire_staff_providers()
+        await self._stop_retired()
         for client in (self.voice, self.scribe, self.whisper, self.shopify):
             close = getattr(client, "aclose", None)
             if close is not None:
@@ -142,7 +150,55 @@ class Runtime:
 
     def reload_kb(self) -> KnowledgeBase:
         self.kb = load(self.settings.kb_dir)
+        # The team's assistants carry the knowledge base in their prompts: made again next time.
+        self._retire_staff_providers()
         return self.kb
+
+    def provider_for(self, held: Any) -> Any:
+        """The assistant a request talks to: a team member's own (app/people), or the owner's."""
+        if held is not None and getattr(held, "kind", "") == "staff" and self.staff_provider_factory is not None:
+            return self.staff_provider(str(held.who))
+        return self.provider
+
+    async def ensure_started(self, provider: Any) -> None:
+        """A team member's assistant is started the first time it is asked, with the same checks
+        as the owner's (no pay-as-you-go key, the CLI found); any it replaced are stopped."""
+        await self._stop_retired()
+        if provider is not self.provider and not getattr(provider, "started", True):
+            await provider.start()
+
+    def staff_provider(self, person_id: str) -> Any:
+        """This member of the team's assistant, made from their card as it is now: kept while the
+        card is unchanged, made again (and the old one stopped) once it is not."""
+        import json
+        from dataclasses import asdict
+
+        from app.people.store import people
+
+        person = people.get(person_id)
+        if person is None:
+            raise KeyError(person_id)
+        stamp = json.dumps(asdict(person), sort_keys=True, default=str)
+        held = self.staff_providers.get(person_id)
+        if held is not None and held[0] == stamp:
+            return held[1]
+        if held is not None:
+            self.retired_providers.append(held[1])
+        made = self.staff_provider_factory(person)
+        self.staff_providers[person_id] = (stamp, made)
+        return made
+
+    def _retire_staff_providers(self) -> None:
+        self.retired_providers.extend(made for _stamp, made in self.staff_providers.values())
+        self.staff_providers.clear()
+
+    async def _stop_retired(self) -> None:
+        while self.retired_providers:
+            retired = self.retired_providers.pop()
+            try:
+                await retired.stop()
+            except Exception:  # noqa: BLE001 - an old assistant that will not stop is no reason to refuse a new one
+                log.debug("stopping a team member's old assistant failed", exc_info=True)
 
     def system_prompt(self) -> str:
         return build_system_prompt(self.kb, writes_enabled=self.settings.writes_enabled)
@@ -380,6 +436,17 @@ class WriteStatus:
         return "scope_missing"
 
 
+
+def connections_dir(settings: Any) -> Path:
+    """Where the Connections screen keeps passkeys and its record of changes (never a key)."""
+    import sys
+
+    if sys.platform.startswith("linux"):
+        from app.secrets import linux_store, vault
+
+        return linux_store.store_dir() / vault.DIR_NAME
+    return Path(settings.objectives_dir) / "connections"
+
 def build(settings: Settings | None = None) -> Runtime:
     settings = settings or get_settings()
     settings.log_dir.mkdir(parents=True, exist_ok=True)
@@ -438,6 +505,7 @@ def build(settings: Settings | None = None) -> Runtime:
         tools as _objective_tools,  # noqa: F401 — registers the objective tools
     )
     from app.objectives.store import install as install_objectives
+    from app.people import tools as people_tools  # noqa: F401 - registers people_list, person_note
     from app.tools import (  # noqa: F401
         analytics_tools,
         batch_tools,
@@ -452,6 +520,7 @@ def build(settings: Settings | None = None) -> Runtime:
         shopify_writes,
         show_again,
     )
+    from app.work import tools as work_tools_module  # noqa: F401 - registers work_list, work_note
 
     objectives = install_objectives(settings.objectives_dir)
     # What CLIVE cannot do yet, beside the objectives that name it; the gaps already recorded
@@ -511,6 +580,15 @@ def build(settings: Settings | None = None) -> Runtime:
     # life (never the token) is kept beside CLIVE's other records, for /health.
     instagram_tools.configure(api_version=settings.instagram_api_version,
                               state_path=settings.objectives_dir / "instagram.json")
+    # The Connections screen (app/connections): the owner's passkeys and the record of changes to
+    # connections live beside the keys stored from the app, in the root-only secret directory on
+    # Linux; on a Mac, whose keys are in the Keychain, beside CLIVE's other records.
+    from app.connections import service as connections_service
+    from app.people import access as staff_access
+
+    connections_service.configure(state_dir=connections_dir(settings))
+    # Who on the team the owner has let in is kept beside his passkeys: a line there opens the door.
+    staff_access.configure(state_dir=connections_dir(settings))
 
     kb = load(settings.kb_dir)
     provider = MaxAgentSDKProvider(
@@ -611,7 +689,37 @@ def build(settings: Settings | None = None) -> Runtime:
     # at prepare time, so a test's configured runtime is what the card prints.
     shopify_writes.bind_policy(lambda: runtime.settings)
     gmail_writes.bind(gmail, policy=lambda: runtime.settings)
+    # The team (app/people, app/work): their cards and the work list beside CLIVE's other records,
+    # and an assistant for each of them made from their card, offered only the tools the owner
+    # allowed them (app/people/staff.py). Nothing of the owner's conversations is in it.
+    from app.people.store import people as people_store
+    from app.work import tools as work_tools
+    from app.work.store import work as work_store
+
+    people_store.configure(Path(settings.objectives_dir).parent / "people.json")
+    work_store.configure(Path(settings.objectives_dir).parent / "work")
+    work_tools.bind(runtime)
+    runtime.staff_provider_factory = lambda person: _staff_provider(runtime, person)
     return runtime
+
+
+def _staff_provider(runtime: Runtime, person: Any) -> Any:
+    """A team member's own assistant: their prompt, the knowledge base, and only their tools."""
+    from app.people import staff
+    from app.people.prompt import build_staff_prompt
+    from app.tools import registry
+
+    settings = runtime.settings
+    not_theirs = {name for name in registry.names() if name not in staff.TOOLS}
+    return MaxAgentSDKProvider(
+        system_prompt=build_staff_prompt(person, runtime.kb.text),
+        model=settings.claude_model,
+        session_lookup=runtime.sessions.get_or_create,
+        tool_timeout_s=settings.tool_timeout_s,
+        cli_path=settings.claude_cli_path,
+        writes_enabled=settings.writes_enabled,
+        withheld_by_family=lambda: set(runtime.withheld_by_family()) | not_theirs,
+    )
 
 
 def _make_customer_lookup(shopify: ShopifyClient):

@@ -29,6 +29,7 @@ import os
 import re
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -473,9 +474,11 @@ async def refresh() -> int:
     return lasts
 
 
-async def exchange(short_lived: str) -> int:
+async def exchange(short_lived: str, *, store: Callable[[str, str], None] | None = None) -> int:
     """Swap a short-lived token (one hour) for a long-lived one (60 days) and store it. The only
-    call that reads the app secret; run by hand (scripts/instagram.py exchange), never by CLIVE."""
+    call that reads the app secret. Run by hand (scripts/instagram.py exchange), and by "Sign in
+    with Instagram" once the owner has approved it with a passkey (app/connections/instagram.py),
+    which passes `store` so the token goes to the app tier (app/secrets/vault.py)."""
     short = str(short_lived or "").strip()
     if not short:
         raise InstagramUnavailable("Paste the short-lived token to exchange.", kind="no_token")
@@ -509,7 +512,7 @@ async def exchange(short_lived: str) -> int:
     if not renewed:
         raise InstagramUnavailable("Instagram's exchange came back without a token.", kind="refused")
     try:
-        keychain.set_secret(TOKEN_KEY, renewed)
+        (store or keychain.set_secret)(TOKEN_KEY, renewed)
     except keychain.SecretShadowed:
         raise InstagramUnavailable(
             "The Instagram token is provisioned read-only, so the new one could not be stored. "
@@ -517,8 +520,21 @@ async def exchange(short_lived: str) -> int:
             kind="refresh_blocked") from None
     now = time.time()
     lasts = lasts if lasts > 0 else TOKEN_LIFETIME_S
+    _ACCOUNT.clear()            # a sign-in may be another account
+    _AUTH_MODE[0] = "header"
     _note(refreshed_at=now, expires_at=now + lasts, first_seen_at=now, last_error_kind="")
     return lasts
+
+
+def adopt_new_token() -> None:
+    """A token was just stored from the app (pasted on the Connections screen): what this process
+    learned about the old one no longer holds. Its age is unknown, so renewal starts a day from
+    now, as for a token stored by hand; the account it reads is asked again."""
+    _ACCOUNT.clear()
+    _AUTH_MODE[0] = "header"
+    for name in ("refreshed_at", "expires_at", "refresh_attempt_at", "last_error_kind", "last_error_at"):
+        _STATE.pop(name, None)
+    _note(first_seen_at=time.time())
 
 
 async def maybe_refresh(now: float | None = None) -> None:

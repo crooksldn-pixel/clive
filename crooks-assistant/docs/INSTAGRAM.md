@@ -26,33 +26,27 @@ Everything a customer wrote is **untrusted**, exactly like an email:
 - **No webhooks.** Real-time delivery needs a public HTTPS endpoint, which the private-first runtime (IDEA-046) avoids. CLIVE asks Instagram when the owner asks CLIVE.
 - **Nothing kept.** Messages and comments are read when asked for and not stored. The only thing written to disk is `instagram.json` beside the objectives, which holds times and kinds for the token's life and never the token.
 
-## Setting it up on the server
+## Setting it up
 
+**The easy way: the Connections screen** (`/connections`, see [CONNECTIONS.md](./CONNECTIONS.md)).
 1. **In the Meta app** (Instagram → *API setup with Instagram login*):
    - add the `crooksldn` professional account;
-   - make sure it has the permissions `instagram_business_basic`, `instagram_business_manage_messages` and `instagram_business_manage_comments`;
-   - generate its access token (long-lived, 60 days).
-2. **In the Instagram app on the phone:** if messages are refused while comments work, turn on *Allow access to messages*. It is in the message settings, under connected tools.
-3. **Store the token** (hidden as you paste it):
+   - make sure it has the permissions `instagram_business_basic`, `instagram_business_manage_messages` and `instagram_business_manage_comments`.
+2. **On the Instagram card, save the app ID and app secret.** Your passkey approves it.
+3. **Register the sign-in's return address in the Meta app, once.** The card shows the address with a copy button. Add it under *Business login settings → OAuth redirect URIs*, exactly as shown.
+4. **Tap *Sign in with Instagram*.** Instagram's own page asks you to approve. You come back connected, with a long-lived token CLIVE has tested, stored encrypted and renews itself.
+5. **In the Instagram app on the phone:** if messages are refused while comments work, turn on *Allow access to messages*. It is in the message settings, under connected tools.
 
-   ```
-   python scripts/provision_secrets.py instagram_access_token
-   ```
+If you already have a token from the Meta app's *Generate token* button, you can paste it in the card's *Access token* field instead of signing in.
 
-   The token is a *mutable* secret, kept in the root-only store (`/etc/crooks-os/secrets`). The service reads it at its next call, so no restart is needed.
+**At the server, still works** (hidden as you paste):
 
-   The app ID and secret are optional. Only `scripts/instagram.py exchange` reads them, and it runs from the shell, outside the service. Store them with `--plain` so the shell can read them:
+```
+python scripts/provision_secrets.py instagram_access_token
+python scripts/instagram.py check
+```
 
-   ```
-   python scripts/provision_secrets.py instagram_app_secret --plain
-   ```
-4. **Check it** (prints counts and the account's own handle, never a customer's words):
-
-   ```
-   python scripts/instagram.py check
-   ```
-
-The token is read from the secret store at every call, so no restart is needed after storing it. The new code does need deploying.
+`check` prints counts and the account's own handle, never a customer's words. A token stored there replaces one stored from the app, and the reverse: the latest choice wins.
 
 ## The token's life
 
@@ -65,10 +59,12 @@ The token is read from the secret store at every call, so no restart is needed a
   - it turns red when the token has under a week left, has expired, or its last call was refused.
 - By hand:
   - `python scripts/instagram.py refresh` renews it now;
-  - `python scripts/instagram.py exchange` turns a new short-lived token into a long-lived one and stores it.
+  - `python scripts/instagram.py exchange` turns a new short-lived token into a long-lived one and stores it;
+  - or sign in again from the Connections screen.
 
 ## Code
 
+- `app/connections/instagram.py`: Sign in with Instagram (the one POST, to Instagram's token endpoint, with the app secret in its body).
 - `app/clients/instagram.py`: the client. GET requests only, to graph.instagram.com (API version `CROOKS_INSTAGRAM_API_VERSION`, default `v25.0`). The token goes in the Authorization header. Errors are named kinds and never quote Meta.
 - `app/tools/instagram_tools.py`: the three tools. They are on the gate's allow-list in `app/tools/gate.py`.
 - `tests/test_instagram.py`: everything against a fake Graph API; no call reaches Meta.

@@ -371,6 +371,7 @@ def load() -> None:
     effect at all.
     """
     import app.families  # noqa: F401
+    import app.people.tools  # noqa: F401
     import app.tools.analytics_tools  # noqa: F401
     import app.tools.batch_tools  # noqa: F401
     import app.tools.close_screen  # noqa: F401
@@ -382,6 +383,7 @@ def load() -> None:
     import app.tools.shopify_tools  # noqa: F401
     import app.tools.shopify_writes  # noqa: F401
     import app.tools.show_again  # noqa: F401
+    import app.work.tools  # noqa: F401
     from app.families import load_all
 
     load_all()

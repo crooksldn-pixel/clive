@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 
@@ -31,6 +31,7 @@ from app.routes import (
     batches,
     branches,
     command,
+    connections,
     context,
     displays,
     environment,
@@ -41,6 +42,7 @@ from app.routes import (
     pad,
     speak,
     support,
+    today,
     turn,
     voice,
 )
@@ -539,7 +541,12 @@ async def guard_and_freshness(request: Request, call_next):
     if route == TAILSCALE and not login:
         return JSONResponse(status_code=403, content={"error": "not allowed", "who": "unknown"})
     if allowed and login and login.lower() not in allowed:
-        return JSONResponse(status_code=403, content={"error": "not allowed", "who": login})
+        # A member of the team whose login the owner let in with his passkey is looked at further
+        # below; any other login is turned away here, as before (app/people/door.py).
+        from app.people import door as staff_door
+
+        if not staff_door.staff_login(login):
+            return JSONResponse(status_code=403, content={"error": "not allowed", "who": login})
     # Everything that is not public is the owner's, by the one rule (principal_check): a turn and
     # every tool the model reaches through it, every command, record and card, the pad's heartbeat
     # and whatever route is added next (the 2026-09-27 deploy review, round 6: gating routers one
@@ -563,16 +570,28 @@ async def guard_and_freshness(request: Request, call_next):
         from app.routes.actions import SPOKEN_REFUSALS, principal_verdict
 
         who, code, why = principal_verdict(request)
-        if code:
+        staff_person, staff_login = "", ""
+        if code == "not_authorised":
+            # Not the owner: perhaps a member of the team, on their own phone, let in by the owner's
+            # passkey, asking for one of the routes the team may use (app/people/door.py, staff.py).
+            from app.people import door as staff_door
+            from app.people import staff as staff_rules
+
+            staff_person, staff_login, staff_why = staff_door.verdict(request)
+            if staff_person and not staff_rules.route_allowed(request.method, request.url.path):
+                staff_person, staff_why = "", "that is the owner's"
+            if not staff_person and staff_why and staff_door.staff_login(request.headers.get("tailscale-user-login", "")):
+                why = f"{why} ({staff_why})"
+        if code and not staff_person:
             log.warning("refused a request that is not the owner's: %s — %s (path=%s)", code, why, request.url.path)
             # The write boundary's own codes and spoken lines, so the tablet says the same thing
             # whichever door refused it.
             return JSONResponse(status_code=403, content={
                 "error": "not allowed", "who": "not the owner", "code": code, "detail": why,
                 "spoken": SPOKEN_REFUSALS.get(code, "")})
-        # The only place an owner authority is made (app/tools/authority.py). Without it no
-        # tool runs: public paths, the local command key and anything else get none.
-        granted = tool_authority.for_owner(who)
+        # The only places an authority is made for a request (app/tools/authority.py). Without one
+        # no tool runs: public paths, the local command key and anything else get none.
+        granted = tool_authority.for_staff(staff_person, staff_login) if staff_person else tool_authority.for_owner(who)
     stamped = tool_authority.TOOL_AUTHORITY.set(granted)
     try:
         response = await call_next(request)
@@ -652,6 +671,8 @@ app.include_router(support.router)
 app.include_router(objectives.router)
 app.include_router(displays.router)
 app.include_router(voice.router)   # POST /voice/live: the live words' single-use key (owner only)
+app.include_router(connections.router)   # the Connections screen: keys and sign-ins, each change with a passkey
+app.include_router(today.router)   # the Today screen: the team's work list, and the owner's board
 
 if WEB_DIR.exists():
     mimetypes.add_type("application/manifest+json", ".webmanifest")
@@ -659,6 +680,12 @@ if WEB_DIR.exists():
 
     @app.get("/")
     async def index(request: Request) -> Response:
+        # A member of the team works from the Today screen, not the owner's own (app/people): sent
+        # there. Nothing is granted by this; the door judges /today as it judges every route.
+        from app.people import door as staff_door
+
+        if staff_door.staff_login(request.headers.get("tailscale-user-login", "")):
+            return RedirectResponse("/today", status_code=303)
         # The page carries the build it was made for, so a shell opened from the worker's
         # cache can tell at its first health poll that the Mac has moved on.
         source = (WEB_DIR / "index.html").read_text(encoding="utf-8")

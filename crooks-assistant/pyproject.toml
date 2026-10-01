@@ -17,6 +17,9 @@ dependencies = [
   "google-auth-oauthlib>=1.2",
   "google-auth-httplib2>=0.2",
   "keyring>=25.5",
+  # Verifies the passkey on every change made from the Connections screen (app/connections/passkeys.py).
+  # Already installed through google-auth; named here because CLIVE now imports it itself.
+  "cryptography>=42",
   "python-dateutil>=2.9",
   "tzdata>=2024.2",
 ]

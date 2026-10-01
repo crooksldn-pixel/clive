@@ -100,7 +100,7 @@ async def turn(
     session_id = session_id or uuid.uuid4().hex[:12]
     if lost_thread:
         runtime.sessions.drop(session_id)
-        await runtime.provider.reset_session(session_id)
+        await _provider(runtime).reset_session(session_id)
     # The session exists from the first moment of the turn: the tablet must not see the last
     # question while this one is heard, and a hold that abandons this question may land at
     # any point from here on — during transcription as much as during Claude's thinking.
@@ -1643,7 +1643,7 @@ def _truthy(value) -> bool:
 async def _ensure_provider_started(runtime) -> None:
     """If the provider failed at boot (token not yet stored, say), retry now rather than
     answering "still starting up" until someone restarts the process."""
-    provider = runtime.provider
+    provider = _provider(runtime)
     if getattr(provider, "_started", True):
         return
     try:
@@ -1669,14 +1669,28 @@ def _moved_on(session, branch, *, epoch: int | None, seq: int | None) -> bool:
     return epoch is not None and session.epoch != epoch
 
 
+def _provider(runtime):
+    """The assistant this request talks to: a team member's own when the door made it a staff
+    request (app/people), the owner's otherwise. A runtime without the choice (a test double) has
+    only the one."""
+    from app.tools import authority as tool_authority
+
+    choose = getattr(runtime, "provider_for", None)
+    return choose(tool_authority.current()) if callable(choose) else runtime.provider
+
+
 async def _provider_turn(runtime, session_id: str, prompt_text: str, branch):
     """The model turn, on this half's own conversation when the provider keeps one per half.
     A provider without the method — a test double — gets the plain turn."""
-    on_branch = getattr(runtime.provider, "turn_on_branch", None)
+    provider = _provider(runtime)
+    ensure = getattr(runtime, "ensure_started", None)
+    if callable(ensure):
+        await ensure(provider)
+    on_branch = getattr(provider, "turn_on_branch", None)
     branch_id = str(getattr(branch, "branch_id", "") or "")
     if on_branch is not None and branch_id:
         return await on_branch(session_id, prompt_text, branch_id=branch_id)
-    return await runtime.provider.turn(session_id, prompt_text)
+    return await provider.turn(session_id, prompt_text)
 
 
 class _SceneSwitch(BaseSettings):
@@ -2197,7 +2211,7 @@ async def _interrupt(runtime, session_id: str, branch_id: str) -> bool:
     interrupt takes only the session gets only the session."""
     import inspect
 
-    interrupt = runtime.provider.interrupt
+    interrupt = _provider(runtime).interrupt
     try:
         takes_branch = "branch_id" in inspect.signature(interrupt).parameters
     except (TypeError, ValueError):
@@ -2246,5 +2260,5 @@ async def reset(request: Request, session_id: str = Form(default="")) -> dict:
             return JSONResponse(status_code=403, content={"code": "wrong_session", "detail": "That conversation belongs to another login."})
         runtime.actions.forget_session(session_id)
         runtime.sessions.drop(session_id)
-        await runtime.provider.reset_session(session_id)
+        await _provider(runtime).reset_session(session_id)
     return {"reset": True}

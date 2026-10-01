@@ -87,11 +87,39 @@ def caller_check(request: Request) -> tuple[str, str, str, str]:
                 if not ok:
                     return "", "identity_unverified", f"Tailscale could not confirm this device's identity: {why}.", "identity_unverified"
             return login.lower(), "", "", ""
+        if login and staff_caller() == login.lower():
+            # A member of the team the door let in for this request, its identity confirmed there
+            # (app/people/door.py): they may confirm a change, and only the ones the owner allowed
+            # them, which staff_refusal() holds at each route that applies one.
+            return login.lower(), "", "", ""
         return "", "not_authorised", "This login may not apply changes.", "not_authorised"
     # Not proxied: a request made on the Mac itself, whatever headers it carries.
     if settings.writes_local_owner:
         return "local", "", "", ""
     return "", "not_authorised_local", "Requests made on the server itself may not apply changes (CROOKS_WRITES_LOCAL_OWNER).", "not_authorised_local"
+
+
+def staff_caller() -> str:
+    """The login of the team member this request is from, when the door made it a staff request."""
+    from app.tools import authority as tool_authority
+
+    held = tool_authority.current()
+    if held is None or held.kind != tool_authority.STAFF:
+        return ""
+    return str(held.purpose or "").lower()
+
+
+def staff_refusal(operation: str | None) -> JSONResponse | None:
+    """A team member may confirm only the changes the owner allowed them without his OK (fulfil, its
+    tracking, an email reply, a stock adjustment, and the undo of each): any other is refused here,
+    whatever card they hold (app/people/staff.py)."""
+    if not staff_caller():
+        return None
+    from app.people import staff as staff_rules
+
+    if operation and staff_rules.may_commit(operation):
+        return None
+    return _refuse(403, "not_yours_to_make", "That change is George's to make; ask him, or note it on the work list for him.")
 
 
 def principal_check(request: Request) -> tuple[str, str]:
@@ -308,6 +336,12 @@ async def writes_context(request: Request, operation: str | None = None) -> dict
             spoken_key or code, detail, request.headers.get("tailscale-user-login", "") or "-",
             bool(request.headers.get("x-forwarded-for")), status.state,
         )
+    offered = capabilities if not code or code == status.code else {}
+    if staff_caller() and isinstance(offered, dict):
+        # A team member is offered only the changes the owner allowed them (app/people/staff.py).
+        from app.people import staff as staff_rules
+
+        offered = {op: v for op, v in offered.items() if staff_rules.may_commit(op)}
     return {
         "state": status.state,
         "allowed": not code,
@@ -317,7 +351,7 @@ async def writes_context(request: Request, operation: str | None = None) -> dict
         "caller": caller or None,
         # The rail's source: which changes this Mac could make now, by operation. Empty when
         # the caller may not tap at all, so no chip is offered to a login that cannot use it.
-        "capabilities": capabilities if not code or code == status.code else {},
+        "capabilities": offered,
     }
 
 
@@ -365,6 +399,11 @@ async def row(request: Request, session_id: str = Form(default=""), action: str 
         # tablet believes it saw.
         log.warning("row action refused: %r is not offered", action)
         return _refuse(400, "unknown_action", "That button is not one this build offers.")
+    if staff_caller():
+        from app.people import staff as staff_rules
+
+        if spec.tool not in staff_rules.WRITES:
+            return _refuse(403, "not_yours_to_make", "That change is George's to make.")
     status = await _write_status_soon(runtime, spec.tool)
     if not status.ready:
         return _refuse(403, status.code, status.detail, status.code)
@@ -423,6 +462,8 @@ async def arm(request: Request, proposal_id: str, session_id: str = Form(default
         if elsewhere:
             timeline.emit("action_arm_refused", session_id=session_id.strip(), proposal_id=proposal_id, code="branch_not_focused", detail=elsewhere)
             return _refuse(409, "branch_not_focused", elsewhere)
+    if pending is not None and (refused := staff_refusal(pending.operation)) is not None:
+        return refused
     status = await _write_status_soon(runtime, pending.operation if pending is not None else None)
     if not status.ready:
         log.warning("arm refused: %s — %s (caller=%s)", status.code, status.detail, caller)
@@ -492,6 +533,9 @@ async def commit(request: Request, proposal_id: str, session_id: str = Form(defa
             log.warning("commit refused: branch %s is not where the owner is (caller=%s)", getattr(pending, "branch_id", ""), caller)
             timeline.emit("action_commit_refused", session_id=session_id.strip(), proposal_id=proposal_id, code="branch_not_focused", detail=elsewhere, ms=_elapsed(started))
             return _refuse(409, "branch_not_focused", elsewhere)
+    if staff_caller() and (refused := staff_refusal(pending.operation if pending is not None else None)) is not None:
+        timeline.emit("action_commit_refused", session_id=session_id.strip(), proposal_id=proposal_id, code="not_yours_to_make", ms=_elapsed(started))
+        return refused
     status = await _write_status_soon(runtime, pending.operation if pending is not None else None)
     if not status.ready:
         log.warning("commit refused: %s — %s (caller=%s)", status.code, status.detail, caller)
@@ -542,6 +586,11 @@ async def commit(request: Request, proposal_id: str, session_id: str = Form(defa
         return _refuse(409, "not_armed", "Hold the card first.")
 
     proposal = result.proposal
+    # The work list (app/work/hooks.py): a claimed job this change was for is done, in the name of
+    # whoever confirmed it, and the record says who made the change. Never in the way of the change.
+    from app.work import hooks as work_hooks
+
+    work_hooks.after_commit(proposal)
     # A change that left for Shopify from a workspace and was not proven made is sent, not
     # confirmed, on every surface — the response the hold card settles from, the voice, the
     # result card — and never "not applied" (app/families/_workspace.py `sent_not_confirmed`).
@@ -554,9 +603,10 @@ async def commit(request: Request, proposal_id: str, session_id: str = Form(defa
         operation=proposal.operation, code=result.code, status=proposal.status.value, verified=proposal.verified,
         spoken=result.spoken, detail=getattr(result, "detail", "") or None, nonce_present=bool(nonce), undo_id=proposal.undo_id, ms=_elapsed(started),
     )
-    if spoken:
+    if spoken and not staff_caller():
         # A fixed line, synthesised once and kept: the tablet asks /speak for it next.
         # Pinned only when fixed: a success line names the order and is not worth a slot.
+        # The team's page reads the line rather than playing it, so nothing is synthesised for it.
         runtime.voice.prefetch(to_speakable(spoken, max_chars=runtime.voice.max_chars), pin=code != "verified")
     try:
         session = runtime.sessions.peek(session_id.strip())
