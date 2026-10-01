@@ -311,6 +311,7 @@ def test_the_server_prompt_says_where_an_app_stored_key_is_and_whether_it_is_usa
 def _restarted(monkeypatch) -> None:
     """The service started again: everything stored before now is what it loaded."""
     monkeypatch.setattr(vault, "_STARTED", vault.time.time() + 1)
+    monkeypatch.setattr(vault, "_SERVING", [True])
 
 
 def test_removing_a_credential_at_the_prompt_never_hands_the_running_service_a_disconnected_key(tiers, monkeypatch):
@@ -458,3 +459,36 @@ def test_disconnecting_in_the_app_after_the_prompt_withdraws_its_mark(tiers, mon
     (tiers["creds"] / key).write_text(NEW)
     _restarted(monkeypatch)
     assert linux_store.read(key) is None                     # still disconnected after the restart
+
+
+def test_a_deploy_check_holding_the_new_key_does_not_settle_for_the_service(tiers, monkeypatch):
+    """The second review's third pass: scripts/live_key_check.py re-runs itself in a transient unit
+    whose credentials directory holds the new key. It is not the service, which still runs on the
+    old credential, so it must not clear the app tier."""
+    key = "elevenlabs_api_key"
+    monkeypatch.setattr(vault, "_SERVING", [False])          # whatever an earlier test's app start set
+    (tiers["creds"] / key).write_text(OLD)                   # the running service's credential
+    _fake_systemd_creds(monkeypatch, tiers["store"] / "cred-blobs", key)
+    vault.disconnect(key)
+    ps.encrypt(key, NEW)
+    started = vault._STARTED
+    check = tiers["store"].parent / "check-creds"
+    check.mkdir()
+    (check / key).write_text(NEW)
+    monkeypatch.setenv(linux_store.CREDENTIALS_ENV, str(check))   # the transient unit: holds the new key
+    monkeypatch.setattr(vault, "_STARTED", vault.time.time() + 1)  # started after the prompt, not serving
+    assert linux_store.read(key) is None
+    assert (tiers["app"] / f"{key}.prompt").exists()
+    monkeypatch.setenv(linux_store.CREDENTIALS_ENV, str(tiers["creds"]))
+    monkeypatch.setattr(vault, "_STARTED", started)
+    assert linux_store.read(key) is None                     # the service still never reads the old key
+
+
+def test_this_process_start_is_the_kernels_not_the_import(tiers):
+    import os
+    import time
+
+    started = vault._process_started()
+    assert started <= time.time()
+    if os.path.exists("/proc/self/stat"):
+        assert started <= vault._STARTED + 1                 # no later than the import, never "now"

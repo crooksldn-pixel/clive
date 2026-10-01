@@ -55,9 +55,33 @@ DIR_MODE = 0o700
 FILE_MODE = 0o600
 # A machine that could not encrypt is asked again after this long; one that could is not asked again.
 RECHECK_S = 60.0
-# When this process started, near enough: the service imports this module as it starts. A .prompt
-# mark written before it means the systemd credential the mark waits for is the one now loaded.
-_STARTED = time.time()
+
+
+def _process_started() -> float:
+    """When this process was started, as wall-clock seconds: the kernel's own record (boot time plus
+    the process's start in clock ticks), so the few seconds of imports before this module loads are
+    not counted as "after". The import time when /proc cannot say."""
+    try:
+        ticks = int(Path("/proc/self/stat").read_text().rsplit(")", 1)[1].split()[19])
+        boot = next(int(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines()
+                    if line.startswith("btime "))
+        return boot + ticks / os.sysconf("SC_CLK_TCK")
+    except (OSError, ValueError, IndexError, StopIteration):
+        return time.time()
+
+
+# When this process started. A .prompt mark written before it means the systemd credential the mark
+# waits for is the one this process was given.
+_STARTED = _process_started()
+# Whether this process is the service itself (serving(), from app/main.py's startup). Only the
+# service settles a prompt's mark: a deploy check run in a transient unit with its own credentials
+# (scripts/live_key_check.py) also holds the key, but the service beside it still runs on the old one.
+_SERVING = [False]
+
+
+def serving() -> None:
+    """Called once, by the service as it starts (app/main.py): this process may settle prompt marks."""
+    _SERVING[0] = True
 
 
 class VaultUnavailable(RuntimeError):
@@ -164,9 +188,9 @@ def _prompt(key: str) -> Path:
 
 def _settle(key: str) -> None:
     """Under _LOCK: step aside for a systemd credential the server prompt stored (yield_at_restart),
-    and only in the one process that can know it has that credential: the service, started after the
-    prompt stored it, with the key among the credentials systemd loaded for it. Any other process (the
-    prompt's own status listing, the doctor, a check) has no credentials directory and never settles,
+    and only in the one process that can know it has that credential: the service (serving()), started
+    after the prompt stored it, with the key among the credentials systemd loaded for it. Any other
+    process (the prompt's own status listing, the doctor, a deploy check in a transient unit) never settles,
     so it cannot lift the app tier's answer from under a service still running on the old credential;
     and a restart whose unit does not load the key yet (no `make install` since) settles nothing
     either. Until then this tier's answer stands."""
@@ -175,7 +199,7 @@ def _settle(key: str) -> None:
         written = mark.stat().st_mtime
     except OSError:
         return                          # no mark, or none this process may see: the answer stands
-    if written >= _STARTED or not linux_store.provisioned_by_systemd(key):
+    if not _SERVING[0] or written >= _STARTED or not linux_store.provisioned_by_systemd(key):
         return                          # not the restarted service, or it did not load the new credential
     try:
         _blob(key).unlink(missing_ok=True)
