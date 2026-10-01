@@ -143,7 +143,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `objective_show` | family:objectives | test_let_objectives_marked_complete_or_removed_2.py, test_objective_design.py | — |
 | `people_list` | family:people | test_people.py | — |
 | `person_note` | family:people | test_people.py | — |
-| `screen_list` | family:screens | test_displays.py, test_r11_screens_server.py, test_screens_r10.py, test_tool_boundary.py | — |
+| `screen_list` | family:screens | test_displays.py, test_mark_packed_counts_as_packed.py, test_r11_screens_server.py, test_screens_r10.py, test_tool_boundary.py | — |
 | `screen_off` | family:screens | test_displays.py, test_screens_r10.py | — |
 | `screen_pair` | family:screens | test_displays.py, test_r13_screens.py | — |
 | `screen_play` | family:screens | test_screen_video.py | — |
