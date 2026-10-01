@@ -121,6 +121,21 @@ def test_a_call_the_schema_refuses_below_its_top_level_is_named_with_the_reason(
     assert model_could_make(_runtime(), PROBE, args) == said
 
 
+def test_an_integer_is_any_number_with_no_fractional_part(probe_tool):
+    """JSON Schema's `integer`, not Python's `int` (the 2026-10-01 repair, F-01): 2.0 is an
+    integer and 2.5 is not, and a boolean is never one."""
+    def quantity(value):
+        return {**GOOD, "order": {"lines": [{"title": "Field Jacket", "quantity": value}]}}
+
+    assert model_could_make(_runtime(), PROBE, quantity(2.0)) == ""
+    assert model_could_make(_runtime(), PROBE, quantity(2.5)) == (
+        "order: lines: item 0: quantity: float where the schema says integer")
+    assert model_could_make(_runtime(), PROBE, quantity(True)) == (
+        "order: lines: item 0: quantity: bool where the schema says integer")
+    assert model_could_make(_runtime(), PROBE, quantity(0.0)) == (
+        "order: lines: item 0: quantity: 0.0 is outside the schema's minimum of 1")
+
+
 def test_a_real_tools_array_items_are_held_to_its_schema():
     import app.tools.shopify_tools  # noqa: F401 — registers the tool asked about
 
@@ -397,6 +412,19 @@ def test_a_dispatch_in_a_helper_is_a_citation_only_when_a_test_calls_the_helper(
                              'async def test_it():\n    await go()\n')
     assert _cites(DISPATCH + 'async def go():\n    await dispatch("probe_tool", {})\n'
                              'async def via():\n    await go()\nasync def test_it():\n    await via()\n')
+
+
+def test_a_helper_only_the_files_top_level_code_calls_is_not_a_citation():
+    """The file's top-level code is not a test: a helper reached from it alone credits nothing,
+    whether it dispatches itself or forwards the tool a call names (the 2026-10-01 repair, F-02)."""
+    assert not _cites(DISPATCH + 'import asyncio\nasync def go():\n    await dispatch("probe_tool", {})\n'
+                                 'asyncio.run(go())\ndef test_unrelated():\n    assert True\n')
+    assert not _cites(DISPATCH + 'async def go():\n    await dispatch("probe_tool", {})\n'
+                                 'async def via():\n    await go()\nvia()\ndef test_unrelated():\n    assert True\n')
+    assert not _cites(DISPATCH + 'async def stage(session, tool):\n    await dispatch(tool, {}, session=session)\n'
+                                 'stage(s, "probe_tool")\ndef test_unrelated():\n    assert True\n')
+    assert _cites(DISPATCH + 'async def stage(session, tool):\n    await dispatch(tool, {}, session=session)\n'
+                             'async def test_it(s):\n    await stage(s, "probe_tool")\n')
 
 
 MODEL_DOUBLE = DISPATCH + (

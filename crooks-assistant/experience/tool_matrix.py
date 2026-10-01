@@ -307,11 +307,14 @@ def read_test(text: str, constant: Callable[[str, str], Any] | None = None) -> C
             not_run |= {id(n) for n in ast.walk(fn) if isinstance(n, ast.Call)
                         and isinstance(n.func, ast.Attribute) and n.func.attr in _RUNS_A_TOOL_METHODS}
 
-    ran = _calls_that_run(tree)
+    ran, in_tests = _calls_that_run(tree)
     for node in nodes:
         if not isinstance(node, ast.Call) or id(node) not in ran:
             continue
-        if id(node) not in not_run:
+        # A call to the file's own forwarding helper is the helper's dispatch at one remove: it
+        # credits the tool it names only where a test makes it, never from the top-level code.
+        through_a_helper = not runs_a_tool(node.func)
+        if id(node) not in not_run and (id(node) in in_tests or not through_a_helper):
             for argument in tool_arguments(node):
                 code.call_strings.update(strings(argument))
         if isinstance(node.func, ast.Name) and node.func.id in imported:
@@ -328,10 +331,13 @@ def read_test(text: str, constant: Callable[[str, str], Any] | None = None) -> C
 _HOOKS = ("setup", "teardown")
 
 
-def _calls_that_run(tree: ast.Module) -> set[int]:
-    """The ids of the calls in a test file that run when its tests do.
+def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
+    """The ids of the calls in a test file that run when its tests do, and of those among them
+    that a test reaches (every one but the file's top-level code).
 
-    The file's own code at the top runs when it is imported. A test function or method runs,
+    The file's own code at the top runs when it is imported, but a helper it calls is not taken
+    to run: only a test reaching a helper credits the helper's dispatch, so a top-level call to a
+    helper no test calls credits nothing. A test function or method runs,
     and so do the set-up and tear-down hooks, every autouse fixture, and every fixture a running
     function asks for by name. Any other function of the file runs only when something that
     runs calls it — directly, or through other functions of the file, by name or as a method of
@@ -388,12 +394,13 @@ def _calls_that_run(tree: ast.Module) -> set[int]:
             return set()
         return {a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)} & fixtures
 
+    # Only a test, a hook or a fixture is a root. The file's top-level code runs, but the helpers
+    # it calls are not followed from it: a helper credits a dispatch only when a test function of
+    # the file reaches it (the 2026-10-01 repair of the round-12 follow-up, F-02).
     todo = [name for name, fns in units.items()
             if name.startswith("test") or name.lower().startswith(_HOOKS) or any(is_fixture(fn)[1] for fn in fns)]
-    for statement in loose:
-        todo.extend(called(statement))
     reached: set[str] = set()
-    running: list[ast.AST] = list(loose)
+    running: list[ast.AST] = []
     while todo:
         name = todo.pop()
         if name in reached or (name not in units and name not in classes):
@@ -404,10 +411,11 @@ def _calls_that_run(tree: ast.Module) -> set[int]:
             running.append(fn)
             todo.extend(called(fn))
             todo.extend(asked_for(fn))
-    ran: set[int] = set()
+    in_tests: set[int] = set()
     for root in running:
-        ran |= {id(node) for node in ast.walk(root) if isinstance(node, ast.Call)}
-    return ran
+        in_tests |= {id(node) for node in ast.walk(root) if isinstance(node, ast.Call)}
+    at_top = {id(node) for root in loose for node in ast.walk(root) if isinstance(node, ast.Call)}
+    return in_tests | at_top, in_tests
 
 
 def _replaced(fn: ast.AST) -> set[str]:

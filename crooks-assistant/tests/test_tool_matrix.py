@@ -114,7 +114,7 @@ def test_a_test_that_runs_a_tool_tests_it():
         "dispatched through the test's own helper": DISPATCH + (
             'async def stage(session, tool, **args):\n    return await dispatch(tool, args, session=session)\n'
             'async def run(session, which):\n    return await stage(session, which)\n'
-            'stage(s, "probe_tool", x=1)\nrun(s, "probe_tool")'),
+            'async def test_it(s):\n    await stage(s, "probe_tool", x=1)\n    await run(s, "probe_tool")'),
         "invoked by the registry": DISPATCH + 'registry.invoke("probe_tool", {}, timeout_s=1)',
         "through the provider's callback": 'provider._dispatch("probe_tool", {}, holder=h)',
         "its handler, imported": 'from app.tools.probes import probe_tool\nprobe_tool(query="x")',
@@ -158,6 +158,16 @@ def test_looking_a_tool_up_asking_the_gate_or_drawing_a_made_up_call_does_not_te
         "a dispatch in a helper only another uncalled helper calls": DISPATCH + (
             'async def go():\n    await dispatch("probe_tool", {})\nasync def via():\n    await go()\n'
             'def test_other():\n    assert True'),
+        # The file's top-level code is not a test: a helper it alone calls credits nothing
+        # (the 2026-10-01 repair, F-02). The forwarding helper's calls were a positive case
+        # while top-level calls were followed; the positive case now makes them in a test.
+        "a dispatch in a helper only the top-level code calls": DISPATCH + (
+            'import asyncio\nasync def go():\n    await dispatch("probe_tool", {})\nasyncio.run(go())\n'
+            'def test_other():\n    assert True'),
+        "the test's own helper, called only from the top level": DISPATCH + (
+            'async def stage(session, tool, **args):\n    return await dispatch(tool, args, session=session)\n'
+            'async def run(session, which):\n    return await stage(session, which)\n'
+            'stage(s, "probe_tool", x=1)\nrun(s, "probe_tool")'),
         "a dispatch in a fixture no test asks for": DISPATCH + (
             'import pytest\n@pytest.fixture\nasync def staged():\n    await dispatch("probe_tool", {})\n'
             'def test_other():\n    assert True'),

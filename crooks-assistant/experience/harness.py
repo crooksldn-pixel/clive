@@ -119,6 +119,17 @@ _JSON_TYPES: dict[str, tuple[type, ...]] = {
 }
 
 
+def _is_json_type(kind: str, value: Any) -> bool:
+    """Whether `value` is of the JSON Schema type `kind`. A boolean is never a number, and an
+    integer is any number with no fractional part, so 2.0 is one and 2.5 is not: JSON Schema
+    says so, and a model's arguments may arrive as either (the 2026-10-01 repair, F-01)."""
+    if kind in ("integer", "number") and isinstance(value, bool):
+        return False
+    if kind == "integer":
+        return isinstance(value, int) or (isinstance(value, float) and value.is_integer())
+    return isinstance(value, _JSON_TYPES.get(kind, ()))
+
+
 def _fits(schema: dict[str, Any], value: Any) -> str:
     """Why `value` is not something this argument's schema admits; empty when it is.
 
@@ -130,8 +141,7 @@ def _fits(schema: dict[str, Any], value: Any) -> str:
     wanted = schema.get("type")
     kinds = [wanted] if isinstance(wanted, str) else [k for k in (wanted or []) if isinstance(k, str)]
     if kinds:
-        ok = any(isinstance(value, _JSON_TYPES.get(k, ())) and not (k in ("integer", "number") and isinstance(value, bool))
-                 for k in kinds)
+        ok = any(_is_json_type(k, value) for k in kinds)
         if not ok:
             return f"{type(value).__name__} where the schema says {'/'.join(kinds)}"
     if "enum" in schema and value not in (schema.get("enum") or []):
