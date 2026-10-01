@@ -1,0 +1,90 @@
+{
+ "schema_version": "clive.remote_engineering_request.v1",
+ "request_id": "mark-packed-counts-as-packed-2",
+ "title": "A TV's Mark packed counts as packed: CLIVE says so plainly and finds the record by the order's number",
+ "requested_outcome": "The owner ruled on 1 October (ruling 12, closing B-04): \"yes, the mark packed should be in clive memory, not shopify this becomes more important later down the line\". A packed record made by a screen's own Mark packed, by the owner's remote, or by the remote's controls on a device that is itself a screen now counts as packed. Change four things. (1) The words screen_list gives for each done row (how_marked in app/displays/store.py) say plainly that the order was packed (a list: done), on which screen, and how it was marked, with no 'not a check' or any other hedge on whether it counts. (2) screen_list's order_id finds an order's packed record by the order's number as the owner says it ('1047' or '#1047'), matched against the done row's order title, as well as by its Shopify order id, so 'has 1047 been packed?' is never answered no only because the number was passed instead of the id. (3) When an order is asked about and has no packed record, screen_list says so in a new field, in words built from DONE_KEEP_S and MAX_DONE, so CLIVE says it has no packed record within what it keeps, not that the order was not packed. (4) The comments and docstrings that call this the owner's ruling still to be made (store.py's header paragraph on what done rests on, the DONE_HOW comment, screen_list, and the docstrings of the two tests whose pinned words change) record the ruling instead. Must not change: the record stays CLIVE's own (displays.json) and nothing reads or writes Shopify when an order is marked packed or read back; the `how` kept on each row (screen, remote, screen_remote) and the rule that a screen is never recorded as the owner's remote; every rule for marking done (page plan, pacing, confirm, partial slips, versions, keys, screen_device); retention (DONE_KEEP_S, MAX_DONE, MAX_FILE_BYTES), which the owner has not ruled on; tool descriptions and schemas; the system prompt; the TV page and the remote; the names of existing test functions (tests/test_r13_evidence_index.py names them).\n\nThe previous two attempts were refused because the 'regression' check failed after the builder reported. Run every declared check yourself, exactly as declared, before reporting, and report only a candidate on which all of them pass. If screen_list's description or schema grows, the tool block grows: then the byte ceiling in tests/test_registry.py and tests/test_expose_draft_order_s_payment_link_2.py rises by exactly the measured growth, with the measurement written beside it, and docs/phase4/TOOL_MATRIX.md is regenerated; nothing else in those files changes.",
+ "base_ref": "cdd5bcbf05014df73f243b4cc091526765131de6",
+ "base_sha": "cdd5bcbf05014df73f243b4cc091526765131de6",
+ "allowed_paths": [
+  "crooks-assistant/app/displays/store.py",
+  "crooks-assistant/app/tools/display_tools.py",
+  "crooks-assistant/tests/test_screens_r10.py",
+  "crooks-assistant/tests/test_r11_screens_server.py",
+  "crooks-assistant/tests/test_mark_packed_counts_as_packed.py",
+  "crooks-assistant/tests/test_registry.py",
+  "crooks-assistant/tests/test_expose_draft_order_s_payment_link_2.py",
+  "crooks-assistant/docs/phase4/TOOL_MATRIX.md"
+ ],
+ "acceptance_criteria": [
+  "After a screen's own Mark packed on an order, screen_list(order_id=<its Shopify order id>) returns that row with how 'screen', and its marked words say the order was packed on that screen and contain neither 'not a check' nor any other words saying it may not count.",
+  "A row marked from the owner's remote (how 'remote') and one marked with the remote's controls on a device that is a screen (how 'screen_remote') are each said as packed; the screen_remote words still never say it was the owner's own remote, and a list's row says done, not packed.",
+  "For an order whose Shopify order id is not its number (for example gid://shopify/Order/5550001 titled 'Order #1047'), screen_list(order_id='1047') and screen_list(order_id='#1047') return the same row as screen_list(order_id=<that Shopify order id>); a number no order row carries returns no rows, and a list's or an objective's done row is never returned for an order number.",
+  "For an order with no packed record, screen_list returns a field other than `note` saying CLIVE has no packed record for it, naming how long and how many rows are kept from DONE_KEEP_S and MAX_DONE (not hard-coded numbers); `note` behaves as before.",
+  "Marking an order packed by each of the three ways, and reading it back through screen_list, makes no Shopify call of any kind, proven with a Shopify client that fails the test on any call.",
+  "DONE_HOW, the done row's fields, DONE_KEEP_S, MAX_DONE, MAX_FILE_BYTES and every rule for when a screen or the remote may mark something done are unchanged, and tests/test_registry.py passes unchanged.",
+  "In tests/test_screens_r10.py and tests/test_r11_screens_server.py the only assertions changed are the exact marked strings, each replaced by the new exact string; no test function is renamed, removed or loosened.",
+  "No comment, docstring or tool output in the changed files still says that whether a screen's Mark packed counts as packed is the owner's ruling still to be made.",
+  "The change is proven by tests in crooks-assistant/tests/test_mark_packed_counts_as_packed.py, and they pass."
+ ],
+ "checks": [
+  {
+   "name": "tests",
+   "argv": [
+    "/home/user/clive/crooks-assistant/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/test_mark_packed_counts_as_packed.py"
+   ],
+   "cwd": "crooks-assistant"
+  },
+  {
+   "name": "regression",
+   "argv": [
+    "/home/user/clive/crooks-assistant/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live",
+    "tests/test_displays.py",
+    "tests/test_screens_r10.py",
+    "tests/test_r11_screens_server.py",
+    "tests/test_screen_paths.py",
+    "tests/test_screen_privacy.py",
+    "tests/test_r13_screens.py",
+    "tests/test_screen_video.py",
+    "tests/test_registry.py",
+    "tests/test_expose_draft_order_s_payment_link_2.py"
+   ],
+   "cwd": "crooks-assistant"
+  },
+  {
+   "name": "evidence-index",
+   "argv": [
+    "/home/user/clive/crooks-assistant/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/test_r13_evidence_index.py"
+   ],
+   "cwd": "crooks-assistant"
+  },
+  {
+   "name": "ruff",
+   "argv": [
+    "/home/user/clive/crooks-assistant/.venv/bin/python",
+    "-m",
+    "ruff",
+    "check",
+    "app",
+    "config",
+    "scripts",
+    "tests"
+   ],
+   "cwd": "crooks-assistant"
+  }
+ ],
+ "target_branch": "clive/objective/mark-packed-counts-as-packed-2",
+ "max_repair_rounds": 2
+}

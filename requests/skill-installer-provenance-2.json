@@ -1,0 +1,82 @@
+{
+ "schema_version": "clive.remote_engineering_request.v1",
+ "request_id": "skill-installer-provenance-2",
+ "title": "Skill installer: install the digester's approved skills byte for byte into CLIVE's git-ignored skills directory, with provenance, licence, clean uninstall",
+ "requested_outcome": "CLIVE adopts skills whole (OWNER_DECISIONS_2026-09-30, \"The owner's curated skill list is the owner's decision\"; SOURCE_ASSIMILATION_V1.md section 3). The digester already vets skills one by one and records proposals, but nothing installs one. Build the installer: a new package crooks-assistant/app/skills/ (install.py and __init__.py) and a command, crooks-assistant/scripts/skills.py.\n\nWHERE APPROVALS LIVE (read them; change nothing in the digester). DigestStore (app/digest/store.py) keeps each artifact under <store>/<artifact id>/: source.json, units.jsonl, findings.jsonl and the append-only ledger absorptions.jsonl (DigestStore.absorptions, .findings, .load). A proposal is an Absorption with decided_by None; an owner decision is an Absorption with decided_by \"owner\" (model.DECIDER) appended later with add_absorption. Curated mode (pipeline.digest and propose.proposals with curated=True; scripts/digest.py --curated) has no field of its own: it appends propose.CURATED to the reasoning, in the part CLIVE writes after \" Target builder_skill: \", and clears \"Needs the owner\" unless the licence puts it back (propose.needs_owner). A skill is one builder_skill record whose unit is the skill's SKILL.md knowledge unit, tagged skill:<name>. The quarantined copy is read-only at <quarantine root>/<artifact id>/ (app/digest/intake.py), pinned by Source.content_digest, which is pipeline.tree_digest of it.\n\nWHAT IS APPROVED, per skill. The last owner decision in the ledger for that unit wins: target builder_skill approves it (approved_by \"owner\"); any other target withholds it. With no decision, a builder_skill proposal is approved (approved_by \"curated\") only when propose.CURATED appears after the last \" Target builder_skill: \" in its reasoning, propose.explain(it) finds its Hypothesis, Measure and Removal (a clipped or hand-written reasoning is never curated), and propose.needs_owner(it) is False. The artifact's own words (a skill's name or title, which come before that marker) can never make a skill curated. Anything else is not approved and is not installed.\n\ninstall(store, quarantine_root, artifact_id, skills_dir, only=None), for each approved skill:\n1. Verify the copy: quarantine_root/<artifact id> exists, is not a link, and pipeline.tree_digest of it equals the stored Source.content_digest; otherwise nothing of the artifact is installed.\n2. The skill folder is the folder of the anchor unit's SKILL.md. Refuse the skill as held if the artifact was blocked or any stored finding of severity high or critical lies in that folder (a hold, a licence that forbids reuse, a changed file).\n3. Refuse it as the owner's, never installing it, if anything in it would run on its own or brings a key: a stored finding in the folder whose rule (the explanation's text before the first \":\") starts with \"secret.\" or is execute.git_hook, execute.git_config, execute.install_script, execute.build, execute.startup, execute.agent_settings, execute.agent_hook, execute.mcp, execute.devcontainer, execute.editor_task, execute.ci or execute.binary; a hooks key in SKILL.md's front matter; a line of SKILL.md holding a !`command` (Claude Code runs those before the model reads the skill); any symbolic link, special file or hard-linked file in the folder; or a licence that forbids reuse (scan.licence_rank 2).\n4. Defer it, not installing it, if it carries scripts: a stored finding execute.script, execute.notebook, execute.notebook_script or execute.makefile in the folder; any file whose suffix is in app.digest.adapters.skills.SCRIPT_SUFFIXES; any file whose bytes start with \"#!\"; or any file with an executable bit in quarantine. Name up to five of those files. Such skills wait for a sandboxed script route: installing their text without their scripts would be half an adoption.\n5. Copy the folder byte for byte into a private staging folder under skills_dir, reading each file without following links (as pipeline._read_scanned does) and bounded (at most 1,000 files and 50 MB per skill). Scan the copy again with scan.scan_tree and refuse on any block-severity finding or any \"secret.\" rule. Check that tree_digest of the copy equals tree_digest of the quarantined folder and that every file's sha256 matches.\n6. Licence: scan.licence_map of the quarantined copy, then scan.licence_for the SKILL.md path, give (expression, declaring file); with no folder licence, the Source's licence with declared_in null. When the declaring file lies outside the skill folder, copy it byte for byte to licence/<its file name>, with a NOTICE, NOTICE.txt or NOTICE.md beside it if there is one.\n7. Write provenance.json, then rename the staging folder to skills_dir/<name> in one step, so a reader never sees half an install.\n\nLAYOUT (request skill-read-runtime-tool reads exactly this):\n  <skills_dir>/<name>/skill/...        the skill folder, byte for byte (files 0444, folders 0555)\n  <skills_dir>/<name>/licence/...      the licence file (and a NOTICE beside it) when it lies outside the skill folder\n  <skills_dir>/<name>/provenance.json  {\"schema\": \"clive.skill_install.v1\", \"name\", \"description\", \"route\": \"instructions\", \"installed_at\", \"source\": {\"origin\", \"origin_kind\", \"pinned_ref\", \"content_digest\", \"taken_at\"}, \"skill\": {\"path_in_artifact\", \"digest\", \"files\": [{\"path\", \"sha256\", \"bytes\"}]}, \"licence\": {\"expression\", \"declared_in\", \"copied\": [...]}, \"digest_record\": {\"artifact_id\", \"unit_id\", \"proposal_id\", \"decision_id\", \"approved_by\"}, \"allowed_tools\"}\n<name> matches ^[a-z0-9][a-z0-9-]{0,63}$. Digests are \"sha256:<hex>\"; file paths are relative POSIX paths inside skill/. description and allowed_tools come from SKILL.md's front matter, credentials redacted (scan.redact), at most 1,024 characters, null when absent.\n<name> is the skill:<name> tag; a name that does not match the pattern is refused. proposal_id is the builder_skill proposal's Absorption id (null if there is none), decision_id the deciding owner record's id (null for curated).\n\nIDEMPOTENT AND REVERSIBLE. Installing the same skill again (same name, skill digest, artifact and unit) writes nothing and says \"already installed\". A different skill under an installed name is refused as a conflict and nothing is overwritten. uninstall(skills_dir, name) removes skills_dir/<name> wholly, never following a link and making folders writable first (as intake.remove_tree does), only when it is a real folder holding a provenance.json, and says whether its bytes still matched; uninstalling a name that is not installed changes nothing and succeeds. installed(skills_dir) lists installs from their provenance files and never lists a staging folder (a name starting \".\").\n\nWHERE. DEFAULT_SKILLS_DIR is crooks-assistant/.state/skills, which crooks-assistant/.gitignore already ignores (\".state/\"). No third-party skill content may ever go into git: install refuses a skills_dir inside the repository unless it is under crooks-assistant/.state/, before writing anything, as scripts/digest_intake.py refuses a quarantine inside the repository.\n\nTHE COMMAND. python scripts/skills.py install ARTIFACT_ID --store DIR --quarantine DIR [--skills-dir DIR] [--skill NAME ...]; uninstall NAME [--skills-dir DIR]; list [--skills-dir DIR]. It prints one line per skill: installed, already installed, refused (held, owner, conflict or name) with the reason, deferred (scripts) with the files, or not approved. Exit 0 when every approved skill asked for is installed or already installed; 2 when any approved skill was refused or deferred; 1 when it could not run (bad arguments, no such artifact in the store, a copy that does not match its digest). Anything from the artifact is printed through intake.shown and scan.redact. The store is only read, never created or written.\n\nOUT OF SCOPE; MUST NOT CHANGE: app/digest (scanning, holding, proposing, the ledger), the ledger records themselves, every protected path, builders (telling builders which skills to use is the Director's protected work), the runtime skill tool (request skill-read-runtime-tool), and anything that runs a skill's scripts. Nothing from a skill is executed, imported or installed, and there is no network.\n\nTESTS use tiny fake skills written in tmp_path, never real third-party skills. Build a store end to end at least once, through intake.intake (the directory handler) and pipeline.digest(curated=True) as tests/test_digest_curated.py does, giving each fake SKILL.md \"license: MIT\" in its front matter; synthetic ledger records and findings are fine for the edge cases.\n\nThe previous attempt was complete but blocked because tests/test_r11_records.py::test_a_connection_held_open_at_a_stop_no_longer_keeps_the_apps_shutdown_from_running cannot pass inside the check sandbox (a real uvicorn on 127.0.0.1). NOTE ON THE CHECKS: the check sandbox's loopback is down until the next re-pin (PR #76), so tests that serve on 127.0.0.1 inside a check cannot pass there; those are left out of the checks below and still run in GitHub acceptance. Write any new test so it needs no socket (stand in for the transport).",
+ "base_ref": "cdd5bcbf05014df73f243b4cc091526765131de6",
+ "base_sha": "cdd5bcbf05014df73f243b4cc091526765131de6",
+ "allowed_paths": [
+  "crooks-assistant/app/skills",
+  "crooks-assistant/scripts/skills.py",
+  "crooks-assistant/tests/test_skill_install.py"
+ ],
+ "acceptance_criteria": [
+  "A fake two-skill collection (instruction-only, 'license: MIT'), taken in through intake and pipeline.digest(curated=True) into a DigestStore, installs both skills under skills_dir/<name>/skill/ byte for byte: every file equals the quarantined file and pipeline.tree_digest of each installed skill/ equals that of its quarantined folder.",
+  "Each provenance.json has schema clive.skill_install.v1, the Source's origin, origin_kind, pinned_ref, content_digest and taken_at, the skill's digest and each file's sha256 and size, the licence expression and the file declaring it (copied byte for byte under licence/ when outside the skill folder), and artifact_id, unit_id, proposal_id, decision_id and approved_by ('curated' or 'owner').",
+  "Without curated a builder_skill proposal is not installed; after an owner decision (decided_by 'owner', target builder_skill) appended with DigestStore.add_absorption it is, with approved_by 'owner'; a later owner decision with another target withholds it again.",
+  "A proposal whose curated sentence appears only before ' Target builder_skill: ', or whose reasoning says it needs the owner, is not treated as curated and is not installed.",
+  "A skill from a blocked artifact, or with a stored finding of severity high or critical in its folder, is refused as held, and nothing of it is written.",
+  "A skill with a hooks key in its front matter, a !`command` line in SKILL.md, a symbolic link, or a stored finding in its folder whose rule starts with 'secret.' or is execute.mcp, execute.agent_hook, execute.agent_settings or execute.binary is refused as the owner's, and nothing of it is written.",
+  "A skill carrying scripts/run.py, any SCRIPT_SUFFIXES file, a '#!' file or an executable file is deferred with the file named, and nothing of it is written.",
+  "When the quarantined copy's tree digest no longer equals the stored content digest, nothing of the artifact is installed and the command exits 1.",
+  "Installing again writes nothing (provenance.json bytes and modification time unchanged) and reports already installed; a different skill under an installed name is refused as a conflict and the installed one is unchanged.",
+  "uninstall removes skills_dir/<name> entirely and reports whether its bytes still matched; it refuses a folder without provenance.json and a symbolic link; uninstalling a name not installed succeeds and changes nothing.",
+  "A failure part way through an install leaves no skills_dir/<name> behind, and installed() never lists a staging folder.",
+  "DEFAULT_SKILLS_DIR is crooks-assistant/.state/skills, crooks-assistant/.gitignore ignores .state/, and a skills_dir inside the repository but outside crooks-assistant/.state/ is refused before anything is written.",
+  "scripts/skills.py install, uninstall and list behave as described, exit 0, 2 and 1 as described, never write the store, and print no credential from the artifact.",
+  "Nothing in app/digest or any protected path changes; the change is proven by tests in crooks-assistant/tests/test_skill_install.py, which pass with the existing digest tests."
+ ],
+ "checks": [
+  {
+   "name": "tests",
+   "argv": [
+    "/home/user/clive/crooks-assistant/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/test_skill_install.py"
+   ],
+   "cwd": "crooks-assistant"
+  },
+  {
+   "name": "regression",
+   "argv": [
+    "/home/user/clive/crooks-assistant/.venv/bin/python",
+    "-m",
+    "pytest",
+    "--deselect",
+    "tests/test_r11_records.py::test_a_connection_held_open_at_a_stop_no_longer_keeps_the_apps_shutdown_from_running",
+    "-q",
+    "-m",
+    "not live",
+    "tests/test_digest_curated.py",
+    "tests/test_digest_hold_per_skill.py",
+    "tests/test_digest_propose.py",
+    "tests/test_digest_intake.py",
+    "tests/test_digest_pipeline.py",
+    "tests/test_digest_model.py",
+    "tests/test_digest_scan.py",
+    "tests/test_digest_adapter_skills.py",
+    "tests/test_no_dangling_imports.py",
+    "tests/test_r11_records.py"
+   ],
+   "cwd": "crooks-assistant"
+  },
+  {
+   "name": "ruff",
+   "argv": [
+    "/home/user/clive/crooks-assistant/.venv/bin/python",
+    "-m",
+    "ruff",
+    "check",
+    "app",
+    "config",
+    "scripts",
+    "tests"
+   ],
+   "cwd": "crooks-assistant"
+  }
+ ],
+ "target_branch": "clive/objective/skill-installer-provenance-2",
+ "max_repair_rounds": 2
+}

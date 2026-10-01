@@ -1,0 +1,66 @@
+{
+ "schema_version": "clive.remote_engineering_request.v1",
+ "request_id": "staff-turn-hardening",
+ "title": "A team member's turn never speaks with George's voice allowance, never falls back to his assistant, and is never cut off by someone else's",
+ "requested_outcome": "An independent review of the team build (PR #73, 1 October) found three gaps in how a team member's turn runs. Fix all three; change nothing for the owner's turns.\n(1) /turn honours speak=true and transcribes uploaded audio for a staff request (crooks-assistant/app/routes/turn.py), spending the owner's ElevenLabs allowance, although /speak itself refuses staff. For a request the door made a staff request (app/tools/authority.current() is STAFF), ignore `speak` (no text-to-speech is generated and the answer says nothing about audio) and refuse an audio upload with a 403 in the route's own refusal shape, saying in words that the team types to CLIVE.\n(2) Runtime.provider_for (crooks-assistant/app/runtime.py) returns the OWNER's assistant for a staff request when no staff provider factory is set. Fail closed instead: a staff request with no factory raises, and /turn answers it with a refusal, never the owner's assistant.\n(3) ensure_started calls _stop_retired on every turn, so a team member's assistant replaced because their card changed is stopped on anyone's next turn, even while a turn is still running in it. Stop a retired assistant only once no turn is running in it (count turns in flight per provider, or stop it when its last running turn ends); never stop one mid-turn.",
+ "base_ref": "cdd5bcbf05014df73f243b4cc091526765131de6",
+ "base_sha": "cdd5bcbf05014df73f243b4cc091526765131de6",
+ "allowed_paths": [
+  "crooks-assistant/app/routes/turn.py",
+  "crooks-assistant/app/runtime.py",
+  "crooks-assistant/tests/test_staff_turn_hardening.py"
+ ],
+ "acceptance_criteria": [
+  "A staff /turn with speak=true produces no text-to-speech call (the voice client is never asked) and returns the text answer; the owner's /turn with speak=true still speaks.",
+  "A staff /turn with an audio upload is refused with 403 and words saying the team types to CLIVE; the transcriber is never called.",
+  "With staff_provider_factory unset, a staff request never reaches runtime.provider: provider_for raises and /turn returns a refusal.",
+  "A retired team assistant with a turn in flight is not stopped by another person's turn; it is stopped once that turn ends.",
+  "The new behaviour is proven in crooks-assistant/tests/test_staff_turn_hardening.py, and it passes; no existing test changes."
+ ],
+ "checks": [
+  {
+   "name": "tests",
+   "argv": [
+    "/home/user/clive/crooks-assistant/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/test_staff_turn_hardening.py"
+   ],
+   "cwd": "crooks-assistant"
+  },
+  {
+   "name": "regression",
+   "argv": [
+    "/home/user/clive/crooks-assistant/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live",
+    "tests/test_team.py",
+    "tests/test_r11_turn.py",
+    "tests/test_every_turn_is_the_model.py",
+    "tests/test_progressive_turn.py",
+    "tests/test_n_plus_one_turn.py"
+   ],
+   "cwd": "crooks-assistant"
+  },
+  {
+   "name": "ruff",
+   "argv": [
+    "/home/user/clive/crooks-assistant/.venv/bin/python",
+    "-m",
+    "ruff",
+    "check",
+    "app",
+    "config",
+    "scripts",
+    "tests"
+   ],
+   "cwd": "crooks-assistant"
+  }
+ ],
+ "target_branch": "clive/objective/staff-turn-hardening",
+ "max_repair_rounds": 2
+}

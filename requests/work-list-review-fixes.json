@@ -1,0 +1,82 @@
+{
+ "schema_version": "clive.remote_engineering_request.v1",
+ "request_id": "work-list-review-fixes",
+ "title": "The work list: reads that never write, jobs CLIVE made say so, and every step recorded as the person who took it",
+ "requested_outcome": "An independent review of the team build (PR #73, 1 October) found these defects in the work list (crooks-assistant/app/work). Fix all six; change nothing else in behaviour.\n(1) work_list(day=...) WRITES today: view.today_for calls work.materialise(day), which makes routine jobs for that day and calls archive(day). So 'what did we do on 1 September?' creates back-dated routine jobs that show as overdue for everyone, and a far-future day archives every finished job early, which can put a packed order back under 'to pack'. Make materialise and archive run only for today's date (store.today()); any other day is read-only (it shows what the kept records say for that day and creates and archives nothing). A day that is not YYYY-MM-DD is refused by work_list as a ToolError in words ('say the day as a date, like 2026-10-01'), never an uncaught ValueError.\n(2) A job or routine made by CLIVE's assistant (work_note assign or routine, called during the owner's conversation) is stored and shown as made through CLIVE: the job keeps who it is for and that the owner's assistant made it (for example created_via 'clive'), its record line says it was set up through CLIVE, and the Today page (crooks-assistant/web/today.js) shows 'via CLIVE' on such a job. A job the owner makes with his own taps on the Today screen (the /today/assign and /today/routine routes, which call the store without that marker) is not marked. Reason: text in an email or a DM the assistant reads can steer it into handing out a job, and staff must be able to tell that from one George gave them himself.\n(3) work_note returns customers' names and email subjects (a claimed found row's title), so it is AMBER on its ToolSpec like work_list, and its result carries the same untrusted-text note work_list's does. work_list(record=True) results carry that note too.\n(4) Attribution never defaults to the owner. hooks._who maps the confirming login to a person and falls back to 'owner' when the lookup fails (a staff member suspended while their change is still committing, or access.json briefly unreadable), so their change is recorded as George's. Take who did it from the request's own authority (app/tools/authority.current(): 'owner' for OWNER, the staff member's person id for STAFF); when neither is available and the login maps to nobody, record the login itself as who, never 'owner'.\n(5) Undo is missing from 'who did what': the engine's undo operations for the five staff changes (their names end in '_undo'; read them from the actions engine, do not guess) are recorded by after_commit as '<what>_undone' with the same ref, and an undo never closes or reopens a job.\n(6) Every confirmed change clears all three found-work caches (found.reset()), so each one re-reads Instagram, whose cache is kept five minutes because of its rate limit. Reset only the source the change is about: orders for the fulfilment and tracking operations, emails for the two reply operations, nothing for a stock change.\n(7) Staff are told 'note it on the work list for him' when a change is George's (app/routes/actions.py staff_refusal, and the staff prompt), but no such step exists. Add a work_note action 'flag' that anyone may take: it makes an open job assigned to the owner, titled from `title`, with `details` and the ref if given, created_by the person who flagged it, and recorded as 'flagged'. The owner's own assistant may use it too. Do not edit app/people (protected).",
+ "base_ref": "cdd5bcbf05014df73f243b4cc091526765131de6",
+ "base_sha": "cdd5bcbf05014df73f243b4cc091526765131de6",
+ "allowed_paths": [
+  "crooks-assistant/app/work/store.py",
+  "crooks-assistant/app/work/view.py",
+  "crooks-assistant/app/work/tools.py",
+  "crooks-assistant/app/work/hooks.py",
+  "crooks-assistant/app/work/found.py",
+  "crooks-assistant/web/today.js",
+  "crooks-assistant/tests/test_work.py",
+  "crooks-assistant/tests/test_work_review_fixes.py",
+  "crooks-assistant/tests/test_registry.py",
+  "crooks-assistant/tests/test_expose_draft_order_s_payment_link_2.py",
+  "crooks-assistant/docs/phase4/TOOL_MATRIX.md"
+ ],
+ "acceptance_criteria": [
+  "work_list(day=<a past date>) and work_list(day=<a future date>) create no job and archive none: the kept jobs file is byte-identical before and after, while work_list() with no day still makes today's routine jobs once.",
+  "work_list(day='1 September') raises ToolError with words naming the date format; it never raises ValueError.",
+  "A job made by work_note(action='assign') during an owner conversation is marked as made through CLIVE in its summary and its record line, and web/today.js shows 'via CLIVE' for it; a job made through POST /today/assign is not marked.",
+  "work_note is Tier.AMBER on its ToolSpec and its result, and work_list(record=True)'s, carry the untrusted-text note.",
+  "A change committed by a staff member whose grant was suspended mid-commit is recorded under that member's id or their login, never 'owner'; one committed by the owner is recorded as 'owner'.",
+  "An undo of each of the five staff operations is recorded as '<what>_undone' and leaves the job's status unchanged.",
+  "After a fulfilment is confirmed only the orders cache is read again; after a reply only the emails cache; after a stock change none.",
+  "work_note(action='flag', title=...) by a staff member makes an open job for the owner, created_by that member, recorded as 'flagged'.",
+  "If the tool block grows, the byte ceiling in tests/test_registry.py and tests/test_expose_draft_order_s_payment_link_2.py rises by exactly the measured growth, with the measurement written beside it; no other assertion in those files changes.",
+  "No existing assertion in tests/test_work.py is removed or loosened; new behaviour is proven in tests/test_work_review_fixes.py, and it passes.",
+  "Nothing under crooks-assistant/app/people, app/routes/today.py, app/tools/gate.py or tests/test_team.py changes."
+ ],
+ "checks": [
+  {
+   "name": "tests",
+   "argv": [
+    "/home/user/clive/crooks-assistant/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "tests/test_work_review_fixes.py"
+   ],
+   "cwd": "crooks-assistant"
+  },
+  {
+   "name": "regression",
+   "argv": [
+    "/home/user/clive/crooks-assistant/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-m",
+    "not live",
+    "tests/test_work.py",
+    "tests/test_team.py",
+    "tests/test_people.py",
+    "tests/test_registry.py",
+    "tests/test_expose_draft_order_s_payment_link_2.py",
+    "tests/test_gate.py",
+    "tests/test_web_js.py"
+   ],
+   "cwd": "crooks-assistant"
+  },
+  {
+   "name": "ruff",
+   "argv": [
+    "/home/user/clive/crooks-assistant/.venv/bin/python",
+    "-m",
+    "ruff",
+    "check",
+    "app",
+    "config",
+    "scripts",
+    "tests"
+   ],
+   "cwd": "crooks-assistant"
+  }
+ ],
+ "target_branch": "clive/objective/work-list-review-fixes",
+ "max_repair_rounds": 2
+}
