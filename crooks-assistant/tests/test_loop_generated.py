@@ -185,6 +185,66 @@ def test_an_output_path_the_builder_turned_into_a_link_is_refused_and_nothing_it
     assert "docs is not a directory on the way" in cancelled[0]
 
 
+def test_a_link_at_the_output_itself_is_refused_and_left_exactly_as_it_was(tmp_path):
+    """The 159b4fcc re-pin review, F-01: a link where the generator writes is never removed, only refused."""
+    outside = tmp_path / "outside.md"
+    outside.write_text("not the tree's\n")
+    w = generated_world(tmp_path)
+    w.scenarios({"edits": [["pkg/hello.txt", "hello\n"]], "exec": []})
+    w.objective()
+    real_export = w.dispatcher().workspaces.export
+    seen: list[Path] = []
+
+    def export_with_a_linked_index(ws, head, target):
+        tree = real_export(ws, head, target)
+        (tree / INDEX).unlink()
+        os.symlink(outside, tree / INDEX)                                  # docs/INDEX.md now names a file elsewhere
+        seen.append(tree / INDEX)
+        return tree
+
+    d = w.dispatcher()
+    d.workspaces.export = export_with_a_linked_index
+    w.run_until(w.status_is(TaskStatus.BLOCKED), dispatcher=d)
+    assert outside.read_text() == "not the tree's\n"                        # never followed, never written
+    assert seen and all(p.is_symlink() and os.readlink(p) == str(outside) for p in seen)  # never removed
+    first = w.store.read_attempts(OBJ)[0]
+    cancelled = [e.note for e in w.store.read_events(OBJ, first.attempt_id) if e.kind is EventKind.CANCELLED]
+    assert f"has no plain file where the generator pkg-index writes {INDEX}" in cancelled[0]
+    assert f"{INDEX} is a link, not a file" in cancelled[0]
+
+
+def test_clearing_an_output_removes_a_regular_file_and_nothing_else(tmp_path):
+    from app.orchestrator.generated import clear_output
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "INDEX.md").write_text("the builder's\n")
+    assert clear_output(tmp_path, "docs/INDEX.md") is None and not (tmp_path / "docs" / "INDEX.md").exists()
+    assert clear_output(tmp_path, "docs/INDEX.md") is None                 # already gone: the generator makes it
+
+    target = tmp_path / "target.md"
+    target.write_text("kept\n")
+    os.symlink(target, tmp_path / "docs" / "INDEX.md")
+    assert clear_output(tmp_path, "docs/INDEX.md") == "docs/INDEX.md is a link, not a file"
+    assert (tmp_path / "docs" / "INDEX.md").is_symlink() and target.read_text() == "kept\n"
+    (tmp_path / "docs" / "INDEX.md").unlink()
+
+    os.symlink(tmp_path / "nowhere", tmp_path / "docs" / "INDEX.md")       # a dangling link is still a link
+    assert clear_output(tmp_path, "docs/INDEX.md") == "docs/INDEX.md is a link, not a file"
+    assert (tmp_path / "docs" / "INDEX.md").is_symlink()
+    (tmp_path / "docs" / "INDEX.md").unlink()
+
+    os.mkfifo(tmp_path / "docs" / "INDEX.md")
+    assert clear_output(tmp_path, "docs/INDEX.md") == "docs/INDEX.md is not a regular file"
+    assert (tmp_path / "docs" / "INDEX.md").exists()
+    (tmp_path / "docs" / "INDEX.md").unlink()
+
+    (tmp_path / "docs" / "INDEX.md").mkdir()
+    assert clear_output(tmp_path, "docs/INDEX.md") == "docs/INDEX.md is a directory, not a file"
+    assert (tmp_path / "docs" / "INDEX.md").is_dir()
+    for bad in ("", "docs/../x", "/abs", "docs//INDEX.md"):
+        assert "is not a plain repository path" in clear_output(tmp_path, bad)
+
+
 def test_a_failing_generator_refuses_the_candidate_and_the_retry_is_shown_its_output(tmp_path):
     broken = {**PKG_INDEX, "argv": ["{python}", "-c", "import sys; print('generator exploded'); sys.exit(3)"]}
     w = generated_world(tmp_path, generators=(broken,))

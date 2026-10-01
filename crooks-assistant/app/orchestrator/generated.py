@@ -208,8 +208,9 @@ def clear_output(root: Path, rel: str) -> str | None:
     """Remove ``root/rel`` from a generator's copy before the generator runs, so the only bytes that can be
     there afterwards are the ones the generator wrote: a builder's own edit of a declared output is never read
     back as the generator's (the b577bc97 re-pin review, F-01). None when it is gone or was never there; else
-    why it cannot be cleared safely. A link or a non-directory anywhere on the way, or a directory at ``rel``,
-    is refused and never followed or removed."""
+    why it cannot be cleared safely. Only a verified regular file is removed: a link or a non-directory anywhere
+    on the way, or anything but a regular file at ``rel`` (a link, a directory, a special file), is refused and
+    never followed, read or removed (the 159b4fcc re-pin review, F-01)."""
     parts = rel.split("/")
     if not rel or any(p in ("", ".", "..") for p in parts):
         return f"{rel!r} is not a plain repository path"
@@ -226,9 +227,13 @@ def clear_output(root: Path, rel: str) -> str | None:
         if not last and not stat.S_ISDIR(mode):
             return f"{'/'.join(parts[:index + 1])} is not a directory on the way to {rel}"
         if last:
+            if stat.S_ISLNK(mode):
+                return f"{rel} is a link, not a file"
             if stat.S_ISDIR(mode):
                 return f"{rel} is a directory, not a file"
-            os.unlink(current)                            # a file or a link itself, never what a link names
+            if not stat.S_ISREG(mode):
+                return f"{rel} is not a regular file"
+            os.unlink(current)                            # a verified regular file, and only that
     return None
 
 
