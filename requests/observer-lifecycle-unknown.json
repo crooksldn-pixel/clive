@@ -1,0 +1,67 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "observer-lifecycle-unknown",
+  "title": "Engineering observer: say the lifecycle is unknown when no engineering store is declared (CB-14)",
+  "requested_outcome": "The engineering observer (scripts/agent_state_view.py, also served by the app at /environment/state) must say plainly that the engineering lifecycle is unknown when the roster declares no engineering store. Today load_lifecycle returns nothing and no problem in that case, so the view carries no tasks, a task count of 0 and no problem, which reads as a healthy, empty campus. A roster without an engineering store stays legitimate: the field is optional, the trunk's own roster declares none, and the probes still report every worker exactly as they do now, so this is not an error and the script still exits 0. What must change: the view says whether the lifecycle records were read, names why not whenever they were not, and never reports a task count of zero for records it did not read; the human-readable output says so in one plain line, and says something different when a store was read and simply holds no tasks. What must not change: every worker's status, reason, source and the totals; the existing problem wording for a declared store that is missing (starting 'declared engineering store') or unreadable (starting 'engineering store unreadable'); the schema name; `tasks` stays a list; the view stays read-only and writes nothing. config/agent_roster.json is protected and is not touched: declaring a store there is a separate decision.",
+  "base_ref": "b577bc973a50a01d2e2e94aa361fa186b069a5e6",
+  "base_sha": "b577bc973a50a01d2e2e94aa361fa186b069a5e6",
+  "allowed_paths": [
+    "crooks-assistant/scripts/agent_state_view.py",
+    "crooks-assistant/docs/AGENT_ENVIRONMENT_STATE_VIEW.md",
+    "crooks-assistant/tests/test_observer_lifecycle_unknown.py"
+  ],
+  "acceptance_criteria": [
+    "With no engineering_store in the roster, build_view returns engineering.lifecycle == \"UNKNOWN\", engineering.task_count is None (never 0), and engineering.problem is a non-empty sentence starting \"no engineering store declared\" that says the engineering lifecycle is unknown.",
+    "With a declared store that is missing or unreadable, engineering.lifecycle == \"UNKNOWN\" and engineering.task_count is None, and engineering.problem keeps its existing prefixes (\"declared engineering store\", \"engineering store unreadable\").",
+    "With a declared store that was read, engineering.lifecycle == \"KNOWN\", engineering.problem is None and engineering.task_count equals the number of task records; a task count of 0 appears only in this case.",
+    "render() prints one line saying the engineering lifecycle is unknown, with the reason, whenever engineering.lifecycle is UNKNOWN, including when no store is declared; when a store was read and holds no tasks it prints that no tasks are recorded, so an unknown lifecycle and a known empty one never render the same.",
+    "Worker statuses, status_reason, status_source and totals are unchanged for every roster: tests/test_agent_state_view.py, tests/test_environment_route.py and tests/test_lifecycle_kernel.py pass unchanged.",
+    "main() still exits 0 for a roster with no engineering store and writes no file; config/agent_roster.json is unchanged.",
+    "docs/AGENT_ENVIRONMENT_STATE_VIEW.md describes engineering.lifecycle and the no-store-declared case.",
+    "The change is proven by tests in crooks-assistant/tests/test_observer_lifecycle_unknown.py, using temporary rosters and stores only, and they pass."
+  ],
+  "checks": [
+    {
+      "name": "tests",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_observer_lifecycle_unknown.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "regression",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-m",
+        "not live",
+        "tests/test_agent_state_view.py",
+        "tests/test_environment_route.py",
+        "tests/test_lifecycle_kernel.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/observer-lifecycle-unknown",
+  "max_repair_rounds": 2
+}
