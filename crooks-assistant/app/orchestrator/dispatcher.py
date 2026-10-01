@@ -1479,7 +1479,7 @@ class Dispatcher:
 
     def _integrator(self) -> str:
         """Who the kernel records as integrating when the loop does it: the provenance landing checks."""
-        return f"clive-dispatcher ({self.kernel.operator})"
+        return f"{INTEGRATOR_PREFIX}{self.kernel.operator})"
 
     def _eligible(self, obj: Objective, task: EngineeringTask, integration) -> dict | None:
         """The landing record when ``integration`` is the loop's own and may land; else None.
@@ -1491,14 +1491,16 @@ class Dispatcher:
         from before landing was on) stays the Director's to land."""
         sha = integration.integration_sha
         record = self._landing_record(obj.objective_id)
-        if integration.integrated_by != self._integrator():
+        # The loop's integrations are recorded as "clive-dispatcher (<operator>)"; the operator a host runs it as
+        # may change across a restart, so the provenance is the loop's prefix, never an operator's own name.
+        if not str(integration.integrated_by).startswith(INTEGRATOR_PREFIX):
             return None
         if sha in record.get("eligible", []):
             return record
         pending = record.get("integrating") or {}
         started = _parse(pending.get("at"))
         if (pending.get("sha") != sha or pending.get("revision") != task.revision
-                or pending.get("by") != self._integrator() or started is None
+                or not str(pending.get("by") or "").startswith(INTEGRATOR_PREFIX) or started is None
                 or integration.recorded_at < started):
             return None
         record.pop("integrating", None)
@@ -2150,6 +2152,10 @@ FAILED_CONCLUSIONS = frozenset({"failure", "timed_out"})
 
 def _failed_its_tests(result: GateResult) -> bool:
     return any(run.status == "completed" and run.conclusion in FAILED_CONCLUSIONS for run in result.runs)
+
+
+# How the kernel's integration record names the loop when the loop integrated: "clive-dispatcher (<operator>)".
+INTEGRATOR_PREFIX = "clive-dispatcher ("
 
 
 # Who put a SHA the loop came to land on the trunk, from the landing record's push intent (``_land_checked``).
