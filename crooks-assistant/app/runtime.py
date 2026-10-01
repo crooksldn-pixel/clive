@@ -630,8 +630,8 @@ def build(settings: Settings | None = None) -> Runtime:
     connections_service.configure(state_dir=connections_dir(settings))
     # Who on the team the owner has let in is kept beside his passkeys: a line there opens the door.
     staff_access.configure(state_dir=connections_dir(settings))
-    # The skills the installer adopted: read by skill_list and skill_read, never run.
-    skill_tools.configure(skills_dir=settings.skills_dir)
+    # The skills the installer adopted, in settings.skills_dir: read by skill_list and skill_read
+    # at each call, never run, and nothing bound here (app/tools/skill_tools.py).
 
     kb = load(settings.kb_dir)
     provider = MaxAgentSDKProvider(

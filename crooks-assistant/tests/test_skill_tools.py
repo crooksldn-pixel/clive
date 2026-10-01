@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -130,7 +131,6 @@ def test_with_no_skill_installed_the_list_says_so_and_every_read_is_refused(skil
     # And with no skills directory at all: the same words, the same refusal.
     monkeypatch.setattr(skill_tools, "_skills_dir", skills_dir / "missing")
     assert skill_list()["said"] == "no skill is installed"
-    monkeypatch.setattr(skill_tools, "_skills_dir", None)
     assert skill_list()["count"] == 0
     with pytest.raises(ToolError):
         skill_read("anything")
@@ -361,6 +361,23 @@ def test_the_runtime_prompt_names_the_skills_when_offered(skills_dir):
 
 
 # ------------------------------------------------------------------------------- the setting
+
+
+def test_the_tools_read_the_settings_folder_and_build_binds_nothing_for_them(tmp_path, monkeypatch):
+    import inspect
+
+    import config.settings
+    from app import runtime
+
+    base = tmp_path / "configured"
+    base.mkdir()
+    install(base, "from-settings")
+    monkeypatch.setattr(skill_tools, "_skills_dir", None)
+    monkeypatch.setattr(config.settings, "get_settings", lambda: SimpleNamespace(skills_dir=base))
+    assert [s["name"] for s in skill_list()["skills"]] == ["from-settings"]
+    assert skill_read("from-settings")["text"].endswith("How to do it.\n")
+    # Nothing for experience/harness.py to put back after a run.
+    assert not re.search(r"\bskill_tools\.(?:bind\w*|configure)\(", inspect.getsource(runtime.build))
 
 
 def test_skills_dir_defaults_to_the_git_ignored_state_folder():

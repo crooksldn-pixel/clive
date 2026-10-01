@@ -74,15 +74,10 @@ register(CapabilityFamily(
     tools=TOOLS, state="READY", detail="ready",
 ))
 
-# Where the installed skills are: settings.skills_dir once the runtime has configured it, and
-# until then nowhere, so nothing is installed.
+# Where the installed skills are: settings.skills_dir, read at each call rather than bound by
+# app/runtime.py's `build`, so building a runtime sets nothing here that a run would have to put
+# back (experience/harness.py). A test points this at its own folder.
 _skills_dir: Path | None = None
-
-
-def configure(*, skills_dir: Path | None) -> None:
-    """Called once by the runtime (app/runtime.py) with settings.skills_dir."""
-    global _skills_dir
-    _skills_dir = Path(skills_dir) if skills_dir is not None else None
 
 
 # ------------------------------------------------------------------------- reading safely
@@ -188,7 +183,14 @@ def _field(value: Any, limit: int = MAX_FIELD) -> str | None:
 # ------------------------------------------------------------------------- the installed skills
 
 def _base() -> Path | None:
-    return _skills_dir
+    if _skills_dir is not None:
+        return _skills_dir
+    from config.settings import get_settings
+
+    try:
+        return Path(get_settings().skills_dir)
+    except Exception:  # noqa: BLE001 - settings that cannot be read install nothing
+        return None
 
 
 def _record(base: Path, name: str) -> dict[str, Any] | None:
