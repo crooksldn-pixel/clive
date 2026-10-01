@@ -56,6 +56,7 @@ TEXT_SUFFIXES = frozenset((
 
 MAX_FOLDERS = 200                  # folders looked at by one listing
 MAX_LISTED_FILES = 50              # readable files named per skill
+MAX_CHECKED_FILES = 200            # listed files opened per skill to find the readable ones
 MAX_DESCRIPTION = 300              # characters of a skill's description listed
 MAX_FIELD = 300                    # characters of a licence, an origin or a pinned ref
 MAX_PATH = 1_024                   # characters of a file's path
@@ -77,13 +78,20 @@ _LINKED = (errno.ELOOP, errno.ENOTDIR)
 # control, format and variation-selector characters are escaped.
 _LOOKED_AT = re.compile(r"[^\t\n\x20-\x7e]")
 
-# Tests set their own folder here; otherwise each call reads settings.skills_dir, so nothing the
-# runtime builds is left bound in this module (tests/test_followups_harness.py).
+# The folder the runtime's settings name (app/runtime.py `build` installs it from settings.skills_dir).
+# Every build installs its own, as it does the objectives and the screens, so no build reads the
+# folder an earlier one was given; until one has, each call reads settings.skills_dir.
 _SKILLS_DIR: Path | None = None
 
 
+def install(directory: Path | str | None) -> None:
+    """Called by every runtime build with its settings.skills_dir: where the tools read the skills."""
+    global _SKILLS_DIR
+    _SKILLS_DIR = Path(directory) if directory else None
+
+
 def skills_dir() -> Path:
-    """Where the skills are installed: settings.skills_dir (config/settings.py)."""
+    """Where the skills are installed: the runtime's settings.skills_dir (config/settings.py)."""
     if _SKILLS_DIR is not None:
         return _SKILLS_DIR
     from config.settings import get_settings
@@ -211,11 +219,11 @@ def _record(base_fd: int, name: str) -> dict[str, Any] | None:
     return record
 
 
-def _installs() -> tuple[list[tuple[str, dict[str, Any]]], int]:
-    """(name, provenance) of every readable install, by name, and how many folders were skipped
-    as unreadable. At most MAX_FOLDERS folders are looked at."""
+def _installs(base: Path) -> tuple[list[tuple[str, dict[str, Any]]], int]:
+    """(name, provenance) of every readable install under `base`, by name, and how many folders
+    were skipped as unreadable. At most MAX_FOLDERS folders are looked at."""
     try:
-        base_fd = _open_dir(str(skills_dir()))
+        base_fd = _open_dir(str(base))
     except _Unreadable:
         return [], 0
     found: list[tuple[str, dict[str, Any]]] = []
@@ -236,9 +244,9 @@ def _installs() -> tuple[list[tuple[str, dict[str, Any]]], int]:
     return found, unreadable
 
 
-def _install(name: str) -> dict[str, Any] | None:
+def _install(base: Path, name: str) -> dict[str, Any] | None:
     try:
-        base_fd = _open_dir(str(skills_dir()))
+        base_fd = _open_dir(str(base))
     except _Unreadable:
         return None
     try:
@@ -267,9 +275,45 @@ def _about(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def installed_names() -> tuple[str, ...]:
-    """The names of the skills skill_list would list, for the system prompt (app/runtime.py)."""
-    return tuple(name for name, _ in _installs()[0])
+def installed_names(directory: Path | str) -> tuple[str, ...]:
+    """The names of the skills skill_list would list from `directory`, the runtime's
+    settings.skills_dir, for the system prompt (app/runtime.py)."""
+    return tuple(name for name, _ in _installs(Path(directory))[0])
+
+
+def _verified(base: Path, name: str, item: dict[str, Any]) -> bytes:
+    """The bytes of a listed file, reached one folder at a time under <base>/<name>/skill/ without
+    following any link: a regular file of at most MAX_FILE_BYTES whose sha256 is still the one
+    the provenance records. _Unreadable otherwise."""
+    *folders, leaf = item["path"].split("/")
+    opened: list[int] = []
+    try:
+        opened.append(_open_dir(str(base)))
+        for part in (name, SKILL_DIR, *folders):
+            opened.append(_open_dir(part, opened[-1]))
+        data = _read_at(opened[-1], leaf, MAX_FILE_BYTES)
+    finally:
+        for fd in opened:
+            os.close(fd)
+    if "sha256:" + hashlib.sha256(data).hexdigest() != item["sha256"]:
+        raise _Unreadable("it is no longer the one that was installed (its contents changed)")
+    return data
+
+
+def _readable_files(base: Path, name: str, record: dict[str, Any]) -> list[str]:
+    """The listed files skill_read would read, checked as it checks them: at most MAX_LISTED_FILES,
+    found among the first MAX_CHECKED_FILES text files listed."""
+    files: list[str] = []
+    candidates = [item for item in _listed(record) if _readable_path(item["path"])]
+    for item in candidates[:MAX_CHECKED_FILES]:
+        try:
+            _verified(base, name, item)
+        except _Unreadable:
+            continue
+        files.append(item["path"])
+        if len(files) == MAX_LISTED_FILES:
+            break
+    return files
 
 
 # --- the tools ----------------------------------------------------------------------------------
@@ -283,14 +327,14 @@ def installed_names() -> tuple[str, ...]:
     tier=Tier.GREEN,
 )
 def skill_list() -> dict[str, Any]:
-    found, unreadable = _installs()
+    base = skills_dir()
+    found, unreadable = _installs(base)
     skills = []
     for name, record in found:
-        files = [item["path"] for item in _listed(record) if _readable_path(item["path"])]
         skills.append({
             "name": name,
             "description": _field(record.get("description"), MAX_DESCRIPTION),
-            "files": files[:MAX_LISTED_FILES],
+            "files": _readable_files(base, name, record),
             **_about(record),
         })
     out: dict[str, Any] = {"count": len(skills), "skills": skills, "unreadable": unreadable, "note": NOTE}
@@ -326,7 +370,8 @@ def skill_read(name: str, file: str = SKILL_FILE, offset: int = 0) -> dict[str, 
     if file.startswith("/") or ".." in file.split("/") or "\\" in file:
         raise ToolError("A skill's file is named by its path inside the skill, never from the root "
                         "and never with '..': that one is refused.")
-    record = _install(name)
+    base = skills_dir()
+    record = _install(base, name)
     if record is None:
         raise ToolError("No installed skill has that name. skill_list says which skills are installed.")
     item = next((entry for entry in _listed(record) if entry["path"] == file), None)
@@ -338,10 +383,10 @@ def skill_read(name: str, file: str = SKILL_FILE, offset: int = 0) -> dict[str, 
                         + " files are read.")
     if not _readable_path(file):
         raise ToolError("That file's path is not one this tool reads.")
-    data = _read_skill_file(name, file)
-    if "sha256:" + hashlib.sha256(data).hexdigest() != item["sha256"]:
-        raise ToolError("That file is no longer the one that was installed (its contents changed), so "
-                        "it is not read.")
+    try:
+        data = _verified(base, name, item)
+    except _Unreadable as why:
+        raise ToolError(f"That file could not be read: {why}.") from None
     text = shown(data.decode("utf-8", "replace").removeprefix("﻿"))
     if offset > len(text):
         raise ToolError(f"The offset is past the end of that file, which is {len(text):,} characters.")
@@ -356,20 +401,3 @@ def skill_read(name: str, file: str = SKILL_FILE, offset: int = 0) -> dict[str, 
         **_about(record),
         "note": NOTE,
     }
-
-
-def _read_skill_file(name: str, file: str) -> bytes:
-    """The bytes of a listed file, reached one folder at a time under <skills_dir>/<name>/skill/
-    without following any link: a regular file of at most MAX_FILE_BYTES."""
-    *folders, leaf = file.split("/")
-    opened: list[int] = []
-    try:
-        opened.append(_open_dir(str(skills_dir())))
-        for part in (name, SKILL_DIR, *folders):
-            opened.append(_open_dir(part, opened[-1]))
-        return _read_at(opened[-1], leaf, MAX_FILE_BYTES)
-    except _Unreadable as why:
-        raise ToolError(f"That file could not be read: {why}.") from None
-    finally:
-        for fd in opened:
-            os.close(fd)

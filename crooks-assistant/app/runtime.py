@@ -488,9 +488,10 @@ def connections_dir(settings: Any) -> Path:
     return Path(settings.objectives_dir) / "connections"
 
 def offered_skills(settings: Any) -> tuple[str, ...]:
-    """The installed skills the system prompt names (app/kb/loader.py), and only while both skill
-    tools are offered: registered, admitted by the gate, not withheld from the model, and their
-    family offerable. Otherwise none, so the prompt is the one it always was."""
+    """The skills installed in settings.skills_dir that the system prompt names (app/kb/loader.py),
+    and only while both skill tools are offered: registered, admitted by the gate, not withheld
+    from the model, and their family offerable. Otherwise none, so the prompt is the one it always
+    was."""
     from app.capabilities import families
     from app.providers.max_agent_sdk import withheld_tools
     from app.tools import registry
@@ -506,7 +507,7 @@ def offered_skills(settings: Any) -> tuple[str, ...]:
         return ()
     from app.tools import skill_tools
 
-    return skill_tools.installed_names()
+    return skill_tools.installed_names(settings.skills_dir)
 
 
 def build(settings: Settings | None = None) -> Runtime:
@@ -652,6 +653,9 @@ def build(settings: Settings | None = None) -> Runtime:
     connections_service.configure(state_dir=connections_dir(settings))
     # Who on the team the owner has let in is kept beside his passkeys: a line there opens the door.
     staff_access.configure(state_dir=connections_dir(settings))
+    # The installed skills the skill tools read: this runtime's settings.skills_dir, installed by
+    # every build like the objectives and the screens; the prompt names those same skills.
+    skill_tools.install(settings.skills_dir)
 
     kb = load(settings.kb_dir)
     provider = MaxAgentSDKProvider(

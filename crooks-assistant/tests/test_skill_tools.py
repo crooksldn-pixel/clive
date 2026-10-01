@@ -372,7 +372,7 @@ def test_the_runtime_names_skills_only_while_both_tools_are_offered(skills_dir, 
     from app.tools import gate
 
     install(skills_dir, "alpha", {"SKILL.md": "# Alpha"})
-    settings = SimpleNamespace(writes_enabled=False)
+    settings = SimpleNamespace(writes_enabled=False, skills_dir=skills_dir)
     assert runtime.offered_skills(settings) == ("alpha",)
     kb = KnowledgeBase(text="", files=[], chars=0)
     assert "Installed skills: alpha." in build_system_prompt(kb, skills=runtime.offered_skills(settings))
@@ -400,10 +400,7 @@ def test_settings_keep_skills_under_the_ignored_state_folder():
     assert ".state/" in [line.strip() for line in ignored]
 
 
-def test_the_tools_read_the_folder_from_the_settings_and_the_runtime_binds_nothing_here(tmp_path, monkeypatch):
-    import inspect
-
-    from app import runtime
+def test_until_a_runtime_installs_a_folder_the_tools_read_the_settings(tmp_path, monkeypatch):
     from config import settings as settings_module
 
     monkeypatch.setattr(skill_tools, "_SKILLS_DIR", None)
@@ -411,5 +408,47 @@ def test_the_tools_read_the_folder_from_the_settings_and_the_runtime_binds_nothi
     assert skill_tools.skills_dir() == tmp_path / "set"
     install(tmp_path / "set", "alpha", {"SKILL.md": "# Alpha"})
     assert [s["name"] for s in skill_tools.skill_list()["skills"]] == ["alpha"]
-    # Nothing runtime.build sets is left in this module for the harness to put back.
-    assert "skill_tools." not in inspect.getsource(runtime.build)
+
+
+def test_the_runtime_reads_its_own_settings_skills_dir_not_the_global_one(tmp_path, monkeypatch):
+    """A runtime built with Settings whose skills_dir is not the global one: the tools and the
+    prompt both read that runtime's folder, and the next build installs its own."""
+    import inspect
+
+    from app import runtime
+    from config import settings as settings_module
+
+    monkeypatch.setattr(skill_tools, "_SKILLS_DIR", None)
+    monkeypatch.setattr(settings_module, "get_settings", lambda: SimpleNamespace(skills_dir=tmp_path / "global"))
+    install(tmp_path / "global", "global-skill", {"SKILL.md": "# Global"})
+    install(tmp_path / "mine", "mine", {"SKILL.md": "# Mine"})
+    install(tmp_path / "next", "next", {"SKILL.md": "# Next"})
+
+    assert "skill_tools.install(settings.skills_dir)" in inspect.getsource(runtime.build)
+    mine = SimpleNamespace(writes_enabled=False, skills_dir=tmp_path / "mine")
+    skill_tools.install(mine.skills_dir)
+    assert runtime.offered_skills(mine) == ("mine",)
+    assert [s["name"] for s in skill_tools.skill_list()["skills"]] == ["mine"]
+    assert skill_tools.skill_read("mine")["text"] == "# Mine"
+    with pytest.raises(ToolError):
+        skill_tools.skill_read("global-skill")
+
+    skill_tools.install(tmp_path / "next")
+    assert [s["name"] for s in skill_tools.skill_list()["skills"]] == ["next"]
+    assert runtime.offered_skills(SimpleNamespace(writes_enabled=False, skills_dir=tmp_path / "next")) == ("next",)
+
+
+def test_the_list_names_only_files_the_read_would_return(world):
+    """Missing, linked, through a linked folder, changed since install, over 1 MB, not a regular
+    file, not text or with '..': listed in the provenance, but not named as readable."""
+    (world / "skill" / "folder.md").mkdir()
+    record = json.loads((world / "provenance.json").read_text(encoding="utf-8"))
+    record["skill"]["files"] += [{"path": "missing.md", "sha256": _sha(b"gone"), "bytes": 4},
+                                 {"path": "folder.md", "sha256": _sha(b""), "bytes": 0}]
+    (world / "provenance.json").write_text(json.dumps(record), encoding="utf-8")
+
+    files = skill_tools.skill_list()["skills"][0]["files"]
+
+    assert files == ["SKILL.md"]
+    for path in files:
+        skill_tools.skill_read("alpha", file=path)
