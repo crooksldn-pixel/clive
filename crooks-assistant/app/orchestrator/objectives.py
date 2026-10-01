@@ -132,8 +132,11 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/scripts/provision_secrets.py",
     # Who on the team gets in and what they may do (the owner's decisions of 1 October 2026: each on
     # their own phone, four kinds of change without his OK, everything but his conversations): the
-    # door's second rule, the grants his passkey makes, the staff tools and routes, their prompt,
-    # and the routes that let a member in. A builder must not be able to widen any of them.
+    # team's own code (the door's second rule, the grants his passkey makes, the staff tools and
+    # routes, their prompt) and the routes that let a member in. A builder must not change these.
+    # The checks the team shares with the owner's own path (app/main.py's first rule, the action
+    # route's staff refusal, app/tools/authority.py) stay in ordinary files a build may touch, under
+    # review; protecting them is the owner's call, since nearly every build passes through them.
     "crooks-assistant/app/people",
     "crooks-assistant/app/routes/today.py",
     # The tests that hold the protected code, chosen by what each one imports and exercises (not by
