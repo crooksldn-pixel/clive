@@ -138,6 +138,7 @@ from .generated import (
     GeneratedFilesError,
     Generator,
     changed_files,
+    clear_output,
     declared_at,
     parse_generators,
     read_regular,
@@ -909,6 +910,14 @@ class Dispatcher:
         runs: list[dict] = []
         for gen in generators:
             tree = self.workspaces.export(ws, head, paths["checks"] / "_generate" / gen.name)
+            # The declared outputs are cleared from the copy first: what is there afterwards is only what the
+            # generator wrote, never the builder's own bytes read back as its output, and an output the generator
+            # does not write is refused below (the b577bc97 re-pin review, F-01).
+            for out in gen.outputs:
+                problem = clear_output(tree, out)
+                if problem is not None:
+                    return self._cancel(obj, attempt, f"{RESULT_REFUSED} the candidate {head} has no plain file "
+                                                      f"where the generator {gen.name} writes {out}: {problem}")
             before = tree_manifest(tree)
             argv = gen.command(python)
             started = self.now()
@@ -940,8 +949,9 @@ class Dispatcher:
                 except OSError:
                     data = None
                 if data is None:
-                    return self._cancel(obj, attempt, f"{RESULT_REFUSED} the generator {gen.name} left no regular "
-                                                      f"file at {out} on {head}")
+                    return self._cancel(obj, attempt, f"{RESULT_REFUSED} the generator {gen.name} did not write "
+                                                      f"{out} as a regular file on {head}: every declared output must "
+                                                      "be written by its generator")
                 produced[out] = data
         changes = {out: data for out, data in produced.items() if self.workspaces.blob_at(ws, head, out) != data}
         commit = None
