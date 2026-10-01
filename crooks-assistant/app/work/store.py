@@ -384,7 +384,9 @@ class WorkStore:
         """Claim something CLIVE found: kept from now on, with this person's name on it. Two people
         tapping at once: the second is told who has it."""
         with self._lock:
-            kept = self.by_ref(ref)
+            # Only the jobs made from what CLIVE found are this thing's job: a job flagged for the
+            # owner about the same order or email is his, and is never taken over by a claim.
+            kept = [i for i in self.by_ref(ref) if i.source == "found"]
             for item in kept:
                 if item.status == "claimed":
                     if item.claimed_by == who:

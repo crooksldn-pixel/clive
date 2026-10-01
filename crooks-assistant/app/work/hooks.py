@@ -79,7 +79,9 @@ def _after(proposal: Any) -> None:
     if not (closes and ref):
         return
     for item in work.by_ref(ref):
-        if item.status not in ("open", "claimed"):
+        # A change closes the found job it was for, never a job flagged for the owner about the
+        # same order or email: that one is his to finish.
+        if item.source != "found" or item.status not in ("open", "claimed"):
             continue
         try:
             work.done(item.item_id, who=who, owner=True,
