@@ -1,0 +1,52 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "clive-voice-uses-the-clock",
+  "title": "CLIVE's voice uses the clock it already has",
+  "requested_outcome": "CLIVE already receives the time in London as the first line of every turn ('[Now: Thursday 1 October 2026, 15:13 Europe/London]', _now_line in app/routes/turn.py). The voice layer added on 1 October (PERSONALITY in app/kb/loader.py) wrongly says 'Mention the time only when a tool or the owner gave it to you: you have no clock of your own', which stops the owner's time-aware lines from his voice spec (a late-night remark, a warning that a send is late). Replace that one line so CLIVE knows the first line of each message is the current time in London and may use it for a time-aware remark, still bound by the existing humour rules. Correct docs/product-memory/OWNER_DECISIONS_2026-10-01.md, whose 'A clock' paragraph says CLIVE has no clock: say the [Now: ...] line already exists and the voice now uses it. Nothing else in the prompt, the turn path or what reaches the model may change.",
+  "base_ref": "b577bc973a50a01d2e2e94aa361fa186b069a5e6",
+  "base_sha": "b577bc973a50a01d2e2e94aa361fa186b069a5e6",
+  "allowed_paths": [
+    "crooks-assistant/app/kb/loader.py",
+    "crooks-assistant/tests/test_kb.py",
+    "crooks-assistant/docs/product-memory/OWNER_DECISIONS_2026-10-01.md"
+  ],
+  "acceptance_criteria": [
+    "PERSONALITY in app/kb/loader.py no longer says CLIVE has no clock; it says the first line of each message gives the current time in London and that CLIVE may use it for a time-aware remark.",
+    "A time-aware remark stays inside the existing humour rules: at most once, and never in bad news, failures, anything involving money, anything a customer reads, or anything waiting for the owner's gesture.",
+    "No other line of PERSONALITY or SYSTEM_PROMPT_TEMPLATE changes, and app/routes/turn.py is not changed.",
+    "docs/product-memory/OWNER_DECISIONS_2026-10-01.md no longer says CLIVE has no clock and records that the [Now: ...] line already reaches the model every turn.",
+    "tests/test_kb.py pins the new line and that 'no clock of your own' is gone from the prompt; tests/test_kb.py, tests/test_every_turn_is_the_model.py and tests/test_product_memory_structure.py pass."
+  ],
+  "checks": [
+    {
+      "name": "tests",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_kb.py",
+        "tests/test_every_turn_is_the_model.py",
+        "tests/test_product_memory_structure.py",
+        "tests/test_build_from_clive.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/clive-voice-uses-the-clock",
+  "max_repair_rounds": 2
+}
