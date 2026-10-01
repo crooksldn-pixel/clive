@@ -180,6 +180,40 @@ async def test_orders_waiting_beside_an_incomplete_older_read_are_on_a_card_mark
 
 
 @pytest.mark.usefixtures("owner_asking")
+async def test_waiting_orders_with_both_reads_incomplete_have_both_gaps_on_the_card(shop, monkeypatch):
+    """Orders waiting, and the 30-day read and the read of older orders both incomplete: the
+    landing's own card used to carry only the older read's caveat, so the owner was not told
+    the 30-day list itself may be short. The card's note and its freshness caveat say both."""
+    shop([_open(3125, 10, "Nell Oakes"), _open(3126, 45, "Pip Quill"), _shipped(3127, 0.2)])
+    _older_read(monkeypatch, complete=False)
+    older = registry.invoke
+
+    async def invoke(name, args, *, timeout_s):
+        result = await older(name, args, timeout_s=timeout_s)
+        if name == "commerce_query" and (args or {}).get("period") == "last_30_days":
+            return {**result, "complete": False, "note": "The server is still reading recent orders."}
+        return result
+
+    monkeypatch.setattr(registry, "invoke", invoke)
+    session = _session("f02e2")
+    answer = await _landing("landing_orders", session)
+    assert answer.partial is True
+    assert "The read of older orders is not complete" in answer.answer, answer.answer
+    assert "The server is still reading recent orders." in answer.answer, answer.answer
+    (card,) = [s.as_ui() for s in answer.surfaces]
+    assert card["type"] == "order_list"
+    assert card["freshness"]["complete"] is False and card["data"]["complete"] is False
+    note = card["data"]["note"]
+    assert "The read of the last 30 days is not complete" in note, note
+    assert "The read of older orders is not complete" in note, note
+    # The subtitle and freshness line are cut at 80 characters, so they carry one short line
+    # that still names both reads, whole rather than cut off.
+    for said in (card["freshness"]["caveat"], card["subtitle"]):
+        assert said == "The last 30 days read and the older orders read are both incomplete.", said
+    assert sorted(n[-4:] for n in _numbers(card)) == ["3125", "3126"], _numbers(card)
+
+
+@pytest.mark.usefixtures("owner_asking")
 async def test_the_oldest_named_is_the_oldest_of_every_order_the_answer_counts(shop):
     """Orders 5, 45, 200 and 362 days old: the count covers all four and "the oldest" is the
     362-day one, so no sentence can name an order older than the one called the oldest."""

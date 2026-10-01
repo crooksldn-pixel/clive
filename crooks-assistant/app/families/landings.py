@@ -522,12 +522,15 @@ def _waiting_rows(open_body: Any, older_body: Any) -> tuple[list[dict[str, Any]]
     return rows, max(total(open_body) + total(older_body), len(rows))
 
 
-def _to_go_out_surface(rows: list[dict[str, Any]], count: int, *, window: str, note: str, currency: str = "GBP"):
+def _to_go_out_surface(rows: list[dict[str, Any]], count: int, *, window: str, note: str, caveat: str = "",
+                       currency: str = "GBP"):
     """The orders still to go out, on a card that says what the read could not vouch for.
 
     Drawn by the landing itself when the read of older orders failed or came back incomplete:
     the 30-day list's own card would say nothing of it, and with nothing waiting in the window
-    there would be no card at all — the answer would be one sentence over a blank half."""
+    there would be no card at all — the answer would be one sentence over a blank half.
+    `caveat` is the short form for the subtitle and freshness line, which are cut at 80
+    characters; it is the note itself when none is given."""
     from app.analytics.present import _order_list
     from app.surfaces import Freshness, Surface
 
@@ -536,8 +539,9 @@ def _to_go_out_surface(rows: list[dict[str, Any]], count: int, *, window: str, n
     data = dict(listed[0]["data"]) if listed else {"title": "To go out", "query": window, "orders": [], "count": 0,
                                                     "truncated": False, "value": ""}
     data.update({"note": note, "complete": False})
-    return Surface(surface_type="order_list", ui_type="order_list", data=data, title="To go out", subtitle=note,
-                   freshness=Freshness(source="shopify", complete=False, caveat=note))
+    caveat = caveat or note
+    return Surface(surface_type="order_list", ui_type="order_list", data=data, title="To go out", subtitle=caveat,
+                   freshness=Freshness(source="shopify", complete=False, caveat=caveat))
 
 
 def _orders_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
@@ -572,6 +576,9 @@ def _orders_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     older_gap = ("" if older_whole else
                  f"Orders placed before the {window} could not be checked." if not older_read else
                  "The read of older orders is not complete, so more may be waiting.")
+    # And what the 30-day read could not vouch for: its list is on the same card, so the card
+    # says so too, not only the spoken hedge.
+    open_gap = "" if open_whole or not open_read else f"The read of the {window} is not complete, so more may be waiting."
     own_card = open_read and not older_whole
     # The set the cursor walks is the operational one: the orders still to go out, oldest
     # first — the older read's when it found any, since the oldest is among them. On a day
@@ -610,7 +617,12 @@ def _orders_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     if own_card:
         # Never zero cards and never a list that looks whole: the orders still to go out (or
         # none in the window), with what could not be checked written on the card.
-        surfaces = [_to_go_out_surface(waiting, count, window=window, note=older_gap if waiting else waiting_words,
+        note = " ".join(gap for gap in (open_gap, older_gap) if gap) if waiting else waiting_words
+        # With both reads short, one line names both, short enough for the card's caveat.
+        caveat = "" if not (waiting and open_gap) else (
+            f"The {window} read is incomplete; older orders could not be checked." if not older_read else
+            f"The {window} read and the older orders read are both incomplete.")
+        surfaces = [_to_go_out_surface(waiting, count, window=window, note=note, caveat=caveat,
                                        currency=str(open_body.get("currency") or "GBP"))]
         drawn = [c for c in (_call_named(result, "today"),) if c is not None]
     else:
