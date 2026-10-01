@@ -1404,17 +1404,24 @@ class Dispatcher:
         gates = write_integration_gates(self.config.runtime_root, attempt.attempt_id,
                                         [self._runtime(attempt.attempt_id)["github_acceptance"]])
         if self.config.land:
-            # The loop lands only what it integrated with landing on, marked before the kernel records the
-            # integration so a restart between the two loses nothing. Work integrated earlier, or with --no-land,
-            # is the Director's to land.
+            # The loop lands only what it integrated itself with landing on (the b577bc97 re-pin review, F-01).
+            # Before the kernel records the integration, an intent; once it has, the SHA becomes eligible. A
+            # restart between the two promotes it only when the kernel's record is the loop's own integration of
+            # that SHA (``_eligible``); an integration someone else records after a refused or interrupted one
+            # never is. Work integrated earlier, or with --no-land, is the Director's to land.
             record = self._landing_record(obj.objective_id)
             self._save_landing(obj.objective_id, {
-                **record, "eligible": sorted({*record.get("eligible", []), acceptance.accepted_sha})})
+                **record, "integrating": {"sha": acceptance.accepted_sha, "revision": task.revision,
+                                          "by": self._integrator(), "at": self.now().isoformat()}})
         self.kernel.integrate(task.task_id, task.revision, integration_sha=acceptance.accepted_sha,
                               target_base_sha=task.base_sha, method=IntegrationMethod.FAST_FORWARD,
-                              integrated_by=f"clive-dispatcher ({self.kernel.operator})",
+                              integrated_by=self._integrator(),
                               remote=self.config.publish_remote, gates_evidence=gates)
         if self.config.land:
+            record = self._landing_record(obj.objective_id)
+            record.pop("integrating", None)
+            self._save_landing(obj.objective_id, {
+                **record, "eligible": sorted({*record.get("eligible", []), acceptance.accepted_sha})})
             self._set_landing(obj, task, state="waiting", sha=acceptance.accepted_sha,
                               reason=f"integrated on {task.target_branch}; the loop lands it on {TRUNK_BRANCH} next")
         return self._note(obj.objective_id, f"accepted {acceptance.accepted_sha} integrated on {task.target_branch} "
@@ -1456,8 +1463,8 @@ class Dispatcher:
         if integration is None or state.attempt_id is None:
             return None, False
         sha = integration.integration_sha
-        record = self._landing_record(obj.objective_id)
-        if sha not in record.get("eligible", []):
+        record = self._eligible(obj, task, integration)
+        if record is None:
             return None, False
         if record.get("sha") == sha and record.get("state") in ("landed", "refused"):
             return None, False
@@ -1469,6 +1476,37 @@ class Dispatcher:
         except (WorkspaceError, OSError, subprocess.SubprocessError) as exc:
             return self._landing_waits(obj, task, sha, "the landing could not be evaluated: "
                                                        f"{safe_git_error(str(exc))}"), False
+
+    def _integrator(self) -> str:
+        """Who the kernel records as integrating when the loop does it: the provenance landing checks."""
+        return f"clive-dispatcher ({self.kernel.operator})"
+
+    def _eligible(self, obj: Objective, task: EngineeringTask, integration) -> dict | None:
+        """The landing record when ``integration`` is the loop's own and may land; else None.
+
+        Eligible means the loop marked it after its own ``kernel.integrate`` returned. A restart between the
+        integration and that mark is recovered only when the intent the loop wrote before integrating names this
+        SHA and revision, and the kernel's record of it says the loop integrated it, no earlier than the intent.
+        Anything else (an integration recorded by an operator after the loop's was refused or interrupted, or one
+        from before landing was on) stays the Director's to land."""
+        sha = integration.integration_sha
+        record = self._landing_record(obj.objective_id)
+        if integration.integrated_by != self._integrator():
+            return None
+        if sha in record.get("eligible", []):
+            return record
+        pending = record.get("integrating") or {}
+        started = _parse(pending.get("at"))
+        if (pending.get("sha") != sha or pending.get("revision") != task.revision
+                or pending.get("by") != self._integrator() or started is None
+                or integration.recorded_at < started):
+            return None
+        record.pop("integrating", None)
+        record = {**record, "eligible": sorted({*record.get("eligible", []), sha})}
+        self._save_landing(obj.objective_id, record)
+        self._note(obj.objective_id, f"{sha}: the loop's own integration, recorded before a restart, is eligible to "
+                                     "land")
+        return record
 
     def _land_checked(self, obj: Objective, task: EngineeringTask, attempt: Attempt, integration) -> tuple[str, bool]:
         sha = integration.integration_sha
