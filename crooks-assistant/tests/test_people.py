@@ -117,7 +117,7 @@ async def test_people_list_shows_the_owner_access_and_a_colleague_much_less(as_o
 
 async def test_taking_someone_off_closes_the_door_at_once(as_owner):
     await person_note(name="Mia", kind="staff", login="mia@example.com")
-    access.approve("mia", by="owner", passkey="pk")
+    access.approve("mia", login="mia@example.com", by="owner", passkey="pk")
     assert access.person_for_login("mia@example.com") == "mia"
     out = await person_note(name="Mia", active=False)
     assert out["person"]["access"] == "suspended" and access.person_for_login("mia@example.com") == ""
@@ -127,7 +127,7 @@ async def test_taking_someone_off_closes_the_door_at_once(as_owner):
 
 def test_access_ladder_and_a_changed_login_is_asked_again(stores):
     assert access.ask("mia", "mia@example.com") == "pending"
-    access.approve("mia", by="owner", passkey="pk")
+    access.approve("mia", login="mia@example.com", by="owner", passkey="pk")
     assert access.person_for_login("MIA@example.com") == "mia"
     assert access.ask("mia", "mia@example.com") == "active"          # the same login stays let in
     assert access.ask("mia", "mia.new@example.com") == "pending"     # a new one waits again
@@ -139,9 +139,9 @@ def test_access_ladder_and_a_changed_login_is_asked_again(stores):
 
 def test_approving_needs_a_login_and_an_unreadable_record_lets_nobody_in(stores):
     with pytest.raises(access.AccessError):
-        access.approve("nobody", by="owner", passkey="pk")
+        access.approve("nobody", login="nobody@example.com", by="owner", passkey="pk")
     access.ask("mia", "mia@example.com")
-    access.approve("mia", by="owner", passkey="pk")
+    access.approve("mia", login="mia@example.com", by="owner", passkey="pk")
     (stores / "secret" / "access.json").write_text("garbage")
     assert access.person_for_login("mia@example.com") == ""
 
@@ -150,9 +150,39 @@ def test_the_door_lets_in_only_an_active_staff_card_with_the_same_login(stores):
     people.note({"name": "Mia", "kind": "staff", "login": "mia@example.com"})
     access.ask("mia", "mia@example.com")
     assert door.staff_login("mia@example.com") == ""                 # pending
-    access.approve("mia", by="owner", passkey="pk")
+    access.approve("mia", login="mia@example.com", by="owner", passkey="pk")
     assert door.staff_login("mia@example.com") == "mia"
     people.note({"name": "Mia", "active": False})
     assert door.staff_login("mia@example.com") == ""                 # taken off the list
     people.note({"name": "Mia", "active": True, "kind": "contact"})
     assert door.staff_login("mia@example.com") == ""                 # no longer staff
+
+
+def test_an_approval_lets_in_only_the_login_it_was_given_for(stores):
+    """The 1 October review (M1): the owner approves a person with the login he was shown. A login
+    changed after that (person_note, a mis-heard sentence, a line in an email) is not let in on it."""
+    access.ask("mia", "mia@example.com")
+    access.ask("mia", "someone.else@example.net")                  # changed before his passkey landed
+    with pytest.raises(access.AccessError, match="no longer the one waiting"):
+        access.approve("mia", login="mia@example.com", by="owner", passkey="pk")
+    assert access.state("mia") == "pending"
+    assert access.person_for_login("someone.else@example.net") == "" and access.person_for_login("mia@example.com") == ""
+    with pytest.raises(access.AccessError):
+        access.approve("mia", login="", by="owner", passkey="pk")
+    access.approve("mia", login="Someone.Else@example.net", by="owner", passkey="pk")   # the one he saw, any case
+    assert access.person_for_login("someone.else@example.net") == "mia"
+
+
+@pytest.mark.parametrize("name, given", [("Owner", "owner-2"), ("CLIVE", "clive-2"), ("Local", "local-2")])
+def test_a_person_never_takes_an_id_that_already_means_someone_else(name, given):
+    """"owner" is George in the work list and its record: a member of the team called Owner would
+    otherwise release his claims, read his record and have their changes recorded as his."""
+    person, created = people.note({"name": name, "kind": "staff", "login": f"{given}@example.com"})
+    assert created and person.person_id == given
+    assert people.get("owner") is None
+
+
+def test_a_card_written_under_a_reserved_id_is_never_anyone(stores):
+    (stores / "people.json").write_text(json.dumps({"version": 1, "people": [
+        {"person_id": "owner", "name": "Owner", "kind": "staff", "login": "x@example.com"}]}))
+    assert people.get("owner") is None and people.all() == []

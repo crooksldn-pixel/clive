@@ -24,6 +24,7 @@ from app.tools import authority
 from app.tools.dispatch import dispatch
 from app.work import found as live
 from app.work.store import work
+from tests.fake_passkey import ORIGIN, RP_ID
 from tests.test_actions import ORDER, TOOL
 from tests.test_actions_routes import (  # noqa: F401 - `client` is a fixture
     OWNER,
@@ -75,7 +76,7 @@ def team(client, tmp_path, monkeypatch):  # noqa: F811 - fixtures imported from 
 
 
 def let_mia_in():
-    access.approve("mia", by="owner", passkey="pk")
+    access.approve("mia", login=MIA, by="owner", passkey="pk")
 
 
 # ------------------------------------------------------------------ the door
@@ -90,7 +91,7 @@ async def test_a_member_of_the_team_gets_in_only_once_the_owner_has_let_them(tea
     assert "routines" not in state.json()
     access.suspend("mia", by="owner")
     assert (await team.get("/today/state", headers=AS_MIA)).status_code == 403
-    access.approve("mia", by="owner", passkey="pk")
+    access.approve("mia", login=MIA, by="owner", passkey="pk")
     people.note({"name": "Mia", "active": False})
     assert (await team.get("/today/state", headers=AS_MIA)).status_code == 403          # taken off the list
     stranger = {"Tailscale-User-Login": "kit@example.com", "X-Forwarded-For": "100.64.0.8"}
@@ -175,10 +176,11 @@ async def test_the_owner_lets_a_member_in_and_takes_access_away_with_his_passkey
     path = "/today/access/mia/approve"
     missing = await world.post(path, json={}, headers=HEADERS)
     assert missing.status_code == 403 and missing.json()["code"] == "passkey_missing"
-    other = await world.post(path, json={"approval": await approval(world, "save:elevenlabs")}, headers=HEADERS)
+    other = await world.post(path, json={"approval": await approval(world, "disconnect:elevenlabs")}, headers=HEADERS)
     assert other.status_code == 403 and other.json()["code"] == "passkey_stale"
     assert access.state("mia") == "pending"
-    done = await world.post(path, json={"approval": await approval(world, "access:approve:mia")}, headers=HEADERS)
+    done = await world.post(path, json={"approval": await approval(world, f"access:approve:mia:{MIA}"), "login": MIA},
+                            headers=HEADERS)
     assert done.status_code == 200 and done.json()["access"] == "active"
     assert (await world.get("/today/state", headers=AS_MIA)).status_code == 200
     assert work.history(who="owner")[0] | {"at": ""} == {"at": "", "who": "owner", "what": "access_approved",
@@ -189,6 +191,39 @@ async def test_the_owner_lets_a_member_in_and_takes_access_away_with_his_passkey
     assert gone.status_code == 200 and (await world.get("/today/state", headers=AS_MIA)).status_code == 403
     nobody = await world.post("/connections/approve", json={"action": "access:approve:henry"}, headers=HEADERS)
     assert nobody.status_code in (400, 403, 404)                                             # not a member of the team
+
+
+async def test_an_approval_is_for_the_login_he_saw_and_never_his_own(team, world):  # noqa: F811
+    """The 1 October review (M1): the passkey signs the person and the login shown beside them. A login
+    swapped after he saw it, or one of the owner's own, is refused and nobody is let in."""
+    await register(world)
+    path = "/today/access/mia/approve"
+    people.note({"name": "Mia", "login": "someone.else@example.net"})       # changed under him
+    access.ask("mia", "someone.else@example.net")
+    stale = await world.post(path, headers=HEADERS,
+                             json={"approval": await approval(world, f"access:approve:mia:{MIA}"), "login": MIA})
+    assert stale.status_code == 409 and stale.json()["code"] == "login_changed"
+    assert access.state("mia") == "pending" and access.person_for_login("someone.else@example.net") == ""
+    unsigned = await world.post(path, headers=HEADERS, json={
+        "approval": await approval(world, f"access:approve:mia:{MIA}"), "login": "someone.else@example.net"})
+    assert unsigned.status_code == 403 and unsigned.json()["code"] == "passkey_stale"   # signed for another login
+    assert access.state("mia") == "pending"
+    people.note({"name": "Mia", "login": OWNER})
+    access.ask("mia", OWNER)
+    own = await world.post(path, headers=HEADERS,
+                           json={"approval": await approval(world, f"access:approve:mia:{OWNER}"), "login": OWNER})
+    assert own.status_code == 409 and own.json()["code"] == "owner_login" and access.state("mia") == "pending"
+    loginless = await world.post("/connections/approve", json={"action": "access:approve:mia"}, headers=HEADERS)
+    assert loginless.status_code == 400                                       # an approval always names the login
+
+
+async def test_the_server_itself_is_refused_letting_someone_in_and_said_so(team):
+    """The server is the owner for his reads here (CROOKS_LOCAL_OWNER), but letting someone in needs his
+    passkey from his own device: refused in this route's own shape, never an unhandled error."""
+    for verb in ("approve", "suspend"):
+        refused = await team.post(f"/today/access/mia/{verb}", json={"login": MIA}, headers={"Origin": ORIGIN, "Host": RP_ID})
+        assert refused.status_code == 403 and refused.json()["code"] == "not_from_the_server", verb
+    assert access.state("mia") == "pending"
 
 
 async def test_the_owners_steps_are_refused_to_the_team(team):

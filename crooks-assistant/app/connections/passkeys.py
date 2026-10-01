@@ -2,8 +2,11 @@
 change to a connection (the owner's decision, 1 October 2026).
 
 The door (app/main.py) already knows a request comes from the owner's own device on the tailnet.
-A passkey adds what that cannot: that the owner is there, now, and meant this change. A stolen
-session, a script on a compromised device or a page that tricks a tap cannot produce one.
+A passkey adds what that cannot: that the owner is there, now, and approved this change. A stolen
+session or another site cannot produce one, and a save's approval signs the very values stored
+(app/routes/connections.py, sealed), so a tap given for one key never stores another. What it
+cannot do is vouch for a device that is itself compromised: the prompt does not say what it
+approves, so something controlling the owner's own browser could ask for a tap of its own.
 
 WebAuthn, verified here with `cryptography`. Every approval checks:
 - the challenge is one this server issued, for this action, to this owner, unexpired, used once;

@@ -85,6 +85,11 @@ async def lifespan(app: FastAPI):
     # missing token can be fixed while the backend keeps serving /health; a present API key
     # cannot be allowed to serve a single turn.
     assert_no_payg_credentials()
+    # This process is the service: the one that may let a key stored at the server prompt take over
+    # from the app tier, once it has loaded it (app/secrets/vault.py, before any secret is read).
+    from app.secrets import vault
+
+    vault.serving()
     settings = get_settings()
     configure_logging(settings.log_dir)
     app.state.runtime = runtime_module.build(settings)

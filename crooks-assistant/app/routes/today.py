@@ -255,8 +255,10 @@ async def today_routine_stop(request: Request) -> JSONResponse:
     return _answer({})
 
 
-def _access_step(request: Request, person_id: str, action: str, body: dict[str, Any]) -> tuple[str, Any]:
-    """The owner's passkey, for exactly this step for exactly this person (app/connections/passkeys.py)."""
+def _access_step(request: Request, person_id: str, action: str, body: dict[str, Any]) -> tuple[str, Any, str]:
+    """The owner's passkey, for exactly this step for exactly this person (app/connections/passkeys.py).
+    Letting someone in also names the login the owner saw, and the passkey signs it: an approval is
+    for that person with that login, never for whatever login the card holds by the time it lands."""
     from app.connections import ledger as connections_ledger
     from app.connections import passkeys
     from app.routes.connections import _device, _origin
@@ -265,34 +267,53 @@ def _access_step(request: Request, person_id: str, action: str, body: dict[str, 
     person = people.get(person_id)
     if person is None or person.kind != "staff":
         raise _Refused(404, "unknown_person", "There is no such member of the team.")
+    login = str(body.get("login") or "").strip().lower() if action == "approve" else ""
+    signed = f"access:{action}:{person_id}" + (f":{login}" if action == "approve" else "")
     try:
         origin, _ = _origin(request)
     except Exception as exc:  # noqa: BLE001 - the connections route's own refusal, said here
         raise _Refused(403, "wrong_origin", getattr(exc, "detail", "Open this in CLIVE itself.")) from None
     try:
-        used = passkeys.verify_approval(body.get("approval"), f"access:{action}:{person_id}", login=_login(request),
-                                        origin=origin)
+        used = passkeys.verify_approval(body.get("approval"), signed, login=_login(request), origin=origin)
     except passkeys.PasskeyRefused as exc:
         connections_ledger.record("approval_refused", connection=f"access:{action}", who=by, device=_device(request),
                                   ok=False, detail=str(exc))
         raise _Refused(403, exc.code, str(exc)) from None
+    if action == "approve":
+        # What the passkey signed must still be what is waiting: the login on the card, and not one
+        # of the owner's own (a staff login that is also his would make his changes theirs).
+        if not login or login != person.login:
+            raise _Refused(409, "login_changed", f"{person.name}'s login is not the one this screen showed. Reload "
+                                                 "and look again before letting them in.")
+        owners = {str(x).lower() for x in (getattr(getattr(request.app.state, "runtime", None), "allowed_logins", ())
+                                           or ())}
+        if login in owners:
+            raise _Refused(409, "owner_login", "That login is the owner's own: a member of the team signs in with "
+                                               "their own.")
     connections_ledger.record(f"access_{action}d" if action == "approve" else "access_suspended",
                               connection="team", who=_login(request), device=_device(request), detail=person.name)
-    return by, used
+    return by, used, login
 
 
 def _login(request: Request) -> str:
+    from app.routes.connections import _Refused as ConnectionsRefused
     from app.routes.connections import _who as connections_who
 
-    return connections_who(request)
+    try:
+        return connections_who(request)
+    except ConnectionsRefused as exc:       # the server itself, or no owner: said in this route's shape
+        raise _Refused(exc.status, exc.code, exc.detail) from None
 
 
 @router.post("/today/access/{person_id}/approve")
 @_guarded
 async def today_access_approve(request: Request, person_id: str) -> JSONResponse:
     body = await _body(request)
-    by, used = _access_step(request, person_id, "approve", body)
-    access.approve(person_id, by=by, passkey=used.get("id", ""))
+    by, used, login = _access_step(request, person_id, "approve", body)
+    try:
+        access.approve(person_id, login=login, by=by, passkey=used.get("id", ""))
+    except access.AccessError as exc:
+        raise _Refused(409, "login_changed", str(exc).capitalize() + ".") from None
     work.record({"who": by, "what": "access_approved", "item_id": person_id, "detail": _name_of(person_id)})
     return _answer({"access": "active"})
 
@@ -301,7 +322,7 @@ async def today_access_approve(request: Request, person_id: str) -> JSONResponse
 @_guarded
 async def today_access_suspend(request: Request, person_id: str) -> JSONResponse:
     body = await _body(request)
-    by, _ = _access_step(request, person_id, "suspend", body)
+    by, _, _ = _access_step(request, person_id, "suspend", body)
     access.suspend(person_id, by=by)
     work.record({"who": by, "what": "access_suspended", "item_id": person_id, "detail": _name_of(person_id)})
     return _answer({"access": "suspended"})

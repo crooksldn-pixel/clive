@@ -25,6 +25,10 @@ MAX_AREAS = 12
 LOGIN = re.compile(r"^[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,24}$")
 EMAIL = LOGIN
 HANDLE = re.compile(r"^@?[A-Za-z0-9._]{1,30}$")
+# Ids that already mean someone else in CLIVE's records: "owner" is George in the work list and its
+# record (app/work), "clive" is CLIVE itself, "local" is the server. A person called "Owner" gets
+# "owner-2", so their claims, their record and their changes are never his (the 1 October review).
+RESERVED_IDS = frozenset({"owner", "clive", "local"})
 
 
 class PeopleError(ValueError):
@@ -111,6 +115,8 @@ class PeopleStore:
         for item in (data.get("people") if isinstance(data, dict) else None) or []:
             if not isinstance(item, dict) or not item.get("person_id"):
                 continue
+            if str(item["person_id"]) in RESERVED_IDS:
+                continue                # a card under someone else's id is never anyone
             known = {k: v for k, v in item.items() if k in Person.__dataclass_fields__}
             try:
                 person = Person(**known)
@@ -186,7 +192,7 @@ class PeopleStore:
                     raise PeopleError(f"there are already {MAX_PEOPLE} people; take one off first")
                 base = slug(name)
                 person_id, n = base, 2
-                while person_id in people:
+                while person_id in people or person_id in RESERVED_IDS:
                     person_id, n = f"{base}-{n}", n + 1
                 target = Person(person_id=person_id, name=name)
             if fields.get("kind"):
