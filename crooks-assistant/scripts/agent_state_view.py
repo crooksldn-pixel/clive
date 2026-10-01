@@ -387,10 +387,15 @@ def load_lifecycle(store_root: str | None, *, now: float) -> tuple[dict | None, 
     """What the kernel's records say, or why they could not be read. Never invented.
 
     ``now`` is the one clock reading the whole view is built from, so a lease and a
-    file age are judged against the same instant.
+    file age are judged against the same instant. Whenever no records come back, the
+    reason does: a roster with no store is legitimate, but it still means the
+    lifecycle was not read, and that must not pass for an empty campus.
     """
     if not store_root:
-        return None, None
+        return None, (
+            "no engineering store declared in the roster, so the engineering lifecycle is "
+            "unknown: no lifecycle records were read"
+        )
     root = Path(store_root)
     if not root.is_dir():
         return None, f"declared engineering store {root} does not exist"
@@ -540,8 +545,10 @@ def build_view(roster: dict) -> dict:
         "tasks": lifecycle["tasks"] if lifecycle else [],
         "engineering": {
             "store_root": roster.get("engineering_store"),
-            "problem": lifecycle_problem,
-            "task_count": len(lifecycle["tasks"]) if lifecycle else 0,
+            # KNOWN only when the records were read; a count of tasks nobody read is not 0.
+            "lifecycle": "KNOWN" if lifecycle is not None else UNKNOWN,
+            "problem": None if lifecycle is not None else lifecycle_problem,
+            "task_count": len(lifecycle["tasks"]) if lifecycle is not None else None,
         },
         "totals": {
             "declared": len(records),
@@ -579,14 +586,23 @@ def render(view: dict) -> str:
         f"{t['idle']} idle · {t['stale']} stale · {t['blocked']} blocked · "
         f"{t['complete']} complete · {t['unknown']} unknown"
     )
-    if view.get("tasks"):
+    engineering = view.get("engineering", {})
+    if engineering.get("lifecycle") != "KNOWN":
+        # One line, even when the reason is a multi-line exception message.
+        why = " ".join((engineering.get("problem") or "no reason was recorded").split())
+        lines.append("")
+        lines.append(f"Engineering lifecycle unknown: {why}")
+    elif view.get("tasks"):
         lines.append("")
         lines.append("Engineering tasks (from the kernel's records):")
         for task in view["tasks"]:
             lines.append(f"  {task['task_id']} r{task['revision']}  {task['stage']:<14} {task['stage_reason']}")
-    elif view.get("engineering", {}).get("problem"):
+    else:
         lines.append("")
-        lines.append(f"Engineering records: {view['engineering']['problem']}")
+        lines.append(
+            f"Engineering tasks: none recorded — the store at {engineering.get('store_root')} "
+            "was read and holds no tasks"
+        )
     return "\n".join(lines)
 
 

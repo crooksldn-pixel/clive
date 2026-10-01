@@ -547,6 +547,60 @@ def test_a_push_git_accepted_is_marked_at_once_so_a_restart_knows_it_was_the_loo
     assert landing_record(w)["by"] == "loop" and len([p for p in pushes if TRUNK in p[-1]]) == 1
 
 
+def _integrate_crashes(d: Dispatcher, *, after: bool):
+    """The host dies inside the loop's integration: before the kernel records it, or just after."""
+    real = d.kernel.integrate
+
+    def integrate(*args, **kwargs):
+        if after:
+            real(*args, **kwargs)
+        raise RuntimeError(f"the host lost power {'after' if after else 'before'} the integration was recorded")
+
+    d.kernel.integrate = integrate
+    return d
+
+
+def test_an_integration_someone_else_records_after_the_loops_was_interrupted_never_lands(tmp_path, pushes):
+    """The b577bc97 re-pin review, F-01: the loop's integration is interrupted before the kernel records it, and an
+    operator then integrates the same accepted SHA through the kernel CLI. The loop never lands that as its own."""
+    from app.orchestrator.lifecycle import IntegrationMethod
+
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    with pytest.raises(RuntimeError, match="before the integration"):
+        w.run_until(lambda: False, dispatcher=_integrate_crashes(w.dispatcher(), after=False))
+    del w.kernel.integrate                                                   # the host is back: the real kernel
+    record = landing_record(w)
+    assert record["integrating"]["sha"] and not record.get("eligible")      # an intent, never eligible
+    state = w.store.read_task_state(OBJ, 1)
+    [acceptance] = [a for a in w.store.read_acceptances(OBJ) if a.attempt_id == state.attempt_id]
+    w.kernel.integrate(OBJ, 1, integration_sha=acceptance.accepted_sha, target_base_sha=w.base,
+                       method=IntegrationMethod.FAST_FORWARD, integrated_by="george (engineering_kernel.py)",
+                       remote="origin")
+    for _ in range(4):
+        w.dispatcher().tick()
+    assert w.stage() == "COMPLETE" and not landed(w)
+    assert trunk(w) == w.base and not [p for p in pushes if TRUNK in p[-1]]
+    assert acceptance.accepted_sha not in landing_record(w).get("eligible", [])
+
+
+def test_the_loops_own_integration_recorded_just_before_a_restart_still_lands(tmp_path, pushes):
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    with pytest.raises(RuntimeError, match="after the integration"):
+        w.run_until(lambda: False, dispatcher=_integrate_crashes(w.dispatcher(), after=True))
+    del w.kernel.integrate
+    assert not landing_record(w).get("eligible") and landing_record(w)["integrating"]
+    [integration] = w.store.read_integrations()
+    assert integration.integrated_by.startswith("clive-dispatcher (")
+    w.run_until(lambda: landed(w))                                           # a fresh dispatcher: recovered
+    sha = w.store.read_results()[0].result_sha
+    assert trunk(w) == sha and landing_record(w)["eligible"] == [sha] and "integrating" not in landing_record(w)
+    assert len([p for p in pushes if TRUNK in p[-1]]) == 1
+
+
 def test_a_trunk_moved_away_from_an_interrupted_push_is_never_pushed_to_again(tmp_path, pushes):
     w = landing_world(tmp_path)
     w.scenarios(EDIT_HELLO)
