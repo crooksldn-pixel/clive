@@ -146,3 +146,17 @@ def test_the_voice_examples_say_figures_as_words_and_claim_only_what_clive_can_d
     assert "!" not in PERSONALITY and not re.search(r"[\U0001F300-\U0001FAFF☀-➿]", PERSONALITY)
     for claim in ("Deploying", "SMS", "reconnect", "Going now", "Fixed."):
         assert claim not in PERSONALITY, claim
+
+
+def test_the_voice_knows_the_now_line_is_the_time_in_london(tmp_path):
+    """Every turn already starts with "[Now: ...]" in London time (`_now_line`, app/routes/turn.py). The voice
+    may use it for a time-aware remark, held to the humour rules; it no longer claims to have no clock."""
+    from app.kb.loader import PERSONALITY
+
+    assert ('- The first line of each message, "[Now: ...]", is the current time in London. You may use it for '
+            "a time-aware remark, under the humour rules below: at most once, and never in bad news, failures, "
+            "anything involving money, anything a customer reads or anything waiting for his gesture.\n") in PERSONALITY
+    for writes in (False, True):
+        prompt = build_system_prompt(load(tmp_path), writes_enabled=writes)
+        assert "no clock of your own" not in prompt
+        assert "Mention the time only when a tool or the owner gave it to you" not in prompt
