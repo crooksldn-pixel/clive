@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import logging
 import re
 import time
@@ -40,6 +41,9 @@ router = APIRouter()
 
 MAX_UPLOAD_BYTES = 10_000_000
 MAX_TEXT_CHARS = 2_000
+# What a team member is told when their turn cannot be taken (app/people): in words, as every refusal here.
+TEAM_TYPES = "The team types to CLIVE: type your question instead of speaking it."
+NO_STAFF_ASSISTANT = "CLIVE cannot answer the team on this server just now."
 
 
 def _tool_state(tool_names: list[str]) -> str:
@@ -89,6 +93,23 @@ async def turn(
         expected_turns = int(form_turns) if form_turns not in (None, "") else None
         speak = _truthy(form.get("speak"))
         branch_id = str(form.get("branch_id") or "")[:32]
+
+    if _staff_request():
+        # The voice is the owner's ElevenLabs allowance, and /speak refuses the team: a team
+        # member's turn never starts it, whatever the page asked for. Nor does it hear them — the
+        # team types to CLIVE — so an upload is refused before anything listens to it.
+        speak = False
+        if audio is not None:
+            log.warning("turn refused: a team member sent audio")
+            return JSONResponse(status_code=403, content={"code": "team_types", "detail": TEAM_TYPES})
+        # Their own assistant or none: never the owner's, which holds his conversations.
+        from app.runtime import NoStaffAssistant
+
+        try:
+            _provider(runtime)
+        except NoStaffAssistant:
+            log.warning("turn refused: no assistant can be made for a team member")
+            return JSONResponse(status_code=403, content={"code": "no_staff_assistant", "detail": NO_STAFF_ASSISTANT})
 
     # The tablet says how many turns it thinks this conversation has had. If the backend has
     # no such session but the tablet believes one exists, the backend restarted (or the
@@ -1683,14 +1704,26 @@ async def _provider_turn(runtime, session_id: str, prompt_text: str, branch):
     """The model turn, on this half's own conversation when the provider keeps one per half.
     A provider without the method — a test double — gets the plain turn."""
     provider = _provider(runtime)
-    ensure = getattr(runtime, "ensure_started", None)
-    if callable(ensure):
-        await ensure(provider)
-    on_branch = getattr(provider, "turn_on_branch", None)
-    branch_id = str(getattr(branch, "branch_id", "") or "")
-    if on_branch is not None and branch_id:
-        return await on_branch(session_id, prompt_text, branch_id=branch_id)
-    return await provider.turn(session_id, prompt_text)
+    # Counted as running in its assistant from here, before anything awaits, so an assistant
+    # retired meanwhile (a card changed) is not stopped under it by somebody else's turn.
+    running = getattr(runtime, "running", None)
+    async with running(provider) if callable(running) else contextlib.nullcontext():
+        ensure = getattr(runtime, "ensure_started", None)
+        if callable(ensure):
+            await ensure(provider)
+        on_branch = getattr(provider, "turn_on_branch", None)
+        branch_id = str(getattr(branch, "branch_id", "") or "")
+        if on_branch is not None and branch_id:
+            return await on_branch(session_id, prompt_text, branch_id=branch_id)
+        return await provider.turn(session_id, prompt_text)
+
+
+def _staff_request() -> bool:
+    """Whether the door made this a team member's request (app/tools/authority.py STAFF)."""
+    from app.tools import authority as tool_authority
+
+    held = tool_authority.current()
+    return held is not None and held.kind == tool_authority.STAFF
 
 
 class _SceneSwitch(BaseSettings):

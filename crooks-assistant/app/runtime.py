@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -27,6 +29,10 @@ from app.speech.transcribe import Transcriber
 from config.settings import Settings, get_settings
 
 log = logging.getLogger("crooks.runtime")
+
+
+class NoStaffAssistant(LookupError):
+    """A team member's request on a runtime that cannot make their assistant (no factory set)."""
 
 
 @dataclass
@@ -77,8 +83,11 @@ class Runtime:
     # conversations. Made the first time they ask, and again when their card changes.
     staff_providers: dict[str, tuple[str, Any]] = field(default_factory=dict)
     staff_provider_factory: Any = None
-    # Assistants made again (a card or the knowledge base changed): stopped at the next chance.
+    # Assistants made again (a card or the knowledge base changed): stopped at the next chance
+    # no turn is running in them.
     retired_providers: list[Any] = field(default_factory=list)
+    # How many turns are running in each assistant, by its id: a retired one is never stopped mid-turn.
+    turns_in_flight: dict[int, int] = field(default_factory=dict, repr=False)
     build: str = ""
 
     @property
@@ -139,7 +148,8 @@ class Runtime:
         HTTPS connection."""
         await self.provider.stop()
         self._retire_staff_providers()
-        await self._stop_retired()
+        # Shutting down: every one goes, whatever it was doing, as the owner's does above.
+        await self._stop_retired(everything=True)
         for client in (self.voice, self.scribe, self.whisper, self.shopify):
             close = getattr(client, "aclose", None)
             if close is not None:
@@ -155,17 +165,40 @@ class Runtime:
         return self.kb
 
     def provider_for(self, held: Any) -> Any:
-        """The assistant a request talks to: a team member's own (app/people), or the owner's."""
-        if held is not None and getattr(held, "kind", "") == "staff" and self.staff_provider_factory is not None:
+        """The assistant a request talks to: a team member's own (app/people), or the owner's.
+
+        A team member's request with no way to make their assistant fails closed: it is never
+        answered by the owner's, which holds his conversations and his tools."""
+        if held is not None and getattr(held, "kind", "") == "staff":
+            if self.staff_provider_factory is None:
+                raise NoStaffAssistant(str(getattr(held, "who", "") or ""))
             return self.staff_provider(str(held.who))
         return self.provider
 
     async def ensure_started(self, provider: Any) -> None:
         """A team member's assistant is started the first time it is asked, with the same checks
-        as the owner's (no pay-as-you-go key, the CLI found); any it replaced are stopped."""
+        as the owner's (no pay-as-you-go key, the CLI found); any it replaced are stopped once no
+        turn is running in them."""
         await self._stop_retired()
         if provider is not self.provider and not getattr(provider, "started", True):
             await provider.start()
+
+    @asynccontextmanager
+    async def running(self, provider: Any) -> AsyncIterator[None]:
+        """A turn running in this assistant, counted while it runs. A retired assistant is stopped
+        when its last running turn ends, never by somebody else's turn while it is answering."""
+        key = id(provider)
+        self.turns_in_flight[key] = self.turns_in_flight.get(key, 0) + 1
+        try:
+            yield
+        finally:
+            left = self.turns_in_flight.get(key, 1) - 1
+            if left > 0:
+                self.turns_in_flight[key] = left
+            else:
+                self.turns_in_flight.pop(key, None)
+                if any(retired is provider for retired in self.retired_providers):
+                    await self._stop_retired()
 
     def staff_provider(self, person_id: str) -> Any:
         """This member of the team's assistant, made from their card as it is now: kept while the
@@ -192,9 +225,12 @@ class Runtime:
         self.retired_providers.extend(made for _stamp, made in self.staff_providers.values())
         self.staff_providers.clear()
 
-    async def _stop_retired(self) -> None:
-        while self.retired_providers:
-            retired = self.retired_providers.pop()
+    async def _stop_retired(self, *, everything: bool = False) -> None:
+        """Stop the retired assistants no turn is running in; one still answering is kept until
+        its last turn ends (`running`). `everything` is for shutting down."""
+        idle = [p for p in self.retired_providers if everything or not self.turns_in_flight.get(id(p))]
+        self.retired_providers[:] = [p for p in self.retired_providers if not any(p is i for i in idle)]
+        for retired in idle:
             try:
                 await retired.stop()
             except Exception:  # noqa: BLE001 - an old assistant that will not stop is no reason to refuse a new one
