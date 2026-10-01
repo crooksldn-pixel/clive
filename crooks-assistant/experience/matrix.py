@@ -12,7 +12,8 @@ and forgets it. Every column here is read from the thing that actually decides:
     no model         answered without the model: every tap is
     model            the model answers it: every sentence
     fixture test     a golden scenario exercises it (experience/scenarios.py)
-    live read test   the same scenario is safe to run against the real shop
+    live read test   a live read-only run tests it: every scenario under it is one a live run
+                     runs (scenarios.LIVE_SCENARIOS) and none stages a write
 
 The only hand-written part is which scenario covers which operation, and that is a mapping of
 names — if a scenario is renamed the matrix says "not covered" rather than quietly lying.
@@ -123,10 +124,38 @@ TAP_STAGED: dict[str, tuple[str, ...]] = {
     "store_credit_give": ("shopify_store_credit_add",),
 }
 
-# Operations a live read-only run must not exercise, whatever their scenario does. Nothing is
-# here yet because every scenario is a read — the list exists so that adding a write-shaped
-# scenario has somewhere obvious to declare it.
+# Operations a live read-only run must not exercise, whatever their scenario does. Empty: what
+# keeps a row off the live column is worked out from its scenarios (`live_read_safe`); this is
+# for an operation that must stay off it whatever they do.
 NOT_LIVE_SAFE: frozenset[str] = frozenset()
+
+
+def _staging_scenarios() -> set[str]:
+    """The scenarios that stage a write: by a tap (`TAP_STAGED`), or by the model they script,
+    read off their code (`experience/tool_matrix.py` `_scenario_tools`, which credits a write
+    only as staged)."""
+    from experience import tool_matrix
+
+    tool_matrix.load()
+    staging = {name for name, tools in TAP_STAGED.items() if tools}
+    for reached in tool_matrix._scenario_tools().values():
+        staging |= {name for name, how in reached.items() if how == "staged"}
+    return staging
+
+
+def live_read_safe(operation: str, scenarios: tuple[str, ...], *, staging: set[str] | None = None) -> bool:
+    """Whether a live read-only run tests this operation: it has scenarios, every one of them is
+    one a live run runs (`experience/scenarios.py` LIVE_SCENARIOS), and none stages a write.
+
+    Having a scenario was the whole test once, so the model_turn row was ticked live-read-safe
+    while scenarios under it stage a discount, an order edit and an email and a live run runs
+    none of them (the 2026-09-30 deploy review, X1-04)."""
+    from experience.scenarios import LIVE_SCENARIOS
+
+    if operation in NOT_LIVE_SAFE or not scenarios:
+        return False
+    staging = _staging_scenarios() if staging is None else staging
+    return all(name in LIVE_SCENARIOS and name not in staging for name in scenarios)
 
 
 def build() -> list[dict[str, Any]]:
@@ -137,6 +166,7 @@ def build() -> list[dict[str, Any]]:
 
     load_all()
     rows: list[dict[str, Any]] = []
+    staging = _staging_scenarios()
 
     # Every sentence, said or typed: the model's, with its tools. One row, because nothing on
     # the Mac tells one sentence from another any more.
@@ -147,7 +177,7 @@ def build() -> list[dict[str, Any]]:
         "voice": True, "touch": False, "touch_then_voice": False,
         "no_model": False, "model": True,
         "fixture_test": [s for s in scenarios if s in BY_NAME],
-        "live_read_test": "model_turn" not in NOT_LIVE_SAFE and bool(scenarios),
+        "live_read_test": live_read_safe("model_turn", scenarios, staging=staging),
     })
 
     for recipe in recipes.RECIPES.values():
@@ -158,7 +188,7 @@ def build() -> list[dict[str, Any]]:
             "voice": False, "touch": True, "touch_then_voice": False,
             "no_model": True, "model": False,
             "fixture_test": [s for s in scenarios if s in BY_NAME],
-            "live_read_test": recipe.recipe_id not in NOT_LIVE_SAFE and bool(scenarios),
+            "live_read_test": live_read_safe(recipe.recipe_id, scenarios, staging=staging),
         })
 
     for command in commands.public():
@@ -174,7 +204,7 @@ def build() -> list[dict[str, Any]]:
             "no_model": True,
             "model": False,
             "fixture_test": [s for s in scenarios if s in BY_NAME],
-            "live_read_test": name not in NOT_LIVE_SAFE and bool(scenarios),
+            "live_read_test": live_read_safe(name, scenarios, staging=staging),
         })
 
     rows.sort(key=lambda r: (r["reached_by"], r["operation"]))

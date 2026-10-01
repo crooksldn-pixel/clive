@@ -12,7 +12,11 @@ cannot be decided it says so rather than being filled in optimistically:
                       `registry.invoke` or to the SDK provider's callback, directly, through a
                       variable, loop variable or app constant holding it, or through a helper
                       of the test's own that hands it on; or calls the tool's handler function
-                      by name. The citation is printed. Nothing else counts (the 2026-09-28
+                      by name — in code that runs: a test, a fixture a test asks for, a helper
+                      a test calls, directly or through other helpers, or a class (a model
+                      double) such code makes (a dispatch in a helper nothing calls is not
+                      run). The citation is printed. Nothing else
+                      counts (the 2026-09-28
                       deploy review, round 9, I-tests5 I-05): looking the tool up in the
                       registry, asking the gate to classify a call, drawing a card from a tool
                       call the test made up, a mention in a comment, a docstring or an
@@ -20,17 +24,21 @@ cannot be decided it says so rather than being filled in optimistically:
                       callback in a test that has replaced the dispatcher behind it. A tool
                       with no citation is reported untested, which is honest
     AUTH-SCOPE        the Shopify or Gmail scope its capability family declares
-    READ-WRITE        read, write or batch, from the spec
+    READ-WRITE        read, write or batch, from the spec. "Read" is the write boundary's word
+                      (no WriteSpec, no BatchSpec), not "changes nothing": the screen tools
+                      (`SCREEN_CHANGERS`) are reads that change what a screen shows
     STAGING           a write's WriteSpec is complete: prepare, observe, execute, present
     VERIFICATION      how a write is proven — a predicate, or the default exact re-read
     VISIBLE UI        app/presentation.py names it, so its result becomes a card
     ERROR UI          its failure is drawn as a named service rather than a generic error
     GOLDEN SCENARIO   a golden scenario's CODE reaches it — the scenario (or a helper in its
                       own file, or a harness helper such as `open_order`) hands the tool's name
-                      to the model it scripts or to a call, or taps a control whose recipe
-                      reads it or whose staging command prepares it. A mention in a check's
-                      description, an assertion comparing an operation name, a comment or a
-                      docstring does not count, and the row names the SCENARIO, not the file.
+                      to the model it scripts as a call's tool or to the dispatcher, or taps a
+                      control whose recipe reads it or whose staging command prepares it. A
+                      mention in a check's description, an assertion comparing an operation
+                      name, a label, a reply, a comment, a docstring, or a constant, dict or
+                      list the code never hands on does not count, and the row names the
+                      SCENARIO, not the file.
                       A write is reported as STAGED: no golden scenario can apply a change —
                       the fixture world refuses every mutation — so none is claimed as applied
 
@@ -66,6 +74,19 @@ COLUMNS = (
     "registered", "routable", "directly_tested", "auth_scope", "read_write",
     "staging", "verification", "visible_ui", "error_ui", "golden_scenario",
 )
+
+# The tools classed as reads here that change what a screen shows (app/tools/display_tools.py,
+# app/tools/close_screen.py). "Read" is the write boundary's word — no WriteSpec, no BatchSpec —
+# and the document says so and names these, because "reads never mutate" read as a claim that
+# nothing changes, and these change the owner's screens (the 2026-09-30 deploy review, DOC2-02).
+SCREEN_CHANGERS: dict[str, str] = {
+    "screen_show": "puts a packing slip, an objective or a list on a screen, or clears it",
+    "screen_off": "takes everything, or one pane, off a screen",
+    "screen_play": "puts a video on a screen",
+    "screen_video": "plays, pauses, mutes, skips or sets the volume of a screen's video",
+    "screen_pair": "approves a newly named screen, which then leaves its pairing code",
+    "close_screen": "closes what is on the owner's own screen and goes back to the orb",
+}
 
 # Where a citation may come from.
 TEST_DIR = ROOT / "tests"
@@ -286,8 +307,9 @@ def read_test(text: str, constant: Callable[[str, str], Any] | None = None) -> C
             not_run |= {id(n) for n in ast.walk(fn) if isinstance(n, ast.Call)
                         and isinstance(n.func, ast.Attribute) and n.func.attr in _RUNS_A_TOOL_METHODS}
 
+    ran = _calls_that_run(tree)
     for node in nodes:
-        if not isinstance(node, ast.Call):
+        if not isinstance(node, ast.Call) or id(node) not in ran:
             continue
         if id(node) not in not_run:
             for argument in tool_arguments(node):
@@ -299,6 +321,93 @@ def read_test(text: str, constant: Callable[[str, str], Any] | None = None) -> C
             if module is not None:
                 code.calls.add((module, node.func.attr))
     return code
+
+
+# What pytest runs of a test file without being asked by name: every `test*` function and
+# method, and the set-up and tear-down hooks.
+_HOOKS = ("setup", "teardown")
+
+
+def _calls_that_run(tree: ast.Module) -> set[int]:
+    """The ids of the calls in a test file that run when its tests do.
+
+    The file's own code at the top runs when it is imported. A test function or method runs,
+    and so do the set-up and tear-down hooks, every autouse fixture, and every fixture a running
+    function asks for by name. Any other function of the file runs only when something that
+    runs calls it — directly, or through other functions of the file, by name or as a method of
+    `self` or `cls`. A class of the file that running code makes (a model double a test puts in
+    the runtime, whose `turn` the application then calls) is taken to run its methods. A
+    dispatch inside a helper nothing that runs calls (an `async def go()` no test awaits) runs no
+    tool, and is not a citation (the 2026-09-28 deploy review, round 9, I-tests5 I-05, still
+    present at round 12). Functions nested inside one that runs are taken to run with it."""
+    units: dict[str, list[ast.AST]] = {}
+    classes: dict[str, list[ast.AST]] = {}
+    loose: list[ast.AST] = []            # statements that run on import
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            units.setdefault(node.name, []).append(node)
+        elif isinstance(node, ast.ClassDef):
+            loose.extend(node.decorator_list)
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    units.setdefault(item.name, []).append(item)
+                    classes.setdefault(node.name, []).append(item)
+                else:
+                    loose.append(item)
+        else:
+            loose.append(node)
+
+    def is_fixture(fn: ast.AST) -> tuple[bool, bool]:
+        """(a fixture, an autouse one)"""
+        for decorator in getattr(fn, "decorator_list", []):
+            target = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if _callee(target) == "fixture":
+                autouse = isinstance(decorator, ast.Call) and any(
+                    k.arg == "autouse" and isinstance(k.value, ast.Constant) and k.value.value is True
+                    for k in decorator.keywords)
+                return True, autouse
+        return False, False
+
+    fixtures = {name for name, fns in units.items() if any(is_fixture(fn)[0] for fn in fns)}
+
+    def called(within: ast.AST) -> set[str]:
+        out: set[str] = set()
+        for node in ast.walk(within):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Name):
+                out.add(node.func.id)
+            elif (isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+                  and node.func.value.id in ("self", "cls")):
+                out.add(node.func.attr)
+        return out
+
+    def asked_for(fn: ast.AST) -> set[str]:
+        args = getattr(fn, "args", None)
+        if args is None:
+            return set()
+        return {a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)} & fixtures
+
+    todo = [name for name, fns in units.items()
+            if name.startswith("test") or name.lower().startswith(_HOOKS) or any(is_fixture(fn)[1] for fn in fns)]
+    for statement in loose:
+        todo.extend(called(statement))
+    reached: set[str] = set()
+    running: list[ast.AST] = list(loose)
+    while todo:
+        name = todo.pop()
+        if name in reached or (name not in units and name not in classes):
+            continue
+        reached.add(name)
+        # A function of that name runs; a class of that name, made, runs its methods.
+        for fn in [*units.get(name, ()), *classes.get(name, ())]:
+            running.append(fn)
+            todo.extend(called(fn))
+            todo.extend(asked_for(fn))
+    ran: set[int] = set()
+    for root in running:
+        ran |= {id(node) for node in ast.walk(root) if isinstance(node, ast.Call)}
+    return ran
 
 
 def _replaced(fn: ast.AST) -> set[str]:
@@ -464,19 +573,35 @@ def _harness_reads() -> dict[str, set[str]]:
     }
 
 
+# Where a scenario's code hands a name to something that acts on it, by the name of what it
+# calls: (the first argument that does, whether every positional argument from there on does,
+# the keywords that do, what the argument is). "calls" is a scripted call for the harness's
+# model — `Harness.ask(said, *calls)` and `RecordingProvider.will(said, *calls)`, each call a
+# (tool, arguments) pair — and "name" is a tool handed to the dispatcher or a command a tap posts
+# (`Harness.touch`).
+_HANDS_ON: dict[str, tuple[int, bool, tuple[str, ...], str]] = {
+    "ask": (1, True, (), "calls"),
+    "will": (1, True, (), "calls"),
+    "dispatch": (0, False, ("tool_name", "name"), "name"),
+    "touch": (0, False, ("command",), "name"),
+}
+
+
 def scenario_strings(text: str) -> dict[str, set[str]]:
-    """Function name -> the strings its code HANDS ON, for every function in one scenario file,
+    """Function name -> the names its code HANDS ON, for every function in one scenario file,
     with what the same file's helpers it calls hand on folded in. Read from the syntax tree;
     nothing is imported or run.
 
-    A string handed on is one that reaches a call's arguments or a helper's return value — the
-    tool a scripted model is told to call, a command a tap posts. Left out, because they claim
-    nothing was run: a check's description (the first argument of `check`), a string compared
-    in an assertion, an f-string, and every docstring. That is the difference between
-    `store_credit_give` STAGING the credit through a tap and it merely writing the credit's
-    operation name in an assertion about the card (the 2026-09-28 deploy review, round 9,
-    H-06). Names of the harness's reading helpers the function calls (`open_order` …) come
-    back as `@open_order`, so the caller can turn them into the tools they read.
+    A name is handed on when it reaches the scripted model as the tool of a call (`h.ask(said,
+    (tool, args))`, directly or as what a helper of the file returns), the dispatcher as the
+    tool to run, or a tap as the command it posts — written there, or held in a constant, a
+    local name or a helper's parameter that reaches it. Nothing else counts, because nothing else
+    is run (the 2026-09-28 deploy review, round 9, H-06, still present at round 12): a check's
+    description, a reply, a label or message string, a string compared in an assertion, an
+    f-string, a docstring, a constant nothing hands on, a tool named among another call's
+    arguments, and a dict or list the code keeps without passing it to any of those. Names of the
+    harness's reading helpers the function calls (`open_order` …) come back as `@open_order`, so
+    the caller can turn them into the tools they read.
     """
     try:
         tree = ast.parse(text)
@@ -491,34 +616,116 @@ def scenario_strings(text: str) -> dict[str, set[str]]:
     functions = {n.name: n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
     harness_helpers = {"open_order", "list_todays_orders", "customer_history"}
 
-    def handed_on(fn: ast.AST) -> tuple[set[str], set[str]]:
+    # Each function's own names: what it binds to a value, and its parameters by position.
+    bound: dict[str, dict[str, list[ast.AST]]] = {}
+    params: dict[str, list[str]] = {}
+    keyword_only: dict[str, set[str]] = {}
+    for name, fn in functions.items():
+        held: dict[str, list[ast.AST]] = {}
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        held.setdefault(target.id, []).append(node.value)
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
+                held.setdefault(node.target.id, []).append(node.value)
+        bound[name] = held
+        params[name] = [a.arg for a in (*fn.args.posonlyargs, *fn.args.args)]
+        keyword_only[name] = {a.arg for a in fn.args.kwonlyargs}
+
+    def names_of(expr: ast.AST | None, scope: str, depth: int = 0) -> set[str]:
+        """The one name an expression stands for: a string written there, or held in a name."""
+        if expr is None or depth > 8:
+            return set()
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+            return {expr.value}
+        if isinstance(expr, ast.IfExp):
+            return names_of(expr.body, scope, depth + 1) | names_of(expr.orelse, scope, depth + 1)
+        if isinstance(expr, ast.Name):
+            if expr.id in bound.get(scope, {}):
+                return set().union(*(names_of(v, scope, depth + 1) for v in bound[scope][expr.id]))
+            return set(constants.get(expr.id, ()))
+        return set()
+
+    def calls_of(expr: ast.AST | None, scope: str, depth: int = 0) -> set[str]:
+        """The tools of the scripted calls an expression stands for: the first of each (tool,
+        arguments) pair — never the arguments — however the pairs are put together."""
+        if expr is None or depth > 8:
+            return set()
+        if isinstance(expr, (ast.Tuple, ast.List)) and expr.elts:
+            first = expr.elts[0]
+            if isinstance(first, (ast.Tuple, ast.List, ast.Starred, ast.Call)):
+                return set().union(*(calls_of(e, scope, depth + 1) for e in expr.elts))
+            return names_of(first, scope, depth + 1)
+        if isinstance(expr, ast.Starred):
+            return calls_of(expr.value, scope, depth + 1)
+        if isinstance(expr, ast.IfExp):
+            return calls_of(expr.body, scope, depth + 1) | calls_of(expr.orelse, scope, depth + 1)
+        if isinstance(expr, ast.Name) and expr.id in bound.get(scope, {}):
+            return set().union(*(calls_of(v, scope, depth + 1) for v in bound[scope][expr.id]))
+        if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name) and expr.func.id in functions:
+            helper = expr.func.id
+            returned = [n.value for n in ast.walk(functions[helper]) if isinstance(n, ast.Return) and n.value is not None]
+            return set().union(set(), *(calls_of(v, helper, depth + 1) for v in returned))
+        return set()
+
+    # A helper of the file that hands one of its own parameters on (`async def _start(h, ...,
+    # command): ... h.touch(command)`) hands on what a call to it puts there: helper -> the
+    # (position, parameter, kind) of each. Followed through helpers of helpers.
+    forwards: dict[str, set[tuple[int, str, str]]] = {}
+
+    def handed(call: ast.Call) -> list[tuple[ast.AST, str]]:
+        """The arguments of this call that are handed on, with what each is."""
+        out: list[tuple[ast.AST, str]] = []
+        callee = _callee(call.func)
+        if callee in _HANDS_ON:
+            start, every, keywords, kind = _HANDS_ON[callee]
+            positional = call.args[start:] if every else call.args[start:start + 1]
+            out += [(a, kind) for a in positional]
+            out += [(k.value, kind) for k in call.keywords if k.arg in keywords]
+        if isinstance(call.func, ast.Name) and call.func.id in forwards:
+            for position, param, kind in forwards[call.func.id]:
+                if 0 <= position < len(call.args):
+                    out.append((call.args[position], kind))
+                out += [(k.value, kind) for k in call.keywords if k.arg == param]
+        return out
+
+    changed = True
+    while changed:
+        changed = False
+        for name, fn in functions.items():
+            for node in ast.walk(fn):
+                if not isinstance(node, ast.Call):
+                    continue
+                for argument, kind in handed(node):
+                    if not isinstance(argument, ast.Name) or argument.id in bound[name]:
+                        continue
+                    if argument.id in params[name]:
+                        entry = (params[name].index(argument.id), argument.id, kind)
+                    elif argument.id in keyword_only[name]:
+                        entry = (-1, argument.id, kind)
+                    else:
+                        continue
+                    if entry not in forwards.setdefault(name, set()):
+                        forwards[name].add(entry)
+                        changed = True
+
+    def handed_on(name: str) -> tuple[set[str], set[str]]:
         found: set[str] = set()
         helpers: set[str] = set()
-        skip: set[int] = set()
-        body = getattr(fn, "body", [])
-        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
-            skip.add(id(body[0].value))          # the docstring
-        for node in ast.walk(fn):
-            if isinstance(node, ast.Call):
-                callee = _callee(node.func)
-                if callee == "check" and node.args:
-                    skip.update(id(n) for n in ast.walk(node.args[0]))
-                if isinstance(node.func, ast.Name) and node.func.id in functions:
-                    helpers.add(node.func.id)
-                if isinstance(node.func, ast.Attribute) and callee in harness_helpers:
-                    found.add(f"@{callee}")
-            elif isinstance(node, (ast.Compare, ast.JoinedStr)):
-                skip.update(id(n) for n in ast.walk(node))
-        for node in ast.walk(fn):
-            if id(node) in skip:
+        for node in ast.walk(functions[name]):
+            if not isinstance(node, ast.Call):
                 continue
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                found.add(node.value)
-            elif isinstance(node, ast.Name) and node.id in constants:
-                found |= constants[node.id]
+            callee = _callee(node.func)
+            if isinstance(node.func, ast.Name) and node.func.id in functions:
+                helpers.add(node.func.id)
+            if isinstance(node.func, ast.Attribute) and callee in harness_helpers:
+                found.add(f"@{callee}")
+            for argument, kind in handed(node):
+                found |= calls_of(argument, name) if kind == "calls" else names_of(argument, name)
         return found, helpers
 
-    direct = {name: handed_on(fn) for name, fn in functions.items()}
+    direct = {name: handed_on(name) for name in functions}
     out: dict[str, set[str]] = {}
     for name in functions:
         seen, todo, strings = set(), [name], set()
@@ -539,9 +746,10 @@ def _scenario_tools() -> dict[str, dict[str, str]]:
 
     Three ways a scenario reaches a tool, and each is read off what its code does:
 
-    * it hands the tool's name on — to the model it scripts (`h.ask(..., (tool, args))`), to
-      `dispatch`, or through a helper that builds that call — or calls a harness helper whose
-      reads are the tool's (`h.open_order` → the find and the detail read);
+    * it hands the tool's name on (`scenario_strings`) — to the model it scripts as a call's
+      tool (`h.ask(..., (tool, args))`), to `dispatch`, or through a helper that builds that
+      call — or calls a harness helper whose reads are the tool's (`h.open_order` → the find
+      and the detail read);
     * it taps a control whose recipe reads the tool (`experience/matrix.py::COVERAGE`, the
       repository's mapping of scenario to operation, walked to the recipe's read primitives);
     * its taps prepare a write it declares (`experience/matrix.py::TAP_STAGED`), and its code
@@ -733,15 +941,20 @@ def markdown() -> str:
         "Every column is read from the thing that decides it. **DIRECTLY TESTED** means a test",
         "RUNS the tool — its code hands the tool's name to the dispatcher, to `registry.invoke`",
         "or to the SDK provider's callback (itself or through a helper of its own), or calls the",
-        "tool's handler — and the file that does is cited. Looking the tool up in the registry,",
+        "tool's handler — in code that runs: a test, a fixture a test asks for, a helper a test",
+        "calls, directly or through other helpers, or a class (a model double) such code makes —",
+        "and the file that does is cited. A dispatch in a helper no test calls is not counted.",
+        "Looking the tool up in the registry,",
         "asking the gate to classify a call, drawing a card from a made-up tool call, a comment,",
         "a docstring, an assertion about a list of names, a monkeypatch that replaces it, or the",
         "provider's callback in a test that replaced the dispatcher behind it does not count, so a",
         "tool whose unit tests pass but which no test runs is reported as",
         "untested. **GOLDEN SCENARIO** is read the same way from the scenarios' code: a scenario",
-        "counts when it hands the tool to the model it scripts or to a call, or taps a control that",
-        "reads or stages it — never for naming it in an assertion or a description — and a write",
-        "is reported as staged, because nothing in the fixture world can apply one.",
+        "counts when it hands the tool to the model it scripts as a call's tool or to the",
+        "dispatcher, or taps a control that reads or stages it — never for naming it in an",
+        "assertion, a description, a label or a reply, or holding it in a constant, dict or list",
+        "it never hands on — and a write is reported as staged, because nothing in the fixture",
+        "world can apply one.",
         "There are no intent families: every sentence is a model turn, so what a",
         "sentence reaches is what the model calls. Tests are read as syntax trees and never run; nothing",
         "here runs a tool, and nothing here can reach a mutation: the audit is a read of",
@@ -779,12 +992,18 @@ def markdown() -> str:
         out.append("")
         out.append(", ".join(f"`{n}`" for n in names) if names else "none")
         out.append("")
+    registered = {r["name"] for r in rows}
+    changers = [f"`{name}` ({what})" for name, what in SCREEN_CHANGERS.items() if name in registered]
     out += [
         "## The rules the audit itself keeps",
         "",
-        "- Reads never mutate: `app/reads/scheduler.py::assert_reads_only` refuses a plan",
-        "  naming a write tool, in every lane, and `app/reads/dedupe.py` refuses to hold,",
-        "  join or reuse one.",
+        "- **Read** in this matrix is the write boundary's word, not a promise that nothing",
+        "  changes: a read is a tool with no `WriteSpec` and no `BatchSpec`, so it is never",
+        "  staged, held for the owner's gesture or proven by a re-read, and it is what the read",
+        "  scheduler may run. `app/reads/scheduler.py::assert_reads_only` refuses a plan naming a",
+        "  write tool, in every lane, and `app/reads/dedupe.py` refuses to hold, join or reuse one.",
+        "  No read changes the shop or the inbox. These reads change what a screen shows: "
+        + ("; ".join(changers) if changers else "none") + ".",
         "- No arbitrary GraphQL from the model: the model reaches only the tools above, each",
         "  of which builds its own document.",
         "- Speculation may never write or commit: a prediction's tool is checked against the",

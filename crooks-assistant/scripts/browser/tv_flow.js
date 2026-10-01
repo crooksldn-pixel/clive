@@ -24,7 +24,6 @@
  */
 'use strict';
 
-const { chromium } = require('playwright-core');
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
@@ -36,17 +35,47 @@ const HEADERS = { 'Tailscale-User-Login': 'owner@example.com', 'X-Forwarded-For'
 const VIEWPORT = { width: 1920, height: 1080 };
 // Moments after the new answer arrives at which a frame is kept (milliseconds).
 const MOMENTS = [0, 150, 350, 500, 650, 800, 950, 1100, 1300, 1600, 2000, 2500, 3500, 5000];
+// From a replacement's answer arriving to the new thing being readable: the limit each
+// replacement's result claims (`limit_ms`) and the verdict holds it to. About one second on an
+// idle machine; the same bound tests/test_tv_flow.py holds the walk to.
+const READY_MS = 2500;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// The report's verdict, from everything it holds: false when any error was recorded (a page
+// error, the page opening again, a step that threw), when nothing was measured, when any change
+// never became readable, or when a measured time is over the limit its own result claims. It used
+// to be false only when something threw, so a walk with page errors, or a view that never became
+// readable, reported ok (the 2026-09-30 deploy review, SC1-01).
+function verdict(report) {
+  const why = [];
+  const errors = (report && report.errors) || [];
+  const results = (report && report.results) || [];
+  for (const e of errors) why.push('error recorded: ' + e);
+  if (!results.length) why.push('nothing was measured');
+  for (const r of results) {
+    const name = r.mode + ' ' + r.step;
+    if (typeof r.ready_ms !== 'number') why.push(name + ': never became readable');
+    else if (typeof r.limit_ms === 'number' && r.ready_ms > r.limit_ms) {
+      why.push(name + ': readable after ' + r.ready_ms + ' ms, over its limit of ' + r.limit_ms + ' ms');
+    }
+  }
+  return { ok: why.length === 0, why };
+}
+
 // ---- the line to experience/tv_flow.py ----------------------------------------------------
-const lines = readline.createInterface({ input: process.stdin });
+// Opened by main() alone, so that requiring this file (tests/web/followups-tv-flow.test.js)
+// neither reads standard input nor needs a browser.
+let lines = null;
 const heard = [];
 let waiting = null;
-lines.on('line', (line) => {
-  let msg = null;
-  try { msg = JSON.parse(line); } catch (e) { return; }
-  if (waiting) { const w = waiting; waiting = null; w(msg); } else heard.push(msg);
-});
+function listen() {
+  lines = readline.createInterface({ input: process.stdin });
+  lines.on('line', (line) => {
+    let msg = null;
+    try { msg = JSON.parse(line); } catch (e) { return; }
+    if (waiting) { const w = waiting; waiting = null; w(msg); } else heard.push(msg);
+  });
+}
 function ask(msg) {
   return new Promise((resolve) => {
     waiting = resolve;
@@ -268,6 +297,9 @@ async function walkMode(browser, mode) {
     const out = {
       mode, step: step.name, replace: !!step.replace,
       ready_ms: seen.readyAt === null ? null : Math.round(seen.readyAt - arrived),
+      // The limit this change is held to: a replacement's, READY_MS; none for the first thing
+      // up or the screen going home, which only have to become readable at all.
+      limit_ms: step.replace ? READY_MS : null,
       frames: inside.length,
       profile,
       // Every frame's reading across one named change, when asked for (TV_FLOW_TRACE).
@@ -320,8 +352,10 @@ async function walkMode(browser, mode) {
 }
 
 async function main() {
+  listen();
+  const { chromium } = require('playwright-core');
   const browser = await chromium.launch({ executablePath: process.env.CROOKS_CHROMIUM || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--autoplay-policy=no-user-gesture-required'] });
-  const report = { ok: true, results: [], errors: [] };
+  const report = { ok: false, results: [], errors: [] };
   try {
     for (const mode of MODES) {
       const got = await runMode(browser, mode);
@@ -329,14 +363,18 @@ async function main() {
       report.errors.push(...got.errors.map((e) => mode + ': ' + e));
     }
   } catch (e) {
-    report.ok = false;
     report.errors.push(String(e && e.stack || e));
     report.errors.push(...(e && e.seen ? e.seen : []));
   } finally {
     await browser.close();
   }
+  const judged = verdict(report);
+  report.ok = judged.ok;
+  report.why = judged.why;
   process.stdout.write(JSON.stringify(report) + '\n');
   lines.close();
 }
 
-main();
+module.exports = { verdict, READY_MS, WALK };
+
+if (require.main === module) main();

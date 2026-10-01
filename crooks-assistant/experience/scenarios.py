@@ -339,6 +339,21 @@ async def needs_reply(h: Harness) -> Result:
     queue = next((item for item in c.surfaces if item.get("surface") == "work_queue"), None)
     card = (queue or {}).get("data") or {}
     rows = [t for t in card.get("threads") or [] if isinstance(t, dict)]
+    said = c.answer.split(". ")[0]
+    if not rows and not grounded(h):
+        # A real inbox with nobody waiting is a healthy inbox, and the right answer to it is an
+        # empty queue said as one (the 2026-09-30 deploy review, X1-02): no card of waiting
+        # threads, or one counting none, and the Mac's own sentence that nobody is waiting
+        # (app/families/landings.py `_needs_reply_render`). The fixture world always has people
+        # waiting, so there an empty queue still fails below.
+        r.checks.append(check("an empty queue counts nobody", queue is None or card.get("count") == 0,
+                              f"count={card.get('count')} rows={len(rows)}"))
+        r.checks.append(check("and the answer says nobody is waiting",
+                              said.lower().startswith(("nobody is waiting", "still nobody")),
+                              f"said={said!r}"))
+        r.checks.append(check("the automated sender is not offered as a customer",
+                              data.NEWSLETTER_SENDER not in said, "newsletter sender present"))
+        return r
     r.checks.append(check("the queue is drawn", queue is not None, f"surfaces={c.surface_types}"))
 
     # The answer itself, entry by entry. This scenario once checked only that a card was drawn
@@ -350,7 +365,6 @@ async def needs_reply(h: Harness) -> Result:
     # id, each row must name who wrote last in its thread, and the spoken answer must name
     # exactly the people on the card — the waiting clause is its first sentence; the rest may
     # mention the newest thread, which is a different fact about a different list.
-    said = c.answer.split(". ")[0]
     on_card = {str(row.get("from") or "") for row in rows}
     r.checks.append(check("the count on the card is its own rows", card.get("count") == len(rows),
                           f"count={card.get('count')} rows={len(rows)}"))
@@ -373,12 +387,18 @@ async def needs_reply(h: Harness) -> Result:
         return max(thread.messages, key=lambda m: (-m.days_ago, m.hour)).sender.split("<")[0].strip()
 
     wanted = {t.thread_id: _last_sender(t) for t in expected}
-    queued = {str(row.get("thread_id") or ""): str(row.get("from") or "") for row in rows}
+    pairs = [(str(row.get("thread_id") or ""), str(row.get("from") or "")) for row in rows]
+    queued = dict(pairs)
+    # Row by row, not as a set: a queue that lists one waiting thread twice is a wrong queue,
+    # and a set of its ids would have matched the world's (the 2026-09-28 deploy review,
+    # round 9, H-05, still present at round 12). Each waiting thread is on it exactly once.
     r.checks.append(check("the queue holds exactly the threads the world says are waiting, and no other",
-                          set(queued) == set(wanted), f"queued={sorted(queued)} expected={sorted(wanted)}"))
+                          sorted(tid for tid, _ in pairs) == sorted(wanted),
+                          f"queued={sorted(tid for tid, _ in pairs)} expected={sorted(wanted)}"))
     r.checks.append(check("and each row names who wrote last in its own thread",
-                          all(queued.get(tid) == who for tid, who in wanted.items()),
-                          f"rows={queued} expected={wanted}"))
+                          all(queued.get(tid) == who for tid, who in wanted.items())
+                          and all(wanted.get(tid) == who for tid, who in pairs),
+                          f"rows={pairs} expected={wanted}"))
     others = {p.name for p in world.people.values() if p.name and p.name not in set(wanted.values())}
     r.checks.append(check("and the answer names nobody the world says is not waiting",
                           not [name for name in others if name in said],

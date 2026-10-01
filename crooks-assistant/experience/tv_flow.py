@@ -90,10 +90,91 @@ def _act(msg: dict[str, Any], views_: dict[str, dict[str, Any]]) -> dict[str, An
     raise ValueError(f"unknown step {what!r}")
 
 
+# The changes the script walks through, by mode: the names of `WALK.full` and `WALK.short` in
+# scripts/browser/tv_flow.js, held here so that the report is checked against what was asked
+# for rather than against whatever it happens to contain (tests/test_followups_harness.py holds
+# the two lists to each other).
+FULL_WALK = ("first", "order-to-order", "order-to-objective", "objective-to-list", "list-to-video",
+             "beside-the-video", "video-to-order", "two-to-one", "off")
+SHORT_WALK = ("first", "order-to-order", "order-to-video", "video-to-order", "off")
+WALKS = {"full": FULL_WALK, "portrait": FULL_WALK, "weak": SHORT_WALK, "calm": SHORT_WALK}
+
+
+def judged(payload: dict[str, Any], *, modes: str, returncode: int | None) -> dict[str, Any]:
+    """The script's report, with `ok` false and the reasons added to its `errors` when the driver
+    did not exit cleanly or did not measure every change of every mode it was asked for.
+
+    Its own last line used to be forwarded as it came (the 2026-09-30 deploy review, X2-01): a
+    driver that crashed after printing, or a report with a mode or a change missing, read as a
+    pass to anyone who looked only at `ok`."""
+    out = dict(payload)
+    why: list[str] = []
+    if returncode != 0:
+        why.append(f"the driver exited with status {returncode}")
+    results = [r for r in out.get("results") or [] if isinstance(r, dict)]
+    for mode in [m for m in modes.split(",") if m]:
+        walk = WALKS.get(mode)
+        if walk is None:
+            why.append(f"{mode}: no walk is known for this mode")
+            continue
+        seen = {str(r.get("step")) for r in results if r.get("mode") == mode}
+        if not seen:
+            why.append(f"{mode}: no change was measured")
+            continue
+        missing = [step for step in walk if step not in seen]
+        if missing:
+            why.append(f"{mode}: no result for {', '.join(missing)}")
+    if why:
+        out["ok"] = False
+        out["errors"] = [*(out.get("errors") or []), *why]
+    return out
+
+
+async def drive(argv: list[str], *, modes: str, views_: dict[str, dict[str, Any]] | None = None,
+                env: dict[str, str] | None = None) -> dict[str, Any]:
+    """Run the driver, do what it asks a line at a time, and judge the report it ends with."""
+    proc = await asyncio.create_subprocess_exec(
+        *argv, cwd=ROOT, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE, env=env if env is not None else dict(os.environ),
+    )
+    try:
+        payload: dict[str, Any] = {}
+        while True:
+            raw = await asyncio.wait_for(proc.stdout.readline(), timeout=240)
+            if not raw:
+                break
+            try:
+                msg = json.loads(raw.decode("utf-8"))
+            except ValueError:
+                continue
+            if isinstance(msg, dict) and "do" in msg:
+                try:
+                    answer = {"ok": True, **_act(msg, views_ or {})}
+                except Exception as exc:  # noqa: BLE001 — the script is told, and reports it
+                    answer = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+                proc.stdin.write((json.dumps(answer) + "\n").encode("utf-8"))
+                await proc.stdin.drain()
+            elif isinstance(msg, dict):
+                payload = msg
+        proc.stdin.close()
+        # To the end of both streams, so the process and its pipes are closed inside this loop.
+        _, err = await proc.communicate()
+        if not payload:
+            payload = {"ok": False, "error": err.decode("utf-8", "replace")[-1200:]}
+        return judged(payload, modes=modes, returncode=proc.returncode)
+    finally:
+        if proc.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            with contextlib.suppress(Exception):
+                await proc.communicate()
+
+
 async def run(*, out: Path | None = None, modes: str = "full,weak,calm") -> dict[str, Any]:
     """Serve the fixture world, drive the screen page through the walk in each mode (`full`: a
     TV with the dots; `weak`: the lighter engine a small device gets; `calm`: reduced motion) and
-    return the script's own report: per change, the time to readable and what each frame showed."""
+    return the script's own report, judged (`judged`): per change, the time to readable and what
+    each frame showed."""
     ok, why = browser.available()
     if not ok:
         return {"skipped": True, "why": why}
@@ -106,44 +187,10 @@ async def run(*, out: Path | None = None, modes: str = "full,weak,calm") -> dict
     from app.displays import store as displays_module
 
     displays_module.install(Path(tempfile.mkdtemp(prefix="crooks-tv-flow-")) / "displays.json")
-    views_ = _views()
-    proc = None
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "node", str(SCRIPT), f"http://127.0.0.1:{port}", str(out or ""), modes,
-            cwd=ROOT, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, "CROOKS_CHROMIUM": browser.CHROMIUM},
-        )
-        payload: dict[str, Any] = {}
-        while True:
-            raw = await asyncio.wait_for(proc.stdout.readline(), timeout=240)
-            if not raw:
-                break
-            try:
-                msg = json.loads(raw.decode("utf-8"))
-            except ValueError:
-                continue
-            if isinstance(msg, dict) and "do" in msg:
-                try:
-                    answer = {"ok": True, **_act(msg, views_)}
-                except Exception as exc:  # noqa: BLE001 — the script is told, and reports it
-                    answer = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-                proc.stdin.write((json.dumps(answer) + "\n").encode("utf-8"))
-                await proc.stdin.drain()
-            elif isinstance(msg, dict):
-                payload = msg
-        proc.stdin.close()
-        # To the end of both streams, so the process and its pipes are closed inside this loop.
-        _, err = await proc.communicate()
-        if not payload:
-            payload = {"ok": False, "error": err.decode("utf-8", "replace")[-1200:]}
-        return payload
+        return await drive(["node", str(SCRIPT), f"http://127.0.0.1:{port}", str(out or ""), modes],
+                           modes=modes, views_=_views(), env={**os.environ, "CROOKS_CHROMIUM": browser.CHROMIUM})
     finally:
-        if proc is not None and proc.returncode is None:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            with contextlib.suppress(Exception):
-                await proc.communicate()
         await browser._stop(server, task)
 
 
