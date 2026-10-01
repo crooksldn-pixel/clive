@@ -505,3 +505,83 @@ def test_cli_rejects_a_malformed_candidate_sha() -> None:
     )
     assert completed.returncode == 2
     assert "40 lowercase hex" in json.loads(completed.stdout)["acceptance"]["refusal"]
+
+
+# ---------------------------------------------------------------- a red run says which test failed (1 Oct)
+
+def _a_failing_test(tmp_path: Path) -> Path:
+    test = tmp_path / "test_red.py"
+    test.write_text(
+        "def test_passes():\n    assert True\n\n\n"
+        "def test_the_greeting_is_wrong():\n    greeting = 'bye'\n    assert greeting == 'hello'\n",
+        encoding="utf-8",
+    )
+    return test
+
+
+def test_a_failed_pytest_gate_keeps_the_failing_test_and_its_assertion(tmp_path: Path) -> None:
+    """A red acceptance run must say which test failed, or nobody can repair it: the loop's builder was handed
+    only the steps after the failure (1 Oct, clive-voice-uses-the-clock). The gate's own pytest output is kept as
+    an excerpt: the short summary's FAILED line, the E lines and the totals, nothing else."""
+    test = _a_failing_test(tmp_path)
+    result = provenance._run_gate(
+        "pytest_offline_full",
+        [sys.executable, "-m", "pytest", str(test), "-q", "-p", "no:cacheprovider"],
+        cwd=tmp_path, excerpt="pytest",
+    )
+    assert result.status == provenance.FAIL
+    excerpt = result.failure_excerpt
+    assert any(line.startswith("FAILED ") and "test_the_greeting_is_wrong" in line for line in excerpt), excerpt
+    assert any(line.startswith("E ") and "assert 'bye' == 'hello'" in line for line in excerpt), excerpt
+    assert "1 failed, 1 passed" in excerpt[-1]
+    assert not any("def test_passes" in line for line in excerpt)            # only why, never the whole output
+    assert result.as_dict()["failure_excerpt"] == excerpt
+
+
+def test_a_passing_gate_and_the_secret_scan_never_carry_an_excerpt(tmp_path: Path) -> None:
+    (tmp_path / "test_green.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    green = provenance._run_gate(
+        "pytest_control_plane", [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_green.py"],
+        cwd=tmp_path, excerpt="pytest",
+    )
+    assert green.status == provenance.PASS and green.failure_excerpt is None
+    assert "failure_excerpt" not in green.as_dict()
+    # No gate that scans for secrets is ever asked for one: its output could hold what it found.
+    source = Path(provenance.__file__).read_text(encoding="utf-8")
+    scan = source[source.index("def gate_secret_scan"):]
+    scan = scan[:scan.index("\ndef ", 1)]
+    assert "excerpt=" not in scan
+
+
+def test_the_excerpt_is_bounded_however_much_fails() -> None:
+    noisy = "\n".join([f"FAILED tests/test_x.py::test_{n} - AssertionError: {'x' * 500}" for n in range(500)]
+                      + [f"E       assert {n} == 0" for n in range(500)] + ["===== 500 failed in 1.00s ====="])
+    excerpt = provenance.failure_excerpt(noisy, "", kind="pytest")
+    assert len(excerpt) <= provenance.EXCERPT_MAX_LINES
+    assert all(len(line) <= provenance.EXCERPT_MAX_LINE for line in excerpt)
+    assert sum(len(line) + 1 for line in excerpt) <= provenance.EXCERPT_MAX_CHARS + 1
+
+
+def test_the_job_log_names_the_failing_test_ahead_of_the_artifact(
+    repo: Path, all_gates_pass: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """What the loop's red-run summariser reads: pytest's own FAILED and E lines at the start of a log line."""
+    real = provenance.gate_offline_suite
+
+    def red(scope: str) -> provenance.GateResult:
+        result = real(scope)
+        return provenance.GateResult(
+            result.name, True, provenance.FAIL, 1, 0.1, "1 failed, 6400 passed",
+            failure_excerpt=["FAILED tests/test_x.py::test_y - AssertionError: nope", "E       assert 1 == 2",
+                             "1 failed, 6400 passed in 400.00s"],
+        )
+
+    monkeypatch.setattr(provenance, "gate_offline_suite", red)
+    code = provenance.main(["--candidate-sha", head(repo), "--suite", "bounded"])
+    out = capsys.readouterr().out
+    assert code == 1
+    lines = out.splitlines()
+    assert "== pytest_offline_bounded failed; what it said:" in lines
+    assert "FAILED tests/test_x.py::test_y - AssertionError: nope" in lines
+    assert "E       assert 1 == 2" in lines
+    assert out.index("FAILED tests/test_x.py::test_y") < out.index('"schema"')
