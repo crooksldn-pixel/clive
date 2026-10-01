@@ -223,19 +223,24 @@ def _within_cover(result: dict[str, Any], bound: float) -> None:
 
     The ranking is soonest out first with an unknown cover last (app/analytics/engine.py
     `_sorted`), so once a shown row is past the bound every row after it, shown or not, is too.
+
+    The set is made from the rows that remain whether or not a row was cut. The engine's
+    membership is its own and can run past the rows shown, to variants with more cover than
+    the bound or none known; when every shown row was within the bound, the set used to be
+    left as the engine made it (round 13, F-03).
     """
     rows = [r for r in result.get("rows") or [] if isinstance(r, dict)]
     kept = [r for r in rows if isinstance(r.get("days_cover"), (int, float)) and r["days_cover"] <= bound]
+    ids = [str((r.get("key") or {}).get("variant_id") or "") for r in kept]
+    result["member_ids"] = list(dict.fromkeys(i for i in ids if i))
+    result["member_labels"] = {i: str(r.get("label") or "") for i, r in zip(ids, kept, strict=True) if i}
+    result["member_totals"] = engine._sums(kept, engine._ADDITIVE["variants"])
     if len(kept) == len(rows):
         return
-    ids = [str((r.get("key") or {}).get("variant_id") or "") for r in kept]
     result["rows"] = kept
     result["row_count"] = len(kept)
     result["truncated"] = False
     result["totals_scope"] = "period"
-    result["member_ids"] = list(dict.fromkeys(i for i in ids if i))
-    result["member_labels"] = {i: str(r.get("label") or "") for i, r in zip(ids, kept, strict=True) if i}
-    result["member_totals"] = engine._sums(kept, engine._ADDITIVE["variants"])
 
 
 async def _run(spec: dict[str, Any], *, default_entity: str, tool: str = "commerce_aggregate",

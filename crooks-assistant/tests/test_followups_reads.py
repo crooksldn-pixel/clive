@@ -129,6 +129,83 @@ async def test_the_unqualified_attention_summary_says_how_far_back_it_read(monke
     assert data["empty_words"] == "Nothing placed since 11 Jun needs attention.", data["empty_words"]
 
 
+# An unfulfilled order 362 days old: before the long read's 360 days, inside the year the order
+# cache keeps. Nothing else is waiting.
+YEAR_OLD = [
+    node(2104, days_ago=362, items=[(*JOGGERS, "Pink", "S", 1, 45.0)], customer=("gid://shopify/Customer/7104", "Rue Sutton", 1, 45.0)),
+    OLD_OPEN[2],
+]
+
+
+@pytest.mark.usefixtures("owner_asking", "unbind")
+async def test_the_orders_landing_reads_the_whole_year_the_cache_keeps(monkeypatch):
+    """Round 13, F-01: the long read stopped at 360 days, so an order older than that was read
+    by nothing and the landing still said nothing was waiting."""
+    london_now(monkeypatch)
+    _bind(YEAR_OLD)
+    answer, ctx = await _land("f01-year")
+    assert "Nothing is waiting to go out" not in answer.answer, answer.answer
+    assert answer.answer.startswith(
+        "Nothing placed in the last 360 days is waiting to go out. 1 order placed before the last 360 days is still "
+        "to go out; the oldest is CROOKS-2104 at 362 days."), answer.answer
+    listing = answer.drawn[0].result
+    assert [r["order_number"] for r in listing["rows"]] == ["CROOKS-2104"], listing["rows"]
+    walked = ctx.session.sets[ctx.branch.workflow.set_id].members
+    assert walked == ("gid://shopify/Order/2104",), walked
+    assert answer.partial is False, "every read was whole"
+
+
+@pytest.mark.usefixtures("owner_asking", "unbind")
+async def test_an_unread_oldest_stretch_is_said_in_the_words_and_on_the_card(monkeypatch):
+    """When the days before the long read could not be read, the plain answer is not given:
+    the words and the long read's card say how far back the read went."""
+    from app.presentation import compact, present
+    from app.tools import registry
+    from app.tools.registry import ToolError
+
+    real = registry.invoke
+
+    async def invoke(name, args, *, timeout_s):
+        period = (args or {}).get("period")
+        if name == "commerce_query" and isinstance(period, dict) and period.get("days_ago"):
+            raise ToolError("Shopify did not answer in time.")
+        return await real(name, args, timeout_s=timeout_s)
+
+    monkeypatch.setattr(registry, "invoke", invoke)
+    london_now(monkeypatch)
+    _bind(NOTHING_OPEN)
+    session = _session("f01-unread")
+    ctx = recipes.Ctx(runtime=None, session=session, branch=session.branch())
+    answer = await recipes.run(recipes.RECIPES["landing_orders"], ctx)
+    assert not answer.deferred, answer.defer
+    assert "Nothing is waiting to go out" not in answer.answer, answer.answer
+    assert answer.answer.startswith("Nothing placed in the last 360 days is waiting to go out, and orders placed "
+                                    "before then could not be checked."), answer.answer
+    assert answer.partial is True
+    (reach,) = [c for c in answer.drawn if c.result.get("title") == "To go out, last 360 days"]
+    assert "could not be checked" in reach.result["note"] and reach.result["coverage"]["complete"] is False
+    # The screen as the tap draws it (app/routes/command.py): the landing's own cards, then the
+    # reads', compacted.
+    screen = compact([s.as_ui() for s in answer.surfaces] + present(answer.drawn, session=session))
+    (card,) = [item for item in screen if item["data"].get("title") == "To go out, last 360 days"]
+    assert card["type"] == "order_list" and card["data"]["empty"] is True, card
+    assert card["data"]["note"] == ("Nothing placed in the last 360 days is waiting to go out. "
+                                    "Orders placed before the last 360 days could not be checked."), card
+    assert card["freshness"]["complete"] is False, card
+
+    # With older orders in the long read, the list is drawn as read, marked partial.
+    _bind(OLD_OPEN)
+    session = _session("f01-unread-older")
+    ctx = recipes.Ctx(runtime=None, session=session, branch=session.branch())
+    answer = await recipes.run(recipes.RECIPES["landing_orders"], ctx)
+    assert answer.answer.startswith("2 orders to go out; the oldest is CROOKS-2102 at 120 days, placed before the last 30 days. "
+                                    "Orders placed before the last 360 days could not be checked."), answer.answer
+    assert answer.partial is True
+    screen = compact([s.as_ui() for s in answer.surfaces] + present(answer.drawn, session=session))
+    (listing,) = [item for item in screen if item["data"].get("title") == "To go out, last 360 days"]
+    assert listing["type"] == "order_list" and "partial" in listing["data"]["query"], listing["data"]
+
+
 # ================================================================ F/F-03: the recent inbox
 
 
@@ -149,6 +226,24 @@ def test_twelve_bulk_threads_are_not_nobody_writing_this_week():
     assert "Nothing from a person in the inbox" not in empty.answer, empty.answer
     assert f"the read takes the {landings.RECENT_LIMIT} newest" in empty.answer, empty.answer
     assert empty.partial is True, "the read was partial, so the empty answer is"
+
+
+def test_people_among_a_read_cut_at_its_limit_are_not_everyone_this_week():
+    """Round 13, F-02: with a person among the twelve, the answer said "threads from people this
+    week" as though the week had been read."""
+    ctx = recipes.Ctx(runtime=None, session=_session("f03-people"), branch=Branch(branch_id="b", session_id="f03-people"))
+    person = {"thread_id": "18f2000000000001", "from": "Tess Ward", "from_email": "tess@example.com",
+              "subject": "Size swap", "likely_bulk": False}
+    threads = [person, *_bulk(landings.RECENT_LIMIT - 1)]
+    full = landings._recent_render(ctx, ReadResult(values={"inbox": {"threads": threads, "count": 12}}))
+    assert full.answer == (f"1 of the {landings.RECENT_LIMIT} newest threads this week is from a person; the newest is "
+                           f"Tess Ward about Size swap. Mail before those {landings.RECENT_LIMIT} was not read."), full.answer
+    assert full.partial is True, "a read that came back at its limit did not cover the week"
+
+    # Under the limit the read was not cut, and the answer is the one it always was.
+    short = landings._recent_render(ctx, ReadResult(values={"inbox": {"threads": [person], "count": 1}}))
+    assert "was not read" not in short.answer and short.answer.endswith("the newest is Tess Ward about Size swap."), short.answer
+    assert short.partial is False
 
 
 # ================================================================ F/F-04: the 21st line item
@@ -218,6 +313,44 @@ async def test_the_set_a_cover_bound_attaches_is_exactly_its_rows(monkeypatch):
     assert held["count"] == len(rows) == 1
     assert "10 days of cover or less" in held["label"], held["label"]
     assert held["totals"].get("units") == sum(r["units"] for r in rows), held["totals"]
+
+
+@pytest.mark.usefixtures("owner_asking", "unbind")
+async def test_a_row_limited_cover_bound_with_nothing_cut_still_makes_the_set_from_its_rows(monkeypatch):
+    """Round 13, F-03: when every row shown was within the bound, the set was left as the engine
+    made it, and the engine's membership can run past the rows shown."""
+    within, above, unknown = ("gid://shopify/ProductVariant/8801", "gid://shopify/ProductVariant/8802",
+                              "gid://shopify/ProductVariant/8803")
+    result = {
+        "rows": [{"key": {"variant_id": within}, "label": "Stripe Tee · White / M", "days_cover": 2.5, "units": 4, "revenue": 120.0}],
+        "row_count": 3, "truncated": True, "totals_scope": "period",
+        "member_ids": [within, above, unknown],
+        "member_labels": {within: "Stripe Tee · White / M", above: "Stripe Tee · Navy / L", unknown: "Stripe Tee · Red / S"},
+        "member_totals": {"units": 30, "revenue": 900.0},
+    }
+    analytics_tools._within_cover(result, 10)
+    assert result["member_ids"] == [within], "the set is the row shown: not the variant above the bound, nor the unknown one"
+    assert result["member_labels"] == {within: "Stripe Tee · White / M"}
+    assert result["member_totals"] == {"units": 4, "revenue": 120.0}
+    assert [r["key"]["variant_id"] for r in result["rows"]] == [within]
+
+    # And through the tool, with a row limit and more variants within the bound than it shows.
+    london_now(monkeypatch)
+    store = _bind(ORDER_NODES)
+    black_l = ORDER_NODES[0]["lineItems"]["edges"][0]["node"]["variant"]["id"]
+    blue_m = ORDER_NODES[2]["lineItems"]["edges"][0]["node"]["variant"]["id"]
+    store.stock[black_l] = 2      # 3.5 days of cover
+    store.stock[blue_m] = 20      # about 47 days
+    session = _session("ac1-limit")
+    calls: list = []
+    await dispatch("inventory_query", {"period": "last_7_days", "max_days_cover": 60, "limit": 1}, session=session, timeout_s=5, calls=calls)
+    assert calls and calls[-1].ok, calls
+    rows = calls[-1].result["rows"]
+    assert [r["key"]["variant_id"] for r in rows] == [black_l], rows
+    held = calls[-1].result["set"]
+    assert session.sets[held["set_id"]].members == (black_l,) and held["count"] == 1, held
+    assert "60 days of cover or less" in held["label"], held["label"]
+    assert held["totals"].get("units") == rows[0]["units"], held["totals"]
 
 
 # ================================================================ AC1-F-01: no email address

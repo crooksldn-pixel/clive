@@ -28,6 +28,7 @@ import time
 from typing import Any
 
 from app import commands as commands_mod
+from app.analytics.periods import MAX_DAYS
 from app.commands import Command, Outcome
 from app.commands import Ctx as CommandCtx
 from app.commands import register as register_command
@@ -457,15 +458,18 @@ def _arrived(ctx: Ctx, area: str) -> None:
 # its thirty-day listing. The listing alone answered "Nothing is waiting to go out" over an
 # unfulfilled order 45 days old (the round-12 deploy review, F/F-02). 360 days is the longest
 # window one query may cost (app/analytics/query.py MAX_COST: a point for each thirty days,
-# twelve at most), which is as far back as the order cache keeps orders (app/analytics/
-# periods.py MAX_DAYS) to within five days.
+# twelve at most). The order cache keeps a year (app/analytics/periods.py MAX_DAYS), so the
+# days before those 360 are a read of their own: without it an order 362 days old was not
+# read, and the landing still said nothing was waiting (round 13, F-01).
 OPEN_REACH_DAYS = 360
+OPEN_TAIL_DAYS = MAX_DAYS - OPEN_REACH_DAYS
 
 
 def _orders_plan(ctx: Ctx) -> ReadPlan | None:
     """What must go out, and what came in, and whether anything older than the listing's
-    window is still waiting. Three independent reads, in parallel. The third is worked from,
-    not drawn, unless it finds an older order — then it is the list."""
+    window is still waiting, as far back as the order cache keeps orders. Four independent
+    reads, in parallel. The last two are worked from, not drawn, unless they find an older
+    order or one of them could not be read whole."""
     return ReadPlan([
         Read("open", "commerce_query", {
             "entity": "orders", "period": "last_30_days", "filters": {"fulfillment": "unfulfilled"},
@@ -479,6 +483,13 @@ def _orders_plan(ctx: Ctx) -> ReadPlan | None:
             "entity": "orders", "period": {"days": OPEN_REACH_DAYS}, "filters": {"fulfillment": "unfulfilled"},
             "sort": [{"metric": "age_days", "direction": "desc"}], "limit": 25,
             "title": f"To go out, last {OPEN_REACH_DAYS} days",
+        }, source="shopify", cost=120.0, draws=False),
+        # The days before the long read began, ending where it starts: the two together are
+        # the year the cache keeps.
+        Read("tail", "commerce_query", {
+            "entity": "orders", "period": {"days": OPEN_TAIL_DAYS, "days_ago": OPEN_REACH_DAYS},
+            "filters": {"fulfillment": "unfulfilled"}, "sort": [{"metric": "age_days", "direction": "desc"}],
+            "limit": 25, "title": f"To go out, placed over {OPEN_REACH_DAYS} days ago",
         }, source="shopify", cost=120.0, draws=False),
     ], label="landing_orders")
 
@@ -520,6 +531,31 @@ def _call_named(result: ReadResult, node: str):
     return None
 
 
+def _not_whole(call: Any, note: str) -> Any:
+    """A read's call as its card is drawn when the answer says the read stopped short: the note
+    on the card and the card marked incomplete (app/analytics/present.py reads both from the
+    result). A copy, so the read itself is logged as it came back."""
+    import dataclasses
+
+    body = call.result
+    return dataclasses.replace(call, result={
+        **body, "note": " ".join(filter(None, [str(body.get("note") or ""), note])),
+        "coverage": {**(body.get("coverage") or {}), "complete": False},
+    })
+
+
+def _unchecked_card(title: str, note: str) -> Any:
+    """An empty order list that says how far back it was read: none waiting in that window, and
+    the orders before it not checked. Marked incomplete, so it is not taken for a whole answer."""
+    from app.surfaces import Freshness, Surface
+
+    return Surface(
+        surface_type="order_list", ui_type="order_list",
+        data={"title": title, "count": 0, "empty": True, "orders": [], "note": note},
+        title=title, freshness=Freshness(source="shopify", complete=False, caveat=note),
+    )
+
+
 def _orders_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     open_body, today_body = result.values.get("open"), result.values.get("today")
     if not isinstance(open_body, dict) and not isinstance(today_body, dict):
@@ -548,10 +584,29 @@ def _orders_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     reach_whole = isinstance(reach_body, dict) and reach_body.get("complete") is not False
     older = _placed_before_window(reach_body, open_body) if open_whole else []
     window = _period_words(open_body, "the listing's window") if open_read else ""
+    # And the tail says the same of the rest of the year the cache keeps (round 13, F-01):
+    # every order it lists was placed before the long read began. Only when it was read whole
+    # as well has every order the cache can hold been looked at; otherwise the answer and the
+    # long read's card say how far back the read went.
+    tail_body = result.values.get("tail")
+    tail_whole = isinstance(tail_body, dict) and tail_body.get("complete") is not False
+    oldest_open = _rows(tail_body) if open_whole else []
+    reach_window = _period_words(reach_body if isinstance(reach_body, dict) else {}, f"last {OPEN_REACH_DAYS} days")
+    unchecked_oldest = open_whole and reach_whole and not tail_whole
     # The set the cursor walks is the operational one: the orders still to go out, oldest
-    # first. On a day with nothing waiting, today's orders are the set.
-    primary = "reach" if older else ("open" if waiting or not today_read else "today")
-    body = {"reach": reach_body, "open": open_body, "today": today_body}[primary]
+    # first. On a day with nothing waiting, today's orders are the set — unless the only
+    # orders waiting are the year-old ones. Where the oldest days could not be checked, the
+    # long read is drawn in place of the listing: with nothing older in it, it holds the same
+    # orders, and its card names the window that was read.
+    if older:
+        primary = "reach"
+    elif waiting or (not today_read and not oldest_open):
+        primary = "reach" if unchecked_oldest else "open"
+    elif oldest_open:
+        primary = "tail"
+    else:
+        primary = "today"
+    body = {"reach": reach_body, "open": open_body, "today": today_body, "tail": tail_body}[primary]
     if isinstance(body, dict):
         _open_workflow(ctx, body, kind="orders", operation="review")
     unchecked_older = open_whole and not older and not reach_whole
@@ -575,8 +630,21 @@ def _orders_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
         words = "None of the orders read so far are waiting to go out, but the read is not complete, so more may exist."
     elif unchecked_older:
         words = f"Nothing placed in the {window} is waiting to go out, and older orders could not be checked."
+    elif oldest_open:
+        words = f"Nothing placed in the {reach_window} is waiting to go out."
+    elif unchecked_oldest:
+        words = f"Nothing placed in the {reach_window} is waiting to go out, and orders placed before then could not be checked."
     else:
         words = "Nothing is waiting to go out."
+    if oldest_open:
+        first = oldest_open[0]
+        words += (f" {_how_many(tail_body, len(oldest_open))} order{'s' if len(oldest_open) != 1 else ''} placed before the "
+                  f"{reach_window} {'are' if len(oldest_open) != 1 else 'is'} still to go out; the oldest is "
+                  f"{str(first.get('order_number') or '').lstrip('#')} at {int(first.get('age_days') or 0)} days.")
+        if not tail_whole:
+            words += _hedge(tail_body)
+    elif unchecked_oldest and (older or waiting):
+        words += f" Orders placed before the {reach_window} could not be checked."
     if not today_read:
         words += " Today's orders could not be read."
     elif today:
@@ -585,12 +653,29 @@ def _orders_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
         words += " None of today's orders read so far, and more may exist."
     else:
         words += " None in today yet."
-    drawn = [c for c in (_call_named(result, primary), _call_named(result, "open" if primary == "today" else "today")) if c is not None]
+    shown = [primary, "open" if primary == "today" else "today"]
+    if oldest_open and primary != "tail":
+        shown.append("tail")
+    if unchecked_oldest and "reach" not in shown:
+        shown.append("reach")
+    drawn = [c for c in (_call_named(result, name) for name in shown) if c is not None]
+    surfaces = []
+    if unchecked_oldest:
+        # The long read's card says what its words say: how far back it went, and that the
+        # orders before then were not checked. An order list with no rows draws no card
+        # (app/analytics/present.py), so with nothing in the long read the landing draws the
+        # empty one itself.
+        unchecked = f"Orders placed before the {reach_window} could not be checked."
+        drawn = [_not_whole(c, unchecked) if c is _call_named(result, "reach") else c for c in drawn]
+        if not _rows(reach_body):
+            surfaces.append(_unchecked_card(str(reach_body.get("title") or f"To go out, {reach_window}"),
+                                            f"Nothing placed in the {reach_window} is waiting to go out. {unchecked}"))
     return RecipeAnswer(answer=words + _hedge(open_body if open_read else today_body),
-                      calls=list(result.calls), drawn=drawn,
+                      calls=list(result.calls), drawn=drawn, surfaces=surfaces,
                       partial=(result.partial or not (open_read and today_read) or not (open_whole and today_whole)
-                               or unchecked_older or (bool(older) and not reach_whole)),
+                               or unchecked_older or (bool(older) and not reach_whole) or (open_whole and not tail_whole)),
                       trace={"waiting": len(waiting), "today": len(today), "primary": primary, "older": len(older),
+                             "oldest": len(oldest_open),
                              "unread": [name for name, ok in (("open", open_read), ("today", today_read)) if not ok],
                              "incomplete": [name for name, ok, whole in (("open", open_read, open_whole), ("today", today_read, today_whole)) if ok and not whole]})
 
@@ -612,13 +697,13 @@ def _recent_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:   # noqa: ARG0
         return RecipeAnswer(answer="", defer="the inbox did not answer")
     threads = [t for t in (body.get("threads") or []) if isinstance(t, dict)]
     real = [t for t in threads if not t.get("likely_bulk")]
+    listed = len(threads)
     if not real:
         # Nobody among the emails read is not nobody this week. The read takes the newest
         # RECENT_LIMIT emails and leaves bulk mail out, so a person who wrote before a run of
         # newsletters is further back than it went (the round-12 deploy review, F/F-03). The
         # answer says how far it read, and a read that came back at its limit, or partial, is
         # a partial answer.
-        listed = len(threads)
         if listed >= RECENT_LIMIT:
             answer = f"None of the {listed} newest threads {RECENT_WHEN} is from a person, and mail before them was not read."
         else:
@@ -627,7 +712,16 @@ def _recent_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:   # noqa: ARG0
         return RecipeAnswer(answer=answer, calls=list(result.calls), partial=result.partial or listed >= RECENT_LIMIT,
                             trace={"threads": 0, "listed": listed, "days": RECENT_DAYS})
     newest = real[0]
-    return RecipeAnswer(answer=f"{len(real)} threads from people {RECENT_WHEN}; the newest is {newest.get('from') or 'someone'} about {newest.get('subject') or 'no subject'}.",
+    about = f"the newest is {newest.get('from') or 'someone'} about {newest.get('subject') or 'no subject'}."
+    if listed >= RECENT_LIMIT:
+        # The same limit when people are among them (round 13, F-02): the read stopped at its
+        # limit, so these are the people among the threads read, not everyone who wrote this
+        # week, and the answer is partial.
+        who = "is from a person" if len(real) == 1 else "are from people"
+        return RecipeAnswer(answer=f"{len(real)} of the {listed} newest threads {RECENT_WHEN} {who}; {about} Mail before those {listed} was not read.",
+                            calls=list(result.calls), partial=True,
+                            trace={"threads": len(real), "listed": listed, "days": RECENT_DAYS})
+    return RecipeAnswer(answer=f"{len(real)} threads from people {RECENT_WHEN}; {about}",
                         calls=list(result.calls), partial=result.partial, trace={"threads": len(real), "days": RECENT_DAYS})
 
 
@@ -776,7 +870,7 @@ def _products_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
 # --------------------------------------------------------------------------- registration
 
 register(Recipe(
-    recipe_id="landing_orders", read_primitives=("commerce_query",), parallel_nodes=(("open", "today", "reach"),),
+    recipe_id="landing_orders", read_primitives=("commerce_query",), parallel_nodes=(("open", "today", "reach", "tail"),),
     ui="order_list", cache_policy=CACHE_ANALYTICS, target_ms=1500, plan=_orders_plan, render=_orders_render,
 ))
 register(Recipe(
