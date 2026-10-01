@@ -319,6 +319,20 @@ def test_stage_is_what_lifecycle_view_reports_for_the_latest_revision(world):
         assert row["stage"] == (latest["stage"] if latest else None)
 
 
+def test_the_markdown_objective_table_carries_every_event_timestamp(world):
+    markdown = world.tmp / "loop.md"
+    report = run(world, "--markdown", str(markdown))
+    lines = markdown.read_text(encoding="utf-8").splitlines()
+    table = lines[lines.index("## Per objective") + 2:]
+    header = [cell.strip() for cell in table[0].strip("|").split("|")]
+    for title in ("First candidate", "Accepted", "Integrated", "Landed at"):
+        assert title in header
+    alpha = rows(report)["alpha"]
+    alpha_line = next(line for line in table if line.startswith("| alpha |"))
+    for key in ("first_candidate_at", "accepted_at", "integrated_at", "landed_at"):
+        assert alpha[key] and alpha[key] in alpha_line
+
+
 # ------------------------------------------------------------------ per day and in total
 
 
