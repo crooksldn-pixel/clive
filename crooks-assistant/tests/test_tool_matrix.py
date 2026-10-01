@@ -168,6 +168,9 @@ def test_looking_a_tool_up_asking_the_gate_or_drawing_a_made_up_call_does_not_te
             'async def stage(session, tool, **args):\n    return await dispatch(tool, args, session=session)\n'
             'async def run(session, which):\n    return await stage(session, which)\n'
             'stage(s, "probe_tool", x=1)\nrun(s, "probe_tool")'),
+        # A function a test defines and never calls runs nothing (the 2026-10-01 repair, F-01).
+        "a dispatch in a nested helper the test never calls": DISPATCH + (
+            'async def test_it():\n    async def go():\n        await dispatch("probe_tool", {})\n'),
         "a dispatch in a fixture no test asks for": DISPATCH + (
             'import pytest\n@pytest.fixture\nasync def staged():\n    await dispatch("probe_tool", {})\n'
             'def test_other():\n    assert True'),

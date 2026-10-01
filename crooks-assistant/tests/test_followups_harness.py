@@ -414,6 +414,22 @@ def test_a_dispatch_in_a_helper_is_a_citation_only_when_a_test_calls_the_helper(
                              'async def via():\n    await go()\nasync def test_it():\n    await via()\n')
 
 
+def test_a_dispatch_in_a_nested_helper_the_test_never_calls_is_not_a_citation():
+    """A function a test defines runs only when the test calls it or hands it on (the
+    2026-10-01 repair, F-01): defining `go` inside the test, and nothing more, runs no tool."""
+    assert not _cites(DISPATCH + 'async def test_it():\n    async def go():\n        await dispatch("probe_tool", {})\n')
+    assert not _cites(DISPATCH + 'async def test_it():\n    async def go():\n        await dispatch("probe_tool", {})\n'
+                                 '    async def via():\n        await go()\n')
+    assert not _cites(DISPATCH + 'async def helper():\n    async def go():\n        await dispatch("probe_tool", {})\n'
+                                 'async def test_it():\n    await helper()\n')
+    assert _cites(DISPATCH + 'async def test_it():\n    async def go():\n        await dispatch("probe_tool", {})\n'
+                             '    await go()\n')
+    assert _cites(DISPATCH + 'import anyio\ndef test_it():\n    async def go():\n        await dispatch("probe_tool", {})\n'
+                             '    anyio.run(go)\n')
+    assert _cites(DISPATCH + 'async def test_it():\n    async def go():\n        await dispatch("probe_tool", {})\n'
+                             '    async def via():\n        await go()\n    await via()\n')
+
+
 def test_a_helper_only_the_files_top_level_code_calls_is_not_a_citation():
     """The file's top-level code is not a test: a helper reached from it alone credits nothing,
     whether it dispatches itself or forwards the tool a call names (the 2026-10-01 repair, F-02)."""

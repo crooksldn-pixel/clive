@@ -345,7 +345,11 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
     the runtime, whose `turn` the application then calls) is taken to run its methods. A
     dispatch inside a helper nothing that runs calls (an `async def go()` no test awaits) runs no
     tool, and is not a citation (the 2026-09-28 deploy review, round 9, I-tests5 I-05, still
-    present at round 12). Functions nested inside one that runs are taken to run with it."""
+    present at round 12). A function nested inside one that runs is held to the same rule: it
+    runs only when the running code around it uses it: calls it (`asyncio.run(go())`), hands it
+    to a call (`anyio.run(go)`) or returns it to a caller that will (a model step a test
+    builds). One it defines and never names again runs nothing (the 2026-10-01 repair, F-01). A class nested in running code runs its methods, as a class of the
+    file does when it is made."""
     units: dict[str, list[ast.AST]] = {}
     classes: dict[str, list[ast.AST]] = {}
     loose: list[ast.AST] = []            # statements that run on import
@@ -376,9 +380,53 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
 
     fixtures = {name for name, fns in units.items() if any(is_fixture(fn)[0] for fn in fns)}
 
+    def runs_with(root: ast.AST) -> list[ast.AST]:
+        """The nodes of `root` that run when it does: its own code, and a function nested in it
+        only once that code names the function again."""
+        out: list[ast.AST] = []
+        nested: dict[str, list[ast.AST]] = {}
+
+        def visit(children) -> None:
+            stack = list(children)
+            while stack:
+                node = stack.pop()
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    # Defining it runs its decorators and defaults, not its body.
+                    nested.setdefault(node.name, []).append(node)
+                    stack.extend(node.decorator_list)
+                    stack.extend(node.args.defaults)
+                    stack.extend(d for d in node.args.kw_defaults if d is not None)
+                    continue
+                if isinstance(node, ast.ClassDef):
+                    out.append(node)
+                    for item in node.body:
+                        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            out.append(item)
+                            stack.extend(ast.iter_child_nodes(item))
+                        else:
+                            stack.append(item)
+                    stack.extend([*node.decorator_list, *node.bases, *node.keywords])
+                    continue
+                out.append(node)
+                stack.extend(ast.iter_child_nodes(node))
+
+        def reaches() -> set[str]:
+            # A name the running code reads: a call, an argument, a return, a list entry.
+            return {node.id for node in out if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)}
+
+        visit(ast.iter_child_nodes(root))
+        entered: set[str] = set()
+        while waiting := (reaches() & nested.keys()) - entered:
+            for name in waiting:
+                entered.add(name)
+                for fn in nested[name]:
+                    out.append(fn)
+                    visit(fn.body)
+        return out
+
     def called(within: ast.AST) -> set[str]:
         out: set[str] = set()
-        for node in ast.walk(within):
+        for node in runs_with(within):
             if not isinstance(node, ast.Call):
                 continue
             if isinstance(node.func, ast.Name):
@@ -413,7 +461,7 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
             todo.extend(asked_for(fn))
     in_tests: set[int] = set()
     for root in running:
-        in_tests |= {id(node) for node in ast.walk(root) if isinstance(node, ast.Call)}
+        in_tests |= {id(node) for node in runs_with(root) if isinstance(node, ast.Call)}
     at_top = {id(node) for root in loose for node in ast.walk(root) if isinstance(node, ast.Call)}
     return in_tests | at_top, in_tests
 
