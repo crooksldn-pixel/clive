@@ -342,7 +342,8 @@ def test_a_fulfilment_closes_the_job_it_was_for_in_the_name_of_who_confirmed_it(
 
 def test_a_reply_sent_by_the_owner_is_recorded_as_his_and_closes_a_claimed_job():
     job = work.claim_found(ref=EMAIL, kind="reply_email", title="Reply to Sam", details="", who="mia")
-    hooks.after_commit(made("gmail_send_reply", entity=EMAIL.removeprefix("email:"), caller="owner@example.com"))
+    with owner():                                                   # the commit route runs in the owner's request
+        hooks.after_commit(made("gmail_send_reply", entity=EMAIL.removeprefix("email:"), caller="owner@example.com"))
     assert work.get(job.item_id).done_by == "owner"
     assert work.history(who="owner")[1]["what"] == "replied"
 
