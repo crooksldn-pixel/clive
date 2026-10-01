@@ -70,6 +70,28 @@ SAFE = frozenset({
     "verified", "caller_present", "kept", "reason", "command", "replayed", "entity", "cards",
     "shape", "text", "screen", "fingers", "target", "phase", "undo_of", "event",
 })
+# Fields that may be printed only as one of their own values (round 12, SC1-02). `claim` says
+# which claim an `unsupported_claim` is (app/observability/claims.py screen_claim), and `drew`
+# what the Mac drew to make a screen claim true (app/routes/turn.py _hold_to_the_screen): an
+# order's number, or the kind of record it drew. Anything else it may hold — a record's label in
+# words, which can be a customer's name — is printed as "a record".
+CLAIMS = frozenset({"on_screen"})
+DREW_KINDS = frozenset({"order", "customer", "email_thread"})
+_ORDER_NUMBER = re.compile(r"#?[0-9]{1,12}")
+
+
+def _drew(value: Any) -> str | None:
+    if not value:
+        return None
+    if isinstance(value, str) and (value in DREW_KINDS or _ORDER_NUMBER.fullmatch(value)):
+        return value
+    return "a record"
+
+
+CONTROLLED = {
+    "claim": lambda value: value if isinstance(value, str) and value in CLAIMS else None,
+    "drew": _drew,
+}
 
 DIM, BOLD, RESET = "\033[2m", "\033[1m", "\033[0m"
 COLOUR = {"FAST": "\033[32m", "NORMAL": "\033[36m", "DEEP": "\033[35m",
@@ -201,7 +223,9 @@ class Watch:
     def lines(self, event: dict[str, Any]) -> list[str]:
         """Everything this event is worth saying, in order. Usually one line; two when the
         tablet and the Mac have just been caught disagreeing."""
+        controlled = {k: CONTROLLED[k](v) for k, v in event.items() if k in CONTROLLED}
         event = {k: v for k, v in event.items() if k in SAFE or k in ("ts", "iso")}
+        event.update({k: v for k, v in controlled.items() if v is not None})
         kind = str(event.get("kind") or "")
         head = self.head(event)
         out: list[str] = []

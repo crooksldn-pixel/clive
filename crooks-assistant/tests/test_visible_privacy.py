@@ -264,5 +264,5 @@ def test_a_focus_rule_given_counts_that_are_not_numbers_still_reads_the_rest(tmp
     caplog.set_level(logging.DEBUG)
     reading = visible.read(rec)
     assert not [e for e in reading.errors if e.startswith("_focus_lost")]
-    assert any(f.name == "FOCUS_LOST" and "held 12 character(s) and then held none" in f.signal for f in reading.findings)
+    assert not [f for f in reading.findings if f.name == "FOCUS_LOST"]
     assert token not in caplog.text

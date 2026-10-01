@@ -1095,7 +1095,7 @@ def _feedback(rec: Any) -> tuple[list[Finding], list[dict[str, Any]], list[dict[
         ignored.append({"turn_id": turn.turn_id, "shape": recognition.kind, "text": _said(recognition.text, 2000),
                         "answer": answer, "at": turn.started_at,
                         # The card types a page said it drew: as identifiers, or withheld (round 11, F-OBS2-01).
-                        "screen": [page_identifier(c.get("type")) for r in turn.tablet_events("render")
+                        "screen": [as_identifier(c.get("type")) for r in turn.tablet_events("render")
                                    for c in (r.get("cards") or []) if isinstance(c, dict)][:6]})
         out.append(Finding(
             "OWNER_FEEDBACK_IGNORED", turn.turn_id,
@@ -1151,18 +1151,20 @@ def _collisions(rec: Any) -> list[Finding]:
     return out
 
 
-def _whole(value: Any) -> int:
-    """A count or a size the tablet sent: a whole number, or nought. A value a page sent that is
-    not one is not a reason for the rule reading it to fail (round 9, F-OBS2-02)."""
+def _whole(value: Any) -> int | None:
+    """A count or a size the tablet sent, as a whole number; None when it sent none, or sent
+    something that is not one. A value a page sent that is not a number is not a reason for the
+    rule reading it to fail (round 9, F-OBS2-02), and it is not nought either: it says nothing
+    about what was there (round 12, O1-02), so a rule given one has no measurement to compare."""
     if isinstance(value, bool):
-        return 0
+        return None
     if isinstance(value, int):
         return value
     if isinstance(value, float) and value == value and abs(value) < 1e15:
         return int(value)
     if isinstance(value, str) and _WHOLE.fullmatch(value.strip()):
         return int(value.strip())
-    return 0
+    return None
 
 
 _WHOLE = re.compile(r"-?[0-9]{1,15}")
@@ -1175,10 +1177,14 @@ def _focus_lost(rec: Any) -> list[Finding]:
     whose contents went from something to nothing across a render. Or the scroll position did:
     a deep scroll, then a redraw, then the top of the same document, with no navigation
     between to explain it.
+
+    Only between two measurements that can both be read (round 12, O1-02): a count that is not
+    a number is not an empty field, and a depth that is not one is not the top of the page, so
+    neither is a place lost, and neither is the place he was in when the next one comes.
     """
     out: list[Finding] = []
     ordered = sorted(rec.events, key=lambda e: (float(e.get("ts") or 0.0), int(e.get("seq") or 0)))
-    typed = 0
+    typed: int | None = None
     for i, event in enumerate(ordered):
         kind = str(event.get("kind") or "")
         ts = float(event.get("ts") or 0.0)
@@ -1192,7 +1198,7 @@ def _focus_lost(rec: Any) -> list[Finding]:
             ))
         elif kind == "tablet_compose_field":
             chars = _whole(event.get("chars"))
-            if typed > 0 and chars == 0:
+            if typed is not None and typed > 0 and chars == 0:
                 out.append(Finding(
                     "FOCUS_LOST", turn_id,
                     f"the composer's {event.get('name') or 'field'} held {typed} character(s) "
@@ -1209,13 +1215,18 @@ def _focus_lost(rec: Any) -> list[Finding]:
                     break
                 if earlier_kind in ("command", "tablet_navigate", "tablet_tab"):
                     break     # he moved: the top of a new screen is where he asked to be
-                if earlier_kind == "tablet_scroll" and _whole(earlier.get("depth")) > 0:
-                    deep, at = earlier, j
-                    break
+                if earlier_kind == "tablet_scroll":
+                    depth = _whole(earlier.get("depth"))
+                    if depth is None:
+                        break     # where he was then cannot be read
+                    if depth > 0:
+                        deep, at = earlier, j
+                        break
             if deep is None:
                 continue
-            if _whole(deep.get("height")) != _whole(event.get("height")):
-                continue      # a different document: the place could not be kept
+            before, after = _whole(deep.get("height")), _whole(event.get("height"))
+            if before is None or after is None or before != after:
+                continue      # a different document, or one that cannot be told: the place could not be kept
             between = [e for e in ordered[at:i]
                        if str(e.get("kind") or "") in ("tablet_render", "branch_focused")]
             if not between:
@@ -1350,10 +1361,25 @@ _PAGE_TEXT = frozenset({"message", "detail", "text", "question"})
 _PAGE_DEPTH = 8
 
 
-# A value a page sent, as the report may count it (screens.page_identifier), and the mark it
-# is given when it is not an identifier.
-as_identifier = page_identifier
 WITHHELD_MARK = WITHHELD
+
+
+def _a_told_name(text: str) -> bool:
+    """Whether a customer name this process has been told stands in `text`, its words joined by any
+    of an identifier's separators ('zoe_quill', 'zoe.quill', 'zoe-quill' for Zoe Quill): a page
+    can send a name in an identifier's shape, and the shape does not make it one (round 9,
+    R9-F-observability2-F-OBS2-01, ruled still present at round 12)."""
+    from app.observability.timeline import holds_a_told_name
+
+    return holds_a_told_name(text)
+
+
+def as_identifier(value: Any) -> str:
+    """A value a page sent, as the report may count it: an identifier as it is
+    (screens.page_identifier), and WITHHELD when it is not one or when a told name stands in it
+    ('' stays '')."""
+    shown = page_identifier(value)
+    return WITHHELD if shown not in ("", WITHHELD) and _a_told_name(shown) else shown
 
 
 def as_number(value: Any) -> Any:
@@ -1370,7 +1396,7 @@ def as_path(value: Any) -> str:
     else WITHHELD ('' stays '')."""
     text = str(value if value is not None else "").strip()
     rest = text.lstrip("/")
-    shown = page_identifier(rest)
+    shown = as_identifier(rest)
     return shown if shown in ("", _WITHHELD) else text[: len(text) - len(rest)] + shown
 
 
@@ -1463,14 +1489,15 @@ def _word_char(ch: str) -> bool:
 
 
 def page_words(events: list[dict[str, Any]]) -> PageWords:
-    """Every string a page sent in these events that is not an identifier. The report's own
-    classifier withholds them from its signals too (report.reconstruct)."""
+    """Every string a page sent in these events that is not an identifier, or is one a told name
+    stands in (as_identifier). The report's own classifier withholds them from its signals too
+    (report.reconstruct)."""
     found: set[str] = set()
 
     def walk(value: Any, depth: int) -> None:
         if isinstance(value, str):
             text = value.strip()
-            if text and not (len(text) <= 64 and _IDENTIFIER.fullmatch(text)):
+            if text and not (len(text) <= 64 and _IDENTIFIER.fullmatch(text) and not _a_told_name(text)):
                 found.add(text)
         elif depth < _PAGE_DEPTH and isinstance(value, dict):
             for key, item in value.items():

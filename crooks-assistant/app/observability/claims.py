@@ -158,7 +158,7 @@ def follow_up_shape(question: str) -> str | None:
 #
 # Narrow on purpose (the round-12 independent check, C2): a claim is a sentence that says,
 # positively, that something is on HIS screen — "on your screen", "on the tablet", "on screen" —
-# or up here. Not "up" on its own ("they're up again this week", "I've put the price up"), not
+# or up here, or open in the app. Not "up" on its own ("they're up again this week", "I've put the price up"), not
 # a sentence that says it is not there or cannot be ("I can't show that on the screen"), and
 # never one of his TVs or named screens ("on the office screen", "on the screen in the shop",
 # "up on the office TV"), which `screen_show` keeps honest itself. And only something said to be
@@ -174,6 +174,9 @@ ON_SCREEN_RE = re.compile(
     r"\bon[- ]?screen\b"
     rf"|\bon\s+(?:{_HIS_SCREEN})\b"
     r"|\b(?:up|showing|shown|open|displayed)\s+(?:right\s+)?here\b"
+    # Up or open IN his app (round 12, O2-N-03: "Order #1938 is open in the app now."), never the
+    # App Store.
+    r"|\b(?:up|showing|shown|open|displayed)\s+in\s+(?:your|the|this)\s+app\b(?!\s+store)"
     r"|\bin\s+front\s+of\s+you\b"
     r"|\bpulled\s+(?:(?:it|that|this|them|those)\s+(?:back\s+)?up\b|up\s+(?:the|your|order|orders|#))",
     re.I,
