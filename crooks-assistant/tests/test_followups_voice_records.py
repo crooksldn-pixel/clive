@@ -12,8 +12,9 @@ pad's health say what is true.
   model's answer only, and the App Store is not the app.
 - SC1-02 (scripts/watch.py): a screen claim is printed as one, with `claim` and `drew` let through
   only as their own controlled values.
-- R9-F-observability2-F-OBS2-01 (app/observability/timeline.py, visible.py): a told name a page
-  sends in an identifier's shape is withheld as the plain name is.
+- R9-F-observability2-F-OBS2-01 (app/observability/timeline.py, visible.py, touch.py): a told name
+  a page sends in an identifier's shape is withheld as the plain name is, in the findings and in
+  every table of the report.
 - T1-04 (tests/test_pad.py _limited_to_liveness): the housekeeping check must be there, and is a
   verdict, passing or failing, and nothing else.
 
@@ -508,6 +509,29 @@ def test_a_told_name_a_page_sends_as_an_identifier_is_not_in_the_report(told, tm
     assert "[withheld]" in markdown
     assert "order.add_note" in markdown and "'lines'" in markdown, "identifiers that are no told name are printed"
     assert [row["screen"] for row in rec.experience.ignored_feedback] == [["[withheld]"]]
+
+
+def test_a_told_name_a_page_sends_as_a_field_name_is_not_in_the_reports_precision_table(told, tmp_path):
+    """The report's "Precision input needed" table (report._precision_input, from touch.precision_evidence)
+    names the composer field and the keyboard's field and reason a page sent: a told name joined
+    as an identifier is withheld there as the plain name is, and an identifier is still named."""
+    from tests.test_analyser import Tape, _finished, _turn
+
+    tape = Tape("ts-20261001-093000-precision")
+    t = _turn(tape, "turn_precision", said="write to the supplier", input_="text")
+    tape.add("tablet_compose_field", source="tablet", turn_id=t, name="zoe_quill", chars=12)
+    tape.add("tablet_keyboard", source="tablet", turn_id=t, state="shown", name="zoe.quill", reason="zoe-quill")
+    tape.add("tablet_compose_field", source="tablet", turn_id=t, name="Zoe Quill", chars=3)
+    tape.add("tablet_compose_field", source="tablet", turn_id=t, name="composer-subject", chars=9)
+    _finished(tape, t, answer="The composer is open.", question="write to the supplier")
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    _rec, markdown = build_report(tape.write(tmp_path))
+    assert not _leaks(markdown), _leaks(markdown)[:5]
+    rows = [line for line in markdown.splitlines() if line.startswith("| turn_precision |")]
+    assert "| turn_precision | a value was typed into the composer ([withheld]) | 12 character(s) |" in rows, rows
+    assert "| turn_precision | the keyboard was opened on [withheld] | [withheld] |" in rows, rows
+    assert "| turn_precision | a value was typed into the composer ([withheld]) | 3 character(s) |" in rows, rows
+    assert "| turn_precision | a value was typed into the composer (composer-subject) | 9 character(s) |" in rows, rows
 
 
 # ------------------------------------------------------------------ T1-04: a refused caller's health

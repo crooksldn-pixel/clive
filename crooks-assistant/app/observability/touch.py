@@ -487,8 +487,17 @@ def taps_in(touches: list[Touch], name: str) -> int:
 def precision_evidence(turn: Any) -> list[tuple[str, str]]:
     """What this turn shows about a value that had to be exact, as (what, detail) pairs. A field's
     name and a reason are a page's words, so each is given as an identifier or withheld (round 11,
-    F-OBS2-01: screens.page_identifier)."""
-    from app.observability.screens import page_identifier as as_identifier
+    F-OBS2-01: screens.page_identifier), and withheld too when a customer name this process has
+    been told stands in it, its words joined as an identifier's are ('zoe_quill', 'zoe.quill'):
+    the shape does not make a name an identifier (round 9, R9-F-observability2-F-OBS2-01). This is
+    the rule visible.as_identifier keeps, written here because no module beside the report's own
+    may import visible.py, one of the report's readers (tests/test_visible_privacy.py)."""
+    from app.observability.screens import WITHHELD, page_identifier
+    from app.observability.timeline import holds_a_told_name
+
+    def as_identifier(value: Any) -> str:
+        shown = page_identifier(value)
+        return WITHHELD if shown not in ("", WITHHELD) and holds_a_told_name(shown) else shown
 
     out: list[tuple[str, str]] = []
     for event in turn.tablet_events("compose_field"):
