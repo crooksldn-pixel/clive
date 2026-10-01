@@ -235,10 +235,10 @@ def test_a_key_holder_that_never_draws_a_page_is_held_to_the_servers_plan_and_it
     starting where the one before ended — says it back with every acknowledgement, and takes
     only the plan's next page, a second after the last. What it cannot decide it says plainly:
     these are direct, paced POSTs that never render a page, and they still mark the order done —
-    so the done row records that it was marked with the screen's own button (`how` "screen"),
-    and CLIVE says it as that screen's word, not a check. The owner's remote, every item ticked
-    on his own device, is recorded as "remote". Whether a screen's word is to count as packed is
-    the owner's ruling, not this code's."""
+    so the done row records that it was marked with the screen's own button (`how` "screen").
+    The owner's remote, every item ticked on his own device, is recorded as "remote". The owner
+    ruled on 1 October (ruling 12, closing B-04) that either counts as packed, so CLIVE says each
+    as packed on that screen, and how it was marked."""
     from app.tools import display_tools
 
     client = app_with(s)
@@ -269,7 +269,7 @@ def test_a_key_holder_that_never_draws_a_page_is_held_to_the_servers_plan_and_it
     row = s.done()[0]
     assert row["how"] == "screen" and row["by"] == OWNER_LOGIN
     listed = run(display_tools.screen_list(order_id=ORDER["order_id"]))
-    assert listed["done"][0]["marked"] == "marked packed with the Packing screen's own button: that screen's word, not a check"
+    assert listed["done"][0]["marked"] == "packed on the Packing screen: marked with that screen's own button"
     # The remote's done: the owner's ticks, item by item, from his own device.
     s.show(sid, views.list_view("Today", ["One", "Two"]))
     v = s.remote(sid)["panes"][0]["v"]
@@ -280,7 +280,7 @@ def test_a_key_holder_that_never_draws_a_page_is_held_to_the_servers_plan_and_it
     said = run(display_tools.screen_list())["done"][0]["marked"]
     # Round 11: not "ticked there" — a packing tablet ticks items through the same routes, so
     # where each tick was made is not said (tests/test_r11_screens_server.py).
-    assert said == "marked done from the owner's remote for the Packing screen, with every item ticked"
+    assert said == "done on the Packing screen: marked from the owner's remote, with every item ticked"
 
 
 def test_a_done_row_from_before_says_nothing_it_does_not_know(tmp_path):

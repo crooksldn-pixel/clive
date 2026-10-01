@@ -580,17 +580,17 @@ def test_an_owed_deletion_is_never_lost_to_a_later_one_however_that_one_fails(tm
 # --------------------------------------------------------------------------- B-04
 
 def test_a_screen_using_the_remotes_routes_is_still_a_screen_and_never_the_owners_remote(tmp_path):
-    """B-04 (round 9, no ruling in round 10): the done record says how each row was marked,
-    "screen" for a screen's own button — its word, not a check — and "remote" for the owner's
-    remote. But a screen is one of the owner's devices by its login, so it can reach the
+    """B-04 (round 9): the done record says how each row was marked, "screen" for a screen's own
+    button — its word — and "remote" for the owner's remote. But a screen is one of the owner's devices by its login, so it can reach the
     remote's routes (its own page ticks items through them), and from there it could tick every
     item and mark the order packed with no page drawn and nobody packing — and the row said the
     owner's own remote had. Now a request from a device that is itself a screen — carrying a
     screen's key, or asking from the tailnet address a screen's key-holder asks from, which a
     page that leaves its cookie out cannot change — is recorded as "screen_remote", a screen's
     word, and said so; across a restart too. The owner's phone is still "remote". And a screen's
-    own Mark packed marks only what its page has a button for, an order or a list. Whether a
-    screen's word counts as packed is the owner's ruling, still to be made."""
+    own Mark packed marks only what its page has a button for, an order or a list. The owner
+    ruled on 1 October (ruling 12, closing B-04) that a screen's word counts as packed, so the
+    row is said as packed, and still never as the owner's own remote."""
     from app.tools import display_tools
 
     s = store_module.install(tmp_path / "objectives" / "displays.json", mono=Tick())
@@ -622,7 +622,8 @@ def test_a_screen_using_the_remotes_routes_is_still_a_screen_and_never_the_owner
     assert client.get(f"/displays/{sid}?v=-1", headers={**tv_v6, "Cookie": f"clive_screen={key}"}).status_code == 200
     assert forge(tv_v6) == "screen_remote" and forge(tv_device) == "screen_remote"
     said = run(display_tools.screen_list(order_id=ORDER["order_id"]))["done"][0]["marked"]
-    assert said.endswith("not the owner's own remote: a screen's word, not a check"), said
+    assert said == ("packed on the Packing screen: marked with the remote's controls on a device that is itself one "
+                    "of the screens, not the owner's own remote"), said
     # The owner's own phone: the owner's remote.
     assert forge(OWNER) == "remote"
     # The screen's own Mark packed takes an order or a list, and nothing its page has no button
