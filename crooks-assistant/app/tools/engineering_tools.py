@@ -402,7 +402,13 @@ class _Story:
             state, why = self.landing["state"], _said(self.landing.get("reason"))
             if state == "landed":
                 sha = _sha(self.landing.get("sha"))
-                return "landed on the trunk" + (f" as {sha[:7]}" if sha else "")
+                where = "on the trunk" + (f" as {sha[:7]}" if sha else "")
+                by = self.landing.get("by")
+                if by == "other":
+                    return f"{where}, put there by someone other than the loop"
+                if by == "unconfirmed":
+                    return f"{where}; the loop began pushing it, but cannot tell whether its push or someone else's put it there"
+                return f"landed {where}"
             if state == "waiting":
                 return "now waiting to land on the trunk" + (f": {why}" if why else "")
             if state == "refreshing":

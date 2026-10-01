@@ -767,6 +767,31 @@ async def test_a_landed_build_says_where_it_landed_and_a_refused_landing_needs_t
                                               "trunk.")
 
 
+async def test_a_sha_someone_else_put_on_the_trunk_is_never_said_to_be_the_loops_landing(fake, bound):
+    fake.status["requests"] = [
+        {"request_id": "landed-by-other", "outcome": "accepted", "stage": "COMPLETE", "candidate_sha": "c" * 40,
+         "build_history": _history(1, ("build", 1)),
+         "landing": {"state": "landed", "sha": LANDED_SHA, "at": "2026-09-30T14:05:00+00:00", "reason": None,
+                     "by": "other"}},
+        {"request_id": "landed-unconfirmed", "outcome": "accepted", "stage": "COMPLETE", "candidate_sha": "d" * 40,
+         "build_history": _history(1, ("build", 1)),
+         "landing": {"state": "landed", "sha": LANDED_SHA, "at": "2026-09-30T14:05:00+00:00", "reason": None,
+                     "by": "unconfirmed"}},
+        {"request_id": "landed-by-loop", "outcome": "accepted", "stage": "COMPLETE", "candidate_sha": "e" * 40,
+         "build_history": _history(1, ("build", 1)),
+         "landing": {"state": "landed", "sha": LANDED_SHA, "at": "2026-09-30T14:05:00+00:00", "reason": None,
+                     "by": "loop"}},
+    ]
+    rows = _status_rows(await engineering_tools.engineering_status())
+
+    assert rows["landed-by-other"]["history"] == ("Built once; on the trunk as abc1234, put there by someone other "
+                                                  "than the loop.")
+    assert rows["landed-unconfirmed"]["history"] == (
+        "Built once; on the trunk as abc1234; the loop began pushing it, but cannot tell whether its push or "
+        "someone else's put it there.")
+    assert rows["landed-by-loop"]["history"] == "Built once; landed on the trunk as abc1234."
+
+
 async def test_a_request_waiting_for_its_base_is_waiting_not_refused_and_needs_no_refiling(fake, bound, monkeypatch):
     monkeypatch.setattr(engineering_tools, "_progress_cache", {})
     fake.status["waiting_requests"] = [{

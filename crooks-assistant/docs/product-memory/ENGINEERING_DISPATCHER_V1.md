@@ -124,6 +124,8 @@ Why: on 30 September six of seven builds the owner filed were BLOCKED with GitHu
 - At review dispatch a red answer routes a repair revision (`kind: repair`, starting from the red SHA), the kernel's existing repair route. The dispatcher records its own block first (reason `red GitHub acceptance, repair routed: …`), because the kernel lets a new revision supersede a live one only once it is blocked, then the repair revision; a restart between the two completes it.
 - **What the next builder is told.** Fetched through the gate client with the gate's own credential (`GitHubAcceptance.failure_log`): the red run's jobs, the failed job (the `acceptance` job first), and `GET /repos/{repo}/actions/jobs/{job_id}/logs`, whose redirect to a signed URL is followed without the credential. From the log: pytest's short summary (the FAILED and ERROR lines), the failing assertion lines (`E …`), and at most 4 KB of its tail, all redacted through the check server's secret redaction and credentials in URLs, with GitHub's timestamps and colours removed. The run and job URLs are built from GitHub's ids. If the log cannot be fetched, the repair still goes, with the run URL, the job and step names, and a line saying the log could not be fetched. Recorded at `<runtime>/evidence/<attempt>/github-failure.json`.
 - **Bounded.** Review repairs and GitHub repairs share `max_repair_rounds`. Once they are used, red blocks as it always did, naming the last failure (the failing tests and the job, never raw log text). It is never an owner gate: GitHub acceptance is the loop's gate, not an owner decision, and the repair prompt tells the builder not to report `owner_decision_required` for it.
+- **Only a run that failed its tests is repaired.** A repair goes only when a completed run concluded `failure` or `timed_out`. A run GitHub cancelled, never started (`startup_failure`) or let go `stale`, or a success whose acceptance job never ran, is red but leaves nothing for a builder to fix. It blocks as red always did, spends no repair round and fetches no log (the #70 pre-review).
+- **A red that routes a repair is asked at that moment.** At review dispatch a remembered red answer is not reused: GitHub is asked again, so a run re-run green since is seen and the candidate goes to review instead (the #70 pre-review). A restart between the `red GitHub acceptance, repair routed` block and its repair revision completes the decision made on that fresh red.
 - **Not "rerun until green".** Every repair is a new SHA made by a builder; the loop never re-runs a job. Integration and landing still ask afresh and refuse red, and a READY verdict still waits for, or is refused by, the gate exactly as before.
 
 ### 3. The loop lands its own work
@@ -142,8 +144,11 @@ The loop lands only SHAs it integrated while landing was on (marked before the k
 - pending waits, within the same bound as any other landing.
 
 The record says who put it there (`by`):
-- `loop` for the loop's own push, recognised by the intent it wrote before pushing;
-- `other` for anyone else. The loop never counts that as its own landing (the 2c8d2caf re-pin review, F-01).
+- `loop` only for a push the loop saw git accept. The moment git accepts it, the loop adds `pushed_at` to the push intent, so a restart after that point knows the push was its own.
+- `unconfirmed` when the loop wrote an intent but never saw git accept the push. The intent is written before git runs, so on its own it proves nothing: git may have refused the push, or someone else may have pushed the same SHA.
+- `other` for anyone else.
+
+Neither `unconfirmed` nor `other` is ever counted as the loop's landing (the 2c8d2caf re-pin review, F-01, and the #70 pre-review). CLIVE says "on the trunk, put there by someone other than the loop" or "the loop began pushing it, but cannot tell whether its push or someone else's put it there".
 
 **If the trunk has moved** (the SHA does not contain its head), the loop routes a refresh: revision r+1 of `kind: integration`, based on the trunk head, run by the integrator in a fresh workspace made by the loop, merging the objective's integrated SHA; the dispatcher records the merged tree as a merge commit whose parents are the objective's SHA and the trunk head, runs the generators on it, checks it and pushes it to the objective's branch. That merge SHA needs its own green acceptance and its own READY review, through the normal path, before it can land. A conflict blocks it: `merging the trunk into <branch> conflicts in <paths>; the Director resolves it`. Refreshes are bounded (`DispatcherConfig.max_landing_refreshes`, default 3); after that the landing is refused for the Director.
 
@@ -158,7 +163,7 @@ The record says who put it there (`by`):
 - `attempts`: every attempt of the objective, oldest first, as `{"attempt_id", "revision", "outcome", "reason", "at"}`, where `outcome` is `launched`, `cancelled`, `refused` (CLIVE refused its result), `candidate` or `blocked` (a resume restores what it was before the block);
 - `repairs`: `{"review": n, "ci": n, "max": max_repair_rounds}`, the repair revisions routed from a review and from a red GitHub run (they share `max`);
 - `generated`: the output paths the loop regenerated for the current revision's candidate;
-- `landing`: `null` while there is nothing to land yet, else `{"state", "sha", "at", "reason"}` with `state` one of `off` (landing switched off), `waiting`, `landed`, `refused` or `refreshing`.
+- `landing`: `null` while there is nothing to land yet, else `{"state", "sha", "at", "reason", "by"}`. `state` is one of `off` (landing switched off), `waiting`, `landed`, `refused` or `refreshing`. A refresh stays `refreshing` while a repair of its merge is under way. `by` is set only for `landed`: `loop`, `unconfirmed` or `other`.
 
 ## Builder driver: Claude Code CLI (verified 2026-09-23, CLI 2.1.280)
 

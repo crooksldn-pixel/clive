@@ -1267,6 +1267,34 @@ def test_a_crash_between_intake_and_the_receipt_recovers_idempotently(env, tmp_p
     assert kernel2.store.read_attempts() == ()
 
 
+def test_a_replay_after_the_trunk_moved_rebuilds_from_what_the_interrupted_admission_recorded(env, tmp_path):
+    """The loop's own fetches now move the trunk ref (landing, a base fetch). A crash between intake and the
+    receipt, then the trunk moving, must not turn the replay into a refusal of an objective that already exists:
+    the replay rebuilds from the base and product-memory commits the admission recorded (the #70 pre-review)."""
+    commit_request(env.origin, "r-moved", valid_request(env, request_id="r-moved"))
+    kernel, objectives, receipts, controller = _crash_controller(env, tmp_path)
+    with pytest.raises(RuntimeError):
+        controller.poll_once()
+    admitted = objectives.read("r-moved")
+    assert admitted is not None and receipts.get("r-moved") is None
+    assert admitted.product_memory_sha == env.base
+
+    # The trunk moves on in the engineering repo before the restart: both refs now name a newer commit.
+    (env.checkout / "later.txt").write_text("later\n")
+    _git(env.checkout, "add", "-A")
+    _git(env.checkout, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "the trunk moved on")
+    assert _git(env.checkout, "rev-parse", "main") != env.base
+
+    kernel2, objectives2, receipts2, controller2 = _live_controller(env, tmp_path)
+    [outcome] = controller2.poll_once()
+
+    assert outcome["outcome"] == "accepted", outcome
+    assert receipts2.get("r-moved").outcome == "accepted"
+    rebuilt = objectives2.read("r-moved")
+    assert rebuilt == admitted and rebuilt.product_memory_sha == env.base and rebuilt.base_sha == env.base
+    assert len(kernel2.store.read_tasks()) == 1
+
+
 def test_a_crash_before_the_receipt_still_refuses_changed_bytes_for_that_id(env, tmp_path):
     """Provenance may not be replaced by bytes that merely parse to the same request."""
     commit_request(env.origin, "r-swap", valid_request(env, request_id="r-swap"))
@@ -2453,7 +2481,7 @@ DISPATCHER_KEYS = {
     ],
     "repairs": {"review": 1, "ci": 1, "max": 2},
     "generated": ["crooks-assistant/docs/phase4/TOOL_MATRIX.md"],
-    "landing": {"state": "landed", "sha": LANDED, "at": "2026-09-30T11:30:00+00:00", "reason": None},
+    "landing": {"state": "landed", "sha": LANDED, "at": "2026-09-30T11:30:00+00:00", "reason": None, "by": "loop"},
 }
 PROJECTED_BASE_KEYS = {"request_id", "source", "request_sha256", "outcome", "reason", "objective_id", "task_id",
                        "recorded_at"}
@@ -2611,7 +2639,7 @@ def test_every_dispatcher_value_is_rebuilt_bounded_and_carries_no_secret_or_cust
         "repairs": {"review": -1, "ci": True, "max": "2"},
         "generated": [f"docs/generated_{n}.md" for n in range(25)] + [PROJECTION_KEY, "../escape.md", CUSTOMER_EMAIL],
         "landing": {"state": "merged-by-magic", "sha": "ABCDEF0123" * 4, "at": 12,
-                    "reason": f"{long_reason} {PROJECTION_TOKEN}"},
+                    "reason": f"{long_reason} {PROJECTION_TOKEN}", "by": "the loop, honest"},
     }
     [item] = _published(tmp_path, _Reporting([entry]), "r-built")["requests"]
 
@@ -2625,6 +2653,7 @@ def test_every_dispatcher_value_is_rebuilt_bounded_and_carries_no_secret_or_cust
     assert item["repairs"] == {"review": None, "ci": None, "max": None}
     assert item["generated"] == [f"docs/generated_{n}.md" for n in range(20)]
     assert item["landing"]["state"] is None and item["landing"]["sha"] is None and item["landing"]["at"] is None
+    assert item["landing"]["by"] is None                                     # only loop, unconfirmed or other
     assert len(item["landing"]["reason"]) <= 500
     text = json.dumps(item)
     for leaked in (PROJECTION_TOKEN, PROJECTION_KEY, PROJECTION_URL, CUSTOMER_EMAIL, CUSTOMER_PHONE, "../escape"):
@@ -2724,3 +2753,219 @@ def test_a_waiting_request_is_listed_until_it_is_decided(tmp_path):
     (waits_dir / "r-garbled.json").write_text("{not json")
     assert [w["request_id"] for w in build_status(store=store, receipts=receipts, now=NOW)["waiting_requests"]] == \
         ["r-waiting"]
+
+
+# ------------------------------------- `run` restarted on the loop's newer records: a base wait, a red repair's halves
+#
+# As the restart test above: clive-worker-01's ``run`` flags, a journalled store with the adapter root under the host's
+# exclude rule, ``--max-cycles 1`` per life, and every record seeded only by running the code (a crash at a
+# monkeypatched point where the case needs one). The GitHub gate the CLI builds is the dispatcher tests' fake, and
+# git is never asked for a credential.
+
+def _clive_worker_01(env: SimpleNamespace, tmp_path: Path, monkeypatch, *scenarios: dict) -> SimpleNamespace:
+    """The host of the restart test above, with the dispatcher tests' fake claude playing ``scenarios`` in order."""
+    from tests.test_engineering_dispatcher import FAKE_CLAUDE
+
+    state = _journalled_state(tmp_path)
+    store_dir = state / "engineering"
+    exclude = state / ".git" / "info" / "exclude"
+    exclude.write_text((exclude.read_text() if exclude.exists() else "") + "/engineering/remote_engineering/\n")
+    _git(env.origin, "branch", "clive/trunk", "main")            # product memory lives on the trunk
+    _git(env.checkout, "fetch", "-q", "origin")
+    fake_state = tmp_path / "fake-state"
+    fake_state.mkdir()
+    (fake_state / "scenarios.json").write_text(json.dumps(list(scenarios)))
+    fake = tmp_path / "claude"
+    fake.write_text(FAKE_CLAUDE.format(python=sys.executable, state=str(fake_state)))
+    fake.chmod(0o755)
+    runtime = tmp_path / "runtime"
+    monkeypatch.setattr(cli, "git_remote_token", lambda _repo, _remote: (lambda _repository: None))
+    flags = ["--store", str(store_dir), "--repo", str(env.checkout), "--runtime-root", str(runtime),
+             "--workspace-root", str(tmp_path / "workers"), "--worker-cli", str(fake), "--publish-remote", "origin",
+             "run", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "origin/clive/trunk",
+             "--max-cycles", "1"]
+    return SimpleNamespace(state=state, store=LifecycleStore(store_dir), adapter=store_dir / "remote_engineering",
+                           runtime=runtime, fake=fake, fake_state=fake_state, flags=flags)
+
+
+def _life(host: SimpleNamespace, capsys) -> dict:
+    """One life of the loop: ``run`` with the host's flags, one cycle, its printed result."""
+    assert cli.run(host.flags) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    result = json.loads(captured.out)
+    assert result["intake_error"] is None and result["publish_error"] is None
+    return result
+
+
+def _invocations(host: SimpleNamespace) -> int:
+    count = host.fake_state / "invocations"
+    return int(count.read_text()) if count.exists() else 0
+
+
+def _journal_subjects(host: SimpleNamespace) -> list[str]:
+    return _git(host.state, "log", "--format=%s").splitlines()
+
+
+def test_run_restarted_while_a_request_waits_for_its_base_keeps_first_sight_claims_nothing_and_admits_it_once_it_arrives(
+        env, tmp_path, capsys, monkeypatch, no_host_git_config):
+    """The base wait through the long-lived mode, restarted on the wait record it wrote. The first life defers the
+    request: ``waits/<id>.json`` and nothing else. A life restarted while the commit is still missing keeps that
+    record byte for byte, reports the first-seen instant, and claims, receipts, admits and launches nothing. Once
+    the commit reaches the trunk the next life admits it and launches its builder, and one more restart admits and
+    launches nothing twice."""
+    from app.remote_engineering import BASE_WAIT_REASON, DEFAULT_STATUS_PATH, WaitLog
+
+    host = _clive_worker_01(env, tmp_path, monkeypatch, {"sleep_before_result": 30})   # alive across lives; killed
+    pending = _origin_commit(env, "feature/elsewhere", "merged after the request was filed")
+    assert not _has(env, pending)
+    commit_request(env.origin, "r-late-base", _as_filed(env, "r-late-base", pending))
+    objectives = ObjectiveStore(host.store, journal=False)
+
+    def published(result: dict) -> dict:
+        return json.loads(_git(env.origin, "show", f"{result['projection_commit']}:{DEFAULT_STATUS_PATH}"))
+
+    try:
+        # ---- the first life defers it: the wait is the only record written for it
+        first = _life(host, capsys)
+        [waiting] = first["outcomes"]
+        assert waiting["request_id"] == "r-late-base" and waiting["outcome"] == "waiting"
+        assert waiting["reason"] == BASE_WAIT_REASON and pending not in json.dumps(first)
+        wait = _files(host.adapter)
+        assert list(wait) == ["waits/r-late-base.json"]
+        assert WaitLog(host.adapter).get("r-late-base").first_seen_at.isoformat() == waiting["waiting_since"]
+        assert objectives.read("r-late-base") is None and host.store.read_tasks() == ()
+        assert first["dispatcher_events"] == [] and _invocations(host) == 0
+        [shown] = published(first)["waiting_requests"]
+        assert shown["request_id"] == "r-late-base" and shown["waiting_since"] == waiting["waiting_since"]
+        assert _git(host.state, "status", "--porcelain", "--untracked-files=all") == ""
+
+        # ---- restarted while the commit is still missing: the same wait, counted from first sight, nothing burned
+        second = _life(host, capsys)
+        assert second["outcomes"] == [waiting]
+        assert _files(host.adapter) == wait
+        assert objectives.read("r-late-base") is None and host.store.read_tasks() == ()
+        assert second["dispatcher_events"] == [] and _invocations(host) == 0
+        assert not any("r-late-base" in subject for subject in _journal_subjects(host))
+        assert published(second)["waiting_requests"] == [shown]
+
+        # ---- the commit reaches the trunk: the next life admits it, once, and launches its builder, once
+        _git(env.origin, "branch", "-f", "clive/trunk", pending)
+        third = _life(host, capsys)
+        [admitted] = third["outcomes"]
+        assert admitted["request_id"] == "r-late-base" and admitted["outcome"] == "accepted"
+        records = _files(host.adapter)
+        assert sorted(records) == ["claims/r-late-base.json", "receipts/r-late-base.json"]
+        assert objectives.read("r-late-base").base_sha == pending
+        assert [(t.task_id, t.revision) for t in host.store.read_tasks()] == [("r-late-base", 1)]
+        [attempt] = host.store.read_attempts("r-late-base")
+        assert any(line.startswith(f"r-late-base: assigned {attempt.attempt_id}") for line in third["dispatcher_events"])
+        assert _invocations(host) == 1
+        assert published(third)["waiting_requests"] == []
+        assert [r["request_id"] for r in published(third)["requests"]] == ["r-late-base"]
+
+        # ---- restarted once more: the receipt is replayed; nothing is admitted or launched twice
+        fourth = _life(host, capsys)
+        assert fourth["outcomes"] == [admitted] and _files(host.adapter) == records
+        subjects = _journal_subjects(host)
+        assert sum(s.startswith("objective r-late-base entered") for s in subjects) == 1
+        assert sum(s.startswith("kernel: task r-late-base r1 created") for s in subjects) == 1
+        assert [a.attempt_id for a in host.store.read_attempts("r-late-base")] == [attempt.attempt_id]
+        assert _invocations(host) == 1
+        assert _git(host.state, "status", "--porcelain", "--untracked-files=all") == ""
+    finally:
+        _kill_builders(host.store)
+
+
+def test_run_restarted_between_the_red_repair_block_and_its_revision_routes_the_repair_once(
+        env, tmp_path, capsys, monkeypatch, no_host_git_config):
+    """The RED_REPAIR blocker, seeded through the host's ``run`` by the code itself. A request is admitted and built;
+    at review dispatch GitHub is red on the candidate, having failed its tests; the dispatcher blocks the task with
+    its own "repair routed" reason, and the process dies before the repair revision (crashed there by the test).
+    ``run`` restarted on that store completes it: revision r2, a repair carrying the red run, launched once. One
+    more restart routes and launches nothing twice."""
+    from app.orchestrator.contracts import TaskKind
+    from app.orchestrator.dispatcher import RED_REPAIR
+    from app.orchestrator.github_acceptance import GateState
+    from app.orchestrator.workers import ClaudeCodeWorker
+    from app.orchestrator.workers.base import worker_marker
+    from app.remote_engineering import DEFAULT_STATUS_PATH
+    from tests.test_engineering_dispatcher import FakeAcceptance
+
+    queue ="crooks-assistant/app/support/queue.py"
+    host = _clive_worker_01(env, tmp_path, monkeypatch,
+                            {"edits": [[queue, "QUEUE = []\n"]], "sleep_before_result": 2},             # r1: done soon
+                            {"edits": [[queue, "QUEUE = ['fixed']\n"]], "sleep_before_result": 30})     # r2: killed
+    gate = FakeAcceptance(GateState.RED)                     # every run red, a failed test run (conclusion failure)
+    monkeypatch.setattr(cli, "GitHubAcceptance", lambda _token: gate)
+    commit_request(env.origin, "r-red", valid_request(env, request_id="r-red", checks=[]))
+    real_dispatcher = cli._dispatcher
+
+    try:
+        # ---- the first life admits it and launches its builder, which finishes after the life has ended
+        first = _life(host, capsys)
+        assert [(o["request_id"], o["outcome"]) for o in first["outcomes"]] == [("r-red", "accepted")]
+        [a1] = host.store.read_attempts("r-red")
+        log = host.runtime / "logs" / f"{a1.attempt_id}.stream.jsonl"
+        marker = worker_marker(a1.attempt_id, a1.worker.session.session_id)
+        worker = ClaudeCodeWorker(cli=str(host.fake))
+        deadline = time.monotonic() + 20
+        while not (log.exists() and any(json.loads(line).get("type") == "result"
+                                        for line in log.read_text().splitlines() if line.strip())
+                   and not worker.live_pids(marker)):
+            assert time.monotonic() < deadline, "the first builder never finished"
+            time.sleep(0.05)
+
+        # ---- the second life takes its candidate to review dispatch, finds GitHub red, blocks it, and dies
+        def dies_before_the_repair(args, kernel, objectives):
+            dispatcher = real_dispatcher(args, kernel, objectives)
+
+            def crash(*_args, **_kwargs):
+                raise RuntimeError("the host lost power between the red block and the repair revision")
+
+            dispatcher._route_red_repair = crash
+            return dispatcher
+
+        monkeypatch.setattr(cli, "_dispatcher", dies_before_the_repair)
+        with pytest.raises(RuntimeError, match="between the red block and the repair revision"):
+            cli.run(host.flags)
+        capsys.readouterr()
+        monkeypatch.setattr(cli, "_dispatcher", real_dispatcher)
+        [result] = host.store.read_results()
+        red = result.result_sha
+        assert _git(env.origin, "rev-parse", "refs/heads/clive/objective/r-red") == red   # published for GitHub
+        assert ("crooksldn-pixel/clive", red) in gate.asked
+        blocked = host.store.read_task_state("r-red", 1)
+        assert blocked.status is TaskStatus.BLOCKED and blocked.blocker_reason.startswith(RED_REPAIR)
+        assert f"GitHub acceptance is red on {red}" in blocked.blocker_reason
+        assert [t.revision for t in host.store.read_tasks()] == [1] and _invocations(host) == 1
+        assert not host.store.read_dispatches("r-red", a1.attempt_id)                      # nothing red was reviewed
+        assert _git(host.state, "status", "--porcelain", "--untracked-files=all") == ""
+
+        # ---- restarted: the dispatcher recognises its own first half and routes the repair revision
+        third = _life(host, capsys)
+        assert third["outcomes"] == first["outcomes"]
+        repair = host.store.read_task("r-red", 2)
+        assert repair.kind is TaskKind.REPAIR and repair.authorising_reference.startswith(f"GitHub acceptance red on {red}")
+        assert red in repair.objective and repair.base_sha == env.base
+        assert host.store.read_task_state("r-red", 1).status is TaskStatus.OBSOLETE
+        assert sum(line.startswith(f"r-red: repair revision r2 routed for the red GitHub acceptance run on {red}")
+                   for line in third["dispatcher_events"]) == 1
+        [a2] = [a for a in host.store.read_attempts("r-red") if a.task_revision == 2]
+        assert any(line.startswith(f"r-red: assigned {a2.attempt_id}") for line in third["dispatcher_events"])
+        assert _invocations(host) == 2
+        prompt = (host.fake_state / "prompt.1.txt").read_text()
+        assert "REPAIR OF A RED GITHUB ACCEPTANCE RUN" in prompt and red in prompt
+        projection = json.loads(_git(env.origin, "show", f"{third['projection_commit']}:{DEFAULT_STATUS_PATH}"))
+        item = next(i for i in projection["requests"] if i["request_id"] == "r-red")
+        assert item["repairs"] == {"review": 0, "ci": 1, "max": 2}
+
+        # ---- restarted once more: no second repair, no second builder
+        fourth = _life(host, capsys)
+        assert fourth["outcomes"] == first["outcomes"]
+        assert [t.revision for t in host.store.read_tasks()] == [1, 2] and _invocations(host) == 2
+        assert [a.attempt_id for a in host.store.read_attempts("r-red")] == [a1.attempt_id, a2.attempt_id]
+        assert sum(s.startswith("kernel: task r-red r2 created") for s in _journal_subjects(host)) == 1
+        assert _git(host.state, "status", "--porcelain", "--untracked-files=all") == ""
+    finally:
+        _kill_builders(host.store)
