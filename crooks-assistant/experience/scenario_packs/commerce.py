@@ -233,8 +233,9 @@ def _found_then_opened(calls):
 
 async def order_by_voice(h: Harness) -> Result:
     """The owner's own sentence (29 September): find who ordered it from an item and a
-    postcode, and make them a new order in the next size up — then a custom item and a line
-    discount said onto the same card, and the draft Shopify is asked for is exactly that."""
+    postcode, and make them a new order in the next size up — then a custom item, a line
+    discount and postage said onto the same card, and the draft Shopify is asked for is exactly
+    that."""
     r = Result("order_by_voice", "Find the customer from what they ordered and where, and order the next size up")
     session = "ovoice1"
     h.configure()
@@ -260,9 +261,9 @@ async def order_by_voice(h: Harness) -> Result:
     r.checks.append(check("and it is ready for Prepare", not str(_ws(a).get("blocked") or "") and _red_enabled(a) == [True],
                           f"blocked={_ws(a).get('blocked')!r}"))
 
-    b = await h.ask("add a custom back print at twelve pounds and take ten percent off the hoodie",
+    b = await h.ask("add a custom back print at twelve pounds, take ten percent off the hoodie, and four pounds postage",
                     ("shopify_order_build", {"add": [{"title": "Custom back print", "price": 12}],
-                                             "lines": [{"line": 1, "percent_off": 10}]}),
+                                             "lines": [{"line": 1, "percent_off": 10}], "postage": 4}),
                     reply="Added.", scenario="order_by_voice", session_id=session)
     r.captures.append(b)
     r.checks.append(check("every call is one Claude could make", not b.unmakeable, f"unmakeable={b.unmakeable}"))
@@ -278,19 +279,34 @@ async def order_by_voice(h: Harness) -> Result:
     r.checks += a_surface(f, "confirmation", what="draws the card that has to be authorised")
     drafts = getattr(h.store, "drafts", None) or []
     sent = drafts[-1] if drafts else {}
+    # Exact means every part of the draft the card speaks for, not only the lines: one draft, for
+    # the customer the order was found for, confirmed to her own address, delivered to the whole
+    # of the address that order went to, with the postage he said (round 13, X1-03).
+    r.checks.append(check("exactly one draft was made in the shop", isinstance(drafts, list) and len(drafts) == 1,
+                          f"drafts={len(drafts)}"))
     if grounded(h):
+        parcel = data.BY_NAME["#1938"].address
         r.checks.append(check("the draft carries exactly those lines and that discount",
                               sent.get("lineItems") == [
                                   {"variantId": HOODIE_L, "quantity": 1,
                                    "appliedDiscount": {"title": "Discount", "value": 10.0, "valueType": "PERCENTAGE"}},
                                   {"title": "Custom back print", "originalUnitPrice": "12.00", "quantity": 1}],
                               f"lineItems={sent.get('lineItems')}"))
-        r.checks.append(check("and goes to the address on the order it came from",
-                              (sent.get("shippingAddress") or {}).get("zip") == "SL4 1QN"
+        r.checks.append(check("it is for the customer the order was found for, confirmed to her own address",
+                              sent.get("customerId") == MIA.customer_id and sent.get("email") == MIA.email,
+                              f"customerId={sent.get('customerId')!r} email={sent.get('email')!r}"))
+        r.checks.append(check("and goes to the whole of the address on the order it came from",
+                              sent.get("shippingAddress") == {
+                                  "firstName": parcel["firstName"], "lastName": parcel["lastName"],
+                                  "address1": parcel["address1"], "city": parcel["city"], "zip": parcel["zip"],
+                                  "countryCode": parcel["countryCodeV2"]}
                               and sent.get("useCustomerDefaultAddress") is False,
                               f"shippingAddress={sent.get('shippingAddress')}"))
-        r.checks.append(check("the card's total is the draft's own arithmetic: £54 + £12",
-                              _amount(_card_facts(f).get("Total")) == 66.0, f"total={_card_facts(f).get('Total')!r}"))
+        r.checks.append(check("with the postage he said",
+                              sent.get("shippingLine") == {"title": "Postage", "price": "4.00"},
+                              f"shippingLine={sent.get('shippingLine')}"))
+        r.checks.append(check("the card's total is the draft's own arithmetic: £54 + £12 + £4 postage",
+                              _amount(_card_facts(f).get("Total")) == 70.0, f"total={_card_facts(f).get('Total')!r}"))
     r.checks.append(check("and no order was created: the fixture refuses the completion outright",
                           getattr(h.store, "mutations_sent", -1) == 0,
                           f"mutations_sent={getattr(h.store, 'mutations_sent', 'NO COUNTER')}"))

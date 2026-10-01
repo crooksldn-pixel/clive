@@ -114,12 +114,18 @@ def step(product: dict[str, Any], variant_id: str, by: int) -> dict[str, Any]:
     options — or why there is none, in the owner's words.
 
     `product` is {"title", "options": [{"name", "values"}], "variants": [{"id", "title",
-    "selectedOptions", ...}]}. Returns {"ok": True, "variant": <the variant>, "from": "M",
-    "to": "L", "basis": "letters"} or {"ok": False, "why": "..."}.
+    "selectedOptions", ...}]}, and may carry "start": the variant asked about as its own lookup
+    returned it, which is where the step starts from when it is that variant — its options are
+    its own, whether or not it is among the variants listed. Returns {"ok": True, "variant":
+    <the variant>, "from": "M", "to": "L", "basis": "letters"} or {"ok": False, "why": "..."}.
     """
     title = str(product.get("title") or "That item")
     variants = [v for v in product.get("variants") or [] if isinstance(v, dict) and v.get("id")]
-    start = next((v for v in variants if str(v["id"]) == str(variant_id)), None)
+    own = product.get("start")
+    if isinstance(own, dict) and str(own.get("id") or "") == str(variant_id):
+        start = own
+    else:
+        start = next((v for v in variants if str(v["id"]) == str(variant_id)), None)
     if start is None:
         return {"ok": False, "why": f"I could not find that variant on {title}."}
     option = size_option(product)

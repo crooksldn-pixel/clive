@@ -177,9 +177,11 @@ query CrooksDraftOrder($id: ID!) {
 }
 """
 
-# A variant and all of its product's variants: what "the next size up" is worked out from.
+# A variant and all of its product's variants: what "the next size up" is worked out from. A
+# page at a time (`_read_product_of`): a product can have far more variants than one page, and
+# the size one up from the variant asked about may be on any of them.
 VARIANT_SIBLINGS_QUERY = """
-query CrooksVariantSiblings($id: ID!) {
+query CrooksVariantSiblings($id: ID!, $after: String) {
   productVariant(id: $id) {
     id
     title
@@ -189,24 +191,36 @@ query CrooksVariantSiblings($id: ID!) {
       title
       status
       options { name values }
-      variants(first: 100) { edges { node { id title sku price availableForSale inventoryQuantity selectedOptions { name value } } } }
+      variants(first: 100, after: $after) {
+        edges { node { id title sku price availableForSale inventoryQuantity selectedOptions { name value } } }
+        pageInfo { hasNextPage endCursor }
+      }
     }
   }
 }
 """
+# How many pages of a product's variants are read before the read is called incomplete: 1,000
+# variants, more than any garment in sizes and colours has.
+MAX_VARIANT_PAGES = 10
 
-# The order a new one is made from: whose it is, where it went, and what was on it.
+# The order a new one is made from: whose it is, where it went, and what was on it. Its lines a
+# page at a time (`_source_has_variant`).
 ORDER_FOR_NEW_ORDER_QUERY = """
-query CrooksOrderForNewOrder($id: ID!) {
+query CrooksOrderForNewOrder($id: ID!, $after: String) {
   order(id: $id) {
     id
     name
     customer { id displayName }
     shippingAddress { firstName lastName company address1 address2 city provinceCode zip countryCodeV2 phone }
-    lineItems(first: 20) { edges { node { title variantTitle quantity variant { id } } } }
+    lineItems(first: 50, after: $after) {
+      edges { node { title variantTitle quantity variant { id } } }
+      pageInfo { hasNextPage endCursor }
+    }
   }
 }
 """
+# How many pages of an order's lines are read looking for the line a size is stepped from: 250.
+MAX_SOURCE_LINE_PAGES = 5
 
 
 def _money(node: Any) -> float | None:
@@ -287,20 +301,77 @@ async def _read_source(client: ShopifyClient, order_id: str) -> dict[str, Any]:
     return node
 
 
+def _next_cursor(connection: Any) -> tuple[bool, str]:
+    """(whether there is more past this page, the cursor to read it from). A page that does not
+    say whether there is more is taken as having more and no way to read it — an incomplete
+    read — because a page taken for the last one is how "there is no such size" gets said about
+    a size on the page after it."""
+    info = (connection or {}).get("pageInfo") if isinstance(connection, dict) else None
+    if not isinstance(info, dict) or not isinstance(info.get("hasNextPage"), bool):
+        return True, ""
+    return info["hasNextPage"], str(info.get("endCursor") or "") if info["hasNextPage"] else ""
+
+
 async def _read_product_of(client: ShopifyClient, variant_id: str) -> dict[str, Any]:
     """The product a variant belongs to, with every variant and its options, as `_sizes.step`
-    takes it."""
-    payload = await client.graphql(VARIANT_SIBLINGS_QUERY, {"id": variant_id})
-    node = (payload.get("data") or {}).get("productVariant")
-    if not isinstance(node, dict) or node.get("id") != variant_id or not isinstance(node.get("product"), dict):
-        raise ToolError(f"No product variant with id {variant_id}.")
-    product = node["product"]
+    takes it, and the variant asked about as its own lookup returned it (`start`), so where it
+    starts from never depends on which page it fell on.
+
+    The variants are read a page at a time up to MAX_VARIANT_PAGES. `complete` is False when
+    the read stopped with more still to read — at the bound, or on a page that did not say —
+    and then nothing may be concluded from what is missing."""
+    variants: list[dict[str, Any]] = []
+    after = ""
+    head: dict[str, Any] = {}
+    complete = False
+    for _ in range(MAX_VARIANT_PAGES):
+        payload = await client.graphql(VARIANT_SIBLINGS_QUERY, {"id": variant_id, "after": after or None})
+        node = (payload.get("data") or {}).get("productVariant")
+        if not isinstance(node, dict) or node.get("id") != variant_id or not isinstance(node.get("product"), dict):
+            raise ToolError(f"No product variant with id {variant_id}.")
+        head = head or node
+        connection = node["product"].get("variants") or {}
+        variants += [(e or {}).get("node") or {} for e in connection.get("edges") or []]
+        more, after = _next_cursor(connection)
+        if not more:
+            complete = True
+            break
+        if not after:
+            break
+    product = head["product"]
     return {
         "id": str(product.get("id") or ""), "title": str(product.get("title") or ""),
         "status": str(product.get("status") or ""),
         "options": [o for o in product.get("options") or [] if isinstance(o, dict)],
-        "variants": [(e or {}).get("node") or {} for e in (product.get("variants") or {}).get("edges") or []],
+        "start": {"id": str(head["id"]), "title": str(head.get("title") or ""),
+                  "selectedOptions": [o for o in head.get("selectedOptions") or [] if isinstance(o, dict)]},
+        "variants": variants,
+        "complete": complete,
     }
+
+
+async def _source_has_variant(client: ShopifyClient, source: dict[str, Any], variant_id: str) -> bool | None:
+    """Whether the order `source` (as `_read_source` returned it) has a line of `variant_id`:
+    True, False — or None when its lines could not all be read (past MAX_SOURCE_LINE_PAGES, or a
+    page that did not say whether there was more), which is neither answer."""
+    connection = source.get("lineItems") or {}
+    after = ""
+    for _ in range(MAX_SOURCE_LINE_PAGES):
+        if after:
+            payload = await client.graphql(ORDER_FOR_NEW_ORDER_QUERY, {"id": source["id"], "after": after})
+            node = (payload.get("data") or {}).get("order")
+            if not isinstance(node, dict) or node.get("id") != source["id"]:
+                return None
+            connection = node.get("lineItems") or {}
+        for edge in connection.get("edges") or []:
+            if str((((edge or {}).get("node") or {}).get("variant") or {}).get("id") or "") == variant_id:
+                return True
+        more, after = _next_cursor(connection)
+        if not more:
+            return False
+        if not after:
+            return None
+    return None
 
 
 def _mailing(address: dict[str, Any]) -> dict[str, str]:
@@ -1189,10 +1260,16 @@ async def _candidate_for(variant_id: str) -> dict[str, Any]:
 
 
 async def _step_size(variant_id: str, by: int) -> tuple[dict[str, Any] | None, str]:
-    """The variant `by` sizes from this one, in the same colour: (candidate, "") or (None, why)."""
+    """The variant `by` sizes from this one, in the same colour: (candidate, "") or (None, why).
+    A read of the product's variants that stopped short is said as that, never as a size the
+    product does not come in: the size may be on the page that was not read."""
     product = await _read_product_of(_c(), variant_id)
     if product["status"] and product["status"].upper() != "ACTIVE":
         return None, f"{product['title']} is not a live product any more."
+    if not product["complete"]:
+        return None, (f"I could not read all of {product['title'] or 'that item'}'s variants (I read "
+                      f"{len(product['variants'])} and there are more), so I cannot say which is the next size. "
+                      "Nothing was added; say the size and it can be found by a search.")
     found = sizes.step(product, variant_id, by)
     if not found["ok"]:
         return None, str(found["why"])
@@ -1443,6 +1520,18 @@ async def _fill_opened(workspace: dict[str, Any], *, customer: str, customer_id:
         owner = str((source.get("customer") or {}).get("id") or "")
         if customer_id and str(customer_id) != owner:
             raise ToolError(f"Order {source.get('name')} is not that customer's, so I will not mix them. Say which.")
+        if variant_id and size_step:
+            # The variant stepped from is "the line it is the next size of" (the tool's own
+            # words): one on this order. Which line is the model's choice; that its choice is on
+            # the order is checked here, so a variant of some other product is never stepped
+            # and put on this customer's order (round 13, S2Ba/F-04).
+            on_it = await _source_has_variant(_c(), source, str(variant_id))
+            if on_it is None:
+                raise ToolError(f"I could not read all of order {source.get('name')}'s lines, so I cannot check that "
+                                "item is on it. Nothing was opened.")
+            if not on_it:
+                raise ToolError(f"That item is not on order {source.get('name')}, so I will not step its size for this "
+                                "order. Use the variant_id of one of that order's lines.")
         customer_id = owner
     if customer_id:
         await _customer_by_id(workspace, str(customer_id))

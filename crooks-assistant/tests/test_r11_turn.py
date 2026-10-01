@@ -946,18 +946,25 @@ async def test_an_answer_that_read_another_order_than_the_one_named_says_so_and_
 async def test_a_named_person_with_another_customer_s_order_open_is_answered_from_that_person(desk):
     """R9-I-tests2-I-02. Daniel's order is open and the owner asks what Mia Kowalski has ordered.
     The words reach the model exactly; the customer drawn and the cursor are Mia's; neither Daniel
-    nor his order is drawn under the answer; and the model's own answer is what he hears."""
-    desk.model.steps = [
-        show_order("1938"),
-        reads(("shopify_find_customer", {"query": "Kowalski"}), ("shopify_customer_history", {"customer_id": found_customer})),
-    ]
+    nor his order is drawn under the answer; and the model's own answer, which names her, is what
+    he hears. It names her because "Here it is." names nobody, and an answer about Daniel would
+    have passed for it (R9-I-tests2-I-02, ruled still present at round 12)."""
+    read_her = reads(("shopify_find_customer", {"query": "Kowalski"}),
+                     ("shopify_customer_history", {"customer_id": found_customer}))
+
+    async def answers_about_her(session, calls, text):
+        await read_her(session, calls, text)
+        return "Mia Kowalski has one order, paid and not yet sent."
+
+    desk.model.steps = [show_order("1938"), answers_about_her]
     await say(desk, "show me order 1938", "person")
     body = await say(desk, "what has Mia Kowalski ordered?", "person")
     shown = records(body)
     assert {ref for kind, ref in shown if kind in ("customer", "customer_workspace")} == {MIA}, shown
     assert DANIEL not in str(shown) and ("order", A) not in shown
     assert body["branch"]["entity"]["ref"] == MIA
-    assert body["answer"] == "Here it is."
+    assert body["answer"] == "Mia Kowalski has one order, paid and not yet sent."
+    assert "Daniel" not in body["answer"], "nothing about the open order's customer is said in her place"
 
 
 async def test_a_name_two_customers_share_moves_nothing_and_draws_neither_as_the_answer(desk):

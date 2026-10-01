@@ -510,7 +510,7 @@ def _variant_siblings(_store: FixtureShopify, v: dict) -> dict:
                 "availableForSale": sibling["inventoryQuantity"] > 0,
                 "inventoryQuantity": sibling["inventoryQuantity"],
                 "selectedOptions": [{"name": n, "value": val} for n, val in sibling["options"]],
-            }} for sibling in product["variants"]]},
+            }} for sibling in product["variants"]], "pageInfo": {"hasNextPage": False, "endCursor": None}},
         },
     }}}
 

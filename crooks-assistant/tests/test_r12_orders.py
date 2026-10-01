@@ -19,6 +19,7 @@ Every name, address and postcode here is invented.
 from __future__ import annotations
 
 import copy
+from datetime import date, timedelta
 from typing import Any
 
 import httpx
@@ -136,13 +137,22 @@ def _money(amount: float) -> dict[str, Any]:
     return {"shopMoney": {"amount": f"{amount:.2f}", "currencyCode": "GBP"}}
 
 
+# The day the orders are counted back from. By date arithmetic, not by subtracting from the day
+# of the month: "29 - 30" made order 2102's date "2026-09--1" (round 13, T1-03).
+ORDERS_DAY = date(2026, 9, 29)
+
+
+def placed_at(days: int) -> str:
+    return f"{(ORDERS_DAY - timedelta(days=days)).isoformat()}T10:00:00Z"
+
+
 def order_node(number: int) -> dict[str, Any]:
     _n, customer, days, items, address = next(o for o in ORDERS if o[0] == number)
     person = PEOPLE[customer]
     goods = sum(float(VARIANTS[vid(v)][1]["price"]) * q for v, q in items)
     return {
         "id": f"gid://shopify/Order/{number}", "name": f"CROOKS-{number}",
-        "createdAt": f"2026-09-{29 - days:02d}T10:00:00Z", "processedAt": f"2026-09-{29 - days:02d}T10:00:00Z",
+        "createdAt": placed_at(days), "processedAt": placed_at(days),
         "cancelledAt": None, "email": person["email"],
         "displayFulfillmentStatus": "FULFILLED", "displayFinancialStatus": "PAID",
         "currentTotalPriceSet": _money(goods + 5),
@@ -151,7 +161,7 @@ def order_node(number: int) -> dict[str, Any]:
         "lineItems": {"edges": [{"node": {
             "title": VARIANTS[vid(v)][0]["title"], "variantTitle": VARIANTS[vid(v)][1]["title"],
             "sku": VARIANTS[vid(v)][1]["sku"], "quantity": q, "variant": {"id": vid(v)},
-        }} for v, q in items]},
+        }} for v, q in items], "pageInfo": {"hasNextPage": False, "endCursor": None}},
     }
 
 
@@ -215,7 +225,7 @@ class Counter(ShopifyClient):
                 "id": v["id"], "title": v["title"], "sku": v["sku"], "price": v["price"],
                 "availableForSale": v["for_sale"], "inventoryQuantity": v["stock"],
                 "selectedOptions": [{"name": n, "value": val} for n, val in v["options"]],
-            }} for v in product["variants"]]},
+            }} for v in product["variants"]], "pageInfo": {"hasNextPage": False, "endCursor": None}},
         }
 
     def _people(self, q: str) -> list[dict[str, Any]]:

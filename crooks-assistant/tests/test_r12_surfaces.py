@@ -119,6 +119,16 @@ async def test_a_change_that_could_not_be_prepared_keeps_the_record_and_says_why
     await say(desk, "show me order 1938", "refused")
     body = await say(desk, "add a note saying gift wrap it", "refused")
     assert the_order(body, A).get("kept") is True, kinds(body)
+    # And it really was refused (round 13, T2/F-03): the note call failed, with a reason, nothing
+    # is waiting for a gesture, and nothing reached the shop. Kept on screen alone would also
+    # be true of a note for #9999 staged beside it, or refused with nothing said.
+    (noted,) = [c for c in body["tool_calls"] if c["name"] == "shopify_order_note_append"]
+    assert noted["ok"] is False and not noted.get("proposal_id"), noted
+    assert str(noted.get("error") or "").strip(), f"the refusal gives no reason: {noted}"
+    assert "confirmation" not in kinds(body), kinds(body)
+    session = desk.runtime.sessions.get("refused")
+    assert not [p for p in session.proposals if p.status.value == "PENDING"], session.proposals
+    assert desk.store.mutations == []
 
 
 async def test_a_change_to_another_order_is_not_drawn_over_this_one(desk):
@@ -553,6 +563,9 @@ async def test_the_claim_is_written_to_the_timeline_beside_the_decline_claims(de
 
     timeline.forget_names()
     store = TestSessions(Path(tmp_path) / "sessions")
+    # The timeline this test displaces, put back exactly as it was in the `finally`: installing a
+    # fresh NullTimeline there instead left every later test without the one it had (T2/F-01).
+    displaced = timeline.current()
     line = timeline.install(timeline.Timeline(store))
     session = line.start("on-screen claims")
     try:
@@ -568,8 +581,9 @@ async def test_the_claim_is_written_to_the_timeline_beside_the_decline_claims(de
         events = [json.loads(x) for x in store.timeline_path(session).read_text(encoding="utf-8").splitlines() if x.strip()]
     finally:
         line.stop()
-        timeline.install(timeline.NullTimeline())
+        timeline.install(displaced)
         timeline.forget_names()
+    assert timeline.current() is displaced, "the timeline it displaced is the one installed again"
     claimed = [e for e in events if e.get("kind") == "unsupported_claim" and e.get("claim") == "on_screen"]
     assert [(e["session_id"], bool(e.get("drew")), e["corrected"]) for e in claimed] == [("tl", True, False), ("tl-fresh", False, True)], claimed
 

@@ -758,12 +758,15 @@ async def test_a_change_staged_by_an_answer_the_owner_has_moved_on_from_is_withd
 def reads_the_number_said() -> Step:
     """Claude reading the order the owner's words name — whichever that is. Nothing in it is
     fixed to an order (round 9, I-tests2 I-03: a model that always read the same order could not
-    show that the one ASKED for is what is read and drawn)."""
+    show that the one ASKED for is what is read and drawn). Its answer names that order, as
+    Claude's would: "Here it is." names no record at all, so an answer about the open one would
+    have passed for it (round 9, I-tests2 I-02, ruled still present at round 12)."""
     import re
 
     async def step(session, calls, text):
         number = re.search(r"\b(\d{4})\b", text.split("\n")[1]).group(1)
-        return await show_order(number)(session, calls, text)
+        await show_order(number)(session, calls, text)
+        return f"Order {number} is paid and not yet sent."
     return step
 
 
@@ -790,7 +793,9 @@ async def test_a_number_that_is_not_the_open_order_is_drawn_from_what_was_read_f
     assert NAMED_OUTRANKS_SHOWN in prompt
     assert ("order", refs[asked_number]) in records(body) and ("order", refs[open_number]) not in records(body)
     assert body["branch"]["entity"]["ref"] == refs[asked_number]
-    assert body["answer"] == "Here it is.", "the model's answer about the order asked for is what he hears"
+    assert body["answer"] == f"Order {asked_number} is paid and not yet sent.", \
+        "the model's answer about the order asked for is what he hears, naming it"
+    assert open_number not in body["answer"], "nothing about the open order is said in its place"
     turn_reads = json.dumps(shop.store.queries[before:])
     assert refs[open_number] not in turn_reads, "the Mac read the open order for a sentence about another"
 
