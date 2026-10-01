@@ -18,6 +18,8 @@ read Claude makes for these questions, and what is asserted is what the Mac drew
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from experience.fixtures import data
 from experience.harness import Harness
@@ -94,13 +96,25 @@ async def abandoned_checkouts(h: Harness) -> Result:
     return r
 
 
+def _window_start(days: int) -> str:
+    """The first instant of a `days` window as Shopify's search is given it: midnight that many
+    days back in the shop's own zone, in UTC. Worked out here, apart from the application's
+    own `_since`, so the request can disagree with it."""
+    first = (datetime.now(ZoneInfo(data.SHOP_TIMEZONE)) - timedelta(days=days)).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    return first.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 async def abandoned_window(h: Harness) -> Result:
     """A shorter window is a different answer, and the shop does the filtering."""
     r = Result("abandoned_window", "Abandoned this week")
     session = "aban2"
     h.configure()
+    asked = len(getattr(h.store, "queries", []))
+    starts = {_window_start(7)}
     c = await h.ask("what's been abandoned this week", ("shopify_abandoned_checkouts", {"days": 7}),
                     scenario="abandoned_window", session_id=session)
+    starts.add(_window_start(7))     # either side of a midnight the ask ran across
     r.captures.append(c)
     r.checks.append(a_model_turn(c))
     r.checks += a_surface(c, "metric_group", what="draws the figures")
@@ -108,14 +122,27 @@ async def abandoned_window(h: Harness) -> Result:
                           "in the last week" in str(c.data("metric_group").get("subtitle") or ""),
                           f"subtitle={c.data('metric_group').get('subtitle')!r}"))
     if grounded(h):
-        # The read went to Shopify with a date filter: the window is the shop's own search,
-        # not a filter applied to everything after the fact.
-        r.checks.append(check("the window reached Shopify as a search",
-                              any("abandoned" in str(read).lower() or "Abandoned" in str(read) for read in c.reads),
-                              f"reads={c.reads}"))
-        fortnight = len(_window(14))
-        r.checks.append(check("and it is not simply everything", int(_metrics(c).get("checkouts abandoned") or -1) <= fortnight,
-                              f"said={_metrics(c).get('checkouts abandoned')!r} fortnight={fortnight}"))
+        # The read went to Shopify with the seven-day date filter: the window is the shop's own
+        # search, not a filter applied to everything after the fact. Read off the request the
+        # fixture store recorded, not off an operation's name (the 2026-09-30 deploy review,
+        # X2-02: any read mentioning "abandoned" used to be taken as the proof).
+        sent = [variables for operation, variables in getattr(h.store, "queries", [])[asked:]
+                if operation == "CrooksAbandonedCheckouts"]
+        filters = [str((variables or {}).get("q") or "") for variables in sent]
+        r.checks.append(check("the seven-day window reached Shopify as its date filter",
+                              bool(filters) and all(any(f"created_at:>='{start}'" in q for start in starts) for q in filters),
+                              f"filters={filters} expected from={sorted(starts)}"))
+        # Exactly the golden world's week, count and value: a zero, or the fortnight's figure,
+        # is a wrong answer and fails here (it used to pass anything at or below the fortnight).
+        week = _window(7)
+        expected = round(sum(data.abandoned_total(x) for x in week), 2)
+        metrics = _metrics(c)
+        r.checks.append(check("the count is the golden world's own for the week",
+                              bool(week) and metrics.get("checkouts abandoned") == str(len(week)),
+                              f"said={metrics.get('checkouts abandoned')!r} expected={len(week)}"))
+        r.checks.append(check("and the value is the arithmetic over the week's checkouts",
+                              _amount(metrics.get("not taken")) == expected,
+                              f"said={metrics.get('not taken')!r} expected={expected}"))
     return r
 
 

@@ -34,6 +34,7 @@ import os
 # once the fixture is in place, and then it is reading the golden world.
 os.environ.setdefault("CROOKS_ANALYTICS_WARM_DAYS", "0")
 
+import copy  # noqa: E402
 import importlib  # noqa: E402
 import time  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
@@ -119,17 +120,73 @@ _JSON_TYPES: dict[str, tuple[type, ...]] = {
 }
 
 
+def _is_json_type(kind: str, value: Any) -> bool:
+    """Whether `value` is of the JSON Schema type `kind`. A boolean is never a number, and an
+    integer is any number with no fractional part, so 2.0 is one and 2.5 is not: JSON Schema
+    says so, and a model's arguments may arrive as either (the 2026-10-01 repair, F-01)."""
+    if kind in ("integer", "number") and isinstance(value, bool):
+        return False
+    if kind == "integer":
+        return isinstance(value, int) or (isinstance(value, float) and value.is_integer())
+    return isinstance(value, _JSON_TYPES.get(kind, ()))
+
+
 def _fits(schema: dict[str, Any], value: Any) -> str:
-    """Why `value` is not something this argument's schema admits; empty when it is."""
+    """Why `value` is not something this argument's schema admits; empty when it is.
+
+    The whole of the value, not only its outside (the 2026-09-30 deploy review, X1-01): an
+    object's own required fields and the types of its fields, every item of an array, a
+    number's bounds and a string's length. Checking the top-level type alone passed a line
+    item missing its quantity, a list of numbers where the tool takes strings, and a discount
+    of 150 per cent, none of which Claude is offered a schema that allows."""
     wanted = schema.get("type")
     kinds = [wanted] if isinstance(wanted, str) else [k for k in (wanted or []) if isinstance(k, str)]
     if kinds:
-        ok = any(isinstance(value, _JSON_TYPES.get(k, ())) and not (k in ("integer", "number") and isinstance(value, bool))
-                 for k in kinds)
+        ok = any(_is_json_type(k, value) for k in kinds)
         if not ok:
             return f"{type(value).__name__} where the schema says {'/'.join(kinds)}"
     if "enum" in schema and value not in (schema.get("enum") or []):
         return f"{value!r} is not one of {schema.get('enum')}"
+    if isinstance(value, str):
+        if isinstance(schema.get("maxLength"), int) and len(value) > schema["maxLength"]:
+            return f"{len(value)} characters where the schema allows at most {schema['maxLength']}"
+        if isinstance(schema.get("minLength"), int) and len(value) < schema["minLength"]:
+            return f"{len(value)} characters where the schema needs at least {schema['minLength']}"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        for key, below in (("minimum", True), ("exclusiveMinimum", True), ("maximum", False), ("exclusiveMaximum", False)):
+            bound = schema.get(key)
+            if not isinstance(bound, (int, float)) or isinstance(bound, bool):
+                continue
+            exclusive = key.startswith("exclusive")
+            outside = (value < bound or (exclusive and value == bound)) if below else (value > bound or (exclusive and value == bound))
+            if outside:
+                return f"{value!r} is outside the schema's {key} of {bound!r}"
+    if isinstance(value, (list, tuple)):
+        if isinstance(schema.get("maxItems"), int) and len(value) > schema["maxItems"]:
+            return f"{len(value)} items where the schema allows at most {schema['maxItems']}"
+        if isinstance(schema.get("minItems"), int) and len(value) < schema["minItems"]:
+            return f"{len(value)} items where the schema needs at least {schema['minItems']}"
+        items = schema.get("items")
+        if isinstance(items, dict):
+            for index, item in enumerate(value):
+                why = _fits(items, item)
+                if why:
+                    return f"item {index}: {why}"
+    if isinstance(value, dict):
+        properties = schema.get("properties")
+        properties = properties if isinstance(properties, dict) else {}
+        missing = [key for key in schema.get("required") or [] if key not in value]
+        if missing:
+            return f"it requires {missing[0]!r}"
+        if schema.get("additionalProperties") is False:
+            extra = sorted(set(value) - set(properties))
+            if extra:
+                return f"it has no field {extra[0]!r}"
+        for key, item in value.items():
+            if isinstance(properties.get(key), dict):
+                why = _fits(properties[key], item)
+                if why:
+                    return f"{key}: {why}"
     return ""
 
 
@@ -141,7 +198,9 @@ def model_could_make(runtime: Any, name: str, args: dict[str, Any]) -> str:
     CAN be held offline is that the call is one Claude is able to make: the tool is on the
     list it is offered on this runtime (not withheld by the fixed rule or by the store's state,
     exactly as `app/providers/max_agent_sdk.py` withholds it), and every argument is one the
-    tool's schema declares, of the declared type, with every required one given. A script
+    tool's schema declares, with every required one given, and admitted by its schema all the
+    way down — the type, an object's required fields, each item of an array, a number's
+    bounds and a string's length (`_fits`). A script
     that fails this is scripting something the model cannot do, and the scenario built on it
     proves nothing about a spoken request. Whether Claude WILL choose it is a live question
     this cannot answer.
@@ -527,12 +586,15 @@ class Harness:
         return capture
 
 
-_ABSENT = object()
-
 # What the harness, and the start-up it runs (app/runtime.py `build`), bind into the tool modules
 # for the length of a run: the Shopify and Gmail clients the reads and writes use, the order
-# cache and inbox helpers the analytics reads use, and both write modules' policy — which is the
-# harness runtime's settings, changes switched on. Each is put back as it was on the way out.
+# cache and inbox helpers the analytics reads use, both write modules' policy — which is the
+# harness runtime's settings, changes switched on — and the engineering tools' inbox and the
+# interpreter their checks name. Each is put back as it was on the way out. These, with
+# `_TOOL_CONFIG` and `_STORE_CONFIG` below, are every `bind` and `configure` call `build` makes
+# (tests/test_followups_harness.py reads `build` and holds the three lists to it); the
+# process-wide stores it `install`s (the action engine, the objectives, the timeline and the
+# rest) are replaced by every runtime that is built and are not bindings of the harness's.
 _TOOL_BINDINGS = (
     ("app.tools.shopify_tools", ("_client", "_hydrator")),
     ("app.tools.gmail_tools", ("_client", "_customer_lookup")),
@@ -540,13 +602,68 @@ _TOOL_BINDINGS = (
     ("app.tools.shopify_writes", ("_policy",)),
     ("app.tools.analytics_tools", ("_cache", "_threads_for", "_replied", "_reply_state", "_own_address",
                                    "_inbox_for", "_sent_for")),
+    ("app.tools.engineering_tools", ("_inbox", "_check_python")),
 )
+# What `build` configures by changing a module's dictionary or list in place rather than rebinding
+# a name: the Instagram client's API version and state file (`instagram_tools.configure`), where
+# the owner's passkeys and the record of changes to connections are kept
+# (`connections_service.configure`), where the team's grants are kept and the cache of them
+# (`staff_access.configure`), and the runtime the work list reads the shop and the inboxes through
+# (`work_tools.bind`, a one-item list) — the fixture runtime, left there, would outlive the run as
+# the housekeeper once did.
+_TOOL_CONFIG = (
+    ("app.clients.instagram", ("_CONFIG", "_STATE")),
+    ("app.connections.passkeys", ("_CONFIG",)),
+    ("app.connections.ledger", ("_CONFIG",)),
+    ("app.people.access", ("_CONFIG", "_CACHE")),
+    ("app.work.tools", ("_RUNTIME",)),
+)
+# And the stores `build` configures by setting an instance's attributes: (module, the instance's
+# name there, its attributes) — the team's cards (`people_store.configure`) and the work list's
+# folder (`work_store.configure`).
+_STORE_CONFIG = (
+    ("app.people.store", "people", ("_path",)),
+    ("app.work.store", "work", ("_folder", "_archived_on")),
+)
+# A `configure` that `build` calls on one module and that sets another module's configuration:
+# the module it calls, and the modules whose configuration `_TOOL_CONFIG` records for it.
+CONFIGURED_THROUGH: dict[str, tuple[str, ...]] = {
+    "app.tools.instagram_tools": ("app.clients.instagram",),
+    "app.connections.service": ("app.connections.passkeys", "app.connections.ledger"),
+}
 
 
 def _tool_bindings() -> dict[tuple[str, str], Any]:
-    """What each of `_TOOL_BINDINGS` holds now."""
-    return {(module, name): getattr(importlib.import_module(module), name)
-            for module, names in _TOOL_BINDINGS for name in names}
+    """What each of `_TOOL_BINDINGS` holds now, a copy of each of `_TOOL_CONFIG`, and the value of
+    each attribute `_STORE_CONFIG` names (keyed `instance.attribute`)."""
+    bound = {(module, name): getattr(importlib.import_module(module), name)
+             for module, names in _TOOL_BINDINGS for name in names}
+    bound.update({(module, name): copy.copy(getattr(importlib.import_module(module), name))
+                  for module, names in _TOOL_CONFIG for name in names})
+    bound.update({(module, f"{instance}.{name}"): getattr(getattr(importlib.import_module(module), instance), name)
+                  for module, instance, names in _STORE_CONFIG for name in names})
+    return bound
+
+
+def _put_back(bound: dict[tuple[str, str], Any]) -> None:
+    """Every binding and configuration `_tool_bindings` recorded, as it was. A dictionary or list
+    is refilled in place, because the module's own functions hold that very object."""
+    in_place = {(module, name) for module, names in _TOOL_CONFIG for name in names}
+    on_stores = {(module, f"{instance}.{name}") for module, instance, names in _STORE_CONFIG for name in names}
+    for (module, name), value in bound.items():
+        target = importlib.import_module(module)
+        if (module, name) in in_place:
+            held = getattr(target, name)
+            if isinstance(held, dict):
+                held.clear()
+                held.update(value)
+            else:
+                held[:] = value
+        elif (module, name) in on_stores:
+            instance, attribute = name.split(".", 1)
+            setattr(getattr(target, instance), attribute, value)
+        else:
+            setattr(target, name, value)
 
 
 @asynccontextmanager
@@ -570,9 +687,11 @@ async def harness(*, live: bool = False, writes: bool = True, admitted: bool = F
       test's, outside a request is refused like any other.
 
     And none of it outlives the harness. The application object is shared by the whole process,
-    so what this puts on it — the runtime whose switches `configure` sets, the allow-list the
-    door reads, and the fixture clients and write policies bound into the tool modules
-    (`_TOOL_BINDINGS`) — is put back as it was on the way out, whatever happened inside. A test
+    so what this and the lifespan it runs put on it — every attribute of `app.state` (the
+    runtime whose switches `configure` sets, the allow-list the door reads, the housekeeper
+    made for that runtime), and the fixture clients, write policies and configuration bound
+    into the tool modules and the stores (`_TOOL_BINDINGS`, `_TOOL_CONFIG`, `_STORE_CONFIG`) — is
+    put back as it was on the way out, whatever happened inside. A test
     that runs after this one meets the app and the tools as it found them, and never the fixture
     owner's allow-list, an unverified Tailscale header or changes switched on.
 
@@ -591,8 +710,12 @@ async def harness(*, live: bool = False, writes: bool = True, admitted: bool = F
 
     scribe_health, voice_health = ScribeClient.health, VoiceClient.health
     # Everything the harness or the lifespan it runs changes on the shared app and in the tool
-    # modules, as it was before: put back in `finally`.
-    state_before = {name: getattr(app.state, name, _ABSENT) for name in ("runtime", "allowed_logins")}
+    # modules, as it was before: put back in `finally`. The whole of `app.state`, not a list of
+    # names: the lifespan sets the runtime, the allow-list, the health cache and its lock and the
+    # housekeeper — which holds the runtime it was made for — and a list kept here would miss
+    # whatever the lifespan sets next (the 2026-09-28 deploy review, round 9, F-A2-FIXTURE: the
+    # housekeeper was left holding the fixture runtime).
+    state_before = dict(_app_state(app))
     bound_before = _tool_bindings()
     ScribeClient.health = fake_scribe_health
     VoiceClient.health = lambda _self: (True, "harness")
@@ -647,14 +770,15 @@ async def harness(*, live: bool = False, writes: bool = True, admitted: bool = F
     finally:
         ScribeClient.health = scribe_health
         VoiceClient.health = voice_health
-        for name, value in state_before.items():
-            if value is _ABSENT:
-                if hasattr(app.state, name):
-                    delattr(app.state, name)
-            else:
-                setattr(app.state, name, value)
-        for (module, name), value in bound_before.items():
-            setattr(importlib.import_module(module), name, value)
+        held = _app_state(app)
+        held.clear()
+        held.update(state_before)
+        _put_back(bound_before)
+
+
+def _app_state(app: Any) -> dict[str, Any]:
+    """The dictionary behind `app.state` (Starlette keeps every attribute set on it there)."""
+    return app.state._state
 
 
 async def _warm(runtime: Any, days: int = 90) -> None:
