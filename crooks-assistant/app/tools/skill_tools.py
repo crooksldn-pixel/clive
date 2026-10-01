@@ -223,6 +223,29 @@ def _files(record: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return out
 
 
+def _verified(base: Path, name: str, path: str, item: dict[str, Any]) -> bytes:
+    """The bytes of a listed file, read without following a link, a plain file of at most a
+    megabyte, still the one the provenance recorded."""
+    data = _read_under(base, [name, SKILL_DIR, *path.split("/")], MAX_FILE_BYTES)
+    if "sha256:" + hashlib.sha256(data).hexdigest() != item["sha256"]:
+        raise _Unread("it is no longer the file that was installed")
+    return data
+
+
+def _readable(base: Path, name: str, record: dict[str, Any]) -> list[str]:
+    """The listed files skill_read would read now, by path, at most MAX_FILES_LISTED of them."""
+    out: list[str] = []
+    for path, item in sorted(_files(record).items()):
+        if len(out) >= MAX_FILES_LISTED:
+            break
+        try:
+            _verified(base, name, path, item)
+        except _Unread:
+            continue
+        out.append(path)
+    return out
+
+
 def _about(record: dict[str, Any]) -> dict[str, Any]:
     source = record.get("source") if isinstance(record.get("source"), dict) else {}
     licence = record.get("licence") if isinstance(record.get("licence"), dict) else {}
@@ -233,9 +256,9 @@ def _about(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def installed() -> tuple[list[dict[str, Any]], int]:
+def installed(base: Path | None = None) -> tuple[list[dict[str, Any]], int]:
     """(name and provenance of every installed skill, by name; how many folders were skipped)."""
-    base = _base()
+    base = _base() if base is None else base
     if base is None:
         return [], 0
     try:
@@ -273,14 +296,15 @@ def names() -> list[str]:
     timeout_s=5.0,
 )
 def skill_list() -> dict[str, Any]:
-    found, unreadable = installed()
+    base = _base()
+    found, unreadable = installed(base)
     skills = []
     for skill in found:
         record = skill["record"]
         skills.append({
             "name": skill["name"],
             "description": _field(record.get("description"), MAX_DESCRIPTION),
-            "files": sorted(_files(record))[:MAX_FILES_LISTED],
+            "files": _readable(base, skill["name"], record),
             **_about(record),
         })
     count = len(skills)
@@ -323,11 +347,9 @@ def skill_read(name: str = "", file: str = DEFAULT_FILE, offset: int = 0) -> dic
             raise ToolError(f"The skill's file {_shown(file)} is not a text file, so it is not read.")
         raise ToolError("That skill lists no readable text file by that name. Call skill_list for its files.")
     try:
-        data = _read_under(base, [name, SKILL_DIR, *file.split("/")], MAX_FILE_BYTES)
+        data = _verified(base, name, file, item)
     except _Unread as why:
         raise ToolError(f"The skill's file {_shown(file)} was not read: {why}.") from None
-    if "sha256:" + hashlib.sha256(data).hexdigest() != item["sha256"]:
-        raise ToolError(f"The skill's file {_shown(file)} was not read: it is no longer the file that was installed.")
     text = _shown(data.decode("utf-8", errors="replace"))
     total = len(text)
     end = min(total, offset + CHUNK)

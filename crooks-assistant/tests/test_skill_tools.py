@@ -212,6 +212,27 @@ def test_skill_read_refuses_what_it_must_not_read_without_quoting_it(skills_dir,
     assert "outside" in refusals["dot dot"]
     # The guarded skill's own SKILL.md is still read.
     assert skill_read("guarded")["text"] == "Fine.\n"
+    # And the listing names only the files skill_read would read.
+    assert skill_list()["skills"][0]["files"] == ["SKILL.md"]
+
+
+def test_skill_list_names_only_files_that_read_and_then_at_most_fifty(skills_dir, tmp_path):
+    many = {f"r{i:02}.md": f"reference {i}\n".encode() for i in range(55)}
+    folder = install(skills_dir, "mixed", {**many, "SKILL.md": b"Fine.\n"}, listed=[
+        {"path": "missing.md", "sha256": _sha(b"gone\n"), "bytes": 5},
+    ])
+    for i in range(5):
+        (folder / "skill" / f"r{i:02}.md").chmod(0o644)
+        (folder / "skill" / f"r{i:02}.md").write_bytes(b"altered\n")
+    (folder / "skill" / "r05.md").unlink()
+    os.symlink(tmp_path, folder / "skill" / "r05.md")
+
+    files = skill_list()["skills"][0]["files"]
+
+    assert len(files) == 50 and "SKILL.md" in files and "missing.md" not in files
+    assert not any(f"r{i:02}.md" in files for i in range(6))
+    for path in files:
+        skill_read("mixed", file=path)
 
 
 def test_a_skill_folder_reached_through_a_link_is_not_read(skills_dir, tmp_path):
