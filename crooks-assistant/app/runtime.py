@@ -240,7 +240,10 @@ class Runtime:
                 log.debug("stopping a team member's old assistant failed", exc_info=True)
 
     def system_prompt(self) -> str:
-        return build_system_prompt(self.kb, writes_enabled=self.settings.writes_enabled)
+        return build_system_prompt(
+            self.kb, writes_enabled=self.settings.writes_enabled,
+            skills=offered_skills(writes_enabled=self.settings.writes_enabled, withheld=self.withheld_by_family()),
+        )
 
     @property
     def allowed_logins(self) -> tuple[str, ...]:
@@ -429,24 +432,7 @@ class Runtime:
         table the last probe left; an unprobed family keeps its static state. The point is
         the live test's fifteen seconds of Claude trying an operation the store could only
         refuse — a tool that is not offered is not tried."""
-        from app.capabilities import families
-        from app.tools import registry
-
-        table = self.family_states_table or {}
-        out: set[str] = set()
-        for family in families.all_families():
-            state = str((table.get(family.key) or {}).get("state") or family.state)
-            if state in ("NOT_SUPPORTED_BY_STORE", "DISCONNECTED", "NOT_IMPLEMENTED"):
-                out.update(family.tools)
-            elif state in ("MISSING_SCOPE", "READ_ONLY"):
-                for name in family.tools:
-                    try:
-                        spec = registry.get(name)
-                    except KeyError:
-                        continue
-                    if spec.write is not None or spec.batch is not None:
-                        out.add(name)
-        return out
+        return withheld_by_family(self.family_states_table or {})
 
 
 @dataclass(frozen=True)
@@ -474,6 +460,42 @@ class WriteStatus:
             return "gmail_scope_missing"
         return "scope_missing"
 
+
+def withheld_by_family(table: dict[str, dict[str, Any]]) -> set[str]:
+    """The tools the capability families take off what the model is offered, from a table of
+    their states (`Runtime.withheld_by_family`); a family missing from it keeps its static state."""
+    from app.capabilities import families
+    from app.tools import registry
+
+    out: set[str] = set()
+    for family in families.all_families():
+        state = str((table.get(family.key) or {}).get("state") or family.state)
+        if state in ("NOT_SUPPORTED_BY_STORE", "DISCONNECTED", "NOT_IMPLEMENTED"):
+            out.update(family.tools)
+        elif state in ("MISSING_SCOPE", "READ_ONLY"):
+            for name in family.tools:
+                try:
+                    spec = registry.get(name)
+                except KeyError:
+                    continue
+                if spec.write is not None or spec.batch is not None:
+                    out.add(name)
+    return out
+
+
+def offered_skills(*, writes_enabled: bool, withheld: set[str] | frozenset[str] = frozenset()) -> list[str]:
+    """The installed skills the system prompt names (app/tools/skill_tools.py): none unless
+    skill_list and skill_read are both registered and both offered, so the prompt never points
+    at a tool the model does not have, and with no skill installed it is what it always was."""
+    from app.providers.max_agent_sdk import withheld_tools
+    from app.tools import registry, skill_tools
+
+    specs = registry.all_specs()
+    hidden = withheld_tools(specs, writes_enabled=writes_enabled) | set(withheld)
+    registered = {spec.name for spec in specs}
+    if not all(name in registered and name not in hidden for name in skill_tools.TOOLS):
+        return []
+    return skill_tools.installed_names()
 
 
 def connections_dir(settings: Any) -> Path:
@@ -558,6 +580,7 @@ def build(settings: Settings | None = None) -> Runtime:
         shopify_tools,
         shopify_writes,
         show_again,
+        skill_tools,
     )
     from app.work import tools as work_tools_module  # noqa: F401 - registers work_list, work_note
 
@@ -629,9 +652,15 @@ def build(settings: Settings | None = None) -> Runtime:
     # Who on the team the owner has let in is kept beside his passkeys: a line there opens the door.
     staff_access.configure(state_dir=connections_dir(settings))
 
+    # The installed skills (app/tools/skill_tools.py): read as text from the folder the skill
+    # installer writes, never run. The prompt names them only while both tools are offered; the
+    # family table is not probed yet, so the families' own states decide.
+    skill_tools.configure(skills_dir=settings.skills_dir)
+    skills = offered_skills(writes_enabled=settings.writes_enabled, withheld=withheld_by_family({}))
+
     kb = load(settings.kb_dir)
     provider = MaxAgentSDKProvider(
-        system_prompt=build_system_prompt(kb, writes_enabled=settings.writes_enabled),
+        system_prompt=build_system_prompt(kb, writes_enabled=settings.writes_enabled, skills=skills),
         model=settings.claude_model,
         session_lookup=sessions.get_or_create,
         tool_timeout_s=settings.tool_timeout_s,

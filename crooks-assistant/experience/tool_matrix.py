@@ -383,6 +383,7 @@ def load() -> None:
     import app.tools.shopify_tools  # noqa: F401
     import app.tools.shopify_writes  # noqa: F401
     import app.tools.show_again  # noqa: F401
+    import app.tools.skill_tools  # noqa: F401
     import app.work.tools  # noqa: F401
     from app.families import load_all
 

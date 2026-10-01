@@ -405,7 +405,13 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # kept as her card, "give Mia the hoodie count" handed out, "who packed 1930?" answered from
     # the record, and "who does our posters?" answered from the list of people. The ceiling is
     # raised by exactly what was measured, leaving no headroom.
-    assert total <= 46_131, f"the tool block is {total} bytes"
+    #
+    # 46_843 is the installed skills, read as text (app/tools/skill_tools.py,
+    # tests/test_skill_tools.py), +712 bytes measured (46,131 before, 46,843 after): skill_list 263
+    # (no arguments) and skill_read 449 (a name, a file and an offset). That a skill authorises
+    # nothing is said once in the system prompt, only when a skill is installed, and beside the
+    # text in each result. The ceiling is raised by exactly what was measured, leaving no headroom.
+    assert total <= 46_843, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.
