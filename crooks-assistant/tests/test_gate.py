@@ -264,11 +264,18 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     # they change only CLIVE's own records, stage nothing and let nobody in; the owner-only steps
     # are the tools' own refusal. Named without a mutation verb, so the tables below are unchanged.
     assert {"people_list", "person_note", "work_list", "work_note"} <= gate._KNOWN_TOOLS
-    assert len(gate._KNOWN_TOOLS) == 51, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
+    # The owner's installed skills (2026-10-01): reads of the skill files the installer put on this
+    # machine. Neither is a mutation by name, so the verb rule cannot stage them.
+    skills = {"skill_list", "skill_read"}
+    assert skills <= gate._KNOWN_TOOLS
+    assert not any(gate._looks_like_mutation(name) for name in skills)
+    assert not skills & gate._PII_TOOLS
+    assert len(gate._KNOWN_TOOLS) == 53, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
                                           "screen_off and screen_remote, then screen_play and screen_video, "
                                           "then round 12's shopify_order_build, show_again and close_screen, "
                                           "then instagram_inbox, instagram_thread and instagram_comments, "
-                                          "then people_list, person_note, work_list and work_note")
+                                          "then people_list, person_note, work_list and work_note, "
+                                          "then skill_list and skill_read")
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",
