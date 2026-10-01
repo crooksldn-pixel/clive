@@ -153,7 +153,26 @@ def _faults() -> list[tuple[str, Any]]:
         ("a socket that closed without a word", _closed()),
         ("a quota exceeded", json.dumps({"message_type": "quota_exceeded_error", "error": "quota"})),
         ("a busy transcriber", json.dumps({"message_type": "resource_exhausted_error", "error": "busy"})),
+        ("a rate limit", json.dumps({"message_type": "rate_limited_error", "error": "slow down"})),
+        ("a commit throttled", json.dumps({"message_type": "commit_throttled_error", "error": "slow down"})),
+        ("a full queue", json.dumps({"message_type": "queue_overflow_error", "error": "full"})),
+        ("a rate limit without the ending", json.dumps({"message_type": "rate_limited", "error": "slow down"})),
     ]
+
+
+@pytest.mark.parametrize("kind", ["rate_limited_error", "commit_throttled_error"])
+def test_a_service_limit_as_the_first_word_never_passes_single_use_or_expiry(kind, monkeypatch):
+    pytest.importorskip("websockets.sync.client")
+    module = _key_check()
+    limit = json.dumps({"message_type": kind, "error": "the service is busy"})
+    _transport(monkeypatch, limit)
+    assert module.open_once(ADDRESS, timeout_s=1) == module.NOT_ASKED
+    code, said, _asked = _ask(module, monkeypatch, SESSION_STARTED, limit)
+    assert code == 2 and said[-1].startswith("NOT ASKED"), said
+    assert not any(line.startswith("ok") and "single-use" in line for line in said), said
+    code, said, _asked = _ask(module, monkeypatch, SESSION_STARTED, ("handshake", _status(401)), limit, expiry=True)
+    assert code == 2 and said[-1].startswith("NOT ASKED"), said
+    assert not any("opened nothing" in line for line in said), said
 
 
 def test_open_once_tells_a_refusal_of_the_key_from_a_fault_on_the_way(monkeypatch):
@@ -240,9 +259,33 @@ def _focus_reading(tmp_path: Path, name: str, *events: tuple[str, dict[str, Any]
 
 def test_a_value_a_page_sent_that_is_not_a_number_is_unknown_not_nought():
     assert visible._whole(12) == 12 and visible._whole(" 12 ") == 12 and visible._whole(0) == 0
-    assert visible._whole(874.0) == 874 and visible._whole("-3") == -3
-    for value in ("twelve", "", "12px", None, True, False, float("nan"), [12], {"n": 12}, fake.shopify_token("count")):
+    assert visible._whole(874.0) == 874 and visible._whole("-3") == -3 and visible._whole(0.0) == 0
+    for value in ("twelve", "", "12px", None, True, False, float("nan"), float("inf"), [12], {"n": 12},
+                  fake.shopify_token("count"), 12.7, 0.4, -0.5, 874.5, "12.0"):
         assert visible._whole(value) is None, value
+
+
+def test_a_fractional_count_or_depth_is_unknown_and_whole_floats_read_as_before(tmp_path):
+    def field(chars: Any) -> tuple[str, dict[str, Any]]:
+        return "tablet_compose_field", {"name": "body", "chars": chars}
+
+    def scroll(depth: Any, height: Any = 1547) -> tuple[str, dict[str, Any]]:
+        return "tablet_scroll", {"depth": depth, "height": height, "width": 680}
+
+    for name, events in (
+        ("chars-fraction-then-none", [field(12.7), ("render", {}), field(0)]),
+        ("chars-valid-then-fraction", [field(12), ("render", {}), field(0.4)]),
+        ("chars-fraction-between", [field(12), field(3.5), ("render", {}), field(0)]),
+        ("scroll-deep-fraction", [scroll(874.5), ("render", {}), scroll(0)]),
+        ("scroll-top-fraction", [scroll(874), ("render", {}), scroll(0.4)]),
+        ("scroll-height-fraction", [scroll(874), ("render", {}), scroll(0, 1547.5)]),
+    ):
+        assert _focus_reading(tmp_path, f"fraction-{name}", *events) == [], name
+    # A float that is whole is the number it says, so the cases that were real stay found.
+    found = _focus_reading(tmp_path, "fraction-chars-whole", field(27.0), ("render", {}), field(0.0))
+    assert [f.signal for f in found] == ["the composer's body held 27 character(s) and then held none"]
+    found = _focus_reading(tmp_path, "fraction-scroll-whole", scroll(874.0, 1547.0), ("render", {}), scroll(0.0, 1547.0))
+    assert [f.subject for f in found] == ["scroll"]
 
 
 def test_a_composer_count_that_is_not_a_number_after_a_valid_one_is_not_a_field_emptied(tmp_path):

@@ -68,9 +68,19 @@ FIRST_WORD_S = 5.0
 # failing (a 429, a 5xx), which says nothing about the key.
 REFUSAL_STATUSES = frozenset({401, 403})
 # A first word that is the service failing rather than refusing the key: the error message types
-# web/live-voice.js reads as a quota, a throttle, a busy service or a transcriber's failure.
-SERVICE_FAILURES = frozenset({"quota_exceeded_error", "throttled_error", "rate_limited",
-                              "resource_exhausted_error", "transcriber_error"})
+# web/live-voice.js reads as a quota, a throttle, a busy service or a transcriber's failure, and the
+# realtime service's other names for a limit or a full queue, with and without the "_error" ending.
+# Each says the service would not serve now, not that the key was refused, so none can pass the
+# single-use or expiry check (round 12, SC2-02).
+SERVICE_FAILURES = frozenset({
+    "quota_exceeded_error", "quota_exceeded",
+    "throttled_error", "throttled",
+    "rate_limited_error", "rate_limited",
+    "commit_throttled_error", "commit_throttled",
+    "resource_exhausted_error", "resource_exhausted",
+    "queue_overflow_error", "queue_overflow",
+    "transcriber_error",
+})
 
 
 def socket_address(base_url: str, token: str) -> str:

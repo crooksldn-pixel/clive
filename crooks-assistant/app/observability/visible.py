@@ -1155,12 +1155,14 @@ def _whole(value: Any) -> int | None:
     """A count or a size the tablet sent, as a whole number; None when it sent none, or sent
     something that is not one. A value a page sent that is not a number is not a reason for the
     rule reading it to fail (round 9, F-OBS2-02), and it is not nought either: it says nothing
-    about what was there (round 12, O1-02), so a rule given one has no measurement to compare."""
+    about what was there (round 12, O1-02), so a rule given one has no measurement to compare.
+    A float is one only when it is whole (874.0): 12.7 is not a count of characters or of pixels,
+    and cutting it to 12 would make up a measurement the page never sent."""
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
         return value
-    if isinstance(value, float) and value == value and abs(value) < 1e15:
+    if isinstance(value, float) and value.is_integer() and abs(value) < 1e15:
         return int(value)
     if isinstance(value, str) and _WHOLE.fullmatch(value.strip()):
         return int(value.strip())
