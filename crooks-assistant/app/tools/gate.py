@@ -182,6 +182,12 @@ _KNOWN_TOOLS = frozenset({
     # lists are AMBER on their ToolSpecs, because they surface people's names and contact details,
     # and what customers wrote. Named here one by one, because this is an allow-list.
     "people_list", "person_note", "work_list", "work_note",
+    # The skills installed on this machine (app/tools/skill_tools.py): skill_list names them and
+    # skill_read returns one skill's own text, so CLIVE can follow its steps. Both read files that
+    # the skill installer put on this machine and nothing else: no store, inbox, screen or message
+    # is reachable from them, and a step a skill describes still goes through this gate like any
+    # other call. Named here one by one, because this is an allow-list.
+    "skill_list", "skill_read",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops
