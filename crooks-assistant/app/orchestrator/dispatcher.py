@@ -1042,14 +1042,17 @@ class Dispatcher:
                    if e.kind is EventKind.RESUMED]
         return max(resumed) if resumed else None
 
-    def _acceptance(self, task: EngineeringTask, attempt: Attempt, sha: str, *, fresh: bool = False) -> GateResult:
+    def _acceptance(self, task: EngineeringTask, attempt: Attempt, sha: str, *, fresh: bool = False,
+                    fresh_red: bool = False) -> GateResult:
         """GitHub's answer about exactly ``sha``, asked at most once per ``acceptance_poll_s`` and recorded.
 
         A remembered answer is reused only inside that interval and never across a resume. With ``fresh``
-        (dispatching a review, admitting a READY, which records the acceptance, and integrating) a
+        (dispatching a review, admitting a READY, which records the acceptance, integrating and landing) a
         remembered green answer is never reused: GitHub may have gone pending, red or unavailable since (a re-run, an outage), so the
-        step that authorises something asks again at that moment. A remembered answer that is not green
-        authorises nothing, so it may still spare GitHub a question inside the interval."""
+        step that authorises something asks again at that moment. With ``fresh_red`` (review dispatch, where a red
+        answer routes a repair round) a remembered red answer is not reused either: a red that authorises a repair
+        is asked at that moment too. Any other remembered answer that is not green authorises nothing, so it may
+        still spare GitHub a question inside the interval."""
         now = self.now()
         rt = self._runtime(attempt.attempt_id)
         last = rt.get("github_acceptance")
@@ -1058,6 +1061,7 @@ class Dispatcher:
         resumed = self._resumed_at(attempt)
         if (cached is not None and cached.sha == sha and checked is not None
                 and not (fresh and cached.green)
+                and not (fresh_red and cached.state is GateState.RED)
                 and (resumed is None or checked >= resumed)
                 and now - checked < timedelta(seconds=self.config.acceptance_poll_s)):
             return cached
@@ -1079,7 +1083,7 @@ class Dispatcher:
         if self.acceptance is None:
             return self._block(obj, task, f"no GitHub acceptance gate is configured in this dispatcher; {step} on "
                                           f"{sha} needs a green GitHub acceptance run on that exact SHA"), True
-        result = self._acceptance(task, attempt, sha, fresh=fresh)
+        result = self._acceptance(task, attempt, sha, fresh=fresh, fresh_red=repair_red)
         now = self.now()
         rt = self._runtime(attempt.attempt_id)
         if result.green:
@@ -1127,6 +1131,13 @@ class Dispatcher:
         """A red run on ``sha`` at review dispatch: a repair revision carrying what failed, the way a CHANGES_REQUIRED
         verdict is repaired, or, once the objective's repair rounds (review and GitHub together) are used, the block
         a red run always was, with its last failure. Never a re-run: the repair is a new SHA made by a builder."""
+        if not _failed_its_tests(result):
+            # Cancelled, never started, stale, or a success whose acceptance job never ran: nothing for a builder to
+            # fix, so no repair round is spent on it. It blocks, as a red run always did, until a re-run is green.
+            return self._block(obj, task, f"GitHub acceptance is red on {sha} ({result.detail}); {step} refused. No "
+                                          "repair is routed: no run failed its tests, so there is nothing for a "
+                                          "builder to fix. Resume the task once a re-run of that exact SHA is green, "
+                                          "or submit a new request"), True
         failure = self._github_failure(task, attempt, sha, result)
         used = self._repair_rounds(task.task_id)
         if used >= obj.max_repair_rounds:
@@ -1466,8 +1477,26 @@ class Dispatcher:
         record = self._landing_record(obj.objective_id)
         pushing = record.get("pushing") if (record.get("pushing") or {}).get("sha") == sha else None
         if trunk == sha or self.kernel.git.is_ancestor(sha, trunk):
-            return self._record_landed(obj, task, attempt, sha, trunk, pushed=False,
-                                       resumed=pushing is not None), False
+            # Already on the trunk: the loop pushes nothing, and records a landing only on a green answer asked now
+            # (the 2c8d2caf re-pin review, F-01). It is the loop's only when the loop saw its own push succeed
+            # (``pushed_at``, written the moment git accepted it); an intent alone proves nothing, since git may have
+            # refused it or someone else may have pushed the same SHA; and with no intent it is someone else's.
+            by = _landed_by(pushing)
+            who = LANDED_BY_WORDS[by]
+            if self.acceptance is None:
+                return self._landing_refused(obj, task, sha, f"{sha} is on {TRUNK_BRANCH} already ({who}), but no "
+                                                             "GitHub acceptance gate is configured in this dispatcher "
+                                                             "to say it is green; the loop records no landing"), False
+            gate = self._acceptance(task, attempt, sha, fresh=True)
+            if gate.state is GateState.RED:
+                return self._landing_refused(obj, task, sha, f"{sha} is on {TRUNK_BRANCH} already ({who}), but GitHub "
+                                                             f"acceptance is red on it, asked at landing ({gate.detail}); "
+                                                             "the loop records no landing: the Director decides"), False
+            if not gate.green:
+                return self._landing_waits(obj, task, sha, f"is on {TRUNK_BRANCH} already ({who}) and waits for a "
+                                                           f"green GitHub acceptance run on it ({gate.state.value}: "
+                                                           f"{gate.detail})"), False
+            return self._record_landed(obj, task, attempt, sha, trunk, by=by, gate=gate), False
         if pushing is not None and pushing.get("trunk_before") != trunk:
             return self._landing_refused(
                 obj, task, sha, f"the loop began pushing {sha} onto {TRUNK_BRANCH} at {pushing.get('trunk_before')} "
@@ -1512,11 +1541,15 @@ class Dispatcher:
         if refused is not None:
             self._set_landing(obj, task, state="waiting", sha=sha, reason=refused, pushing=None)
             return self._landing_waits(obj, task, sha, refused), False
+        # git accepted the push: say so at once, so a restart from here on knows the push was the loop's own.
+        intent = self._landing_record(obj.objective_id).get("pushing") or {}
+        self._set_landing(obj, task, state="waiting", sha=sha, reason=f"pushed {sha} onto {TRUNK_BRANCH} at {trunk}",
+                          pushing={**intent, "pushed_at": self.now().isoformat()})
         after = self._trunk_after_push()
         if after != sha:
             return self._landing_waits(obj, task, sha, f"{TRUNK_BRANCH} is at {after} after the push, not {sha}; "
                                                        "asked again next tick"), False
-        return self._record_landed(obj, task, attempt, sha, trunk, pushed=True, gate=gate), False
+        return self._record_landed(obj, task, attempt, sha, trunk, by="loop", pushed=True, gate=gate), False
 
     def _trunk_head(self) -> tuple[str | None, str | None, bool]:
         """(the trunk head, None, False), or (None, why not, whether the trunk simply is not there).
@@ -1577,18 +1610,22 @@ class Dispatcher:
         return None
 
     def _record_landed(self, obj: Objective, task: EngineeringTask, attempt: Attempt, sha: str, trunk: str, *,
-                       pushed: bool, resumed: bool = False, gate: GateResult | None = None) -> str:
+                       by: str, pushed: bool = False, gate: GateResult | None = None) -> str:
+        """``by``: loop (a push the loop saw git accept, this tick or before a restart), unconfirmed (the loop began
+        a push before a restart and cannot tell whether it or someone else put the SHA there), or other."""
         record = self._landing_record(obj.objective_id)
         how = ("fast-forwarded by the loop with a plain push" if pushed else
-               "pushed by the loop before a restart; recorded now and not pushed again" if resumed else
-               "already on the trunk; nothing pushed")
+               "pushed by the loop before a restart; recorded now and not pushed again" if by == "loop" else
+               "already on the trunk; the loop began pushing it before a restart, and whether that push or someone "
+               "else's put it there cannot be told; nothing pushed now" if by == "unconfirmed" else
+               "already on the trunk, put there by someone other than the loop; the loop pushed nothing")
         now = self.now()
         acceptance = next((a for a in reversed(self.store.read_acceptances(task.task_id))
                            if a.attempt_id == attempt.attempt_id), None)
         evidence = {
             "schema": LANDING_SCHEMA, "objective_id": obj.objective_id, "task_id": task.task_id,
             "revision": task.revision, "attempt_id": attempt.attempt_id, "sha": sha, "branch": TRUNK_BRANCH,
-            "remote": self.config.publish_remote, "how": how,
+            "remote": self.config.publish_remote, "how": how, "by": by,
             "trunk_before": trunk if pushed else (record.get("pushing") or {}).get("trunk_before"),
             "trunk_after": sha if pushed else trunk,
             "push_argv": landing_push_argv(self.config.publish_remote, sha) if pushed and self.config.publish_remote
@@ -1601,7 +1638,10 @@ class Dispatcher:
         path = self._paths(attempt)["evidence"] / LANDING_FILE
         _atomic_write(path, _canonical(evidence))
         self._set_landing(obj, task, state="landed", sha=sha, reason=f"{sha} is on {TRUNK_BRANCH}: {how}", pushing=None,
-                          evidence=str(path), landed_at=now.isoformat())
+                          evidence=str(path), landed_at=now.isoformat(), by=by)
+        if by != "loop":
+            return self._note(obj.objective_id, f"{sha} is on {TRUNK_BRANCH}, not recorded as the loop's landing "
+                                                f"({how}); not deployed")
         return self._note(obj.objective_id, f"LANDED {sha} on {TRUNK_BRANCH} ({how}); not deployed")
 
     def _landing_refused(self, obj: Objective, task: EngineeringTask, sha: str, reason: str) -> str:
@@ -1927,24 +1967,27 @@ class Dispatcher:
         if self.config.land:
             return None
         return {"state": "off", "sha": None, "at": None,
-                "reason": "landing is switched off (--no-land): the loop never moves clive/trunk"}
+                "reason": "landing is switched off (--no-land): the loop never moves clive/trunk", "by": None}
 
     def _landing_view(self, obj: Objective, task: EngineeringTask, state) -> dict | None:
         """``None`` while there is nothing to land yet; else where the objective's landing stands."""
         if not self.config.land:
             return self._landing_off()
         record = self._landing_record(obj.objective_id)
-        if _is_refresh(task) and state.status is not TaskStatus.DONE:
+        # A refresh is in hand from its own revision to the end of any repair of its merge: the record says so.
+        refreshing = _is_refresh(task) or (record.get("state") == "refreshing" and task.kind is TaskKind.REPAIR)
+        if refreshing and state.status is not TaskStatus.DONE:
             if state.status in (TaskStatus.BLOCKED, TaskStatus.OWNER_GATE, TaskStatus.CANCELLED, TaskStatus.OBSOLETE):
                 return {"state": "refused", "sha": record.get("sha"), "at": _iso(state.updated_at),
-                        "reason": f"the refresh r{task.revision} is {state.status.value}: {state.blocker_reason}"[:990]}
+                        "reason": f"the refresh r{task.revision} is {state.status.value}: {state.blocker_reason}"[:990],
+                        "by": None}
             return {"state": "refreshing", "sha": record.get("sha"), "at": record.get("at"),
-                    "reason": record.get("reason")}
+                    "reason": record.get("reason"), "by": None}
         if state.status is not TaskStatus.DONE or record.get("state") not in ("waiting", "landed", "refused",
                                                                                "refreshing"):
             return None
         return {"state": record["state"], "sha": record.get("sha"), "at": record.get("at"),
-                "reason": record.get("reason")}
+                "reason": record.get("reason"), "by": record.get("by") if record["state"] == "landed" else None}
 
 
 def _canonical(document: dict) -> bytes:
@@ -2049,6 +2092,31 @@ def recorded_acceptance_gates(store: LifecycleStore, runtime_root: Path) -> dict
 
 def _review_problem_of(driver, ctx) -> str | None:
     return driver.problem(ctx) if driver is not None and hasattr(driver, "problem") else None
+
+
+# The conclusions of a completed run that mean the code failed: a test or a gate failed, or the job ran out of time.
+# Anything else red (cancelled, startup_failure, stale, action_required, neutral, skipped, or a success whose
+# acceptance job never ran) is not the candidate's failure, and a builder has nothing to repair.
+FAILED_CONCLUSIONS = frozenset({"failure", "timed_out"})
+
+
+def _failed_its_tests(result: GateResult) -> bool:
+    return any(run.status == "completed" and run.conclusion in FAILED_CONCLUSIONS for run in result.runs)
+
+
+# Who put a SHA the loop came to land on the trunk, from the landing record's push intent (``_land_checked``).
+LANDED_BY_WORDS = {
+    "loop": "the loop pushed it before a restart",
+    "unconfirmed": "the loop began pushing it before a restart, but whether that push or someone else's put it "
+                   "there cannot be told",
+    "other": "someone other than the loop put it there",
+}
+
+
+def _landed_by(pushing: dict | None) -> str:
+    if pushing is None:
+        return "other"
+    return "loop" if pushing.get("pushed_at") else "unconfirmed"
 
 
 def _is_refresh(task: EngineeringTask) -> bool:

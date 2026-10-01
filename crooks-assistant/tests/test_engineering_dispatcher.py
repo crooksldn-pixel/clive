@@ -198,6 +198,7 @@ class FakeAcceptance:
         self.asked: list[tuple[str, str]] = []
         self.logs: dict[str, dict] = {}
         self.logs_asked: list[tuple[str, str, tuple[int, ...]]] = []
+        self.red_conclusion: dict[str, str] = {}      # a red run's conclusion per SHA; "failure" unless set
 
     def failure_log(self, repository: str, sha: str, run_ids: tuple[int, ...]):
         from app.orchestrator.github_acceptance import FailureLog
@@ -211,7 +212,8 @@ class FakeAcceptance:
         done = state in (GateState.GREEN, GateState.RED)
         runs = () if state in (GateState.MISSING, GateState.UNAVAILABLE) else (
             RunFact(id=4242, status="completed" if done else "in_progress",
-                    conclusion={GateState.GREEN: "success", GateState.RED: "failure"}.get(state)),)
+                    conclusion={GateState.GREEN: "success",
+                                GateState.RED: self.red_conclusion.get(sha, "failure")}.get(state)),)
         return GateResult(sha=sha, state=state, detail=f"fake gate says {state.value}", runs=runs)
 
 
@@ -1177,6 +1179,56 @@ def test_a_red_run_whose_log_cannot_be_fetched_still_repairs_and_says_so(tmp_pat
         assert "this acceptance gate cannot read job logs" in prompt
     r2 = w.store.read_task(OBJ, 2)
     assert r2.kind is TaskKind.REPAIR and "its log could not be fetched" in r2.objective
+
+
+@pytest.mark.parametrize("conclusion", ["cancelled", "startup_failure", "stale"])
+def test_a_red_run_that_failed_no_test_blocks_without_spending_a_repair_round(tmp_path, conclusion):
+    """A run GitHub cancelled, never started or let go stale is red, but nothing in the candidate failed: no
+    builder is sent to fix it and no repair round is spent. It blocks as a red run always did (the #70
+    pre-review)."""
+    w = World(tmp_path)
+    w.scenarios(EDIT_HELLO, {"edits": [["pkg/hello.txt", "hello, again\n"]]})
+    w.objective()
+    red = _red_then_green(w)
+    w.acceptance.red_conclusion[red] = conclusion
+    w.run_until(lambda: w.state_of().status is TaskStatus.BLOCKED)
+    state = w.state_of()
+    assert state.task_revision == 1 and f"GitHub acceptance is red on {red}" in state.blocker_reason
+    assert "No repair is routed: no run failed its tests" in state.blocker_reason
+    assert not state.blocker_reason.startswith("red GitHub acceptance, repair routed:")
+    assert [t.revision for t in w.store.read_tasks() if t.task_id == OBJ] == [1] and w.invocations() == 1
+    assert w.acceptance.logs_asked == []                                  # no failure to read, no builder to brief
+    assert w.dispatcher().status()[0]["repairs"] == {"review": 0, "ci": 0, "max": 2}
+
+
+def test_a_remembered_red_is_asked_again_before_it_routes_a_repair(tmp_path):
+    """A red answer authorises a repair round only when asked at that moment: after a restart inside the poll
+    interval, a run re-run green since is seen and the candidate goes to review instead (the #70 pre-review)."""
+    from dataclasses import replace
+
+    w = World(tmp_path)
+    w.scenarios(EDIT_HELLO, {"edits": [["pkg/hello.txt", "hello, again\n"]]})
+    w.objective()
+    red = _red_then_green(w)
+    d = w.dispatcher()
+
+    def crash(*args, **kwargs):
+        raise RuntimeError("the host lost power while reading the red run")
+
+    d._github_failure = crash
+    with pytest.raises(RuntimeError, match="red run"):
+        w.run_until(lambda: False, dispatcher=d)
+    assert GateResult.from_record(json.loads(
+        (w.config.runtime_root / "attempts" / f"{_candidate(w).attempt_id}.json").read_text())["github_acceptance"]
+    ).state is GateState.RED                                                 # the red answer is remembered...
+    w.config = replace(w.config, acceptance_poll_s=3600)                     # ...and would be kept an hour
+    w.acceptance.by_sha[red] = GateState.GREEN                               # someone re-ran it: green now
+    asked = len(w.acceptance.asked)
+    w.reviewer.answers.append(lambda ctx: review(ctx))
+    w.run_until(lambda: w.stage() == "COMPLETE")
+    assert len(w.acceptance.asked) > asked
+    assert [t.revision for t in w.store.read_tasks() if t.task_id == OBJ] == [1]     # no repair was routed
+    assert w.dispatcher().status()[0]["repairs"]["ci"] == 0
 
 
 def test_a_restart_between_the_red_block_and_the_repair_revision_completes_the_repair(tmp_path):

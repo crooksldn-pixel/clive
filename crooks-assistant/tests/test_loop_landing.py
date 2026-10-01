@@ -26,7 +26,7 @@ from app.orchestrator import dispatcher as dispatcher_module
 from app.orchestrator.contracts import TaskKind, TaskStatus
 from app.orchestrator.dispatcher import Dispatcher
 from app.orchestrator.github_acceptance import GateState
-from tests.test_engineering_dispatcher import OBJ, World, _git, review
+from tests.test_engineering_dispatcher import FINDING, OBJ, World, _git, review
 
 TRUNK = "clive/trunk"
 BRANCH = "clive/objective/demo"
@@ -240,6 +240,25 @@ def test_a_moved_trunk_is_merged_in_and_the_merge_is_accepted_and_reviewed_on_it
     assert item["landing"]["state"] == "landed" and item["landing"]["sha"] == merge and item["revision"] == 2
 
 
+def test_a_refresh_whose_merge_review_asks_for_changes_still_reads_as_refreshing_while_it_is_repaired(
+        tmp_path, pushes):
+    """The repair of a refresh's merge is still the refresh: the status says so rather than nothing (the #70
+    pre-review)."""
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO, {"edits": [["pkg/hello.txt", "hello, merged\n"]]})
+    w.reviewer.answers.clear()
+    w.reviewer.answers.append(lambda ctx: review(ctx, "CHANGES_REQUIRED", findings=[FINDING]) if ctx.task_revision == 2
+                              else review(ctx))
+    w.objective()
+    d = before_landing(w.dispatcher(), lambda sha: move_trunk(w, "README", "the trunk moved on\n"))
+    w.run_until(lambda: any(t.revision == 3 for t in w.store.read_tasks() if t.task_id == OBJ), dispatcher=d,
+                timeout=60)
+    assert w.store.read_task(OBJ, 2).kind is TaskKind.INTEGRATION and w.store.read_task(OBJ, 3).kind is TaskKind.REPAIR
+    item = w.dispatcher().status()[0]
+    assert item["revision"] == 3 and item["landing"]["state"] == "refreshing" and item["landing"]["by"] is None
+    assert not landed(w) and not [p for p in pushes if TRUNK in p[-1]]
+
+
 def test_a_refresh_that_conflicts_blocks_for_the_director_and_nothing_lands(tmp_path, pushes):
     w = landing_world(tmp_path)
     w.scenarios(EDIT_HELLO)
@@ -405,6 +424,129 @@ def test_a_restart_after_the_intent_but_before_the_push_pushes_that_sha_once(tmp
     assert trunk(w) == sha and [p[-1] for p in pushes if TRUNK in p[-1]] == [f"{sha}:refs/heads/{TRUNK}"]
 
 
+def _someone_else_puts_it_on_the_trunk(w: World):
+    """Before the loop's landing step: another actor pushes the integrated SHA onto the trunk (not the loop)."""
+    return lambda sha: _git(w.repo, "push", "-q", "origin", f"{sha}:refs/heads/{TRUNK}")
+
+
+def test_a_sha_someone_else_put_on_the_trunk_is_never_recorded_as_landed_while_github_is_red(tmp_path, pushes):
+    """The 2c8d2caf re-pin review, F-01: a SHA already on the trunk is recorded as landed only on a green answer
+    asked at landing, and a trunk another actor advanced is never the loop's landing."""
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    put = _someone_else_puts_it_on_the_trunk(w)
+
+    def red_and_put(sha):
+        w.acceptance.state = GateState.RED
+        put(sha)
+
+    d = before_landing(w.dispatcher(), red_and_put)
+    w.run_until(lambda: landing_record(w).get("state") == "refused", dispatcher=d)
+    sha = w.store.read_results()[0].result_sha
+    reason = landing_record(w)["reason"]
+    assert trunk(w) == sha and not [p for p in pushes if TRUNK in p[-1]]
+    assert f"{sha} is on {TRUNK} already (someone other than the loop put it there)" in reason
+    assert "GitHub acceptance is red on it, asked at landing" in reason and "the loop records no landing" in reason
+    assert not list((w.config.runtime_root / "evidence").glob("*/landing.json"))
+
+
+@pytest.mark.parametrize("first", [GateState.GREEN, GateState.PENDING])
+def test_a_sha_someone_else_put_on_the_trunk_is_recorded_on_a_fresh_green_answer_as_not_the_loops(
+        tmp_path, pushes, first):
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    put = _someone_else_puts_it_on_the_trunk(w)
+
+    def then(sha):
+        w.acceptance.state = first
+        put(sha)
+
+    d = before_landing(w.dispatcher(), then)
+    if first is GateState.PENDING:
+        w.run_until(lambda: landing_record(w).get("state") == "waiting", dispatcher=d)
+        assert "already (someone other than the loop put it there) and waits for a green" in landing_record(w)["reason"]
+        assert not landed(w)
+        w.acceptance.state = GateState.GREEN
+    w.run_until(lambda: landed(w), dispatcher=d)
+    sha = w.store.read_results()[0].result_sha
+    record = landing_record(w)
+    assert record["by"] == "other" and "put there by someone other than the loop; the loop pushed nothing" in record["reason"]
+    assert trunk(w) == sha and not [p for p in pushes if TRUNK in p[-1]]
+    [evidence] = list((w.config.runtime_root / "evidence").glob("*/landing.json"))
+    answer = json.loads(evidence.read_text())
+    assert answer["by"] == "other" and answer["github_acceptance"]["green"] is True and answer["push_argv"] is None
+
+
+def test_the_loops_interrupted_push_is_recorded_only_on_a_fresh_green_answer(tmp_path, pushes):
+    """A restart after the loop's push and before its record: the push stands (git cannot take it back), but the
+    landing is recorded only once GitHub is green on it, asked again; red refuses it for the Director."""
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    d = w.dispatcher()
+
+    def crash(*args, **kwargs):
+        raise RuntimeError("the host lost power after the push")
+
+    d._record_landed = crash
+    with pytest.raises(RuntimeError, match="lost power"):
+        w.run_until(lambda: False, dispatcher=d)
+    sha = w.store.read_results()[0].result_sha
+    assert trunk(w) == sha and landing_record(w)["pushing"]["sha"] == sha
+    w.acceptance.state = GateState.RED
+    w.run_until(lambda: landing_record(w).get("state") == "refused")
+    reason = landing_record(w)["reason"]
+    assert f"{sha} is on {TRUNK} already (the loop pushed it before a restart)" in reason and "red on it" in reason
+    assert len([p for p in pushes if TRUNK in p[-1]]) == 1 and not landed(w)
+
+
+def test_an_intent_the_loop_never_saw_pushed_is_not_claimed_when_someone_else_lands_that_sha(tmp_path, pushes):
+    """The push intent is written before git runs, so it proves nothing about the push. The loop dies before
+    pushing, the Director pushes the same SHA by hand: on a fresh green answer it is recorded, but as unconfirmed,
+    never as the loop's own landing (the #70 pre-review). Only a push git accepted (``pushed_at``) is the loop's."""
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    d = w.dispatcher()
+
+    def crash(*args, **kwargs):
+        raise RuntimeError("the host lost power before the push")
+
+    d._push_trunk = crash
+    with pytest.raises(RuntimeError, match="before the push"):
+        w.run_until(lambda: False, dispatcher=d)
+    sha = w.store.read_results()[0].result_sha
+    intent = landing_record(w)["pushing"]
+    assert intent["sha"] == sha and "pushed_at" not in intent and trunk(w) == w.base
+    _git(w.repo, "push", "-q", "origin", f"{sha}:refs/heads/{TRUNK}")          # the Director, by hand
+    w.run_until(lambda: landed(w))
+    record = landing_record(w)
+    assert record["by"] == "unconfirmed" and "whether that push or someone else's put it there cannot be told" in (
+        record["reason"])
+    assert not [p for p in pushes if TRUNK in p[-1]]                            # the loop pushed nothing at all
+    assert w.dispatcher().status()[0]["landing"]["by"] == "unconfirmed"
+
+
+def test_a_push_git_accepted_is_marked_at_once_so_a_restart_knows_it_was_the_loops(tmp_path, pushes):
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    d = w.dispatcher()
+
+    def crash(*args, **kwargs):
+        raise RuntimeError("the host lost power after the push")
+
+    d._trunk_after_push = crash                                                  # after git accepted it
+    with pytest.raises(RuntimeError, match="after the push"):
+        w.run_until(lambda: False, dispatcher=d)
+    sha = w.store.read_results()[0].result_sha
+    assert trunk(w) == sha and landing_record(w)["pushing"]["pushed_at"]
+    w.run_until(lambda: landed(w))
+    assert landing_record(w)["by"] == "loop" and len([p for p in pushes if TRUNK in p[-1]]) == 1
+
+
 def test_a_trunk_moved_away_from_an_interrupted_push_is_never_pushed_to_again(tmp_path, pushes):
     w = landing_world(tmp_path)
     w.scenarios(EDIT_HELLO)
@@ -452,7 +594,8 @@ def test_the_status_rows_carry_attempts_repairs_generated_and_landing(tmp_path, 
     assert second["outcome"] == "candidate" and second["reason"] == f"candidate {w.store.read_results()[0].result_sha}"
     assert first["at"] < second["at"] and first["revision"] == second["revision"] == 1
     assert item["repairs"] == {"review": 0, "ci": 0, "max": 2} and item["generated"] == []
-    assert set(item["landing"]) == {"state", "sha", "at", "reason"} and item["landing"]["state"] == "landed"
+    assert set(item["landing"]) == {"state", "sha", "at", "reason", "by"} and item["landing"]["state"] == "landed"
+    assert item["landing"]["by"] == "loop"                                   # the loop's own plain push
     # every key the status had before is still there
     for key in ("objective_id", "title", "task_id", "revision", "kind", "stage", "stage_reason", "attempt_id",
                 "worker", "last_heartbeat", "last_progress", "lease", "candidate_sha", "review", "acceptance",
@@ -484,3 +627,127 @@ def test_the_trunk_as_a_builders_target_is_still_refused_with_landing_on(tmp_pat
     w.run_until(w.status_is(TaskStatus.BLOCKED))
     assert "never publishes a candidate onto" in w.state_of().blocker_reason and w.invocations() == 0
     assert trunk(w) == w.base and w.dispatcher().status()[0]["landing"] is None      # nothing to land
+
+
+# ---------------------------------------------------------------- the long-lived `run`, restarted on existing state
+#
+# A restart proven on ``tick`` is not a restart of the long-lived mode (the strict reviewer's CHANGES_REQUIRED). Here
+# a previous life of the loop leaves the store, runtime notes and landing record (the real dispatcher writes them,
+# crashed at a monkeypatched point where the case needs it), and ``engineering_dispatcher.py run`` itself takes them
+# up: its parser, its ``_parts`` and its termination rule. Three things the CLI builds are the world's instead: the
+# GitHub gate (the fake: nothing reaches GitHub and no credential is asked for), the kernel's clock, and the sleep
+# between ticks, which moves that clock by the interval rather than waiting it out (GitHub is asked about a SHA at
+# most once per ``acceptance_poll_s``, 60s, which is not a CLI flag).
+
+
+def _dispatcher_run(w: World, monkeypatch, on_sleep=lambda seconds: None, *, max_ticks: int = 8) -> int:
+    """``engineering_dispatcher.py ... run`` as a host starts it, on the world's store, repository, runtime,
+    workspaces and fake builder. ``on_sleep`` sees each sleep between ticks; the interval is 61s of world time."""
+    from datetime import timedelta
+    from functools import partial
+    from types import SimpleNamespace
+
+    from app.orchestrator.lifecycle import Kernel
+    from scripts import engineering_dispatcher as cli
+
+    def sleep(seconds: float) -> None:
+        on_sleep(seconds)
+        w.clock.offset += timedelta(seconds=seconds)
+
+    monkeypatch.setattr(cli, "GitHubAcceptance", lambda _token: w.acceptance)
+    monkeypatch.setattr(cli, "git_remote_token", lambda _repo, _remote: (lambda _repository: None))
+    monkeypatch.setattr(cli, "Kernel", partial(Kernel, clock=w.clock))
+    monkeypatch.setattr(cli, "time", SimpleNamespace(sleep=sleep))
+    return cli.run(["--store", str(w.store.root), "--repo", str(w.repo), "--runtime-root", str(w.config.runtime_root),
+                    "--workspace-root", str(w.config.workspace_root), "--no-journal", "--publish-remote", "origin",
+                    "--worker-cli", str(w.cli), "run", "--interval", "61", "--max-ticks", str(max_ticks)])
+
+
+def _trunk_pushes(pushes: list[list[str]]) -> list[str]:
+    return [argv[-1] for argv in pushes if argv[-1].endswith(f":refs/heads/{TRUNK}")]
+
+
+def test_run_restarted_on_a_completed_objective_still_waiting_to_land_ticks_on_and_exits_once_it_lands(
+        tmp_path, pushes, monkeypatch, capsys):
+    """``run`` stops once every objective is COMPLETE, BLOCKED or at OWNER_GATE, but a COMPLETE objective whose
+    landing still waits (here for a green run on its integrated SHA) is not finished. Restarted on that store, ``run``
+    keeps ticking through the wait, lands it once GitHub is green, and then stops by its own rule, not --max-ticks."""
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    d = before_landing(w.dispatcher(), lambda sha: setattr(w.acceptance, "state", GateState.PENDING))
+    w.run_until(lambda: landing_record(w).get("state") == "waiting" and "waits for a green" in
+                landing_record(w).get("reason", ""), dispatcher=d)
+    sha = w.store.read_results()[0].result_sha
+    assert w.stage() == "COMPLETE" and trunk(w) == w.base and not _trunk_pushes(pushes)
+    assert w.dispatcher().status()[0]["landing"]["state"] == "waiting"
+    capsys.readouterr()
+
+    between: list[tuple[str, str, str]] = []
+
+    def on_sleep(_seconds):
+        between.append((w.stage(), landing_record(w)["state"], trunk(w)))
+        if len(between) == 2:
+            w.acceptance.state = GateState.GREEN                 # GitHub's run on the SHA finishes green
+
+    assert _dispatcher_run(w, monkeypatch, on_sleep) == 0
+    out = capsys.readouterr().out
+    # it slept twice with the objective COMPLETE and its landing waiting, rather than stopping at COMPLETE...
+    assert between == [("COMPLETE", "waiting", w.base)] * 2
+    # ...landed on the third tick, with one plain push of exactly the SHA, and stopped there (well inside 8 ticks)
+    assert landed(w) and landing_record(w)["by"] == "loop" and trunk(w) == sha
+    assert _trunk_pushes(pushes) == [f"{sha}:refs/heads/{TRUNK}"]
+    assert f"LANDED {sha} on {TRUNK} (fast-forwarded by the loop with a plain push); not deployed" in out
+    assert out.rstrip().endswith(json.dumps({OBJ: "COMPLETE"}, indent=2))
+
+
+def test_run_restarted_on_a_push_intent_from_before_a_crash_pushes_once_and_records_it_as_the_loops(
+        tmp_path, pushes, monkeypatch, capsys):
+    """The previous life recorded its intent to push and died before git ran: the trunk is unchanged and the intent
+    has no ``pushed_at``. ``run`` restarted on that store asks GitHub again, waits through a pending answer with the
+    intent still on record and nothing pushed, then pushes exactly once, records the landing as the loop's own and
+    stops. Restarted once more, it pushes nothing and stops after one tick."""
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    d = w.dispatcher()
+
+    def crash(*args, **kwargs):
+        raise RuntimeError("the host lost power before the push")
+
+    d._push_trunk = crash
+    with pytest.raises(RuntimeError, match="before the push"):
+        w.run_until(lambda: False, dispatcher=d)
+    sha = w.store.read_results()[0].result_sha
+    record = landing_record(w)
+    assert record["state"] == "waiting" and record["pushing"]["sha"] == sha
+    assert record["pushing"]["trunk_before"] == w.base and "pushed_at" not in record["pushing"]
+    assert trunk(w) == w.base and w.stage() == "COMPLETE" and not _trunk_pushes(pushes)
+    capsys.readouterr()
+
+    w.acceptance.state = GateState.PENDING                        # asked afresh after the restart: a re-run is going
+    between: list[tuple[str, str | None, str]] = []
+
+    def on_sleep(_seconds):
+        record = landing_record(w)
+        between.append((record["state"], (record.get("pushing") or {}).get("sha"), trunk(w)))
+        w.acceptance.state = GateState.GREEN
+
+    assert _dispatcher_run(w, monkeypatch, on_sleep) == 0
+    out = capsys.readouterr().out
+    assert between == [("waiting", sha, w.base)]                   # one waiting tick: intent kept, nothing pushed
+    assert _trunk_pushes(pushes) == [f"{sha}:refs/heads/{TRUNK}"] and trunk(w) == sha
+    record = landing_record(w)
+    assert record["state"] == "landed" and record["sha"] == sha and record["by"] == "loop" and record["pushing"] is None
+    evidence = json.loads(Path(record["evidence"]).read_text())
+    assert evidence["by"] == "loop" and evidence["how"] == "fast-forwarded by the loop with a plain push"
+    assert evidence["trunk_before"] == w.base and evidence["trunk_after"] == sha
+    assert evidence["push_argv"] == ["git", "push", "--quiet", "origin", f"{sha}:refs/heads/{TRUNK}"]
+    assert w.dispatcher().status()[0]["landing"]["by"] == "loop"
+    assert f"LANDED {sha} on {TRUNK}" in out and out.rstrip().endswith(json.dumps({OBJ: "COMPLETE"}, indent=2))
+
+    def must_not_sleep(_seconds):
+        raise AssertionError("with its one objective landed, run must stop after its first tick")
+
+    assert _dispatcher_run(w, monkeypatch, must_not_sleep) == 0
+    assert _trunk_pushes(pushes) == [f"{sha}:refs/heads/{TRUNK}"] and landing_record(w) == record

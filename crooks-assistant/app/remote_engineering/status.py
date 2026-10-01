@@ -70,6 +70,7 @@ STATUS_SCHEMA = "clive.remote_engineering_status.v1"
 LOOP_FIELDS = ("attempts", "repairs", "generated", "landing")
 ATTEMPT_OUTCOMES = frozenset({"launched", "cancelled", "refused", "candidate", "blocked"})
 LANDING_STATES = frozenset({"off", "waiting", "landed", "refused", "refreshing"})
+LANDED_BY = frozenset({"loop", "unconfirmed", "other"})
 TASK_KINDS = frozenset({"build", "repair", "review", "evidence", "integration"})
 MAX_ATTEMPTS = 20
 MAX_REVISIONS = 20
@@ -252,6 +253,7 @@ def loop_fields(entry: Mapping) -> dict:
                 "sha": _sha(landing.get("sha")),
                 "at": _time(landing.get("at")),
                 "reason": _text(landing.get("reason")),
+                "by": _word(landing.get("by"), LANDED_BY),
             }
             if isinstance(landing, Mapping) else None
         )

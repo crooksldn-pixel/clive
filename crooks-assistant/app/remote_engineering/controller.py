@@ -110,17 +110,24 @@ def objective_from_request(
     config: RemoteControllerConfig,
     git: GitFacts,
     created_at: datetime,
+    admitted: Objective | None = None,
 ) -> Objective:
-    """The one Objective this request authorises, validated only by ``Objective`` itself."""
-    resolved = git.rev_parse(request.base_ref)
-    if resolved is None or resolved != request.base_sha:
-        # Never echo base_ref: it is requester-supplied and this reason is persisted in a
-        # receipt and published. The request id and the declared sha are both bounded.
-        raise InboxError(
-            f"request {request.request_id}: base ref does not resolve to the "
-            f"declared base sha {request.base_sha}"
-        )
-    memory_sha = git.rev_parse(config.product_memory_ref)
+    """The one Objective this request authorises, validated only by ``Objective`` itself.
+
+    ``admitted`` is the objective an interrupted admission of this same claimed request already
+    recorded. Its base and product-memory commits were resolved then; the loop's own fetches
+    move the trunk ref since (landing, a base fetch), so a replay rebuilds from those commits
+    rather than resolving the refs again, and stays byte-identical (the #70 pre-review)."""
+    if admitted is None or admitted.base_sha != request.base_sha:
+        resolved = git.rev_parse(request.base_ref)
+        if resolved is None or resolved != request.base_sha:
+            # Never echo base_ref: it is requester-supplied and this reason is persisted in a
+            # receipt and published. The request id and the declared sha are both bounded.
+            raise InboxError(
+                f"request {request.request_id}: base ref does not resolve to the "
+                f"declared base sha {request.base_sha}"
+            )
+    memory_sha = admitted.product_memory_sha if admitted is not None else git.rev_parse(config.product_memory_ref)
     if memory_sha is None:
         # The ref and the repo path are the operator's own configuration, and this reason is
         # published; the operator reads the ref back off the unit file, not off a public branch.
@@ -280,10 +287,15 @@ class RemoteController:
         # no durable digest, and a later replay could bind it to different bytes that
         # happen to parse to the same request. The claim is provenance, never authority:
         # it admits nothing and advances nothing on its own.
+        admitted = None
         if claimed is None:
             claimed = self.claims.put(
                 Claim(request_id=request.request_id, request_sha256=digest, claimed_at=self.clock())
             )
+        else:
+            # A replay of this claimed request: whatever its interrupted admission recorded is
+            # rebuilt from, never re-resolved from refs that have moved since.
+            admitted = self.objectives.read(request.request_id)
 
         # The claimed instant, not the current one, so a resumed admission rebuilds the
         # byte-identical objective rather than a merely equivalent one.
@@ -291,7 +303,8 @@ class RemoteController:
         try:
             if overdue is not None:
                 raise InboxError(overdue)
-            objective = objective_from_request(request, config=self.config, git=self.kernel.git, created_at=now)
+            objective = objective_from_request(request, config=self.config, git=self.kernel.git, created_at=now,
+                                               admitted=admitted)
             outcome = intake(objective, kernel=self.kernel, objectives=self.objectives)
         except (LifecycleError, RecordConflictError, InboxError, ValidationError) as exc:
             # A ValidationError reaching here unwrapped (from intake, not from the objective
