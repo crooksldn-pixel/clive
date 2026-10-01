@@ -55,8 +55,9 @@ def test_the_environment_is_built_not_inherited(tmp_path, monkeypatch):
     for name in ("GH_TOKEN", "GITHUB_TOKEN", "ANTHROPIC_API_KEY", "SHOPIFY_TOKEN", "GMAIL_OAUTH", "HTTPS_PROXY"):
         monkeypatch.setenv(name, "secret")
     env = ClaudeCodeWorker().environment(spec(tmp_path), "/opt/node/bin/claude")
-    assert set(env) == {"PATH", "HOME", "LANG", "TMPDIR", "CLIVE_ATTEMPT_ID"}
+    assert set(env) == {"PATH", "HOME", "LANG", "TMPDIR", "CLIVE_ATTEMPT_ID", "DISABLE_AUTOUPDATER"}
     assert env["HOME"] == str(tmp_path / "home") and env["PATH"].startswith("/opt/node/bin:")
+    assert env["DISABLE_AUTOUPDATER"] == "1"          # decision 7: a builder run never updates the CLI
 
 
 def test_a_token_file_passes_exactly_one_credential_variable(tmp_path):
@@ -64,7 +65,7 @@ def test_a_token_file_passes_exactly_one_credential_variable(tmp_path):
     token.write_text("oauth-token\n")
     env = ClaudeCodeWorker(oauth_token_file=token).environment(spec(tmp_path), "/bin/claude")
     assert env["CLAUDE_CODE_OAUTH_TOKEN"] == "oauth-token"
-    assert set(env) == {"PATH", "HOME", "LANG", "TMPDIR", "CLIVE_ATTEMPT_ID", "CLAUDE_CODE_OAUTH_TOKEN"}
+    assert set(env) == {"PATH", "HOME", "LANG", "TMPDIR", "CLIVE_ATTEMPT_ID", "DISABLE_AUTOUPDATER", "CLAUDE_CODE_OAUTH_TOKEN"}
 
 
 def test_the_real_restricted_init_event_passes_the_launch_check_only_with_bash_allowed(tmp_path):
@@ -118,7 +119,7 @@ def test_the_worker_launch_allows_exactly_the_file_tools_plus_run_checks(tmp_pat
                                         "env": {}}}
     assert "--strict-mcp-config" in argv
     env = worker.environment(spec(tmp_path, check_config=config), "/bin/claude")
-    assert set(env) == {"PATH", "HOME", "LANG", "TMPDIR", "CLIVE_ATTEMPT_ID", "MCP_TOOL_TIMEOUT"}
+    assert set(env) == {"PATH", "HOME", "LANG", "TMPDIR", "CLIVE_ATTEMPT_ID", "DISABLE_AUTOUPDATER", "MCP_TOOL_TIMEOUT"}
 
 
 def test_the_launch_check_accepts_the_check_server_only_when_the_launch_asked_for_it(tmp_path):

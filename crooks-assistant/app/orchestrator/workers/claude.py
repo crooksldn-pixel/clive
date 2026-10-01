@@ -188,6 +188,11 @@ class ClaudeCodeWorker:
             "LANG": "C.UTF-8",
             "TMPDIR": str(tmp),
             MARKER: spec.marker,
+            # The owner's decision of 1 October 2026 (decision 7): the CLI on the build server is
+            # never updated by a builder run. A newer CLI can bring a built-in plugin the launch
+            # check refuses (ALLOWED_PLUGINS), which would stop every build at once; it is updated
+            # deliberately, with the pin, instead.
+            "DISABLE_AUTOUPDATER": "1",
         }
         if spec.check_config is not None:
             env["MCP_TOOL_TIMEOUT"] = CHECK_TOOL_TIMEOUT_MS
