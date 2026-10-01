@@ -1786,6 +1786,12 @@ async def shopify_order_tags_add(order_id: str, tags: list) -> Prepared:
 # "confident" is exact, not fuzzy.
 
 MAX_VARIANT_CANDIDATES = 8
+NO_VARIANT_NOTE = (
+    "No variant matches those words among the shop's active products. On a new order being built, "
+    "an item the shop does not sell or no longer sells goes on as a custom item: shopify_order_build "
+    "add [{title, price, quantity}] with no item and no variant_id; ask the owner the price if it was "
+    "not said. A custom item cannot be added to an existing order."
+)
 
 
 def _variant_options(node: dict[str, Any]) -> list[str]:
@@ -1836,11 +1842,32 @@ query CrooksVariantSearch($q: String!, $n: Int!) {
 
 _SKU_SHAPE = re.compile(r"^[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)+$")
 
+# A size said in more than one word, as the one word a variant's option is: "extra large" in
+# the words of an item is XL, as it is when it is said as the size on its own (`_size_aliases`).
+_SIZE_PHRASES = (
+    (re.compile(r"\b(?:extra[\s-]+extra[\s-]*large|xx[\s-]*large)\b", re.I), "XXL"),
+    (re.compile(r"\b(?:extra|x)[\s-]*large\b", re.I), "XL"),
+    (re.compile(r"\b(?:extra|x)[\s-]*small\b", re.I), "XS"),
+)
+# The runs of an item's words asked of Shopify before its single words (`_search_terms`).
+MAX_PHRASE_SEARCHES = 4
+
+
+def _sizes_as_one_word(text: str) -> str:
+    for pattern, size in _SIZE_PHRASES:
+        text = pattern.sub(size, text)
+    return text
+
+
+def _product_words(product: str) -> list[str]:
+    """The words of an item as said, a size in several words taken as the one it is."""
+    return item_words(_sizes_as_one_word(product))
+
 
 def _wanted(product: str, colour: str, size: str) -> list[set[str]]:
     """What a candidate has to have matched: the product as each of its words, the colour and
     the size as single words with their aliases. An empty field asks for nothing."""
-    wanted: list[set[str]] = [{w} for w in item_words(product)]
+    wanted: list[set[str]] = [{w} for w in _product_words(product)]
     for value in (colour, size):
         if value:
             wanted.append({item_text(value)} | _size_aliases(value))
@@ -1852,7 +1879,7 @@ def _describes(wanted: list[set[str]], product: str, title: str, variant: dict[s
     words = _variant_words(title, variant)
     groups = wanted
     if product and _SKU_SHAPE.match(product) and str(variant.get("sku") or "").upper() == product.upper():
-        groups = wanted[len(item_words(product)):]      # the SKU said it; colour and size still must
+        groups = wanted[len(_product_words(product)):]  # the SKU said it; colour and size still must
     return all(any(_found(w, words) for w in group) for group in groups)
 
 
@@ -1862,17 +1889,39 @@ def _search_terms(product: str) -> list[str]:
     The words as said first — that is what the search is for. Then, because Shopify indexes a
     product's own words and a person uses others ("black hoodie" for the Convict Hoodie in
     black), each longer word on its own, longest first, skipping sizes, which are never in a
-    product's title. A SKU is asked for as a SKU before anything else."""
+    product's title. A SKU is asked for as a SKU before anything else.
+
+    Between the two, the runs of the words said that could be the product's own name, longest
+    first (`_phrases`). Variant search is asked the product, the colour and the size apart, so
+    "Convict hoodie" is what Shopify is asked; an item added to an order by its words arrives
+    as one phrase — "black Convict hoodie, medium" — and Shopify's search ANDs every word
+    against titles and tags, where a colour and a size are not. Without these, the same item
+    variant search found was asked for only by its longest words one at a time, a colour among
+    them, and an active, in-stock item was "nothing in the catalogue"."""
     said = " ".join(str(product or "").split())
     terms = [f"sku:{said}"] if _SKU_SHAPE.match(said) else []
     terms.append(_product_query(said))
-    words = [w for w in item_words(said) if len(w) > 2 and not (_size_aliases(w) - {w})]
+    phrases = [p for p in dict.fromkeys(_product_query(run) for run in _phrases(said)) if p not in terms]
+    terms += phrases[:MAX_PHRASE_SEARCHES]
+    words = [w for w in _product_words(said) if len(w) > 2 and not (_size_aliases(w) - {w})]
     if len(words) > 1:
         # A word that stands for several spellings ("tee", "t shirt") is asked as the maker
         # writes it (`_SEARCHED_AS`).
         terms += [_SEARCHED_AS.get(w, w) for w in sorted(dict.fromkeys(words), key=len, reverse=True)[:2]]
     terms += [_SEARCHED_AS[w] for w in words if w in _SEARCHED_AS]
     return list(dict.fromkeys(terms))
+
+
+def _phrases(said: str) -> list[str]:
+    """The runs of two or more of the words said, as said, longest first, once the sizes and
+    the filler are out: "black Convict hoodie, medium" is "black Convict hoodie", then "black
+    Convict" and "Convict hoodie". A colour or a size is said either side of a product's name,
+    so one of these is its name; which one is for Shopify's search to say, and every variant it
+    returns is still held to every word (`_describes`)."""
+    kept = [token for token in re.split(r"[\s,/]+", _sizes_as_one_word(said))
+            if any(not (_size_aliases(w) - {w}) for w in item_words(token))]
+    return [" ".join(kept[start:start + length])
+            for length in range(len(kept), 1, -1) for start in range(len(kept) - length + 1)]
 
 
 async def catalogue_candidates(client: ShopifyClient, product: str = "", colour: str = "",
@@ -1947,7 +1996,10 @@ async def shopify_variant_search(product: str = "", colour: str = "", size: str 
         "confident": bool(wanted) and len(candidates) == 1,
     }
     if not candidates:
-        result["note"] = "No variant matches those words." if wanted else "The catalogue returned no variants."
+        # Only an ACTIVE product's variants are candidates. Something the shop does not sell, or
+        # no longer sells, still goes on a NEW order as a custom item — its title and the
+        # owner's price, and no variant at all (app/families/order_create.py `add_custom`).
+        result["note"] = NO_VARIANT_NOTE if wanted else "The catalogue returned no variants."
     elif len(candidates) > limit:
         result["truncated"] = True
         result["note"] = f"{len(candidates)} variants match; the first {limit} are here. Say the colour and size."
