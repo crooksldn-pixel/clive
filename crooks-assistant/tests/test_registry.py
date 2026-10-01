@@ -414,7 +414,14 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # of 1 October 2026: "add a £15 rush alteration to order 1930" prepared as the same priced card
     # and hold as adding a catalogue item. The ceiling is raised by exactly what was measured,
     # leaving no headroom.
-    assert total <= 46_787, f"the tool block is {total} bytes"
+    # 46_195 is the work list's review fixes (PR #73's review, app/work/tools.py,
+    # tests/test_work_review_fixes.py), +64 bytes measured (46,131 before, 46,195 after; measured on its own): work_note's
+    # `flag` action, ", \"flag\"" in its enum (+8) and " Anyone: flag (title, details, ref) a job for
+    # the owner." in its description (+56). What it buys is the step the team is told to take when a
+    # change is George's: noting it on the work list for him. The ceiling is raised by exactly what
+    # was measured, leaving no headroom.
+    # Both together: 46,851 (46,787 + 64), measured on the merged tree.
+    assert total <= 46_851, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.
