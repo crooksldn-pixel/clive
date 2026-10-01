@@ -174,6 +174,14 @@ _KNOWN_TOOLS = frozenset({
     # conversation_id is an issued-id argument declared there. Named here one by one, because
     # this is an allow-list.
     "instagram_inbox", "instagram_thread", "instagram_comments",
+    # The team (app/people/tools.py) and the work list (app/work/tools.py). Like the objective
+    # tools above, they read and change only CLIVE's own records on this machine: a person's card,
+    # a job, its claim and its record. No message is sent and the shop is not touched by them, and
+    # nobody is let in by them (a staff login waits for the owner's passkey, app/people/access.py).
+    # Who may take which step is the tools' own rule (owner-only steps refuse anyone else). The two
+    # lists are AMBER on their ToolSpecs, because they surface people's names and contact details,
+    # and what customers wrote. Named here one by one, because this is an allow-list.
+    "people_list", "person_note", "work_list", "work_note",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops

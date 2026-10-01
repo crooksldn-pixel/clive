@@ -9,10 +9,18 @@ POLLED_PREFIXES = ("/state/", "/health", "/ping", "/static/", "/sw.js", "/manife
 QUIET_STATUSES = (200, 304)
 
 
+# Routes whose query must never reach the log: Instagram's sign-in comes back to the first with a
+# one-time code and state in its address (app/routes/connections.py).
+UNLOGGED_QUERIES = ("/connections/",)
+
+
 class QuietPollsFilter(logging.Filter):
     """Drops uvicorn's access line for a poll that succeeded. During a turn the tablet asks
     /state every 400 ms and /health every 30 s; logged, they bury the lines that matter. A
-    failure (any other status) is still logged, as is every request that is not a poll."""
+    failure (any other status) is still logged, as is every request that is not a poll.
+
+    It also takes the query off a Connections route's line, so a sign-in's code never lands in
+    the journal."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         args = record.args
@@ -20,6 +28,8 @@ class QuietPollsFilter(logging.Filter):
             path, status = args[2], args[4]
             if status in QUIET_STATUSES and isinstance(path, str) and path.startswith(POLLED_PREFIXES):
                 return False
+            if isinstance(path, str) and "?" in path and path.startswith(UNLOGGED_QUERIES):
+                record.args = (args[0], args[1], path.split("?", 1)[0] + "?[not logged]", args[3], args[4])
         return True
 
 

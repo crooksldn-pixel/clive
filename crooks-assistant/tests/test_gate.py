@@ -260,10 +260,15 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     # instagram_thread's conversation_id an issued-id argument declared there, so the other
     # tables below are unchanged.
     assert {"instagram_inbox", "instagram_thread", "instagram_comments"} <= gate._KNOWN_TOOLS
-    assert len(gate._KNOWN_TOOLS) == 47, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
+    # The team and the work list (app/people/tools.py, app/work/tools.py): like the objective tools,
+    # they change only CLIVE's own records, stage nothing and let nobody in; the owner-only steps
+    # are the tools' own refusal. Named without a mutation verb, so the tables below are unchanged.
+    assert {"people_list", "person_note", "work_list", "work_note"} <= gate._KNOWN_TOOLS
+    assert len(gate._KNOWN_TOOLS) == 51, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
                                           "screen_off and screen_remote, then screen_play and screen_video, "
                                           "then round 12's shopify_order_build, show_again and close_screen, "
-                                          "then instagram_inbox, instagram_thread and instagram_comments")
+                                          "then instagram_inbox, instagram_thread and instagram_comments, "
+                                          "then people_list, person_note, work_list and work_note")
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",

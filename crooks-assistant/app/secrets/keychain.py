@@ -9,7 +9,9 @@ Two backends, chosen by platform and by nothing else:
   macOS   the login Keychain, through `keyring`. Unchanged, and the only backend the Mac has
           ever used.
   Linux   app/secrets/linux_store.py — systemd credentials for static secrets, a root-only
-          0600 directory for the ones the application itself rewrites.
+          0600 directory for the ones the application itself rewrites, and, asked first, the
+          keys the owner stores from the Connections screen, encrypted on this machine
+          (app/secrets/vault.py).
 
 The public surface is the same on both: get, get_optional, set_secret, delete, present. The
 one documented difference is that a Linux write to a key systemd provisions read-only raises
@@ -23,12 +25,12 @@ import sys
 
 # Pure stdlib inside, so importing it on macOS costs nothing and the exception it defines can
 # be caught by name from either platform.
-from app.secrets.linux_store import SecretShadowed
+from app.secrets.linux_store import SecretDisconnected, SecretShadowed
 
 SERVICE = "crooks-assistant"
 
 __all__ = [
-    "SERVICE", "KNOWN_KEYS", "SecretMissing", "KeychainUnavailable", "SecretShadowed",
+    "SERVICE", "KNOWN_KEYS", "SecretMissing", "KeychainUnavailable", "SecretShadowed", "SecretDisconnected",
     "get", "get_optional", "set_secret", "delete", "present", "where",
 ]
 
@@ -204,8 +206,9 @@ def present(key: str) -> bool:
 
 
 def where(key: str) -> str:
-    """Which store holds this secret, for the doctor and the installer to report. Never the
-    value: "keychain", "systemd-credential", "file", or "" when it is not stored at all."""
+    """Which store holds this secret, for the doctor, the installer and the Connections screen
+    to report. Never the value: "keychain", "app", "app-off", "app-unreadable",
+    "systemd-credential", "file", or "" when it is not stored at all (linux_store.where)."""
     _validate(key)
     if _on_linux():
         from app.secrets import linux_store

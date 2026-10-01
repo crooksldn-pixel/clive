@@ -36,7 +36,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from app.secrets import keychain, linux_store  # noqa: E402
+from app.secrets import keychain, linux_store, vault  # noqa: E402
 
 # Where the encrypted blobs live. systemd decrypts them into the service's own credentials
 # directory at start; they are host-bound, so a copy taken off this machine is inert.
@@ -107,6 +107,9 @@ def encrypt(key: str, value: str) -> None:
     if completed.returncode != 0:
         raise RuntimeError((completed.stderr or completed.stdout).strip()[:300] or "systemd-creds failed")
     target.chmod(0o600)
+    # The latest choice wins: a value or a disconnection made in the app (app/secrets/vault.py)
+    # would otherwise go on overriding what was just stored here.
+    vault.clear(key)
 
 
 def control_characters(value: str) -> int:
@@ -148,6 +151,7 @@ def store_one(key: str, *, plain: bool) -> int:
         print(f"  stored  {key} -> encrypted credential ({encrypted_path(key)})")
         print("          it reaches the service on its next restart.")
     else:
+        vault.clear(key)   # the latest choice wins over one made in the app (app/secrets/vault.py)
         keychain.set_secret(key, value)
         print(f"  stored  {key} -> {linux_store.store_dir() / key} (0600)")
     return 0
@@ -168,6 +172,7 @@ def generate_media_key() -> int:
 
 
 def remove_one(key: str) -> int:
+    vault.clear(key)   # whatever the app stored or disconnected goes too
     if provisioned_encrypted(key):
         encrypted_path(key).unlink()
         print(f"  removed {key} (encrypted credential; restart the service to drop it)")
@@ -185,6 +190,12 @@ def where(key: str) -> str:
     is otherwise invisible and would read as missing.
     """
     live = keychain.where(key)
+    if live == "app":
+        return "stored from the app (Connections), encrypted on this machine"
+    if live == "app-off":
+        return "disconnected in the app (Connections)"
+    if live == "app-unreadable":
+        return "stored from the app, but this machine can no longer decrypt it: store it again"
     if live == "systemd-credential":
         return "encrypted credential (loaded)"
     if provisioned_encrypted(key):
@@ -192,6 +203,15 @@ def where(key: str) -> str:
     if live == "file":
         return "file, 0600"
     return ""
+
+
+def usable(key: str) -> bool:
+    """Whether the service would find a value for this key: not merely that some tier mentions
+    it (a key disconnected in the app, or stored there and no longer decryptable, has none)."""
+    live = keychain.where(key)
+    if live in ("app-off", "app-unreadable"):
+        return False
+    return bool(live) or provisioned_encrypted(key)
 
 
 def status() -> int:
@@ -202,7 +222,7 @@ def status() -> int:
     for key in keychain.KNOWN_KEYS:
         tier = "static " if key in linux_store.STATIC_KEYS else "mutable"
         held = where(key)
-        print(f"  [{'ok  ' if held else '--  '}] {tier}  {key:<22} {held or 'not stored'}")
+        print(f"  [{'ok  ' if usable(key) else '--  '}] {tier}  {key:<22} {held or 'not stored'}")
     print("-" * 74)
     print("  Store one with: python scripts/provision_secrets.py <key>")
     print("  A static secret reaches the service on its next restart.\n")
