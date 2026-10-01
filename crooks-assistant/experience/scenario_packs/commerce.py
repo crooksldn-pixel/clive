@@ -286,6 +286,12 @@ async def order_by_voice(h: Harness) -> Result:
                           f"drafts={len(drafts)}"))
     if grounded(h):
         parcel = data.BY_NAME["#1938"].address
+        # The whole of that address as MailingAddressInput carries it: every one of its fields
+        # that has something in it, the country under its input name. A field dropped on the way
+        # to the draft — a second line, a company, a county, a phone — makes this unequal.
+        whole = {k: parcel[k] for k in ("firstName", "lastName", "company", "address1", "address2", "city",
+                                         "provinceCode", "zip", "phone") if str(parcel.get(k) or "").strip()}
+        whole["countryCode"] = parcel["countryCodeV2"]
         r.checks.append(check("the draft carries exactly those lines and that discount",
                               sent.get("lineItems") == [
                                   {"variantId": HOODIE_L, "quantity": 1,
@@ -296,10 +302,7 @@ async def order_by_voice(h: Harness) -> Result:
                               sent.get("customerId") == MIA.customer_id and sent.get("email") == MIA.email,
                               f"customerId={sent.get('customerId')!r} email={sent.get('email')!r}"))
         r.checks.append(check("and goes to the whole of the address on the order it came from",
-                              sent.get("shippingAddress") == {
-                                  "firstName": parcel["firstName"], "lastName": parcel["lastName"],
-                                  "address1": parcel["address1"], "city": parcel["city"], "zip": parcel["zip"],
-                                  "countryCode": parcel["countryCodeV2"]}
+                              sent.get("shippingAddress") == whole
                               and sent.get("useCustomerDefaultAddress") is False,
                               f"shippingAddress={sent.get('shippingAddress')}"))
         r.checks.append(check("with the postage he said",

@@ -353,9 +353,13 @@ async def _read_product_of(client: ShopifyClient, variant_id: str) -> dict[str, 
 async def _source_has_variant(client: ShopifyClient, source: dict[str, Any], variant_id: str) -> bool | None:
     """Whether the order `source` (as `_read_source` returned it) has a line of `variant_id`:
     True, False — or None when its lines could not all be read (past MAX_SOURCE_LINE_PAGES, or a
-    page that did not say whether there was more), which is neither answer."""
+    page that did not say whether there was more), which is neither answer.
+
+    A match on an early page is not an answer on its own: the order is read to its last line
+    before anything is stepped from it, so a step never rests on a partial read of its lines."""
     connection = source.get("lineItems") or {}
     after = ""
+    found = False
     for _ in range(MAX_SOURCE_LINE_PAGES):
         if after:
             payload = await client.graphql(ORDER_FOR_NEW_ORDER_QUERY, {"id": source["id"], "after": after})
@@ -365,10 +369,10 @@ async def _source_has_variant(client: ShopifyClient, source: dict[str, Any], var
             connection = node.get("lineItems") or {}
         for edge in connection.get("edges") or []:
             if str((((edge or {}).get("node") or {}).get("variant") or {}).get("id") or "") == variant_id:
-                return True
+                found = True
         more, after = _next_cursor(connection)
         if not more:
-            return False
+            return found
         if not after:
             return None
     return None

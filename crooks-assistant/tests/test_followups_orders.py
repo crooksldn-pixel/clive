@@ -164,9 +164,11 @@ async def test_f04_a_variant_on_none_of_the_order_s_lines_is_refused_naming_the_
     assert rows(card(again)) == [("Convict Hoodie", "Black / L", "× 1", "£60.00")]
 
 
-def _paged_lines(shop, *, endless: bool = False) -> list[Any]:
+def _paged_lines(shop, *, endless: bool = False, hoodie_first: bool = False) -> list[Any]:
     """Theo's order read for a new order with its lines a page at a time: the cap on the first
-    page and the hoodie on the second — or, `endless`, the cap on every page and always more."""
+    page and the hoodie on the second — or, `endless`, the cap on every page and always more.
+    `hoodie_first` puts the hoodie on the first page and the cap on every page after it, the
+    last of them saying there is no more unless `endless`."""
     real = shop.store.graphql
     asked: list[Any] = []
 
@@ -176,7 +178,11 @@ def _paged_lines(shop, *, endless: bool = False) -> list[Any]:
             asked.append(after)
             node = order_node(2101)
             cap, hoodie = sorted(node["lineItems"]["edges"], key=lambda e: e["node"]["variant"]["id"] != vid(9301))
-            if endless:
+            if hoodie_first:
+                more = endless or not after
+                node["lineItems"] = {"edges": [cap if after else hoodie],
+                                     "pageInfo": {"hasNextPage": more, "endCursor": f"p{len(asked)}" if more else None}}
+            elif endless:
                 node["lineItems"] = {"edges": [cap], "pageInfo": {"hasNextPage": True, "endCursor": f"p{len(asked)}"}}
             elif not after:
                 node["lineItems"] = {"edges": [cap], "pageInfo": {"hasNextPage": True, "endCursor": "p1"}}
@@ -208,6 +214,31 @@ async def test_f04_an_order_whose_lines_could_not_all_be_read_is_refused_as_inco
     assert len([a for a in asked if a]) == 1, f"read to the bound and no further: {asked}"
     assert not [i for i in body["ui"] if i["type"] == "workspace"]
     assert shop.runtime.sessions.get("g1").branch().workspace is None
+
+
+async def test_f04_a_line_found_on_the_first_page_is_still_read_to_the_order_s_last_line(shop):
+    """The hoodie is on the first page and the cap on the second. Finding the hoodie is not the
+    end of the read: the order's lines are read to their last page before anything is stepped."""
+    asked = _paged_lines(shop, hoodie_first=True)
+    body = await say(shop, THE_SENTENCE, *the_sentence("black hoodie", "SL6 2AB"))
+    assert _opened(body)["ok"] is True, _opened(body)
+    assert asked.count("p1") == 1, f"the order's second page of lines was not read: {asked}"
+    assert rows(card(body)) == [("Convict Hoodie", "Black / L", "× 1", "£60.00")]
+
+
+async def test_f04_a_line_found_on_the_first_page_of_an_order_not_read_to_its_end_is_refused(shop, monkeypatch):
+    """The hoodie is on the first page, but the order's lines run past the bound: the step would
+    rest on a partial read, so it is refused as incomplete and nothing is opened."""
+    monkeypatch.setattr(order_create, "MAX_SOURCE_LINE_PAGES", 2, raising=False)
+    asked = _paged_lines(shop, hoodie_first=True, endless=True)
+    body = await say(shop, THE_SENTENCE, *the_sentence("black hoodie", "SL6 2AB"))
+    opened = _opened(body)
+    assert opened["ok"] is False, opened
+    assert "could not read all of order CROOKS-2101's lines" in str(opened.get("error")), opened
+    assert len([a for a in asked if a]) == 1, f"read to the bound and no further: {asked}"
+    assert not [i for i in body["ui"] if i["type"] == "workspace"]
+    assert shop.runtime.sessions.get("g1").branch().workspace is None
+    assert shop.store.mutations == []
 
 
 # ============================================================== S2Bb-03: halves that stay live
@@ -326,8 +357,9 @@ def test_s2b04_forgetting_a_draft_saved_in_gmail_says_so_and_withdraws_nothing()
 # ==================================================== X1-03: the scenario's draft check, exact
 
 
-def _tamper(kind: str):
+def _tamper(kind: str, as_sent: list[dict] | None = None):
     """What the app sent, recorded wrong in one part: the scenario has to notice."""
+    as_sent = as_sent if as_sent is not None else []
     from experience.fixtures import shopify as golden
 
     real = golden._draft_order_create
@@ -341,6 +373,11 @@ def _tamper(kind: str):
             sent["email"] = "someone.else@example.org"
         elif kind == "address":
             sent["shippingAddress"] = {**sent["shippingAddress"], "address1": "1 Other Street"}
+        elif kind == "second line dropped":
+            # What the app sent, kept so the test can see it carried the whole address and it
+            # is only the record of it that loses a line.
+            as_sent.append(dict(sent["shippingAddress"]))
+            sent["shippingAddress"] = {k: v for k, v in sent["shippingAddress"].items() if k != "address2"}
         elif kind == "postage":
             sent["shippingLine"] = {"title": "Postage", "price": "9.00"}
         elif kind == "two drafts":
@@ -353,19 +390,31 @@ def _tamper(kind: str):
     ("customer", "it is for the customer the order was found for, confirmed to her own address"),
     ("email", "it is for the customer the order was found for, confirmed to her own address"),
     ("address", "and goes to the whole of the address on the order it came from"),
+    ("second line dropped", "and goes to the whole of the address on the order it came from"),
     ("postage", "with the postage he said"),
     ("two drafts", "exactly one draft was made in the shop"),
 ])
 async def test_x103_order_by_voice_fails_on_a_draft_that_is_not_exactly_the_card(monkeypatch, kind, caught_by):
+    from experience.fixtures import data
     from experience.fixtures import shopify as golden
     from experience.harness import harness
     from experience.scenarios import BY_NAME
 
-    monkeypatch.setitem(golden._DRAFTS, "draft_order_create", _tamper(kind))
+    if kind == "second line dropped":
+        # The order it came from with a second address line and a company, invented here, so a
+        # draft that drops one is a draft that is not going to the whole of that address.
+        parcel = data.BY_NAME["#1938"].address
+        monkeypatch.setitem(parcel, "address2", "Flat 3")
+        monkeypatch.setitem(parcel, "company", "Bridge Street Studio")
+    as_sent: list[dict] = []
+    monkeypatch.setitem(golden._DRAFTS, "draft_order_create", _tamper(kind, as_sent))
     async with harness(admitted=True) as h:
         result = await BY_NAME["order_by_voice"](h)
     assert result.status != "PASS", f"order_by_voice passed with the draft's {kind} wrong"
     assert caught_by in [c.what for c in result.failures], [c.what for c in result.failures]
+    if kind == "second line dropped":
+        (address,) = as_sent
+        assert (address.get("address2"), address.get("company")) == ("Flat 3", "Bridge Street Studio"), address
 
 
 # ========================================================= T1-03: dates made by arithmetic
