@@ -15,17 +15,19 @@ installs only the skills named. Nothing from a skill is executed, imported or in
 else, and there is no network.
 
 One line is printed per skill: installed, already installed, refused (held, owner, conflict or
-name) with the reason, deferred (scripts) with the files, or not approved, with why. Anything from
-the artifact is printed through intake.shown and scan.redact.
+name) with the reason, deferred (scripts) with the files, or not approved, with why. A blocked
+artifact, which has no skills to name, is refused as held: one line, or one per --skill named.
+Anything from the artifact is printed through intake.shown and scan.redact.
 
 uninstall removes an install wholly and says whether its bytes still matched; a name not
 installed changes nothing. list prints one line per install.
 
 Exit status: 0 every approved skill asked for is installed or already installed (and uninstall
-or list done); 2 an approved skill was refused or deferred (or uninstall refused a link or a
-folder that is not an install); 1 could not run (bad arguments, no such artifact in the store, a
-quarantined copy that does not match its digest, a skills directory inside the repository, or a
-file that cannot be written)."""
+or list done); 2 an approved skill was refused or deferred, or the artifact was blocked in
+quarantine (or uninstall refused a link or a folder that is not an install); 1 could not run (bad
+arguments, no such artifact in the store, a quarantined copy that does not match its digest, a
+skills directory inside the repository, or a file that cannot be written: each skill settled
+before it is still printed)."""
 
 from __future__ import annotations
 
@@ -44,6 +46,7 @@ from app.skills.install import (  # noqa: E402
     ALREADY,
     DEFAULT_SKILLS_DIR,
     DEFERRED,
+    HELD,
     INSTALLED,
     REFUSED,
     InstallError,
@@ -106,15 +109,17 @@ def _line(outcome: Outcome) -> str:
 
 
 def _install(args: argparse.Namespace) -> int:
+    # Each line is printed as its skill is settled, so a failure part way (a disk that fills)
+    # still leaves every skill already installed said before the error.
     try:
         outcomes = install(args.store, args.quarantine, args.artifact_id, args.skills_dir,
-                           only=args.skill)
+                           only=args.skill, on_outcome=lambda outcome: print(_line(outcome), flush=True))
     except InstallError as error:
         print(f"skills: {_shown(error, 2000)}", file=sys.stderr)
         return FAILED
-    for outcome in outcomes:
-        print(_line(outcome))
-    if any(o.approved and o.status in (REFUSED, DEFERRED) for o in outcomes):
+    # A blocked artifact's held line names no approved skill (it has none to name), and it is
+    # held back all the same.
+    if any(o.status in (REFUSED, DEFERRED) and (o.approved or o.kind == HELD) for o in outcomes):
         return HELD_BACK
     return DONE
 

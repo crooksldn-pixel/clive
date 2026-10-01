@@ -15,9 +15,10 @@ What is approved, per skill (one SKILL.md knowledge unit tagged skill:<name>): t
 decision in the ledger for its unit wins — builder_skill approves it (approved_by "owner"), any
 other target withholds it. With no decision, CLIVE's latest proposal for it approves it
 (approved_by "curated") only when it is a builder_skill proposal in propose's own shape whose
-curated sentence (propose.CURATED) comes after its last " Target builder_skill: " and which does
-not say it needs the owner: the artifact's own words, which come before that marker, can never
-make a skill curated.
+curated sentence (propose.CURATED) ends CLIVE's why, read forwards from its one
+" Target builder_skill: " to the first label propose writes after it, and which does not say it
+needs the owner: the artifact's own words (its title before that marker, the paths it chose
+after the why) can never make a skill curated.
 
 For each approved skill, in order: the quarantined copy is verified against the stored content
 digest (or nothing of the artifact is installed); the skill is refused as held when the artifact
@@ -44,7 +45,7 @@ import posixpath
 import re
 import stat
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -82,6 +83,12 @@ MAX_PROVENANCE = 4 * 1024 * 1024   # bytes of provenance.json read back
 
 TARGET = "builder_skill"
 MARKER = f" Target {TARGET}: "
+# The labels propose._reasoning writes after a proposal's why, in this order when present; the
+# first of them after the marker ends the why. A builder skill's why is CLIVE's own fixed words
+# (and propose.CURATED, when curated); what follows it can quote the artifact: the Licence clause
+# names the file that declares the licence, a path the artifact chose.
+NEEDS_OWNER_LABEL = f" {propose.NEEDS_OWNER}: "
+AFTER_WHY = (NEEDS_OWNER_LABEL, " Licence: ", " Hypothesis: ")
 HOLDING = frozenset(("high", "critical"))
 CREDENTIAL_RULES = "secret."
 # Stored findings that make a skill the owner's: something in it would run on its own.
@@ -108,6 +115,8 @@ OWNER = "owner"
 CONFLICT = "conflict"
 NAME = "name"
 SCRIPTS = "scripts"
+# Why every skill of a blocked artifact is held.
+BLOCKED = "the artifact was blocked in quarantine"
 
 _DIR_FLAGS = (os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
               | getattr(os, "O_CLOEXEC", 0))
@@ -200,14 +209,27 @@ def skill_name(unit: Unit) -> str | None:
 
 
 def is_curated(proposal: Absorption) -> bool:
-    """Whether a proposal is CLIVE's curated builder skill: propose.CURATED after its last
-    " Target builder_skill: ", its Hypothesis, Measure and Removal found, and nothing saying it
-    needs the owner. Whatever comes before the marker is the artifact's words, and does not count."""
+    """Whether a proposal is CLIVE's curated builder skill: its reasoning holds " Target
+    builder_skill: " exactly once; CLIVE's why, from there to the first of AFTER_WHY, ends with
+    propose.CURATED; that first label is not "Needs the owner"; and propose.explain finds its
+    Hypothesis, Measure and Removal, with nothing saying it needs the owner.
+
+    Read forwards from the one marker, because the artifact's words stand on both sides of
+    CLIVE's: its title before the marker, and paths it chose after the why. Read backwards, as
+    propose.explain reads, a skill folder called "x Needs the owner:  Licence: <CURATED>" or
+    "x Target builder_skill: <CURATED> Hypothesis: a Measure: b Removal: c" made a proposal that
+    needs the owner read as curated."""
     if proposal.is_decision or proposal.target != TARGET:
         return False
     text = proposal.reasoning
-    at = text.rfind(MARKER)
-    if at < 0 or propose.CURATED not in text[at + len(MARKER):]:
+    if text.count(MARKER) != 1:
+        return False
+    after = text[text.index(MARKER) + len(MARKER):]
+    ends = [at for at in (after.find(label) for label in AFTER_WHY) if at >= 0]
+    if not ends:
+        return False
+    why_ends = min(ends)
+    if not after[:why_ends].endswith(propose.CURATED) or after.startswith(NEEDS_OWNER_LABEL, why_ends):
         return False
     parts = propose.explain(proposal)
     return bool(parts.hypothesis and parts.measure and parts.removal) and not propose.needs_owner(proposal)
@@ -278,11 +300,17 @@ def check_skills_dir(skills_dir: str | os.PathLike[str]) -> Path:
 
 def install(store: DigestStore | str | os.PathLike[str], quarantine_root: str | os.PathLike[str],
             artifact_id: str, skills_dir: str | os.PathLike[str] = DEFAULT_SKILLS_DIR,
-            only: Iterable[str] | None = None) -> list[Outcome]:
+            only: Iterable[str] | None = None, *,
+            on_outcome: Callable[[Outcome], None] | None = None) -> list[Outcome]:
     """Install the artifact's approved skills (only those named, when `only` is given) into
     skills_dir, one Outcome per skill (see the module's docstring). Raises SkillsDirRefused
     before anything is written, InstallError when the store has no such artifact, and
-    CopyMismatch when its quarantined copy is not the one the store pinned."""
+    CopyMismatch when its quarantined copy is not the one the store pinned.
+
+    A blocked artifact is never decomposed, so it has no skills to name: it is one Outcome,
+    refused as held (one per name asked for, when `only` is given), never an empty list that
+    reads as nothing to do. on_outcome, when given, is told each Outcome as it is settled, so a
+    failure part way (a disk that fills) still leaves what was already installed said."""
     skills_dir = check_skills_dir(skills_dir)
     store = store if isinstance(store, DigestStore) else DigestStore(store)
     try:
@@ -294,23 +322,33 @@ def install(store: DigestStore | str | os.PathLike[str], quarantine_root: str | 
     copy = _verified_copy(Path(quarantine_root), artifact)
     wanted = None if only is None else list(dict.fromkeys(only))
     found = approvals(artifact, ledger)
-    blocked = not artifact.units or any(finding.severity == "critical" for finding in findings)
-    licences: dict[str, tuple[str, str]] | None = None
+    # The pipeline records every block as a critical finding, and decomposes nothing after one.
+    blocked = any(finding.severity == "critical" for finding in findings)
     outcomes: list[Outcome] = []
+
+    def settled(outcome: Outcome) -> None:
+        outcomes.append(outcome)
+        if on_outcome is not None:
+            on_outcome(outcome)
+
+    if blocked and not found:
+        for name in wanted or [artifact.id]:
+            settled(Outcome(name, REFUSED, f"{BLOCKED}: nothing of it was decomposed, so none of "
+                                           "its skills can be installed", kind=HELD))
+        return outcomes
+    licences: dict[str, tuple[str, str]] | None = None
     for approval in found:
         if wanted is not None and approval.name not in wanted:
             continue
         if approval.approved_by is None:
-            outcomes.append(Outcome(approval.name, NOT_APPROVED, approval.reason,
-                                    unit_id=approval.unit.id))
+            settled(Outcome(approval.name, NOT_APPROVED, approval.reason, unit_id=approval.unit.id))
             continue
         if licences is None:
             licences = scan.licence_map(copy)
-        outcomes.append(_install_skill(copy, artifact, findings, blocked, licences, approval,
-                                       skills_dir))
+        settled(_install_skill(copy, artifact, findings, blocked, licences, approval, skills_dir))
     for name in wanted or ():
         if not any(approval.name == name for approval in found):
-            outcomes.append(Outcome(name, NOT_APPROVED, "the artifact has no skill by that name"))
+            settled(Outcome(name, NOT_APPROVED, "the artifact has no skill by that name"))
     return outcomes
 
 
@@ -355,7 +393,7 @@ def _install_checked(copy: Path, artifact: Artifact, findings: tuple[Finding, ..
 
     # held: a hold, a licence that forbids reuse, a changed file
     if blocked:
-        raise _Refused(HELD, "the artifact was blocked in quarantine")
+        raise _Refused(HELD, BLOCKED)
     for finding in inside:
         if finding.severity in HOLDING:
             raise _Refused(HELD, f"a {finding.severity} finding in its folder "
@@ -462,12 +500,15 @@ def _text_lines(data: bytes) -> list[str]:
 
 
 def _front_matter_lines(lines: list[str]) -> list[str]:
-    """The lines of a SKILL.md's front matter; all of the file when it is opened and never closed,
-    since what reads it may then take more of it than the adapter did."""
+    """The lines of a SKILL.md's front matter, as far as the first closing "---"; all of the file
+    when it is opened and never closed. A "..." line does not end it here, though YAML and the
+    adapter end a document there: a reader that closes front matter only on "---" takes the lines
+    after it as front matter too, so a hooks key placed after a "..." is still a hooks key. Where
+    two readers could disagree, the one that sees more is the one that counts."""
     if not lines or lines[0].strip() != "---":
         return []
     for end in range(1, len(lines)):
-        if lines[end].strip() in ("---", "..."):
+        if lines[end].strip() == "---":
             return lines[1:end]
     return lines[1:]
 
