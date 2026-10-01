@@ -89,7 +89,10 @@ _names: OrderedDict[str, tuple[str, ...]] = OrderedDict()
 _tree: dict[str, Any] = {}
 _END = "\x00end"
 _names_lock = threading.Lock()
-_NAME_WORD = re.compile(r"\w+")
+# A name's words are its runs of letters and digits. An underscore is not part of one: it joins
+# words as '-', '.' and a page's other identifier separators do, so 'zoe_quill' is Zoe Quill as
+# 'zoe-quill' and 'zoe.quill' are (round 9, F-OBS2-01, ruled still present at round 12).
+_NAME_WORD = re.compile(r"[^\W_]+")
 
 
 def _name_words(text: str) -> tuple[str, ...]:
@@ -227,6 +230,12 @@ def _names_out(text: str) -> str:
         at = end
     out.append(text[at:])
     return "".join(out)
+
+
+def holds_a_told_name(text: str) -> bool:
+    """Whether a name this process has been told stands in this string, by the rule _names_out
+    takes names out with."""
+    return bool(text) and _names_out(text) != text
 
 
 def _redact(text: str) -> str:

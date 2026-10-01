@@ -914,12 +914,17 @@ SECRET_DETAIL = "shop-detail-for-owner@example.com"
 
 
 def _limited_to_liveness(body: dict) -> None:
-    """Exactly what a caller the owner rule refuses may read, and nothing of the owner's."""
+    """Exactly what a caller the owner rule refuses may read, and nothing of the owner's. The
+    service always runs its housekeeper, so its check is always there: a verdict, passing or
+    failing, and nothing else (round 12, T1-04: a missing one passed on a default)."""
     assert set(body) == LIVENESS_KEYS, sorted(body)
     assert body["limited"] is True and body["status"] in ("ok", "degraded")
-    assert set(body["checks"]) <= {"proxy_identity", "housekeeping"} and "proxy_identity" in body["checks"]
+    assert set(body["checks"]) == {"proxy_identity", "housekeeping"}, sorted(body["checks"])
     assert set(body["checks"]["proxy_identity"]) == {"ok", "detail"}
-    assert set(body["checks"].get("housekeeping", {"ok": True})) == {"ok"}
+    assert isinstance(body["checks"]["proxy_identity"]["ok"], bool)
+    housekeeping = body["checks"]["housekeeping"]
+    assert isinstance(housekeeping, dict) and set(housekeeping) == {"ok"}, housekeeping
+    assert isinstance(housekeeping["ok"], bool), housekeeping
     text = str(body)
     for owners in (SECRET_DETAIL, "RuntimeError", "sessions", "writes", "capabilities", "families",
                    "orders_cache", "manifest", "voice", "speech", "pad", "observability", "cached"):
