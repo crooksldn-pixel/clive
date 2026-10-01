@@ -39,6 +39,9 @@
     { sel: '.alpha-home', axis: 'y', size: 44, veil: true },     // the home: needs you, in motion
     { sel: '.sheet-scroll', axis: 'y', size: 36, veil: true },   // settings, an objective and its history, support
     { sel: '.rm-body', axis: 'y', size: 36, veil: true },        // the remote for a screen
+    // The Displays tray's list of screens (web/lift.js), once there are more than it can show.
+    // Its fade used to be a fixed mask that faded both ends even scrolled right to one of them.
+    { sel: '.lift-list', axis: 'y', size: 16 },
     { sel: '.notes', axis: 'y', size: 18 },            // the notification bands, when they scroll
     { sel: '.health', axis: 'y', size: 18 },           // the diagnostics list in settings
     { sel: '.context-nav', axis: 'x', size: 32 },      // the trail of chips

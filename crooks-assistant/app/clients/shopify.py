@@ -130,6 +130,14 @@ class ReviewedMutation:
     validate: Any = None
 
 
+# The longest title a custom line may carry, on a draft (`_draft_line_ok`) and on an existing
+# order (`order_edit_add_custom_item`) alike. Shopify documents no limit of its own for either;
+# this one is ours, and short on purpose: the confirmation card prints a fact in at most 120
+# characters (app/presentation.py), and a title the owner cannot read whole on the card he
+# holds to authorise is one he did not see. Defined here, above the table, because the table
+# uses it as a reviewed document's string bound.
+MAX_CUSTOM_TITLE_CHARS = 60
+
 REVIEWED_MUTATIONS: dict[str, ReviewedMutation] = {
     # Phase 1: the order note. `orderUpdate` overwrites the note, which is why the desired
     # value is built on the Mac from a fresh read and checked against it again before sending.
@@ -356,6 +364,46 @@ REVIEWED_MUTATIONS: dict[str, ReviewedMutation] = {
         max_chars=200,
         idempotent=False,
         root="orderEditAddVariant",
+    ),
+    # A line that is not a catalogue product — "a £15 rush alteration" — on the same scratch
+    # copy, and like `orderEditAddVariant` it changes nothing on the order: Shopify prices the
+    # CalculatedOrder and the order moves only at `orderEditCommit`. The title and the unit
+    # price are the owner's, because the catalogue has none; the currency is the order's own,
+    # read from the order on the Mac (app/tools/shopify_writes.py), never the model's.
+    # `taxable` and `requiresShipping` are always sent, so what the card says about them is
+    # what Shopify was told. Not idempotent: a second send would be a second line.
+    #
+    # Arguments as the Admin API (2025-07) declares them: id ID!, title String!, price
+    # MoneyInput!, quantity Int!, taxable Boolean, requiresShipping Boolean (and locationId,
+    # never sent). The selection was validated against Shopify's schema.
+    "order_edit_add_custom_item": ReviewedMutation(
+        name="order_edit_add_custom_item",
+        document="""
+            mutation CrooksOrderEditAddCustomItem($id: ID!, $title: String!, $price: MoneyInput!, $quantity: Int!, $taxable: Boolean!, $requiresShipping: Boolean!) {
+              orderEditAddCustomItem(id: $id, title: $title, price: $price, quantity: $quantity, taxable: $taxable, requiresShipping: $requiresShipping) {
+                calculatedLineItem {
+                  id
+                  title
+                  quantity
+                  originalUnitPriceSet { shopMoney { amount currencyCode } }
+                }
+                calculatedOrder {
+                  id
+                  subtotalPriceSet { shopMoney { amount currencyCode } }
+                  totalPriceSet { shopMoney { amount currencyCode } }
+                  totalOutstandingSet { shopMoney { amount currencyCode } }
+                  lineItems(first: 50) { edges { node { id title quantity variant { id } } } }
+                }
+                userErrors { field message }
+              }
+            }
+        """,
+        variables={"id": str, "title": str, "price": dict, "quantity": int, "taxable": bool, "requiresShipping": bool},
+        scope="write_order_edits",
+        max_chars=MAX_CUSTOM_TITLE_CHARS,
+        idempotent=False,
+        root="orderEditAddCustomItem",
+        validate=lambda key, value: key == "price" and custom_item_price_ok(value),
     ),
     # The one that changes the order. `notifyCustomer: false` is sent always: an email about
     # money now owed is the owner's to send in his own words, not a side effect of a tap.
@@ -694,7 +742,7 @@ MAX_DRAFT_QUANTITY = 50
 # A custom line's unit price, and a fixed amount off a line or an order. The owner says these
 # out loud, and "twelve pounds" misheard as "twelve hundred" is the mistake this bound is for.
 MAX_CUSTOM_LINE_PRICE = 1_000.0
-MAX_CUSTOM_TITLE_CHARS = 60
+# MAX_CUSTOM_TITLE_CHARS is defined above REVIEWED_MUTATIONS, which uses it.
 MAX_STORE_CREDIT = 1_000.0
 
 
@@ -838,6 +886,19 @@ def draft_order_input_ok(value: Any) -> bool:
         if not _DECIMAL.match(str(postage["price"])):
             return False
     return "appliedDiscount" not in value or _applied_discount_ok(value["appliedDiscount"])
+
+
+def custom_item_price_ok(value: Any) -> bool:
+    """The MoneyInput a custom item on an existing order is sent with: one positive amount of
+    at most two decimal places, no more than the custom-line bound, in one named currency.
+    The amount is a string ("15.00"), as Shopify's Decimal takes it, so no float rounding
+    reaches the order."""
+    if not isinstance(value, dict) or set(value) != {"amount", "currencyCode"}:
+        return False
+    amount, currency = value["amount"], value["currencyCode"]
+    if not isinstance(amount, str) or not _DECIMAL.match(amount) or not isinstance(currency, str) or not _CURRENCY.match(currency):
+        return False
+    return 0 < float(amount) <= MAX_CUSTOM_LINE_PRICE
 
 
 def store_credit_input_ok(value: Any) -> bool:

@@ -103,9 +103,11 @@ class Element extends Node {
   blur() { if (document.activeElement === this) document.activeElement = null; }
   setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }
   querySelectorAll(selector) {
-    // Only what the tests need: ".class", "tag" and '[attr="value"]' selectors, descendants included.
+    // Only what the tests need: ".class", "tag" and '[attr="value"]' selectors, descendants
+    // included, and a comma-separated list of them ('script, img'), matched once each in
+    // document order as the real DOM does. Without the list, a query such as 'script, img'
+    // was compared as one tag name, matched nothing and could never fail.
     const out = [];
-    const attr = /^\[([a-z-]+)="([^"]*)"\]$/.exec(selector);
     // A data-* attribute is read from `dataset` as well: the renderer writes those through
     // `el.dataset`, which the real DOM reflects into attributes and this shim does not.
     const attrValue = (el, name) => {
@@ -115,7 +117,13 @@ class Element extends Node {
       const key = name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
       return Object.prototype.hasOwnProperty.call(el.dataset, key) ? String(el.dataset[key]) : null;
     };
-    const match = (el) => (attr ? attrValue(el, attr[1]) === attr[2] : selector.startsWith('.') ? el.classList.contains(selector.slice(1)) : el.tagName === selector.toUpperCase());
+    const one = (part) => {
+      const attr = /^\[([a-z-]+)="([^"]*)"\]$/.exec(part);
+      return (el) => (attr ? attrValue(el, attr[1]) === attr[2] : part.startsWith('.') ? el.classList.contains(part.slice(1)) : el.tagName === part.toUpperCase());
+    };
+    const parts = /^\[[^\]]*\]$/.test(selector) ? [selector] : String(selector).split(',').map((s) => s.trim()).filter(Boolean);
+    const tests = parts.map(one);
+    const match = (el) => tests.some((t) => t(el));
     const walk = (el) => { for (const c of el.children) { if (match(c)) out.push(c); walk(c); } };
     walk(this);
     return out;

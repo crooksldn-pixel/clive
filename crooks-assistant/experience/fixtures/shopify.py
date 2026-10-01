@@ -10,12 +10,12 @@ returning an empty connection, because a scenario that silently reads nothing is
 that silently proves nothing.
 
 Writes are refused. `mutate()` raises for every mutation that changes anything, so a fixture
-world can never be the thing that makes a change look as though it succeeded. The two
-exceptions are an order edit's `orderEditBegin` and `orderEditAddVariant`, which change
-nothing: they build and price a CalculatedOrder — a scratch copy — and the real order does not
-move until `orderEditCommit`, which is not answered here and raises like the rest. They are
-answered because every number on the card the owner authorises comes from them, and a scenario
-that cannot see that card cannot check what he is being asked to agree to.
+world can never be the thing that makes a change look as though it succeeded. The exceptions
+are an order edit's `orderEditBegin`, `orderEditAddVariant` and `orderEditAddCustomItem`, which
+change nothing: they build and price a CalculatedOrder — a scratch copy — and the real order
+does not move until `orderEditCommit`, which is not answered here and raises like the rest.
+They are answered because every number on the card the owner authorises comes from them, and
+a scenario that cannot see that card cannot check what he is being asked to agree to.
 """
 
 from __future__ import annotations
@@ -130,12 +130,13 @@ class FixtureShopify(ShopifyClient):
         return handler(self, variables)
 
     async def mutate(self, name: str, variables: dict[str, Any]) -> dict[str, Any]:
-        # Two mutations are answered here, and they are the two that change nothing: an order
-        # edit's `orderEditBegin` and `orderEditAddVariant` build and price a CalculatedOrder
-        # — a scratch copy — and the real order is untouched until `orderEditCommit`. A
-        # scenario has to be able to see the card the owner would see, and every number on
-        # that card comes from these two. `order_edit_commit` is deliberately absent and
-        # falls through to the refusal below, with every other mutation in the application.
+        # The calculation mutations are answered here, and they are the ones that change
+        # nothing: an order edit's `orderEditBegin`, `orderEditAddVariant` and
+        # `orderEditAddCustomItem` build and price a CalculatedOrder — a scratch copy — and the
+        # real order is untouched until `orderEditCommit`. A scenario has to be able to see the
+        # card the owner would see, and every number on that card comes from these.
+        # `order_edit_commit` is deliberately absent and falls through to the refusal below,
+        # with every other mutation in the application.
         calculation = _CALCULATIONS.get(name)
         if calculation is not None:
             # The same order the production client keeps: refused before anything is looked
@@ -148,6 +149,10 @@ class FixtureShopify(ShopifyClient):
                 raise FixtureWriteAttempted(
                     f"{name} was sent {sorted(variables)}; the reviewed document takes {sorted(reviewed.variables)}."
                 )
+            # And the reviewed shape of a nested input (a custom item's price), as for a draft.
+            for key, value in variables.items():
+                if isinstance(value, dict) and reviewed.validate is not None and not reviewed.validate(key, value):
+                    raise FixtureWriteAttempted(f"{name}.{key} does not match the reviewed shape: {value!r}")
             self.calculations.append((name, copy.deepcopy(variables)))
             return calculation(self, dict(variables))
         draft = _DRAFTS.get(name)
@@ -424,27 +429,35 @@ def _variant_for_edit(_store: FixtureShopify, v: dict) -> dict:
     }}}
 
 
-def _calculated_order(spec: OrderSpec, added: list[tuple[str, int]], calculated_id: str) -> dict[str, Any]:
+def _calculated_order(spec: OrderSpec, added: list[tuple[str, int]], calculated_id: str,
+                      custom: list[tuple[str, int, float]] | None = None) -> dict[str, Any]:
     """The scratch order as Shopify would price it: the order's own lines plus what has been
-    added, folded by variant because `allowDuplicates` is false, and the money recomputed."""
+    added, folded by variant because `allowDuplicates` is false, each custom line a line of its
+    own with no variant, and the money recomputed."""
     node = data.order_node(spec)
     current = float(node["currentTotalPriceSet"]["shopMoney"]["amount"])
     outstanding = float(node["totalOutstandingSet"]["shopMoney"]["amount"])
     paid = current - outstanding
+    custom = list(custom or [])
     lines: dict[str, int] = {}
     for variant_id, quantity in list(spec.items) + list(added):
         lines[variant_id] = lines.get(variant_id, 0) + int(quantity)
-    subtotal = sum(float(VARIANTS[v]["price"]) * q for v, q in lines.items())
+    subtotal = sum(float(VARIANTS[v]["price"]) * q for v, q in lines.items()) + sum(price * q for _t, q, price in custom)
     total = subtotal + data.SHIPPING
+    edges = [
+        {"node": {"id": f"gid://shopify/CalculatedLineItem/{index}", "quantity": quantity, "variant": {"id": variant_id}}}
+        for index, (variant_id, quantity) in enumerate(lines.items())
+    ]
+    edges += [
+        {"node": {"id": f"gid://shopify/CalculatedLineItem/custom-{index}", "title": title, "quantity": quantity, "variant": None}}
+        for index, (title, quantity, _price) in enumerate(custom)
+    ]
     return {
         "id": calculated_id,
         "subtotalPriceSet": data._money(f"{subtotal:.2f}"),
         "totalPriceSet": data._money(f"{total:.2f}"),
         "totalOutstandingSet": data._money(f"{max(0.0, total - paid):.2f}"),
-        "lineItems": {"edges": [
-            {"node": {"id": f"gid://shopify/CalculatedLineItem/{index}", "quantity": quantity, "variant": {"id": variant_id}}}
-            for index, (variant_id, quantity) in enumerate(lines.items())
-        ]},
+        "lineItems": {"edges": edges},
     }
 
 
@@ -454,7 +467,7 @@ def _order_edit_begin(store: FixtureShopify, v: dict) -> dict:
         return {"data": {"orderEditBegin": {"calculatedOrder": None,
                                             "userErrors": [{"field": ["id"], "message": "Order not found."}]}}}
     calculated_id = f"gid://shopify/CalculatedOrder/{spec.number}"
-    store.calculated[calculated_id] = {"order_id": spec.order_id, "added": []}
+    store.calculated[calculated_id] = {"order_id": spec.order_id, "added": [], "custom": []}
     return {"data": {"orderEditBegin": {
         "calculatedOrder": {"id": calculated_id, "committed": False}, "userErrors": [],
     }}}
@@ -480,9 +493,47 @@ def _order_edit_add_variant(store: FixtureShopify, v: dict) -> dict:
             "title": variant["product"]["title"], "variantTitle": variant["title"],
             "quantity": quantity, "originalUnitPriceSet": unit,
         },
-        "calculatedOrder": _calculated_order(spec, state["added"], calculated_id),
+        "calculatedOrder": _calculated_order(spec, state["added"], calculated_id, state.get("custom")),
         "userErrors": [],
     }}}
+
+
+def _order_edit_add_custom_item(store: FixtureShopify, v: dict) -> dict:
+    """A custom line on the scratch order, priced at what it was sent: Shopify takes a custom
+    item's price as given, in the currency given, and recomputes the order around it."""
+    calculated_id = str(v.get("id") or "")
+    state = store.calculated.get(calculated_id)
+    if state is None:
+        return {"data": {"orderEditAddCustomItem": {"calculatedLineItem": None, "calculatedOrder": None,
+                                                    "userErrors": [{"field": ["id"], "message": "No order edit is in progress."}]}}}
+    price = v.get("price") or {}
+    if str(price.get("currencyCode") or "") != data.CURRENCY:
+        return {"data": {"orderEditAddCustomItem": {"calculatedLineItem": None, "calculatedOrder": None,
+                                                    "userErrors": [{"field": ["price"], "message": "Currency does not match the order."}]}}}
+    title, quantity = str(v.get("title") or ""), int(v.get("quantity") or 0)
+    state["custom"].append((title, quantity, float(price["amount"])))
+    spec = BY_ID[state["order_id"]]
+    return {"data": {"orderEditAddCustomItem": {
+        "calculatedLineItem": {
+            "id": f"gid://shopify/CalculatedLineItem/custom-{len(state['custom']) - 1}",
+            "title": title, "quantity": quantity, "originalUnitPriceSet": data._money(str(price["amount"])),
+        },
+        "calculatedOrder": _calculated_order(spec, state["added"], calculated_id, state["custom"]),
+        "userErrors": [],
+    }}}
+
+
+def _order_edit_state(_store: FixtureShopify, v: dict) -> dict:
+    """The order as an edit reads it: the order itself, and the two currencies Shopify states on
+    every order — the shop's, and the one the customer paid in, which in the golden shop are
+    the same."""
+    spec = BY_ID.get(str(v.get("id") or ""))
+    if spec is None:
+        return {"data": {"order": None}}
+    node = data.order_node(spec)
+    node["currencyCode"] = data.CURRENCY
+    node["presentmentCurrencyCode"] = data.CURRENCY
+    return {"data": {"order": node}}
 
 
 def _variant_siblings(_store: FixtureShopify, v: dict) -> dict:
@@ -510,12 +561,12 @@ def _variant_siblings(_store: FixtureShopify, v: dict) -> dict:
                 "availableForSale": sibling["inventoryQuantity"] > 0,
                 "inventoryQuantity": sibling["inventoryQuantity"],
                 "selectedOptions": [{"name": n, "value": val} for n, val in sibling["options"]],
-            }} for sibling in product["variants"]]},
+            }} for sibling in product["variants"]], "pageInfo": {"hasNextPage": False, "endCursor": None}},
         },
     }}}
 
 
-_HANDLERS["CrooksOrderEditState"] = _order_by_id
+_HANDLERS["CrooksOrderEditState"] = _order_edit_state
 _HANDLERS["CrooksVariantForOrderEdit"] = _variant_for_edit
 _HANDLERS["CrooksVariantSearch"] = _products
 # Orders found by what the owner remembers (app/tools/shopify_tools.py `_find_by_evidence`),
@@ -524,11 +575,14 @@ _HANDLERS["CrooksOrderEvidence"] = _orders_search
 _HANDLERS["CrooksVariantSiblings"] = _variant_siblings
 _HANDLERS["CrooksOrderForNewOrder"] = _order_by_id
 
-# The only two mutations this fixture answers. Adding a third is adding a way for a fixture
-# run to look as though it changed the shop, which is the one thing it must never do.
+# The only mutations this fixture answers as calculations, and each of them changes nothing:
+# it builds or prices the scratch order. Adding one that changed the shop would be adding a way
+# for a fixture run to look as though it changed the shop, which is the one thing it must
+# never do.
 _CALCULATIONS: dict[str, Any] = {
     "order_edit_begin": _order_edit_begin,
     "order_edit_add_variant": _order_edit_add_variant,
+    "order_edit_add_custom_item": _order_edit_add_custom_item,
 }
 
 

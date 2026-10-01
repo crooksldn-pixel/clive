@@ -181,10 +181,14 @@ async def background(request: Request, branch_id: str, session_id: str = Form(de
         return refusal
     if branch_id not in session.branches:
         return _refuse(404, "unknown_branch", "There is no such branch in this conversation.")
+    branch = session.branches[branch_id]
+    if branch.status in ("MERGED", "CANCELLED"):
+        # Over is over. Putting a merged or cancelled half aside used to make it BACKGROUND —
+        # live again — and a tap on its chip then made it the focused half (round 13, S2Bb-03).
+        return _refuse(409, "branch_closed", f"That half is {branch.status.lower()}. Tap the one that is open.")
     waiting = _waiting(session, branch_id)
     if waiting:
         return _refuse(409, "change_waiting", "That half has a change waiting for you. Apply it or let it go first.")
-    branch = session.branches[branch_id]
     branch.status = "BACKGROUND"
     if session.focused_branch == branch_id:
         other = next((b.branch_id for b in _live(session) if b.branch_id != branch_id and b.status == "ACTIVE"), "")
@@ -209,7 +213,13 @@ async def merge(request: Request, branch_id: str, session_id: str = Form(default
     if branch_id not in session.branches:
         return _refuse(404, "unknown_branch", "There is no such branch in this conversation.")
     branch = session.branches[branch_id]
-    if branch.branch_id == session.focused_branch and len(_live(session)) > 1:
+    if branch.status in ("MERGED", "CANCELLED"):
+        return _refuse(409, "branch_closed", f"That half is {branch.status.lower()}. Tap the one that is open.")
+    if len(_live(session)) <= 1:
+        # A merge brings one half back into the other. With only one there is nothing to bring
+        # it into, and merging it anyway left the conversation with no live half (S2Bb-03).
+        return _refuse(409, "last_branch", "That is the only half there is; there is nothing to merge it into.")
+    if branch.branch_id == session.focused_branch:
         return _refuse(409, "merge_into_itself", "Tap the half you want to keep first, then pinch.")
     waiting = _waiting(session, branch_id)
     undoable = _undoable(session, branch_id)

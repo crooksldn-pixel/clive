@@ -30,11 +30,41 @@ from experience.fixtures import shopify as golden
 SCRIPT = ROOT / "scripts" / "browser" / "orders.js"
 
 
-def _completed(store, variables: dict) -> dict:
-    """`draftOrderComplete`, as Shopify answers it: the draft completed, with the order it made."""
-    node = store.drafts_by_id[str(variables["id"])]
-    node["status"], node["order"] = "COMPLETED", {"id": "gid://shopify/Order/1999", "name": "#1999"}
-    return {"data": {"draftOrderComplete": {"draftOrder": copy.deepcopy(node), "userErrors": []}}}
+class _Completions:
+    """`draftOrderComplete`, as Shopify answers it: the draft completed, with the order it made —
+    and every call counted, by the draft it was for. It answers "#1999" every time, so the page
+    alone could not tell one completion from two (round 13, T7-02); the count can, and a second
+    call for a draft already completed is refused here as well as counted."""
+
+    def __init__(self) -> None:
+        self.calls: dict[str, int] = {}
+
+    def __call__(self, store, variables: dict) -> dict:
+        draft_id = str(variables["id"])
+        self.calls[draft_id] = self.calls.get(draft_id, 0) + 1
+        node = store.drafts_by_id[draft_id]
+        assert self.calls[draft_id] == 1 and not node.get("order"), f"{draft_id} was completed a second time"
+        node["status"], node["order"] = "COMPLETED", {"id": "gid://shopify/Order/1999", "name": "#1999"}
+        return {"data": {"draftOrderComplete": {"draftOrder": copy.deepcopy(node), "userErrors": []}}}
+
+
+async def _complete_again(runtime) -> list[str]:
+    """Every completion the page's holds made, asked for once more the way a second gesture
+    would — armed, then committed with whatever the arming handed back. Returns how each
+    attempt was answered; none may reach the shop."""
+    from app.actions.models import ActionStatus
+    from app.tools import registry
+
+    answered = []
+    for session in list(runtime.sessions._sessions.values()):
+        for proposal in list(session.proposals):
+            if proposal.operation != "draft_order_complete" or proposal.status is not ActionStatus.VERIFIED:
+                continue
+            _armed, refused = runtime.actions.arm(proposal.proposal_id, session.session_id)
+            result = await runtime.actions.commit(proposal.proposal_id, session.session_id, caller="test",
+                                                  spec_lookup=registry.get, nonce=proposal.arm_nonce or "")
+            answered.append(f"{refused or 'armed'}/{result.code}")
+    return answered
 
 
 def _opened(calls):
@@ -50,9 +80,10 @@ async def test_an_order_built_by_voice_stays_on_the_screen_at_every_size(monkeyp
     from app.main import app
     from app.tools import shopify_tools
 
-    monkeypatch.setitem(golden._DRAFTS, "draft_order_complete", _completed)
+    completions = _Completions()
+    monkeypatch.setitem(golden._DRAFTS, "draft_order_complete", completions)
     port = _free_port()
-    server, task, _store = await serve_fixture_world(port)
+    server, task, store = await serve_fixture_world(port)
     bound = shopify_tools._client, shopify_tools._hydrator
     try:
         provider = app.state.runtime.provider
@@ -74,6 +105,9 @@ async def test_an_order_built_by_voice_stays_on_the_screen_at_every_size(monkeyp
             cwd=ROOT, capture_output=True, text=True, timeout=600,
             env={**os.environ, "CROOKS_CHROMIUM": CHROMIUM},
         )
+        # One hold at each of the four sizes, one draft each, and each completed exactly once.
+        held = dict(completions.calls)
+        repeated = await _complete_again(app.state.runtime)
     finally:
         await _stop(server, task)
         shopify_tools._client, shopify_tools._hydrator = bound
@@ -91,3 +125,7 @@ async def test_an_order_built_by_voice_stays_on_the_screen_at_every_size(monkeyp
     for size in ("tablet:", "phone:", "tv:", "tablet-weak:"):
         assert size in names, f"nothing was checked at {size}"
     assert len(payload["checks"]) == 40, "ten checks at each of four sizes"
+    assert len(held) == 4 and set(held) == set(store.drafts_by_id), f"one draft completed at each size: {held}"
+    assert all(count == 1 for count in held.values()), f"each draft completed exactly once by its hold: {held}"
+    assert len(repeated) == 4, f"each completed order was asked for again: {repeated}"
+    assert completions.calls == held, f"a repeat reached the shop: {repeated} {completions.calls}"

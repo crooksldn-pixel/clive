@@ -22,7 +22,7 @@ sentence reaches is what the model calls. Tests are read as syntax trees and nev
 here runs a tool, and nothing here can reach a mutation: the audit is a read of
 registries and of source text, so it is safe against a shop it may not touch.
 
-72 tools — 48 reads, 19 writes, 5 bulk.
+73 tools — 48 reads, 20 writes, 5 bulk.
 
 ## Tools
 
@@ -78,6 +78,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_inventory` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | shopify | — |
 | `shopify_inventory_adjust` | RED | yes | yes | yes | write_inventory | write | prepared from a fresh read, held as inventory_set, tap_commit | a predicate over the re-read | the change's own card | shopify | — |
 | `shopify_list_orders` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | shopify | read |
+| `shopify_order_add_custom_item` | RED | yes | yes | yes | write_order_edits | write | prepared from a fresh read, held as order_edit_add_custom_line, tap_commit | a predicate over the re-read | the change's own card | shopify | staged, never applied |
 | `shopify_order_add_item` | RED | yes | yes | yes | write_order_edits | write | prepared from a fresh read, held as order_edit_add_line, tap_commit | a predicate over the re-read | the change's own card | shopify | staged, never applied |
 | `shopify_order_address` | AMBER | yes | yes | — | none needed | read | — | — | — | shopify | — |
 | `shopify_order_build` | AMBER | yes | yes | yes | write_draft_orders | read | — | — | a workspace | shopify | read |
@@ -150,17 +151,18 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_discount_create` | command:a tapped control, family:discount_create | test_discounts.py | discount_new_code, discount_sentence_defers |
 | `shopify_discount_open` | family:discount_create | test_discounts.py | discount_sentence_defers |
 | `shopify_find_customer` | recipe:order_customer, family:customer_reads | test_r11_turn.py, test_shopify_tools.py, test_tool_args_redaction.py | — |
-| `shopify_find_order` | family:order_reads | test_context.py, test_experience.py, test_expose_draft_order_s_payment_link_2.py, test_progressive_turn.py, test_r11_turn.py, test_r13_timeline_names.py, test_read_dedupe.py, test_shopify_tools.py, test_tap_reads_only.py, test_tool_args_redaction.py, test_tool_boundary.py, test_turn_boundary.py, test_write_walkthrough.py | back, customer_history, enrichment, graph_order_to_email, linked_entities, nav_branch_isolation, nav_home_landing, order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers, order_add_item_stale_picker, order_by_voice, order_lookup, recording_is_observability, split_branches, store_credit_give, store_credit_not_on_this_store, tabs, unsupported_edit |
+| `shopify_find_order` | family:order_reads | test_context.py, test_experience.py, test_expose_draft_order_s_payment_link_2.py, test_progressive_turn.py, test_r11_turn.py, test_r13_timeline_names.py, test_read_dedupe.py, test_shopify_tools.py, test_tap_reads_only.py, test_tool_args_redaction.py, test_tool_boundary.py, test_turn_boundary.py, test_write_walkthrough.py | back, customer_history, enrichment, graph_order_to_email, linked_entities, nav_branch_isolation, nav_home_landing, order_add_custom_item_sentence, order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers, order_add_item_stale_picker, order_by_voice, order_lookup, recording_is_observability, split_branches, store_credit_give, store_credit_not_on_this_store, tabs, unsupported_edit |
 | `shopify_fulfillment_tracking_set` | family:order_fulfil | test_tracking.py | — |
 | `shopify_inventory` | family:product_reads | test_n_plus_one.py, test_shopify_tools.py, test_tool_args_redaction.py | — |
 | `shopify_inventory_adjust` | family:inventory_set | test_inventory.py | — |
 | `shopify_list_orders` | family:order_reads | test_shopify_tools.py | today_orders |
+| `shopify_order_add_custom_item` | command:a tapped control, family:order_edit | test_order_custom_item.py | order_add_custom_item_sentence |
 | `shopify_order_add_item` | command:a tapped control, family:order_edit | test_order_edit.py | order_add_item_picker, order_add_item_sentence_defers |
 | `shopify_order_address` | family:order_reads | — | — |
 | `shopify_order_build` | family:order_create | test_r12_orders.py | order_by_voice |
 | `shopify_order_cancel` | family:order_cancel | test_cancel.py, test_tap_reads_only.py, test_tool_boundary.py, test_turn_boundary.py | — |
 | `shopify_order_create` | command:a tapped control, family:order_create | test_order_create.py | order_by_voice, order_new |
-| `shopify_order_detail` | command:cursor:orders, family:order_reads | test_capability_gaps.py, test_context.py, test_gate.py, test_progressive_turn.py, test_shopify_tools.py, test_tool_boundary.py, test_turn_authority_path.py, test_turn_boundary.py | back, customer_history, enrichment, graph_order_to_email, linked_entities, nav_branch_isolation, nav_home_landing, order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers, order_add_item_stale_picker, order_lookup, recording_is_observability, split_branches, store_credit_give, store_credit_not_on_this_store, tabs, unsupported_edit |
+| `shopify_order_detail` | command:cursor:orders, family:order_reads | test_capability_gaps.py, test_context.py, test_gate.py, test_progressive_turn.py, test_shopify_tools.py, test_tool_boundary.py, test_turn_authority_path.py, test_turn_boundary.py | back, customer_history, enrichment, graph_order_to_email, linked_entities, nav_branch_isolation, nav_home_landing, order_add_custom_item_sentence, order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers, order_add_item_stale_picker, order_lookup, recording_is_observability, split_branches, store_credit_give, store_credit_not_on_this_store, tabs, unsupported_edit |
 | `shopify_order_fulfil` | family:order_fulfil | test_fulfil.py | — |
 | `shopify_order_note_append` | family:order_notes | test_actions.py, test_engine_hooks.py, test_r11_no_authority.py, test_r11_turn.py, test_r12_surfaces.py, test_turn_boundary.py | — |
 | `shopify_order_open` | family:order_create | test_order_create.py | order_by_voice |

@@ -103,6 +103,20 @@ NESTED_KEY_OF: dict[str, tuple[str, str]] = {
 # asking stopped, which is a mark on a tab, not a redraw.
 VISUAL_KEYS = frozenset({"secondary", "pending", "loading", "shell", "tab", "placeholder"})
 
+# The words a card carries beside its data, in the surface envelope (app/surfaces.py `as_ui`):
+# its visible title and subtitle, the records it links to and how fresh it is. A card whose
+# data is unchanged but whose envelope changed says something new, so these count towards the
+# fingerprint; leaving them out suppressed the patch and kept stale words on the glass.
+ENVELOPE_KEYS = ("title", "subtitle", "linked_entities", "freshness")
+
+# Kinds whose identity keys are each enough to name the same record on their own. An order read
+# with its gid and its number, and the same order read with only its number, is one order: the
+# ledger keeps one card for it (`RenderLedger.stage`). Other kinds' keys are fallbacks rather
+# than names of one record — two drafts to one address are two drafts — so they are not here.
+SAME_RECORD: dict[str, tuple[str, ...]] = {
+    "order": ("order_id", "order_number"),
+}
+
 # The identity a shell card holds until the read it stands for lands. One per type, because a
 # shell is a promise about a KIND of card ("orders are coming") and cannot know which record
 # it will turn out to be about.
@@ -151,19 +165,35 @@ def is_shell(item: dict[str, Any]) -> bool:
     return bool(isinstance(data, dict) and data.get("shell") is True)
 
 
+def record_keys(item: dict[str, Any]) -> dict[str, str]:
+    """The values that name the record of a SAME_RECORD kind, by key. Empty for other kinds."""
+    data = item.get("data")
+    names = SAME_RECORD.get(str(item.get("type") or ""), ())
+    if not names or not isinstance(data, dict):
+        return {}
+    out: dict[str, str] = {}
+    for name in names:
+        value = data.get(name)
+        if isinstance(value, (str, int, float)) and str(value).strip():
+            out[name] = str(value).strip()[:120]
+    return out
+
+
 def fingerprint(item: dict[str, Any], *, keys: frozenset[str] | None = None) -> str:
     """A hash of what the card SAYS, with the visual-state fields taken out.
 
-    Bounded and canonical: the presentation layer has already capped every list and truncated
-    every string, so this is cheap and stable — the same payload always hashes the same, and a
-    payload that differs only in which tab is open does not.
+    What it says is its data and the envelope's words beside it (ENVELOPE_KEYS). Bounded and
+    canonical: the presentation layer has already capped every list and truncated every string,
+    so this is cheap and stable — the same payload always hashes the same, and a payload that
+    differs only in which tab is open does not.
     """
     data = item.get("data")
     if not isinstance(data, dict):
         return ""
     drop = VISUAL_KEYS if keys is None else keys
     body = {k: v for k, v in sorted(data.items()) if k not in drop}
-    blob = json.dumps(body, sort_keys=True, default=str, ensure_ascii=False)
+    envelope = {k: item[k] for k in ENVELOPE_KEYS if k in item}
+    blob = json.dumps({"data": body, "envelope": envelope}, sort_keys=True, default=str, ensure_ascii=False)
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:16]
 
 
@@ -215,11 +245,36 @@ class RenderLedger:
     visual: dict[str, str] = field(default_factory=dict)
     order: list[str] = field(default_factory=list)
     shells: dict[str, str] = field(default_factory=dict)          # type -> the shell's identity
+    records: dict[str, dict[str, str]] = field(default_factory=dict)   # identity -> record_keys seen for it
     counts: Counter = field(default_factory=Counter)
     seq: int = 0
 
     def known(self, identity: str) -> bool:
         return identity in self.data_print
+
+    def same_record(self, item: dict[str, Any], identity: str) -> str:
+        """The identity already on the glass for the record `item` is about, when that card was
+        staged under the record's other key; empty when there is none.
+
+        `render_id` names an order by its gid when the read returned one and by its number when
+        it did not, so the same order arrived as two identities and stood twice on the glass.
+        A known card of the same kind is the same record when at least one of its keys agrees
+        and none disagrees: two different orders never share a gid or a number.
+        """
+        if self.known(identity) or is_shell(item):
+            return ""
+        mine = record_keys(item)
+        if not mine:
+            return ""
+        kind = str(item.get("type") or "")
+        for other in self.order:
+            if not other.startswith(f"{kind}:") or other.endswith(f":{SHELL_SUFFIX}"):
+                continue
+            theirs = self.records.get(other, {})
+            shared = [name for name in mine if name in theirs]
+            if shared and all(mine[name] == theirs[name] for name in shared):
+                return other
+        return ""
 
     def has_real(self, kind: str) -> bool:
         """Is there already a card of this kind that is NOT a skeleton?
@@ -249,6 +304,23 @@ class RenderLedger:
             if not identity:
                 continue
             body, look = fingerprint(item), visual_print(item)
+            earlier = self.same_record(item, identity)
+            if earlier:
+                # The same order, read this time under its other key. It is a patch of the card
+                # already up: it takes that card's place and the identity this read names it
+                # by, so the turn's own answer finds it under `render_id` as every caller does.
+                self.records[identity] = {**self.records.pop(earlier, {}), **record_keys(item)}
+                self.order[self.order.index(earlier)] = identity
+                self.data_print.pop(earlier, None)
+                self.visual.pop(earlier, None)
+                self.data_print[identity] = body
+                self.visual[identity] = look
+                self.seq += 1
+                self.counts["data"] += 1
+                patches.append(Patch(identity, DATA, kind, item, earlier, self.seq, at_ms))
+                continue
+            if not is_shell(item) and record_keys(item):
+                self.records[identity] = {**self.records.get(identity, {}), **record_keys(item)}
             replaces = ""
             if not self.known(identity) and not is_shell(item):
                 # A shell of this kind is standing in for exactly this card: it hands over
@@ -322,6 +394,7 @@ class RenderLedger:
     def _forget(self, identity: str) -> None:
         self.data_print.pop(identity, None)
         self.visual.pop(identity, None)
+        self.records.pop(identity, None)
         if identity in self.order:
             self.order.remove(identity)
 
