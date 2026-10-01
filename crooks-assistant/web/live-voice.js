@@ -41,6 +41,7 @@
   const OPEN_WAIT_MS = 5000;                       // released before the socket opened: how long it may still take
   const MAX_LIFE_S = 60;                           // the longest life the page will honour for a key, whatever it is told
   const QUIET_AFTER_REFUSAL_MS = 30000;            // a refused key is not asked for again on every hold
+  const FLUSH_MS = 200;                            // on the release, how long the worklet has to hand over what it holds
   const TAP_NAME = 'crooks-live-tap';
 
   // ------------------------------------------------------------------ audio to PCM16
@@ -184,13 +185,22 @@
   // ------------------------------------------------------------------ the tap
 
   // The processor, loaded from a Blob URL so the page needs no second file. It batches 1024
-  // frames per message rather than posting every 128, and stops when told.
+  // frames per message rather than posting every 128, and stops when told. Told 'flush' (the
+  // release), it first posts the part of a batch it holds and then 'flushed', so the page knows
+  // every frame it heard has been posted; told anything else (a cancel), it just stops.
   const WORKLET_SOURCE = [
     'class CrooksLiveTap extends AudioWorkletProcessor {',
     '  constructor() {',
     '    super();',
     '    this.frames = new Float32Array(1024); this.n = 0; this.done = false;',
-    '    this.port.onmessage = () => { this.done = true; };',
+    '    this.port.onmessage = (event) => {',
+    "      if (event.data === 'flush' && !this.done) {",
+    '        if (this.n) this.port.postMessage(this.frames.slice(0, this.n));',
+    '        this.n = 0;',
+    "        this.port.postMessage('flushed');",
+    '      }',
+    '      this.done = true;',
+    '    };',
     '  }',
     '  process(inputs) {',
     '    const channel = inputs[0] && inputs[0][0];',
@@ -208,10 +218,11 @@
 
   // A processor name can be registered once per context, so the module is loaded once per context.
   const loaded = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function canWorklet(ctx, deps) {
+    return Boolean(ctx.audioWorklet && typeof deps.AudioWorkletNode === 'function' && deps.Blob && deps.URL && deps.URL.createObjectURL);
+  }
   function loadWorklet(ctx, deps) {
-    if (!ctx.audioWorklet || typeof deps.AudioWorkletNode !== 'function' || !deps.Blob || !deps.URL || !deps.URL.createObjectURL) {
-      return Promise.resolve(false);
-    }
+    if (!canWorklet(ctx, deps)) return Promise.resolve(false);
     if (loaded && loaded.has(ctx)) return loaded.get(ctx);
     let url = '';
     const loading = Promise.resolve()
@@ -225,26 +236,64 @@
     return loading;
   }
 
+  /* Whether this hold's tap is to be a worklet. The module is fetched the first time a context
+   * asks for it, and the recording has already begun by then: awaited, what he said while it
+   * loaded never reached the words (round 12, S4-N01). So it is given until the next turn of the
+   * page's event loop; not loaded by then, and with a ScriptProcessor to hear with meanwhile, this
+   * hold's tap is that ScriptProcessor, hung at once, and the module goes on loading for the next
+   * hold. With no ScriptProcessor there is nothing else to hear with, and the module is waited for. */
+  function workletInTime(ctx, deps) {
+    const loading = loadWorklet(ctx, deps);
+    if (!canWorklet(ctx, deps) || typeof ctx.createScriptProcessor !== 'function') return loading;
+    return new Promise((resolve) => {
+      const late = deps.setTimeout(() => resolve(false), 0);
+      loading.then((ok) => { deps.clearTimeout(late); resolve(ok); });
+    });
+  }
+
   /* A tap on the microphone source audio-viz already has: an AudioWorkletNode, or a
-   * ScriptProcessorNode where there is no worklet, into a zero gain into the destination (a node
-   * nothing pulls is never run). Resolves to { rate, close() }, or null when there is no context
-   * or no source to hang it from. */
+   * ScriptProcessorNode where there is no worklet (or none loaded in time, see workletInTime),
+   * into a zero gain into the destination (a node nothing pulls is never run). Resolves to
+   * { rate, drain(done), close() }, or null when there is no context or no source to hang it from.
+   *
+   * drain(done) is the release (round 12, S4-N02). The worklet posts whole batches, so it is asked
+   * for the part of one it holds, and what it posts is still taken until it says it has posted
+   * everything ('flushed': messages on one port arrive in order, so every batch posted before it
+   * has arrived) or FLUSH_MS has passed, whichever is first; then done(). A worklet that never
+   * answers holds the release no longer than that. A ScriptProcessor holds nothing of its own, so
+   * its done() is at once. */
   async function openTap(audio, onFrames, deps) {
     const ctx = audio && audio.context;
     if (!ctx || typeof audio.tapMic !== 'function' || !audio.hasMic) return null;
     let silent = null;
     let node = null;
     let quiet = () => {};
+    let drain = (done) => done();
     try {
       silent = ctx.createGain();
       silent.gain.value = 0;
       silent.connect(ctx.destination);
     } catch { return null; }
-    if (await loadWorklet(ctx, deps)) {
+    if (await workletInTime(ctx, deps)) {
       try {
         node = new deps.AudioWorkletNode(ctx, TAP_NAME, { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1, channelCountMode: 'explicit' });
-        node.port.onmessage = (event) => onFrames(event.data);
-        quiet = () => { node.port.onmessage = null; try { node.port.postMessage('stop'); } catch { /* closed */ } };
+        let flushed = null;
+        let bound = null;
+        node.port.onmessage = (event) => {
+          // The processor's word that it has posted all it held: never audio.
+          if (typeof event.data === 'string') { if (event.data === 'flushed' && flushed) flushed(); return; }
+          onFrames(event.data);
+        };
+        drain = (done) => {
+          flushed = () => { flushed = null; deps.clearTimeout(bound); done(); };
+          bound = deps.setTimeout(() => { if (flushed) flushed(); }, FLUSH_MS);
+          try { node.port.postMessage('flush'); } catch { flushed(); }
+        };
+        quiet = () => {
+          node.port.onmessage = null;
+          if (flushed) { flushed = null; deps.clearTimeout(bound); }
+          try { node.port.postMessage('stop'); } catch { /* closed */ }
+        };
       } catch { node = null; }
     }
     if (!node && typeof ctx.createScriptProcessor === 'function') {
@@ -262,7 +311,7 @@
     if (!node) { undo(); return null; }
     try { node.connect(silent); } catch { undo(); return null; }
     if (!audio.tapMic(node)) { undo(); return null; }
-    return { rate: ctx.sampleRate, close: undo };
+    return { rate: ctx.sampleRate, drain, close: undo };
   }
 
   // ------------------------------------------------------------------ the words
@@ -298,6 +347,7 @@
     function session() {
       const s = {
         held: true,              // the thumb is still down
+        draining: false,         // released, and the tap still handing over what it heard
         open: false,             // the socket is open and taking audio
         done: false,
         committed: '',
@@ -318,7 +368,7 @@
       const words = () => `${s.committed} ${s.partial}`.replace(/\s+/g, ' ').trim();
 
       function frames(block) {
-        if (s.done || !s.held || !s.tap) return;
+        if (s.done || !s.tap || (!s.held && !s.draining)) return;
         if (!s.resample) s.resample = createResampler(s.tap.rate, TARGET_RATE);
         const bytes = pcmBytes(s.resample(block));
         if (!bytes.length) return;
@@ -422,8 +472,9 @@
         socket.onopen = () => {
           if (s.done) return;
           s.open = true;
-          // What was said while it opened; and when the thumb has already lifted, the commit.
-          if (s.held) pump(false); else finish();
+          // What was said while it opened; and when the thumb has already lifted and the tap has
+          // handed over all it heard, the commit.
+          if (s.held || s.draining) pump(false); else finish();
         };
         socket.onmessage = (event) => {
           if (s.done) return;
@@ -492,12 +543,20 @@
       function stop(outcome, reason) { close(outcome, reason, s.held); }
 
       const handle = {
+        // The thumb has lifted. What the tap still holds is taken first (openTap's drain, at most
+        // FLUSH_MS), then the tap comes down and, with the socket open, the commit goes.
         release() {
-          if (s.done) return;
+          if (s.done || s.draining) return;
           s.held = false;
-          closeTap();
-          if (s.open) finish();
-          else s.timer = deps.setTimeout(() => stop('slow', 'open_wait'), OPEN_WAIT_MS);
+          if (!s.open) s.timer = deps.setTimeout(() => stop('slow', 'open_wait'), OPEN_WAIT_MS);
+          const drained = () => {
+            s.draining = false;
+            closeTap();
+            if (!s.done && s.open) finish();
+          };
+          if (!s.tap) { drained(); return; }
+          s.draining = true;
+          s.tap.drain(drained);
         },
         cancel() { close('cancelled', '', true); },
         // The Mac's transcript is on the bar: these words have done their job.
@@ -642,8 +701,8 @@
 
   const api = {
     create, wave, createResampler, pcmBytes, toBase64, chunkMessage, socketUrl, barHeight, isError, keyLife,
-    telemetryFields, OUTCOMES, REASONS,
-    CHUNK_BYTES, EARLY_BYTES, FINISH_MS, OPEN_WAIT_MS, MAX_LIFE_S, TARGET_RATE, STEP_MS,
+    telemetryFields, OUTCOMES, REASONS, WORKLET_SOURCE,
+    CHUNK_BYTES, EARLY_BYTES, FINISH_MS, OPEN_WAIT_MS, FLUSH_MS, MAX_LIFE_S, TARGET_RATE, STEP_MS,
   };
   root.CrooksLiveVoice = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
