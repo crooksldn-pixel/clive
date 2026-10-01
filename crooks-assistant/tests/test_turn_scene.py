@@ -115,10 +115,16 @@ async def _turn(client, session_id: str) -> tuple[bytes, dict]:
     return response.content, response.json()
 
 
+# What a turn measures about itself. Never compared: two quick turns can measure the same by
+# chance (a workspace step of 1.4 ms both times), so comparing two of them does not show these
+# are volatile, and a third turn then differs (trunk's acceptance run 36913734333, 1 October 2026).
+MEASURED = {"timings_ms", "performance"}
+
+
 def _volatile(a: dict, b: dict) -> set[str]:
     """The fields that differ between two turns with the same setting: ids, clocks and
     measurements. Everything else must be identical."""
-    return {k for k in a if a.get(k) != b.get(k)}
+    return MEASURED | {k for k in a if a.get(k) != b.get(k)}
 
 
 def _stable(body: dict, volatile: set[str]) -> str:
