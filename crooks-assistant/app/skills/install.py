@@ -253,11 +253,18 @@ def approvals(artifact: Artifact, ledger: Iterable[Absorption]) -> list[Approval
 
 def check_skills_dir(skills_dir: str | os.PathLike[str]) -> Path:
     """The skills directory, refused (SkillsDirRefused) when it is inside the repository but not
-    under crooks-assistant/.state/: no third-party skill content may ever go into git."""
+    under crooks-assistant/.state/: no third-party skill content may ever go into git. A .state
+    that is a link (or reached through one) is not the git-ignored folder, so it allows nothing:
+    pointed into a tracked folder, it would put skills where they could be committed."""
     resolved = Path(skills_dir).resolve()
     repository = REPOSITORY.resolve()
     state = STATE_DIR.resolve()
     inside = resolved == repository or repository in resolved.parents
+    if inside and (STATE_DIR.is_symlink() or state != STATE_DIR.absolute()):
+        raise SkillsDirRefused(
+            f"the skills directory {resolved} is inside the repository and {STATE_DIR} is a link, "
+            "not the real git-ignored folder, so no third-party skill can be put there"
+        )
     if inside and state not in resolved.parents:
         raise SkillsDirRefused(
             f"the skills directory {resolved} is inside the repository; put it under {STATE_DIR} "

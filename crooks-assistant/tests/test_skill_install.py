@@ -612,6 +612,32 @@ def test_the_default_skills_dir_is_git_ignored_and_the_repository_is_refused(tmp
         installer.remove_tree(inside)
 
 
+def test_a_state_folder_linked_into_a_tracked_folder_is_refused_before_anything_is_written(
+        tmp_path, monkeypatch):
+    store, quarantine, artifact_id, _units = _approved(tmp_path, STAR)
+    # a stand-in repository whose crooks-assistant/.state is a link to a tracked folder
+    repository = tmp_path.resolve() / "repository"
+    tracked = repository / "crooks-assistant" / "app"
+    tracked.mkdir(parents=True)
+    state = repository / "crooks-assistant" / ".state"
+    state.symlink_to(tracked, target_is_directory=True)
+    monkeypatch.setattr(installer, "REPOSITORY", repository)
+    monkeypatch.setattr(installer, "STATE_DIR", state)
+
+    with pytest.raises(SkillsDirRefused, match="is a link"):
+        install(store, quarantine, artifact_id, state / "skills")
+    assert os.listdir(tracked) == []
+    with pytest.raises(SkillsDirRefused):
+        install(store, quarantine, artifact_id, tracked / "skills")
+    assert os.listdir(tracked) == []
+
+    # the same folder, real rather than linked, is allowed
+    state.unlink()
+    state.mkdir()
+    [outcome] = install(store, quarantine, artifact_id, state / "skills")
+    assert outcome.status == INSTALLED and os.listdir(tracked) == []
+
+
 # --- the command ------------------------------------------------------------------------------
 
 
