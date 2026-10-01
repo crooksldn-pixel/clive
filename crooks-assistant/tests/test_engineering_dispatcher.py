@@ -403,7 +403,7 @@ def test_the_worker_process_gets_a_sanitised_environment_and_a_fresh_home(tmp_pa
     w.objective()
     w.run_until(w.status_is(TaskStatus.REVIEWING))
     env = json.loads((w.state / "env.0.json").read_text())
-    assert set(env) <= {"PATH", "HOME", "LANG", "TMPDIR", "CLIVE_ATTEMPT_ID", "PWD", "SHLVL", "_", "LC_CTYPE"}
+    assert set(env) <= {"PATH", "HOME", "LANG", "TMPDIR", "CLIVE_ATTEMPT_ID", "DISABLE_AUTOUPDATER", "PWD", "SHLVL", "_", "LC_CTYPE"}
     attempt = w.store.read_attempts(OBJ)[0]
     runtime = json.loads((tmp_path / "runtime" / "attempts" / f"{attempt.attempt_id}.json").read_text())
     assert runtime["roster"]["mcp_servers"] == [] and runtime["roster"]["problems"] == []

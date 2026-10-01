@@ -49,8 +49,12 @@ query WorkOrders($q: String!, $n: Int!) {
 """
 
 
-def reset() -> None:
-    _CACHE.clear()
+def reset(source: str = "") -> None:
+    """Forget one source's kept answer (by its name in SOURCES), or every source's."""
+    if source:
+        _CACHE.pop(source, None)
+    else:
+        _CACHE.clear()
 
 
 def when(stamp: str | int | float | None) -> datetime | None:

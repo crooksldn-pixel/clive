@@ -291,8 +291,13 @@ written, whoever wrote it.
 
 ## Changes to the store and the inbox
 
-The assistant can propose nine changes. Each is off by default, and each follows the one
-pattern rather than being a feature of its own:
+The assistant can prepare sixteen changes, through nineteen write tools, and five bulk changes
+that put many of them on one card. While `CROOKS_WRITES_ENABLED` is off (the default) every
+write tool is hidden from Claude and every commit is refused. Production runs with it on, by your
+choice: `deploy/env.production.example` ships it off, and it is on once you set it in the
+server's `.env`. Every change waits for a gesture on its card — yours, or, for the five changes
+you have let the team make without you, the team member's own on theirs (*Who may ask*, below).
+Each follows the one pattern rather than being a feature of its own:
 
     Claude calls a narrow tool → the gate stages it → the Mac reads the entity and decides
     every argument → a card appears on the tablet with the facts the gesture authorises →
@@ -300,18 +305,37 @@ pattern rather than being a feature of its own:
     mutation once, reads the entity again to prove it → the card says what happened, Derek
     says it, and where there is an undo, an undo waits.
 
+A new order, a discount code, store credit and an item added to an order are first a form on
+the screen, which Claude opens and fills from what you said or you fill by finger; the form's
+Prepare, or Claude's call, stages it in the same way. The gesture is decided by the change's
+tier and class (`app/actions/grammar.py`), never by Claude or the tablet.
+
 | Change | Tier | Gesture | Proven by |
 |---|---|---|---|
-| Order note | AMBER, undo | tap | the note re-read |
-| Tags | AMBER, undo | tap | the tags re-read |
-| Cancel (with refund, restock, email per policy) | RED money | hold, then drag onto "Drop to cancel and refund £X" | `cancelledAt` set after Shopify's job finishes |
-| Refund (an amount, the items, the postage — priced by Shopify) | RED money | hold, then drag onto "Drop to refund £X" | `totalRefunded` moved by exactly the amount |
-| Address (the customer's email read on the Mac; the postcode and street must be in it) | RED | hold, then tap | the address re-read and hashed |
-| Fulfil (from the order's own fulfilment orders; carrier as Shopify spells it) | RED | hold, then tap | the remaining quantities dropped to what was expected |
-| Stock (one variant, one location, ±100, compare-and-swap) | RED, undo | hold, then tap | the level re-read |
-| Email: draft a reply / a new email | AMBER, undo | tap | the draft found in the thread by the Message-ID minted here |
-| Email: send a reply / a new email | RED | hold, then tap | the sent message found the same way |
-| Archive a thread | AMBER, undo | tap | the INBOX label gone |
+| Order note (`shopify_order_note_append`) | AMBER, undo | tap | the note re-read |
+| Tags, added or taken off (`shopify_order_tags_add`, `shopify_order_tags_remove`) | AMBER, undo | tap | the tags re-read |
+| Cancel, with refund, restock and email per policy (`shopify_order_cancel`) | RED money | hold, then drag onto "Drop to cancel and refund £X" | `cancelledAt` set after Shopify's job finishes |
+| Refund: an amount, the items, the postage — priced by Shopify (`shopify_refund_create`) | RED money | hold, then drag onto "Drop to refund £X" | `totalRefunded` moved by exactly the amount |
+| Address: the customer's email read on the Mac; the postcode and street must be in it (`shopify_order_shipping_address_set`) | RED | hold, then tap | the address re-read and hashed |
+| Fulfil, from the order's own fulfilment orders; carrier as Shopify spells it (`shopify_order_fulfil`) | RED | hold, then tap | the remaining quantities dropped to what was expected |
+| Tracking on a shipment already marked shipped (`shopify_fulfillment_tracking_set`) | RED | hold, then tap | the number re-read on the shipment |
+| Stock: one variant, one location, ±100, compare-and-swap (`shopify_inventory_adjust`) | RED, undo | hold, then tap | the level re-read |
+| Add an item to an order: an order edit, priced by Shopify (`shopify_order_add_item`) | RED | hold, then tap | the order re-read carries that many more of the item; a total other than the one priced is said |
+| A new order, by voice or on the form: a Shopify draft, priced by Shopify, nobody charged, completed into the order only on your hold (`shopify_order_create`) | RED money | hold, then drag onto the target | the draft re-read as completed with an order on it; its lines, customer, address, postage and total compared with the card, and any difference said |
+| A discount code (`shopify_discount_create`) | RED | hold, then tap | the code read back from the shop, taking off what the card said |
+| Store credit on a customer's account (`shopify_store_credit_add`) | RED money | hold, then drag onto the target | the balance re-read: exactly the old one plus the credit, to the penny, in its currency |
+| Email: draft a reply / a new email (`gmail_draft_reply`, `gmail_draft_new`) | AMBER, undo — RED for a reply to a sender nobody vouched for, on a thread no order ties to a customer | tap; hold, then tap when RED | the draft found in the thread by the Message-ID minted here |
+| Email: send a reply / a new email (`gmail_send_reply`, `gmail_send_new`) | RED | hold, then tap | the sent message found the same way |
+| Archive a thread (`gmail_thread_archive`) | AMBER, undo | tap | the INBOX label gone |
+| A build request for CLIVE itself, filed with the engineering loop — only when `CROOKS_ENGINEERING_HOST` names one (`submit_engineering_request`) | RED | hold, then tap | the request read back from the loop's inbox, the same as what was filed |
+
+The five bulk changes are tags added to or taken off a set of orders (`batch_order_tags_add`,
+`batch_order_tags_remove`), a set of threads archived (`batch_email_archive`), and drafts or
+sends to a set of people (`batch_email_drafts`, `batch_email_send`). Each member is an ordinary
+proposal of the write it goes through, prepared from a fresh read of its own and proven by the
+same re-read; the card's gesture follows the size as well as the change (a handful takes the
+change's own gesture, more than a few a hold, a large batch a hold and a drag), and the result
+is counted member by member, never claimed.
 
 Every sentence you say or type goes to Claude exactly as you said it, and Claude decides
 whether to look an order up: nothing on the Mac looks anything up from your words, or answers
@@ -530,14 +554,59 @@ by typing; `?dev=0` hides it again. Production renders only what the backend ret
 
 ### Who may ask
 
-Nothing here has a password: the backend binds to loopback on the Mac and is reached only
-through the owner's own tailnet. That is the intended trust boundary and it is written down
-here so that it is a decision, not an oversight. To narrow it, set `CROOKS_ALLOWED_LOGINS` in
-`.env` to the Tailscale logins that may ask (`you@example.com`); `tailscale serve` stamps every
-proxied request with the caller's login and any other login is refused with a 403. A proxied
-request that carries no login at all — Funnel, a tagged node — is refused whether or not the
-list is set. Requests made on the Mac itself carry no login and are always allowed. The Mac
-logs a warning at start while the list is empty.
+Nothing here has a password: the backend binds to loopback and is reached through the owner's
+own tailnet, by `tailscale serve`. That is the intended trust boundary and it is written down
+here so that it is a decision, not an oversight. Who counts as the owner is decided in one
+place, the same on every machine (`app/main.py`, and `principal_verdict` in
+`app/routes/actions.py`); what differs between the Mac and the production server is the
+switches each is given.
+
+- **From a device, through Tailscale.** `tailscale serve` stamps every proxied request with the
+  caller's login. The request is the owner's when that login is on `CROOKS_ALLOWED_LOGINS`
+  (`you@example.com`; open `/whoami` on the device to see it) and, with
+  `CROOKS_TAILSCALE_VERIFY` on (the default), Tailscale confirms it: the connection came from
+  `tailscaled`, and `tailscale whois` names that login for the device's address. Any other
+  login is refused with a 403, unless it is a team member's the owner has let in (next); a
+  proxied request with no login at all — Funnel, a tagged node — is refused; and, with that
+  check on, one carrying Tailscale's headers that did not come through `tailscaled` is refused
+  before any route sees it.
+- **A member of the team, let in by the owner.** A staff member's grant is pending when CLIVE
+  is told their Tailscale login, and opens the door only once the owner approves it with his
+  passkey on the Today screen; a suspended grant opens nothing (`app/people/access.py`). The
+  door then lets that login in only through `tailscale serve`, only while the person is on
+  CLIVE's list as active staff, and, with `CROOKS_TAILSCALE_VERIFY` on, only when Tailscale
+  confirms the device is theirs (`app/people/door.py`). It is not an owner request. It reaches
+  only the team's routes — the chat, its cards, and the Today screen with the work list — and
+  nothing of the owner's own: Connections, his objectives and screens, the voice, the test
+  session, the engineering status. Its tools are the reads `app/people/staff.py` names and
+  five changes the owner allowed the team to make without him: fulfilling an order, setting
+  its tracking number, drafting and sending a reply to an email, and adjusting stock. Each is
+  staged as a card like any other, made only when the staff member confirms it on their own
+  device, and recorded as theirs, and the undo of each is open to them too. Every other change
+  is refused to them, whatever card they hold.
+- **Made on the machine itself.** Such a request carries no login. It is the owner's only when
+  `CROOKS_LOCAL_OWNER` is on (it may then ask and read, never apply a change) or
+  `CROOKS_WRITES_LOCAL_OWNER` is on (it may also apply one). Otherwise it gets the public paths
+  and nothing else.
+- **An empty allow-list is nobody.** With `CROOKS_ALLOWED_LOGINS` empty, every route but the
+  public ones is refused, from anywhere and to the team as well, and the backend logs a warning
+  at start.
+
+The public paths are liveness (`/health`, `/ping`), `/whoami`, and the page shells and their
+static files — code, never data.
+
+**On the Mac**, the owner's own machine, the two local switches are his to set in `.env`.
+`.env.example` sets `CROOKS_WRITES_LOCAL_OWNER=false` and leaves `CROOKS_LOCAL_OWNER` unset, so
+until he turns one on, a request made on the Mac is refused like anybody else's.
+
+**On the Linux production server**, local-owner access is off: `CROOKS_LOCAL_OWNER` is unset
+and `CROOKS_WRITES_LOCAL_OWNER=false` (`deploy/env.production.example`), because other
+processes run there and the host is not the owner. A request made on the host — `curl` on the
+server, a process writing Tailscale's headers, the server reaching itself through its own
+`tailscale serve` — is not an owner request. Owner requests come through Tailscale, from a login
+on the allow-list, confirmed by Tailscale. The server's own test-session commands work without
+either switch, through a key of their own (`app/local_cli.py`) that opens those commands, on
+the server, and nothing else.
 
 Recordings are not kept: the tablet's audio is decoded, recognised and dropped. Set
 `CROOKS_SAVE_CAPTURES=true` to keep them under `bench/audio/` while diagnosing a mis-hearing.

@@ -8,7 +8,8 @@ work/record.jsonl (append-only). All 0600, written atomically. The ladder:
 * Anyone on the team may claim an open job meant for them or for anyone; the owner may claim any.
 * Only who claimed a job (or the owner) may release it, mark it packed or finish it.
 * A finished job keeps what proves it: packed, the counts, a note, the change that closed it.
-* The owner hands jobs out and sets routines; the team takes and finishes them.
+* The owner hands jobs out and sets routines; the team takes and finishes them, and anyone may flag
+  a job for the owner.
 """
 
 from __future__ import annotations
@@ -38,6 +39,10 @@ ARCHIVE_AFTER_DAYS = 14
 # The screen reads the record's latest lines only; a question about further back reads it all.
 TAIL_BYTES = 1_000_000
 REF = re.compile(r"^(order|email|instagram|comment):[A-Za-z0-9_:/.=-]{1,200}$")
+DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# A job or routine the owner's assistant made, rather than the owner with his own taps: text it read
+# in an email or a DM may have steered it, so the team can tell the two apart.
+VIA_CLIVE = "clive"
 
 
 class WorkError(ValueError):
@@ -50,6 +55,17 @@ def now() -> str:
 
 def today() -> str:
     return datetime.now(UTC).date().isoformat()
+
+
+def as_day(text: str) -> str:
+    """A day as YYYY-MM-DD, or refused in words."""
+    day = str(text or "").strip()
+    try:
+        if DAY.fullmatch(day):
+            return date.fromisoformat(day).isoformat()
+    except ValueError:
+        pass
+    raise WorkError("say the day as a date, like 2026-10-01")
 
 
 def _clip(value: Any, limit: int = MAX_TEXT) -> str:
@@ -74,6 +90,7 @@ class WorkItem:
     evidence: dict[str, Any] = field(default_factory=dict)
     routine_id: str = ""
     created_by: str = ""
+    created_via: str = ""          # VIA_CLIVE when the owner's assistant made it
     created_at: str = field(default_factory=now)
     events: list[dict[str, Any]] = field(default_factory=list)
 
@@ -96,6 +113,7 @@ class Routine:
     kind: str = "job"
     active: bool = True
     created_by: str = ""
+    created_via: str = ""
     created_at: str = field(default_factory=now)
 
     def due_on(self, day: date) -> bool:
@@ -180,6 +198,16 @@ class WorkStore:
             found = [self._load(p) for p in sorted(folder.glob("w_*.json"))]
         return [i for i in found if i is not None]
 
+    def archived(self, since: str = "") -> list[WorkItem]:
+        """The jobs put away under items/archive/<yyyy-mm>/, from the month of `since` (YYYY-MM-DD)
+        on: a job ends no earlier than the day it is asked about. Read only; nothing is moved."""
+        with self._lock:
+            folder = self._root() / "items" / "archive"
+            months = sorted(p for p in folder.glob("[0-9][0-9][0-9][0-9]-[0-9][0-9]") if p.is_dir()
+                            and p.name >= since[:7]) if folder.is_dir() else []
+            found = [self._load(p) for month in months for p in sorted(month.glob("w_*.json"))]
+        return [i for i in found if i is not None]
+
     def by_ref(self, ref: str) -> list[WorkItem]:
         return [i for i in self.items() if i.ref == ref]
 
@@ -231,7 +259,7 @@ class WorkStore:
         return out
 
     def add_routine(self, *, title: str, cadence: str, details: str = "", assignee: str = "", kind: str = "job",
-                    by: str = "") -> Routine:
+                    by: str = "", via: str = "") -> Routine:
         cadence = str(cadence or "").strip().lower()
         if cadence[:3] in WEEKDAYS:          # "monday", "Mondays" -> "mon"
             cadence = cadence[:3]
@@ -244,11 +272,13 @@ class WorkStore:
             if len([r for r in routines if r.active]) >= MAX_ROUTINES:
                 raise WorkError(f"there are already {MAX_ROUTINES} routines; stop one first")
             routine = Routine(routine_id="r_" + secrets.token_hex(4), title=_clip(title, 120), cadence=cadence,
-                              details=_clip(details), assignee=assignee, kind=kind if kind in KINDS else "job", created_by=by)
+                              details=_clip(details), assignee=assignee, kind=kind if kind in KINDS else "job", created_by=by,
+                              created_via=via)
             routines.append(routine)
             self._write(self._root() / "routines.json",
                         json.dumps({"routines": [asdict(r) for r in routines]}, ensure_ascii=False, indent=1))
-        self.record({"who": by, "what": "routine_set", "item_id": routine.routine_id, "detail": f"{routine.title} ({cadence})"})
+        self.record({"who": by, "what": "routine_set", "item_id": routine.routine_id, "detail": f"{routine.title} ({cadence})",
+                     **({"via": via} if via else {})})
         return routine
 
     def stop_routine(self, routine_id: str, *, by: str = "") -> bool:
@@ -265,7 +295,8 @@ class WorkStore:
 
     def materialise(self, day: str | None = None) -> list[WorkItem]:
         """Make the day's copy of every routine due that day, once. Idempotent. The first time on a
-        new day, finished jobs from more than ARCHIVE_AFTER_DAYS ago are put away first."""
+        new day, finished jobs from more than ARCHIVE_AFTER_DAYS ago are put away first. Only ever
+        asked for today (view.py): a question about another day reads and writes nothing."""
         day = day or today()
         when = date.fromisoformat(day)
         made = []
@@ -278,7 +309,7 @@ class WorkStore:
                 if routine.due_on(when) and (routine.routine_id, day) not in existing:
                     item = self._new(title=routine.title, kind=routine.kind, source="routine", details=routine.details,
                                      assignee=routine.assignee, due=day, by=routine.created_by or "routine",
-                                     routine_id=routine.routine_id)
+                                     routine_id=routine.routine_id, via=routine.created_via)
                     made.append(item)
         return made
 
@@ -304,7 +335,8 @@ class WorkStore:
     # ------------------------------------------------------------------ the ladder
 
     def _new(self, *, title: str, kind: str = "job", source: str = "assigned", ref: str = "", details: str = "",
-             assignee: str = "", due: str = "", by: str = "", routine_id: str = "") -> WorkItem:
+             assignee: str = "", due: str = "", by: str = "", routine_id: str = "", via: str = "",
+             what: str = "created") -> WorkItem:
         if kind not in KINDS:
             raise WorkError("that is not a kind of job CLIVE keeps")
         if ref and not REF.fullmatch(ref):
@@ -316,17 +348,26 @@ class WorkStore:
                 raise WorkError("a date is YYYY-MM-DD") from None
         item = WorkItem(item_id=f"w_{datetime.now(UTC):%y%m%d}_{secrets.token_hex(4)}", title=_clip(title, 160) or "A job",
                         kind=kind, source=source, ref=ref, details=_clip(details), assignee=assignee, due=due,
-                        created_by=by, routine_id=routine_id)
-        item.events.append({"at": item.created_at, "who": by, "what": "created"})
+                        created_by=by, created_via=via, routine_id=routine_id)
+        item.events.append({"at": item.created_at, "who": by, "what": what})
         self._save(item)
-        self.record({"who": by, "what": "created", "item_id": item.item_id, "ref": ref, "detail": item.title,
-                     "assignee": assignee})
+        self.record({"who": by, "what": what, "item_id": item.item_id, "ref": ref, "detail": item.title,
+                     "assignee": assignee, **({"via": via} if via else {})})
         return item
 
     def assign(self, *, title: str, details: str = "", assignee: str = "", due: str = "", kind: str = "job",
-               by: str = "") -> WorkItem:
+               by: str = "", via: str = "") -> WorkItem:
         with self._lock:
-            return self._new(title=title, kind=kind, source="assigned", details=details, assignee=assignee, due=due, by=by)
+            return self._new(title=title, kind=kind, source="assigned", details=details, assignee=assignee, due=due, by=by,
+                             via=via)
+
+    def flag(self, *, title: str, details: str = "", ref: str = "", by: str, via: str = "") -> WorkItem:
+        """Something for the owner to do, noted by anyone: an open job assigned to him."""
+        if not _clip(title, 160):
+            raise WorkError("say what the owner needs to do")
+        with self._lock:
+            return self._new(title=title, source="assigned", ref=ref, details=details, assignee="owner", by=by, via=via,
+                             what="flagged")
 
     def claim(self, item_id: str, *, who: str, owner: bool = False) -> WorkItem:
         with self._lock:
@@ -343,7 +384,9 @@ class WorkStore:
         """Claim something CLIVE found: kept from now on, with this person's name on it. Two people
         tapping at once: the second is told who has it."""
         with self._lock:
-            kept = self.by_ref(ref)
+            # Only the jobs made from what CLIVE found are this thing's job: a job flagged for the
+            # owner about the same order or email is his, and is never taken over by a claim.
+            kept = [i for i in self.by_ref(ref) if i.source == "found"]
             for item in kept:
                 if item.status == "claimed":
                     if item.claimed_by == who:

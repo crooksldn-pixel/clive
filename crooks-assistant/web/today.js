@@ -22,8 +22,14 @@
     done: 'finished', cancelled: 'cancelled', fulfilled: 'fulfilled', tracking_added: 'added tracking to',
     replied: 'replied to', reply_drafted: 'drafted a reply to', stock_set: 'set the stock of',
     routine_set: 'set a routine:', routine_stopped: 'stopped a routine:', access_approved: 'let in',
-    access_suspended: 'took access away from',
+    access_suspended: 'took access away from', flagged: 'flagged for George:',
+    fulfilled_undone: 'undid the fulfilment of', tracking_added_undone: 'undid the tracking on',
+    replied_undone: 'undid the reply to', reply_drafted_undone: 'deleted the draft reply to',
+    stock_set_undone: 'put back the stock of',
   };
+  // A job or routine CLIVE's assistant set up, not George with his own taps: what it read may have
+  // steered it, so the team can tell the two apart (app/work/store.py VIA_CLIVE).
+  const VIA_CLIVE = 'clive';
   const OPERATION_WORDS = {
     fulfillment_create: 'Fulfil', fulfillment_tracking_set: 'Add tracking', gmail_draft_reply: 'Save the draft reply',
     gmail_send_reply: 'Send the reply', inventory_set: 'Set the stock',
@@ -181,6 +187,7 @@
     else if (job.status === 'done') { pill.textContent = 'Done' + (job.done_by_name ? ' by ' + job.done_by_name : ''); }
     else { pill.textContent = job.assignee_name ? 'For ' + job.assignee_name : kind; }
     const bits = [job.details];
+    if (job.created_via === VIA_CLIVE) bits.push('via CLIVE');
     if (job.due) bits.push('due ' + job.due);
     if ((job.evidence && job.evidence.packed) || job.packed) bits.push(('packed ' + when((job.evidence && job.evidence.packed_at) || job.packed_at)).trim());
     if (job.evidence && job.evidence.note) bits.push('“' + job.evidence.note + '”');
@@ -262,7 +269,8 @@
       const item = element('li', 'job');
       item.append(element('div', 'job-title', routine.title));
       item.append(element('p', 'muted small', ({ daily: 'Every day', weekdays: 'Weekdays' }[routine.cadence] || 'Every ' + routine.cadence) +
-        (routine.assignee_name ? ' · ' + routine.assignee_name : ' · whoever is free')));
+        (routine.assignee_name ? ' · ' + routine.assignee_name : ' · whoever is free') +
+        (routine.created_via === VIA_CLIVE ? ' · via CLIVE' : '')));
       const actions = element('div', 'actions');
       actions.append(button('Stop it', async () => { await call('/today/routine/stop', { routine_id: routine.routine_id }); load(); }, 'danger'));
       item.append(actions);
@@ -272,8 +280,12 @@
 
   async function accessStep(person, verb) {
     try {
-      const approval = await approve('access:' + verb + ':' + person.person_id);
-      const done = await call('/today/access/' + encodeURIComponent(person.person_id) + '/' + verb, { approval: approval });
+      // Letting someone in signs the login shown beside their name, so the passkey approves that
+      // login and no other (app/routes/today.py).
+      const login = verb === 'approve' ? (person.login || '') : '';
+      const approval = await approve('access:' + verb + ':' + person.person_id + (login ? ':' + login : ''));
+      const done = await call('/today/access/' + encodeURIComponent(person.person_id) + '/' + verb,
+        login ? { approval: approval, login: login } : { approval: approval });
       if (!done.ok) throw done;
       notice('ok', verb === 'approve' ? person.name + ' can use CLIVE now, from their own phone.' : person.name + "'s access is taken away.");
     } catch (error) {
@@ -315,7 +327,7 @@
       const item = element('li');
       const verb = RECORD_WORDS[entry.what] || entry.what;
       item.append(element('div', '', (entry.who_name || entry.who || 'Someone') + ' ' + verb + ' ' + (entry.detail || '') +
-        (entry.note ? ' (' + entry.note + ')' : '')));
+        (entry.note ? ' (' + entry.note + ')' : '') + (entry.via === VIA_CLIVE ? ' · via CLIVE' : '')));
       item.append(element('div', 'when', when(entry.at)));
       list.append(item);
     }

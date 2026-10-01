@@ -27,7 +27,9 @@ that asked.
 Exit 0 when every property asked about holds; 1 when one does not (a key that opens a second
 socket, or one past its life) — the design then has to stop handing the browser a bearer key; 2
 when it could not be asked (no ElevenLabs key stored, no key minted, a fresh key that would not
-open even once, or the run under the service's credential could not be made or did not finish). It
+open even once, a later open that met a connection, timeout or service failure, or a first word
+that is not one of the service's messages, rather than a refusal of the key, or the run under the
+service's credential could not be made or did not finish). It
 prints fixed words only: never the server's key, the minted key, or anything ElevenLabs said.
 """
 
@@ -56,10 +58,26 @@ if str(HERE) not in sys.path:
 KEY_NAME = "elevenlabs_api_key"
 IN_UNIT = "--in-unit"
 
-OPENED, REFUSED = "opened", "refused"
+# What one open says about the key: it took it, it refused it, or nothing (round 12, SC2-02: a
+# connection, a timeout or a service failure was read as a refusal, so a network fault could pass
+# the single-use and expiry checks).
+OPENED, REFUSED, NOT_ASKED = "opened", "refused", "not asked"
 # Past ElevenLabs' fifteen minutes, with a minute to spare.
 EXPIRY_WAIT_S = 16 * 60
 FIRST_WORD_S = 5.0
+# A handshake refused with one of these is the key refused; any other status is the service
+# failing (a 429, a 5xx), which says nothing about the key.
+REFUSAL_STATUSES = frozenset({401, 403})
+# A first word that is the key refused: the error message types web/live-voice.js reads as 'auth'.
+# Every other error (a bare "error", a quota, a throttle, a busy or failing service, or a type not
+# known here) says the service did not serve this time, not that it refused the key, so it is
+# NOT_ASKED and can pass neither the single-use nor the expiry check (round 12, SC2-02).
+KEY_REFUSALS = frozenset({"auth_error", "authentication_error"})
+# The realtime service's names for a limit or a full queue that lack the "_error" ending: errors
+# all the same, so a first word with one of them never reads as the key taken.
+UNSUFFIXED_ERRORS = frozenset({
+    "quota_exceeded", "throttled", "rate_limited", "commit_throttled", "resource_exhausted", "queue_overflow",
+})
 
 
 def socket_address(base_url: str, token: str) -> str:
@@ -71,10 +89,17 @@ def socket_address(base_url: str, token: str) -> str:
 
 
 def open_once(address: str, *, timeout_s: float = 10.0) -> str:
-    """OPENED when the socket's handshake succeeds and its first word is not an error; REFUSED when
-    the handshake is refused, the socket closes first, or its first word is an error (message_type
-    "error" or "…_error"). The socket is closed at once either way; nothing is sent on it."""
-    from websockets.exceptions import WebSocketException
+    """OPENED when the socket's handshake succeeds and its first word is one of the service's own
+    messages (a JSON object with a message_type) that is not an error; REFUSED only when the
+    service refuses the key in so many words: the handshake refused for authorisation
+    (REFUSAL_STATUSES), or a first word whose message_type is a key refusal (KEY_REFUSALS).
+    Anything else is NOT_ASKED: no connection, a timeout (at the handshake or waiting for the first
+    word, since a socket that says nothing has not said it took the key), a handshake refused for
+    another reason, a socket that closed without a word, a first word that is not one of the
+    service's messages (not JSON, JSON that is not an object, or an object with no message_type:
+    a proxy's page or a garbled frame says nothing about the key), or a first word that is any
+    other error. The socket is closed at once either way; nothing is sent on it."""
+    from websockets.exceptions import InvalidStatus, WebSocketException
     from websockets.sync.client import connect
 
     try:
@@ -82,21 +107,33 @@ def open_once(address: str, *, timeout_s: float = 10.0) -> str:
             try:
                 first = socket.recv(timeout=FIRST_WORD_S)
             except TimeoutError:
-                return OPENED            # open, and quiet: it took the key
+                return NOT_ASKED
             try:
                 said = json.loads(first)
-            except (TypeError, ValueError):
-                return OPENED
-            kind = str(said.get("message_type") or "") if isinstance(said, dict) else ""
-            return REFUSED if kind == "error" or kind.endswith("_error") or (isinstance(said, dict) and said.get("error")) else OPENED
+            except (TypeError, ValueError, RecursionError):
+                return NOT_ASKED
+            kind = said.get("message_type") if isinstance(said, dict) else None
+            if not isinstance(kind, str) or not kind:
+                return NOT_ASKED
+            if kind in KEY_REFUSALS:
+                return REFUSED
+            errored = (kind == "error" or kind.endswith("_error") or kind in UNSUFFIXED_ERRORS
+                       or said.get("error"))
+            return NOT_ASKED if errored else OPENED
+    except InvalidStatus as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        return REFUSED if status in REFUSAL_STATUSES else NOT_ASKED
     except (WebSocketException, OSError):
-        return REFUSED
+        return NOT_ASKED
 
 
 def check(mint: Callable[[], str], opens: Callable[[str], str], *, expiry: bool = False,
           wait_s: float = EXPIRY_WAIT_S, sleep: Callable[[float], None] = time.sleep,
           out: Callable[[str], None] = print) -> int:
-    """Ask each property of fresh keys; the exit code as the module says."""
+    """Ask each property of fresh keys; the exit code as the module says. Only a refusal of the key
+    passes a property; an open that met a connection, timeout or service failure, or an answer that
+    was not the service's (NOT_ASKED), leaves it unasked, exit 2 (1 when another property has
+    already failed)."""
     token = mint()
     if not token:
         out("NOT ASKED: no key could be minted")
@@ -106,11 +143,15 @@ def check(mint: Callable[[], str], opens: Callable[[str], str], *, expiry: bool 
         return 2
     out("ok     a fresh key opened one socket")
     failed = False
-    if opens(token) == OPENED:
+    second = opens(token)
+    if second == OPENED:
         out("FAIL   the same key opened a second socket: it is not single-use")
         failed = True
-    else:
+    elif second == REFUSED:
         out("ok     the same key did not open a second socket: single-use")
+    else:
+        out("NOT ASKED: the second socket met a connection, timeout or service failure, or an answer that was not the service's, not a refusal of the key")
+        return 2
     if expiry:
         held = mint()
         if not held:
@@ -118,11 +159,15 @@ def check(mint: Callable[[], str], opens: Callable[[str], str], *, expiry: bool 
             return 1 if failed else 2
         out(f"wait   holding a fresh key unused for {wait_s / 60:.0f} minutes")
         sleep(wait_s)
-        if opens(held) == OPENED:
+        late = opens(held)
+        if late == OPENED:
             out(f"FAIL   a key held unused for {wait_s / 60:.0f} minutes still opened the socket")
             failed = True
-        else:
+        elif late == REFUSED:
             out(f"ok     a key held unused for {wait_s / 60:.0f} minutes opened nothing")
+        else:
+            out("NOT ASKED: the held key's socket met a connection, timeout or service failure, or an answer that was not the service's, not a refusal of the key")
+            return 1 if failed else 2
     out("VERDICT: " + ("ElevenLabs does NOT keep its word about the key" if failed else "the key is what ElevenLabs says it is"))
     return 1 if failed else 0
 

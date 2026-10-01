@@ -8,15 +8,20 @@ disagree.
 Every column is read from the thing that decides it. **DIRECTLY TESTED** means a test
 RUNS the tool — its code hands the tool's name to the dispatcher, to `registry.invoke`
 or to the SDK provider's callback (itself or through a helper of its own), or calls the
-tool's handler — and the file that does is cited. Looking the tool up in the registry,
+tool's handler — in code that runs: a test, a fixture a test asks for, a helper a test
+calls, directly or through other helpers, or a class (a model double) such code makes —
+and the file that does is cited. A dispatch in a helper no test calls is not counted.
+Looking the tool up in the registry,
 asking the gate to classify a call, drawing a card from a made-up tool call, a comment,
 a docstring, an assertion about a list of names, a monkeypatch that replaces it, or the
 provider's callback in a test that replaced the dispatcher behind it does not count, so a
 tool whose unit tests pass but which no test runs is reported as
 untested. **GOLDEN SCENARIO** is read the same way from the scenarios' code: a scenario
-counts when it hands the tool to the model it scripts or to a call, or taps a control that
-reads or stages it — never for naming it in an assertion or a description — and a write
-is reported as staged, because nothing in the fixture world can apply one.
+counts when it hands the tool to the model it scripts as a call's tool or to the
+dispatcher, or taps a control that reads or stages it — never for naming it in an
+assertion, a description, a label or a reply, or holding it in a constant, dict or list
+it never hands on — and a write is reported as staged, because nothing in the fixture
+world can apply one.
 There are no intent families: every sentence is a model turn, so what a
 sentence reaches is what the model calls. Tests are read as syntax trees and never run; nothing
 here runs a tool, and nothing here can reach a mutation: the audit is a read of
@@ -100,7 +105,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `show_again` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
 | `submit_engineering_request` | RED | yes | yes | yes | — | write | prepared from a fresh read, held as engineering_request_file, tap_commit | a predicate over the re-read | the change's own card | — | — |
 | `work_list` | AMBER | yes | yes | yes | none needed | read | — | — | — | — | — |
-| `work_note` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
+| `work_note` | AMBER | yes | yes | yes | none needed | read | — | — | — | — | — |
 
 ### What cites each tool
 
@@ -177,8 +182,8 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_variant_search` | recipe:order_line, recipe:order_add_item, family:order_edit | test_order_edit.py | order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers |
 | `show_again` | family:recall | test_r12_surfaces.py | — |
 | `submit_engineering_request` | family:engineering | test_build_from_clive.py, test_capability_gaps.py, test_engineering_bridge.py, test_r11_engineering_off.py | — |
-| `work_list` | family:work | test_work.py | — |
-| `work_note` | family:work | test_work.py | — |
+| `work_list` | family:work | test_work.py, test_work_review_fixes.py | — |
+| `work_note` | family:work | test_work.py, test_work_review_fixes.py | — |
 
 ## What this matrix cannot vouch for
 
@@ -204,9 +209,12 @@ registries and of source text, so it is safe against a shop it may not touch.
 
 ## The rules the audit itself keeps
 
-- Reads never mutate: `app/reads/scheduler.py::assert_reads_only` refuses a plan
-  naming a write tool, in every lane, and `app/reads/dedupe.py` refuses to hold,
-  join or reuse one.
+- **Read** in this matrix is the write boundary's word, not a promise that nothing
+  changes: a read is a tool with no `WriteSpec` and no `BatchSpec`, so it is never
+  staged, held for the owner's gesture or proven by a re-read, and it is what the read
+  scheduler may run. `app/reads/scheduler.py::assert_reads_only` refuses a plan naming a
+  write tool, in every lane, and `app/reads/dedupe.py` refuses to hold, join or reuse one.
+  No read changes the shop or the inbox. These reads change what a screen shows: `screen_show` (puts a packing slip, an objective or a list on a screen, or clears it); `screen_off` (takes everything, or one pane, off a screen); `screen_play` (puts a video on a screen); `screen_video` (plays, pauses, mutes, skips or sets the volume of a screen's video); `screen_pair` (approves a newly named screen, which then leaves its pairing code); `close_screen` (closes what is on the owner's own screen and goes back to the orb).
 - No arbitrary GraphQL from the model: the model reaches only the tools above, each
   of which builds its own document.
 - Speculation may never write or commit: a prediction's tool is checked against the
