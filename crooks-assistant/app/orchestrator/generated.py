@@ -204,6 +204,34 @@ def changed_files(before: dict[str, tuple], after: dict[str, tuple]) -> list[str
     return sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
 
 
+def clear_output(root: Path, rel: str) -> str | None:
+    """Remove ``root/rel`` from a generator's copy before the generator runs, so the only bytes that can be
+    there afterwards are the ones the generator wrote: a builder's own edit of a declared output is never read
+    back as the generator's (the b577bc97 re-pin review, F-01). None when it is gone or was never there; else
+    why it cannot be cleared safely. A link or a non-directory anywhere on the way, or a directory at ``rel``,
+    is refused and never followed or removed."""
+    parts = rel.split("/")
+    if not rel or any(p in ("", ".", "..") for p in parts):
+        return f"{rel!r} is not a plain repository path"
+    current = Path(root)
+    for index, part in enumerate(parts):
+        current = current / part
+        try:
+            mode = os.lstat(current).st_mode
+        except FileNotFoundError:
+            return None                                   # nothing there: the generator makes it
+        except OSError as exc:
+            return f"{rel} cannot be looked at ({type(exc).__name__})"
+        last = index == len(parts) - 1
+        if not last and not stat.S_ISDIR(mode):
+            return f"{'/'.join(parts[:index + 1])} is not a directory on the way to {rel}"
+        if last:
+            if stat.S_ISDIR(mode):
+                return f"{rel} is a directory, not a file"
+            os.unlink(current)                            # a file or a link itself, never what a link names
+    return None
+
+
 def read_regular(root: Path, rel: str) -> bytes | None:
     """``root/rel``'s bytes when every component below ``root`` is a real directory and ``rel`` a regular
     file of at most ``MAX_OUTPUT_BYTES``; None otherwise. A link anywhere on the way is refused, never followed."""

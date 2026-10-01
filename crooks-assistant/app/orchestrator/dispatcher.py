@@ -138,6 +138,7 @@ from .generated import (
     GeneratedFilesError,
     Generator,
     changed_files,
+    clear_output,
     declared_at,
     parse_generators,
     read_regular,
@@ -909,6 +910,14 @@ class Dispatcher:
         runs: list[dict] = []
         for gen in generators:
             tree = self.workspaces.export(ws, head, paths["checks"] / "_generate" / gen.name)
+            # The declared outputs are cleared from the copy first: what is there afterwards is only what the
+            # generator wrote, never the builder's own bytes read back as its output, and an output the generator
+            # does not write is refused below (the b577bc97 re-pin review, F-01).
+            for out in gen.outputs:
+                problem = clear_output(tree, out)
+                if problem is not None:
+                    return self._cancel(obj, attempt, f"{RESULT_REFUSED} the candidate {head} has no plain file "
+                                                      f"where the generator {gen.name} writes {out}: {problem}")
             before = tree_manifest(tree)
             argv = gen.command(python)
             started = self.now()
@@ -940,8 +949,9 @@ class Dispatcher:
                 except OSError:
                     data = None
                 if data is None:
-                    return self._cancel(obj, attempt, f"{RESULT_REFUSED} the generator {gen.name} left no regular "
-                                                      f"file at {out} on {head}")
+                    return self._cancel(obj, attempt, f"{RESULT_REFUSED} the generator {gen.name} did not write "
+                                                      f"{out} as a regular file on {head}: every declared output must "
+                                                      "be written by its generator")
                 produced[out] = data
         changes = {out: data for out, data in produced.items() if self.workspaces.blob_at(ws, head, out) != data}
         commit = None
@@ -1394,17 +1404,24 @@ class Dispatcher:
         gates = write_integration_gates(self.config.runtime_root, attempt.attempt_id,
                                         [self._runtime(attempt.attempt_id)["github_acceptance"]])
         if self.config.land:
-            # The loop lands only what it integrated with landing on, marked before the kernel records the
-            # integration so a restart between the two loses nothing. Work integrated earlier, or with --no-land,
-            # is the Director's to land.
+            # The loop lands only what it integrated itself with landing on (the b577bc97 re-pin review, F-01).
+            # Before the kernel records the integration, an intent; once it has, the SHA becomes eligible. A
+            # restart between the two promotes it only when the kernel's record is the loop's own integration of
+            # that SHA (``_eligible``); an integration someone else records after a refused or interrupted one
+            # never is. Work integrated earlier, or with --no-land, is the Director's to land.
             record = self._landing_record(obj.objective_id)
             self._save_landing(obj.objective_id, {
-                **record, "eligible": sorted({*record.get("eligible", []), acceptance.accepted_sha})})
+                **record, "integrating": {"sha": acceptance.accepted_sha, "revision": task.revision,
+                                          "by": self._integrator(), "at": self.now().isoformat()}})
         self.kernel.integrate(task.task_id, task.revision, integration_sha=acceptance.accepted_sha,
                               target_base_sha=task.base_sha, method=IntegrationMethod.FAST_FORWARD,
-                              integrated_by=f"clive-dispatcher ({self.kernel.operator})",
+                              integrated_by=self._integrator(),
                               remote=self.config.publish_remote, gates_evidence=gates)
         if self.config.land:
+            record = self._landing_record(obj.objective_id)
+            record.pop("integrating", None)
+            self._save_landing(obj.objective_id, {
+                **record, "eligible": sorted({*record.get("eligible", []), acceptance.accepted_sha})})
             self._set_landing(obj, task, state="waiting", sha=acceptance.accepted_sha,
                               reason=f"integrated on {task.target_branch}; the loop lands it on {TRUNK_BRANCH} next")
         return self._note(obj.objective_id, f"accepted {acceptance.accepted_sha} integrated on {task.target_branch} "
@@ -1446,8 +1463,8 @@ class Dispatcher:
         if integration is None or state.attempt_id is None:
             return None, False
         sha = integration.integration_sha
-        record = self._landing_record(obj.objective_id)
-        if sha not in record.get("eligible", []):
+        record = self._eligible(obj, task, integration)
+        if record is None:
             return None, False
         if record.get("sha") == sha and record.get("state") in ("landed", "refused"):
             return None, False
@@ -1459,6 +1476,39 @@ class Dispatcher:
         except (WorkspaceError, OSError, subprocess.SubprocessError) as exc:
             return self._landing_waits(obj, task, sha, "the landing could not be evaluated: "
                                                        f"{safe_git_error(str(exc))}"), False
+
+    def _integrator(self) -> str:
+        """Who the kernel records as integrating when the loop does it: the provenance landing checks."""
+        return f"{INTEGRATOR_PREFIX}{self.kernel.operator})"
+
+    def _eligible(self, obj: Objective, task: EngineeringTask, integration) -> dict | None:
+        """The landing record when ``integration`` is the loop's own and may land; else None.
+
+        Eligible means the loop marked it after its own ``kernel.integrate`` returned. A restart between the
+        integration and that mark is recovered only when the intent the loop wrote before integrating names this
+        SHA and revision, and the kernel's record of it says the loop integrated it, no earlier than the intent.
+        Anything else (an integration recorded by an operator after the loop's was refused or interrupted, or one
+        from before landing was on) stays the Director's to land."""
+        sha = integration.integration_sha
+        record = self._landing_record(obj.objective_id)
+        # The loop's integrations are recorded as "clive-dispatcher (<operator>)"; the operator a host runs it as
+        # may change across a restart, so the provenance is the loop's prefix, never an operator's own name.
+        if not str(integration.integrated_by).startswith(INTEGRATOR_PREFIX):
+            return None
+        if sha in record.get("eligible", []):
+            return record
+        pending = record.get("integrating") or {}
+        started = _parse(pending.get("at"))
+        if (pending.get("sha") != sha or pending.get("revision") != task.revision
+                or not str(pending.get("by") or "").startswith(INTEGRATOR_PREFIX) or started is None
+                or integration.recorded_at < started):
+            return None
+        record.pop("integrating", None)
+        record = {**record, "eligible": sorted({*record.get("eligible", []), sha})}
+        self._save_landing(obj.objective_id, record)
+        self._note(obj.objective_id, f"{sha}: the loop's own integration, recorded before a restart, is eligible to "
+                                     "land")
+        return record
 
     def _land_checked(self, obj: Objective, task: EngineeringTask, attempt: Attempt, integration) -> tuple[str, bool]:
         sha = integration.integration_sha
@@ -2102,6 +2152,10 @@ FAILED_CONCLUSIONS = frozenset({"failure", "timed_out"})
 
 def _failed_its_tests(result: GateResult) -> bool:
     return any(run.status == "completed" and run.conclusion in FAILED_CONCLUSIONS for run in result.runs)
+
+
+# How the kernel's integration record names the loop when the loop integrated: "clive-dispatcher (<operator>)".
+INTEGRATOR_PREFIX = "clive-dispatcher ("
 
 
 # Who put a SHA the loop came to land on the trunk, from the landing record's push intent (``_land_checked``).
