@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.work import found as live
-from app.work.store import WorkItem, today, work
+from app.work.store import WorkItem, as_day, today, work
 
 OPEN_SHOWN = 60
 DONE_SHOWN = 30
@@ -37,8 +37,11 @@ def _found_state(items: list[WorkItem], since: Any = None) -> dict[str, Any]:
 
 
 async def today_for(runtime: Any, *, who: str, owner: bool, day: str = "", fresh: bool = False) -> dict[str, Any]:
-    day = day or today()
-    work.materialise(day)
+    day = as_day(day) if day else today()
+    # Today's routines are made, and old finished jobs put away, only on a read of today: any other
+    # day is shown as the kept records have it, with nothing made and nothing moved.
+    if day == today():
+        work.materialise(day)
     kept = work.items()
     sources = await live.found(runtime, fresh=fresh)
     by_ref: dict[str, list[WorkItem]] = {}

@@ -198,5 +198,6 @@ def test_the_tool_block_stays_within_its_budget():
     total = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered)
     # The same ceiling as tests/test_registry.py, moved with it: 43,902 when this change fitted
     # alone, 43,918 once closing an objective out landed beside it (+16, measured; that file says
-    # tool by tool where the bytes went), and 46,131 with the team's four tools (+2,213, measured).
-    assert total <= 46_131, f"the tool block is {total} bytes"
+    # tool by tool where the bytes went), and 46,131 with the team's four tools (+2,213, measured),
+    # and 46,195 with work_note's `flag` (+64, measured: 46,131 before, 46,195 after).
+    assert total <= 46_195, f"the tool block is {total} bytes"
