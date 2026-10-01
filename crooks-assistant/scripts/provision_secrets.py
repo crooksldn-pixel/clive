@@ -182,6 +182,12 @@ def remove_one(key: str) -> int:
         vault.disconnect(key)
         encrypted_path(key).unlink()
         print(f"  removed {key} (encrypted credential; absent at once, and gone from the service when it next restarts)")
+        plain = linux_store.store_dir() / key
+        if plain.is_file():
+            # A writable copy beside it (stored with --plain) goes too: removing a key removes it,
+            # not just the copy that happened to be read first (review finding SC2-03).
+            plain.unlink()
+            print(f"  removed {key} (its writable copy, {plain})")
         return 0
     vault.clear(key)   # whatever the app stored or disconnected goes too
     keychain.delete(key)

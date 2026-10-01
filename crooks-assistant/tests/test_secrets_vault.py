@@ -392,3 +392,22 @@ def test_a_new_credential_with_nothing_in_the_app_tier_leaves_no_mark(tiers, mon
     _fake_systemd_creds(monkeypatch, tiers["store"] / "cred-blobs", key)
     ps.encrypt(key, NEW)
     assert not tiers["app"].exists() or list(tiers["app"].iterdir()) == []
+
+
+def test_removing_a_key_held_both_encrypted_and_as_a_writable_copy_removes_both(tiers, monkeypatch, capsys):
+    """Review finding SC2-03: --remove deleted the encrypted credential and returned, leaving a --plain
+    copy of the same key to be read after the next restart."""
+    key = "elevenlabs_api_key"
+    blobs = tiers["store"] / "cred-blobs"
+    blobs.mkdir(parents=True)
+    (blobs / f"{key}.cred").write_bytes(b"blob")
+    monkeypatch.setattr(ps, "CRED_DIR", blobs)
+    tiers["store"].mkdir(parents=True, exist_ok=True)
+    (tiers["store"] / key).write_text(OLD)
+    (tiers["store"] / "youtube_api_key").write_text(NEW)
+    assert ps.remove_one(key) == 0
+    said = capsys.readouterr().out
+    assert not (blobs / f"{key}.cred").exists() and not (tiers["store"] / key).exists()
+    assert "encrypted credential" in said and "writable copy" in said and OLD not in said
+    assert linux_store.read(key) is None
+    assert (tiers["store"] / "youtube_api_key").read_text() == NEW          # no other key is touched
