@@ -398,3 +398,18 @@ def test_settings_keep_skills_under_the_ignored_state_folder():
     assert REPO_ROOT == APP_ROOT
     ignored = (APP_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert ".state/" in [line.strip() for line in ignored]
+
+
+def test_the_tools_read_the_folder_from_the_settings_and_the_runtime_binds_nothing_here(tmp_path, monkeypatch):
+    import inspect
+
+    from app import runtime
+    from config import settings as settings_module
+
+    monkeypatch.setattr(skill_tools, "_SKILLS_DIR", None)
+    monkeypatch.setattr(settings_module, "get_settings", lambda: SimpleNamespace(skills_dir=tmp_path / "set"))
+    assert skill_tools.skills_dir() == tmp_path / "set"
+    install(tmp_path / "set", "alpha", {"SKILL.md": "# Alpha"})
+    assert [s["name"] for s in skill_tools.skill_list()["skills"]] == ["alpha"]
+    # Nothing runtime.build sets is left in this module for the harness to put back.
+    assert "skill_tools." not in inspect.getsource(runtime.build)

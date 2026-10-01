@@ -77,14 +77,18 @@ _LINKED = (errno.ELOOP, errno.ENOTDIR)
 # control, format and variation-selector characters are escaped.
 _LOOKED_AT = re.compile(r"[^\t\n\x20-\x7e]")
 
-_SKILLS_DIR: Path = DEFAULT_SKILLS_DIR
+# Tests set their own folder here; otherwise each call reads settings.skills_dir, so nothing the
+# runtime builds is left bound in this module (tests/test_followups_harness.py).
+_SKILLS_DIR: Path | None = None
 
 
-def configure(*, skills_dir: str | os.PathLike[str] | None = None) -> None:
-    """Called once by the runtime (app/runtime.py) with settings.skills_dir."""
-    global _SKILLS_DIR
-    if skills_dir is not None:
-        _SKILLS_DIR = Path(skills_dir)
+def skills_dir() -> Path:
+    """Where the skills are installed: settings.skills_dir (config/settings.py)."""
+    if _SKILLS_DIR is not None:
+        return _SKILLS_DIR
+    from config.settings import get_settings
+
+    return Path(getattr(get_settings(), "skills_dir", None) or DEFAULT_SKILLS_DIR)
 
 
 # Named in the family table like every tool the model is offered (tests/test_families.py). READY
@@ -211,7 +215,7 @@ def _installs() -> tuple[list[tuple[str, dict[str, Any]]], int]:
     """(name, provenance) of every readable install, by name, and how many folders were skipped
     as unreadable. At most MAX_FOLDERS folders are looked at."""
     try:
-        base_fd = _open_dir(str(_SKILLS_DIR))
+        base_fd = _open_dir(str(skills_dir()))
     except _Unreadable:
         return [], 0
     found: list[tuple[str, dict[str, Any]]] = []
@@ -234,7 +238,7 @@ def _installs() -> tuple[list[tuple[str, dict[str, Any]]], int]:
 
 def _install(name: str) -> dict[str, Any] | None:
     try:
-        base_fd = _open_dir(str(_SKILLS_DIR))
+        base_fd = _open_dir(str(skills_dir()))
     except _Unreadable:
         return None
     try:
@@ -360,7 +364,7 @@ def _read_skill_file(name: str, file: str) -> bytes:
     *folders, leaf = file.split("/")
     opened: list[int] = []
     try:
-        opened.append(_open_dir(str(_SKILLS_DIR)))
+        opened.append(_open_dir(str(skills_dir())))
         for part in (name, SKILL_DIR, *folders):
             opened.append(_open_dir(part, opened[-1]))
         return _read_at(opened[-1], leaf, MAX_FILE_BYTES)

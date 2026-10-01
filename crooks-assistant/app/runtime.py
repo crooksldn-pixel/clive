@@ -643,8 +643,6 @@ def build(settings: Settings | None = None) -> Runtime:
     # life (never the token) is kept beside CLIVE's other records, for /health.
     instagram_tools.configure(api_version=settings.instagram_api_version,
                               state_path=settings.objectives_dir / "instagram.json")
-    # The installed skills, read as text and never run (app/tools/skill_tools.py).
-    skill_tools.configure(skills_dir=settings.skills_dir)
     # The Connections screen (app/connections): the owner's passkeys and the record of changes to
     # connections live beside the keys stored from the app, in the root-only secret directory on
     # Linux; on a Mac, whose keys are in the Keychain, beside CLIVE's other records.
