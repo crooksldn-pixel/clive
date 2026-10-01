@@ -315,6 +315,10 @@ const DETAIL_WORDS = {
   // Reading Instagram (read-only: nothing is sent)
   instagram_inbox: ['Checking', 'Instagram messages'], instagram_thread: ['Reading', 'the conversation'],
   instagram_comments: ['Checking', 'Instagram comments'],
+  people_list: ['Checking', 'who does what'],
+  person_note: ['Noting', 'who they are'],
+  work_list: ['Checking', 'the work list'],
+  work_note: ['Updating', 'the work list'],
   // Objectives (CLIVE's own records, nothing outside)
   objective_open: ['Opening', 'the objective'], objective_list: ['Checking', 'your objectives'],
   objective_show: ['Reading', 'the objective'], objective_note: ['Updating', 'the objective'],

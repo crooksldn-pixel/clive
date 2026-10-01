@@ -202,6 +202,13 @@ def _known_action(action: str) -> bool:
     if kind == "passkey":
         verb, _, identity = rest.partition(":")
         return (verb == "add" and not identity) or (verb == "remove" and bool(CREDENTIAL_ID.fullmatch(identity)))
+    if kind == "access":
+        # Letting a member of the team in, or taking their access away (app/routes/today.py).
+        from app.people.store import people
+
+        verb, _, person_id = rest.partition(":")
+        person = people.get(person_id) if verb in ("approve", "suspend") and person_id else None
+        return person is not None and person.kind == "staff"
     return False
 
 

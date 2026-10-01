@@ -173,6 +173,7 @@ def test_the_tool_block_stays_within_its_budget():
     """The ceiling tests/test_registry.py holds the block the model reads to: what this change
     added to shopify_find_order's schema was paid for in its own description."""
     from app.families import load_all
+    from app.people import tools as _people_tools  # noqa: F401
     from app.providers.max_agent_sdk import withheld_tools
     from app.tools import (  # noqa: F401
         analytics_tools,
@@ -186,6 +187,10 @@ def test_the_tool_block_stays_within_its_budget():
         shopify_writes,
         show_again,
     )
+    from app.work import tools as _work_tools  # noqa: F401
+
+    # The team's tools (app/people, app/work) are offered by app/runtime.py too: imported here so
+    # the block is counted as tests/test_registry.py counts it.
 
     load_all()
     specs = registry.all_specs()
@@ -193,5 +198,5 @@ def test_the_tool_block_stays_within_its_budget():
     total = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered)
     # The same ceiling as tests/test_registry.py, moved with it: 43,902 when this change fitted
     # alone, 43,918 once closing an objective out landed beside it (+16, measured; that file says
-    # tool by tool where the bytes went).
-    assert total <= 43_918, f"the tool block is {total} bytes"
+    # tool by tool where the bytes went), and 46,131 with the team's four tools (+2,213, measured).
+    assert total <= 46_131, f"the tool block is {total} bytes"

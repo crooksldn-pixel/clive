@@ -45,3 +45,28 @@ The sections after it win any conflict, as the spec itself says ("the tool and p
 - **A clock.** The spec's time-aware lines ("It's 23:40...", "It's gone two...") need CLIVE to know the time. It does not: each turn sends the model the owner's words exactly, and the system prompt is set once per conversation. Until it has a clock, CLIVE mentions the time only when a tool or the owner gave it. Adding the London time to each turn as context, beside his words, is the owner's call, because the 28 September decision governs what reaches the model.
 - **Named routines.** The spec calls these "Borrow the rituals": names George chooses for recurring jobs, confirmed by name and then run. They need a store of routines and a tool, so they are a build of their own, not wording.
 - **Delivery.** The spec asks for a steady speaking rate with no rising, excited inflection. CLIVE's speech request sends only the text and the model (`app/clients/elevenlabs_tts.py`), so the voice speaks with its own ElevenLabs defaults. Setting stability and style there is a change to how the voice sounds, and it is left until the owner has heard the new wording.
+
+## Keys and sign-ins from the app
+
+The owner asked for a way to add his keys, IDs and secrets in CLIVE itself rather than through terminal sessions on the server, so that adding a connection, and later a client adding their own, is a click and a connect. Asked whether the app may store keys at all, and whether every change should ask for a passkey, he answered "yes" to both.
+
+**Decided.** Keys are stored from the Connections screen (`/connections`). Each one is tested with its service before it is stored, and stored encrypted on the machine. Every change asks for the owner's passkey at that moment. `docs/CONNECTIONS.md` says how it works.
+
+## The team uses CLIVE
+
+The owner asked for CLIVE to be how he hands out the day's work to his two office staff, and how they do it:
+- the work they should already be doing: orders to pack, emails and Instagram messages waiting, with what CLIVE knows;
+- jobs he gives them: restocking, tidying, Vinted uploads and labels, stock counts with the numbers entered;
+- a record of who packed, who counted and who replied, as if the team were a human API;
+- new people set up by telling CLIVE about them in plain words. That includes people outside the team, such as a designer CLIVE can suggest for posters.
+
+His answers, verbatim choices:
+- How the team gets in: "Own phones": each member of the team on their own phone, with their own Tailscale login.
+- What they may do without his OK: "Mark orders packed, Fulfil in Shopify, Send email replies, Adjust stock from counts".
+- What they may see: "Everything but your chats".
+
+**Decided.** The Today screen (`/today`) is the team's. A member of the team gets in only after the owner approves their login with his passkey. Each has their own CLIVE conversation, with their own prompt and only their tools: the reads, the work list, fulfilment and its tracking, email replies, and stock adjustments. Each change is a card they confirm, recorded as theirs. Refunds, cancellations, order edits, discounts, store credit and new emails stay the owner's.
+
+"Everything but your chats" is read to keep his records too: his objectives, his screens and the engineering loop. On the list of people, colleagues see each name and role, not contact details or his notes. `docs/TEAM.md` has the setup and the limits.
+
+**Risk carried.** The team's conversations run on the owner's Max plan, the same consumer-plan risk recorded on 30 September for the builders. The fallback is unchanged: a Team plan or the API.

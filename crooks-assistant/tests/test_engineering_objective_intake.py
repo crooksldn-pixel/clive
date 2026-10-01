@@ -196,6 +196,8 @@ PROTECTED_TESTS = {
     "test_connections_routes.py": "app.connections",
     "test_connections_testers.py": "app.connections import testers",
     "fake_passkey.py": "navigator.credentials",
+    "test_people.py": "app.people",
+    "test_team.py": "app.people",
 }
 
 

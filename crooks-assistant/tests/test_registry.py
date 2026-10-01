@@ -126,6 +126,7 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     import json
 
     from app.families import load_all
+    from app.people import tools as _people_tools  # noqa: F401
     from app.providers.max_agent_sdk import withheld_tools
     from app.tools import (  # noqa: F401
         analytics_tools,
@@ -140,6 +141,10 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
         shopify_writes,
         show_again,
     )
+    from app.work import tools as _work_tools  # noqa: F401
+
+    # The team's tools (app/people, app/work) are offered by app/runtime.py too: imported here so
+    # the block is counted the same alone and in the suite.
 
     # The engineering bridge and the screens are imported here for the same reason as the
     # families below: app/runtime.py offers them, and the suite counted them or not depending on
@@ -391,7 +396,16 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # state values the store always refused), objective_open -7 and objective_show -50. Each fit
     # under 43,902 on its own, in the 22 bytes of headroom; together they pass it by 16, and
     # the ceiling is raised by exactly that, leaving no headroom.
-    assert total <= 43_918, f"the tool block is {total} bytes"
+    #
+    # 46_131 is the team on CLIVE (app/people/tools.py, app/work/tools.py; tests/test_people.py,
+    # tests/test_work.py), +2,213 bytes measured (43,918 before, 46,131 after): people_list 253,
+    # person_note 697, work_list 413, work_note 850, pared from 2,712 by keeping each argument's
+    # meaning in its tool's one description, not repeated per field. What it buys is the owner's
+    # 1 October request by voice: "Mia works for us in the office: packing, emails, Instagram"
+    # kept as her card, "give Mia the hoodie count" handed out, "who packed 1930?" answered from
+    # the record, and "who does our posters?" answered from the list of people. The ceiling is
+    # raised by exactly what was measured, leaving no headroom.
+    assert total <= 46_131, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.
