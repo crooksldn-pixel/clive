@@ -1492,12 +1492,14 @@ class Dispatcher:
             # An integration record the journal never committed (the host died inside the kernel's integrate) is
             # not settled: the kernel refuses every verb until the Director commits or discards it, and so does
             # landing (the 4daf49e1 re-pin pre-review).
+            # The wait is the Director's to end, not GitHub's, so it is not timed out like a wait on a run.
             try:
                 journal_preconditions(self.store.root)
             except LifecycleError as exc:
-                return self._landing_waits(obj, task, sha, f"waits: the kernel's store holds changes its journal "
-                                                           f"never committed ({exc}), so whether {sha} was integrated "
-                                                           "is not settled; the Director commits or discards them"), False
+                reason = (f"waits: the kernel's store holds changes its journal never committed ({exc}), so whether "
+                          f"{sha} was integrated is not settled; the Director commits or discards them")
+                self._set_landing(obj, task, state="waiting", sha=sha, reason=reason, waiting_since=None)
+                return self._note(obj.objective_id, f"landing of {sha} on {TRUNK_BRANCH} {reason}"), False
         if verdict == "recovered":
             pending = record.pop("integrating", None) or {}
             self._save_landing(obj.objective_id, {
@@ -1521,18 +1523,15 @@ class Dispatcher:
 
     def _forget_proof(self, obj: Objective, task: EngineeringTask, sha: str) -> None:
         """After a refused integration: drop the proof's digest from the intent for ``sha``, unless the kernel did
-        record the integration after all. Never raises over the refusal it follows."""
-        try:
-            if any(i.task_id == task.task_id and i.task_revision == task.revision
-                   for i in self.store.read_integrations()):
-                return
-            record = self._landing_record(obj.objective_id)
-            pending = dict(record.get("integrating") or {})
-            if pending.get("sha") == sha and "proof_sha256" in pending:
-                pending.pop("proof_sha256")
-                self._save_landing(obj.objective_id, {**record, "integrating": pending})
-        except Exception:  # noqa: BLE001 - the refusal being raised is what the caller reports
-            pass
+        record the integration after all. If this cannot be done, its own error is raised (the refusal it follows
+        rides along as its context): the tick fails rather than keep a digest a leaked proof could match."""
+        if any(i.task_id == task.task_id and i.task_revision == task.revision for i in self.store.read_integrations()):
+            return
+        record = self._landing_record(obj.objective_id)
+        pending = dict(record.get("integrating") or {})
+        if pending.get("sha") == sha and "proof_sha256" in pending:
+            pending.pop("proof_sha256")
+            self._save_landing(obj.objective_id, {**record, "integrating": pending})
 
     def _eligible(self, task: EngineeringTask, integration, record: dict) -> str | None:
         """Whether ``integration`` is this loop's own and may land.
@@ -1562,7 +1561,7 @@ class Dispatcher:
         return "unproven" if meant else None
 
     def _land_checked(self, obj: Objective, task: EngineeringTask, attempt: Attempt, integration, *,
-                      proven: bool = True) -> tuple[str, bool]:
+                      proven: bool) -> tuple[str, bool]:
         sha = integration.integration_sha
         # (b) the loop's own independent review of exactly this SHA was READY and the kernel accepted it
         accepted = [a for a in self.store.read_acceptances(task.task_id) if a.attempt_id == attempt.attempt_id]

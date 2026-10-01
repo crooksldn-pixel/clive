@@ -710,6 +710,7 @@ def test_an_integration_the_journal_never_committed_is_not_landed_until_the_dire
     its journal commit, so no undo runs. Nothing lands while the store holds those uncommitted files; once the
     Director commits them, the loop's own integration (its proof in the record) lands once."""
     import subprocess
+    from datetime import timedelta
 
     w = landing_world(tmp_path)
     w.scenarios(EDIT_HELLO)
@@ -732,6 +733,9 @@ def test_an_integration_the_journal_never_committed_is_not_landed_until_the_dire
     assert not landed(w) and trunk(w) == w.base and not [p for p in pushes if TRUNK in p[-1]]
     assert landing_record(w)["state"] == "waiting" and "never committed" in landing_record(w)["reason"]
     assert any("never committed" in line for line in lines)
+    w.clock.offset += timedelta(seconds=w.config.acceptance_timeout_s + 1)   # the Director's wait, not GitHub's
+    w.dispatcher().tick()
+    assert landing_record(w)["state"] == "waiting" and not landing_record(w).get("waiting_since")
     for argv in (["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "settled"]):
         subprocess.run(["git", *argv], cwd=w.store.root, check=True, capture_output=True)
     w.run_until(lambda: landed(w))
