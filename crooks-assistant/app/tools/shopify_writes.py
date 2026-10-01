@@ -15,12 +15,19 @@ import json
 import logging
 import re
 import time
+import unicodedata
 import uuid
+from decimal import Decimal, InvalidOperation
 from email.utils import parsedate_to_datetime
 from typing import Any
 
 from app.actions.models import Observed, Prepared
-from app.clients.shopify import ShopifyClient, ShopifyError
+from app.clients.shopify import (
+    MAX_CUSTOM_LINE_PRICE,
+    MAX_CUSTOM_TITLE_CHARS,
+    ShopifyClient,
+    ShopifyError,
+)
 from app.tools.gate import Tier
 from app.tools.registry import ToolError, WriteSpec, tool
 from app.tools.shopify_tools import _c, append_note, hydrator
@@ -1853,12 +1860,14 @@ query CrooksOrderEditState($id: ID!) {
     name
     cancelledAt
     closedAt
+    currencyCode
+    presentmentCurrencyCode
     displayFinancialStatus
     displayFulfillmentStatus
     currentTotalPriceSet { shopMoney { amount currencyCode } }
     totalOutstandingSet { shopMoney { amount currencyCode } }
     customer { displayName }
-    lineItems(first: 50) { edges { node { id quantity currentQuantity variant { id } } } }
+    lineItems(first: 50) { edges { node { id title quantity currentQuantity variant { id } } } }
   }
 }
 """
@@ -1888,9 +1897,10 @@ async def _read_order_edit_state(client: ShopifyClient, order_id: str) -> dict[s
 
 
 def _order_lines(node: dict[str, Any]) -> list[dict[str, Any]]:
-    """The order's live lines: id, how many of them there still are, and which variant.
-    `currentQuantity` is what is on the order NOW — a refunded or removed line reads 0 —
-    and that is what a line count on this card has to mean."""
+    """The order's live lines: id, how many of them there still are, which variant, and the
+    title. `currentQuantity` is what is on the order NOW — a refunded or removed line reads 0 —
+    and that is what a line count on this card has to mean. A custom line has no variant
+    (Shopify's LineItem has no field that marks one, so "no variant" is the mark)."""
     out = []
     for edge in ((node.get("lineItems") or {}).get("edges") or []):
         line = (edge or {}).get("node") or {}
@@ -1903,6 +1913,7 @@ def _order_lines(node: dict[str, Any]) -> list[dict[str, Any]]:
             "id": str(line["id"]),
             "quantity": int(quantity or 0),
             "variant_id": str(((line.get("variant") or {}).get("id")) or ""),
+            "title": str(line.get("title") or ""),
         })
     return [line for line in out if line["quantity"] > 0]
 
@@ -2155,6 +2166,319 @@ async def shopify_order_add_item(order_id: str, variant_id: str, quantity: int =
             "amount_outstanding": f"{outstanding:.2f}" if outstanding is not None else "0.00",
             "currency": currency,
             "stock_note": stock_note,
+            "read_back": read_back,
+            "spoken_to": _display(new_total, currency),
+            "ledger": {"quantity": quantity, "adds": f"{subtotal_delta:.2f}", "currency": currency[:24]},
+        },
+    )
+
+
+# --------------------------------------------------------------- a custom line on an order
+#
+# The sibling of the addition above, for what the catalogue does not list: "add a £15 rush
+# alteration to order 1930" (the owner's decision 8 of 1 October 2026: "custom item on an
+# existing order: yes"). The same three steps and the same boundary: PREPARE opens the
+# CalculatedOrder and puts the custom line on it with `orderEditAddCustomItem`, which changes
+# nothing on the order; the card carries Shopify's arithmetic for the edit; the hold sends
+# `orderEditCommit` and nothing else.
+#
+# What differs is where the numbers come from. A variant's price is the catalogue's; a custom
+# line's is the owner's, so it is held here to a positive amount in pence and no more than
+# MAX_CUSTOM_LINE_PRICE a unit ("fifteen" heard as "fifteen hundred" is refused, not priced),
+# and the currency is the ORDER's, read from the order and never an argument. An order the
+# customer paid in a currency other than the shop's is refused: which of the two a custom
+# price is in is not something to settle by guessing on a paid order.
+#
+# Proof is the line itself: the re-read order carries at least `quantity` more of a live line
+# with no variant and exactly this title than it did when the change was prepared.
+
+_CURRENCY_CODE = re.compile(r"^[A-Z]{3}$")
+
+
+def _custom_title(value: Any) -> str:
+    """The title as it will be sent: trimmed, plain text, bounded — or a refusal in words."""
+    title = value.strip() if isinstance(value, str) else ""
+    if not title:
+        raise ToolError("The custom item needs a title: what it is, in a few words.")
+    if any(unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") for ch in title):
+        raise ToolError("The title has a control character in it; say it in plain words.")
+    if "<" in title:
+        raise ToolError("The title cannot contain '<'; say it in plain words.")
+    if len(title) > MAX_CUSTOM_TITLE_CHARS:
+        raise ToolError(f"The title must be at most {MAX_CUSTOM_TITLE_CHARS} characters; it is {len(title)}.")
+    return title
+
+
+def _custom_price(value: Any) -> Decimal:
+    """The unit price as an exact amount of money — or a refusal in words. Never rounded: a
+    price with a third decimal place is a misunderstanding, not a figure to tidy up."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str, Decimal)):
+        raise ToolError("The price must be an amount of money, like 15 or 15.50.")
+    try:
+        price = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError):
+        raise ToolError("The price must be an amount of money, like 15 or 15.50.") from None
+    if not price.is_finite():
+        raise ToolError("The price must be an amount of money, like 15 or 15.50.")
+    if price <= 0:
+        raise ToolError("The price must be more than zero.")
+    if price > Decimal(str(MAX_CUSTOM_LINE_PRICE)):
+        raise ToolError(f"The price must be at most {MAX_CUSTOM_LINE_PRICE:,.2f} a unit; a bigger addition is one to make in Admin.")
+    if price != price.quantize(Decimal("0.01")):
+        raise ToolError("The price can have at most two decimal places.")
+    return price.quantize(Decimal("0.01"))
+
+
+def _order_currency(node: dict[str, Any], label: str) -> str:
+    """The currency a custom price on this order is in: the order's own, as Shopify states it.
+    Refused when Shopify does not say, and when the customer paid in another currency than
+    the shop's — never defaulted, and never the model's."""
+    shop = str(node.get("currencyCode") or "").upper()
+    paid = str(node.get("presentmentCurrencyCode") or "").upper()
+    if not _CURRENCY_CODE.match(shop) or not _CURRENCY_CODE.match(paid):
+        raise ToolError(f"Shopify did not say what currency order {label} is in; nothing was prepared.")
+    if paid != shop:
+        raise ToolError(f"Order {label} was paid in {paid}, not the shop's {shop}; add a custom item to it in Admin.")
+    return shop
+
+
+def order_custom_item_fingerprint(node: dict[str, Any], title: str) -> dict[str, Any]:
+    """What the order must still look like for this custom line to be the one that was
+    prepared: the line count, the total, how many of a custom line with THIS title it already
+    carries, and whether it is cancelled or archived (see `order_edit_fingerprint` for why the
+    last two are there)."""
+    lines = _order_lines(node)
+    total = _amount(node.get("currentTotalPriceSet"))
+    return {
+        "lines": len(lines),
+        "total": f"{total:.2f}" if total is not None else "",
+        "custom_qty": sum(line["quantity"] for line in lines if not line["variant_id"] and line["title"] == str(title)),
+        "cancelled": bool(node.get("cancelledAt")),
+        "closed": bool(node.get("closedAt")),
+    }
+
+
+async def _observe_order_add_custom_item(execution: dict) -> Observed:
+    node = await _read_order_edit_state(_c(), str(execution["order_id"]))
+    return Observed(fingerprint=order_custom_item_fingerprint(node, str(execution["title"])), entity=None)
+
+
+async def _execute_order_add_custom_item(execution: dict) -> dict:
+    """The commit, and only the commit, as for a variant: `notifyCustomer` false always, and
+    the staff note built here from what was stored."""
+    client = _c()
+    order_id = str(execution["order_id"])
+    note = f"Added {int(execution['quantity'])} x {execution['title']} (custom item, CROOKS assistant)"
+    payload = await client.mutate(
+        "order_edit_commit",
+        {"id": str(execution["calculated_order_id"]), "notifyCustomer": False, "staffNote": note[:MAX_EDIT_STAFF_NOTE]},
+    )
+    hydrator().forget(order_id)
+    order = ((payload.get("data") or {}).get("orderEditCommit") or {}).get("order") or {}
+    if order.get("id") != order_id:
+        raise ShopifyError("Shopify did not confirm which order it edited.")
+    return {"order_id": str(order["id"])}
+
+
+def _verify_order_add_custom_item(before: dict, observed: dict, execution: dict) -> tuple[bool, str]:
+    """Proof, by re-reading the order: it carries at least this many more of a custom line
+    with this title than it did when the change was prepared (an order that already had one
+    must not pass on the one it had), and the total is the one Shopify calculated."""
+    try:
+        added = int(execution.get("quantity") or 0)
+        moved = int(observed.get("custom_qty") or 0) - int(before.get("custom_qty") or 0)
+    except (TypeError, ValueError):
+        return False, ""
+    if added < 1 or moved < added:
+        return False, ""
+    if str(observed.get("total") or "") != str(execution.get("new_total") or ""):
+        return True, "the order's total is not the figure on the card; check the order."
+    return True, ""
+
+
+def _present_order_add_custom_item(proposal) -> dict:
+    s = proposal.summary
+    currency = str(s.get("currency") or "")
+    treated = ("taxable" if s.get("taxable") else "not taxable") + " · " + ("needs shipping" if s.get("requires_shipping") else "needs no shipping")
+    facts = [
+        {"label": "Customer", "value": str(s.get("customer") or "")},
+        {"label": "Adding", "value": str(s.get("line") or "")},
+        {"label": "Unit price", "value": str(s.get("unit_price_display") or "")},
+        {"label": "Adds", "value": f"{_display(float(s.get('subtotal_delta') or 0), currency)} to the order", "tone": "warn"},
+        {"label": "Treated as", "value": treated},
+        {"label": "New total", "value": _display(float(s.get("amount") or 0), currency)},
+        {"label": "Customer owes", "value": f"{_display(float(s.get('amount_outstanding') or 0), currency)} after this", "tone": "bad" if float(s.get("amount_outstanding") or 0) > 0 else ""},
+        {"label": "Customer emailed", "value": "no — tell them yourself"},
+    ]
+    return {
+        "title": "Add a custom item to the order",
+        "summary": "",
+        "detail": "Applies the edit Shopify has already priced. It cannot be undone from here.",
+        "facts": facts,
+        "done_title": "Custom item added",
+    }
+
+
+@tool(
+    name="shopify_order_add_custom_item",
+    description="Prepare to add a custom line (not a catalogue product) to an existing order, priced by Shopify. The customer is not emailed.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "order_id": {"type": "string", "description": "From a search."},
+            "title": {"type": "string", "minLength": 1, "maxLength": MAX_CUSTOM_TITLE_CHARS},
+            "price": {"type": "number", "minimum": 0.01, "maximum": MAX_CUSTOM_LINE_PRICE, "description": "Unit price, order's currency."},
+            "quantity": {"type": "integer", "minimum": 1, "maximum": MAX_ADD_QUANTITY},
+            "taxable": {"type": "boolean"},
+            "requires_shipping": {"type": "boolean"},
+        },
+        "required": ["order_id", "title", "price"],
+    },
+    tier=Tier.RED,
+    issued_id_args=("order_id",),
+    write=WriteSpec(
+        operation="order_edit_add_custom_line",
+        entity_kind="order",
+        entity_arg="order_id",
+        mutation="order_edit_commit",
+        observe=_observe_order_add_custom_item,
+        execute=_execute_order_add_custom_item,
+        present=_present_order_add_custom_item,
+        entity=_entity_after_order_add_item,
+        verify=_verify_order_add_custom_item,
+        op_class="irreversible",
+        reversible=False,
+        spoken_success="Added to order {label}. The total is now {amount}.",
+        spoken_failure="I couldn't confirm the custom item was added. Check the order before asking again.",
+        spoken_stale="The order changed since this was prepared. Nothing was added.",
+    ),
+)
+async def shopify_order_add_custom_item(
+    order_id: str, title: str, price: Any, quantity: int = 1, taxable: bool = True, requires_shipping: bool = False,
+) -> Prepared:
+    """Prepare, never commit: check what the owner said, read the order, open a CalculatedOrder,
+    put the custom line on it in the order's own currency, and keep Shopify's arithmetic for
+    the card.
+
+    `taxable` and `requires_shipping` default to Shopify's own defaults for a custom item
+    (taxable; no shipping) and are sent explicitly either way, so the card states what Shopify
+    was told. The two mutations this sends — `order_edit_begin` and
+    `order_edit_add_custom_item` — change NOTHING on the order.
+    """
+    client = _c()
+    line_title = _custom_title(title)
+    unit = _custom_price(price)
+    # A whole number, or a refusal: 1.5 is not "one", and truncating it would add a line nobody
+    # asked for to a paid order.
+    if isinstance(quantity, bool) or (isinstance(quantity, float) and not quantity.is_integer()):
+        raise ToolError("The quantity must be a whole number.")
+    try:
+        quantity = int(quantity)
+    except (TypeError, ValueError):
+        raise ToolError("The quantity must be a whole number.") from None
+    if not 1 <= quantity <= MAX_ADD_QUANTITY:
+        raise ToolError(f"The quantity must be between 1 and {MAX_ADD_QUANTITY}.")
+    if not isinstance(taxable, bool) or not isinstance(requires_shipping, bool):
+        raise ToolError("Whether it is taxable and whether it needs shipping are each yes or no.")
+
+    node = await _read_order_edit_state(client, str(order_id))
+    label = str(node.get("name") or "")
+    if node.get("cancelledAt"):
+        raise ToolError(f"Order {label} is cancelled; nothing can be added to it.")
+    if node.get("closedAt"):
+        raise ToolError(f"Order {label} is archived; reopen it in Admin before adding to it.")
+    currency = _order_currency(node, label)
+
+    # From here on nothing is arithmetic of ours. Shopify opens the scratch order and prices
+    # the custom line on it; both mutations leave the real order exactly as it is.
+    begun = await client.mutate("order_edit_begin", {"id": str(order_id)})
+    calculated = ((begun.get("data") or {}).get("orderEditBegin") or {}).get("calculatedOrder") or {}
+    calculated_order_id = str(calculated.get("id") or "")
+    if not calculated_order_id:
+        raise ShopifyError("Shopify did not open an order edit for that order.")
+    added = await client.mutate(
+        "order_edit_add_custom_item",
+        {
+            "id": calculated_order_id,
+            "title": line_title,
+            "price": {"amount": f"{unit:.2f}", "currencyCode": currency},
+            "quantity": quantity,
+            "taxable": taxable,
+            "requiresShipping": requires_shipping,
+        },
+    )
+    body = ((added.get("data") or {}).get("orderEditAddCustomItem") or {})
+    calculated_line = body.get("calculatedLineItem") or {}
+    edited = body.get("calculatedOrder") or {}
+    unit_price = _amount(calculated_line.get("originalUnitPriceSet"))
+    new_total = _amount(edited.get("totalPriceSet"))
+    outstanding = _amount(edited.get("totalOutstandingSet"))
+    if new_total is None or unit_price is None:
+        raise ShopifyError("Shopify did not price the edit; nothing was changed.")
+    line_money = (calculated_line.get("originalUnitPriceSet") or {}).get("shopMoney") or {}
+    if f"{unit_price:.2f}" != f"{unit:.2f}" or str(line_money.get("currencyCode") or "") != currency:
+        # The line is ours to price, so Shopify answering with another figure means the edit is
+        # not the one the owner asked for. Nothing was applied; nothing is offered.
+        raise ShopifyError(
+            f"Shopify priced the custom item at {_display(unit_price, str(line_money.get('currencyCode') or '?'))}, "
+            f"not {_display(float(unit), currency)}; nothing was changed."
+        )
+    # The title the order will carry is the one Shopify gave the calculated line; the proof
+    # and the card both use it, so what is checked is what was priced.
+    stored_title = str(calculated_line.get("title") or "").strip() or line_title
+    calculated_lines = [
+        e for e in ((edited.get("lineItems") or {}).get("edges") or [])
+        if isinstance(e, dict) and int(((e.get("node") or {}).get("quantity")) or 0) > 0
+    ]
+    before = order_custom_item_fingerprint(node, stored_title)
+    subtotal_delta = unit * quantity
+    customer = str((node.get("customer") or {}).get("displayName") or "")
+    digits = label.rsplit("-", 1)[-1].lstrip("#")
+    line = f"{quantity} x {stored_title}"
+    read_back = (
+        f"add {line} (a custom item) to order {digits}{f' for {customer}' if customer else ''}, "
+        f"{_display(float(subtotal_delta), currency)} more, taking the order to {_display(new_total, currency)}"
+    )
+    return Prepared(
+        execution={
+            "calculated_order_id": calculated_order_id,
+            "order_id": str(order_id),
+            "title": stored_title,
+            "quantity": quantity,
+            "unit_price": f"{unit:.2f}",
+            "currency": currency,
+            "taxable": taxable,
+            "requires_shipping": requires_shipping,
+            "subtotal_delta": f"{subtotal_delta:.2f}",
+            "new_total": f"{new_total:.2f}",
+            "amount_outstanding": f"{outstanding:.2f}" if outstanding is not None else "",
+        },
+        before=before,
+        # A custom line is always a line of its own (there is no catalogue variant to fold it
+        # into), so the count moves by one; Shopify's own calculated lines say so first.
+        expected_after={
+            "lines": len(calculated_lines) or before["lines"] + 1,
+            "total": f"{new_total:.2f}",
+            "custom_qty": before["custom_qty"] + quantity,
+            "cancelled": False,
+            "closed": False,
+        },
+        entity_ref=str(order_id),
+        entity_label=label,
+        summary={
+            "customer": customer,
+            "line": line,
+            "title": stored_title,
+            "quantity": quantity,
+            "unit_price": f"{unit:.2f}",
+            "unit_price_display": _display(float(unit), currency),
+            "subtotal_delta": f"{subtotal_delta:.2f}",
+            "taxable": taxable,
+            "requires_shipping": requires_shipping,
+            # `amount` is what the spoken success line reads out (engine._spoken_amount).
+            "amount": f"{new_total:.2f}",
+            "amount_outstanding": f"{outstanding:.2f}" if outstanding is not None else "0.00",
+            "currency": currency,
             "read_back": read_back,
             "spoken_to": _display(new_total, currency),
             "ledger": {"quantity": quantity, "adds": f"{subtotal_delta:.2f}", "currency": currency[:24]},
