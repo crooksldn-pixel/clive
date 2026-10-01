@@ -583,6 +583,80 @@ def test_an_integration_someone_else_records_after_the_loops_was_interrupted_nev
     assert w.stage() == "COMPLETE" and not landed(w)
     assert trunk(w) == w.base and not [p for p in pushes if TRUNK in p[-1]]
     assert acceptance.accepted_sha not in landing_record(w).get("eligible", [])
+    assert landing_record(w)["state"] == "refused" and "the Director lands it" in landing_record(w)["reason"]
+
+
+@pytest.mark.parametrize("name", ["clive-dispatcher (root)", "clive-dispatcher (root) proof " + "0" * 64])
+def test_an_operator_integration_under_the_loops_own_name_after_an_interrupted_one_never_lands(tmp_path, pushes,
+                                                                                                 name):
+    """The 4daf49e1 re-pin review, F-01: the name is not the proof. An operator integrates through the kernel CLI
+    after the loop's integration was interrupted, typing the loop's own name, with or without a made-up proof."""
+    from app.orchestrator.lifecycle import IntegrationMethod
+
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    with pytest.raises(RuntimeError, match="before the integration"):
+        w.run_until(lambda: False, dispatcher=_integrate_crashes(w.dispatcher(), after=False))
+    del w.kernel.integrate
+    intent = landing_record(w)["integrating"]
+    assert set(intent) == {"sha", "revision", "proof_sha256", "at"}           # a digest only, never the proof
+    state = w.store.read_task_state(OBJ, 1)
+    [acceptance] = [a for a in w.store.read_acceptances(OBJ) if a.attempt_id == state.attempt_id]
+    w.kernel.integrate(OBJ, 1, integration_sha=acceptance.accepted_sha, target_base_sha=w.base,
+                       method=IntegrationMethod.FAST_FORWARD, integrated_by=name, remote="origin")
+    for _ in range(4):
+        w.dispatcher().tick()
+    record = landing_record(w)
+    assert w.stage() == "COMPLETE" and not landed(w)
+    assert trunk(w) == w.base and not [p for p in pushes if TRUNK in p[-1]]
+    assert record["state"] == "refused" and "no proof that this loop made that integration" in record["reason"]
+    assert acceptance.accepted_sha not in record.get("eligible", []) and not record.get("own")
+
+
+def test_a_sha_marked_eligible_before_proofs_existed_is_the_directors_and_never_pushed(tmp_path, pushes):
+    """The 4daf49e1 re-pin review, F-01, the legacy path: a loop before proofs marked the SHA eligible and then
+    recorded its integration by name alone. After the re-pin nothing proves whose integration that is, so it is
+    refused once, with the reason, and the Director lands it."""
+    from app.orchestrator.lifecycle import IntegrationMethod
+
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    with pytest.raises(RuntimeError, match="before the integration"):
+        w.run_until(lambda: False, dispatcher=_integrate_crashes(w.dispatcher(), after=False))
+    del w.kernel.integrate
+    state = w.store.read_task_state(OBJ, 1)
+    [acceptance] = [a for a in w.store.read_acceptances(OBJ) if a.attempt_id == state.attempt_id]
+    sha = acceptance.accepted_sha
+    path = w.config.runtime_root / "landings" / f"{OBJ}.json"
+    legacy = {k: v for k, v in landing_record(w).items() if k != "integrating"}
+    path.write_text(json.dumps({**legacy, "eligible": [sha]}))                # as the base wrote it: eligible first
+    w.kernel.integrate(OBJ, 1, integration_sha=sha, target_base_sha=w.base, method=IntegrationMethod.FAST_FORWARD,
+                       integrated_by="clive-dispatcher (root)", remote="origin")
+    lines = [line for _ in range(4) for line in w.dispatcher().tick()]
+    record = landing_record(w)
+    assert w.stage() == "COMPLETE" and not landed(w) and trunk(w) == w.base
+    assert not [p for p in pushes if TRUNK in p[-1]]
+    assert record["state"] == "refused" and record["sha"] == sha and "before proofs existed" in record["reason"]
+    assert len([line for line in lines if "landing of" in line and "refused" in line]) == 1   # once, not every tick
+
+
+def test_the_loops_own_landing_keeps_only_the_proofs_digest_and_the_kernel_record_carries_the_proof(tmp_path,
+                                                                                                    pushes):
+    import hashlib
+
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.run_until(lambda: landed(w))
+    [integration] = w.store.read_integrations()
+    name, _, proof = integration.integrated_by.partition(") proof ")
+    assert name.startswith("clive-dispatcher (") and len(proof) == 64 and len(integration.integrated_by) <= 200
+    sha = integration.integration_sha
+    record = landing_record(w)
+    assert record["own"] == {sha: hashlib.sha256(proof.encode()).hexdigest()}
+    assert proof not in (w.config.runtime_root / "landings" / f"{OBJ}.json").read_text()
 
 
 def test_the_loops_own_integration_recorded_just_before_a_restart_still_lands(tmp_path, pushes):
