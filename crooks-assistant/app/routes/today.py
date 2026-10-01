@@ -296,9 +296,13 @@ def _access_step(request: Request, person_id: str, action: str, body: dict[str, 
 
 
 def _login(request: Request) -> str:
+    from app.routes.connections import _Refused as ConnectionsRefused
     from app.routes.connections import _who as connections_who
 
-    return connections_who(request)
+    try:
+        return connections_who(request)
+    except ConnectionsRefused as exc:       # the server itself, or no owner: said in this route's shape
+        raise _Refused(exc.status, exc.code, exc.detail) from None
 
 
 @router.post("/today/access/{person_id}/approve")

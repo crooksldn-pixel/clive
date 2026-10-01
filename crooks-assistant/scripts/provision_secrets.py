@@ -181,7 +181,8 @@ def remove_one(key: str) -> int:
         # key back that the app had disconnected).
         vault.disconnect(key)
         encrypted_path(key).unlink()
-        print(f"  removed {key} (encrypted credential; absent at once, and gone from the service when it next restarts)")
+        print(f"  removed {key} (encrypted credential; absent at once. The service unit still names it until the next "
+              "`make install`, and it reads as disconnected until it is stored again)")
         plain = linux_store.store_dir() / key
         if plain.is_file():
             # A writable copy beside it (stored with --plain) goes too: removing a key removes it,

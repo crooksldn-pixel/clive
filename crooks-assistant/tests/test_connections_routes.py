@@ -429,3 +429,20 @@ async def test_an_approval_covers_the_values_it_was_given_for_and_no_others(worl
         refused = await world.post("/connections/elevenlabs", headers=HEADERS, json={
             "values_json": unreadable, "approval": await approval(world, f"save:elevenlabs:{digest}")})
         assert refused.status_code == 400 and refused.json()["code"] == "bad_request", unreadable
+
+
+async def test_the_approval_covers_the_exact_text_the_page_sent(world):
+    """The page sends JSON.stringify's compact text; the server hashes what it received, never a
+    re-serialisation, so a digest of the same values written another way is not this approval."""
+    await register(world)
+    compact = '{"elevenlabs_api_key":"' + KEY + '"}'
+    digest = hashlib.sha256(compact.encode("utf-8")).hexdigest()
+    spaced, spaced_digest = sealed({"elevenlabs_api_key": KEY})
+    assert spaced != compact and spaced_digest != digest
+    other = await world.post("/connections/elevenlabs", headers=HEADERS, json={
+        "values_json": compact, "approval": await approval(world, f"save:elevenlabs:{spaced_digest}")})
+    assert other.status_code == 403 and other.json()["code"] == "passkey_stale"
+    done = await world.post("/connections/elevenlabs", headers=HEADERS, json={
+        "values_json": compact, "approval": await approval(world, f"save:elevenlabs:{digest}")})
+    assert done.status_code == 200, done.text
+    assert linux_store.read("elevenlabs_api_key") == KEY

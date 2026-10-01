@@ -24,6 +24,7 @@ from app.tools import authority
 from app.tools.dispatch import dispatch
 from app.work import found as live
 from app.work.store import work
+from tests.fake_passkey import ORIGIN, RP_ID
 from tests.test_actions import ORDER, TOOL
 from tests.test_actions_routes import (  # noqa: F401 - `client` is a fixture
     OWNER,
@@ -214,6 +215,15 @@ async def test_an_approval_is_for_the_login_he_saw_and_never_his_own(team, world
     assert own.status_code == 409 and own.json()["code"] == "owner_login" and access.state("mia") == "pending"
     loginless = await world.post("/connections/approve", json={"action": "access:approve:mia"}, headers=HEADERS)
     assert loginless.status_code == 400                                       # an approval always names the login
+
+
+async def test_the_server_itself_is_refused_letting_someone_in_and_said_so(team):
+    """The server is the owner for his reads here (CROOKS_LOCAL_OWNER), but letting someone in needs his
+    passkey from his own device: refused in this route's own shape, never an unhandled error."""
+    for verb in ("approve", "suspend"):
+        refused = await team.post(f"/today/access/mia/{verb}", json={"login": MIA}, headers={"Origin": ORIGIN, "Host": RP_ID})
+        assert refused.status_code == 403 and refused.json()["code"] == "not_from_the_server", verb
+    assert access.state("mia") == "pending"
 
 
 async def test_the_owners_steps_are_refused_to_the_team(team):

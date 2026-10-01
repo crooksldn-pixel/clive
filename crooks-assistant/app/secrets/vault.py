@@ -163,15 +163,20 @@ def _prompt(key: str) -> Path:
 
 
 def _settle(key: str) -> None:
-    """Under _LOCK: step aside for a systemd credential the server prompt stored, once this process
-    started after it was stored (yield_at_restart). Before that, this tier's answer stands."""
+    """Under _LOCK: step aside for a systemd credential the server prompt stored (yield_at_restart),
+    and only in the one process that can know it has that credential: the service, started after the
+    prompt stored it, with the key among the credentials systemd loaded for it. Any other process (the
+    prompt's own status listing, the doctor, a check) has no credentials directory and never settles,
+    so it cannot lift the app tier's answer from under a service still running on the old credential;
+    and a restart whose unit does not load the key yet (no `make install` since) settles nothing
+    either. Until then this tier's answer stands."""
     mark = _prompt(key)
     try:
         written = mark.stat().st_mtime
     except OSError:
         return                          # no mark, or none this process may see: the answer stands
-    if written >= _STARTED:
-        return                          # this process still holds the credential from before it
+    if written >= _STARTED or not linux_store.provisioned_by_systemd(key):
+        return                          # not the restarted service, or it did not load the new credential
     try:
         _blob(key).unlink(missing_ok=True)
         _off(key).unlink(missing_ok=True)

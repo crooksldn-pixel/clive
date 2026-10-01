@@ -411,3 +411,50 @@ def test_removing_a_key_held_both_encrypted_and_as_a_writable_copy_removes_both(
     assert "encrypted credential" in said and "writable copy" in said and OLD not in said
     assert linux_store.read(key) is None
     assert (tiers["store"] / "youtube_api_key").read_text() == NEW          # no other key is touched
+
+
+def test_no_other_process_lifts_the_app_tier_from_under_a_running_service(tiers, monkeypatch):
+    """The second review (1 October): every process imports the vault, and one started after the prompt
+    (its own status listing, the doctor) must not settle the mark, or the service still running on
+    the old credential falls back to it. Only a process holding the key in its systemd credentials
+    directory, started after the mark, may."""
+    key = "elevenlabs_api_key"
+    (tiers["creds"] / key).write_text(OLD)                   # the running service's loaded credential
+    _fake_systemd_creds(monkeypatch, tiers["store"] / "cred-blobs", key)
+    vault.disconnect(key)
+    ps.encrypt(key, NEW)
+    started = vault._STARTED
+    monkeypatch.delenv(linux_store.CREDENTIALS_ENV)          # another process: no credentials directory
+    _restarted(monkeypatch)                                  # ...started after the prompt
+    assert linux_store.read(key) is None
+    assert sorted(p.name for p in tiers["app"].iterdir()) == [f"{key}.off", f"{key}.prompt"]
+    monkeypatch.setenv(linux_store.CREDENTIALS_ENV, str(tiers["creds"]))
+    monkeypatch.setattr(vault, "_STARTED", started)          # back in the service that has not restarted
+    assert linux_store.read(key) is None                     # never the old, leaked key
+
+
+def test_a_restart_that_does_not_load_the_new_credential_settles_nothing(tiers, monkeypatch):
+    """A first-time static key: the unit names it only after `make install`, so a plain restart loads
+    nothing for it. The app tier's answer (here, disconnected) stands rather than an older copy."""
+    key = "elevenlabs_api_key"
+    tiers["store"].mkdir(parents=True, exist_ok=True)
+    (tiers["store"] / key).write_text(OLD)                   # an old writable copy
+    _fake_systemd_creds(monkeypatch, tiers["store"] / "cred-blobs", key)
+    vault.disconnect(key)
+    ps.encrypt(key, NEW)
+    _restarted(monkeypatch)                                  # restarted, but the unit loads nothing for it
+    assert linux_store.read(key) is None
+    assert (tiers["app"] / f"{key}.prompt").exists()
+
+
+def test_disconnecting_in_the_app_after_the_prompt_withdraws_its_mark(tiers, monkeypatch):
+    key = "elevenlabs_api_key"
+    _fake_systemd_creds(monkeypatch, tiers["store"] / "cred-blobs", key)
+    vault.store(key, OLD)
+    ps.encrypt(key, NEW)
+    assert (tiers["app"] / f"{key}.prompt").exists()
+    vault.disconnect(key)                                    # the owner's later choice
+    assert not (tiers["app"] / f"{key}.prompt").exists()
+    (tiers["creds"] / key).write_text(NEW)
+    _restarted(monkeypatch)
+    assert linux_store.read(key) is None                     # still disconnected after the restart
