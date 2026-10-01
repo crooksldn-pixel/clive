@@ -84,7 +84,9 @@ async def test_the_returning_customers_question_draws_one_compact_surface_and_no
 
     patches = (body.get("workspace") or {}).get("patches") or []
     drawn = [p for p in patches if p.get("op") in (ADDED, DATA, VISUAL) and p.get("type") != "context_stack"]
-    assert drawn and {p["type"] for p in drawn} == {"summary_list"}, [(p.get("op"), p.get("type")) for p in patches]
+    # A list, not a set: two summary cards staged in one turn are two, and fail here (the
+    # round-12 deploy review, R9-I-tests5-I-02).
+    assert [p["type"] for p in drawn] == ["summary_list"], [(p.get("op"), p.get("type")) for p in patches]
     assert not [p for p in patches if p.get("type") in PROFILE_KINDS or str(p.get("type") or "").endswith("_workspace")], patches
     (summary,) = cards
     assert summary["data"]["count"] == 1 and len(summary["data"]["rows"]) == 1

@@ -30,6 +30,7 @@ from app.capabilities.families import CapabilityFamily
 from app.capabilities.families import register as register_family
 from app.summaries import (
     customer_words,
+    day_words,
     order_words,
 )
 from app.tools.context import current_session
@@ -154,6 +155,14 @@ async def commerce_summary(task: str, period: Any = None, limit: int = 12) -> di
         "reads": 1,
         "_ms": round((time.perf_counter() - started) * 1000 + view.served_ms, 1),
     })
+    if task == "orders_attention" and not period:
+        # Asked of no period, the attention question is answered over the lookback, which is
+        # a window too: an order placed before it that still needs something is not in this,
+        # and the answer and its card say so rather than speaking for every order (the
+        # round-12 deploy review, F/F-02). app/summaries.py `attention_rows` draws the words.
+        found["read_from"] = read_from.isoformat()
+        found["note"] = (f"Only orders placed since {day_words(found['read_from'])} were read; "
+                         f"an order placed before then is not in this. {found.get('note') or ''}").strip()
     if view.note:
         found["note"] = (str(found.get("note") or "") + " " + view.note).strip()
     # EVERY match as a set, so "next", "the third one" and a tap on a row are one cursor on

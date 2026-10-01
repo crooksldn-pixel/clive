@@ -488,7 +488,11 @@ class Anticipator:
         For a session ending, and for a test that wants a clean slate."""
         stopped = self.prefetcher.cancel_scope(scope)
         self.cancelled += stopped
-        self._last.pop(scope, None)
+        # Positions are kept per half, under "scope|branch_id" (`on_signal`), so every half's
+        # goes: popping the bare scope left them, and the next signal after a conversation
+        # ended learned a transition from before it (the round-12 deploy review, S5/S5-03).
+        for where in [key for key in self._last if key == scope or key.startswith(f"{scope}|")]:
+            del self._last[where]
         self._suggestions.pop(scope, None)
         return stopped
 

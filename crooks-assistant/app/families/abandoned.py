@@ -77,6 +77,7 @@ query CrooksAbandonedCheckouts($q: String!, $n: Int!, $after: String) {
         totalPriceSet { shopMoney { amount currencyCode } }
         customer { id displayName }
         lineItems(first: 20) {
+          pageInfo { hasNextPage }
           edges {
             node {
               title
@@ -184,6 +185,17 @@ def _lines(node: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+# How many line items of each checkout the query reads (`lineItems(first: 20)` above).
+LINES_READ = 20
+
+
+def _lines_cut(node: dict[str, Any]) -> bool:
+    """Whether Shopify holds more line items for this checkout than the query read. An item
+    past the twentieth is in no count, so a ranking over such a checkout is of the items read
+    (the round-12 deploy review, F/F-04)."""
+    return bool(((node.get("lineItems") or {}).get("pageInfo") or {}).get("hasNextPage"))
+
+
 def rank(checkouts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Which variants appear in the most abandoned checkouts.
 
@@ -256,6 +268,7 @@ async def shopify_abandoned_checkouts(days: int = DEFAULT_DAYS, limit: int = DEF
             "total": total,
             "customer_name": str((node.get("customer") or {}).get("displayName") or ""),
             "lines": _lines(node),
+            "lines_cut": _lines_cut(node),
         })
     value = round(sum(c["total"] for c in checkouts), 2)
     ranked = rank(checkouts)
@@ -264,6 +277,13 @@ async def shopify_abandoned_checkouts(days: int = DEFAULT_DAYS, limit: int = DEF
     partial = "" if complete else (
         f"Partial: {short}, so the count and the value are at least these — the checkouts "
         "read, not the whole window."
+    )
+    # A checkout with more line items than were read leaves its later items out of the ranking.
+    # The count and the value are the checkouts' own and stand; the ranking is of the items read.
+    cut = sum(1 for c in checkouts if c["lines_cut"])
+    items_partial = "" if not cut else (
+        f"Partial ranking: {cut} checkout{'s' if cut != 1 else ''} held more than {LINES_READ} items and "
+        f"only the first {LINES_READ} of each were read, so an item further down is not counted."
     )
     return {
         "days": days,
@@ -277,6 +297,8 @@ async def shopify_abandoned_checkouts(days: int = DEFAULT_DAYS, limit: int = DEF
         "pages": pages,
         "counted": "the whole window" if complete else "the checkouts read",
         "partial": partial,
+        "items_complete": not cut,
+        "items_partial": items_partial,
         "items": [
             {"item": r["label"], "variant": r["variant"], "checkouts": r["checkouts"], "units": r["units"],
              "value_display": display(round(r["value"], 2), currency), "variant_id": r["variant_id"]}
@@ -293,7 +315,7 @@ async def shopify_abandoned_checkouts(days: int = DEFAULT_DAYS, limit: int = DEF
             "baskets abandoned before checkout (Shopify's Admin API has no cart resource) and "
             "orders that were paid for and have not been fulfilled"
         ),
-        "note": f"{WHAT_IT_IS} {partial}".strip(),
+        "note": " ".join(filter(None, [WHAT_IT_IS, partial, items_partial])),
     }
 
 
@@ -350,13 +372,18 @@ def cards(body: dict[str, Any]) -> list[Surface]:
     if not items:
         return [figures]
     most = max(int(i.get("checkouts") or 0) for i in items) or 1
+    # The ranking is whole only when the window was, and every checkout's items were read.
+    items_partial = "" if body.get("items_complete") is not False else (
+        str(body.get("items_partial") or "") or "Partial ranking: some checkouts held more items than were read.")
+    ranked_whole = complete and not items_partial
+    ranked_caveat = " ".join(filter(None, [caveat, items_partial]))
     ranking = Surface(
         surface_type="analytics",
         ui_type="ranking",
         title="Left behind most often",
         data={
             "title": "Left behind most often",
-            "subtitle": f"by how many abandoned checkouts they appear in, {when}" + ("" if complete else ", of those read"),
+            "subtitle": f"by how many abandoned checkouts they appear in, {when}" + ("" if ranked_whole else ", of those read"),
             "rows": [
                 {
                     "rank": index + 1,
@@ -375,10 +402,10 @@ def cards(body: dict[str, Any]) -> list[Surface]:
                 {"value": f"{at_least}{body.get('value_display') or '—'}", "label": "not taken"},
             ],
             "note": "Ranked by how many checkouts each appears in, not by value: what is being asked is which items keep not being bought."
-                    + ("" if complete else f" {partial}"),
-            "complete": complete,
+                    + ("" if complete else f" {partial}") + (f" {items_partial}" if items_partial else ""),
+            "complete": ranked_whole,
         },
-        freshness=Freshness(source="shopify", complete=complete, caveat=caveat),
+        freshness=Freshness(source="shopify", complete=ranked_whole, caveat=ranked_caveat),
     )
     return [figures, ranking]
 
