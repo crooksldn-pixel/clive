@@ -137,6 +137,14 @@ After the integration onto the objective's branch, at most one landing per tick,
 
 The loop lands only SHAs it integrated while landing was on (marked before the kernel records the integration): work completed before the re-pin, or with `--no-land`, stays the Director's to land. Records: `<runtime>/landings/<objective>.json` (state, SHA, reason, the SHAs eligible, the push intent) and `<runtime>/evidence/<attempt>/landing.json` (trunk before and after, the push argv, the gate's answer, the review). The push intent is written before the push, so a restart between the push and its record records the landing without pushing again; if the trunk has moved away from an interrupted push, the loop never pushes that SHA, or any other for it, again.
 
+**Already on the trunk.** Sometimes the trunk already holds the SHA when the loop comes to land it. That happens when the loop's own push was interrupted by a restart, or when someone else put it there. Either way the loop pushes nothing, and it records a landing only on a green GitHub answer about that SHA, asked at that moment:
+- red refuses it for the Director;
+- pending waits, within the same bound as any other landing.
+
+The record says who put it there (`by`):
+- `loop` for the loop's own push, recognised by the intent it wrote before pushing;
+- `other` for anyone else. The loop never counts that as its own landing (the 2c8d2caf re-pin review, F-01).
+
 **If the trunk has moved** (the SHA does not contain its head), the loop routes a refresh: revision r+1 of `kind: integration`, based on the trunk head, run by the integrator in a fresh workspace made by the loop, merging the objective's integrated SHA; the dispatcher records the merged tree as a merge commit whose parents are the objective's SHA and the trunk head, runs the generators on it, checks it and pushes it to the objective's branch. That merge SHA needs its own green acceptance and its own READY review, through the normal path, before it can land. A conflict blocks it: `merging the trunk into <branch> conflicts in <paths>; the Director resolves it`. Refreshes are bounded (`DispatcherConfig.max_landing_refreshes`, default 3); after that the landing is refused for the Director.
 
 **At the re-pin.** A build revision gains the generated outputs in its scope only before its first attempt. A build that already had an attempt when this update took effect, or a repair the older loop routed, does not gain them, so whenever regeneration changes a generated file its candidate is refused as outside its scope. Re-file such a build once; nothing unsafe follows from it.

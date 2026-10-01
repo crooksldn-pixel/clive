@@ -405,6 +405,84 @@ def test_a_restart_after_the_intent_but_before_the_push_pushes_that_sha_once(tmp
     assert trunk(w) == sha and [p[-1] for p in pushes if TRUNK in p[-1]] == [f"{sha}:refs/heads/{TRUNK}"]
 
 
+def _someone_else_puts_it_on_the_trunk(w: World):
+    """Before the loop's landing step: another actor pushes the integrated SHA onto the trunk (not the loop)."""
+    return lambda sha: _git(w.repo, "push", "-q", "origin", f"{sha}:refs/heads/{TRUNK}")
+
+
+def test_a_sha_someone_else_put_on_the_trunk_is_never_recorded_as_landed_while_github_is_red(tmp_path, pushes):
+    """The 2c8d2caf re-pin review, F-01: a SHA already on the trunk is recorded as landed only on a green answer
+    asked at landing, and a trunk another actor advanced is never the loop's landing."""
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    put = _someone_else_puts_it_on_the_trunk(w)
+
+    def red_and_put(sha):
+        w.acceptance.state = GateState.RED
+        put(sha)
+
+    d = before_landing(w.dispatcher(), red_and_put)
+    w.run_until(lambda: landing_record(w).get("state") == "refused", dispatcher=d)
+    sha = w.store.read_results()[0].result_sha
+    reason = landing_record(w)["reason"]
+    assert trunk(w) == sha and not [p for p in pushes if TRUNK in p[-1]]
+    assert f"{sha} is on {TRUNK} already (someone other than the loop put it there)" in reason
+    assert "GitHub acceptance is red on it, asked at landing" in reason and "the loop records no landing" in reason
+    assert not list((w.config.runtime_root / "evidence").glob("*/landing.json"))
+
+
+@pytest.mark.parametrize("first", [GateState.GREEN, GateState.PENDING])
+def test_a_sha_someone_else_put_on_the_trunk_is_recorded_on_a_fresh_green_answer_as_not_the_loops(
+        tmp_path, pushes, first):
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    put = _someone_else_puts_it_on_the_trunk(w)
+
+    def then(sha):
+        w.acceptance.state = first
+        put(sha)
+
+    d = before_landing(w.dispatcher(), then)
+    if first is GateState.PENDING:
+        w.run_until(lambda: landing_record(w).get("state") == "waiting", dispatcher=d)
+        assert "already (someone other than the loop put it there) and waits for a green" in landing_record(w)["reason"]
+        assert not landed(w)
+        w.acceptance.state = GateState.GREEN
+    w.run_until(lambda: landed(w), dispatcher=d)
+    sha = w.store.read_results()[0].result_sha
+    record = landing_record(w)
+    assert record["by"] == "other" and "put there by someone other than the loop; the loop pushed nothing" in record["reason"]
+    assert trunk(w) == sha and not [p for p in pushes if TRUNK in p[-1]]
+    [evidence] = list((w.config.runtime_root / "evidence").glob("*/landing.json"))
+    answer = json.loads(evidence.read_text())
+    assert answer["by"] == "other" and answer["github_acceptance"]["green"] is True and answer["push_argv"] is None
+
+
+def test_the_loops_interrupted_push_is_recorded_only_on_a_fresh_green_answer(tmp_path, pushes):
+    """A restart after the loop's push and before its record: the push stands (git cannot take it back), but the
+    landing is recorded only once GitHub is green on it, asked again; red refuses it for the Director."""
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    d = w.dispatcher()
+
+    def crash(*args, **kwargs):
+        raise RuntimeError("the host lost power after the push")
+
+    d._record_landed = crash
+    with pytest.raises(RuntimeError, match="lost power"):
+        w.run_until(lambda: False, dispatcher=d)
+    sha = w.store.read_results()[0].result_sha
+    assert trunk(w) == sha and landing_record(w)["pushing"]["sha"] == sha
+    w.acceptance.state = GateState.RED
+    w.run_until(lambda: landing_record(w).get("state") == "refused")
+    reason = landing_record(w)["reason"]
+    assert f"{sha} is on {TRUNK} already (the loop pushed it before a restart)" in reason and "red on it" in reason
+    assert len([p for p in pushes if TRUNK in p[-1]]) == 1 and not landed(w)
+
+
 def test_a_trunk_moved_away_from_an_interrupted_push_is_never_pushed_to_again(tmp_path, pushes):
     w = landing_world(tmp_path)
     w.scenarios(EDIT_HELLO)

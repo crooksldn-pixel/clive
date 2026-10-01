@@ -1466,8 +1466,26 @@ class Dispatcher:
         record = self._landing_record(obj.objective_id)
         pushing = record.get("pushing") if (record.get("pushing") or {}).get("sha") == sha else None
         if trunk == sha or self.kernel.git.is_ancestor(sha, trunk):
+            # Already on the trunk: the loop pushes nothing, and records a landing only on a green answer asked now
+            # (the 2c8d2caf re-pin review, F-01). Its own interrupted push (the intent it wrote before pushing) is
+            # told apart from someone else putting the SHA there, which is never recorded as the loop's.
+            who = ("the loop pushed it before a restart" if pushing is not None
+                   else "someone other than the loop put it there")
+            if self.acceptance is None:
+                return self._landing_refused(obj, task, sha, f"{sha} is on {TRUNK_BRANCH} already ({who}), but no "
+                                                             "GitHub acceptance gate is configured in this dispatcher "
+                                                             "to say it is green; the loop records no landing"), False
+            gate = self._acceptance(task, attempt, sha, fresh=True)
+            if gate.state is GateState.RED:
+                return self._landing_refused(obj, task, sha, f"{sha} is on {TRUNK_BRANCH} already ({who}), but GitHub "
+                                                             f"acceptance is red on it, asked at landing ({gate.detail}); "
+                                                             "the loop records no landing: the Director decides"), False
+            if not gate.green:
+                return self._landing_waits(obj, task, sha, f"is on {TRUNK_BRANCH} already ({who}) and waits for a "
+                                                           f"green GitHub acceptance run on it ({gate.state.value}: "
+                                                           f"{gate.detail})"), False
             return self._record_landed(obj, task, attempt, sha, trunk, pushed=False,
-                                       resumed=pushing is not None), False
+                                       resumed=pushing is not None, gate=gate), False
         if pushing is not None and pushing.get("trunk_before") != trunk:
             return self._landing_refused(
                 obj, task, sha, f"the loop began pushing {sha} onto {TRUNK_BRANCH} at {pushing.get('trunk_before')} "
@@ -1581,14 +1599,15 @@ class Dispatcher:
         record = self._landing_record(obj.objective_id)
         how = ("fast-forwarded by the loop with a plain push" if pushed else
                "pushed by the loop before a restart; recorded now and not pushed again" if resumed else
-               "already on the trunk; nothing pushed")
+               "already on the trunk, put there by someone other than the loop; the loop pushed nothing")
+        by = "loop" if pushed or resumed else "other"
         now = self.now()
         acceptance = next((a for a in reversed(self.store.read_acceptances(task.task_id))
                            if a.attempt_id == attempt.attempt_id), None)
         evidence = {
             "schema": LANDING_SCHEMA, "objective_id": obj.objective_id, "task_id": task.task_id,
             "revision": task.revision, "attempt_id": attempt.attempt_id, "sha": sha, "branch": TRUNK_BRANCH,
-            "remote": self.config.publish_remote, "how": how,
+            "remote": self.config.publish_remote, "how": how, "by": by,
             "trunk_before": trunk if pushed else (record.get("pushing") or {}).get("trunk_before"),
             "trunk_after": sha if pushed else trunk,
             "push_argv": landing_push_argv(self.config.publish_remote, sha) if pushed and self.config.publish_remote
@@ -1601,7 +1620,10 @@ class Dispatcher:
         path = self._paths(attempt)["evidence"] / LANDING_FILE
         _atomic_write(path, _canonical(evidence))
         self._set_landing(obj, task, state="landed", sha=sha, reason=f"{sha} is on {TRUNK_BRANCH}: {how}", pushing=None,
-                          evidence=str(path), landed_at=now.isoformat())
+                          evidence=str(path), landed_at=now.isoformat(), by=by)
+        if by == "other":
+            return self._note(obj.objective_id, f"{sha} is on {TRUNK_BRANCH}, not landed by the loop ({how}); "
+                                                "not deployed")
         return self._note(obj.objective_id, f"LANDED {sha} on {TRUNK_BRANCH} ({how}); not deployed")
 
     def _landing_refused(self, obj: Objective, task: EngineeringTask, sha: str, reason: str) -> str:
