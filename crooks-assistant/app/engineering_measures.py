@@ -25,16 +25,26 @@ Nothing is guessed. An input that was not supplied leaves its columns empty (``N
 every row; an input that was supplied but holds no fact about a row leaves that row's cell
 empty. Owner minutes that cannot be tied to exactly one objective are reported as
 unattributed, never split. Days are UTC calendar days.
+
+A second source is the loop's own records (``read_loop_records`` then ``measure_loop``):
+the kernel's store (objectives, task revisions, attempts, verdict admissions, candidates,
+acceptances, integrations, and each objective's stage as ``lifecycle_view`` reports it) and
+the dispatcher's ``<runtime>/landings/<objective>.json`` records. They are read with the
+store's read methods only: no lock, no layout, no write. Only fixed words, ids, SHAs,
+counts, times and the objective's title reach that report; no finding, reason or note text.
+Deploys and owner attention are recorded nowhere in them, so those measures stay empty.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import statistics
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 SCHEMA = "clive.engineering_measures.v1"
 COMPLETE = "COMPLETE"
@@ -567,4 +577,311 @@ def render_markdown(report: Mapping) -> str:
             f"- {entry['at']}: {entry['minutes']:g} min about {entry['about']!r} ({entry['reason']})"
             for entry in report["unattributed_attention"]
         ]
+    return "\n".join(lines) + "\n"
+
+
+# ------------------------------------------------------------------ the loop's own records
+
+
+LOOP_SCHEMA = "clive.engineering_loop_measures.v1"
+LANDING_SCHEMA = "clive.landing.v1"
+NOT_RECORDED = "not recorded anywhere; left empty, never estimated"
+_LANDING_STATES = frozenset({"waiting", "refreshing", "landed", "refused"})
+_LANDED_BY = frozenset({"loop", "unconfirmed", "other"})
+_EXACT_SHA = re.compile(r"^[0-9a-f]{40}$")
+_BLOCKED_STAGES = frozenset({"BLOCKED", "OWNER_GATE"})
+
+
+def _earliest(values: Iterable[datetime | None]) -> datetime | None:
+    present = [value for value in values if value is not None]
+    return min(present) if present else None
+
+
+def _landing(path: Path, objective_id: str) -> dict | None:
+    """The objective's ``clive.landing.v1`` record as fixed words, a SHA and a time; ``None`` when it is not one.
+
+    Its reason, evidence path and review details are never read into the report."""
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return None
+    if (
+        not isinstance(record, dict)
+        or record.get("schema") != LANDING_SCHEMA
+        or record.get("objective_id") != objective_id
+    ):
+        return None
+    state = record.get("state") if record.get("state") in _LANDING_STATES else "unrecognised"
+    landed = state == "landed"
+    sha = record.get("sha")
+    sha = sha.lower() if isinstance(sha, str) and _EXACT_SHA.match(sha.lower()) else None
+    return {
+        "state": state,
+        "sha": sha if landed else None,
+        "by": record.get("by") if landed and record.get("by") in _LANDED_BY else None,
+        "landed_at": (
+            parse_time(record.get("landed_at"), what=f"landing record of {objective_id}") if landed else None
+        ),
+    }
+
+
+def read_loop_records(store_root: Path, runtime_root: Path, *, now: datetime | None = None) -> dict:
+    """The facts ``measure_loop`` takes, from the kernel's store and the dispatcher's landing records.
+
+    Read-only: the store's read methods and ``lifecycle_view``, never a verb, ``ensure_layout``
+    or the writer lock, and nothing is created under either root. A store that is missing or
+    cannot be read is a ``MeasuresError``; a readable store with no objectives has none. An
+    objective's tasks are the revisions of the task with its id. A landing file that is not a
+    ``clive.landing.v1`` record of that objective is ignored and counted.
+    """
+    from app.orchestrator.contracts import TaskKind
+    from app.orchestrator.lifecycle import LifecycleStore, VerdictOutcome, lifecycle_view
+    from app.orchestrator.objectives import ObjectiveStore
+
+    root = Path(store_root)
+    if not root.is_dir():
+        raise MeasuresError(f"engineering store {root} does not exist or is not a directory")
+    store = LifecycleStore(root)
+    try:
+        os.listdir(root)
+        objectives = ObjectiveStore(store, journal=False).read_all()
+        view = lifecycle_view(store, now=now or datetime.now(UTC))
+        tasks = store.read_tasks()
+        attempts = store.read_attempts()
+        admissions = {
+            (attempt.task_id, attempt.attempt_id): store.read_admissions(attempt.task_id, attempt.attempt_id)
+            for attempt in attempts
+        }
+        results = store.read_results()
+        acceptances = store.read_acceptances()
+        integrations = store.read_integrations()
+    except (OSError, ValueError) as exc:
+        raise MeasuresError(f"engineering store {root} cannot be read: {exc}") from exc
+
+    landings_dir = Path(runtime_root) / "landings"
+    landings_read = landings_dir.is_dir()
+    ignored = 0
+    facts = []
+    for objective in objectives:
+        objective_id = objective.objective_id
+        revisions = [task for task in tasks if task.task_id == objective_id]
+        its_attempts = [attempt for attempt in attempts if attempt.task_id == objective_id]
+        latest = max(
+            (task for task in view["tasks"] if task["task_id"] == objective_id),
+            key=lambda task: task["revision"],
+            default=None,
+        )
+        stage = latest["stage"] if latest else None
+        landing = None
+        path = landings_dir / f"{objective_id}.json"
+        try:
+            if landings_read and path.is_file():
+                landing = _landing(path, objective_id)
+                ignored += landing is None
+        except OSError as exc:
+            raise MeasuresError(f"landing record {path} cannot be read: {exc}") from exc
+        facts.append(
+            {
+                "objective_id": objective_id,
+                "title": objective.title,
+                "recorded_at": objective.created_at,
+                "revisions": len(revisions),
+                "repairs_created": sorted(task.created_at for task in revisions if task.kind is TaskKind.REPAIR),
+                "refreshes": sum(1 for task in revisions if task.kind is TaskKind.INTEGRATION),
+                "attempts": len(its_attempts),
+                "review_rounds": sum(
+                    1
+                    for attempt in its_attempts
+                    for admission in admissions[(attempt.task_id, attempt.attempt_id)]
+                    if admission.outcome is not VerdictOutcome.REFUSED
+                ),
+                "stage": stage,
+                "blocker_class": latest["blocker_class"] if stage in _BLOCKED_STAGES else None,
+                "first_candidate_at": _earliest(
+                    result.completed_at for result in results if result.task_id == objective_id and result.result_sha
+                ),
+                "accepted_at": _earliest(a.accepted_at for a in acceptances if a.task_id == objective_id),
+                "integrated_at": _earliest(i.integrated_at for i in integrations if i.task_id == objective_id),
+                "landing": landing,
+            }
+        )
+    return {
+        "store": str(root),
+        "runtime_root": str(runtime_root),
+        "landings_read": landings_read,
+        "landings_source": str(landings_dir) if landings_read else f"not read: {landings_dir} does not exist",
+        "landing_records_ignored": ignored,
+        "objectives": facts,
+    }
+
+
+def _loop_row(fact: Mapping) -> dict:
+    """One objective. Accepted and integrated are its first acceptance and integration, of any revision."""
+    landing = fact["landing"] or {}
+    recorded = fact["recorded_at"]
+    return {
+        "objective_id": fact["objective_id"],
+        "title": fact["title"],
+        "day": _day(recorded),
+        "recorded_at": _iso(recorded),
+        "revisions": fact["revisions"],
+        "repairs": len(fact["repairs_created"]),
+        "refreshes": fact["refreshes"],
+        "attempts": fact["attempts"],
+        "review_rounds": fact["review_rounds"],
+        "stage": fact["stage"],
+        "blocker_class": fact["blocker_class"],
+        "first_candidate_at": _iso(fact["first_candidate_at"]),
+        "accepted_at": _iso(fact["accepted_at"]),
+        "integrated_at": _iso(fact["integrated_at"]),
+        "landing_state": landing.get("state"),
+        "landed_sha": landing.get("sha"),
+        "landed_by": landing.get("by"),
+        "landed_at": _iso(landing.get("landed_at")),
+        "hours_to_first_candidate": _hours(recorded, fact["first_candidate_at"]),
+        "hours_to_integrate": _hours(recorded, fact["integrated_at"]),
+        "hours_to_land": _hours(recorded, landing.get("landed_at")),
+        "deployed_at": None,
+        "hours_to_production": None,
+        "owner_minutes": None,
+    }
+
+
+def _trunk_kind(commit: TrunkCommit, loop_shas: set[str]) -> str:
+    if commit.sha in loop_shas:
+        return "loop"
+    return "pull_request" if pull_request_of(commit.subject) else "other"
+
+
+def _loop_aggregate(events: Mapping, day: str | None, *, landings_read: bool, have_trunk: bool) -> dict:
+    """One day's figures, or the totals when ``day`` is ``None``.
+
+    Without the landings, loop landings are unknown, and so is which trunk commits were the
+    loop's: those counts are ``None`` and every trunk commit not merging a pull request is
+    left uncounted rather than called other."""
+
+    def on(event_day: str) -> bool:
+        return day is None or event_day == day
+
+    trunk = [kind for event_day, kind in events["trunk"] if on(event_day)]
+    return {
+        "objectives_recorded": sum(1 for event_day in events["recorded"] if on(event_day)),
+        "first_candidates": sum(1 for event_day in events["first_candidate"] if on(event_day)),
+        "repair_revisions": sum(1 for event_day in events["repair"] if on(event_day)),
+        "loop_landings": sum(1 for event_day in events["loop_landing"] if on(event_day)) if landings_read else None,
+        "median_hours_to_land": _median(hours for event_day, hours in events["land_hours"] if on(event_day)),
+        "trunk_commits": len(trunk) if have_trunk else None,
+        "trunk_loop_landings": trunk.count("loop") if have_trunk and landings_read else None,
+        "trunk_pull_request_merges": trunk.count("pull_request") if have_trunk else None,
+        "trunk_other": trunk.count("other") if have_trunk and landings_read else None,
+        "deploys": None,
+        "owner_minutes": None,
+    }
+
+
+def measure_loop(records: Mapping, *, trunk: Sequence[TrunkCommit] | None = None) -> dict:
+    """The loop's measures per objective, per UTC day and in total, from ``read_loop_records``.
+
+    ``trunk`` is the trunk's ``git log --first-parent`` history; a commit is a loop landing
+    when a landing record by ``loop`` names its SHA. Without it the trunk counts are ``None``,
+    not 0. Hours are from the objective's ``recorded_at``. A day's median hours to land is
+    over the objectives that landed that day. Deploys and owner attention are not recorded.
+    """
+    landings_read = bool(records["landings_read"])
+    facts = sorted(records["objectives"], key=lambda fact: (fact["recorded_at"], fact["objective_id"]))
+    rows = [_loop_row(fact) for fact in facts]
+    landed = [(fact["landing"]["landed_at"], row) for fact, row in zip(facts, rows, strict=True) if row["landed_at"]]
+    loop_shas = {row["landed_sha"] for _, row in landed if row["landed_by"] == "loop" and row["landed_sha"]}
+    events = {
+        "recorded": [row["day"] for row in rows],
+        "first_candidate": [_day(fact["first_candidate_at"]) for fact in facts if fact["first_candidate_at"]],
+        "repair": [_day(at) for fact in facts for at in fact["repairs_created"]],
+        "loop_landing": [_day(at) for at, row in landed if row["landed_by"] == "loop"],
+        "land_hours": [(_day(at), row["hours_to_land"]) for at, row in landed],
+        "trunk": [(_day(commit.committed_at), _trunk_kind(commit, loop_shas)) for commit in trunk or ()],
+    }
+    days = sorted(
+        set(events["recorded"])
+        | set(events["first_candidate"])
+        | set(events["repair"])
+        | {event_day for event_day, _ in events["land_hours"]}
+        | {event_day for event_day, _ in events["trunk"]}
+    )
+    flags = {"landings_read": landings_read, "have_trunk": trunk is not None}
+    return {
+        "schema": LOOP_SCHEMA,
+        "inputs": {
+            "store": records["store"],
+            "runtime_root": records["runtime_root"],
+            "landings": records["landings_source"],
+            "landings_read": landings_read,
+            "landing_records_ignored": records["landing_records_ignored"],
+            "trunk_history": trunk is not None,
+            "deploys": NOT_RECORDED,
+            "owner_attention": NOT_RECORDED,
+        },
+        "objectives": rows,
+        "days": [{"day": day, **_loop_aggregate(events, day, **flags)} for day in days],
+        "totals": _loop_aggregate(events, None, **flags),
+    }
+
+
+_LOOP_OBJECTIVE_COLUMNS = (
+    ("Objective", "objective_id"),
+    ("Title", "title"),
+    ("Recorded", "recorded_at"),
+    ("Revisions", "revisions"),
+    ("Repairs", "repairs"),
+    ("Refreshes", "refreshes"),
+    ("Attempts", "attempts"),
+    ("Review rounds", "review_rounds"),
+    ("Stage", "stage"),
+    ("Blocker", "blocker_class"),
+    ("Landing", "landing_state"),
+    ("Landed SHA", "landed_sha"),
+    ("Landed by", "landed_by"),
+    ("H to first candidate", "hours_to_first_candidate"),
+    ("H to integrate", "hours_to_integrate"),
+    ("H to land", "hours_to_land"),
+)
+
+_LOOP_AGGREGATE_COLUMNS = (
+    ("Recorded", "objectives_recorded"),
+    ("First candidates", "first_candidates"),
+    ("Repair revisions", "repair_revisions"),
+    ("Loop landings", "loop_landings"),
+    ("Median h to land", "median_hours_to_land"),
+    ("Trunk commits", "trunk_commits"),
+    ("Trunk: loop", "trunk_loop_landings"),
+    ("Trunk: PR merges", "trunk_pull_request_merges"),
+    ("Trunk: other", "trunk_other"),
+    ("Deploys", "deploys"),
+    ("Owner min", "owner_minutes"),
+)
+
+
+def render_loop_markdown(report: Mapping) -> str:
+    inputs = report["inputs"]
+    landings = "read" if inputs["landings_read"] else "not read (no landings directory)"
+    lines = [
+        "# Engineering measures from the loop's records",
+        "",
+        f"Objectives: {len(report['objectives'])}; landings: {landings}; "
+        f"trunk history: {'yes' if inputs['trunk_history'] else 'not read'}.",
+        "Deploys and owner attention are not recorded anywhere; their columns are empty, never estimated.",
+        "Hours are from when the objective was recorded. Days are UTC. An empty cell means no record "
+        "holds that fact; nothing is estimated.",
+        "",
+        "## Per objective",
+        "",
+        *_table(_LOOP_OBJECTIVE_COLUMNS, report["objectives"]),
+        "",
+        "## Per day",
+        "",
+        *_table((("Day", "day"), *_LOOP_AGGREGATE_COLUMNS), report["days"]),
+        "",
+        "## Totals",
+        "",
+        *_table(_LOOP_AGGREGATE_COLUMNS, [report["totals"]]),
+    ]
     return "\n".join(lines) + "\n"
