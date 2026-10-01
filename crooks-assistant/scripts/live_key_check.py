@@ -67,19 +67,15 @@ FIRST_WORD_S = 5.0
 # A handshake refused with one of these is the key refused; any other status is the service
 # failing (a 429, a 5xx), which says nothing about the key.
 REFUSAL_STATUSES = frozenset({401, 403})
-# A first word that is the service failing rather than refusing the key: the error message types
-# web/live-voice.js reads as a quota, a throttle, a busy service or a transcriber's failure, and the
-# realtime service's other names for a limit or a full queue, with and without the "_error" ending.
-# Each says the service would not serve now, not that the key was refused, so none can pass the
-# single-use or expiry check (round 12, SC2-02).
-SERVICE_FAILURES = frozenset({
-    "quota_exceeded_error", "quota_exceeded",
-    "throttled_error", "throttled",
-    "rate_limited_error", "rate_limited",
-    "commit_throttled_error", "commit_throttled",
-    "resource_exhausted_error", "resource_exhausted",
-    "queue_overflow_error", "queue_overflow",
-    "transcriber_error",
+# A first word that is the key refused: the error message types web/live-voice.js reads as 'auth'.
+# Every other error (a bare "error", a quota, a throttle, a busy or failing service, or a type not
+# known here) says the service did not serve this time, not that it refused the key, so it is
+# NOT_ASKED and can pass neither the single-use nor the expiry check (round 12, SC2-02).
+KEY_REFUSALS = frozenset({"auth_error", "authentication_error"})
+# The realtime service's names for a limit or a full queue that lack the "_error" ending: errors
+# all the same, so a first word with one of them never reads as the key taken.
+UNSUFFIXED_ERRORS = frozenset({
+    "quota_exceeded", "throttled", "rate_limited", "commit_throttled", "resource_exhausted", "queue_overflow",
 })
 
 
@@ -94,10 +90,11 @@ def socket_address(base_url: str, token: str) -> str:
 def open_once(address: str, *, timeout_s: float = 10.0) -> str:
     """OPENED when the socket's handshake succeeds and its first word is not an error; REFUSED only
     when the service refuses the key in so many words: the handshake refused for authorisation
-    (REFUSAL_STATUSES), or a first word that is an error (message_type "error" or "…_error", or an
-    `error`) other than a service failure. Anything else is NOT_ASKED: no connection, a timeout, a
-    handshake refused for another reason, a socket that closed without a word, or a first word that
-    is the service failing. The socket is closed at once either way; nothing is sent on it."""
+    (REFUSAL_STATUSES), or a first word whose message_type is a key refusal (KEY_REFUSALS).
+    Anything else is NOT_ASKED: no connection, a timeout (at the handshake or waiting for the first
+    word, since a socket that says nothing has not said it took the key), a handshake refused for
+    another reason, a socket that closed without a word, or a first word that is any other error.
+    The socket is closed at once either way; nothing is sent on it."""
     from websockets.exceptions import InvalidStatus, WebSocketException
     from websockets.sync.client import connect
 
@@ -106,15 +103,17 @@ def open_once(address: str, *, timeout_s: float = 10.0) -> str:
             try:
                 first = socket.recv(timeout=FIRST_WORD_S)
             except TimeoutError:
-                return OPENED            # open, and quiet: it took the key
+                return NOT_ASKED
             try:
                 said = json.loads(first)
             except (TypeError, ValueError):
                 return OPENED
             kind = str(said.get("message_type") or "") if isinstance(said, dict) else ""
-            if kind in SERVICE_FAILURES:
-                return NOT_ASKED
-            return REFUSED if kind == "error" or kind.endswith("_error") or (isinstance(said, dict) and said.get("error")) else OPENED
+            if kind in KEY_REFUSALS:
+                return REFUSED
+            errored = (kind == "error" or kind.endswith("_error") or kind in UNSUFFIXED_ERRORS
+                       or (isinstance(said, dict) and said.get("error")))
+            return NOT_ASKED if errored else OPENED
     except InvalidStatus as exc:
         status = getattr(getattr(exc, "response", None), "status_code", None)
         return REFUSED if status in REFUSAL_STATUSES else NOT_ASKED

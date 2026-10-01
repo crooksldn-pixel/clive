@@ -139,7 +139,7 @@ def _explicit_refusals() -> list[tuple[str, Any]]:
         ("a handshake refused 401", ("handshake", _status(401))),
         ("a handshake refused 403", ("handshake", _status(403))),
         ("an auth error as the first word", AUTH_ERROR),
-        ("an error as the first word", json.dumps({"message_type": "error", "error": "no"})),
+        ("an authentication error as the first word", json.dumps({"message_type": "authentication_error", "error": "no"})),
     ]
 
 
@@ -151,12 +151,19 @@ def _faults() -> list[tuple[str, Any]]:
         ("a service failing at the handshake (503)", ("handshake", _status(503))),
         ("a service throttling at the handshake (429)", ("handshake", _status(429))),
         ("a socket that closed without a word", _closed()),
+        ("a socket open and quiet past the wait for its first word", TimeoutError("no word yet")),
+        ("a bare error as the first word", json.dumps({"message_type": "error", "error": "no"})),
+        ("an error with no type as the first word", json.dumps({"error": "no"})),
+        ("an unlisted server error", json.dumps({"message_type": "internal_server_error", "error": "boom"})),
+        ("an unlisted service error", json.dumps({"message_type": "service_unavailable_error", "error": "down"})),
+        ("an unlisted error with no text", json.dumps({"message_type": "upstream_timeout_error"})),
         ("a quota exceeded", json.dumps({"message_type": "quota_exceeded_error", "error": "quota"})),
         ("a busy transcriber", json.dumps({"message_type": "resource_exhausted_error", "error": "busy"})),
         ("a rate limit", json.dumps({"message_type": "rate_limited_error", "error": "slow down"})),
         ("a commit throttled", json.dumps({"message_type": "commit_throttled_error", "error": "slow down"})),
         ("a full queue", json.dumps({"message_type": "queue_overflow_error", "error": "full"})),
         ("a rate limit without the ending", json.dumps({"message_type": "rate_limited", "error": "slow down"})),
+        ("a rate limit without the ending or a text", json.dumps({"message_type": "rate_limited"})),
     ]
 
 
@@ -184,10 +191,39 @@ def test_open_once_tells_a_refusal_of_the_key_from_a_fault_on_the_way(monkeypatc
     for what, answer in _faults():
         _transport(monkeypatch, answer)
         assert module.open_once(ADDRESS, timeout_s=1) == module.NOT_ASKED, what
-    for what, answer in (("a first word that is not an error", SESSION_STARTED),
-                         ("a socket open and quiet", TimeoutError("no word yet"))):
-        _transport(monkeypatch, answer)
-        assert module.open_once(ADDRESS, timeout_s=1) == module.OPENED, what
+    _transport(monkeypatch, SESSION_STARTED)
+    assert module.open_once(ADDRESS, timeout_s=1) == module.OPENED, "a first word that is not an error"
+
+
+@pytest.mark.parametrize("kind", ["internal_server_error", "service_unavailable_error", "error"])
+def test_an_error_that_is_not_a_refusal_of_the_key_passes_neither_single_use_nor_expiry(kind, monkeypatch):
+    """Only an error that names the key refused (auth_error, authentication_error) is a refusal:
+    a server or service error not listed anywhere, or a bare "error", is NOT ASKED."""
+    pytest.importorskip("websockets.sync.client")
+    module = _key_check()
+    failing = json.dumps({"message_type": kind, "error": "the service is failing"})
+    code, said, _asked = _ask(module, monkeypatch, SESSION_STARTED, failing)
+    assert code == 2 and said[-1].startswith("NOT ASKED"), said
+    assert not any(line.startswith("ok") and "single-use" in line for line in said), said
+    code, said, _asked = _ask(module, monkeypatch, SESSION_STARTED, AUTH_ERROR, failing, expiry=True)
+    assert code == 2 and said[-1].startswith("NOT ASKED"), said
+    assert not any("opened nothing" in line for line in said), said
+
+
+def test_a_socket_quiet_past_the_wait_for_its_first_word_is_not_asked_in_every_check(monkeypatch):
+    """A receive timeout says nothing about the key: not that the first open took it, not that a
+    second open or the held key's open did (a FAIL), and not that they were refused (a pass)."""
+    pytest.importorskip("websockets.sync.client")
+    module = _key_check()
+    quiet = TimeoutError("no word yet")
+    code, said, asked = _ask(module, monkeypatch, quiet)
+    assert code == 2 and len(asked) == 1 and said == ["NOT ASKED: a fresh key would not open the socket even once"], said
+    code, said, _asked = _ask(module, monkeypatch, SESSION_STARTED, quiet)
+    assert code == 2 and said[-1].startswith("NOT ASKED: the second socket"), said
+    assert not any(line.startswith(("FAIL", "VERDICT")) or ("single-use" in line and line.startswith("ok")) for line in said), said
+    code, said, _asked = _ask(module, monkeypatch, SESSION_STARTED, AUTH_ERROR, quiet, expiry=True)
+    assert code == 2 and said[-1].startswith("NOT ASKED: the held key's socket"), said
+    assert not any(line.startswith(("FAIL", "VERDICT")) or "opened nothing" in line for line in said), said
 
 
 KEYS = (fake.elevenlabs_single_use_token("followups-1"), fake.elevenlabs_single_use_token("followups-2"))
