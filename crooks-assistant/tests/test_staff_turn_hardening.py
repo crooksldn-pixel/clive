@@ -130,3 +130,21 @@ async def test_a_retired_assistant_is_stopped_only_once_its_turn_ends(team, monk
     assert answer.status_code == 200 and answer.json()["answer"] == "Packed and labelled."
     assert first.stopped and runtime.retired_providers == []                                # stopped once it ended
     assert runtime.turns_in_flight == {}
+
+
+async def test_shutting_down_waits_for_a_members_running_turn_before_stopping_their_assistant(team, monkeypatch):  # noqa: F811
+    let_mia_in()
+    runtime = team.runtime
+    held, idle = HeldProvider(), HeldProvider()
+    monkeypatch.setattr(runtime, "staff_provider_factory", lambda person: held)
+    running = asyncio.create_task(team.post("/turn", json={"text": "Pack #1930", "session_id": "m5"}, headers=AS_MIA))
+    await asyncio.wait_for(held.entered.wait(), 5)
+    runtime.retired_providers.append(idle)                                                  # one with nothing running
+    closing = asyncio.create_task(runtime.aclose())
+    await asyncio.sleep(0.2)
+    assert idle.stopped and not held.stopped and not closing.done()                         # not cut off mid-turn
+    held.release.set()
+    answer = await asyncio.wait_for(running, 5)
+    await asyncio.wait_for(closing, 5)
+    assert answer.status_code == 200 and answer.json()["answer"] == "Packed and labelled."
+    assert held.stopped and runtime.retired_providers == [] and runtime.turns_in_flight == {}

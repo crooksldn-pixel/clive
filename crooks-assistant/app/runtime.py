@@ -148,8 +148,11 @@ class Runtime:
         HTTPS connection."""
         await self.provider.stop()
         self._retire_staff_providers()
-        # Shutting down: every one goes, whatever it was doing, as the owner's does above.
-        await self._stop_retired(everything=True)
+        # Shutting down: the team's idle assistants go now; one still answering is stopped when its
+        # last turn ends (`running`), and the close waits for that rather than cutting it off.
+        await self._stop_retired()
+        while self.retired_providers:
+            await asyncio.sleep(0.05)
         for client in (self.voice, self.scribe, self.whisper, self.shopify):
             close = getattr(client, "aclose", None)
             if close is not None:
@@ -225,10 +228,10 @@ class Runtime:
         self.retired_providers.extend(made for _stamp, made in self.staff_providers.values())
         self.staff_providers.clear()
 
-    async def _stop_retired(self, *, everything: bool = False) -> None:
+    async def _stop_retired(self) -> None:
         """Stop the retired assistants no turn is running in; one still answering is kept until
-        its last turn ends (`running`). `everything` is for shutting down."""
-        idle = [p for p in self.retired_providers if everything or not self.turns_in_flight.get(id(p))]
+        its last turn ends (`running`)."""
+        idle = [p for p in self.retired_providers if not self.turns_in_flight.get(id(p))]
         self.retired_providers[:] = [p for p in self.retired_providers if not any(p is i for i in idle)]
         for retired in idle:
             try:
