@@ -599,8 +599,11 @@ def test_an_operator_integration_under_the_loops_own_name_after_an_interrupted_o
     with pytest.raises(RuntimeError, match="before the integration"):
         w.run_until(lambda: False, dispatcher=_integrate_crashes(w.dispatcher(), after=False))
     del w.kernel.integrate
-    intent = landing_record(w)["integrating"]
-    assert set(intent) == {"sha", "revision", "proof_sha256", "at"}           # a digest only, never the proof
+    # A power loss runs no handler, so the intent keeps its digest (a raised refusal drops it: the next test).
+    path = w.config.runtime_root / "landings" / f"{OBJ}.json"
+    record = landing_record(w)
+    path.write_text(json.dumps({**record, "integrating": {**record["integrating"], "proof_sha256": "ab" * 32}}))
+    assert set(landing_record(w)["integrating"]) == {"sha", "revision", "proof_sha256"}   # a digest, never a proof
     state = w.store.read_task_state(OBJ, 1)
     [acceptance] = [a for a in w.store.read_acceptances(OBJ) if a.attempt_id == state.attempt_id]
     w.kernel.integrate(OBJ, 1, integration_sha=acceptance.accepted_sha, target_base_sha=w.base,
@@ -651,12 +654,128 @@ def test_the_loops_own_landing_keeps_only_the_proofs_digest_and_the_kernel_recor
     w.objective()
     w.run_until(lambda: landed(w))
     [integration] = w.store.read_integrations()
-    name, _, proof = integration.integrated_by.partition(") proof ")
-    assert name.startswith("clive-dispatcher (") and len(proof) == 64 and len(integration.integrated_by) <= 200
+    name, _, proof = integration.integrated_by.rpartition(" proof ")
+    assert name == "clive-dispatcher (test)" and len(proof) == 64 and len(integration.integrated_by) <= 200
     sha = integration.integration_sha
     record = landing_record(w)
     assert record["own"] == {sha: hashlib.sha256(proof.encode()).hexdigest()}
     assert proof not in (w.config.runtime_root / "landings" / f"{OBJ}.json").read_text()
+
+
+def test_a_refused_integration_leaves_no_proof_that_could_make_a_later_one_the_loops(tmp_path, pushes):
+    """The 4daf49e1 pre-review: a journal whose commit fails has already staged the integration record, proof and
+    all, into the store's object database. The refusal drops the proof's digest from the intent, so an operator who
+    digs that proof out and integrates with it is still refused."""
+    from app.orchestrator.lifecycle import IntegrationMethod, JournalError
+
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    leaked: list[str] = []
+    d = w.dispatcher()
+
+    def refused(*args, **kwargs):
+        leaked.append(kwargs["integrated_by"])
+        raise JournalError("git commit failed in the store's journal: a hook said no")
+
+    d.kernel.integrate = refused
+    with pytest.raises(JournalError):
+        w.run_until(lambda: False, dispatcher=d)
+    del w.kernel.integrate
+    intent = landing_record(w)["integrating"]
+    assert intent["sha"] and intent["revision"] == 1 and "proof_sha256" not in intent
+    state = w.store.read_task_state(OBJ, 1)
+    [acceptance] = [a for a in w.store.read_acceptances(OBJ) if a.attempt_id == state.attempt_id]
+    w.kernel.integrate(OBJ, 1, integration_sha=acceptance.accepted_sha, target_base_sha=w.base,
+                       method=IntegrationMethod.FAST_FORWARD, integrated_by=leaked[0], remote="origin")
+    for _ in range(4):
+        w.dispatcher().tick()
+    record = landing_record(w)
+    assert not landed(w) and trunk(w) == w.base and not [p for p in pushes if TRUNK in p[-1]]
+    assert record["state"] == "refused" and "no proof that this loop made that integration" in record["reason"]
+
+
+def _journaled(w: World) -> None:
+    """The store as the host keeps it: a git checkout the kernel journals every verb into."""
+    import subprocess
+
+    for argv in (["init", "-q"], ["add", "-A"],
+                 ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "the store as it stood"]):
+        subprocess.run(["git", *argv], cwd=w.store.root, check=True, capture_output=True)
+    w.kernel.journal = True
+
+
+def test_an_integration_the_journal_never_committed_is_not_landed_until_the_director_settles_it(tmp_path, pushes):
+    """The 4daf49e1 pre-review: the host dies inside the kernel's integrate, after its files are written and before
+    its journal commit, so no undo runs. Nothing lands while the store holds those uncommitted files; once the
+    Director commits them, the loop's own integration (its proof in the record) lands once."""
+    import subprocess
+
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    _journaled(w)
+    real_commit, real_roll_back = w.kernel._commit, w.store.roll_back
+
+    def commit(message):
+        if "integrated at" in message:
+            raise RuntimeError("the host lost power inside the kernel's integrate, before its journal commit")
+        return real_commit(message)
+
+    w.kernel._commit = commit
+    w.store.roll_back = lambda: None                                         # a power loss: no undo runs
+    with pytest.raises(RuntimeError, match="lost power"):
+        w.run_until(lambda: False)
+    del w.kernel._commit
+    w.store.roll_back = real_roll_back
+    lines = [line for _ in range(3) for line in w.dispatcher().tick()]
+    assert not landed(w) and trunk(w) == w.base and not [p for p in pushes if TRUNK in p[-1]]
+    assert landing_record(w)["state"] == "waiting" and "never committed" in landing_record(w)["reason"]
+    assert any("never committed" in line for line in lines)
+    for argv in (["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "settled"]):
+        subprocess.run(["git", *argv], cwd=w.store.root, check=True, capture_output=True)
+    w.run_until(lambda: landed(w))
+    sha = w.store.read_results()[0].result_sha
+    assert trunk(w) == sha and len([p for p in pushes if TRUNK in p[-1]]) == 1
+
+
+def test_a_base_record_whose_push_completed_is_recorded_as_landed_and_never_pushed_again(tmp_path, pushes):
+    """The 4daf49e1 pre-review: the base marked a SHA eligible, integrated it by name alone, pushed it and stopped
+    before recording the landing. The candidate cannot prove the integration, so it pushes nothing; the SHA is on
+    the trunk already, so it is recorded as landed by the loop's own push on a fresh green answer, not handed back."""
+    from app.orchestrator.lifecycle import IntegrationMethod
+
+    w = landing_world(tmp_path)
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    with pytest.raises(RuntimeError, match="before the integration"):
+        w.run_until(lambda: False, dispatcher=_integrate_crashes(w.dispatcher(), after=False))
+    del w.kernel.integrate
+    state = w.store.read_task_state(OBJ, 1)
+    [acceptance] = [a for a in w.store.read_acceptances(OBJ) if a.attempt_id == state.attempt_id]
+    sha, before = acceptance.accepted_sha, trunk(w)
+    w.kernel.integrate(OBJ, 1, integration_sha=sha, target_base_sha=w.base, method=IntegrationMethod.FAST_FORWARD,
+                       integrated_by="clive-dispatcher (root)", remote="origin")
+    _git(w.repo, "push", "-q", "origin", f"{sha}:refs/heads/{TRUNK}")        # the base's own push, before it stopped
+    path = w.config.runtime_root / "landings" / f"{OBJ}.json"
+    legacy = {k: v for k, v in landing_record(w).items() if k != "integrating"}
+    path.write_text(json.dumps({**legacy, "eligible": [sha], "state": "waiting", "sha": sha, "task_id": OBJ,
+                                "revision": 1, "reason": f"pushed {sha}",
+                                "pushing": {"sha": sha, "trunk_before": before, "at": "2026-10-01T00:00:00+00:00",
+                                            "pushed_at": "2026-10-01T00:00:01+00:00"}}))
+    w.run_until(lambda: landed(w))
+    record = landing_record(w)
+    assert trunk(w) == sha and record["by"] == "loop" and not [p for p in pushes if TRUNK in p[-1]]
+
+
+def test_an_operator_name_holding_the_word_proof_still_lands_the_loops_own_integration(tmp_path, pushes):
+    w = landing_world(tmp_path)
+    w.kernel.operator = "ops proof team"
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.run_until(lambda: landed(w))
+    [integration] = w.store.read_integrations()
+    assert integration.integrated_by.startswith("clive-dispatcher (ops proof team) proof ")
 
 
 def test_the_loops_own_integration_recorded_just_before_a_restart_still_lands(tmp_path, pushes):

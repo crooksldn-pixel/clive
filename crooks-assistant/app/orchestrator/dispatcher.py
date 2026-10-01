@@ -155,6 +155,7 @@ from .lifecycle import (
     LifecycleError,
     LifecycleStore,
     VerdictOutcome,
+    journal_preconditions,
     lifecycle_view,
     sha256_of,
 )
@@ -1418,11 +1419,20 @@ class Dispatcher:
             record = self._landing_record(obj.objective_id)
             self._save_landing(obj.objective_id, {
                 **record, "integrating": {"sha": acceptance.accepted_sha, "revision": task.revision,
-                                          "proof_sha256": _proof_digest(proof), "at": self.now().isoformat()}})
-        self.kernel.integrate(task.task_id, task.revision, integration_sha=acceptance.accepted_sha,
-                              target_base_sha=task.base_sha, method=IntegrationMethod.FAST_FORWARD,
-                              integrated_by=self._integrator(proof),
-                              remote=self.config.publish_remote, gates_evidence=gates)
+                                          "proof_sha256": _proof_digest(proof)}})
+        try:
+            self.kernel.integrate(task.task_id, task.revision, integration_sha=acceptance.accepted_sha,
+                                  target_base_sha=task.base_sha, method=IntegrationMethod.FAST_FORWARD,
+                                  integrated_by=self._integrator(proof),
+                                  remote=self.config.publish_remote, gates_evidence=gates)
+        except BaseException:
+            # A refused integration (the kernel put its files back) may still have left the proof behind it: a
+            # journal whose commit failed has already staged the record into the store's object database. The
+            # digest goes from the intent, so that proof can never make anyone's later integration the loop's
+            # own (the intent itself stays: an integration of this SHA by anyone else is refused, not ignored).
+            if proof is not None:
+                self._forget_proof(obj, task, acceptance.accepted_sha)
+            raise
         if self.config.land:
             record = self._landing_record(obj.objective_id)
             record.pop("integrating", None)
@@ -1463,29 +1473,41 @@ class Dispatcher:
     def _land(self, obj: Objective, task: EngineeringTask, state) -> tuple[str | None, bool]:
         """Land a completed objective on the trunk, refresh it onto a trunk that moved, or say why not.
 
-        Only the SHA the loop integrated with landing on (``eligible``), at most one landing per tick, and never
-        again once that SHA is landed or its landing refused: from then on it is the Director's."""
+        Only a SHA this loop integrated with landing on, as the one-time proof in the kernel's record shows
+        (``_eligible``); at most one landing per tick; never again once that SHA is landed or its landing refused:
+        from then on it is the Director's. A SHA the loop meant to land whose record carries no proof is pushed by
+        nobody here: if it is on the trunk already it is recorded as such, else refused with the reason."""
         integration = next((i for i in self.store.read_integrations()
                             if i.task_id == task.task_id and i.task_revision == task.revision), None)
         if integration is None or state.attempt_id is None:
             return None, False
         sha = integration.integration_sha
-        settled = self._landing_record(obj.objective_id)
-        if settled.get("sha") == sha and settled.get("state") in ("landed", "refused"):
+        record = self._landing_record(obj.objective_id)
+        if record.get("sha") == sha and record.get("state") in ("landed", "refused"):
             return None, False
-        verdict, record = self._eligible(obj, task, integration)
-        if verdict == "unproven":
-            return self._landing_refused(obj, task, sha, f"{sha} is integrated, but the kernel's record of it carries "
-                                                         "no proof that this loop made that integration (one recorded "
-                                                         "after the loop's was refused or interrupted, or one marked "
-                                                         "eligible before proofs existed); the Director lands it"), False
-        if verdict != "own":
+        verdict = self._eligible(task, integration, record)
+        if verdict is None or self._landed_this_tick:
             return None, False
-        if self._landed_this_tick:
-            return None, False
+        if self.kernel.journal:
+            # An integration record the journal never committed (the host died inside the kernel's integrate) is
+            # not settled: the kernel refuses every verb until the Director commits or discards it, and so does
+            # landing (the 4daf49e1 re-pin pre-review).
+            try:
+                journal_preconditions(self.store.root)
+            except LifecycleError as exc:
+                return self._landing_waits(obj, task, sha, f"waits: the kernel's store holds changes its journal "
+                                                           f"never committed ({exc}), so whether {sha} was integrated "
+                                                           "is not settled; the Director commits or discards them"), False
+        if verdict == "recovered":
+            pending = record.pop("integrating", None) or {}
+            self._save_landing(obj.objective_id, {
+                **record, "own": {**(record.get("own") or {}), sha: pending.get("proof_sha256")},
+                "eligible": sorted({*record.get("eligible", []), sha})})
+            self._note(obj.objective_id, f"{sha}: the loop's own integration, recorded with its proof before it could "
+                                         "be marked eligible (the integration was interrupted), is eligible to land")
         attempt = self._current_attempt(task, state)
         try:
-            return self._land_checked(obj, task, attempt, integration)
+            return self._land_checked(obj, task, attempt, integration, proven=verdict != "unproven")
         except (WorkspaceError, OSError, subprocess.SubprocessError) as exc:
             return self._landing_waits(obj, task, sha, "the landing could not be evaluated: "
                                                        f"{safe_git_error(str(exc))}"), False
@@ -1497,42 +1519,50 @@ class Dispatcher:
         name = f"{INTEGRATOR_PREFIX}{self.kernel.operator[:INTEGRATOR_OPERATOR_MAX]})"
         return name if proof is None else f"{name}{PROOF_SEPARATOR}{proof}"
 
-    def _eligible(self, obj: Objective, task: EngineeringTask, integration) -> tuple[str | None, dict]:
-        """Whether ``integration`` is this loop's own and may land: ``("own", record)``; ``("unproven", record)``
-        when the loop meant to land this SHA (marked it eligible, or wrote an intent to integrate it) but the
-        kernel's record carries no matching proof; ``(None, record)`` for anything else, which stays the Director's
-        to land without a word, as it always was (work integrated by a person, before landing was on, or with
-        --no-land).
+    def _forget_proof(self, obj: Objective, task: EngineeringTask, sha: str) -> None:
+        """After a refused integration: drop the proof's digest from the intent for ``sha``, unless the kernel did
+        record the integration after all. Never raises over the refusal it follows."""
+        try:
+            if any(i.task_id == task.task_id and i.task_revision == task.revision
+                   for i in self.store.read_integrations()):
+                return
+            record = self._landing_record(obj.objective_id)
+            pending = dict(record.get("integrating") or {})
+            if pending.get("sha") == sha and "proof_sha256" in pending:
+                pending.pop("proof_sha256")
+                self._save_landing(obj.objective_id, {**record, "integrating": pending})
+        except Exception:  # noqa: BLE001 - the refusal being raised is what the caller reports
+            pass
 
-        Own means the kernel's record carries the one-time proof whose digest the loop wrote before integrating
-        this SHA: kept per SHA once ``kernel.integrate`` returned, or, after a restart between the integration and
-        that mark, in the intent for this SHA and revision. The proof never exists outside the integrating
-        process until the kernel records it, so an integration someone records after the loop's was refused or
-        interrupted cannot carry it, whatever name it is given (the 4daf49e1 re-pin review, F-01). A SHA a loop
-        marked eligible before proofs existed carries none either. Both are the Director's: refused once, with
-        that reason, never pushed."""
+    def _eligible(self, task: EngineeringTask, integration, record: dict) -> str | None:
+        """Whether ``integration`` is this loop's own and may land.
+
+        ``"own"``: the kernel's record carries the one-time proof whose digest the loop kept for this SHA once
+        ``kernel.integrate`` returned. ``"recovered"``: it carries the proof whose digest is in the intent for this
+        SHA and revision, the loop having stopped after the kernel recorded the integration and before that mark.
+        ``"unproven"``: the loop meant to land this SHA (an intent for it, or marked eligible or own) but the
+        record carries no matching proof: an integration someone recorded after the loop's was refused or
+        interrupted, whatever name it was given (the 4daf49e1 re-pin review, F-01), or one a loop marked eligible
+        before proofs existed. None: anything else, which stays the Director's without a word, as it always was
+        (work integrated by a person, before landing was on, or with --no-land).
+
+        The proof exists only in the integrating process until the kernel records it, and a refused integration
+        drops its digest from the intent (``_forget_proof``), so no record but the loop's own can match."""
         sha = integration.integration_sha
-        record = self._landing_record(obj.objective_id)
-        by = str(integration.integrated_by)
-        _, separator, proof = by.partition(PROOF_SEPARATOR)
-        digest = (_proof_digest(proof) if by.startswith(INTEGRATOR_PREFIX) and separator and _PROOF.fullmatch(proof)
+        name, separator, proof = str(integration.integrated_by).rpartition(PROOF_SEPARATOR)
+        digest = (_proof_digest(proof) if separator and name.startswith(INTEGRATOR_PREFIX) and _PROOF.fullmatch(proof)
                   else None)
         if digest is not None and (record.get("own") or {}).get(sha) == digest:
-            return "own", record
+            return "own"
         pending = record.get("integrating") or {}
         intended = pending.get("sha") == sha and pending.get("revision") == task.revision
-        if digest is None or not intended or pending.get("proof_sha256") != digest:
-            meant = intended or sha in record.get("eligible", []) or sha in (record.get("own") or {})
-            return ("unproven" if meant else None), record
-        record.pop("integrating", None)
-        record = {**record, "own": {**(record.get("own") or {}), sha: digest},
-                  "eligible": sorted({*record.get("eligible", []), sha})}
-        self._save_landing(obj.objective_id, record)
-        self._note(obj.objective_id, f"{sha}: the loop's own integration, recorded before a restart with the loop's "
-                                     "proof, is eligible to land")
-        return "own", record
+        if digest is not None and intended and pending.get("proof_sha256") == digest:
+            return "recovered"
+        meant = intended or sha in record.get("eligible", []) or sha in (record.get("own") or {})
+        return "unproven" if meant else None
 
-    def _land_checked(self, obj: Objective, task: EngineeringTask, attempt: Attempt, integration) -> tuple[str, bool]:
+    def _land_checked(self, obj: Objective, task: EngineeringTask, attempt: Attempt, integration, *,
+                      proven: bool = True) -> tuple[str, bool]:
         sha = integration.integration_sha
         # (b) the loop's own independent review of exactly this SHA was READY and the kernel accepted it
         accepted = [a for a in self.store.read_acceptances(task.task_id) if a.attempt_id == attempt.attempt_id]
@@ -1569,6 +1599,13 @@ class Dispatcher:
                                                            f"green GitHub acceptance run on it ({gate.state.value}: "
                                                            f"{gate.detail})"), False
             return self._record_landed(obj, task, attempt, sha, trunk, by=by, gate=gate), False
+        if not proven:
+            # Not on the trunk, and nothing proves the integration was this loop's: the loop never pushes it.
+            return self._landing_refused(obj, task, sha, f"{sha} is integrated, but the kernel's record of it carries "
+                                                         "no proof that this loop made that integration (one recorded "
+                                                         "after the loop's was refused or interrupted, or one marked "
+                                                         "eligible before proofs existed); the loop never pushes it: "
+                                                         "the Director lands it"), False
         if pushing is not None and pushing.get("trunk_before") != trunk:
             return self._landing_refused(
                 obj, task, sha, f"the loop began pushing {sha} onto {TRUNK_BRANCH} at {pushing.get('trunk_before')} "
@@ -2177,11 +2214,12 @@ def _failed_its_tests(result: GateResult) -> bool:
 
 
 # How the kernel's integration record names the loop when the loop integrated: "clive-dispatcher (<operator>)",
-# followed, with landing on, by the loop's one-time proof (``Dispatcher._integrator``). The kernel holds at most 200
-# characters: the prefix (18), the operator (at most 96), ") proof " and 64 hex fit.
+# followed, with landing on, by " proof " and the loop's one-time proof (``Dispatcher._integrator``), read from the
+# right. The kernel holds at most 200 characters: the prefix (18), the operator (at most 96), ")", " proof " and 64
+# hex fit.
 INTEGRATOR_PREFIX = "clive-dispatcher ("
 INTEGRATOR_OPERATOR_MAX = 96
-PROOF_SEPARATOR = ") proof "
+PROOF_SEPARATOR = " proof "
 _PROOF = re.compile(r"[0-9a-f]{64}")
 
 
