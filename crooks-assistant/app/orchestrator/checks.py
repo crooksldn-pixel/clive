@@ -14,8 +14,9 @@ gives every check:
   the dispatcher operator names (an interpreter's virtualenv, for example).
   Nothing else of the host, no ``/root``, ``/home``, ``/opt``, runtime, store or
   repository, exists inside;
-- an empty network namespace (no interface but a down loopback), so no outbound
-  connection and no host-local service;
+- an empty network namespace whose only interface is its own loopback, brought up so a
+  test may serve and connect on 127.0.0.1 inside it (a uvicorn or websocket test server).
+  It is not the host's loopback: no outbound connection and no host-local service;
 - its own PID, IPC and UTS namespaces;
 - a non-privileged identity. When the dispatcher runs as root, the check drops to
   uid/gid 65534 with every capability removed and ``no_new_privs``. Otherwise a
@@ -79,6 +80,17 @@ done
 mkdir -p "$R$tree"; mount --bind "$tree" "$R$tree"
 mount -t proc -o nosuid,nodev,noexec proc "$R/proc"
 mount -o remount,bind,ro "$R"
+# The check's own loopback, in its own otherwise empty network namespace, so a test can serve and
+# connect on 127.0.0.1 inside it. It is not the host's: the canary proves a listener on the host's
+# loopback stays unreachable. iproute2, else (or if that fails) the same ioctl from python3, run
+# isolated (-I) from / so nothing in a working directory can stand in for its modules; if neither
+# works it stays down, as it was. Never fatal: `|| true` under set -e.
+cd /
+{ command -v ip >/dev/null 2>&1 && ip link set lo up 2>/dev/null; } || \
+{ command -v python3 >/dev/null 2>&1 && python3 -I -c 'import socket,fcntl,struct
+s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+f=struct.unpack("16sH22x",fcntl.ioctl(s,0x8913,struct.pack("16sH22x",b"lo",0)))[1]
+fcntl.ioctl(s,0x8914,struct.pack("16sH22x",b"lo",f|1))' 2>/dev/null; } || true
 if [ "$drop" = "yes" ]; then who="--reuid 65534 --regid 65534 --clear-groups"; else who=""; fi
 # shellcheck disable=SC2086
 exec chroot "$R" /usr/bin/setpriv $who --no-new-privs --inh-caps=-all --bounding-set=-all -- \
@@ -106,6 +118,12 @@ for name in ("loopback", "external"):
         out[f"connected_{name}"] = True
     except OSError:
         out[f"connected_{name}"] = False
+try:
+    own = socket.socket(); own.bind(("127.0.0.1", 0)); own.listen(1)
+    socket.create_connection(own.getsockname(), timeout=3).close(); own.close()
+    out["own_loopback"] = True
+except OSError:
+    out["own_loopback"] = False
 caps = [l.split()[1] for l in open("/proc/self/status") if l.startswith("CapEff")][0]
 out["uid"] = os.getuid(); out["cap_eff"] = caps
 out["expect_uid"] = expect_uid
@@ -293,7 +311,9 @@ class NamespaceSandbox:
             if problems:
                 raise SandboxUnavailable("sandbox canary escaped: " + ", ".join(problems))
             who = f"uid {UNPRIVILEGED_UID}" if self.as_root else "a user namespace over the dispatcher's own uid"
-            return True, f"linux namespaces (mount, net, pid, ipc, uts), chroot, {who}, no capabilities; canary held"
+            loopback = "its own loopback up" if facts.get("own_loopback") else "its own loopback down"
+            return True, (f"linux namespaces (mount, net, pid, ipc, uts), chroot, {who}, no capabilities, "
+                          f"{loopback}; canary held")
 
     def run(self, argv: tuple[str, ...], *, tree: Path, cwd: str, timeout_s: int) -> dict:
         ok, why = self.availability()

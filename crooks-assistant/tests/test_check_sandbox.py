@@ -223,3 +223,39 @@ def test_a_host_that_refuses_namespaces_makes_the_sandbox_unavailable(tmp_path, 
     assert not ok and "could not be established" in why and "Operation not permitted" in why
     with pytest.raises(SandboxUnavailable):
         box.run(("/bin/true",), tree=tmp_path, cwd=".", timeout_s=5)
+
+
+OWN_LOOPBACK = r'''
+import json, socket, sys
+port = int(sys.argv[1])
+report = {}
+server = socket.socket()
+server.bind(("127.0.0.1", 0))
+server.listen(1)
+client = socket.create_connection(server.getsockname(), timeout=3)
+conn, _ = server.accept()
+client.sendall(b"ping")
+report["own"] = conn.recv(4).decode()
+try:
+    socket.create_connection(("127.0.0.1", port), timeout=3).close()
+    report["host"] = "CONNECTED"
+except OSError as exc:
+    report["host"] = "denied: " + type(exc).__name__
+print(json.dumps(report))
+'''
+
+
+def test_a_check_serves_and_connects_on_its_own_loopback_and_never_the_hosts(tmp_path, sandbox, listener):
+    """A test server on 127.0.0.1 (uvicorn, websockets) works inside the check, on the namespace's own
+    loopback; a listener on the host's loopback stays unreachable, as the canary requires."""
+    port, accepted = listener
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tree / "own.py").write_text(OWN_LOOPBACK)
+    result = sandbox.run((sys.executable, "own.py", str(port)), tree=tree, cwd=".", timeout_s=60)
+    assert result["exit_code"] == 0, result
+    report = json.loads(result["stdout_tail"].strip().splitlines()[-1])
+    assert report["own"] == "ping"
+    assert report["host"].startswith("denied"), report
+    assert accepted == []
+    assert "its own loopback up" in sandbox.availability()[1]
