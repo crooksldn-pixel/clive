@@ -510,6 +510,22 @@ def offered_skills(settings: Any) -> tuple[str, ...]:
     return skill_tools.installed_names(settings.skills_dir)
 
 
+class RuntimeProvider(MaxAgentSDKProvider):
+    """A runtime's assistant: every tool call it makes reads the skills in that runtime's
+    settings.skills_dir (app/tools/skill_tools.py), the folder its prompt's skills were found in,
+    however many runtimes are built after it."""
+
+    def __init__(self, *, skills_dir: Path | str | None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._skills_dir = skills_dir
+
+    async def _dispatch(self, tool_name: str, args: dict, **kwargs: Any) -> str:
+        from app.tools import skill_tools
+
+        with skill_tools.reading_from(self._skills_dir):
+            return await super()._dispatch(tool_name, args, **kwargs)
+
+
 def build(settings: Settings | None = None) -> Runtime:
     settings = settings or get_settings()
     settings.log_dir.mkdir(parents=True, exist_ok=True)
@@ -653,12 +669,12 @@ def build(settings: Settings | None = None) -> Runtime:
     connections_service.configure(state_dir=connections_dir(settings))
     # Who on the team the owner has let in is kept beside his passkeys: a line there opens the door.
     staff_access.configure(state_dir=connections_dir(settings))
-    # The installed skills the skill tools read: this runtime's settings.skills_dir, installed by
-    # every build like the objectives and the screens; the prompt names those same skills.
-    skill_tools.install(settings.skills_dir)
 
     kb = load(settings.kb_dir)
-    provider = MaxAgentSDKProvider(
+    # The prompt names the skills in settings.skills_dir, and the assistant's skill tools read
+    # that same folder, call by call (RuntimeProvider).
+    provider = RuntimeProvider(
+        skills_dir=settings.skills_dir,
         system_prompt=build_system_prompt(kb, writes_enabled=settings.writes_enabled,
                                           skills=offered_skills(settings)),
         model=settings.claude_model,
@@ -779,7 +795,8 @@ def _staff_provider(runtime: Runtime, person: Any) -> Any:
 
     settings = runtime.settings
     not_theirs = {name for name in registry.names() if name not in staff.TOOLS}
-    return MaxAgentSDKProvider(
+    return RuntimeProvider(
+        skills_dir=settings.skills_dir,
         system_prompt=build_staff_prompt(person, runtime.kb.text),
         model=settings.claude_model,
         session_lookup=runtime.sessions.get_or_create,

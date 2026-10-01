@@ -30,6 +30,9 @@ import os
 import re
 import stat
 import unicodedata
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -78,22 +81,28 @@ _LINKED = (errno.ELOOP, errno.ENOTDIR)
 # control, format and variation-selector characters are escaped.
 _LOOKED_AT = re.compile(r"[^\t\n\x20-\x7e]")
 
-# The folder the runtime's settings name (app/runtime.py `build` installs it from settings.skills_dir).
-# Every build installs its own, as it does the objectives and the screens, so no build reads the
-# folder an earlier one was given; until one has, each call reads settings.skills_dir.
-_SKILLS_DIR: Path | None = None
+# The folder the running call reads: the settings.skills_dir of the runtime whose assistant made
+# the call, set around each of its tool calls (app/runtime.py `RuntimeProvider`). Per call, never
+# per process, so a runtime built later never changes what an earlier one's calls read, and each
+# runtime's tools read the same skills its prompt names. Outside such a call, settings.skills_dir.
+SKILLS_DIR: ContextVar[Path | None] = ContextVar("crooks_skills_dir", default=None)
 
 
-def install(directory: Path | str | None) -> None:
-    """Called by every runtime build with its settings.skills_dir: where the tools read the skills."""
-    global _SKILLS_DIR
-    _SKILLS_DIR = Path(directory) if directory else None
+@contextmanager
+def reading_from(directory: Path | str | None) -> Iterator[None]:
+    """The skill tools called inside this read the skills in `directory`."""
+    token = SKILLS_DIR.set(Path(directory) if directory else None)
+    try:
+        yield
+    finally:
+        SKILLS_DIR.reset(token)
 
 
 def skills_dir() -> Path:
-    """Where the skills are installed: the runtime's settings.skills_dir (config/settings.py)."""
-    if _SKILLS_DIR is not None:
-        return _SKILLS_DIR
+    """Where the running call reads the skills: its runtime's settings.skills_dir (config/settings.py)."""
+    bound = SKILLS_DIR.get()
+    if bound is not None:
+        return bound
     from config.settings import get_settings
 
     return Path(getattr(get_settings(), "skills_dir", None) or DEFAULT_SKILLS_DIR)

@@ -64,11 +64,11 @@ def install(base: Path, name: str, files: dict[str, str | bytes], *, record_name
 
 
 @pytest.fixture
-def skills_dir(tmp_path, monkeypatch):
+def skills_dir(tmp_path):
     base = tmp_path / "skills"
     base.mkdir()
-    monkeypatch.setattr(skill_tools, "_SKILLS_DIR", base)
-    return base
+    with skill_tools.reading_from(base):
+        yield base
 
 
 # --- skill_list ---------------------------------------------------------------------------------
@@ -127,16 +127,15 @@ def test_the_list_looks_at_no_more_than_two_hundred_folders(skills_dir):
     assert listed["count"] == 0 and listed["unreadable"] == 200
 
 
-def test_with_no_skill_installed_the_list_says_so_and_every_read_is_refused(tmp_path, monkeypatch):
-    monkeypatch.setattr(skill_tools, "_SKILLS_DIR", tmp_path / "never-made")
+def test_with_no_skill_installed_the_list_says_so_and_every_read_is_refused(tmp_path):
+    with skill_tools.reading_from(tmp_path / "never-made"):
+        listed = skill_tools.skill_list()
 
-    listed = skill_tools.skill_list()
-
-    assert listed["count"] == 0 and listed["skills"] == [] and listed["unreadable"] == 0
-    assert "no skill is installed" in json.dumps(listed)
-    for name in ("alpha", "pdf", "release-notes"):
-        with pytest.raises(ToolError):
-            skill_tools.skill_read(name)
+        assert listed["count"] == 0 and listed["skills"] == [] and listed["unreadable"] == 0
+        assert "no skill is installed" in json.dumps(listed)
+        for name in ("alpha", "pdf", "release-notes"):
+            with pytest.raises(ToolError):
+                skill_tools.skill_read(name)
 
 
 # --- skill_read ---------------------------------------------------------------------------------
@@ -400,42 +399,59 @@ def test_settings_keep_skills_under_the_ignored_state_folder():
     assert ".state/" in [line.strip() for line in ignored]
 
 
-def test_until_a_runtime_installs_a_folder_the_tools_read_the_settings(tmp_path, monkeypatch):
+def test_outside_a_runtimes_call_the_tools_read_the_settings(tmp_path, monkeypatch):
     from config import settings as settings_module
 
-    monkeypatch.setattr(skill_tools, "_SKILLS_DIR", None)
     monkeypatch.setattr(settings_module, "get_settings", lambda: SimpleNamespace(skills_dir=tmp_path / "set"))
+    assert skill_tools.SKILLS_DIR.get() is None
     assert skill_tools.skills_dir() == tmp_path / "set"
     install(tmp_path / "set", "alpha", {"SKILL.md": "# Alpha"})
     assert [s["name"] for s in skill_tools.skill_list()["skills"]] == ["alpha"]
 
 
-def test_the_runtime_reads_its_own_settings_skills_dir_not_the_global_one(tmp_path, monkeypatch):
-    """A runtime built with Settings whose skills_dir is not the global one: the tools and the
-    prompt both read that runtime's folder, and the next build installs its own."""
+async def test_each_runtimes_tool_calls_read_its_own_skills_dir_however_many_are_built(tmp_path, monkeypatch):
+    """Two runtimes, built one after the other with different settings.skills_dir: each one's
+    prompt names its own skills, and each one's tool calls, through the provider's real dispatch
+    path, read its own folder, before and after the other was built. Nothing process-wide is set."""
     import inspect
 
     from app import runtime
+    from app.session.models import Session
     from config import settings as settings_module
+    from tests.test_provider import _live_conversation, _owner
 
-    monkeypatch.setattr(skill_tools, "_SKILLS_DIR", None)
     monkeypatch.setattr(settings_module, "get_settings", lambda: SimpleNamespace(skills_dir=tmp_path / "global"))
     install(tmp_path / "global", "global-skill", {"SKILL.md": "# Global"})
-    install(tmp_path / "mine", "mine", {"SKILL.md": "# Mine"})
-    install(tmp_path / "next", "next", {"SKILL.md": "# Next"})
+    install(tmp_path / "first", "first", {"SKILL.md": "# First"})
+    install(tmp_path / "second", "second", {"SKILL.md": "# Second"})
 
-    assert "skill_tools.install(settings.skills_dir)" in inspect.getsource(runtime.build)
-    mine = SimpleNamespace(writes_enabled=False, skills_dir=tmp_path / "mine")
-    skill_tools.install(mine.skills_dir)
-    assert runtime.offered_skills(mine) == ("mine",)
-    assert [s["name"] for s in skill_tools.skill_list()["skills"]] == ["mine"]
-    assert skill_tools.skill_read("mine")["text"] == "# Mine"
-    with pytest.raises(ToolError):
-        skill_tools.skill_read("global-skill")
+    source = inspect.getsource(runtime.build)
+    assert "RuntimeProvider(\n        skills_dir=settings.skills_dir," in source
+    assert "skills=offered_skills(settings)" in source
+    assert not hasattr(skill_tools, "install") and "skill_tools.install(" not in inspect.getsource(runtime)
 
-    skill_tools.install(tmp_path / "next")
-    assert [s["name"] for s in skill_tools.skill_list()["skills"]] == ["next"]
-    assert runtime.offered_skills(SimpleNamespace(writes_enabled=False, skills_dir=tmp_path / "next")) == ("next",)
+    def built(folder: Path) -> tuple[tuple[str, ...], runtime.RuntimeProvider]:
+        settings = SimpleNamespace(writes_enabled=False, skills_dir=folder)
+        return runtime.offered_skills(settings), runtime.RuntimeProvider(skills_dir=settings.skills_dir, system_prompt="sys")
+
+    async def call(provider, tool: str, args: dict) -> str:
+        conv = _live_conversation(Session(session_id=f"s-{id(provider)}"), authority=_owner())
+        return await provider._dispatch(tool, args, holder=conv.holder)
+
+    first_named, first = built(tmp_path / "first")
+    second_named, second = built(tmp_path / "second")
+    assert (first_named, second_named) == (("first",), ("second",))
+
+    for _ in range(2):
+        for provider, mine, theirs in ((first, "first", "second"), (second, "second", "first")):
+            listed = json.loads(await call(provider, "skill_list", {}))
+            assert [s["name"] for s in listed["skills"]] == [mine]
+            read = json.loads(await call(provider, "skill_read", {"name": mine}))
+            assert read["text"] == f"# {mine.title()}"
+            refused = await call(provider, "skill_read", {"name": theirs})
+            assert refused.startswith("ERROR") and "No installed skill has that name" in refused
+    assert skill_tools.SKILLS_DIR.get() is None
+    assert [s["name"] for s in skill_tools.skill_list()["skills"]] == ["global-skill"]
 
 
 def test_the_list_names_only_files_the_read_would_return(world):
