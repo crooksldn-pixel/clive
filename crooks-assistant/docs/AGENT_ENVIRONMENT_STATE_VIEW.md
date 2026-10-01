@@ -100,10 +100,29 @@ nothing on the host can observe; it is UNKNOWN unless a record places it.
 
 The document also carries `tasks[]`, one entry per task revision the kernel
 holds, with its stage, stage reason, attempt, lease, candidate, review
-dispatch and verdicts, acceptance, integration and history, and `engineering`
-(the store root, a `problem` string when it could not be read, and the task
-count). A store that is declared but missing or unreadable is a named problem,
-never an empty campus.
+dispatch and verdicts, acceptance, integration and history, and `engineering`:
+
+- `store_root` — the declared store, or `null`.
+- `lifecycle` — `KNOWN` when the kernel's records were read, `UNKNOWN` when
+  they were not.
+- `problem` — `null` when `lifecycle` is `KNOWN`; otherwise one sentence naming
+  why the records were not read.
+- `task_count` — the number of task records read when `lifecycle` is `KNOWN`;
+  `null` when it is `UNKNOWN`. A count of `0` means a store was read and holds
+  no tasks, and appears in no other case.
+
+`engineering_store` is optional, and a roster without it is legitimate: every
+worker is probed exactly as before, the totals are unchanged and the exit status
+is still `0`. But no records were read, so `lifecycle` is `UNKNOWN` and
+`problem` starts `no engineering store declared` and says the engineering
+lifecycle is unknown. A store that is declared but missing (`declared
+engineering store …`) or unreadable (`engineering store unreadable: …`) is
+likewise `UNKNOWN` with its named problem — never an empty campus.
+
+The human-readable output prints one line, `Engineering lifecycle unknown:`
+followed by the reason, whenever `lifecycle` is `UNKNOWN`; when a store was read
+and holds no tasks it says no tasks are recorded instead, so the two never
+render the same.
 
 ## For the environment's authors
 
