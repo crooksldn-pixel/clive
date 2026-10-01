@@ -32,6 +32,8 @@ import pytest
 from app import recipes
 from app.analytics.cache import OrderCache
 from app.families import abandoned, landings, load_all
+from app.presentation import MAX_THREADS
+from app.providers.base import ToolCall
 from app.reads.scheduler import Read, ReadPlan, ReadResult, run_plan
 from app.session.branch import Branch
 from app.session.models import Session
@@ -244,6 +246,46 @@ def test_people_among_a_read_cut_at_its_limit_are_not_everyone_this_week():
     short = landings._recent_render(ctx, ReadResult(values={"inbox": {"threads": [person], "count": 1}}))
     assert "was not read" not in short.answer and short.answer.endswith("the newest is Tess Ward about Size swap."), short.answer
     assert short.partial is False
+
+
+def _inbox_screen(name: str, threads: list[dict]):
+    """The Inbox landing's answer and its screen as the tap draws it (app/routes/command.py):
+    the landing's own cards, then the reads', compacted."""
+    from app.presentation import compact, present
+
+    session = _session(name)
+    ctx = recipes.Ctx(runtime=None, session=session, branch=session.branch())
+    body = {"query": "newer_than:7d", "count": len(threads), "threads": threads, "note": ""}
+    call = ToolCall(name="gmail_search", args={"query": "", "days": landings.RECENT_DAYS, "limit": landings.RECENT_LIMIT},
+                    result=body)
+    answer = landings._inbox_render(ctx, ReadResult(values={"inbox": body}, calls=[call]))
+    assert not answer.deferred, answer.defer
+    return answer, compact([s.as_ui() for s in answer.surfaces] + present(answer.drawn, session=session))
+
+
+def test_a_recent_inbox_read_cut_at_its_limit_says_so_on_its_card():
+    """Round 13, F-03-CARD: the words said only the newest twelve were read, while the card was
+    the search read's own, which says neither how many were checked nor that older mail was not."""
+    person = {"thread_id": "18f2000000000001", "from": "Tess Ward", "from_email": "tess@example.com",
+              "subject": "Size swap", "likely_bulk": False}
+    note = f"Only the {landings.RECENT_LIMIT} newest threads were checked; mail before them was not read."
+    for threads in (_bulk(landings.RECENT_LIMIT), [person, *_bulk(landings.RECENT_LIMIT - 1)]):
+        answer, screen = _inbox_screen("f03-card", threads)
+        assert answer.partial is True
+        assert answer.drawn == [], "the search read's own card does not say the read stopped short"
+        (card,) = [item for item in screen if item["type"] == "email_list"]
+        assert card["data"]["note"] == note, card["data"]
+        assert card["data"]["checked"] == landings.RECENT_LIMIT and card["data"]["complete"] is False, card["data"]
+        assert card["freshness"]["complete"] is False and card["freshness"]["caveat"] == note, card
+        # The rows are the search read's, as its own card would draw them.
+        assert card["data"]["count"] == landings.RECENT_LIMIT, card["data"]
+        assert [t["thread_id"] for t in card["data"]["threads"]] == [t["thread_id"] for t in threads][:MAX_THREADS], card["data"]
+
+    # Under the limit the week was read, and the search read's own card is drawn as it was.
+    answer, screen = _inbox_screen("f03-card-short", [person])
+    assert [c.name for c in answer.drawn] == ["gmail_search"] and answer.surfaces == []
+    (card,) = [item for item in screen if item["type"] == "email_list"]
+    assert "note" not in card["data"] and "checked" not in card["data"], card["data"]
 
 
 # ================================================================ F/F-04: the 21st line item

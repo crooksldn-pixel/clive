@@ -691,6 +691,23 @@ RECENT_WHEN = "this week"
 RECENT_LIMIT = 12
 
 
+def _recent_card(body: dict[str, Any], listed: int) -> Any:
+    """The recent threads' card when the read came back at its limit: the rows the search read
+    draws (app/presentation.py), with a note saying how many threads were checked and that mail
+    before them was not read, and the card marked incomplete. The search read's own card says
+    neither, so it stood on the glass as the week's mail while the words said otherwise (the
+    round-13 review, F-03-CARD)."""
+    from app.presentation import _from_result
+    from app.surfaces import Freshness, Surface
+
+    item = _from_result("gmail_search", body)[0]
+    note = f"Only the {listed} newest threads were checked; mail before them was not read."
+    data = {**item["data"], "note": note, "checked": listed, "complete": False}
+    return Surface(surface_type="email_list", ui_type=item["type"], data=data,
+                   title=str(data.get("title") or "Email"), subtitle=f"{listed} newest checked",
+                   freshness=Freshness(source="gmail", complete=False, caveat=note))
+
+
 def _recent_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:   # noqa: ARG001 — reads only the result
     body = result.values.get("inbox")
     if not isinstance(body, dict):
@@ -710,6 +727,7 @@ def _recent_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:   # noqa: ARG0
             answer = (f"Nothing from a person among the newest emails {RECENT_WHEN}: the read takes the {RECENT_LIMIT} "
                       "newest and leaves bulk mail out, so anyone who wrote before those is not in this.")
         return RecipeAnswer(answer=answer, calls=list(result.calls), partial=result.partial or listed >= RECENT_LIMIT,
+                            surfaces=[_recent_card(body, listed)] if listed >= RECENT_LIMIT else [],
                             trace={"threads": 0, "listed": listed, "days": RECENT_DAYS})
     newest = real[0]
     about = f"the newest is {newest.get('from') or 'someone'} about {newest.get('subject') or 'no subject'}."
@@ -719,7 +737,7 @@ def _recent_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:   # noqa: ARG0
         # week, and the answer is partial.
         who = "is from a person" if len(real) == 1 else "are from people"
         return RecipeAnswer(answer=f"{len(real)} of the {listed} newest threads {RECENT_WHEN} {who}; {about} Mail before those {listed} was not read.",
-                            calls=list(result.calls), partial=True,
+                            calls=list(result.calls), partial=True, surfaces=[_recent_card(body, listed)],
                             trace={"threads": len(real), "listed": listed, "days": RECENT_DAYS})
     return RecipeAnswer(answer=f"{len(real)} threads from people {RECENT_WHEN}; {about}",
                         calls=list(result.calls), partial=result.partial, trace={"threads": len(real), "days": RECENT_DAYS})
@@ -749,8 +767,11 @@ def _inbox_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     if recent.deferred:
         parts.append("I could not read the recent threads.")
     surfaces = list(queue.surfaces) if not queue.deferred else []
-    # The queue is the recipe's own card; the recent threads are drawn from the search read.
-    drawn = [c for c in [_call_named(result, "inbox")] if c is not None] if not recent.deferred else []
+    # The queue is the recipe's own card; the recent threads are drawn from the search read,
+    # unless the read stopped at its limit, when the recipe's own card for them says so.
+    surfaces += list(recent.surfaces) if not recent.deferred else []
+    drawn = ([c for c in [_call_named(result, "inbox")] if c is not None]
+             if not recent.deferred and not recent.surfaces else [])
     return RecipeAnswer(answer=" ".join(parts), calls=list(result.calls), surfaces=surfaces, drawn=drawn,
                       partial=result.partial or queue.partial or recent.partial or queue.deferred or recent.deferred,
                       trace={"queue": (queue.trace or {}).get("waiting"), "threads": (recent.trace or {}).get("threads")})
