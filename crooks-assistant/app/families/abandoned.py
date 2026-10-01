@@ -57,6 +57,11 @@ MAX_DRILLDOWN = 6
 # checkouts read and are labelled as that, never passed off as the window's total (the
 # round-10 deploy review, F-01).
 MAX_PAGES = 4
+# How many of each checkout's line items the read asks for (`lineItems(first: 20)` below). A
+# checkout with more has the rest unread, so an item that only ever sits past the twentieth is
+# never counted — and the ranking says so rather than passing itself off as complete (the
+# round-12 deploy review, F-04).
+LINES_PER_CHECKOUT = 20
 
 # The one sentence this family exists to keep saying. Held once, on the result the model
 # reads, so what it says cannot drift from what the data is.
@@ -86,6 +91,7 @@ query CrooksAbandonedCheckouts($q: String!, $n: Int!, $after: String) {
               product { id title }
             }
           }
+          pageInfo { hasNextPage }
         }
       }
     }
@@ -163,6 +169,17 @@ async def _read_window(client: ShopifyClient, days: int, limit: int) -> tuple[li
         if not after:
             return nodes, False, page + 1, "Shopify said there were more checkouts but gave no way to read them"
     return nodes, False, MAX_PAGES, f"the window holds more than the {len(nodes)} most recent checkouts read"
+
+
+def _lines_cut(node: dict[str, Any]) -> bool:
+    """Whether this checkout has line items the read did not fetch. Shopify says so in the
+    line items' own page info; a reply without it that came back full is taken as cut, since
+    nothing says the twentieth line was the last."""
+    held = node.get("lineItems") or {}
+    info = held.get("pageInfo")
+    if isinstance(info, dict):
+        return bool(info.get("hasNextPage"))
+    return len(held.get("edges") or []) >= LINES_PER_CHECKOUT
 
 
 def _lines(node: dict[str, Any]) -> list[dict[str, Any]]:
@@ -256,9 +273,19 @@ async def shopify_abandoned_checkouts(days: int = DEFAULT_DAYS, limit: int = DEF
             "total": total,
             "customer_name": str((node.get("customer") or {}).get("displayName") or ""),
             "lines": _lines(node),
+            "lines_cut": _lines_cut(node),
         })
     value = round(sum(c["total"] for c in checkouts), 2)
     ranked = rank(checkouts)
+    # The ranking is of the line items read. When a checkout had more than were fetched, an
+    # item past the cut is on no row, so the ranking is said to be incomplete in the fields the
+    # model reads and the card draws from.
+    cut = sum(1 for c in checkouts if c["lines_cut"])
+    items_partial = "" if not cut else (
+        f"Items partial: {cut} checkout{'s' if cut != 1 else ''} held more than {LINES_PER_CHECKOUT} "
+        f"items and only {'their' if cut != 1 else 'its'} first {LINES_PER_CHECKOUT} were read, so "
+        "the ranking is of the items read and an item past those is not counted."
+    )
     # When the window was not read to its end, every figure below is of the checkouts that
     # were read, and the result says so in the fields the model reads and the cards draw from.
     partial = "" if complete else (
@@ -277,6 +304,8 @@ async def shopify_abandoned_checkouts(days: int = DEFAULT_DAYS, limit: int = DEF
         "pages": pages,
         "counted": "the whole window" if complete else "the checkouts read",
         "partial": partial,
+        "items_complete": not cut,
+        "items_partial": items_partial,
         "items": [
             {"item": r["label"], "variant": r["variant"], "checkouts": r["checkouts"], "units": r["units"],
              "value_display": display(round(r["value"], 2), currency), "variant_id": r["variant_id"]}
@@ -293,7 +322,7 @@ async def shopify_abandoned_checkouts(days: int = DEFAULT_DAYS, limit: int = DEF
             "baskets abandoned before checkout (Shopify's Admin API has no cart resource) and "
             "orders that were paid for and have not been fulfilled"
         ),
-        "note": f"{WHAT_IT_IS} {partial}".strip(),
+        "note": " ".join(filter(None, [WHAT_IT_IS, partial, items_partial])),
     }
 
 
@@ -350,13 +379,20 @@ def cards(body: dict[str, Any]) -> list[Surface]:
     if not items:
         return [figures]
     most = max(int(i.get("checkouts") or 0) for i in items) or 1
+    # The ranking is whole only when every checkout's items were read as well as every
+    # checkout: one cut at its twentieth line leaves an item off it (F-04). A body without the
+    # flag is from before the read said, and is not taken as whole.
+    items_whole = body.get("items_complete") is True
+    items_partial = str(body.get("items_partial") or "") or "Items partial: not every checkout's items were read."
+    ranked_whole = complete and items_whole
     ranking = Surface(
         surface_type="analytics",
         ui_type="ranking",
         title="Left behind most often",
         data={
             "title": "Left behind most often",
-            "subtitle": f"by how many abandoned checkouts they appear in, {when}" + ("" if complete else ", of those read"),
+            "subtitle": f"by how many abandoned checkouts they appear in, {when}" + ("" if complete else ", of those read")
+                        + ("" if items_whole else ", of the items read"),
             "rows": [
                 {
                     "rank": index + 1,
@@ -375,10 +411,11 @@ def cards(body: dict[str, Any]) -> list[Surface]:
                 {"value": f"{at_least}{body.get('value_display') or '—'}", "label": "not taken"},
             ],
             "note": "Ranked by how many checkouts each appears in, not by value: what is being asked is which items keep not being bought."
-                    + ("" if complete else f" {partial}"),
-            "complete": complete,
+                    + ("" if complete else f" {partial}") + ("" if items_whole else f" {items_partial}"),
+            "complete": ranked_whole,
         },
-        freshness=Freshness(source="shopify", complete=complete, caveat=caveat),
+        freshness=Freshness(source="shopify", complete=ranked_whole,
+                            caveat=" ".join(filter(None, [caveat, "" if items_whole else items_partial]))),
     )
     return [figures, ranking]
 

@@ -196,9 +196,14 @@ def _authenticated(headers: dict[str, str], from_email: str = "") -> bool:
     return authenticated(headers, from_email)
 
 
-async def _list_metadata(client: GmailClient, full_query: str, limit: int, headers: list[str] | None = None) -> list[dict]:
+async def _list_metadata(client: GmailClient, full_query: str, limit: int, headers: list[str] | None = None,
+                         *, listed: list[int] | None = None) -> list[dict]:
     """The listing and the metadata of every message in it, in one batched round trip.
-    Raises ToolError with a readable reason; never a raw client exception."""
+    Raises ToolError with a readable reason; never a raw client exception.
+
+    `listed`, when given, is handed how many messages the listing itself returned — before any
+    fetch, so a message whose metadata could not be fetched still counts towards whether the
+    listing came back at its limit."""
 
     # googleapiclient is synchronous. Run it in a thread so the event loop stays free and the
     # 8-second tool timeout can actually fire — awaiting blocking I/O directly makes the
@@ -212,6 +217,8 @@ async def _list_metadata(client: GmailClient, full_query: str, limit: int, heade
             .execute()
         )
         stubs = listing.get("messages", []) or []
+        if listed is not None:
+            listed.append(len(stubs))
 
         # metadata format still costs 20 quota units, so the result count is the lever.
         def get_request(stub):
@@ -647,7 +654,12 @@ async def gmail_search(
     if query.strip():
         full_query += f" {query.strip()}"
 
-    messages = await _list_metadata(client, full_query, limit)
+    # `limit` bounds the MESSAGES Gmail lists, and bulk mail and a thread's second message are
+    # dropped after, so a short list of threads says nothing about whether the listing reached
+    # the end of the window. How many messages it returned does: at the limit, older mail in
+    # the window was not read (the round-12 deploy review, F-03).
+    listed: list[int] = []
+    messages = await _list_metadata(client, full_query, limit, listed=listed)
     candidates = _one_per_thread(messages, include_bulk)
 
     # Cross-reference every sender against Shopify concurrently, not one after another.
@@ -663,6 +675,7 @@ async def gmail_search(
     return {
         "query": full_query,
         "count": len(results),
+        "listed": listed[0] if listed else len(messages),
         "threads": results,
         **({"set": made} if made else {}),
         "note": (

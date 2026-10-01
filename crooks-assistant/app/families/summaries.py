@@ -154,6 +154,14 @@ async def commerce_summary(task: str, period: Any = None, limit: int = 12) -> di
         "reads": 1,
         "_ms": round((time.perf_counter() - started) * 1000 + view.served_ms, 1),
     })
+    if task == "orders_attention" and not period:
+        # Asked of no period, the question is answered over the lookback and nothing older:
+        # an order placed before it and still waiting is not in these rows, so the answer and
+        # the card say how far back was read rather than "nothing needs attention" of the whole
+        # shop (the round-12 deploy review, F-02).
+        found["lookback_days"] = lookback
+        found["note"] = (str(found.get("note") or "") + f" Only orders placed in the last {lookback} days were read; "
+                         "an older order still waiting is not in this.").strip()
     if view.note:
         found["note"] = (str(found.get("note") or "") + " " + view.note).strip()
     # EVERY match as a set, so "next", "the third one" and a tap on a row are one cursor on

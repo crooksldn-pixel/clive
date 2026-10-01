@@ -416,27 +416,36 @@ def attention_rows(found: dict[str, Any], *, session: Any = None, period: str = 
     red, amber = int(found.get("red") or 0), int(found.get("amber") or 0)
     parts = [f"{red} urgent" if red else "", f"{amber} worth a look" if amber else ""]
     where = f" {period}" if period else ""
+    # A question asked of no period was read over a lookback, not the whole shop: the card and
+    # the words say how far back, and an order older than that is never answered for (F-02).
+    lookback = 0 if period else int(found.get("lookback_days") or 0)
+    if lookback:
+        note = (f"Read from the {considered} {plural(considered, 'order')} placed in the last {lookback} days; "
+                if considered else f"No orders were placed in the last {lookback} days; ") + "older orders were not checked."
+    else:
+        note = f"Read from the {considered} {plural(considered, 'order')} the server holds." if considered else ""
     return summary(
         task="orders_attention", session=session,
         kicker="Needs attention",
         title=f"Orders that need attention{where}",
         count=count, count_label=plural(count, "order"),
         subtitle=" · ".join(p for p in parts if p),
-        note=(f"Read from the {considered} {plural(considered, 'order')} the server holds." if considered else ""),
+        note=note,
         rows=rows, truncated=bool(found.get("truncated")),
-        spoken=_attention_words(count, red),
-        empty_words=_attention_words(0, 0),
+        spoken=_attention_words(count, red, lookback),
+        empty_words=_attention_words(0, 0, lookback),
         freshness=freshness,
     )
 
 
-def _attention_words(count: int, red: int) -> str:
+def _attention_words(count: int, red: int, days: int = 0) -> str:
+    within = f" placed in the last {days} days" if days else ""
     if not count:
-        return "Nothing needs attention."
+        return f"Nothing{within} needs attention."
     verb = "needs" if count == 1 else "need"
     if red:
-        return f"{count} {plural(count, 'order')} {verb} attention; {red} {'is' if red == 1 else 'are'} urgent."
-    return f"{count} {plural(count, 'order')} {verb} attention, none of them urgent."
+        return f"{count} {plural(count, 'order')}{within} {verb} attention; {red} {'is' if red == 1 else 'are'} urgent."
+    return f"{count} {plural(count, 'order')}{within} {verb} attention, none of them urgent."
 
 
 # ------------------------------------------------------------------- a period's orders

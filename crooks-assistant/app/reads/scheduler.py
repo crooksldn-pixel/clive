@@ -184,13 +184,15 @@ def assert_reads_only(plan: ReadPlan) -> None:
 
 def _layers(plan: ReadPlan) -> list[list[Read]]:
     """The plan as waves: everything in a wave is independent of everything else in it.
-    A cycle, or a dependency on a name the plan does not contain, is dropped with a reason."""
-    by_name = {r.name: r for r in plan.reads}
+    A cycle, or a dependency on a name the plan does not contain, never enters a wave, and
+    neither does anything that waits on it; the runner reports each as skipped with a reason.
+    A missing dependency is not a satisfied one (S5-02: it used to be read as one, so a read
+    ran with nothing behind it)."""
     done: set[str] = set()
     waves: list[list[Read]] = []
     remaining = list(plan.reads)
     while remaining:
-        wave = [r for r in remaining if all(dep in done for dep in r.after if dep in by_name)]
+        wave = [r for r in remaining if all(dep in done for dep in r.after)]
         if not wave:
             break   # a cycle: the rest are reported as skipped by the runner
         waves.append(wave)
@@ -331,9 +333,17 @@ async def run_plan(plan: ReadPlan, *, session: Any, timeout_s: float | None = No
         # The flag is set before the tasks are made: `asyncio.gather` copies the context at
         # creation, so every read in every wave runs with it.
         with speculative:
+            # A read that waits on a name the plan does not hold is never dispatched; it is
+            # skipped with the name it was waiting for, and anything waiting on IT is skipped
+            # below as depending on something that never ran.
+            for read in plan.reads:
+                absent = [d for d in read.after if d not in by_name]
+                if absent:
+                    result.skipped[read.name] = f"it waits on {', '.join(absent)}, which this plan does not hold"
+                    result.partial = result.partial or not read.optional
             async with asyncio.timeout(plan.timeout_s if timeout_s is None else timeout_s):
                 for wave in _layers(plan):
-                    runnable = [r for r in wave if all(d not in result.errors and d not in result.skipped for d in r.after if d in by_name)]
+                    runnable = [r for r in wave if all(d in by_name and d not in result.errors and d not in result.skipped for d in r.after)]
                     for read in wave:
                         if read not in runnable:
                             result.skipped[read.name] = "what it needed did not come back"
@@ -348,9 +358,10 @@ async def run_plan(plan: ReadPlan, *, session: Any, timeout_s: float | None = No
             if read.name not in result.values and read.name not in result.errors:
                 result.skipped.setdefault(read.name, "the answer was already late")
 
-    for name in by_name:
+    for name, read in by_name.items():
         if name not in result.values and name not in result.errors and name not in result.skipped:
             result.skipped[name] = "it depended on something that never ran"
+            result.partial = result.partial or not read.optional
     result.critical_path_ms = round((time.perf_counter() - started_all) * 1000, 1)
     result.serial_ms = round(result.serial_ms, 1)
     result.calls = [calls_by_name[name] for name in order if name in calls_by_name]

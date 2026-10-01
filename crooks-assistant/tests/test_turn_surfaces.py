@@ -80,11 +80,13 @@ async def test_the_returning_customers_question_draws_one_compact_surface_and_no
     # And the other way cards reach the glass: the workspace the turn staged as its read landed
     # (app/progressive.py), which the tablet draws from its patches before the answer arrives.
     # Every card it put up is the one summary — no profile went up there and came down again.
+    # Compared as a list, not a set: two summary cards staged in one turn are two cards, and a
+    # set would have folded them into one (round 9, R9-I-tests5-I-02, ruled still present at 12).
     from app.render import ADDED, DATA, VISUAL
 
     patches = (body.get("workspace") or {}).get("patches") or []
     drawn = [p for p in patches if p.get("op") in (ADDED, DATA, VISUAL) and p.get("type") != "context_stack"]
-    assert drawn and {p["type"] for p in drawn} == {"summary_list"}, [(p.get("op"), p.get("type")) for p in patches]
+    assert [p["type"] for p in drawn] == ["summary_list"], [(p.get("op"), p.get("type")) for p in patches]
     assert not [p for p in patches if p.get("type") in PROFILE_KINDS or str(p.get("type") or "").endswith("_workspace")], patches
     (summary,) = cards
     assert summary["data"]["count"] == 1 and len(summary["data"]["rows"]) == 1

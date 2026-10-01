@@ -453,17 +453,37 @@ def _arrived(ctx: Ctx, area: str) -> None:
     ctx.branch.enter(area=area, kind=LANDING_KIND, ref=area, label=AREA_LABELS.get(area, area))
 
 
+# How far back the Orders landing looks for an order still to go out, before the thirty days
+# its list shows. An unfulfilled order older than the list's window was absent from the answer
+# that said "Nothing is waiting to go out" (the round-12 deploy review, F-02). The second read
+# is the 335 days that END where the list's window begins, so the two never overlap and
+# together are the year of orders the server keeps (app/analytics/periods.py MAX_DAYS); 335
+# days is also within what one query may cost (app/analytics/query.py MAX_COST, a point per
+# thirty days).
+WINDOW_DAYS = 30
+OLDER_DAYS = 335
+WAITING_LIMIT = 25
+
+
 def _orders_plan(ctx: Ctx) -> ReadPlan | None:
-    """What must go out, and what came in. Two independent reads, in parallel."""
+    """What must go out, and what came in, and whether anything older is still waiting. Three
+    independent reads, in parallel."""
     return ReadPlan([
         Read("open", "commerce_query", {
-            "entity": "orders", "period": "last_30_days", "filters": {"fulfillment": "unfulfilled"},
-            "sort": [{"metric": "age_days", "direction": "desc"}], "limit": 25, "title": "To go out",
+            "entity": "orders", "period": f"last_{WINDOW_DAYS}_days", "filters": {"fulfillment": "unfulfilled"},
+            "sort": [{"metric": "age_days", "direction": "desc"}], "limit": WAITING_LIMIT, "title": "To go out",
         }, source="shopify", cost=120.0),
         Read("today", "commerce_query", {
             "entity": "orders", "period": "today", "sort": [{"metric": "placed_at", "direction": "desc"}],
             "limit": 25, "title": "Today",
         }, source="shopify", cost=120.0),
+        # Not staged as it lands: the render decides whether its list is drawn. `days_ago` puts
+        # its end at the midnight the 30-day window starts from (app/analytics/periods.py _days).
+        Read("older", "commerce_query", {
+            "entity": "orders", "period": {"days": OLDER_DAYS, "days_ago": WINDOW_DAYS},
+            "filters": {"fulfillment": "unfulfilled"},
+            "sort": [{"metric": "age_days", "direction": "desc"}], "limit": WAITING_LIMIT, "title": "Still to go out",
+        }, source="shopify", cost=120.0, draws=False),
     ], label="landing_orders")
 
 
@@ -482,24 +502,58 @@ def _call_named(result: ReadResult, node: str):
     return None
 
 
+def _order_ref(row: dict[str, Any]) -> str:
+    return str(row.get("order_id") or row.get("order_number") or "")
+
+
+def _waiting_rows(open_body: Any, older_body: Any) -> tuple[list[dict[str, Any]], int]:
+    """Every order still to go out that the two reads returned, once each and oldest first,
+    and how many there are in all. The two windows do not overlap, so the count is the sum of
+    each read's own; never fewer than the rows themselves."""
+    def total(body: Any) -> int:
+        shown = len(_rows(body))
+        held = body.get("row_count") if isinstance(body, dict) else None
+        return held if isinstance(held, int) and held >= shown else shown
+
+    merged: dict[str, dict[str, Any]] = {}
+    for row in _rows(older_body) + _rows(open_body):
+        merged.setdefault(_order_ref(row), row)
+    rows = sorted(merged.values(), key=lambda r: -float(r.get("age_days") or 0))
+    return rows, max(total(open_body) + total(older_body), len(rows))
+
+
+def _to_go_out_surface(rows: list[dict[str, Any]], count: int, *, window: str, note: str, currency: str = "GBP"):
+    """The orders still to go out, on a card that says what the read could not vouch for.
+
+    Drawn by the landing itself when the read of older orders failed or came back incomplete:
+    the 30-day list's own card would say nothing of it, and with nothing waiting in the window
+    there would be no card at all — the answer would be one sentence over a blank half."""
+    from app.analytics.present import _order_list
+    from app.surfaces import Freshness, Surface
+
+    listed = _order_list({"rows": rows[:WAITING_LIMIT], "totals": {"orders": count}, "title": "To go out",
+                          "truncated": count > len(rows[:WAITING_LIMIT]), "period": {"label": window}}, currency)
+    data = dict(listed[0]["data"]) if listed else {"title": "To go out", "query": window, "orders": [], "count": 0,
+                                                    "truncated": False, "value": ""}
+    data.update({"note": note, "complete": False})
+    return Surface(surface_type="order_list", ui_type="order_list", data=data, title="To go out", subtitle=note,
+                   freshness=Freshness(source="shopify", complete=False, caveat=note))
+
+
 def _orders_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     open_body, today_body = result.values.get("open"), result.values.get("today")
+    older_body = result.values.get("older")
     if not isinstance(open_body, dict) and not isinstance(today_body, dict):
         return RecipeAnswer(answer="", defer="the order reads did not answer")
     _arrived(ctx, "orders")
-    waiting, today = _rows(open_body), _rows(today_body)
+    today = _rows(today_body)
     # A read that did not answer is not an empty list. Before this, the open-orders read
     # failing while today's answered said "Nothing is waiting to go out." — a false
     # operational answer on the one question this landing exists for (the 2026-09-28 deploy
     # review, round 9, E-06). Each half now says it could not be read, and the answer is
     # marked partial so the card says so too.
     open_read, today_read = isinstance(open_body, dict), isinstance(today_body, dict)
-    # The set the cursor walks is the operational one: the orders still to go out, oldest
-    # first. On a day with nothing waiting, today's orders are the set.
-    primary = "open" if waiting or not today_read else "today"
-    body = open_body if primary == "open" else today_body
-    if isinstance(body, dict):
-        _open_workflow(ctx, body, kind="orders", operation="review")
+    older_read = isinstance(older_body, dict)
     # A read that answered but says it is not complete (the order cache still filling after a
     # restart) is not an empty list either: "nothing" is said only of a complete read. An
     # incomplete one says none are held SO FAR and that more may exist, and the answer is
@@ -507,15 +561,43 @@ def _orders_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     # `complete` said, with the hedge appended after a sentence it did not qualify).
     open_whole = open_read and open_body.get("complete") is not False
     today_whole = today_read and today_body.get("complete") is not False
+    older_whole = older_read and older_body.get("complete") is not False
+    # What is waiting is the 30-day list and whatever the read of the months before it found,
+    # as one list oldest first: the count and "the oldest" cover every order named anywhere in
+    # the answer, so no later sentence can name an order older than the one called the oldest.
+    waiting, count = _waiting_rows(open_body, older_body if older_read else None) if open_read else ([], 0)
+    beyond = bool(_rows(older_body)) and open_read
+    window = _period_words(open_body, f"last {WINDOW_DAYS} days") if open_read else f"last {WINDOW_DAYS} days"
+    # What the read of older orders could not vouch for, said wherever it matters.
+    older_gap = ("" if older_whole else
+                 f"Orders placed before the {window} could not be checked." if not older_read else
+                 "The read of older orders is not complete, so more may be waiting.")
+    own_card = open_read and not older_whole
+    # The set the cursor walks is the operational one: the orders still to go out, oldest
+    # first — the older read's when it found any, since the oldest is among them. On a day
+    # with nothing waiting, today's orders are the set.
+    primary = ("older" if beyond else "open") if waiting or not today_read else "today"
+    body = {"open": open_body, "today": today_body, "older": older_body}[primary]
+    if isinstance(body, dict):
+        _open_workflow(ctx, body, kind="orders", operation="review")
     if waiting:
         oldest = waiting[0]
-        words = f"{_how_many(open_body, len(waiting))} order{'s' if len(waiting) != 1 else ''} to go out; the oldest is {str(oldest.get('order_number') or '').lstrip('#')} at {int(oldest.get('age_days') or 0)} days."
+        shown = min(len(waiting), WAITING_LIMIT) if own_card else len(waiting)
+        words = f"{_how_many({'row_count': count}, shown)} order{'s' if count != 1 else ''} to go out; the oldest is {str(oldest.get('order_number') or '').lstrip('#')} at {int(oldest.get('age_days') or 0)} days."
+        if older_gap:
+            words += f" {older_gap}"
     elif not open_read:
         words = "I could not read the orders still to go out, so I cannot say whether any are waiting."
     elif not open_whole:
         words = "None of the orders read so far are waiting to go out, but the read is not complete, so more may exist."
+        if older_gap:
+            words += f" {older_gap}"
+    elif older_gap:
+        words = (f"Nothing in the {window} is waiting to go out, but older orders could not be checked." if not older_read else
+                 f"Nothing in the {window} is waiting to go out, but the read of older orders is not complete, so some may be waiting.")
     else:
         words = "Nothing is waiting to go out."
+    waiting_words = words
     if not today_read:
         words += " Today's orders could not be read."
     elif today:
@@ -524,13 +606,24 @@ def _orders_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
         words += " None of today's orders read so far, and more may exist."
     else:
         words += " None in today yet."
-    drawn = [c for c in (_call_named(result, primary), _call_named(result, "today" if primary == "open" else "open")) if c is not None]
+    surfaces = []
+    if own_card:
+        # Never zero cards and never a list that looks whole: the orders still to go out (or
+        # none in the window), with what could not be checked written on the card.
+        surfaces = [_to_go_out_surface(waiting, count, window=window, note=older_gap if waiting else waiting_words,
+                                       currency=str(open_body.get("currency") or "GBP"))]
+        drawn = [c for c in (_call_named(result, "today"),) if c is not None]
+    else:
+        # The older orders' list is drawn when it holds any, first, beside the 30-day list:
+        # an order still to go out is listed, never left out of a card that looks whole.
+        order = ("older", "open", "today") if primary == "older" else (primary, "open" if primary == "today" else "today")
+        drawn = [c for c in (_call_named(result, name) for name in order) if c is not None]
     return RecipeAnswer(answer=words + _hedge(open_body if open_read else today_body),
-                      calls=list(result.calls), drawn=drawn,
-                      partial=result.partial or not (open_read and today_read) or not (open_whole and today_whole),
-                      trace={"waiting": len(waiting), "today": len(today), "primary": primary,
-                             "unread": [name for name, ok in (("open", open_read), ("today", today_read)) if not ok],
-                             "incomplete": [name for name, ok, whole in (("open", open_read, open_whole), ("today", today_read, today_whole)) if ok and not whole]})
+                      calls=list(result.calls), surfaces=surfaces, drawn=drawn,
+                      partial=result.partial or not (open_read and today_read) or not (open_whole and today_whole) or not older_whole,
+                      trace={"waiting": count, "today": len(today), "primary": primary,
+                             "unread": [name for name, ok in (("open", open_read), ("today", today_read), ("older", older_read)) if not ok],
+                             "incomplete": [name for name, ok, whole in (("open", open_read, open_whole), ("today", today_read, today_whole), ("older", older_read, older_whole)) if ok and not whole]})
 
 
 # ------------------------------------------------------------------------------- inbox
@@ -539,6 +632,11 @@ def _orders_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
 # The recent threads beside the queue: a week of them, which is what the Inbox is a place for.
 RECENT_DAYS = 7
 RECENT_WHEN = "this week"
+# How many MESSAGES the recent read lists. Gmail lists messages, newest first, and the search
+# drops bulk mail and folds a thread's messages to one after the listing — so the bound is on
+# emails, not on threads, and a listing that came back at it may have left part of the week
+# unread (the round-12 deploy review, F-03).
+RECENT_LIMIT = 12
 
 
 def _recent_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:   # noqa: ARG001 — reads only the result
@@ -547,12 +645,47 @@ def _recent_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:   # noqa: ARG0
         return RecipeAnswer(answer="", defer="the inbox did not answer")
     threads = [t for t in (body.get("threads") or []) if isinstance(t, dict)]
     real = [t for t in threads if not t.get("likely_bulk")]
+    # Said only of what was read. A listing that came back at its limit is the newest emails,
+    # not the week: the answer says so, is partial, and draws a card of its own that says so,
+    # because the search's own card would say nothing of where the read stopped.
+    listed = body.get("listed")
+    cut = isinstance(listed, int) and not isinstance(listed, bool) and listed >= RECENT_LIMIT
+    trace = {"threads": len(real), "days": RECENT_DAYS, "listed": listed, "cut": cut}
+    if cut:
+        among = f"among the {RECENT_LIMIT} newest emails"
+        rest = f"Older emails from {RECENT_WHEN} were not read."
+        if real:
+            newest = real[0]
+            words = (f"{len(real)} thread{'s' if len(real) != 1 else ''} from people {among}; the newest is "
+                     f"{newest.get('from') or 'someone'} about {newest.get('subject') or 'no subject'}. {rest}")
+        else:
+            words = f"Nothing from a person {among}. {rest}"
+        note = f"Only the {RECENT_LIMIT} newest emails were read; older emails from {RECENT_WHEN} were not."
+        return RecipeAnswer(answer=words, calls=list(result.calls), surfaces=[_recent_surface(real, note)], drawn=[],
+                            partial=True, trace=trace)
     if not real:
         return RecipeAnswer(answer=f"Nothing from a person in the inbox {RECENT_WHEN}.", calls=list(result.calls),
-                            trace={"threads": 0, "days": RECENT_DAYS})
+                            partial=result.partial, trace=trace)
     newest = real[0]
     return RecipeAnswer(answer=f"{len(real)} threads from people {RECENT_WHEN}; the newest is {newest.get('from') or 'someone'} about {newest.get('subject') or 'no subject'}.",
-                        calls=list(result.calls), partial=result.partial, trace={"threads": len(real), "days": RECENT_DAYS})
+                        calls=list(result.calls), partial=result.partial, trace=trace)
+
+
+def _recent_surface(real: list[dict[str, Any]], note: str):
+    """The recent threads from people, on a card that says where the read stopped. The rows are
+    the search's own, shaped as the search's card shapes them (app/presentation.py)."""
+    from app.presentation import MAX_THREADS, _thread_summary
+    from app.surfaces import Freshness, Surface
+
+    rows = [_thread_summary(t) for t in real[:MAX_THREADS]]
+    return Surface(
+        surface_type="email_list",
+        ui_type="email_list",
+        data={"title": "Email", "count": len(rows), "threads": rows, "note": note, "complete": False},
+        title="Email",
+        subtitle=note,
+        freshness=Freshness(source="gmail", complete=False, caveat=note),
+    )
 
 
 def _inbox_plan(ctx: Ctx) -> ReadPlan | None:   # noqa: ARG001 — a place has one shape
@@ -560,7 +693,7 @@ def _inbox_plan(ctx: Ctx) -> ReadPlan | None:   # noqa: ARG001 — a place has o
     waits for the other."""
     return ReadPlan([
         Read("mail", "email_query", {"days": NEEDS_REPLY_DAYS}, source="gmail", cost=8.0, timeout_s=10.0, draws=False),
-        Read("inbox", "gmail_search", {"query": "", "days": RECENT_DAYS, "limit": 12}, source="gmail", cost=2.0),
+        Read("inbox", "gmail_search", {"query": "", "days": RECENT_DAYS, "limit": RECENT_LIMIT}, source="gmail", cost=2.0),
     ], label="landing_inbox", timeout_s=16.0)
 
 
@@ -579,8 +712,10 @@ def _inbox_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     if recent.deferred:
         parts.append("I could not read the recent threads.")
     surfaces = list(queue.surfaces) if not queue.deferred else []
-    # The queue is the recipe's own card; the recent threads are drawn from the search read.
-    drawn = [c for c in [_call_named(result, "inbox")] if c is not None] if not recent.deferred else []
+    # The queue is the recipe's own card; the recent threads are drawn from the search read,
+    # unless the read stopped short of the week and the recent half drew its own card saying so.
+    surfaces += list(recent.surfaces) if not recent.deferred else []
+    drawn = [c for c in [_call_named(result, "inbox")] if c is not None] if not recent.deferred and recent.drawn is None else []
     return RecipeAnswer(answer=" ".join(parts), calls=list(result.calls), surfaces=surfaces, drawn=drawn,
                       partial=result.partial or queue.partial or recent.partial or queue.deferred or recent.deferred,
                       trace={"queue": (queue.trace or {}).get("waiting"), "threads": (recent.trace or {}).get("threads")})
@@ -700,7 +835,7 @@ def _products_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
 # --------------------------------------------------------------------------- registration
 
 register(Recipe(
-    recipe_id="landing_orders", read_primitives=("commerce_query",), parallel_nodes=(("open", "today"),),
+    recipe_id="landing_orders", read_primitives=("commerce_query",), parallel_nodes=(("open", "today", "older"),),
     ui="order_list", cache_policy=CACHE_ANALYTICS, target_ms=1500, plan=_orders_plan, render=_orders_render,
 ))
 register(Recipe(

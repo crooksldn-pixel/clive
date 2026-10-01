@@ -161,9 +161,12 @@ class Anticipator:
         self.max_speculative = int(max_speculative)
         self.max_per_source = int(max_per_source)
         self.clock = clock
-        # Per scope: where the conversation was last, so a transition can be recorded and a
-        # context change noticed.
-        self._last: dict[str, tuple[str, str, str]] = {}     # scope -> (state, kind, ref)
+        # Per scope, then per half: where each half of the conversation was last, so a
+        # transition can be recorded and a context change noticed. Nested under the scope so
+        # that forgetting a conversation forgets both its halves (S5-03: keyed flat as
+        # "scope|branch_id", `forget(scope)` removed nothing and an ended conversation could
+        # feed a false transition to whoever spoke next under that scope).
+        self._last: dict[str, dict[str, tuple[str, str, str]]] = {}   # scope -> branch_id -> (state, kind, ref)
         self._history: deque[Started] = deque(maxlen=HISTORY)
         self._suggestions: dict[str, list[dict[str, Any]]] = {}
         self.signals = 0
@@ -209,8 +212,8 @@ class Anticipator:
             # owner works (app/session/branch.py), and moving on one is not moving on the
             # other: keyed per branch, so a transition is learned per half and a context
             # change cancels only that half's speculation.
-            where = f"{signal.scope}|{signal.branch_id}"
-            previous = self._last.get(where)
+            halves = self._last.setdefault(signal.scope, {})
+            previous = halves.get(signal.branch_id)
             if learn and previous is not None and previous[0]:
                 edge = self.learner.observe(previous[0], signal.event)
                 if edge is not None:
@@ -222,7 +225,7 @@ class Anticipator:
                 # last one is about the wrong thing now.
                 decision.cancelled = self.prefetcher.cancel_scope(signal.scope, branch_id=signal.branch_id)
                 self.cancelled += decision.cancelled
-            self._last[where] = (signal.state, signal.kind, signal.ref)
+            halves[signal.branch_id] = (signal.state, signal.kind, signal.ref)
 
             predictions = self._predictions(signal)
             decision.suggestions = self._suggest(signal)
@@ -484,8 +487,8 @@ class Anticipator:
         return stopped
 
     def forget(self, scope: str) -> int:
-        """Everything for one conversation, dropped: its speculative reads and its position.
-        For a session ending, and for a test that wants a clean slate."""
+        """Everything for one conversation, dropped: its speculative reads and the position of
+        every half of it. For a session ending, and for a test that wants a clean slate."""
         stopped = self.prefetcher.cancel_scope(scope)
         self.cancelled += stopped
         self._last.pop(scope, None)

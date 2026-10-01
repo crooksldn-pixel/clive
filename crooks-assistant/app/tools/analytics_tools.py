@@ -215,7 +215,10 @@ def _describe(query: Query) -> str:
     return (" ".join(words) + f", {query.period.label}")[:80]
 
 
-async def _run(spec: dict[str, Any], *, default_entity: str, tool: str = "commerce_aggregate") -> dict[str, Any]:
+async def _run(spec: dict[str, Any], *, default_entity: str, tool: str = "commerce_aggregate",
+               narrow=None) -> dict[str, Any]:
+    """`narrow`, when given, trims the result's rows in place BEFORE the working set is made,
+    so the set holds exactly what the rows hold (inventory_query's `max_days_cover`)."""
     now, zone = await _now_and_zone()
     country = await _shop_country()
     try:
@@ -252,6 +255,8 @@ async def _run(spec: dict[str, Any], *, default_entity: str, tool: str = "commer
     result["_ms"] = round((time.perf_counter() - started) * 1000 + view.served_ms, 1)
     if view.note:
         result["note"] = (result.get("note") + " " if result.get("note") else "") + view.note
+    if narrow is not None:
+        narrow(result)
     if query.entity in ("orders", "customers", "products", "variants") and not query.compare:
         made = _set_from(result, query, tool=tool)
         if made is not None:
@@ -368,14 +373,39 @@ async def inventory_query(period: Any = None, product: str = "", colour: str = "
         filters["colour"] = colour
     if size:
         filters["size"] = size
-    spec = {"entity": "variants", "period": period or "last_7_days", "filters": filters, "group_by": ["variant"], "metrics": ["stock", "units", "velocity", "days_cover"], "sort": [{"metric": "days_cover", "direction": "asc"}], "limit": limit, "view": "ranking", "title": title or "Restock priority"}
-    result = await _run(spec, default_entity="variants", tool="inventory_query")
+    bound: float | None = None
     if max_days_cover is not None:
         try:
             bound = float(max_days_cover)
         except (TypeError, ValueError) as exc:
             raise ToolError("max_days_cover is a number of days.") from exc
-        result["rows"] = [r for r in result["rows"] if r.get("days_cover") is not None and r["days_cover"] <= bound]
+    label = title or ("Restock priority" if bound is None else f"Restock priority, {bound:g} days of cover or less")
+    spec = {"entity": "variants", "period": period or "last_7_days", "filters": filters, "group_by": ["variant"], "metrics": ["stock", "units", "velocity", "days_cover"], "sort": [{"metric": "days_cover", "direction": "asc"}], "limit": limit, "view": "ranking", "title": label}
+
+    def within_cover(result: dict[str, Any]) -> None:
+        """The bound, applied to the rows before the working set is made from them, and the
+        membership, labels and member totals rebuilt from the rows that are left — so "these"
+        holds exactly the variants the answer lists, none with more cover than asked for and
+        none whose cover is unknown (AC1-NEW-01: the set used to be made first and kept them)."""
+        rows = [r for r in result.get("rows") or []
+                if isinstance(r.get("days_cover"), (int, float)) and r["days_cover"] <= bound]
+        if len(rows) < len(result.get("rows") or []):
+            # Rows are soonest-out first with unknown cover last, so once one shown row is
+            # over the bound every row the limit cut is too: nothing past these qualifies.
+            result["truncated"] = False
+            result["totals_scope"] = "period"
+        result["rows"] = rows
+        # The count is of the rows within the bound. When the limit cut the list and every row
+        # shown is within it, more past the limit may qualify, and `truncated` still says so.
+        result["row_count"] = len(rows)
+        ids = [str(r["key"]["variant_id"]) for r in rows if isinstance(r.get("key"), dict) and r["key"].get("variant_id")]
+        result["member_ids"] = list(dict.fromkeys(ids))
+        result["member_labels"] = {str(r["key"]["variant_id"]): str(r.get("label") or "")
+                                   for r in rows if isinstance(r.get("key"), dict) and r["key"].get("variant_id")}
+        result["member_totals"] = engine._sums(rows, engine._ADDITIVE["variants"])
+
+    result = await _run(spec, default_entity="variants", tool="inventory_query",
+                        narrow=within_cover if bound is not None else None)
     result["note"] = (
         f"Velocity is units sold over the last {int(round(float(result['period']['days'])))} day(s) divided by the days; cover is stock divided by that — "
         "an estimate from recent sales, not a forecast. A variant with no sales in the period has no cover to estimate; one Shopify does not track has no stock figure."
@@ -661,7 +691,10 @@ async def email_query(set_id: str = "", days: int = 30) -> dict:
 
     async def look(entry: dict[str, Any]) -> dict[str, Any]:
         if not entry.get("email"):
-            return {"available": True, "threads": [], "count": 0, "replied": None, "reason": "no email address"}
+            # Nothing was looked up, so nothing was checked: a customer with no address is not
+            # "not contacted", and "the rest" must not reach someone who may well have written
+            # from an address the shop never recorded (AC1-F-01, ruled still present at round 12).
+            return {"available": False, "no_address": True, "threads": [], "count": 0, "replied": None, "reason": "no email address"}
         terms = [str(n).rsplit("-", 1)[-1].lstrip("#") for n in entry["orders"] if n]
         return await _customer_threads(entry["email"], terms[:3], days, clock=clock)
 
@@ -699,11 +732,14 @@ async def email_query(set_id: str = "", days: int = 30) -> dict:
     # it left them out).
     unchecked_members: list[str] = []
     unavailable = 0
+    no_address = 0
     for entry in by_customer.values():
         mail = entry["mail"]
         members = entry["order_ids"] if ws.kind == "orders" else [entry["customer_id"]]
         checked = bool(mail.get("available"))
-        if not checked:
+        if mail.get("no_address"):
+            no_address += 1
+        elif not checked:
             unavailable += 1
         has_mail = bool(mail.get("count"))
         if has_mail:
@@ -739,10 +775,12 @@ async def email_query(set_id: str = "", days: int = 30) -> dict:
         })
     # Waiting on us first: that is what the question is usually for.
     rows.sort(key=lambda r: (not r.get("needs_reply"), not r["emailed"], str(r.get("customer_name") or "")))
-    unchecked = unavailable + len(missing) + len(guests)
+    unchecked = unavailable + no_address + len(missing) + len(guests)
     notes = []
     if unavailable:
         notes.append(f"{unavailable} customer(s) could not be checked in Gmail")
+    if no_address:
+        notes.append(f"{no_address} customer(s) have no email address on record to look for")
     if missing:
         notes.append(f"{len(missing)} of the set's {ws.kind} are outside the {EMAIL_VIEW_DAYS} days of orders the server holds")
     if guests:
@@ -750,6 +788,8 @@ async def email_query(set_id: str = "", days: int = 30) -> dict:
     result: dict[str, Any] = {
         "set_id": ws.set_id, "set_label": ws.label, "kind": ws.kind, "days": days, "customers": len(by_customer),
         "counts": {"contacted": sum(1 for r in rows if r["emailed"]), "not_contacted": sum(1 for r in rows if not r["emailed"] and r["checked"]), "replied": sum(1 for r in rows if r["replied"]), "needs_reply": sum(1 for r in rows if r.get("needs_reply")), "unchecked": unchecked},
+        # Of the unchecked, the customers with no email address on record to look for.
+        "no_address": no_address,
         "rows": rows, "source": f"Gmail threads from each customer in the last {days} days, mentioning their order", "_ms": round((time.perf_counter() - started) * 1000, 1),
         "note": ("; ".join(notes) + "; they are in neither the contacted nor the not-contacted set, and are held apart as the unchecked set." if notes else ""),
     }
