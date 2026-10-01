@@ -71,6 +71,10 @@ class GateResult:
     detail: str = ""
     data: dict | None = None
     command: list[str] = field(default_factory=list)
+    # What a failed test or lint gate said about why: pytest's FAILED and ERROR lines and its ``E`` lines, or the
+    # linter's own findings. Printed to the job log and kept in the artifact, so whoever repairs a red run (the
+    # loop's builder, the Director) can see which test failed. Never collected for the secret scan.
+    failure_excerpt: list[str] | None = None
 
     @property
     def satisfied(self) -> bool:
@@ -88,6 +92,8 @@ class GateResult:
         }
         if self.data is not None:
             record["data"] = self.data
+        if self.failure_excerpt:
+            record["failure_excerpt"] = self.failure_excerpt
         return record
 
 
@@ -177,6 +183,39 @@ def resolve_run_identity() -> dict:
     return identity
 
 
+# How much of a failed gate's own output is kept: enough to name every failing test and its assertion, bounded so
+# a run that fails everything cannot flood the log or the artifact.
+EXCERPT_MAX_LINES = 60
+EXCERPT_MAX_LINE = 300
+EXCERPT_MAX_CHARS = 6000
+_PYTEST_SUMMARY = re.compile(r"^(FAILED|ERROR) \S")
+_PYTEST_ASSERTION = re.compile(r"^E {2,}\S")
+_PYTEST_TOTALS = re.compile(r"^=*\s*\d+ (failed|errors?|passed)\b")
+
+
+def failure_excerpt(stdout: str, stderr: str, *, kind: str) -> list[str]:
+    """The lines of a failed gate's output that say why it failed, bounded.
+
+    ``kind`` "pytest": the short summary's FAILED and ERROR lines first, then the ``E`` lines (assertions and
+    errors), then the totals line. "lint": the first lines of the linter's report. Nothing else is ever kept."""
+    lines = [line.rstrip() for line in f"{stdout or ''}\n{stderr or ''}".splitlines()]
+    if kind == "pytest":
+        picked = ([line for line in lines if _PYTEST_SUMMARY.match(line)]
+                  + [line for line in lines if _PYTEST_ASSERTION.match(line)]
+                  + [line for line in lines if _PYTEST_TOTALS.match(line)][-1:])
+    else:
+        picked = [line for line in lines if line.strip()]
+    out: list[str] = []
+    size = 0
+    for line in picked[:EXCERPT_MAX_LINES]:
+        line = line[:EXCERPT_MAX_LINE]
+        if size + len(line) > EXCERPT_MAX_CHARS:
+            break
+        out.append(line)
+        size += len(line) + 1
+    return out
+
+
 def _run_gate(
     name: str,
     command: list[str],
@@ -184,6 +223,7 @@ def _run_gate(
     required: bool = True,
     cwd: Path = ASSISTANT,
     parse_json: bool = False,
+    excerpt: str | None = None,
 ) -> GateResult:
     started = time.monotonic()
     try:
@@ -220,6 +260,8 @@ def _run_gate(
                 command=command,
             )
 
+    excerpt_lines = (failure_excerpt(completed.stdout, completed.stderr, kind=excerpt)
+                     if excerpt is not None and completed.returncode != 0 else None)
     return GateResult(
         name,
         required,
@@ -229,6 +271,7 @@ def _run_gate(
         detail,
         data,
         command,
+        excerpt_lines,
     )
 
 
@@ -237,7 +280,7 @@ def _python() -> str:
 
 
 def gate_static() -> GateResult:
-    return _run_gate("ruff", [_python(), "-m", "ruff", "check", "app", "config", "scripts", "tests"])
+    return _run_gate("ruff", [_python(), "-m", "ruff", "check", "app", "config", "scripts", "tests"], excerpt="lint")
 
 
 def gate_control_plane_tests() -> GateResult:
@@ -245,6 +288,7 @@ def gate_control_plane_tests() -> GateResult:
         "pytest_control_plane",
         [_python(), "-m", "pytest", "tests/test_orchestrator_control_plane.py",
          "-q", "-p", "no:cacheprovider"],
+        excerpt="pytest",
     )
 
 
@@ -281,6 +325,7 @@ def gate_offline_suite(scope: str) -> GateResult:
     return _run_gate(
         name,
         [_python(), "-m", "pytest", *targets, "-m", "not live", "-q", "-p", "no:cacheprovider"],
+        excerpt="pytest",
     )
 
 
@@ -470,6 +515,15 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     rendered = json.dumps(artifact, indent=2, sort_keys=True)
+    # Why a failed test or lint gate failed, in the job log itself, ahead of the artifact: the loop reads the failed
+    # job's log to brief the builder that repairs a red run, and a person reading the run sees the failing tests.
+    # The lines are printed as the gate wrote them, unindented, so pytest's own FAILED/ERROR and ``E`` lines read
+    # as such (the loop's summariser matches them at the start of a line).
+    for gate in artifact["gates"]:
+        if gate.get("failure_excerpt"):
+            print(f"== {gate['name']} failed; what it said:")
+            for line in gate["failure_excerpt"]:
+                print(line)
     print(rendered)
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
