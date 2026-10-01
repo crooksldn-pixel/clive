@@ -110,13 +110,21 @@ def ask(person_id: str, login: str) -> str:
         return "pending"
 
 
-def approve(person_id: str, *, by: str, passkey: str) -> dict[str, Any]:
-    """Only the Today screen's route calls this, after the owner's passkey approved exactly this."""
+def approve(person_id: str, *, login: str, by: str, passkey: str) -> dict[str, Any]:
+    """Only the Today screen's route calls this, after the owner's passkey approved exactly this:
+    this person, with this login. The login the passkey signed must be the one waiting, so a login
+    changed after the owner saw it (person_note, a mis-heard sentence, a line in an email) is
+    refused rather than let in on the strength of an approval given for another (the 1 October
+    review, M1)."""
+    wanted = str(login or "").strip().lower()
     with _LOCK:
         grants = dict(_grants())
         current = grants.get(person_id)
         if not current or not current.get("login"):
             raise AccessError("there is no login to let in for that person")
+        if not wanted or str(current["login"]).lower() != wanted:
+            raise AccessError("that login is no longer the one waiting for this person: look again and approve "
+                              "the one shown")
         grants[person_id] = {**current, "status": "active", "approved_at": _now(), "approved_by": by,
                              "passkey": passkey}
         _save(grants)

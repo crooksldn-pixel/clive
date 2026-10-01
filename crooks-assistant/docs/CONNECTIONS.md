@@ -8,10 +8,10 @@ The owner's decision of 1 October 2026, given in the review session:
 
 ## Using it
 
-1. **Open the screen.** It is CLIVE's address followed by `/connections`, on the phone or tablet: `https://<your CLIVE>.<your tailnet>.ts.net/connections`. Add it to the home screen if you like.
+1. **Open the screen.** It is CLIVE's address followed by `/connections`, on your phone: `https://<your CLIVE>.<your tailnet>.ts.net/connections`. Add it to the home screen if you like.
 2. **Set up your passkey** (Face ID, a fingerprint or the device PIN), once per device.
-   - The first one is set up from your own device. Every later one is approved by a passkey you already have.
-   - On the tablet, *Add this device* asks for an existing passkey. Choose "use a phone", scan the code with the iPhone and approve there; then the tablet makes its own.
+   - Set up the first one on **your own phone**, before anything else: until one exists, the screen lets the first device that opens it make one. Every later one is approved by a passkey you already have, and the server itself can never make one or approve a change.
+   - **Not on a shared tablet.** A passkey on the shop tablet approves with that tablet's PIN, so anyone who knows it could change a key or let someone onto the team. Keep passkeys on devices only you unlock.
    - The iPhone and the iPad share passkeys through iCloud Keychain.
 3. **Paste a key and tap Save.**
    - Your passkey is asked for.

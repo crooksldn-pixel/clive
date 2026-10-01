@@ -108,8 +108,11 @@ def encrypt(key: str, value: str) -> None:
         raise RuntimeError((completed.stderr or completed.stdout).strip()[:300] or "systemd-creds failed")
     target.chmod(0o600)
     # The latest choice wins: a value or a disconnection made in the app (app/secrets/vault.py)
-    # would otherwise go on overriding what was just stored here.
-    vault.clear(key)
+    # would otherwise go on overriding what was just stored here. Not at once, though: the running
+    # service still holds the credential from before, and clearing the app tier now would hand it
+    # that one, perhaps a key the owner disconnected because it leaked. The tier steps aside when
+    # the service next starts and loads this one.
+    vault.yield_at_restart(key)
 
 
 def control_characters(value: str) -> int:
@@ -172,11 +175,15 @@ def generate_media_key() -> int:
 
 
 def remove_one(key: str) -> int:
-    vault.clear(key)   # whatever the app stored or disconnected goes too
     if provisioned_encrypted(key):
+        # The running service holds this credential until it restarts: disconnecting it in the app
+        # tier makes it absent now, rather than letting the service go on using it (or bringing a
+        # key back that the app had disconnected).
+        vault.disconnect(key)
         encrypted_path(key).unlink()
-        print(f"  removed {key} (encrypted credential; restart the service to drop it)")
+        print(f"  removed {key} (encrypted credential; absent at once, and gone from the service when it next restarts)")
         return 0
+    vault.clear(key)   # whatever the app stored or disconnected goes too
     keychain.delete(key)
     print(f"  removed {key}")
     return 0

@@ -14,7 +14,9 @@ is the owner's latest explicit choice, made with a passkey, so it wins. Disconne
 app leaves a mark here (<key>.off) that wins the same way, so a key the server still holds in A
 or B reads as absent until the owner connects it again. Storing a key at the server prompt
 (scripts/provision_secrets.py) clears this tier first, so the latest choice wins whichever door
-it came through. A value this machine can no longer decrypt (a new TPM state, a restored disk)
+it came through; a systemd credential stored there reaches the service only at its next start, so
+for one of those this tier steps aside at that start and not before (yield_at_restart), and
+removing one leaves it disconnected here, so the running service never falls back to it. A value this machine can no longer decrypt (a new TPM state, a restored disk)
 reads as absent, never as the older key underneath it: the owner may have replaced that one
 because it leaked.
 
@@ -44,6 +46,7 @@ from app.secrets import linux_store
 DIR_NAME = "app"           # under the writable tier: <secret dir>/app, 0700
 SUFFIX = ".cred"           # an encrypted value
 OFF_SUFFIX = ".off"        # disconnected from the app: an empty mark
+PROMPT_SUFFIX = ".prompt"  # the server prompt stored a new systemd credential: step aside once it is loaded
 TIMEOUT_S = 20.0
 MAX_VALUE = 16 * 1024      # an API key, an id, an OAuth token: never more than this
 PROBE_KEY = "clive-vault-probe"
@@ -52,6 +55,9 @@ DIR_MODE = 0o700
 FILE_MODE = 0o600
 # A machine that could not encrypt is asked again after this long; one that could is not asked again.
 RECHECK_S = 60.0
+# When this process started, near enough: the service imports this module as it starts. A .prompt
+# mark written before it means the systemd credential the mark waits for is the one now loaded.
+_STARTED = time.time()
 
 
 class VaultUnavailable(RuntimeError):
@@ -152,6 +158,30 @@ def _off(key: str) -> Path:
     return directory() / f"{key}{OFF_SUFFIX}"
 
 
+def _prompt(key: str) -> Path:
+    return directory() / f"{key}{PROMPT_SUFFIX}"
+
+
+def _settle(key: str) -> None:
+    """Under _LOCK: step aside for a systemd credential the server prompt stored, once this process
+    started after it was stored (yield_at_restart). Before that, this tier's answer stands."""
+    mark = _prompt(key)
+    try:
+        written = mark.stat().st_mtime
+    except OSError:
+        return                          # no mark, or none this process may see: the answer stands
+    if written >= _STARTED:
+        return                          # this process still holds the credential from before it
+    try:
+        _blob(key).unlink(missing_ok=True)
+        _off(key).unlink(missing_ok=True)
+        mark.unlink(missing_ok=True)
+    except OSError:
+        return
+    _CACHE.pop(key, None)
+    _BAD.pop(key, None)
+
+
 def _signature(path: Path) -> tuple[int, int, int] | None:
     try:
         info = path.stat()
@@ -188,6 +218,7 @@ def entry(key: str) -> Entry:
     if _keychain_tier():
         return Entry("none")
     with _LOCK:
+        _settle(key)
         blob = _blob(key)
         signature = _signature(blob)
         if signature is None:
@@ -268,6 +299,7 @@ def store(key: str, value: str) -> None:
         target = _blob(key)
         _write_atomically(target, blob)
         _off(key).unlink(missing_ok=True)
+        _prompt(key).unlink(missing_ok=True)       # the owner's latest choice, made after the prompt's
         _BAD.pop(key, None)
         signature = _signature(target)
         if signature is not None:
@@ -291,6 +323,7 @@ def disconnect(key: str) -> None:
     with _LOCK:
         _ensure_directory()
         _blob(key).unlink(missing_ok=True)
+        _prompt(key).unlink(missing_ok=True)
         _CACHE.pop(key, None)
         _BAD.pop(key, None)
         _write_atomically(_off(key), b"")
@@ -304,8 +337,25 @@ def clear(key: str) -> None:
     with _LOCK:
         _blob(key).unlink(missing_ok=True)
         _off(key).unlink(missing_ok=True)
+        _prompt(key).unlink(missing_ok=True)
         _CACHE.pop(key, None)
         _BAD.pop(key, None)
+
+
+def yield_at_restart(key: str) -> None:
+    """The server prompt has just stored a new systemd credential (Tier A) for `key`, which the
+    service loads only when it next starts. Until then this tier's answer stands: a key the owner
+    disconnected in the app stays disconnected, instead of the old credential the running service
+    still holds coming back, which may be the very key he disconnected because it leaked. Once the
+    service has started after this, the tier steps aside and the new credential is read (the
+    1 October review, finding 2). Nothing to do when this tier holds nothing for the key."""
+    if _keychain_tier():
+        return
+    with _LOCK:
+        if not (_exists(_blob(key)) or _exists(_off(key))):
+            return
+        _ensure_directory()
+        _write_atomically(_prompt(key), b"")
 
 
 def check() -> tuple[bool, str]:

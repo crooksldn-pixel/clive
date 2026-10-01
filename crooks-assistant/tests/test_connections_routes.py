@@ -8,6 +8,7 @@ and every service answered by an httpx.MockTransport: nothing reaches the networ
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from urllib.parse import parse_qs, urlsplit
@@ -122,9 +123,16 @@ async def approval(http, action, device=None):
     return (device or http.device).get(asked.json()["publicKey"])
 
 
+def sealed(values):
+    """The values as the page sends them, and the digest its passkey signs (app/routes/connections.py)."""
+    text = json.dumps(values)
+    return text, hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 async def save(http, name, values):
+    text, digest = sealed(values)
     return await http.post(f"/connections/{name}", headers=HEADERS,
-                           json={"values": values, "approval": await approval(http, f"save:{name}")})
+                           json={"values_json": text, "approval": await approval(http, f"save:{name}:{digest}")})
 
 
 # ------------------------------------------------------------------ the page and the door
@@ -176,31 +184,29 @@ async def test_a_change_needs_this_clives_own_address_as_its_origin(world):
     await register(world)
     for origin in ("https://elsewhere.ts.net", "http://clive.tailnet-test.ts.net", ""):
         headers = {**HEADERS, "Origin": origin} if origin else {k: v for k, v in HEADERS.items() if k != "Origin"}
-        asked = await world.post("/connections/approve", json={"action": "save:elevenlabs"}, headers=headers)
+        asked = await world.post("/connections/approve", json={"action": "disconnect:elevenlabs"}, headers=headers)
         assert asked.status_code == 403, origin
 
 
 async def test_every_change_needs_its_own_fresh_passkey(world):
     await register(world)
-    missing = await world.post("/connections/elevenlabs", json={"values": {"elevenlabs_api_key": KEY}},
-                               headers=HEADERS)
+    text, digest = sealed({"elevenlabs_api_key": KEY})
+    missing = await world.post("/connections/elevenlabs", json={"values_json": text}, headers=HEADERS)
     assert missing.status_code == 403 and missing.json()["code"] == "passkey_missing"
-    other = await approval(world, "save:youtube")
-    wrong = await world.post("/connections/elevenlabs", json={"values": {"elevenlabs_api_key": KEY},
-                                                                 "approval": other}, headers=HEADERS)
+    other = await approval(world, f"save:youtube:{digest}")
+    wrong = await world.post("/connections/elevenlabs", json={"values_json": text, "approval": other}, headers=HEADERS)
     assert wrong.status_code == 403 and wrong.json()["code"] == "passkey_stale"
-    good = await approval(world, "save:elevenlabs")
-    first = await world.post("/connections/elevenlabs", json={"values": {"elevenlabs_api_key": KEY},
-                                                                 "approval": good}, headers=HEADERS)
+    good = await approval(world, f"save:elevenlabs:{digest}")
+    first = await world.post("/connections/elevenlabs", json={"values_json": text, "approval": good}, headers=HEADERS)
     assert first.status_code == 200
-    again = await world.post("/connections/elevenlabs", json={"values": {"elevenlabs_api_key": KEY},
-                                                                 "approval": good}, headers=HEADERS)
+    again = await world.post("/connections/elevenlabs", json={"values_json": text, "approval": good}, headers=HEADERS)
     assert again.status_code == 403 and again.json()["code"] == "passkey_stale"
 
 
 async def test_an_unknown_action_is_never_given_a_prompt(world):
     await register(world)
-    for action in ("save:gmail", "save:nothing", "drop:everything", "passkey:remove:../x", "x" * 2000):
+    for action in ("save:gmail", "save:nothing", "save:elevenlabs", "save:elevenlabs:" + "0" * 63,
+                   "save:elevenlabs:" + "G" * 64, "drop:everything", "passkey:remove:../x", "x" * 2000):
         asked = await world.post("/connections/approve", json={"action": action}, headers=HEADERS)
         assert asked.status_code == 400, action
 
@@ -244,8 +250,7 @@ async def test_a_key_that_fails_its_test_is_never_stored(world):
 ])
 async def test_what_no_key_could_be_is_refused_before_any_test(world, values, code):
     await register(world)
-    done = await world.post("/connections/elevenlabs", headers=HEADERS,
-                            json={"values": values, "approval": await approval(world, "save:elevenlabs")})
+    done = await save(world, "elevenlabs", values)
     assert done.status_code == 400 and done.json()["code"] == code
     assert not [c for c in world.services.calls if c.url.host == "api.elevenlabs.io"]
 
@@ -392,3 +397,35 @@ def test_the_app_serves_every_connections_route_where_the_door_walk_can_see_it()
     assert {"/connections", "/connections/state", "/connections/approve", "/connections/passkeys/begin",
             "/connections/passkeys", "/connections/instagram/sign-in", "/connections/instagram/callback",
             "/connections/{name}", "/connections/{name}/test", "/connections/{name}/disconnect"} <= paths
+
+
+async def test_the_server_itself_never_sets_up_a_passkey_or_changes_a_key(world):
+    """The 1 October review (finding 1): with CROOKS_LOCAL_OWNER on, the server is the owner for his
+    reads, but a process on it must not take the first passkey, approve a change or store a key."""
+    world.runtime.settings = world.runtime.settings.model_copy(update={"local_owner": True})
+    local = {"Origin": ORIGIN, "Host": RP_ID}
+    text, digest = sealed({"elevenlabs_api_key": KEY})
+    for path, sent in (("/connections/passkeys/begin", {}), ("/connections/approve", {"action": f"save:elevenlabs:{digest}"}),
+                       ("/connections/elevenlabs", {"values_json": text}),
+                       ("/connections/elevenlabs/disconnect", {}), ("/connections/elevenlabs/test", {})):
+        refused = await world.post(path, json=sent, headers=local)
+        assert refused.status_code == 403 and refused.json()["code"] == "not_from_the_server", path
+    assert passkeys.count() == 0
+
+
+async def test_an_approval_covers_the_values_it_was_given_for_and_no_others(world):
+    """The 1 October review (finding 3): a passkey tap approved for one key never stores another, even
+    one sent in the same request by something on the owner's device."""
+    await register(world)
+    text, digest = sealed({"elevenlabs_api_key": KEY})
+    swapped, _ = sealed({"elevenlabs_api_key": elevenlabs_key("someone-elses")})
+    approved = await approval(world, f"save:elevenlabs:{digest}")
+    done = await world.post("/connections/elevenlabs", json={"values_json": swapped, "approval": approved},
+                            headers=HEADERS)
+    assert done.status_code == 403 and done.json()["code"] == "passkey_stale"
+    assert linux_store.where("elevenlabs_api_key") == ""
+    assert not [c for c in world.services.calls if c.url.host == "api.elevenlabs.io"]
+    for unreadable in (None, "", "{not json", {"elevenlabs_api_key": KEY}):
+        refused = await world.post("/connections/elevenlabs", headers=HEADERS, json={
+            "values_json": unreadable, "approval": await approval(world, f"save:elevenlabs:{digest}")})
+        assert refused.status_code == 400 and refused.json()["code"] == "bad_request", unreadable

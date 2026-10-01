@@ -78,6 +78,11 @@
     return 'That did not work. Nothing changed.';
   }
 
+  async function seal(text) {
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
   async function approve(action) {
     const asked = await call('/connections/approve', { action: action });
     if (!asked.ok) throw asked;
@@ -246,9 +251,12 @@
     busy(card, true);
     result(card, '', 'Asking for your passkey…');
     try {
-      const approval = await approve('save:' + connection.name);
+      // The passkey signs these very values: the server hashes the text it receives and refuses an
+      // approval made for any other (app/routes/connections.py, sealed).
+      const text = JSON.stringify(values);
+      const approval = await approve('save:' + connection.name + ':' + await seal(text));
       result(card, '', 'Testing it with ' + connection.label + '…');
-      const done = await call('/connections/' + connection.name, { values: values, approval: approval });
+      const done = await call('/connections/' + connection.name, { values_json: text, approval: approval });
       if (!done.ok) throw done;
       for (const input of form.querySelectorAll('input[type="password"]')) input.value = '';
       result(card, 'ok', done.result.detail);

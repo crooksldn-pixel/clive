@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import hashlib
 import json
 import logging
 import re
@@ -34,6 +35,7 @@ WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
 MAX_BODY = 64 * 1024
 CREDENTIAL_ID = re.compile(r"^[A-Za-z0-9_-]{16,1400}$")
 NAME = re.compile(r"^[a-z]{2,20}$")
+SEAL = re.compile(r"^[0-9a-f]{64}$")
 
 
 class _Refused(Exception):
@@ -57,6 +59,12 @@ def _who(request: Request) -> str:
     who, why = principal_check(request)
     if not who:
         raise _Refused(403, "not_the_owner", why or "This is the owner's.")
+    if who == "local":
+        # The server itself, under CROOKS_LOCAL_OWNER or CROOKS_WRITES_LOCAL_OWNER: other processes run
+        # on it, and none of them may set up a passkey, approve a change or store a key. The owner's own
+        # device, through Tailscale, does all of that (the 1 October review, finding 1).
+        raise _Refused(403, "not_from_the_server", "Keys and passkeys are changed from your own phone or Mac, "
+                                                   "through CLIVE's Tailscale address, never from the server itself.")
     return who
 
 
@@ -192,9 +200,28 @@ async def connections_state(request: Request) -> JSONResponse:
 
 # ------------------------------------------------------------------ passkeys
 
+def sealed(text: Any) -> tuple[str, Any]:
+    """The digest a save's passkey signs, and the values it covers. The page sends the values as one
+    JSON text and signs `save:<name>:<SHA-256 of that text>`; the server hashes the very text it
+    received, so the approval covers these values and no others, with no canonical form to agree on
+    (the 1 October review, finding 3). Raises _Refused for anything that is not such a text."""
+    if not isinstance(text, str) or not text or len(text) > MAX_BODY:
+        raise _Refused(400, "bad_request", "The screen sent something unreadable. Reload it.")
+    try:
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        values = json.loads(text)
+    except (UnicodeEncodeError, ValueError):
+        raise _Refused(400, "bad_request", "The screen sent something unreadable. Reload it.") from None
+    return digest, values
+
+
 def _known_action(action: str) -> bool:
     kind, _, rest = action.partition(":")
-    if kind in ("save", "disconnect"):
+    if kind == "save":
+        name, _, digest = rest.partition(":")
+        connection = catalog.get(name)
+        return connection is not None and bool(connection.fields) and bool(SEAL.fullmatch(digest))
+    if kind == "disconnect":
         connection = catalog.get(rest)
         return connection is not None and bool(connection.fields)
     if kind == "signin":
@@ -203,11 +230,18 @@ def _known_action(action: str) -> bool:
         verb, _, identity = rest.partition(":")
         return (verb == "add" and not identity) or (verb == "remove" and bool(CREDENTIAL_ID.fullmatch(identity)))
     if kind == "access":
-        # Letting a member of the team in, or taking their access away (app/routes/today.py).
-        from app.people.store import people
+        # Letting a member of the team in, with the login the owner was shown, or taking their access
+        # away (app/routes/today.py). The login is part of what the passkey signs.
+        from app.people.store import LOGIN, people
 
-        verb, _, person_id = rest.partition(":")
-        person = people.get(person_id) if verb in ("approve", "suspend") and person_id else None
+        verb, _, target = rest.partition(":")
+        person_id, _, login = target.partition(":")
+        if verb == "approve":
+            if not LOGIN.fullmatch(login):
+                return False
+        elif verb != "suspend" or login:
+            return False
+        person = people.get(person_id) if person_id else None
         return person is not None and person.kind == "staff"
     return False
 
@@ -349,14 +383,18 @@ async def connections_disconnect(request: Request, name: str) -> JSONResponse:
 @router.post("/connections/{name}")
 @_guarded
 async def connections_save(request: Request, name: str) -> JSONResponse:
-    """Test the new values with the service, and store them only if that worked."""
+    """Test the new values with the service, and store them only if that worked. The passkey signed
+    these very values (sealed): an approval given for one key never stores another."""
     who = _who(request)
     origin, _ = _origin(request)
     device = _device(request)
     name = _connection(name)
     body = await _body(request)
-    _approve(body, f"save:{name}", who=who, origin=origin, device=device)
-    outcome = await service.save(getattr(request.app.state, "runtime", None), name, body.get("values"),
+    if body.get("approval") is None:
+        _approve(body, f"save:{name}", who=who, origin=origin, device=device)      # says "needs your passkey"
+    digest, values = sealed(body.get("values_json"))
+    _approve(body, f"save:{name}:{digest}", who=who, origin=origin, device=device)
+    outcome = await service.save(getattr(request.app.state, "runtime", None), name, values,
                                  who=who, device=device)
     if not outcome.ok:
         return JSONResponse(status_code=422, content={"ok": False, "code": "test_failed", "detail": outcome.detail},

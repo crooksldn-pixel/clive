@@ -272,8 +272,12 @@
 
   async function accessStep(person, verb) {
     try {
-      const approval = await approve('access:' + verb + ':' + person.person_id);
-      const done = await call('/today/access/' + encodeURIComponent(person.person_id) + '/' + verb, { approval: approval });
+      // Letting someone in signs the login shown beside their name, so the passkey approves that
+      // login and no other (app/routes/today.py).
+      const login = verb === 'approve' ? (person.login || '') : '';
+      const approval = await approve('access:' + verb + ':' + person.person_id + (login ? ':' + login : ''));
+      const done = await call('/today/access/' + encodeURIComponent(person.person_id) + '/' + verb,
+        login ? { approval: approval, login: login } : { approval: approval });
       if (!done.ok) throw done;
       notice('ok', verb === 'approve' ? person.name + ' can use CLIVE now, from their own phone.' : person.name + "'s access is taken away.");
     } catch (error) {
