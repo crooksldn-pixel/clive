@@ -240,7 +240,8 @@ class Runtime:
                 log.debug("stopping a team member's old assistant failed", exc_info=True)
 
     def system_prompt(self) -> str:
-        return build_system_prompt(self.kb, writes_enabled=self.settings.writes_enabled)
+        return build_system_prompt(self.kb, writes_enabled=self.settings.writes_enabled,
+                                   skills=offered_skills(self.settings))
 
     @property
     def allowed_logins(self) -> tuple[str, ...]:
@@ -486,6 +487,28 @@ def connections_dir(settings: Any) -> Path:
         return linux_store.store_dir() / vault.DIR_NAME
     return Path(settings.objectives_dir) / "connections"
 
+def offered_skills(settings: Any) -> tuple[str, ...]:
+    """The installed skills the system prompt names (app/kb/loader.py), and only while both skill
+    tools are offered: registered, admitted by the gate, not withheld from the model, and their
+    family offerable. Otherwise none, so the prompt is the one it always was."""
+    from app.capabilities import families
+    from app.providers.max_agent_sdk import withheld_tools
+    from app.tools import registry
+    from app.tools.gate import classify
+
+    tools = ("skill_list", "skill_read")
+    specs = registry.all_specs()
+    offered = {s.name for s in specs} - withheld_tools(specs, writes_enabled=bool(settings.writes_enabled))
+    family = families.get("skills")
+    if family is None or family.state not in families.OFFERABLE:
+        return ()
+    if not all(name in offered and classify(name).executes for name in tools):
+        return ()
+    from app.tools import skill_tools
+
+    return skill_tools.installed_names()
+
+
 def build(settings: Settings | None = None) -> Runtime:
     settings = settings or get_settings()
     settings.log_dir.mkdir(parents=True, exist_ok=True)
@@ -558,6 +581,7 @@ def build(settings: Settings | None = None) -> Runtime:
         shopify_tools,
         shopify_writes,
         show_again,
+        skill_tools,
     )
     from app.work import tools as work_tools_module  # noqa: F401 - registers work_list, work_note
 
@@ -619,6 +643,8 @@ def build(settings: Settings | None = None) -> Runtime:
     # life (never the token) is kept beside CLIVE's other records, for /health.
     instagram_tools.configure(api_version=settings.instagram_api_version,
                               state_path=settings.objectives_dir / "instagram.json")
+    # The installed skills, read as text and never run (app/tools/skill_tools.py).
+    skill_tools.configure(skills_dir=settings.skills_dir)
     # The Connections screen (app/connections): the owner's passkeys and the record of changes to
     # connections live beside the keys stored from the app, in the root-only secret directory on
     # Linux; on a Mac, whose keys are in the Keychain, beside CLIVE's other records.
@@ -631,7 +657,8 @@ def build(settings: Settings | None = None) -> Runtime:
 
     kb = load(settings.kb_dir)
     provider = MaxAgentSDKProvider(
-        system_prompt=build_system_prompt(kb, writes_enabled=settings.writes_enabled),
+        system_prompt=build_system_prompt(kb, writes_enabled=settings.writes_enabled,
+                                          skills=offered_skills(settings)),
         model=settings.claude_model,
         session_lookup=sessions.get_or_create,
         tool_timeout_s=settings.tool_timeout_s,

@@ -199,5 +199,6 @@ def test_the_tool_block_stays_within_its_budget():
     # The same ceiling as tests/test_registry.py, moved with it: 43,902 when this change fitted
     # alone, 43,918 once closing an objective out landed beside it (+16, measured; that file says
     # tool by tool where the bytes went), 46,131 with the team's four tools (+2,213, measured), and
-    # 46,787 with a custom item on an existing order (shopify_order_add_custom_item, +656, measured).
-    assert total <= 46_787, f"the tool block is {total} bytes"
+    # 46,787 with a custom item on an existing order (shopify_order_add_custom_item, +656, measured),
+    # and 47,459 with the installed skills (skill_list 217 and skill_read 455 bytes, +672, measured).
+    assert total <= 47_459, f"the tool block is {total} bytes"

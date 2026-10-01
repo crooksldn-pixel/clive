@@ -414,7 +414,12 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # of 1 October 2026: "add a £15 rush alteration to order 1930" prepared as the same priced card
     # and hold as adding a catalogue item. The ceiling is raised by exactly what was measured,
     # leaving no headroom.
-    assert total <= 46_787, f"the tool block is {total} bytes"
+    #
+    # 47_459 is the installed skills, read as text and never run (app/tools/skill_tools.py,
+    # tests/test_skill_tools.py), +672 bytes measured (46,787 before, 47,459 after): skill_list 217
+    # (no arguments) and skill_read 455 (a name, a file and an offset). The ceiling is raised by
+    # exactly what was measured, leaving no headroom.
+    assert total <= 47_459, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

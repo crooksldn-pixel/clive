@@ -350,6 +350,7 @@ const DETAIL_WORDS = {
   show_again: ['Bringing back', 'what you had open'],
   // Round 12, the second pass: "close that", "put it away" (app/tools/close_screen.py).
   close_screen: ['Clearing', 'your screen'],
+  skill_list: ['Listing', 'skills'], skill_read: ['Reading', 'the skill'],
 };
 const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;
