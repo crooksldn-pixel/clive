@@ -325,7 +325,7 @@ def made(operation="fulfillment_create", entity=ORDER_1.removeprefix("order:"), 
 def let_in(person_id="mia"):
     people.note({"name": person_id.title(), "kind": "staff", "login": f"{person_id}@example.com"})
     access.ask(person_id, f"{person_id}@example.com")
-    access.approve(person_id, by="owner", passkey="pk")
+    access.approve(person_id, login=f"{person_id}@example.com", by="owner", passkey="pk")
 
 
 def test_a_fulfilment_closes_the_job_it_was_for_in_the_name_of_who_confirmed_it():
