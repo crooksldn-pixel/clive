@@ -3435,19 +3435,21 @@
       // Rule 3's sibling, and the other half of D-2: a patch does not move the tab the owner
       // is READING. Whatever the payload would have opened, the card comes back on the tab it
       // was on — the same discipline as the keyboard and the caret below.
+      // The card it takes the place of counts as well: one order read under its other key comes
+      // as a patch that replaces its own earlier card (app/render.py `same_record`).
       const base = settings.opts || settings.renderOpts || {};
-      const reading = tabOpenOn(existing);
+      const standin = text(patch.replaces) ? byRender(host, text(patch.replaces)) : null;
+      const target = existing || standin;
+      const reading = tabOpenOn(target);
       let node = renderItem(item, reading ? Object.assign({}, base, { tabNow: reading }) : base);
       if (!node) continue;
       node.dataset.render = id;
-      const standin = text(patch.replaces) ? byRender(host, text(patch.replaces)) : null;
-      const target = existing || standin;
       if (target && target.parentNode) {
         // Rule 4 and rule 1: the new card takes the old one's PLACE. Nothing above or below
         // it is touched, the scroller keeps its offset, and the page is not rebuilt.
         node.dataset.patched = '1';
         target.parentNode.replaceChild(node, target);
-        out[existing ? 'changed' : 'added'] += 1;
+        out[existing || op === 'data' ? 'changed' : 'added'] += 1;
       } else {
         host.appendChild(node);
         out.added += 1;
@@ -3466,10 +3468,22 @@
     return wrap && wrap.dataset ? text(wrap.dataset.tab) : '';
   }
 
+  // The first card under `host`, in document order, whose render id is `id`. The id is compared,
+  // never put into a selector: one built from a title or a subject can hold a quote, a backslash
+  // or a bracket, and an unescaped one made querySelectorAll throw and abort the whole batch.
   function byRender(host, id) {
     if (!host || !id) return null;
-    const all = host.querySelectorAll ? host.querySelectorAll(`[data-render="${id}"]`) : [];
-    return (all.length ? all[0] : null) || null;
+    const walk = (node) => {
+      const kids = node.children || [];
+      for (let i = 0; i < kids.length; i++) {
+        const kid = kids[i];
+        if (kid.dataset && kid.dataset.render === id) return kid;
+        const inner = walk(kid);
+        if (inner) return inner;
+      }
+      return null;
+    };
+    return walk(host);
   }
 
   // Rule 3. Which field the owner is typing in, by NAME, and where the caret is. A patch that
