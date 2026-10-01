@@ -21,11 +21,23 @@ from app.routes.actions import require_principal
 router = APIRouter(prefix="/objectives", dependencies=[Depends(require_principal)])
 
 
+class TaskIn(BaseModel):
+    who: str = Field(max_length=200)
+    text: str = Field(max_length=2000)
+    due: str | None = Field(default=None, max_length=10)
+
+
 class CreateBody(BaseModel):
     request: str = Field(min_length=1, max_length=4000)
     title: str = Field(default="", max_length=120)
     deadline: str | None = Field(default=None, max_length=10)
     kind: str = Field(default="business", max_length=20)
+    # A project is opened with its stages, in order, and a tasks objective with its tasks, each with
+    # who does it (ObjectiveStore.create). Without them both kinds were always refused here. The
+    # bounds only keep a request small: the store refuses past its own limits, whole and in words
+    # (a project's eleventh stage, a sixty-first task), before anything is recorded.
+    stages: list[str] = Field(default_factory=list, max_length=40)
+    tasks: list[TaskIn] = Field(default_factory=list, max_length=200)
 
 
 class TextBody(BaseModel):
@@ -104,7 +116,8 @@ async def create_objective(body: CreateBody) -> dict | JSONResponse:
     title = body.title.strip() or " ".join(body.request.split()[:6])
     try:
         return _full(store().create(title=title, request=body.request, deadline=body.deadline, by="owner",
-                                    kind=body.kind))
+                                    kind=body.kind, stages=list(body.stages) or None,
+                                    tasks=[task.model_dump() for task in body.tasks] or None))
     except ObjectiveError as exc:
         return _refused(exc)
 

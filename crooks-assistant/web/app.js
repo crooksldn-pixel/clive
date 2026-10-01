@@ -3731,10 +3731,18 @@ function renderTimings(timings, transcript) {
 // is driven by the tool that is running, never inferred from the question.
 const STATE_POLL_MS = 400;
 const STATE_POLL_TIMEOUT_MS = 5000;
+// Each polling run has its own number, and stopping the poll moves it on. Clearing the interval
+// does not recall a request already out: its answer can land during the next turn, or after the
+// focus moved to the other half, and must then be dropped rather than drawn over that turn.
+let statePollRun = 0;
 function startStatePolling() {
   stopStatePolling();
+  const run = statePollRun;
+  const half = turnKey(focusedBranch);   // the half this run was started for
+  const current = () => run === statePollRun && turnKey(focusedBranch) === half;
   let inFlight = false;   // a tick while the last poll is still out is skipped, never stacked
   const tick = async () => {
+    if (!current()) return;   // a run that has stopped, or was for the other half, asks nothing
     if (!busy || inFlight || document.hidden) return;
     inFlight = true;
     const controller = new AbortController();
@@ -3743,7 +3751,7 @@ function startStatePolling() {
       const url = `/state/${encodeURIComponent(sessionId)}?since=${encodeURIComponent(String(glass.cursor))}`
         + (focusedBranch ? `&branch_id=${encodeURIComponent(focusedBranch)}` : '');
       const data = await (await fetch(url, { cache: 'no-store', signal: controller.signal })).json();
-      if (!busy || !data.known) return;
+      if (!current() || !busy || !data.known) return;
       // The workspace as it stands, patched in place. A card the reads have already produced
       // is readable NOW; the turn's own answer reconciles against it when it comes.
       if (data.workspace) applyWorkspace(data.workspace);
@@ -3769,7 +3777,10 @@ function startStatePolling() {
   statePoll = setInterval(tick, STATE_POLL_MS);
   setTimeout(tick, 60);
 }
-function stopStatePolling() { if (statePoll) { clearInterval(statePoll); statePoll = null; } }
+function stopStatePolling() {
+  statePollRun += 1;
+  if (statePoll) { clearInterval(statePoll); statePoll = null; }
+}
 
 const SPEAK_HEADERS_TIMEOUT_MS = 6000;    // the Mac gives a prefetch 4 s for its first byte; past this, Android speaks
 let turnAbort = null;         // the focused half's in-flight /turn, so holding through a slow one can drop it
@@ -3827,7 +3838,8 @@ async function submit(body, isAudio) {
     // queued behind a dead one.
     cancelTurn(cancelForm(askedBranch), 'it will time out on its own');
   }, TURN_TIMEOUT_MS);
-  inflight.set(key, { controller, startedAt, timeout });
+  const entry = { controller, startedAt, timeout };
+  inflight.set(key, entry);
   syncBusy();
   // Whether the owner is still looking at the half that asked. Checked when the answer
   // lands: an answer for the other half goes to the Mac's copy of that half's screen
@@ -3928,7 +3940,10 @@ async function submit(body, isAudio) {
     if (!controller.signal.aborted) setTimeout(checkReachable, 0);   // after `finally` clears busy
   } finally {
     clearTimeout(timeout);
-    inflight.delete(key);
+    // This turn's own entry, under whatever key it has now: a first question asked before the
+    // page knew its half went in as '_' and was moved to the branch id when the answer named it
+    // (noteBranch). Deleting only `key` left that entry behind and the page busy for good.
+    for (const [held, value] of Array.from(inflight)) if (value === entry) inflight.delete(held);
     // However the turn ended (answered on the other half, refused, failed, cancelled), the live
     // words of the hold that asked it are not kept: settled with the Mac's question when it said
     // one, and cleared when it did not.

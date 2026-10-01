@@ -449,14 +449,26 @@
     for (const e of o.events.slice(-12).reverse()) {
       blocks.push(h('p', { class: 'alpha-event' }, h('span', { class: 'alpha-src', text: `${e.at.slice(5, 16).replace('T', ' ')} · ${e.by} · ` }), e.text));
     }
+    // Why Mark done did not close it, said on the sheet itself, where the owner is looking.
+    const notDone = h('p', { class: 'alpha-blocked', role: 'status', 'data-alpha': 'mark_done_failed', hidden: true });
     blocks.push(h('div', { class: 'row-btns' },
       h('button', { class: 'btn', type: 'button', text: 'Mark done', 'data-alpha': 'mark_done', onclick: async () => {
         // Named, so the owner confirms the objective this closes, not whichever he thinks is open.
         if (!confirm(`Close "${o.title}" as done?`)) return;
-        await api(`/objectives/${o.id}/status`, { status: 'done' }).catch((err) => flash(String(err.message || err)));
+        notDone.textContent = '';
+        notDone.hidden = true;
+        try {
+          await api(`/objectives/${o.id}/status`, { status: 'done' });
+        } catch (err) {
+          // The server did not confirm it, so it is still open: its sheet stays up and says why,
+          // and the home is not redrawn as though it had closed.
+          const why = `Not marked done. ${String(err.message || err)}`;
+          if (current()) { notDone.textContent = why; notDone.hidden = false; } else flash(why);
+          return;
+        }
         if (current()) closeSheet();
         refresh();
-      } })));
+      } })), notDone);
     const was = sheet.querySelector('.sheet-scroll');
     const top = keepScroll && was ? was.scrollTop : 0;
     openSheet(...blocks);

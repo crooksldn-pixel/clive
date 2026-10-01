@@ -884,6 +884,25 @@ test('a working set says what "these" means and what it comes to, and keeps its 
   assert.ok(!textOf(correlated).includes('from '), 'a set with no parent claims none');
 });
 
+test('the hostile-text query finds a real img and a real script element, so its assertions can fail (TW-01)', () => {
+  // The control for 'script, img' above and in the batch card below: the same query, on the same
+  // kind of rendered node, with real markup put into it. Before the stand-in answered a list of
+  // selectors it found nothing here, and the hostile-text assertions could never fail.
+  const node = UI.render([{ type: 'working_set', data: { set_id: 'set_ctl', kind: 'orders', count: 1, label: 'Control', step: 'query', sample: [], lines: [] } }]).nodes[0];
+  assert.equal(node.querySelectorAll('script, img').length, 0, 'nothing of either before');
+  const img = shim.document.createElement('img');
+  const wrap = shim.document.createElement('div');
+  const script = shim.document.createElement('script');
+  node.appendChild(img);
+  wrap.appendChild(script);
+  node.appendChild(wrap);
+  const found = node.querySelectorAll('script, img');
+  assert.equal(found.length, 2);
+  assert.equal(found[0], img, 'in document order, each once');
+  assert.equal(found[1], script, 'a nested one too');
+  assert.equal(node.querySelectorAll('img, img').length, 1, 'an element matched by two parts of the list is counted once');
+});
+
 test('a working set strip does not re-list the members the card above it just listed', () => {
   // The sample is still on the wire — the model and the batch card both use it — and the strip
   // deliberately does not draw it. This is the duplication the Phase 2 audit measured.
