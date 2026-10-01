@@ -498,6 +498,24 @@ def test_reading_never_writes_creates_or_locks_the_store_or_the_runtime(world, m
     assert not (bare_runtime / "landings").exists() and not (world.tmp / "no-runtime").exists()
 
 
+@pytest.mark.parametrize("root", ["store", "runtime"])
+@pytest.mark.parametrize("option", ["--json", "--markdown"])
+def test_an_output_inside_the_store_or_the_runtime_is_refused(world, capsys, root, option):
+    tree = getattr(world, root)
+    before = (snapshot(world.store), snapshot(world.runtime))
+    targets = (
+        tree / "objectives" / "alpha.json" if root == "store" else tree / "landings" / "alpha.json",
+        tree / "new-dir" / "deeper" / "out.json",
+        world.tmp / "elsewhere" / ".." / tree.name / "report.md",
+    )
+    for target in targets:
+        assert cli.main(["--store", str(world.store), "--runtime-root", str(world.runtime), "--no-trunk",
+                         option, str(target)]) == 2
+        assert f"inside the {root}" in capsys.readouterr().err
+    assert (snapshot(world.store), snapshot(world.runtime)) == before
+    assert not (tree / "new-dir").exists() and not (world.tmp / "elsewhere").exists()
+
+
 def test_no_finding_reason_or_note_text_reaches_the_report(world):
     # The records do hold every one of them, so their absence below is the reader's doing.
     held = b"".join(path.read_bytes() for path in world.store.rglob("*") if path.is_file())

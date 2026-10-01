@@ -102,6 +102,16 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("one of --status or --store is required")
     if not args.status and (args.deploy_log or args.attention_log):
         parser.error("--deploy-log and --attention-log go with --status; the loop's records hold neither")
+    if args.store is not None:
+        # The reader never writes into the trees it reads: refuse before any directory is made.
+        for path in (args.json_out, args.markdown_out):
+            if path is None:
+                continue
+            for name, root in (("store", args.store), ("runtime", args.runtime_root)):
+                if path.resolve().is_relative_to(root.resolve()):
+                    print(f"engineering_measures: refusing to write {path} inside the {name} {root}",
+                          file=sys.stderr)
+                    return 2
 
     report = loop_report = None
     try:
