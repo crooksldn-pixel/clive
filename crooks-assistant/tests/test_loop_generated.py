@@ -144,6 +144,47 @@ def test_a_builders_own_edit_of_a_generated_file_is_replaced_by_the_generators_o
     assert INDEX not in result.changed_paths          # back to the base's generated content: no change at all
 
 
+def test_a_builders_edit_of_an_output_its_generator_does_not_write_is_refused_never_admitted(tmp_path):
+    """The b577bc97 re-pin review, F-01: a generator that exits 0 without writing its output must not turn the
+    builder's own bytes there into "the generator's output", which the scope check then admits. The outputs are
+    cleared from the generator's copy first, so an output it does not write is refused."""
+    silent = {**PKG_INDEX, "argv": ["{python}", "-c", "pass"]}             # succeeds, writes nothing
+    w = generated_world(tmp_path, generators=(silent,))
+    w.scenarios({"edits": [["pkg/hello.txt", "hello\n"], [INDEX, "the builder's own words, out of scope\n"]]})
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.BLOCKED))
+    assert not w.store.read_results()                                        # nothing admitted, ever
+    first = w.store.read_attempts(OBJ)[0]
+    cancelled = [e.note for e in w.store.read_events(OBJ, first.attempt_id) if e.kind is EventKind.CANCELLED]
+    assert f"the generator pkg-index did not write {INDEX} as a regular file" in cancelled[0]
+    assert "every declared output must be written by its generator" in cancelled[0]
+
+
+def test_an_output_path_the_builder_turned_into_a_link_is_refused_and_nothing_it_names_is_touched(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "INDEX.md").write_text("not the tree's\n")
+    w = generated_world(tmp_path)
+    w.scenarios({"edits": [["pkg/hello.txt", "hello\n"]], "exec": []})
+    w.objective()
+    real_export = w.dispatcher().workspaces.export
+
+    def export_with_a_linked_docs(ws, head, target):
+        tree = real_export(ws, head, target)
+        shutil.rmtree(tree / "docs")
+        os.symlink(outside, tree / "docs")                                 # docs/ now names a folder elsewhere
+        return tree
+
+    d = w.dispatcher()
+    d.workspaces.export = export_with_a_linked_docs
+    w.run_until(w.status_is(TaskStatus.BLOCKED), dispatcher=d)
+    assert (outside / "INDEX.md").read_text() == "not the tree's\n"         # never followed, never removed
+    first = w.store.read_attempts(OBJ)[0]
+    cancelled = [e.note for e in w.store.read_events(OBJ, first.attempt_id) if e.kind is EventKind.CANCELLED]
+    assert f"has no plain file where the generator pkg-index writes {INDEX}" in cancelled[0]
+    assert "docs is not a directory on the way" in cancelled[0]
+
+
 def test_a_failing_generator_refuses_the_candidate_and_the_retry_is_shown_its_output(tmp_path):
     broken = {**PKG_INDEX, "argv": ["{python}", "-c", "import sys; print('generator exploded'); sys.exit(3)"]}
     w = generated_world(tmp_path, generators=(broken,))
