@@ -200,6 +200,18 @@ async def connections_state(request: Request) -> JSONResponse:
     return _answer(await asyncio.to_thread(service.state, runtime, origin=_shown_origin(request)))
 
 
+@router.post("/connections/check")
+@_guarded
+async def connections_check(request: Request) -> JSONResponse:
+    """What the screen asks as it opens: every connected service tested again, each at most once a
+    minute however often the screen is opened (service.check_all), then everything
+    /connections/state answers. Changes nothing, so asks no passkey."""
+    _who(request)
+    runtime = getattr(request.app.state, "runtime", None)
+    await service.check_all(runtime)
+    return _answer(await asyncio.to_thread(service.state, runtime, origin=_shown_origin(request)))
+
+
 # ------------------------------------------------------------------ passkeys
 
 def sealed(text: Any) -> tuple[str, Any]:

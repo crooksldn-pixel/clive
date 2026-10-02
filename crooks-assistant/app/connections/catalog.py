@@ -5,6 +5,14 @@ the app, whatever a request says.
 A field is a key in the secret store (app/secrets/keychain.py KNOWN_KEYS). A secret field is never
 shown again once stored, not even to the owner; an ID field (`secret=False`) is shown, because an
 app ID is not a secret and seeing it is how the owner checks the right one is in.
+
+What a connection lets CLIVE do is said three ways, all of them true of this build:
+  what      one plain line, the row's own ("Reads and edits your orders, customers and stock.")
+  unlocks   the capability families it powers (app/capabilities/families.py), by key: the screen
+            names each by its registered label and live state, so nothing is said that the
+            registry does not hold (tests/test_connections_page.py checks every key is registered)
+  abilities for a connection no family describes (the voice, video search), the same in words
+  without   what stops working when it is not connected, from what the code does without it
 """
 
 from __future__ import annotations
@@ -32,12 +40,52 @@ class Connection:
     family: str = ""           # the capability family whose live state the card shows
     sign_in: str = ""          # a "Sign in with …" button: "instagram"
     note: str = ""
+    unlocks: tuple[str, ...] = ()
+    abilities: tuple[str, ...] = ()
+    without: str = ""
+    # Connected somewhere other than this screen, for now: "server" (Gmail's `make gmail`).
+    set_up_at: str = ""
 
 
+# The order the screen keeps within each of its groups: the shop and the inbox first, because
+# most of what CLIVE does stands on them.
 CONNECTIONS: tuple[Connection, ...] = (
     Connection(
+        name="shopify", label="Shopify",
+        what="Reads and edits your orders, customers and stock.",
+        fields=(
+            Field("shopify_client_id", "Client ID", secret=False,
+                  hint="Shopify Dev Dashboard → the CLIVE app → Settings → Client ID."),
+            Field("shopify_client_secret", "Client secret", hint="Same page: Client secret."),
+        ),
+        requires=("shopify_client_id", "shopify_client_secret"), family="order_reads",
+        unlocks=("order_reads", "customer_reads", "product_reads", "analytics", "summary_surfaces",
+                 "abandoned_checkouts", "order_fulfil", "order_notes", "order_address", "order_refund",
+                 "order_cancel", "order_edit", "order_create", "inventory_set", "discount_create", "store_credit"),
+        without="Without it CLIVE can't see or change anything in the shop.",
+    ),
+    Connection(
+        name="gmail", label="Gmail",
+        what="Reads your email, and drafts and sends the replies you approve.",
+        fields=(), requires=("gmail_token",), family="email_reads",
+        note="Set up at the server for now (make gmail). Sign in with Google comes next.",
+        unlocks=("email_reads", "email_drafts", "email_sends", "email_compose", "email_archive"),
+        without="Without it CLIVE can't read or answer your email.",
+        set_up_at="server",
+    ),
+    Connection(
+        name="elevenlabs", label="ElevenLabs",
+        what="Hears you and speaks as CLIVE.",
+        fields=(Field("elevenlabs_api_key", "API key", hint="ElevenLabs → your profile → API keys."),),
+        requires=("elevenlabs_api_key",),
+        abilities=("Hearing what you say", "Speaking its answers in the voice you choose"),
+        # Said by the service from the settings in use (app/connections/service.py, _without):
+        # whether the server has its own recogniser decides what listening falls back to.
+        without="Without it CLIVE speaks in each device's own built-in voice.",
+    ),
+    Connection(
         name="instagram", label="Instagram",
-        what="Reads the CROOKS Instagram messages and the comments on its posts.",
+        what="Reads your Instagram messages and the comments on your posts.",
         fields=(
             Field("instagram_app_id", "Instagram app ID", secret=False,
                   hint="Meta for Developers → the CLIVE app → Instagram → API setup with Instagram login."),
@@ -47,22 +95,18 @@ CONNECTIONS: tuple[Connection, ...] = (
                   hint="Not needed if you sign in: signing in makes one, and CLIVE renews it."),
         ),
         requires=("instagram_access_token",), family="instagram", sign_in="instagram",
+        unlocks=("instagram",),
+        without="Without it CLIVE can't read your Instagram messages or comments.",
     ),
     Connection(
-        name="elevenlabs", label="ElevenLabs",
-        what="Hears you and speaks as CLIVE.",
-        fields=(Field("elevenlabs_api_key", "API key", hint="ElevenLabs → your profile → API keys."),),
-        requires=("elevenlabs_api_key",),
-    ),
-    Connection(
-        name="shopify", label="Shopify",
-        what="Reads the shop, and changes it only when you approve.",
-        fields=(
-            Field("shopify_client_id", "Client ID", secret=False,
-                  hint="Shopify Dev Dashboard → the CLIVE app → Settings → Client ID."),
-            Field("shopify_client_secret", "Client secret", hint="Same page: Client secret."),
-        ),
-        requires=("shopify_client_id", "shopify_client_secret"), family="order_reads",
+        name="ship24", label="Ship24",
+        what="Says where a parcel is, from the carrier's own scans.",
+        fields=(Field("ship24_api_key", "API key",
+                      hint="Ship24 dashboard → API keys (dashboard.ship24.com/integrations/api-keys): the "
+                           "Default key, made when you chose a plan. It starts apik_."),),
+        requires=("ship24_api_key",), family="parcel_tracking",
+        unlocks=("parcel_tracking", "delivery_tracking"),
+        without="Without it CLIVE can say an order has shipped, but not where the parcel is.",
     ),
     Connection(
         name="youtube", label="YouTube",
@@ -71,28 +115,18 @@ CONNECTIONS: tuple[Connection, ...] = (
                       hint="Google Cloud console → APIs & Services → Credentials: an API key restricted "
                            "to the YouTube Data API v3."),),
         requires=("youtube_api_key",),
-    ),
-    Connection(
-        name="ship24", label="Ship24",
-        what="Tracks parcels with the carrier's own scans, so CLIVE can say where an order is.",
-        fields=(Field("ship24_api_key", "API key",
-                      hint="Ship24 dashboard → API keys (dashboard.ship24.com/integrations/api-keys): the "
-                           "Default key, made when you chose a plan. It starts apik_."),),
-        requires=("ship24_api_key",), family="parcel_tracking",
+        abilities=("Searching YouTube for a video by name",),
+        without="Without it a YouTube link you give still plays; CLIVE can't search for one.",
     ),
     Connection(
         name="github", label="GitHub",
-        what="Lets CLIVE file build requests for its own engineering.",
+        what="Files build requests for CLIVE's own engineering.",
         fields=(Field("github_engineering_inbox_token", "Fine-grained token",
                       hint="GitHub → Settings → Developer settings → Fine-grained tokens: the clive "
                            "repository only, Contents read and write."),),
         requires=("github_engineering_inbox_token",), family="engineering",
-    ),
-    Connection(
-        name="gmail", label="Gmail",
-        what="Reads your email, and drafts and sends only when you approve.",
-        fields=(), requires=("gmail_token",), family="email_reads",
-        note="Set up at the server for now (make gmail). Sign in with Google comes next.",
+        unlocks=("engineering",),
+        without="Without it CLIVE can't file build requests or say how they are going.",
     ),
 )
 

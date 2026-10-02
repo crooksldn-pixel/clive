@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,13 @@ WHERE = {
     "": "not set",
 }
 TROUBLED = ("TEMPORARILY_UNAVAILABLE", "MISSING_SCOPE", "DISCONNECTED")
+# Where each state puts a row on the screen: what needs the owner first, then what works, then
+# what he could add.
+GROUPS = {"needs_attention": "attention", "connected": "working", "not_connected": "add"}
+CHECK_EVERY_S = 60.0       # the screen asks each service again at most once a minute
+CHECK_TIMEOUT_S = 12.0
+EXPIRING_DAYS = 7          # a sign-in with less than a week left is the owner's to renew
+_CHECKING: set[str] = set()
 
 
 class ConnectionsError(Exception):
@@ -72,9 +80,104 @@ def _current(connection: catalog.Connection) -> dict[str, str]:
     return out
 
 
+def _present(connection: catalog.Connection) -> bool:
+    """Whether what this connection cannot work without is here. Gmail's credential may still be
+    the token.json file of the original set-up (app/clients/gmail.py reads it when the store has
+    none), and a credential that works is not "not connected" for living in a file."""
+    if all(_usable(k) for k in connection.requires):
+        return True
+    if connection.name == "gmail":
+        from app.clients import gmail
+
+        try:
+            return gmail.TOKEN_PATH.exists()
+        except OSError:
+            return False
+    return False
+
+
+def _expires_in_days(connection: catalog.Connection) -> int | None:
+    """Days left on a sign-in that runs out (Instagram's), from what its client last learned."""
+    if connection.name != "instagram":
+        return None
+    from app.clients import instagram as instagram_client
+
+    expires = instagram_client.state().get("expires_at")
+    if expires is None:
+        return None
+    try:
+        return int((float(expires) - time.time()) // 86400)
+    except (TypeError, ValueError):
+        return None
+
+
+def _unlocks(connection: catalog.Connection, families: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
+    """What the connection lets CLIVE do, by the capability families' own labels and live states,
+    then the abilities no family describes. A family that is not built yet is left out."""
+    from app.capabilities import families as registry
+
+    out: list[dict[str, str]] = []
+    for key in connection.unlocks:
+        family = registry.get(key)
+        if family is None:
+            continue
+        live = families.get(key) or {}
+        family_state = str(live.get("state") or family.state)
+        if family_state == "NOT_IMPLEMENTED":
+            continue
+        out.append({"label": family.label, "state": family_state})
+    out.extend({"label": words, "state": "READY"} for words in connection.abilities)
+    return out
+
+
+def _what(runtime: Any, connection: catalog.Connection) -> str:
+    """The row's one line. The voice says whose voice it is, as it is now."""
+    if connection.name == "elevenlabs":
+        name = str(getattr(getattr(runtime, "voice", None), "voice_name", "") or "").strip()
+        if name:
+            return f"Hears you and speaks in {name}'s voice."
+    return connection.what
+
+
+def _without(runtime: Any, connection: catalog.Connection) -> str:
+    """What stops without it. For the voice that depends on this server: whether it has a
+    recogniser of its own to listen with when ElevenLabs is not there."""
+    if connection.name != "elevenlabs":
+        return connection.without
+    settings = getattr(runtime, "settings", None)
+    if str(getattr(settings, "stt_primary", "scribe")) != "scribe":
+        return connection.without
+    if getattr(settings, "whisper_enabled", False):
+        return ("Without it CLIVE listens with the server's own recogniser instead, and speaks in each "
+                "device's own built-in voice.")
+    return "Without it CLIVE can't hear you, so you type instead, and it speaks in each device's own built-in voice."
+
+
+def _to_connect(connection: catalog.Connection, sign_in_ready: bool) -> tuple[str, list[str]]:
+    """What connecting it asks for: one sign-in, the keys still missing, or the server."""
+    if not connection.fields:
+        return "server", []
+    if connection.sign_in:
+        if sign_in_ready:
+            return "signin", []
+        return "key", [k for k in ("instagram_app_id", "instagram_app_secret") if not _usable(k)]
+    return "key", [k for k in connection.requires if not _usable(k) and catalog.field(connection, k)]
+
+
+def _expiring(connection: catalog.Connection, days: int) -> str:
+    if days < 0:
+        return f"The {connection.label} sign-in has run out. Sign in again to keep it working."
+    left = "today" if days == 0 else f"in {days} day{'' if days == 1 else 's'}"
+    return f"The {connection.label} sign-in runs out {left}, and CLIVE hasn't renewed it."
+
+
 def card(runtime: Any, connection: catalog.Connection, *, tests: dict[str, dict[str, Any]],
          families: dict[str, dict[str, Any]], origin: str) -> dict[str, Any]:
-    """One connection as its card shows it: never a secret, an ID only because it is not one."""
+    """One connection as its row shows it: never a secret, an ID only because it is not one.
+
+    Besides its state, a row says what would put it right (`fix`) and which keys, if any, to ask
+    for now (`needs`): none for a connection that works, only the missing ones for one that is
+    not connected, and the refused ones for one whose key the service turned down."""
     fields = []
     for item in connection.fields:
         where = _where(item.key)
@@ -90,24 +193,45 @@ def card(runtime: Any, connection: catalog.Connection, *, tests: dict[str, dict[
     last = tests.get(connection.name) or {}
     family = families.get(connection.family) or {} if connection.family else {}
     family_state = str(family.get("state") or "")
-    if any(_where(k) == "app-unreadable" for k in [f.key for f in connection.fields] + list(connection.requires)):
+    sign_in_ready = bool(connection.sign_in) and all(_usable(k) for k in ("instagram_app_id", "instagram_app_secret"))
+    keys = [f.key for f in connection.fields] + list(connection.requires)
+    unreadable = [k for k in dict.fromkeys(keys) if _where(k) == "app-unreadable"]
+    present = _present(connection)
+    days = _expires_in_days(connection) if present else None
+    fix, needs = "", []
+    if unreadable:
         state, detail = "needs_attention", "A key saved here can no longer be read on this server: save it again."
-    elif not all(_usable(k) for k in connection.requires):
+        fix, needs = "key", [k for k in unreadable if catalog.field(connection, k)]
+    elif not present:
         state, detail = "not_connected", "Not connected."
+        fix, needs = _to_connect(connection, sign_in_ready)
     elif last and not last.get("ok"):
         state, detail = "needs_attention", str(last.get("detail") or "The last test failed.")
+        fix = str(last.get("fix") or ("server" if connection.set_up_at else "key"))
+        if fix == "key" and sign_in_ready:
+            fix = "signin"
+        elif fix == "key":
+            needs = [k for k in connection.requires if catalog.field(connection, k)]
+    elif days is not None and days < EXPIRING_DAYS:
+        state, detail = "needs_attention", _expiring(connection, days)
+        fix, needs = ("signin", []) if sign_in_ready else ("key", ["instagram_access_token"])
     elif family_state in TROUBLED:
         state, detail = "needs_attention", str(family.get("detail") or family_state.replace("_", " ").lower())
+        fix = "retry"
     else:
         state, detail = "connected", str(last.get("detail") or "Connected.")
     out = {
-        "name": connection.name, "label": connection.label, "what": connection.what, "note": connection.note,
+        "name": connection.name, "label": connection.label, "what": _what(runtime, connection), "note": connection.note,
         "state": state, "detail": detail, "who": str(last.get("who") or ""), "tested_at": str(last.get("at") or ""),
-        "fields": fields, "editable": bool(connection.fields), "testable": connection.name in testers.TESTERS,
+        "tested": str(last.get("detail") or ""),     # what the last test itself found, for the details
+        "fields": fields, "editable": bool(connection.fields), "testable": connection.name in CHECKS,
+        "group": GROUPS[state], "fix": fix, "needs": needs, "unlocks": _unlocks(connection, families),
+        "without": _without(runtime, connection), "set_up_at": connection.set_up_at, "expires_in_days": days,
+        "requires": [k for k in connection.requires if catalog.field(connection, k)],
     }
     if connection.sign_in == "instagram":
         out["sign_in"] = {"label": "Sign in with Instagram", "redirect_uri": instagram.redirect_uri(origin),
-                          "ready": all(_usable(k) for k in ("instagram_app_id", "instagram_app_secret"))}
+                          "ready": sign_in_ready}
     return out
 
 
@@ -125,7 +249,80 @@ def state(runtime: Any, *, origin: str) -> dict[str, Any]:
         "passkeys": keys,
         "changes": ledger.recent(20),
         "store": {"ok": ok, "why": why},
+        "now": ledger.now(),
+        "check_every_s": int(CHECK_EVERY_S),
     }
+
+
+# ------------------------------------------------------------------ the check on opening
+
+async def _check_gmail(runtime: Any) -> testers.Outcome:
+    """Gmail is set up at the server, so it is asked the way /health asks it: its profile and the
+    scopes its credential holds, read-only. The mailbox's own address names the account."""
+    client = getattr(runtime, "gmail", None)
+    if client is None or not callable(getattr(client, "health", None)):
+        return testers.Outcome(False, "Gmail is not set up on this server.", fix="server")
+    try:
+        ok, detail = await asyncio.wait_for(asyncio.to_thread(client.health), CHECK_TIMEOUT_S)
+    except TimeoutError:
+        return testers.Outcome(False, "Gmail did not answer in time. Check again in a minute.", fix="retry")
+    except Exception:  # noqa: BLE001 - a check that cannot run is a failed check, never a crash
+        return testers.Outcome(False, "Gmail could not be asked just now. Check again in a minute.", fix="retry")
+    if ok:
+        who = str(detail).split(" · ")[0].strip()
+        return testers.Outcome(True, "Gmail answered.", who=who if "@" in who else "")
+    if str(detail).startswith("Gmail check failed"):
+        return testers.Outcome(False, "Gmail did not answer just now. Check again in a minute.", fix="retry")
+    return testers.Outcome(False, "Google no longer accepts CLIVE's Gmail sign-in. It needs signing in again, "
+                                  "at the server for now.", fix="server")
+
+
+CHECKS = {**{name: None for name in testers.TESTERS}, "gmail": _check_gmail}
+
+
+def _age_s(test: dict[str, Any] | None) -> float | None:
+    from datetime import datetime
+
+    try:
+        return time.time() - datetime.fromisoformat(str((test or {}).get("at") or "")).timestamp()
+    except ValueError:
+        return None
+
+
+async def _check_one(runtime: Any, connection: catalog.Connection) -> None:
+    await test(runtime, connection.name)
+
+
+async def check_all(runtime: Any, *, every_s: float = CHECK_EVERY_S) -> list[str]:
+    """Ask every connected service again, as the Test button does, so the screen shows what is
+    true now: each at most once in `every_s`, however many devices open the screen. Read-only and
+    spending nothing (testers.py says what each asks). Returns the names asked."""
+    tests = ledger.last_tests()
+    due: list[catalog.Connection] = []
+    for connection in catalog.CONNECTIONS:
+        if connection.name not in CHECKS or connection.name in _CHECKING:
+            continue
+        age = _age_s(tests.get(connection.name))
+        if age is not None and 0 <= age < every_s:
+            continue
+        if await asyncio.to_thread(_present, connection):
+            due.append(connection)
+    names = [c.name for c in due]
+    _CHECKING.update(names)
+    try:
+        results = await asyncio.gather(*(_check_one(runtime, c) for c in due), return_exceptions=True)
+    finally:
+        _CHECKING.difference_update(names)
+    for name, result in zip(names, results, strict=True):
+        if isinstance(result, BaseException):
+            log.warning("connections: the check of %s did not finish (%s)", name, type(result).__name__)
+    refresh = getattr(runtime, "family_states", None)
+    if names and not getattr(runtime, "family_states_table", None) and callable(refresh):
+        try:
+            await asyncio.wait_for(refresh(), FAMILY_REFRESH_S)
+        except Exception as exc:  # noqa: BLE001 - the rows still say what each test found
+            log.warning("connections: capability families not read for the screen (%s)", type(exc).__name__)
+    return names
 
 
 async def after_change(runtime: Any, keys: tuple[str, ...], *, new_token: bool = True) -> None:
@@ -228,13 +425,19 @@ async def save(runtime: Any, name: str, values: Any, *, who: str, device: str) -
 
 
 async def test(runtime: Any, name: str) -> testers.Outcome:
-    """Ask the service again with what is stored now. Changes nothing but the card."""
+    """Ask the service again with what is stored now. Changes nothing but the card. Gmail, which
+    is set up at the server, is asked as /health asks it."""
     connection = catalog.get(name)
-    if connection is None or name not in testers.TESTERS:
+    if connection is None or name not in CHECKS:
         raise ConnectionsError("unknown", "That connection is tested at the server for now.")
-    if not all(_usable(k) for k in connection.requires):
+    if not await asyncio.to_thread(_present, connection):
         return testers.Outcome(False, "Not connected.")
-    outcome = await testers.run(name, _current(connection), getattr(runtime, "settings", None))
+    runtime_check = CHECKS.get(name)
+    if runtime_check is not None:
+        outcome = await runtime_check(runtime)
+    else:
+        current = await asyncio.to_thread(_current, connection)
+        outcome = await testers.run(name, current, getattr(runtime, "settings", None))
     if outcome.checked:
         ledger.tested(name, outcome.as_dict())
     return outcome

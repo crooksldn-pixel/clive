@@ -1,32 +1,46 @@
-/* CLIVE · Connections — add, test and remove CLIVE's keys and sign-ins (app/routes/connections.py).
+/* CLIVE · Connections: asks CLIVE what it is connected to, and makes the owner's changes
+ * (app/routes/connections.py). How each row looks is web/connections-view.js's.
  *
- * Every change asks for the owner's passkey at that moment: the server issues a challenge for
- * exactly that change, the device asks for Face ID, a fingerprint or its PIN, and the server
- * checks the answer before it touches anything. A key typed here goes to the server once, is
- * tested there before it replaces the one in use, and is never sent back: a saved secret shows
- * as "saved", never as its value. Nothing here is kept in the browser's storage.
+ * On opening, the screen draws what CLIVE last knew, then asks every connected service again
+ * (POST /connections/check: at most once a minute each, however often the screen is opened) and
+ * draws what is true now. It asks again when it comes back into view after a minute away.
+ *
+ * Every change asks for the owner's passkey at that moment, exactly as before: the server issues a
+ * challenge for exactly that change, the device asks for Face ID, a fingerprint or its PIN, and the
+ * server checks the answer before it touches anything. A key's approval signs the very text of the
+ * values sent (sealed, below). To him it is one step: he taps Save, approves on his device, and the
+ * button says what is happening until the row moves to Working. A key typed here goes to the server
+ * once, is tested there before it replaces the one in use, and is never sent back. Nothing here is
+ * kept in the browser's storage.
  */
 (function () {
   'use strict';
 
+  const View = window.CliveConnectionsView;
   const $ = (selector, root) => (root || document).querySelector(selector);
-  const STATES = { connected: 'Connected', not_connected: 'Not connected', needs_attention: 'Needs attention' };
   const NOTICES = {
     signed_in: ['ok', 'Instagram is connected.'],
-    signed_in_untested: ['bad', 'Signed in, but the new token did not pass its test: see the Instagram card.'],
+    signed_in_untested: ['bad', 'Signed in, but the new token did not pass its test. See Instagram below.'],
     cancelled: ['bad', 'You cancelled the sign-in on Instagram. Nothing changed.'],
     stale: ['bad', 'That sign-in took too long or was already used. Start it again.'],
-    refused: ['bad', 'Instagram did not accept the sign-in. Check the address on the Instagram card is in the Meta app exactly, then try again.'],
-    needs_app: ['bad', 'Store the Instagram app ID and app secret first.'],
-    exchange: ['bad', 'Instagram would not turn the sign-in into a lasting token. Check the app secret.'],
-    unreachable: ['bad', 'Instagram could not be reached from the server. Try again.'],
+    refused: ['bad', "Instagram didn't accept the sign-in. Check the address in Instagram's details is in the Meta app exactly, then try again."],
+    needs_app: ['bad', 'Save the Instagram app ID and app secret first.'],
+    exchange: ['bad', "Instagram wouldn't turn the sign-in into a lasting token. Check the app secret."],
+    unreachable: ['bad', "Instagram couldn't be reached from the server. Try again."],
     bad_code: ['bad', 'Instagram came back without a sign-in code. Start again.'],
     not_yours: ['bad', 'That sign-in was started by someone else.'],
     store_unavailable: ['bad', "This server can't keep keys for the app yet."],
   };
-  let current = { connections: [], passkeys: [], changes: [], store: { ok: true, why: '' } };
-  // An ID field's saved value, so Save sends only what changed. Kept here, not on the element.
-  const savedIds = new WeakMap();
+  const RECHECK_MS = 60 * 1000;
+
+  let current = { connections: [], passkeys: [], changes: [], store: { ok: true, why: '' }, now: '' };
+  let skew = 0;                       // the server's clock less this device's, for "2 min ago"
+  let checking = new Set();
+  let checkedAt = 0;
+  let voiceState = null;
+  let voiceAudio = null;
+  const voiceNames = new WeakMap();   // an option's voice name, kept here rather than in an attribute
+  const NAME = /^[a-z][a-z0-9]{1,19}$/;
 
   // ------------------------------------------------------------ base64url, as WebAuthn needs it
 
@@ -58,7 +72,7 @@
     try {
       response = await fetch(path, options);
     } catch (error) {
-      return { ok: false, detail: 'CLIVE could not be reached. Check you are on Tailscale.' };
+      return { ok: false, detail: "CLIVE couldn't be reached. Check you're on Tailscale." };
     }
     let data = {};
     try { data = await response.json(); } catch (error) { data = {}; }
@@ -71,11 +85,15 @@
     return Boolean(window.PublicKeyCredential && navigator.credentials && window.isSecureContext);
   }
 
+  function canChange() {
+    return passkeysWork() && current.store.ok !== false;
+  }
+
   function said(error) {
     if (error && error.name === 'NotAllowedError') return 'Cancelled, or the passkey prompt timed out. Nothing changed.';
     if (error && error.name === 'InvalidStateError') return 'This device already has a passkey here.';
     if (error && error.detail) return error.detail;
-    return 'That did not work. Nothing changed.';
+    return "That didn't work. Nothing changed.";
   }
 
   async function seal(text) {
@@ -100,11 +118,110 @@
     };
   }
 
-  // ------------------------------------------------------------ the passkey panel
+  // A change needs a passkey; with none yet, the one thing to do is set one up.
+  function needPasskey(result) {
+    if (current.passkeys.length) return false;
+    const first = $('#first-passkey');
+    if (first && !first.hidden) {
+      first.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+      $('#first-passkey-add').focus();
+    }
+    if (result) say(result, 'bad', 'Set up your passkey first: every change asks for it.');
+    return true;
+  }
+
+  function say(node, kind, text) {
+    if (!node) return;
+    node.className = node.className.replace(/\s*is-(ok|bad)\b/g, '') + (kind ? ' is-' + kind : '');
+    node.textContent = text || '';
+  }
+
+  // ------------------------------------------------------------ the changes, each one step
+
+  async function save(connection, form, inputs, button, result) {
+    const values = {};
+    for (const input of inputs) {
+      const box = View.boxOf(input);
+      const value = input.value.trim();
+      if (!box || !value || (box.saved && value === box.saved)) continue;
+      values[box.key] = value;
+    }
+    if (!Object.keys(values).length) { say(result, 'bad', 'Paste it in first.'); return; }
+    if (needPasskey(result)) return;
+    const words = button.textContent;
+    const busy = (text) => { button.textContent = text; };
+    button.disabled = true;
+    form.classList.add('is-busy');
+    say(result, '', '');
+    try {
+      // The passkey signs these very values: the server hashes the text it receives and refuses an
+      // approval made for any other (app/routes/connections.py, sealed).
+      const text = JSON.stringify(values);
+      busy('Approve on your device…');
+      const approval = await approve('save:' + connection.name + ':' + await seal(text));
+      busy('Testing with ' + connection.label + '…');
+      const done = await call('/connections/' + connection.name, { values_json: text, approval: approval });
+      if (!done.ok) throw done;
+      for (const input of inputs) input.value = '';
+      notice('ok', about(connection, done.result.detail));
+      await load({ fresh: connection.name });
+    } catch (error) {
+      say(result, 'bad', said(error));
+      button.textContent = words;
+      button.disabled = false;
+      form.classList.remove('is-busy');
+    }
+  }
+
+  async function check(connection, result) {
+    say(result, '', 'Asking ' + connection.label + '…');
+    const done = await call('/connections/' + connection.name + '/test', {});
+    if (!done.ok) { say(result, 'bad', said(done)); return; }
+    await load({ fresh: connection.name });
+    notice(done.result.ok ? 'ok' : 'bad', about(connection, done.result.detail));
+  }
+
+  async function disconnect(connection, result) {
+    if (!window.confirm('Disconnect ' + connection.label + '? CLIVE stops using it until you connect it again.')) return;
+    if (needPasskey(result)) return;
+    say(result, '', 'Approve on your device…');
+    try {
+      const approval = await approve('disconnect:' + connection.name);
+      const done = await call('/connections/' + connection.name + '/disconnect', { approval: approval });
+      if (!done.ok) throw done;
+      notice('ok', connection.label + ' is disconnected.');
+      await load({ fresh: connection.name });
+    } catch (error) {
+      say(result, 'bad', said(error));
+    }
+  }
+
+  async function signIn(connection, button, result) {
+    if (needPasskey(result)) return;
+    button.disabled = true;
+    say(result, '', 'Approve on your device…');
+    try {
+      const approval = await approve('signin:' + connection.name);
+      const done = await call('/connections/' + connection.name + '/sign-in', { approval: approval });
+      if (!done.ok) throw done;
+      say(result, '', 'Opening Instagram…');
+      window.location.assign(done.url);
+    } catch (error) {
+      say(result, 'bad', said(error));
+      button.disabled = false;
+    }
+  }
+
+  async function copy(text, button) {
+    try {
+      await navigator.clipboard.writeText(text);
+      button.textContent = 'Copied';
+    } catch (error) {
+      button.textContent = 'Select and copy it';
+    }
+  }
 
   async function addPasskey() {
-    const button = $('#passkey-add');
-    button.disabled = true;
     try {
       const body = current.passkeys.length ? { approval: await approve('passkey:add') } : {};
       const begun = await call('/connections/passkeys/begin', body);
@@ -123,265 +240,24 @@
       notice('ok', 'Passkey set up on ' + done.passkey.label + '. Every change now asks for it.');
     } catch (error) {
       notice('bad', said(error));
-    } finally {
-      button.disabled = false;
-      await load();
     }
+    await load();
   }
 
-  async function removePasskey(id, label) {
-    if (!window.confirm('Remove the passkey on ' + label + '? It will no longer approve changes.')) return;
+  async function removePasskey(key) {
+    if (!window.confirm('Remove the passkey on ' + key.label + '? It will no longer approve changes.')) return;
     try {
-      const approval = await approve('passkey:remove:' + id);
-      const done = await call('/connections/passkeys/' + encodeURIComponent(id) + '/remove', { approval: approval });
+      const approval = await approve('passkey:remove:' + key.id);
+      const done = await call('/connections/passkeys/' + encodeURIComponent(key.id) + '/remove', { approval: approval });
       if (!done.ok) throw done;
-      notice('ok', 'Passkey on ' + label + ' removed.');
+      notice('ok', 'Passkey on ' + key.label + ' removed.');
     } catch (error) {
       notice('bad', said(error));
     }
     await load();
   }
 
-  function drawPasskeys() {
-    const lede = $('#passkey-lede');
-    const list = $('#passkey-list');
-    const add = $('#passkey-add');
-    list.textContent = '';
-    if (!passkeysWork()) {
-      lede.textContent = "This browser can't use passkeys here. Open CLIVE in Safari or Chrome at its https Tailscale address.";
-      add.hidden = true;
-      return;
-    }
-    if (!current.passkeys.length) {
-      lede.textContent = 'Every change here asks for Face ID, your fingerprint or your device PIN. Set it up once on this device.';
-      add.textContent = 'Set up a passkey on this device';
-    } else {
-      lede.textContent = 'These approve every change. Add another device here, approved by one you already have.';
-      add.textContent = 'Add this device';
-      for (const key of current.passkeys) {
-        const item = document.createElement('li');
-        const text = document.createElement('span');
-        text.textContent = key.label + ' · added ' + when(key.created_at) + (key.last_used_at ? ' · last used ' + when(key.last_used_at) : '');
-        const remove = document.createElement('button');
-        remove.type = 'button';
-        remove.className = 'btn small danger';
-        remove.textContent = 'Remove';
-        remove.addEventListener('click', () => removePasskey(key.id, key.label));
-        item.append(text, remove);
-        list.append(item);
-      }
-    }
-    add.hidden = false;
-  }
-
-  // ------------------------------------------------------------ the cards
-
-  function fieldRow(field) {
-    const row = document.createElement('div');
-    row.className = 'field';
-    const id = 'f-' + field.key;
-    const label = document.createElement('label');
-    label.htmlFor = id;
-    label.textContent = field.label;
-    const where = document.createElement('span');
-    where.className = 'where';
-    where.textContent = '· ' + field.where;
-    label.append(where);
-    const line = document.createElement('div');
-    line.className = 'input-row';
-    const input = document.createElement('input');
-    input.id = id;
-    input.name = field.key;
-    input.autocomplete = 'off';
-    input.spellcheck = false;
-    input.setAttribute('autocapitalize', 'off');
-    input.setAttribute('autocorrect', 'off');
-    if (field.secret) {
-      input.type = 'password';
-      input.placeholder = field.stored ? 'Saved. Paste a new one to replace it.' : 'Paste it here';
-    } else {
-      input.type = 'text';
-      input.value = field.value || '';
-      savedIds.set(input, field.value || '');
-      input.placeholder = 'Paste it here';
-    }
-    line.append(input);
-    if (field.secret) {
-      const show = document.createElement('button');
-      show.type = 'button';
-      show.className = 'btn small';
-      show.textContent = 'Show';
-      show.addEventListener('click', () => {
-        input.type = input.type === 'password' ? 'text' : 'password';
-        show.textContent = input.type === 'password' ? 'Show' : 'Hide';
-      });
-      line.append(show);
-    }
-    row.append(label, line);
-    if (field.hint) {
-      const hint = document.createElement('p');
-      hint.className = 'hint';
-      hint.textContent = field.hint;
-      row.append(hint);
-    }
-    return row;
-  }
-
-  function entered(form) {
-    const values = {};
-    for (const input of form.querySelectorAll('input')) {
-      const value = input.value.trim();
-      if (!value) continue;
-      if (savedIds.has(input) && value === savedIds.get(input)) continue;
-      values[input.name] = value;
-    }
-    return values;
-  }
-
-  function result(card, kind, text) {
-    const line = $('.result', card);
-    line.className = 'result small ' + (kind || '');
-    line.textContent = text || '';
-  }
-
-  async function save(connection, card) {
-    const form = $('.fields', card);
-    const values = entered(form);
-    if (!Object.keys(values).length) { result(card, 'bad', 'Paste something first.'); return; }
-    busy(card, true);
-    result(card, '', 'Asking for your passkey…');
-    try {
-      // The passkey signs these very values: the server hashes the text it receives and refuses an
-      // approval made for any other (app/routes/connections.py, sealed).
-      const text = JSON.stringify(values);
-      const approval = await approve('save:' + connection.name + ':' + await seal(text));
-      result(card, '', 'Testing it with ' + connection.label + '…');
-      const done = await call('/connections/' + connection.name, { values_json: text, approval: approval });
-      if (!done.ok) throw done;
-      for (const input of form.querySelectorAll('input[type="password"]')) input.value = '';
-      result(card, 'ok', done.result.detail);
-      await load(connection.name, done.result.detail);
-    } catch (error) {
-      result(card, 'bad', said(error));
-    } finally {
-      busy(card, false);
-    }
-  }
-
-  async function test(connection, card) {
-    busy(card, true);
-    result(card, '', 'Testing…');
-    const done = await call('/connections/' + connection.name + '/test', {});
-    busy(card, false);
-    if (!done.ok) { result(card, 'bad', said(done)); return; }
-    result(card, done.result.ok ? 'ok' : 'bad', done.result.detail);
-    await load(connection.name, done.result.detail, done.result.ok);
-  }
-
-  async function disconnect(connection, card) {
-    if (!window.confirm('Disconnect ' + connection.label + '? CLIVE stops using it until you connect it again.')) return;
-    busy(card, true);
-    try {
-      const approval = await approve('disconnect:' + connection.name);
-      const done = await call('/connections/' + connection.name + '/disconnect', { approval: approval });
-      if (!done.ok) throw done;
-      await load(connection.name, connection.label + ' is disconnected.');
-    } catch (error) {
-      result(card, 'bad', said(error));
-    } finally {
-      busy(card, false);
-    }
-  }
-
-  async function signIn(connection, card) {
-    busy(card, true);
-    result(card, '', 'Asking for your passkey…');
-    try {
-      const approval = await approve('signin:' + connection.name);
-      const done = await call('/connections/' + connection.name + '/sign-in', { approval: approval });
-      if (!done.ok) throw done;
-      result(card, '', 'Opening Instagram…');
-      window.location.assign(done.url);
-    } catch (error) {
-      result(card, 'bad', said(error));
-      busy(card, false);
-    }
-  }
-
-  function busy(card, on) {
-    for (const button of card.querySelectorAll('button')) button.disabled = on;
-  }
-
-  function drawCard(connection) {
-    const card = $('#card-template').content.firstElementChild.cloneNode(true);
-    card.id = connection.name;
-    $('.card-title', card).textContent = connection.label;
-    const pill = $('.pill', card);
-    pill.textContent = STATES[connection.state] || connection.state;
-    pill.classList.add(connection.state);
-    $('.card-what', card).textContent = connection.what;
-    $('.card-detail', card).textContent = [connection.detail, connection.who ? '(' + connection.who + ')' : ''].join(' ').trim();
-    $('.card-note', card).textContent = connection.note || '';
-    const form = $('.fields', card);
-    for (const field of connection.fields) form.append(fieldRow(field));
-    form.addEventListener('submit', (event) => { event.preventDefault(); save(connection, card); });
-    const saveButton = $('.save', card);
-    const testButton = $('.test', card);
-    const disconnectButton = $('.disconnect', card);
-    saveButton.hidden = !connection.editable;
-    testButton.hidden = !connection.testable || connection.state === 'not_connected';
-    disconnectButton.hidden = !connection.editable || connection.state === 'not_connected';
-    saveButton.addEventListener('click', () => save(connection, card));
-    testButton.addEventListener('click', () => test(connection, card));
-    disconnectButton.addEventListener('click', () => disconnect(connection, card));
-    if (connection.name === 'elevenlabs' && voiceState) $('.extra', card).append(drawVoice(card));
-    if (connection.sign_in) {
-      const box = $('.signin', card);
-      box.hidden = false;
-      const go = $('.signin-go', box);
-      go.textContent = connection.sign_in.label;
-      go.disabled = !connection.sign_in.ready || !passkeysWork() || !current.passkeys.length;
-      go.title = connection.sign_in.ready ? '' : 'Save the app ID and secret first';
-      go.addEventListener('click', () => signIn(connection, card));
-      $('.redirect', box).textContent = connection.sign_in.redirect_uri;
-      $('.copy', box).addEventListener('click', async () => {
-        try {
-          await navigator.clipboard.writeText(connection.sign_in.redirect_uri);
-          $('.copy', box).textContent = 'Copied';
-        } catch (error) {
-          $('.copy', box).textContent = 'Select and copy it';
-        }
-      });
-    }
-    if (!current.store.ok && connection.editable) {
-      saveButton.disabled = true;
-      result(card, 'bad', "This server can't keep keys for the app yet: " + current.store.why);
-    } else if (connection.editable && passkeysWork() && !current.passkeys.length) {
-      // Every change asks for the passkey, so none can be made before there is one.
-      saveButton.disabled = true;
-      disconnectButton.disabled = true;
-      result(card, '', 'Set up your passkey above first.');
-    }
-    return card;
-  }
-
-  // ------------------------------------------------------------ changes, notices, times
-
-  function when(stamp) {
-    if (!stamp) return '';
-    const date = new Date(stamp);
-    if (Number.isNaN(date.getTime())) return '';
-    return date.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-  }
-
-  const ACTIONS = {
-    saved: 'saved', refused: 'refused (its test failed)', failed: 'not saved', disconnected: 'disconnected',
-    signed_in: 'signed in', sign_in_started: 'sign-in started', sign_in_cancelled: 'sign-in cancelled',
-    sign_in_failed: 'sign-in failed', passkey_added: 'passkey added', passkey_removed: 'passkey removed',
-    approval_refused: 'approval refused',
-  };
-
-  // ------------------------------------------------------------------ the voice
+  // ------------------------------------------------------------------ the voice, on ElevenLabs
 
   // The sliders, in the order they are shown, with the words the owner uses rather than
   // ElevenLabs' own field names. "Expression" is `style`.
@@ -391,18 +267,23 @@
     ['similarity_boost', 'Similarity', 'How closely it holds to the original voice.'],
     ['speed', 'Speed', 'How fast it talks.'],
   ];
-  let voiceState = null;
-  let voiceAudio = null;
+
+  function make(tag, cls, text) {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text) node.textContent = text;
+    return node;
+  }
 
   function voiceValues(panel) {
     // What the screen is asking for, as the server takes it. A slider never touched is still sent:
     // the owner opened the panel and chose to save, so what he sees is what he gets.
-    const chosen = $('.voice-pick', panel).value;
+    const pick = $('.voice-pick', panel);
     const values = { model: $('.voice-model', panel).value };
-    if (chosen) {
-      values.voice_id = chosen;
-      const option = $('.voice-pick', panel).selectedOptions[0];
-      values.voice_name = option ? option.dataset.name || option.textContent : '';
+    if (pick.value) {
+      values.voice_id = pick.value;
+      const option = pick.selectedOptions[0];
+      values.voice_name = option ? voiceNames.get(option) || option.textContent : '';
     }
     for (const [key] of SLIDER_WORDS) {
       const input = $('.voice-' + key, panel);
@@ -413,46 +294,68 @@
     return values;
   }
 
-  function drawVoice(card) {
-    const panel = $('#voice-template').content.firstElementChild.cloneNode(true);
+  function voicePanel() {
+    if (!voiceState) return null;
     const voice = voiceState.voice || {};
-    const pick = $('.voice-pick', panel);
-    const model = $('.voice-model', panel);
-    for (const [id, words] of Object.entries(voiceState.models || {})) {
-      model.append(new Option(words, id, false, id === voice.model));
-    }
+    const panel = make('section', 'voice');
+    panel.setAttribute('aria-label', 'The voice');
+    panel.append(make('h4', 'more-h', 'The voice'),
+      make('p', 'voice-help', 'Which voice CLIVE speaks in, and how it sounds. A change counts from the next answer; nothing restarts.'));
+    const result = make('p', 'more-result');
+    result.setAttribute('role', 'status');
+
+    const pickRow = make('div', 'voice-row');
+    const pickLabel = make('label', 'voice-label', 'Voice');
+    const pick = make('select', 'voice-pick');
+    pick.id = 'voice-pick';
+    pickLabel.htmlFor = pick.id;
     // Until the voices are fetched the only option is the one speaking now: the panel is useful
     // before ElevenLabs has been asked, and asking is one tap rather than every page load.
-    pick.append(new Option(voice.voice_name || 'the voice in use', voice.voice_id || ''));
-    pick.selectedIndex = 0;
-    const list = $('.voice-list', panel);
+    pick.append(new Option(voice.voice_name || 'The voice in use', voice.voice_id || ''));
+    const list = make('button', 'btn quiet voice-list', 'More voices');
+    list.type = 'button';
     list.addEventListener('click', async () => {
       list.disabled = true;
       list.textContent = 'Asking ElevenLabs…';
       const got = await call('/connections/voice/voices');
       list.disabled = false;
-      list.textContent = 'Refresh the list';
-      if (!got.ok) { result(card, 'bad', got.detail || 'ElevenLabs would not list the voices.'); return; }
+      list.textContent = 'More voices';
+      if (!got.ok) { say(result, 'bad', got.detail || "ElevenLabs wouldn't list the voices."); return; }
       pick.textContent = '';
       for (const item of got.voices) {
-        const option = new Option(item.kind ? item.name + ' — ' + item.kind : item.name, item.voice_id,
-                                  false, item.voice_id === voice.voice_id);
-        option.dataset.name = item.name;
+        const option = new Option(item.kind ? item.name + ', ' + item.kind : item.name, item.voice_id,
+          false, item.voice_id === voice.voice_id);
+        voiceNames.set(option, item.name);
         pick.append(option);
       }
       if (!got.voices.some((v) => v.voice_id === voice.voice_id)) {
-        pick.append(new Option((voice.voice_name || 'in use') + ' — in use', voice.voice_id || '', true, true));
+        pick.append(new Option((voice.voice_name || 'The voice') + ', in use', voice.voice_id || '', true, true));
       }
-      result(card, 'ok', got.voices.length + ' voice(s) on this account.');
+      say(result, 'ok', got.voices.length + (got.voices.length === 1 ? ' voice' : ' voices') + ' on this account.');
     });
+    pickRow.append(pickLabel, pick, list);
+
+    const modelRow = make('div', 'voice-row');
+    const modelLabel = make('label', 'voice-label', 'Model');
+    const model = make('select', 'voice-model');
+    model.id = 'voice-model';
+    modelLabel.htmlFor = model.id;
+    for (const [id, words] of Object.entries(voiceState.models || {})) model.append(new Option(words, id, false, id === voice.model));
+    modelRow.append(modelLabel, model);
+    panel.append(pickRow, modelRow);
+
+    const sliders = make('div', 'sliders');
     for (const [key, label, hint] of SLIDER_WORDS) {
       const bounds = (voiceState.sliders || {})[key];
       if (!bounds) continue;
-      const row = $('#slider-template').content.firstElementChild.cloneNode(true);
-      $('.slider-label', row).textContent = label;
-      $('.slider-hint', row).textContent = hint;
-      const input = $('input', row);
-      input.classList.add('voice-' + key);
+      const row = make('div', 'slider');
+      const head = make('div', 'slider-head');
+      const name = make('label', 'slider-label', label);
+      const shown = make('span', 'slider-value');
+      const input = make('input', 'voice-' + key);
+      input.type = 'range';
+      input.id = 'voice-' + key;
+      name.htmlFor = input.id;
       input.min = bounds.min;
       input.max = bounds.max;
       input.step = 0.05;
@@ -461,15 +364,25 @@
       const held = voice[key];
       const middle = (Number(bounds.min) + Number(bounds.max)) / 2;
       input.value = held === undefined ? middle : held;
-      const shown = $('.slider-value', row);
       const show = () => { shown.textContent = Number(input.value).toFixed(2) + (held === undefined && Number(input.value) === middle ? " (the voice's own)" : ''); };
       input.addEventListener('input', show);
       show();
-      $('.sliders', panel).append(row);
+      head.append(name, shown);
+      row.append(head, input, make('p', 'slider-hint', hint));
+      sliders.append(row);
     }
-    const boost = $('.voice-boost', panel);
+    panel.append(sliders);
+
+    const boostRow = make('label', 'voice-switch');
+    const boost = make('input', 'voice-boost');
+    boost.type = 'checkbox';
     boost.checked = voice.use_speaker_boost !== false;
-    const preview = $('.voice-preview', panel);
+    boostRow.append(boost, document.createTextNode('Speaker boost'));
+    panel.append(boostRow);
+
+    const actions = make('div', 'more-actions');
+    const preview = make('button', 'btn voice-preview', 'Preview');
+    preview.type = 'button';
     preview.addEventListener('click', async () => {
       preview.disabled = true;
       preview.textContent = 'Speaking…';
@@ -479,105 +392,196 @@
           body: JSON.stringify({ values: voiceValues(panel) }), credentials: 'same-origin',
         });
         if (!response.ok) {
-          let detail = 'ElevenLabs would not speak that.';
+          let detail = "ElevenLabs wouldn't speak that.";
           try { detail = (await response.json()).detail || detail; } catch (error) { /* not JSON */ }
-          result(card, 'bad', detail);
+          say(result, 'bad', detail);
         } else {
           if (voiceAudio) { voiceAudio.pause(); URL.revokeObjectURL(voiceAudio.src); }
           voiceAudio = new Audio(URL.createObjectURL(await response.blob()));
           await voiceAudio.play();
-          result(card, 'ok', 'That is how it will sound.');
+          say(result, 'ok', "That's how it will sound.");
         }
       } catch (error) {
-        result(card, 'bad', 'The preview could not be played here.');
+        say(result, 'bad', "The preview couldn't be played here.");
       }
       preview.disabled = false;
       preview.textContent = 'Preview';
     });
-    const keep = $('.voice-save', panel);
-    keep.disabled = !passkeysWork() || !current.passkeys.length;
-    keep.title = current.passkeys.length ? '' : 'Add a passkey first';
+    const keep = make('button', 'btn primary voice-save', 'Save the voice');
+    keep.type = 'button';
+    keep.disabled = !canChange();
     keep.addEventListener('click', async () => {
+      if (needPasskey(result)) return;
       keep.disabled = true;
       try {
         const text = JSON.stringify(voiceValues(panel));
+        keep.textContent = 'Approve on your device…';
         const approval = await approve('voice:' + await seal(text));
         const done = await call('/connections/voice', { values_json: text, approval: approval });
-        if (!done.ok) { result(card, 'bad', done.detail || 'The voice was not changed.'); return; }
+        if (!done.ok) { say(result, 'bad', done.detail || 'The voice was not changed.'); return; }
         voiceState.voice = done.voice;
-        result(card, 'ok', 'CLIVE speaks as ' + done.voice.voice_name + ' from now on.');
+        notice('ok', 'CLIVE speaks as ' + done.voice.voice_name + ' from now on.');
+        await load({ fresh: 'elevenlabs' });
       } catch (error) {
-        result(card, 'bad', said(error));
+        say(result, 'bad', said(error));
       } finally {
         keep.disabled = false;
+        keep.textContent = 'Save the voice';
       }
     });
+    actions.append(preview, keep);
+    panel.append(actions, result);
     return panel;
   }
 
-  function drawChanges() {
-    const list = $('#change-list');
-    list.textContent = '';
-    if (!current.changes.length) {
-      const item = document.createElement('li');
-      item.className = 'muted';
-      item.textContent = 'No changes yet.';
-      list.append(item);
-      return;
-    }
-    for (const change of current.changes) {
-      const item = document.createElement('li');
-      const what = document.createElement('div');
-      const subject = change.connection && change.connection.indexOf(':') === -1 ? change.connection : '';
-      what.textContent = [subject, ACTIONS[change.action] || change.action].filter(Boolean).join(' ') +
-        (change.device ? ' · from ' + change.device : '');
-      if (!change.ok) what.className = 'failed';
-      const stamp = document.createElement('div');
-      stamp.className = 'when';
-      stamp.textContent = when(change.at) + (change.who ? ' · ' + change.who : '');
-      item.append(what, stamp);
-      list.append(item);
-    }
+  // ------------------------------------------------------------ drawing
+
+  // "GitHub accepted the token…" needs no "GitHub:" in front of it; "Not connected." does.
+  function about(connection, detail) {
+    const words = String(detail || '');
+    return words.indexOf(connection.label) === 0 ? words : connection.label + ': ' + words;
   }
 
   function notice(kind, text) {
     const box = $('#notice');
-    box.className = 'notice ' + (kind || '');
-    box.textContent = text;
+    box.className = 'notice' + (kind ? ' is-' + kind : '');
+    box.textContent = text || '';
     box.hidden = !text;
   }
 
-  // ------------------------------------------------------------ load and draw
+  function context() {
+    return {
+      now: Date.now() + skew, checking, canChange: canChange(), extra: voicePanel,
+      on: { save, check, disconnect, signIn, copy, addPasskey, removePasskey },
+    };
+  }
 
-  async function load(focus, message, ok) {
-    const data = await call('/connections/state');
-    if (!data.ok) { notice('bad', data.detail || 'CLIVE would not show the connections.'); return; }
+  // A redraw must never wipe a key being typed: while a box holds something, only the words
+  // that change with time are brought up to date.
+  function typing() {
+    const at = document.activeElement;
+    return [...document.querySelectorAll('input.key-input')].some((input) => input.value) ||
+      Boolean(at && at.matches && at.matches('input, select, textarea') && at.closest('.key-form, .voice'));
+  }
+
+  function draw({ fresh } = {}) {
+    const ctx = context();
+    $('#summary').textContent = View.summary(current, ctx);
+    if (typing()) { touchStatuses(ctx); return; }
+    const open = new Set([...document.querySelectorAll('.conn[data-name] > details[open], .conn[data-name] details.conn-more[open]')]
+      .map((d) => d.closest('.conn').dataset.name));
+    const holder = $('#groups');
+    holder.textContent = '';
+    for (const section of View.groups(current, ctx)) holder.append(section);
+    holder.setAttribute('aria-busy', checking.size ? 'true' : 'false');
+    for (const name of open) {
+      const details = holder.querySelector('.conn[data-name="' + name + '"] details.conn-more');
+      if (details) details.open = true;
+    }
+    if (fresh && NAME.test(fresh)) {
+      const row = holder.querySelector('.conn[data-name="' + fresh + '"]');
+      if (row) row.classList.add('is-fresh');
+    }
+    drawPasskeys(ctx);
+    const changes = $('#change-list');
+    changes.textContent = '';
+    changes.append(View.changes(current));
+  }
+
+  function touchStatuses(ctx) {
+    for (const c of current.connections) {
+      if (!NAME.test(String(c.name || ''))) continue;
+      const line = document.querySelector('.conn[data-name="' + c.name + '"] .conn-status');
+      if (!line) continue;
+      const words = View.status(c, ctx);
+      line.textContent = words;
+      line.hidden = !words;
+    }
+  }
+
+  function drawPasskeys(ctx) {
+    const first = $('#first-passkey');
+    const section = $('#passkeys');
+    if (!passkeysWork()) {
+      first.hidden = true;
+      section.hidden = true;
+      notice('bad', "This browser can't approve changes here. Open CLIVE in Safari or Chrome at its https Tailscale address.");
+      return;
+    }
+    first.hidden = current.passkeys.length > 0;
+    section.hidden = current.passkeys.length === 0;
+    const list = $('#passkey-list');
+    list.textContent = '';
+    if (current.passkeys.length) list.append(View.passkeys(current, ctx));
+  }
+
+  function take(data) {
     current = data;
-    // Asked beside the cards and allowed to fail on its own: the keys are what this screen is for,
-    // and a voice that cannot be read must not take the rest of it down.
+    const server = Date.parse(data.now || '');
+    if (!Number.isNaN(server)) skew = server - Date.now();
+    if (data.store && data.store.ok === false) notice('bad', "This server can't keep keys for the app yet: " + data.store.why);
+  }
+
+  // Which rows the opening check will ask about: those with something to ask with that were not
+  // asked within the last minute (the server keeps to the same rule, service.check_all).
+  function due() {
+    const now = Date.now() + skew;
+    const every = (Number(current.check_every_s) || 60) * 1000;
+    return new Set(current.connections.filter((c) => {
+      if (!c.testable || c.state === 'not_connected') return false;
+      const at = Date.parse(c.tested_at || '');
+      return Number.isNaN(at) || now - at >= every;
+    }).map((c) => c.name));
+  }
+
+  async function load({ fresh } = {}) {
+    const data = await call('/connections/state');
+    if (!data.ok) { notice('bad', data.detail || "CLIVE wouldn't show the connections."); return; }
+    take(data);
+    draw({ fresh });
+  }
+
+  async function checkAll() {
+    checking = due();
+    draw();
+    const data = await call('/connections/check', {});
+    checking = new Set();
+    checkedAt = Date.now();
+    if (data.ok) take(data);
+    draw();
+    $('#page').dataset.ready = 'true';
+  }
+
+  async function openScreen() {
     const heard = await call('/connections/voice');
     voiceState = heard.ok ? heard : null;
-    drawPasskeys();
-    const cards = $('#cards');
-    cards.textContent = '';
-    for (const connection of current.connections) cards.append(drawCard(connection));
-    drawChanges();
-    if (focus && message) {
-      const card = document.getElementById(focus);
-      if (card) result(card, ok === false ? 'bad' : 'ok', message);
+    const data = await call('/connections/state');
+    if (!data.ok) {
+      notice('bad', data.detail || "CLIVE wouldn't show the connections.");
+      $('#summary').textContent = '';
+      $('#page').dataset.ready = 'true';
+      return;
     }
+    take(data);
+    await checkAll();
   }
 
   function fromAddress() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('done') || params.get('error');
     if (code && NOTICES[code]) notice(NOTICES[code][0], NOTICES[code][1]);
-    else if (code) notice('bad', 'That did not work. Nothing changed.');
+    else if (code) notice('bad', "That didn't work. Nothing changed.");
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    $('#passkey-add').addEventListener('click', addPasskey);
+    $('#first-passkey-add').addEventListener('click', addPasskey);
     fromAddress();
-    load();
+    openScreen();
+    // "2 min ago" stays true while the screen is open, and coming back to it after a minute away
+    // asks the services again.
+    setInterval(() => touchStatuses(context()), 30 * 1000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && checkedAt && Date.now() - checkedAt > RECHECK_MS) checkAll();
+    });
   });
 }());
