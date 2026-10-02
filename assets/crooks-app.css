@@ -1,0 +1,185 @@
+/*
+ * CROOKSLDN — "get the app": the trigger buttons, the install sheet, and the
+ * few adjustments the store needs when it runs as an installed app.
+ *
+ * Loaded by the sheet snippet only. Tokens from crooks.css; nothing new.
+ */
+
+/* ---- trigger ------------------------------------------------------ */
+.crk-root button.crk-app-trigger,
+button.crk-app-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--crk-line);
+  background: none;
+  color: var(--crk-text);
+  font: inherit;
+  font-weight: 500;
+  font-size: 10px;
+  letter-spacing: .24em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+button.crk-app-trigger[hidden] { display: none }
+button.crk-app-trigger:hover { border-color: var(--crk-lav); color: var(--crk-lav) }
+.crk-app-trigger__glyph {
+  width: 14px; height: 14px; flex: none;
+  fill: none; stroke: currentColor; stroke-width: 1.3;
+}
+.crk-app-trigger--drawer { margin: 16px 16px 0; width: calc(100% - 32px); justify-content: center }
+.crk-app-trigger--footer { margin: 8px auto 0 }
+
+/* ---- sheet -------------------------------------------------------- */
+.crk-appsheet[hidden] { display: none }
+.crk-appsheet {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483100;   /* above the bag drawer */
+}
+.crk-appsheet__scrim {
+  position: absolute; inset: 0;
+  background: rgba(6, 5, 9, .74);
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+.crk-appsheet[data-crk-open] .crk-appsheet__scrim { opacity: 1 }
+
+/* A bottom sheet on a phone — the thumb is already down there — and a
+   centred card from a tablet up. */
+.crk-appsheet__panel {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  max-height: 90dvh;
+  overflow-y: auto;
+  padding: 18px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  background: var(--crk-ground);
+  border-top: 1px solid var(--crk-accent);
+  color: var(--crk-text);
+  transform: translateY(100%);
+  transition: transform .24s cubic-bezier(.4, 0, .2, 1);
+}
+.crk-appsheet[data-crk-open] .crk-appsheet__panel { transform: translateY(0) }
+
+@media (min-width: 640px) {
+  .crk-appsheet__panel {
+    left: 50%; right: auto; bottom: auto; top: 50%;
+    width: min(460px, calc(100% - 48px));
+    border: 1px solid var(--crk-accent);
+    transform: translate(-50%, -46%);
+    opacity: 0;
+    transition: transform .22s ease, opacity .22s ease;
+  }
+  .crk-appsheet[data-crk-open] .crk-appsheet__panel { transform: translate(-50%, -50%); opacity: 1 }
+}
+
+.crk-appsheet__head {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 44px;
+  gap: 12px;
+  align-items: start;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--crk-line);
+}
+.crk-appsheet__icon { display: block; width: 56px; height: 56px; border: 1px solid var(--crk-line) }
+.crk-appsheet__title {
+  margin: 2px 0 0;
+  font-family: var(--crk-font-display);
+  font-weight: 400;
+  font-size: 22px;
+  line-height: 1;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.crk-appsheet__lede { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: var(--crk-dim) }
+.crk-root button.crk-appsheet__close {
+  width: 44px; height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--crk-line);
+  background: none; color: var(--crk-text); font-size: 15px; cursor: pointer;
+}
+.crk-root button.crk-appsheet__close:hover { border-color: var(--crk-lav) }
+
+.crk-appsheet__steps {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--crk-line);
+}
+.crk-appsheet__steps li {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  min-height: 52px;
+  padding: 0 14px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.crk-appsheet__steps li + li { border-top: 1px solid var(--crk-line) }
+.crk-appsheet__n {
+  align-self: stretch;
+  display: flex; align-items: center; justify-content: center;
+  border-right: 1px solid var(--crk-line);
+  margin-right: 12px;
+  font-family: var(--crk-font-display);
+  font-size: 18px;
+  color: var(--crk-accent);
+}
+.crk-appsheet__glyph {
+  display: inline-block;
+  width: 18px; height: 18px;
+  margin-left: 6px;
+  vertical-align: -4px;
+  fill: none; stroke: var(--crk-accent); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round;
+}
+.crk-appsheet__glyph circle { fill: var(--crk-accent); stroke: none }
+
+.crk-appsheet__native { margin-top: 14px }
+.crk-root button.crk-appsheet__install {
+  display: block; width: 100%;
+  min-height: 54px;
+  border: 1px solid var(--crk-purple);
+  background: var(--crk-purple);
+  color: var(--crk-onpurple);
+  font-family: var(--crk-font-display);
+  font-size: 22px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.crk-appsheet__desktop { margin: 14px 0 0; font-size: 13px; line-height: 1.5; color: var(--crk-dim) }
+
+.crk-appsheet__gets {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.crk-appsheet__gets li {
+  position: relative;
+  padding-left: 16px;
+  font-size: 10px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--crk-dim);
+}
+.crk-appsheet__gets li::before {
+  content: "";
+  position: absolute; left: 0; top: .45em;
+  width: 6px; height: 6px;
+  border: 1px solid var(--crk-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crk-appsheet__scrim, .crk-appsheet__panel { transition: none }
+}
+
+/* ---- running as the installed app --------------------------------- */
+@media (display-mode: standalone) {
+  /* Already installed: nothing to offer. The script also keeps these
+     hidden; this covers the frame before it runs. */
+  button.crk-app-trigger { display: none !important }
+}

@@ -133,6 +133,12 @@
       closers[i].addEventListener('click', close);
     }
 
+    /* Another layer asking for the floor. The app-install sheet opens from a
+       button inside this drawer; while the drawer is open it aria-hides every
+       sibling and traps focus, so the sheet would open hidden from assistive
+       tech with focus pulled back here. It closes this first. */
+    document.addEventListener('crk:closedrawers', close);
+
     /* Submenus. The markup renders them open so it is never dependent on this
        file to be truthful; they are closed here, before the drawer has ever
        been shown, so nobody watches one collapse. Seven collection links under

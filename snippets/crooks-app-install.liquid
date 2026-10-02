@@ -1,0 +1,91 @@
+{%- comment -%}
+  "Get the app" — the trigger, or the sheet it opens.
+
+  Usage:
+    {% render 'crooks-app-install', placement: 'drawer' %}   a trigger
+    {% render 'crooks-app-install', placement: 'footer' %}   a trigger
+    {% render 'crooks-app-install', placement: 'sheet' %}    the sheet, once per page
+
+  Triggers render hidden. crooks-app.js reveals them only when the store is
+  NOT already running as an installed app and only once the script has loaded,
+  so there is never a dead button: no JS, no button.
+
+  WHAT THE SHEET PROMISES, AND WHAT IT DOES NOT. Everything listed is something
+  the installed app actually does today: opens from the home screen, full
+  screen, bag and order tracking as on the site. It does not mention
+  notifications, because nothing sends them yet — no push service is switched
+  on, and Omnisend's web push does not reach iPhones at all. Promising alerts
+  on the install screen and then never sending one would be the first thing
+  an installed customer learns about the brand.
+
+  Not a popup. It opens only when someone presses GET THE APP.
+{%- endcomment -%}
+
+{%- if placement == 'sheet' -%}
+  {{ 'crooks-app.css' | asset_url | stylesheet_tag }}
+
+  <div class="crk-root crk-appsheet" data-crk-appsheet hidden>
+    <div class="crk-appsheet__scrim" data-crk-app-close></div>
+
+    <div class="crk-appsheet__panel" role="dialog" aria-modal="true" aria-labelledby="crk-appsheet-title" data-crk-appsheet-panel>
+      <header class="crk-appsheet__head">
+        <img class="crk-appsheet__icon" src="{{ 'crooks-apple-touch-icon.png' | asset_url }}" width="56" height="56" alt="">
+        <div class="crk-appsheet__heading">
+          <h2 class="crk-appsheet__title" id="crk-appsheet-title">{{ settings.crk_app_sheet_title | default: 'CROOKSLDN ON YOUR HOME SCREEN' }}</h2>
+          <p class="crk-appsheet__lede">{{ settings.crk_app_sheet_lede | default: 'Opens full screen, like an app. Nothing to download from a store.' }}</p>
+        </div>
+        <button type="button" class="crk-appsheet__close" data-crk-app-close>
+          <span aria-hidden="true">&#10005;</span>
+          <span class="crk-sr">{{ settings.crk_app_close | default: 'Close' }}</span>
+        </button>
+      </header>
+
+      {%- comment -%} One of these four is shown, chosen by crooks-app.js. {%- endcomment -%}
+
+      <ol class="crk-appsheet__steps" data-crk-app-steps="ios" hidden>
+        <li>
+          <span class="crk-appsheet__n">01</span>
+          <span>{{ settings.crk_app_ios_1 | default: 'Tap the Share button' }}
+            <svg class="crk-appsheet__glyph" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 2v11M6 6l4-4 4 4M4 10v7h12v-7"/></svg>
+          </span>
+        </li>
+        <li><span class="crk-appsheet__n">02</span><span>{{ settings.crk_app_ios_2 | default: 'Choose Add to Home Screen' }}</span></li>
+        <li><span class="crk-appsheet__n">03</span><span>{{ settings.crk_app_ios_3 | default: 'Tap Add' }}</span></li>
+      </ol>
+
+      <ol class="crk-appsheet__steps" data-crk-app-steps="android" hidden>
+        <li>
+          <span class="crk-appsheet__n">01</span>
+          <span>{{ settings.crk_app_android_1 | default: 'Tap the menu' }}
+            <svg class="crk-appsheet__glyph" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="10" cy="4" r="1.4"/><circle cx="10" cy="10" r="1.4"/><circle cx="10" cy="16" r="1.4"/></svg>
+          </span>
+        </li>
+        <li><span class="crk-appsheet__n">02</span><span>{{ settings.crk_app_android_2 | default: 'Choose Install app (or Add to Home screen)' }}</span></li>
+        <li><span class="crk-appsheet__n">03</span><span>{{ settings.crk_app_android_3 | default: 'Tap Install' }}</span></li>
+      </ol>
+
+      <div class="crk-appsheet__native" data-crk-app-steps="native" hidden>
+        <button type="button" class="crk-appsheet__install" data-crk-app-native>
+          {{ settings.crk_app_install_cta | default: 'INSTALL' }}
+        </button>
+      </div>
+
+      <p class="crk-appsheet__desktop" data-crk-app-steps="desktop" hidden>
+        {{ settings.crk_app_desktop | default: 'Open this site on your phone to add it to your home screen.' }}
+      </p>
+
+      <ul class="crk-appsheet__gets">
+        <li>{{ settings.crk_app_get_1 | default: 'One tap from your home screen' }}</li>
+        <li>{{ settings.crk_app_get_2 | default: 'Full screen — no browser bars' }}</li>
+        <li>{{ settings.crk_app_get_3 | default: 'Your bag and order tracking, same as the site' }}</li>
+      </ul>
+    </div>
+  </div>
+
+  <script src="{{ 'crooks-app.js' | asset_url }}" defer></script>
+{%- else -%}
+  <button type="button" class="crk-app-trigger crk-app-trigger--{{ placement | default: 'inline' }}" data-crk-app-open hidden>
+    <svg class="crk-app-trigger__glyph" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="4" y="1.5" width="8" height="13" rx="0"/><path d="M7 12.5h2"/></svg>
+    <span>{{ settings.crk_app_trigger | default: 'GET THE APP' }}</span>
+  </button>
+{%- endif -%}

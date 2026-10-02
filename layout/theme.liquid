@@ -25,6 +25,7 @@
     {% endif %}
 
     {%- render 'meta-tags' -%}
+    {%- render 'crooks-app-head' -%}
     {%- render 'stylesheets' -%}
     {%- render 'fonts' -%}
     {{ 'crx-mono.css' | asset_url | stylesheet_tag }}
@@ -210,6 +211,7 @@
       it is never used and breaks nothing if the script never loads.
     {%- endcomment -%}
     {%- render 'crooks-bag-drawer' -%}
+    {%- render 'crooks-app-install', placement: 'sheet' -%}
 
     {%- if settings.getaway_enabled -%}
       {%- unless request.design_mode -%}

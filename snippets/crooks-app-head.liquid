@@ -1,0 +1,25 @@
+{%- comment -%}
+  Makes the store installable as an app on a phone's home screen.
+
+  iOS: Safari -> Share -> Add to Home Screen. The apple-* tags give it a proper
+  icon, its own title under the icon, and full-screen launch with no Safari
+  chrome. On iOS 26 every home-screen site opens this way anyway; these tags
+  set what it looks like when it does.
+
+  Android: the browser menu offers "Install app" from the manifest alone.
+  Chrome's automatic install banner additionally needs a service worker that
+  controls the page, which a Shopify theme cannot serve from the shop's root —
+  Shopify strips the header that would allow it. The install sheet explains
+  the menu route instead of waiting for a banner that will not come.
+
+  Status bar style is "black", not "black-translucent": translucent runs the
+  page under the clock and needs safe-area padding on every fixed element,
+  for a status bar that would be near-black either way.
+{%- endcomment -%}
+<link rel="manifest" href="{{ routes.root_url }}?view=crk-manifest">
+<meta name="theme-color" content="#0B0A0E">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="{{ settings.crk_app_short_name | default: shop.name | escape }}">
+<link rel="apple-touch-icon" href="{{ 'crooks-apple-touch-icon.png' | asset_url }}">

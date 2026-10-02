@@ -2023,7 +2023,15 @@ body:has(main [data-crk-section]) main { background: var(--crk-ground) }
 /* Breadcrumb rail: useful on desktop, but on a phone it pushed the
    title and price below the fold on the one screen that sells. */
 @media (max-width: 959px) {
-  .crk-record .crk-rail { display: none }
+  /* The meta strip. This rule previously targeted .crk-rail, a class that
+     does not exist in the product section, so it never matched and the full
+     "← CATALOGUE  PRODUCT 01 / 19  HOODIES" row stayed on every phone. The
+     real class is .crk-meta. On a phone it keeps only the back link, on one
+     short line: the exhibit count and product type are decoration, but the
+     back link is navigation — and in the installed app on iOS there is no
+     browser back button, so it is the only way out of a product page. */
+  .crk-record .crk-meta { padding: 6px 0; gap: 6px 12px }
+  .crk-record .crk-meta > :not(a.crk-label) { display: none }
 }
 
 /* Size: label left, guide right, buttons in one unbroken row of equal
@@ -2387,3 +2395,7 @@ body:has(main [data-crk-section]) main { background: var(--crk-ground) }
 .crk-record .crk-optgroup + .crk-optgroup { margin-top: 14px }
 .crk-record .crk-optgroup .crk-sizehead { margin: 14px 0 6px }
 .crk-record .crk-optgroup:first-of-type .crk-sizehead { margin-top: 20px }
+
+/* Footer: the app trigger sits on its own short row above the base line. */
+.crk-footer__app { display: flex; justify-content: center; padding-top: 0; padding-bottom: 8px }
+.crk-footer__app:empty { display: none }

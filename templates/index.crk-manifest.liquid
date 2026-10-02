@@ -1,0 +1,45 @@
+{%- comment -%}
+  The web app manifest, served from the shop's own origin.
+
+  Reached at {{ routes.root_url }}?view=crk-manifest — the same alternate-view
+  pattern as cart.crk-count and cart.crk-drawer. It is a Liquid template rather
+  than a JSON file in assets because assets are served from the CDN path and
+  cannot read shop.name or the theme's own settings, and because a manifest on
+  the shop's own origin needs no special handling for start_url and scope.
+
+  Shopify serves alternate views as text/html. Browsers do not check a
+  manifest's MIME type, so this parses as a manifest regardless.
+
+  Every customer-facing string is a theme setting (Theme settings -> CROOKSLDN
+  -> The app). Shortcuts appear when a customer long-presses the icon on
+  Android; iOS ignores them.
+{%- endcomment -%}
+{%- layout none -%}
+{%- liquid
+  assign crk_app_name = settings.crk_app_name | default: shop.name
+  assign crk_app_short = settings.crk_app_short_name | default: shop.name
+  assign crk_app_desc = settings.crk_app_description | default: shop.description
+-%}
+{
+  "id": "/",
+  "name": {{ crk_app_name | json }},
+  "short_name": {{ crk_app_short | json }},
+  "description": {{ crk_app_desc | json }},
+  "lang": {{ request.locale.iso_code | json }},
+  "start_url": "/?utm_source=app&utm_medium=home_screen",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B0A0E",
+  "theme_color": "#0B0A0E",
+  "icons": [
+    { "src": {{ 'crooks-app-icon-192.png' | asset_url | json }}, "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": {{ 'crooks-app-icon-512.png' | asset_url | json }}, "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": {{ 'crooks-app-icon-maskable-512.png' | asset_url | json }}, "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": {{ settings.crk_app_sc_shop | default: 'Shop' | json }}, "url": {{ routes.all_products_collection_url | json }} },
+    { "name": {{ settings.crk_app_sc_track | default: 'Track an order' | json }}, "url": {{ settings.crk_app_track_url | default: '/pages/tracking' | json }} },
+    { "name": {{ settings.crk_app_sc_bag | default: 'Bag' | json }}, "url": {{ routes.cart_url | json }} }
+  ]
+}

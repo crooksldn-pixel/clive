@@ -2382,6 +2382,149 @@
         "id": "crk_bag_view",
         "label": "Link to the full bag",
         "default": "VIEW THE FULL BAG"
+      },
+      {
+        "type": "header",
+        "content": "The app (home-screen install)"
+      },
+      {
+        "type": "paragraph",
+        "content": "The store installs to a phone's home screen as a web app. These are the words on the icon, in the install sheet and in the long-press shortcuts. The sheet deliberately promises nothing about notifications — nothing sends them yet."
+      },
+      {
+        "type": "text",
+        "id": "crk_app_name",
+        "label": "App name",
+        "default": "CROOKSLDN"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_short_name",
+        "label": "Name under the icon",
+        "info": "About 12 characters fit before iOS truncates it.",
+        "default": "CROOKSLDN"
+      },
+      {
+        "type": "textarea",
+        "id": "crk_app_description",
+        "label": "App description",
+        "default": "Independent London streetwear."
+      },
+      {
+        "type": "text",
+        "id": "crk_app_trigger",
+        "label": "Install button",
+        "default": "GET THE APP"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_sheet_title",
+        "label": "Sheet heading",
+        "default": "CROOKSLDN ON YOUR HOME SCREEN"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_sheet_lede",
+        "label": "Sheet intro",
+        "default": "Opens full screen, like an app. Nothing to download from a store."
+      },
+      {
+        "type": "text",
+        "id": "crk_app_close",
+        "label": "Close, screen readers",
+        "default": "Close"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_ios_1",
+        "label": "iPhone step 1",
+        "default": "Tap the Share button"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_ios_2",
+        "label": "iPhone step 2",
+        "default": "Choose Add to Home Screen"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_ios_3",
+        "label": "iPhone step 3",
+        "default": "Tap Add"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_android_1",
+        "label": "Android step 1",
+        "default": "Tap the menu"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_android_2",
+        "label": "Android step 2",
+        "default": "Choose Install app (or Add to Home screen)"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_android_3",
+        "label": "Android step 3",
+        "default": "Tap Install"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_install_cta",
+        "label": "One-tap install button",
+        "info": "Only appears where the browser offers a one-tap install.",
+        "default": "INSTALL"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_desktop",
+        "label": "Desktop message",
+        "default": "Open this site on your phone to add it to your home screen."
+      },
+      {
+        "type": "text",
+        "id": "crk_app_get_1",
+        "label": "What you get 1",
+        "default": "One tap from your home screen"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_get_2",
+        "label": "What you get 2",
+        "default": "Full screen — no browser bars"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_get_3",
+        "label": "What you get 3",
+        "default": "Your bag and order tracking, same as the site"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_sc_shop",
+        "label": "Shortcut: shop",
+        "info": "Long-press the icon on Android.",
+        "default": "Shop"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_sc_track",
+        "label": "Shortcut: tracking",
+        "default": "Track an order"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_sc_bag",
+        "label": "Shortcut: bag",
+        "default": "Bag"
+      },
+      {
+        "type": "text",
+        "id": "crk_app_track_url",
+        "label": "Tracking page path",
+        "default": "/pages/tracking"
       }
     ]
   }
