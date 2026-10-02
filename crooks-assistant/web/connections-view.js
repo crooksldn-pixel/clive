@@ -311,17 +311,21 @@
 
   // ------------------------------------------------------------------ a row
 
-  function headNode(c, ctx) {
-    const head = el('div', 'conn-head');
+  // Inside a disclosure's summary (a working row) the head is built of spans, which is what a
+  // summary may hold beside its heading; elsewhere of blocks.
+  function headNode(c, ctx, { inSummary = false } = {}) {
+    const block = inSummary ? 'span' : 'div';
+    const para = inSummary ? 'span' : 'p';
+    const head = el(block, 'conn-head');
     const dot = el('span', 'dot ' + tone(c, ctx));
     dot.setAttribute('aria-hidden', 'true');
-    const main = el('div', 'conn-main');
-    add(main, el('h3', 'conn-name', c.label), el('p', 'conn-line', c.what));
+    const main = el(block, 'conn-main');
+    add(main, el('h3', 'conn-name', c.label), el(para, 'conn-line', c.what));
     const said = status(c, ctx);
-    const line = el('p', 'conn-status', said);
+    const line = el(para, 'conn-status', said);
     if (!said) line.hidden = true;
     add(main, line);
-    if (c.state === 'needs_attention' && !(ctx.checking && ctx.checking.has(c.name))) add(main, el('p', 'conn-problem', c.detail));
+    if (c.state === 'needs_attention' && !(ctx.checking && ctx.checking.has(c.name))) add(main, el(para, 'conn-problem', c.detail));
     add(head, dot, main);
     return head;
   }
@@ -376,7 +380,7 @@
     node.dataset.state = { connected: 'connected', needs_attention: 'needs_attention', not_connected: 'not_connected' }[c.state] || 'unknown';
     if (c.group === 'working') {
       // One quiet line: the whole row opens its details.
-      add(node, more(c, ctx, { head: headNode(c, ctx) }));
+      add(node, more(c, ctx, { head: headNode(c, ctx, { inSummary: true }) }));
       node.classList.add('is-quiet');
       return node;
     }

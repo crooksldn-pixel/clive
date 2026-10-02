@@ -53,7 +53,8 @@ h1,h2,h3,h4,p,dl,dd,ol,ul{margin:0}
 .conn + .conn::before,.cell + .cell::before,.change + .change::before{content:"";position:absolute;top:0;left:var(--indent);right:0;border-top:.5px solid var(--hair)}
 .cell + .cell::before,.change + .change::before{left:16px}
 .conn-head{display:flex;align-items:flex-start;gap:14px;padding:14px 0}
-.conn-main{flex:1;min-width:0}
+.conn-main{flex:1;min-width:0;display:block}
+.conn-main > span{display:block}
 .conn-name{font-size:17px;line-height:1.3;font-weight:600;letter-spacing:-.01em}
 .conn-line{margin-top:2px;font-size:15px;line-height:1.35;color:var(--ink-3)}
 .conn-status{margin-top:4px;font-size:13px;line-height:1.3;color:var(--ink-3);font-variant-numeric:tabular-nums}
