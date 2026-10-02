@@ -334,6 +334,15 @@
   }
 
   // ------------------------------------------------------------------ one objective
+  // The bar at the foot of an objective's sheet (web/objective-touch.js, through
+  // web/objective-cards.js): what a touch on the objective did, with Undo for six seconds. One for
+  // each sheet opened, kept through that sheet's redraws, so an Undo outlives the redraw it caused.
+  let sheetBar = { seq: -1, bar: null };
+  function barFor(seq) {
+    const cards = window.CliveObjectiveCards;
+    if (sheetBar.seq !== seq) sheetBar = { seq, bar: cards && typeof cards.bar === 'function' ? cards.bar() : null };
+    return sheetBar.bar;
+  }
   const STATE = { proposed: 'Proposed', authorised: 'Approved by you', started: 'In progress', completed: 'Done by CLIVE', verified: 'Verified' };
 
   async function openObjective(id) {
@@ -385,8 +394,9 @@
     // The objective's shape — a project's stages, the tasks by person — and what the owner said
     // it is for, drawn from the same payload as the conversation's card. A tick redraws the sheet
     // and the home. Nothing is drawn for a field nobody filled, so an older objective reads as before.
+    const touchBar = barFor(seq);
     const body = cards && o.card
-      ? cards.shape(o.card, { sheet: true, onChange: (record) => { if (current()) drawObjective(record, true, seq); refresh(); } }) : null;
+      ? cards.shape(o.card, { sheet: true, onChange: (record) => { if (current()) drawObjective(record, true, seq); refresh(); }, bar: touchBar }) : null;
     if (body && body.childNodes.length) blocks.push(h('div', { class: 'alpha-shape', 'data-objective': o.id }, body));
 
     const live = o.items.filter((i) => i.state !== 'verified');
@@ -472,6 +482,7 @@
     const was = sheet.querySelector('.sheet-scroll');
     const top = keepScroll && was ? was.scrollTop : 0;
     openSheet(...blocks);
+    if (touchBar) sheet.append(touchBar.el);
     const now = sheet.querySelector('.sheet-scroll');
     if (keepScroll && now) now.scrollTop = top;
   }

@@ -54,10 +54,23 @@ the pending design becomes the design (``ObjectiveStore._write`` says why that o
 design that cannot be read or does not agree never hides or breaks the objective: it reads as its
 plain kind from its record, and the file is logged (never its content) and kept aside, renamed
 ``.damaged``, never overwritten.
+
+The owner's touch, and six seconds to take it back (objectives by touch, part A). On his own screen
+he can make a stage now, tick a task, hand a task to someone else and drag the date it must land
+by. Each of those is one ordinary change (``move_stage``, ``task``, ``design``: one locked write,
+one event, the design file and record in their order) wrapped by ``_touch``, which, under the same
+lock, keeps what the change could alter (the stages with their states and dates, the tasks, the
+deadline) as it was just before, and hands back a one-use token. ``undo`` with that token puts those
+fields back exactly, from what was kept rather than by working out an inverse, as one more change
+with its own "Undone: ..." event, and only while nothing else has touched the objective since (the
+record's history ends where that change left it) and within a short window. Tokens live in this
+process's memory alone, a bounded few, never on the disk and never in a log: a restart forgets
+them, which is the honest answer six seconds after a restart anyway.
 """
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -66,6 +79,8 @@ import re
 import secrets
 import threading
 import time
+from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, fields
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -121,6 +136,13 @@ MAX_NAME = 60
 MAX_CHECK_EVERY = 90
 # What each field `missing` can name means, in the words the model asks in.
 _MEANS = {"deadline": "the date it has to be done by", "tasks": "who is to do what"}
+# A touch can be taken back for this long on the screen; the server allows a little more, for the
+# time the tap on Undo spends on its way. At most this many offers are kept at once.
+UNDO_OFFER_S = 6
+UNDO_GRACE_S = 10
+UNDO_KEPT = 32
+# What an owner's touch can change, and so what its undo puts back.
+_RESTORABLE = ("stages", "tasks", "deadline")
 _ROLE = re.compile(r"^(?P<name>[^()]+?)\s*\((?P<role>[^()]*)\)\s*$")
 
 
@@ -164,6 +186,30 @@ def _on(iso: str | None) -> str:
     except ValueError:
         return str(iso or "")
     return f"{day.day} {_MONTHS[day.month - 1]} {day.year}"
+
+
+_WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _day(iso: str | None) -> str:
+    """A date as the screen says it: "Fri 30 Oct", with the year only when it is not this one."""
+    try:
+        day = date.fromisoformat(str(iso))
+    except ValueError:
+        return str(iso or "")
+    said = f"{_WEEKDAYS[day.weekday()]} {day.day} {_MONTHS[day.month - 1]}"
+    return said if day.year == datetime.now(UTC).date().year else f"{said} {day.year}"
+
+
+def _listed(names: list[str]) -> str:
+    """"A", "A and B", "A, B and C": a list the way a person says it."""
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _clock() -> float:
+    """The time an undo's window is measured by: monotonic, so a clock change neither opens nor
+    shuts it."""
+    return time.monotonic()
 
 
 def _optional(text: Any, *, limit: int = 400) -> str | None:
@@ -541,6 +587,17 @@ def _verdict(design: Any, record: dict[str, Any]) -> str:
     return "agrees"
 
 
+def _restorable(obj: Objective) -> dict[str, Any]:
+    """What an owner's touch can change, as it is now, kept apart from the objective."""
+    return {name: copy.deepcopy(getattr(obj, name)) for name in _RESTORABLE}
+
+
+def _ends(obj: Objective) -> tuple[int, str | None]:
+    """Where the record's history ends: every write adds an event (`_change`), so the same end
+    means nothing has been written since."""
+    return len(obj.events), (_mark(obj.events[-1]) if obj.events else None)
+
+
 def _days_left(deadline: str | None) -> int | None:
     if not deadline:
         return None
@@ -550,10 +607,17 @@ def _days_left(deadline: str | None) -> int | None:
         return None
 
 
+# What an owner's touch answers: the objective, the undo offer when it changed something, and the
+# line that says so when it changed nothing (`ObjectiveStore._touch`).
+Touched = tuple[Objective, dict[str, Any] | None, str | None]
+
+
 class ObjectiveStore:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
         self._lock = threading.RLock()
+        # The undo offers made for the owner's touches, by token, oldest first (`_touch`).
+        self._undos: OrderedDict[str, dict[str, Any]] = OrderedDict()
 
     # ---- persistence ----------------------------------------------------------
     def _path(self, objective_id: str) -> Path:
@@ -1129,6 +1193,144 @@ class ObjectiveStore:
             o.tasks.remove(found)
             self._event(o, "task", f"Taken off {found['who']}'s list: {found['text']}.", by)
         return self._change(objective_id, fn, by=by)
+
+    # ---- the owner's touch, and six seconds to take it back ----------------------------
+    # Each returns the objective, the undo offer ({token, ttl_s, says}) when it changed something,
+    # and, when it changed nothing, the line that says so (`Touched`). Only the owner's screen
+    # calls these.
+    def touch_stage(self, objective_id: str, stage: str) -> Touched:
+        """The owner made `stage` (a name, or "next") the stage the project is at now."""
+        def plan(o: Objective):
+            if o.kind != "project":
+                raise ObjectiveError("Only a project has stages.")
+            index = self._stage_index(o, stage)
+            here = o.current_stage()
+            if here is not None and here[0] == index:
+                return f"{here[1]['name']} is already where it is now."
+            act = lambda: self.move_stage(objective_id, stage, by="owner")  # noqa: E731
+            return act, self._stage_says(o, index, here), self._stage_was(o, here)
+        return self._touch(objective_id, plan)
+
+    @staticmethod
+    def _stage_says(o: Objective, index: int, here: tuple[int, dict] | None) -> str:
+        if index >= len(o.stages):
+            return "Every stage done"
+        name = o.stages[index]["name"]
+        if here is None and not any(s.get("state") == "done" for s in o.stages):
+            return f"Started: {name} is now"
+        return f"{name} is now" if here is not None and index > here[0] else f"Back to {name}"
+
+    @staticmethod
+    def _stage_was(o: Objective, here: tuple[int, dict] | None) -> str:
+        if here is not None:
+            return f"Back at {here[1]['name']}, as it was"
+        if o.stages and all(s.get("state") == "done" for s in o.stages):
+            return "Every stage done, as it was"
+        return "Not started, as it was"
+
+    def touch_task(self, objective_id: str, task_id: str, *, done: bool | None = None,
+                   who: str | None = None) -> Touched:
+        """The owner ticked a task done or open, or handed it to someone else, or both."""
+        def plan(o: Objective):
+            found = next((t for t in o.tasks if t["id"] == task_id), None)
+            if found is None:
+                raise ObjectiveError(f"There is no task {task_id!r} on this objective.")
+            if done is None and who is None:
+                raise ObjectiveError("Say whether it is done, or who it is for.")
+            to = self._who(o, who) if who is not None else None
+            to = to if to is not None and _key(to) != _key(found["who"]) else None
+            tick = done if done is not None and bool(done) != bool(found.get("done")) else None
+            if to is None and tick is None:
+                if who is not None:
+                    return f"That is already {found['who']}'s."
+                return f"Already {'done' if found.get('done') else 'open'}: {found['text']}"
+            act = lambda: self.task(objective_id, item_id=task_id, who=to, done=tick, by="owner")  # noqa: E731
+            return act, self._task_says(found, to, tick), self._task_was(found, to, tick)
+        return self._touch(objective_id, plan)
+
+    @staticmethod
+    def _task_says(found: dict, to: str | None, tick: bool | None) -> str:
+        if to is not None:
+            return f"Moved to {to}" + ("" if tick is None else f", {'done' if tick else 'open'}")
+        return f"{'Done' if tick else 'Open again'}: {found['text']}"
+
+    @staticmethod
+    def _task_was(found: dict, to: str | None, tick: bool | None) -> str:
+        again = []
+        if to is not None:
+            again.append(f"{found['who']}'s")
+        if tick is not None:
+            again.append("done" if found.get("done") else "open")
+        return f"“{found['text']}” is {' and '.join(again)} again"
+
+    def touch_deadline(self, objective_id: str, deadline: str) -> Touched:
+        """The owner moved the date it must land by ("" takes it off)."""
+        def plan(o: Objective):
+            new = _date(deadline, what="deadline")
+            if new == o.deadline:
+                return f"It is already due {_day(new)}." if new else "It has no deadline to take off."
+            act = lambda: self.design(objective_id, deadline=new or "", by="owner")  # noqa: E731
+            says = f"Due {_day(new)}{self._lands(o, new)}" if new else "No deadline now"
+            return act, says, (f"Due {_day(o.deadline)} again" if o.deadline else "No deadline again")
+        return self._touch(objective_id, plan)
+
+    @staticmethod
+    def _lands(o: Objective, deadline: str) -> str:
+        """What a new deadline means for a project's dated stages still to finish."""
+        dated = [s for s in o.stages if s.get("state") != "done" and s.get("due")] if o.kind == "project" else []
+        late = [s["name"] for s in dated if s["due"] > deadline]
+        if late:
+            return f"; {_listed(late)} would land after it"
+        return "; everything still lands in time" if dated else ""
+
+    def _touch(self, objective_id: str, plan: Callable[[Objective], Any]) -> Touched:
+        """One touch, under the lock: what it can change is kept as it was, the change is made the
+        ordinary way, and an undo offer is made for it. `plan` says what the change is (the act,
+        what it did in words, what an undo puts back), or, as a string, that it changes nothing."""
+        with self._lock:
+            before = self.get(objective_id)
+            planned = plan(before)
+            if isinstance(planned, str):
+                return before, None, planned
+            act, says, put_back = planned
+            kept = _restorable(before)
+            after = act()
+            if _restorable(after) == kept:
+                return after, None, None
+            token = secrets.token_urlsafe(18)
+            self._offer(token, {"objective_id": after.id, "kept": kept, "ends": _ends(after), "at": _clock(),
+                                "says": says, "put_back": put_back})
+            return after, {"token": token, "ttl_s": UNDO_OFFER_S, "says": says}, None
+
+    def _offer(self, token: str, offer: dict[str, Any]) -> None:
+        """Keep an undo offer: the lapsed ones go first, then the oldest past the bound."""
+        for old in [t for t, o in self._undos.items() if offer["at"] - o["at"] > UNDO_GRACE_S]:
+            del self._undos[old]
+        self._undos[token] = offer
+        while len(self._undos) > UNDO_KEPT:
+            self._undos.popitem(last=False)
+
+    def undo(self, objective_id: str, token: str) -> tuple[Objective, str]:
+        """Take back the touch `token` was offered for: its stages, tasks and deadline exactly as
+        they were before it, if the objective has not changed since and the window is still open.
+        Once used, or refused for being late or overtaken, the token is gone."""
+        with self._lock:
+            offer = self._undos.get(str(token or ""))
+            if offer is None:
+                raise ObjectiveError("That can no longer be undone, so nothing was changed.")
+            if offer["objective_id"] != objective_id:
+                raise ObjectiveError("That undo belongs to another objective, so nothing was undone.")
+            del self._undos[str(token)]
+            if _clock() - offer["at"] > UNDO_GRACE_S:
+                raise ObjectiveError("It is too late to undo that, so nothing was undone.")
+
+            def fn(o: Objective) -> None:
+                if _ends(o) != offer["ends"]:
+                    raise ObjectiveError("It has changed since, so nothing was undone.")
+                for name, value in offer["kept"].items():
+                    setattr(o, name, copy.deepcopy(value))
+                self._event(o, "undo", f"Undone: {offer['says']}.", "owner")
+            return self._change(objective_id, fn, by="owner"), offer["put_back"]
 
     # ---- what CLIVE records as it works --------------------------------------------
     def add_fact(self, objective_id: str, text: str, *, source: str, by: str = "clive") -> Objective:
