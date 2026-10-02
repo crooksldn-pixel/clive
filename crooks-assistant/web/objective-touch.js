@@ -140,6 +140,22 @@
   }
   if (FROM_START && host()) host().addEventListener('touchmove', stopScroll, { passive: false });
 
+  /* A second finger ends every press under way, as web/lift.js lets go of a lift: two fingers are
+   * a pinch (web/distances.js), never a drag. Without this, a pinch whose first finger rested on
+   * a task long enough to arm it handed that task to whoever the finger ended over, and the same
+   * pinch then closed the sheet with its Undo in it (review of PR #91). One listener for the
+   * page, taken at the capture phase so it runs before anything the second finger lands on. */
+  const LIVE = new Set();
+  let watching = false;
+  function watchSecondFinger() {
+    const d = doc();
+    if (watching || !d || typeof d.addEventListener !== 'function') return;
+    watching = true;
+    d.addEventListener('pointerdown', (event) => {
+      for (const live of Array.from(LIVE)) if (live.id() !== event.pointerId) live.cancel();
+    }, true);
+  }
+
   /* `spec`: { arm (ms; 0 = it drags as soon as it moves), armed(p), start(p), move(p), end(p),
    * still(p), cancel(p), ownClick }. `p` carries where it went down (x0, y0) and where it is (x, y),
    * in the page's own pixels. Returns { took(): whether the click now arriving is the end of a
@@ -149,9 +165,12 @@
   function press(el, spec) {
     let P = null;
     let swallowUntil = 0;
+    watchSecondFinger();
+    const live = { id: () => (P ? P.id : null), cancel: () => end('cancel') };
     const end = (how, event) => {
       const p = P;
       P = null;
+      LIVE.delete(live);
       if (!p) return;
       api.clock.cancel(p.timer);
       if (p.armed) {
@@ -176,6 +195,7 @@
       const p = { id: event.pointerId, x0: event.clientX, y0: event.clientY, x: event.clientX, y: event.clientY,
         armed: false, dragging: false, timer: 0 };
       P = p;
+      LIVE.add(live);
       if (spec.arm > 0) p.timer = api.clock.later(() => { if (P === p) arm(p); }, spec.arm);
       else arm(p, event);
     });
@@ -281,7 +301,8 @@
       let why = null;
       try { put = await offer.run(); } catch (error) { why = error || new Error(''); }
       S.busy = false;
-      S.offer = null;
+      // A newer touch may have put up its own Undo while this one was asked: that one stays.
+      if (S.offer === offer) S.offer = null;
       if (why) {
         haptic('error');
         say(why.unreached ? 'CLIVE could not be reached, so nothing was undone.'

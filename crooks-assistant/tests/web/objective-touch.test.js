@@ -601,6 +601,62 @@ test('a still press does nothing extra, a move before the press arms is the shee
   assert.equal(swatches.style.getPropertyValue('--dy'), '0px', 'settled back');
 });
 
+test('a second finger ends a press: a pinch whose first finger rested on a task hands nothing over (review of PR #91)', async () => {
+  // The page's own capture listener, as the browser would run it for a finger anywhere on the glass.
+  const heard = [];
+  shim.document.addEventListener = (type, fn, capture) => { if (type === 'pointerdown' && capture) heard.push(fn); };
+  try {
+    const M = mac(tasks());
+    const card = OC.card(tasks(), { now: NOW, post: M.post, send: M.send });
+    placeGroups(card);
+    const swatches = row(card, 'Photograph');
+    assert.equal(heard.length, 1, 'one listener for the page');
+    pointer(swatches, 'pointerdown', 200, 140);
+    for (const fn of heard) fn({ type: 'pointerdown', pointerId: 8, clientX: 200, clientY: 300, isPrimary: false });
+    C.advance(260);
+    assert.ok(!swatches.classList.contains('is-lifted'), 'the press was ended by the second finger, so it never arms');
+    pointer(swatches, 'pointermove', 200, 260);
+    pointer(swatches, 'pointerup', 200, 260);
+    C.advance(500);
+    await flush();
+    assert.deepEqual(M.asked, [], 'nothing handed over, nothing ticked');
+    // Armed first and then joined by a second finger: it goes back, and nothing is asked either.
+    pointer(swatches, 'pointerdown', 200, 140);
+    C.advance(260);
+    assert.ok(swatches.classList.contains('is-lifted'));
+    pointer(swatches, 'pointermove', 200, 260);
+    for (const fn of heard) fn({ type: 'pointerdown', pointerId: 8, clientX: 200, clientY: 300, isPrimary: false });
+    pointer(swatches, 'pointerup', 200, 260);
+    C.advance(500);
+    await flush();
+    assert.deepEqual(M.asked, [], 'a lifted task is put back, not handed over');
+    assert.ok(!swatches.classList.contains('is-lifted'));
+  } finally {
+    delete shim.document.addEventListener;
+  }
+});
+
+test('the date ring moves by how far the finger goes, never to where it happens to be, and an up-or-down drag moves nothing', async () => {
+  const M = mac(project());
+  const card = OC.card(project(), { now: NOW, send: M.send });
+  one(card, 'ot-track').rect = { left: 0, top: 0, width: 280, height: 66 };    // ten pixels a day; the ring is at 210
+  const ring = one(card, 'ot-ring');
+  pointer(ring, 'pointerdown', 228, 46);       // pressed 18 px right of the ring's centre
+  pointer(ring, 'pointermove', 238, 46);       // and nudged 10 px: one day, not three
+  assert.equal(ring.getAttribute('aria-valuenow'), '22');
+  pointer(ring, 'pointermove', 228, 46);
+  pointer(ring, 'pointerup', 228, 46);
+  await flush();
+  assert.deepEqual(M.asked, [], 'back where it started: nothing asked');
+  pointer(ring, 'pointerdown', 210, 46);
+  pointer(ring, 'pointermove', 212, 80);       // mostly down: a scroll's start, not a date drag
+  pointer(ring, 'pointermove', 150, 120);
+  pointer(ring, 'pointerup', 150, 120);
+  await flush();
+  assert.equal(ring.getAttribute('aria-valuenow'), '21');
+  assert.deepEqual(M.asked, []);
+});
+
 test('from the keyboard, the context-menu key hands a task over from a short menu', async () => {
   const M = mac(tasks());
   const card = OC.card(tasks(), { now: NOW, post: M.post, send: M.send });

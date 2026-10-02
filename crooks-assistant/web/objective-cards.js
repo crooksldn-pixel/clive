@@ -203,7 +203,7 @@
     if (!T || !opts || opts.readOnly || !opts.bar || !OBJECTIVE_ID.test(objective)) return null;
     const tap = tapper(T);
     return {
-      T, now, bar: opts.bar,
+      T, now, bar: opts.bar, key: objective,
       // Keyed by objective: a tap here and a tap on another drawing of it are the same element.
       tap: (key, part, how) => tap(`${objective}:${key}`, part, how),
       send: typeof opts.send === 'function' ? opts.send : T.post,
@@ -221,10 +221,21 @@
     return taps.tap;
   }
 
+  // What was last sent for each objective, a touch or an Undo. Only the answer to the latest is
+  // drawn: an Undo's answer that comes back after a newer touch's answer would otherwise draw the
+  // objective as it was before that touch, which the Mac did make (review of PR #91).
+  const LATEST = new Map();
+  function sending(ctx) {
+    const n = (LATEST.get(ctx.key) || 0) + 1;
+    LATEST.set(ctx.key, n);
+    return () => LATEST.get(ctx.key) === n;
+  }
+
   // A touch, sent to the owner's own route: the answer redraws, and the bar says what it did.
   async function commit(ctx, tail, body) {
+    const latest = sending(ctx);
     const record = await ctx.send(ctx.url(tail), body);
-    ctx.redraw(record);
+    if (latest()) ctx.redraw(record);
     offer(ctx, record);
     return record;
   }
@@ -235,8 +246,9 @@
     if (undo && typeof undo.token === 'string' && undo.token) {
       ctx.T.haptic('done');
       ctx.bar.did(text(undo.says), async () => {
+        const latest = sending(ctx);
         const back = await ctx.send(ctx.url('/undo'), { token: undo.token });
-        ctx.redraw(back);
+        if (latest()) ctx.redraw(back);
         return text(back && back.said);
       });
     } else if (record && text(record.said)) {
@@ -472,13 +484,21 @@
         .catch((error) => { show(at, false); failed(ctx, error); })
         .then(() => { busy = false; });
     };
+    // The ring moves by how far the finger has gone along the days, from the day it was on, never
+    // to wherever the finger happens to be: a press a little off the ring's centre, nudged, moved
+    // the deadline by days (review of PR #91). A drag that sets off mostly up or down is not a
+    // date drag at all, and moves nothing.
+    let from = at;
     ctx.T.press(ring, {
       arm: 0,
-      start: () => { if (busy) return; moving = true; ctx.T.haptic('lift'); show(cur, true); },
+      start: (p) => {
+        if (busy || Math.abs(p.y - p.y0) > Math.abs(p.x - p.x0)) return;
+        moving = true; from = cur; ctx.T.haptic('lift'); show(cur, true);
+      },
       move: (p) => {
         const r = rectOf(days);
         if (!moving || !r || !r.width) return;
-        const i = clamp(Math.round(((p.x - r.left) / r.width) * (n - 1)), 0, n - 1);
+        const i = clamp(from + Math.round(((p.x - p.x0) / r.width) * (n - 1)), 0, n - 1);
         if (i === cur) return;
         ctx.T.haptic('detent');
         show(i, true);

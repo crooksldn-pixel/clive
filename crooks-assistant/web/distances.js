@@ -552,9 +552,20 @@
     // reaches the document: so the lift is listened for on the node too (as web/app.js does), and
     // counted once, by whichever hears it first.
     if (hit.zone && event.target && typeof event.target.addEventListener === 'function') {
-      for (const type of ['pointerup', 'pointercancel']) {
-        event.target.addEventListener(type, (lift) => { if (S.pts.has(lift.pointerId)) onUp(lift); }, { once: true });
-      }
+      // Both are taken off together when either is heard: only one of the pair ever fires, and
+      // the other, left on, piled up on the home, which is never replaced (review of PR #91).
+      const node = event.target;
+      const id = event.pointerId;
+      const heard = (lift) => {
+        if (lift.pointerId !== id) return;
+        if (typeof node.removeEventListener === 'function') {
+          node.removeEventListener('pointerup', heard);
+          node.removeEventListener('pointercancel', heard);
+        }
+        if (S.pts.has(lift.pointerId)) onUp(lift);
+      };
+      node.addEventListener('pointerup', heard);
+      node.addEventListener('pointercancel', heard);
     }
     if (S.gesture || S.pts.size !== 2) return;
     const [a, b] = Array.from(S.pts.values());
