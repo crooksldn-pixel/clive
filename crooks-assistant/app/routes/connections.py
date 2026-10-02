@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -173,8 +174,8 @@ def _guarded(handler):
 PAGE_HEADERS = {
     "Cache-Control": "no-cache",
     "Content-Security-Policy": ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
-                                "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; "
-                                "frame-ancestors 'none'"),
+                                "connect-src 'self'; media-src 'self' blob:; object-src 'none'; "
+                                "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"),
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
@@ -227,6 +228,9 @@ def _known_action(action: str) -> bool:
         return connection is not None and bool(connection.fields)
     if kind == "signin":
         return rest == "instagram"
+    if kind == "voice":
+        # The voice and how it sounds, signed as one text like a save (app/speech/voice_prefs.py).
+        return bool(SEAL.fullmatch(rest))
     if kind == "passkey":
         verb, _, identity = rest.partition(":")
         return (verb == "add" and not identity) or (verb == "remove" and bool(CREDENTIAL_ID.fullmatch(identity)))
@@ -305,6 +309,117 @@ async def connections_passkey_remove(request: Request, credential_id: str) -> JS
 
 
 # ------------------------------------------------------------------ Sign in with Instagram
+
+# ------------------------------------------------------------------ the voice
+
+# A preview speaks a real sentence through ElevenLabs, which costs the owner credit. Bounded, so a
+# slider dragged back and forth cannot spend it: at most this many in a minute, per process.
+PREVIEW_MAX_PER_MIN = 12
+PREVIEW_TEXT = "This is how I will sound when I read your orders out."
+_previews: list[float] = []
+
+
+def _voice_client(request: Request) -> Any:
+    voice = getattr(getattr(request.app.state, "runtime", None), "voice", None)
+    if voice is None:
+        raise _Refused(503, "no_voice", "The voice is not set up on this server.")
+    return voice
+
+
+@router.get("/connections/voice")
+@_guarded
+async def connections_voice(request: Request) -> JSONResponse:
+    """What the voice is now, what may be changed, and what the sliders accept. Never a key."""
+    from app.speech import voice_prefs
+
+    _who(request)
+    settings = _settings(request)
+    voice = _voice_client(request)
+    stored = await asyncio.to_thread(voice_prefs.read)
+    return _answer({
+        "voice": {
+            # What is speaking right now, whatever it came from.
+            "voice_id": voice.voice_id, "voice_name": voice.voice_name, "model": voice.model,
+            **voice_prefs.voice_settings(stored),
+        },
+        # What a Reset goes back to: the configured voice, and the voice's own defaults.
+        "configured": {"voice_id": getattr(settings, "tts_voice_id", ""),
+                       "voice_name": getattr(settings, "tts_voice_name", ""),
+                       "model": getattr(settings, "tts_model", "")},
+        "chosen": bool(stored),
+        "models": voice_prefs.MODELS,
+        "sliders": {key: {"min": low, "max": high} for key, (low, high) in voice_prefs.SLIDERS.items()},
+        "switches": list(voice_prefs.SWITCHES),
+    })
+
+
+@router.get("/connections/voice/voices")
+@_guarded
+async def connections_voice_list(request: Request) -> JSONResponse:
+    """The voices this ElevenLabs account has, so the owner picks one by name instead of pasting an
+    id. Asked with the stored key and never answered with it."""
+    _who(request)
+    voice = _voice_client(request)
+    found, why = await voice.voices()
+    if found is None:
+        raise _Refused(502, "voices_unavailable", why or "ElevenLabs could not be asked just now.")
+    return _answer({"voices": found})
+
+
+@router.post("/connections/voice")
+@_guarded
+async def connections_voice_save(request: Request) -> JSONResponse:
+    """Keep the voice and the sliders, and speak that way from the next answer on — no restart.
+    The passkey signs the very text the values arrived as, exactly as a key save does."""
+    from app.speech import voice_prefs
+
+    who = _who(request)
+    origin, _ = _origin(request)
+    device = _device(request)
+    body = await _body(request)
+    if body.get("approval") is None:
+        _approve(body, "voice", who=who, origin=origin, device=device)       # says "needs your passkey"
+    digest, values = sealed(body.get("values_json"))
+    _approve(body, f"voice:{digest}", who=who, origin=origin, device=device)
+    kept = await asyncio.to_thread(voice_prefs.write, values)
+    voice = _voice_client(request)
+    voice.apply(voice_id=kept.get("voice_id", ""), voice_name=kept.get("voice_name", ""),
+                model=kept.get("model", ""), voice_settings=voice_prefs.voice_settings(kept))
+    ledger.record("voice_changed", connection="elevenlabs", who=who, device=device, ok=True,
+                  detail=f"{voice.voice_name} · {voice.model}")
+    log.info("connections: the voice is now %s (%s)", voice.voice_name, voice.model)
+    return _answer({"voice": {"voice_id": voice.voice_id, "voice_name": voice.voice_name,
+                              "model": voice.model, **voice_prefs.voice_settings(kept)},
+                    "chosen": bool(kept)})
+
+
+@router.post("/connections/voice/preview")
+@_guarded
+async def connections_voice_preview(request: Request) -> Response:
+    """Hear a sentence in the settings on the screen before keeping them. Changes nothing: the
+    settings are used for this one request and never stored, so a preview cannot alter the voice."""
+    from app.speech import voice_prefs
+
+    _who(request)
+    voice = _voice_client(request)
+    now = time.time()
+    _previews[:] = [t for t in _previews if now - t < 60.0]
+    if len(_previews) >= PREVIEW_MAX_PER_MIN:
+        raise _Refused(429, "too_many_previews", "That is a lot of previews in a minute. Give it a moment.")
+    _previews.append(now)
+    wanted = voice_prefs.clean((await _body(request)).get("values"))
+    try:
+        audio = await voice.say_once(
+            PREVIEW_TEXT,
+            voice_id=wanted.get("voice_id") or voice.voice_id,
+            model=wanted.get("model") or voice.model,
+            voice_settings=voice_prefs.voice_settings(wanted),
+        )
+    except Exception as exc:  # noqa: BLE001 - the reason is the owner's to read, never a traceback
+        raise _Refused(502, "preview_failed", voice.why_not(exc)) from None
+    return Response(audio, media_type="audio/mpeg",
+                    headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
 
 @router.post("/connections/instagram/sign-in")
 @_guarded

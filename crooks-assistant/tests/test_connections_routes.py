@@ -22,6 +22,7 @@ from app.connections import ledger, passkeys, service, testers
 from app.logging.quiet import QuietPollsFilter
 from app.main import app
 from app.secrets import keychain, linux_store, vault
+from app.speech import voice_prefs
 from tests.fake_credentials import DIGITS, HEX, bearer_token, body, elevenlabs_key
 from tests.fake_passkey import ORIGIN, RP_ID, Authenticator
 from tests.test_actions_routes import (  # noqa: F401 - `client` is a fixture
@@ -83,6 +84,7 @@ async def world(client, tmp_path, monkeypatch):  # noqa: F811 - fixtures importe
         monkeypatch.setattr(keychain, name, function)
     vault.bind(FakeCipher())
     service.configure(state_dir=tmp_path / "secrets" / vault.DIR_NAME)
+    voice_prefs.configure(state_dir=tmp_path / "secrets" / vault.DIR_NAME)
     passkeys.reset()
     sign_in.reset()
     services = Services()
@@ -446,3 +448,54 @@ async def test_the_approval_covers_the_exact_text_the_page_sent(world):
         "values_json": compact, "approval": await approval(world, f"save:elevenlabs:{digest}")})
     assert done.status_code == 200, done.text
     assert linux_store.read("elevenlabs_api_key") == KEY
+
+
+# ------------------------------------------------------------------ the voice
+
+async def test_the_voice_is_the_owners_and_only_with_a_passkey_for_those_very_settings(world):
+    await register(world)
+    stranger = {"Tailscale-User-Login": "other@example.com", "X-Forwarded-For": "100.64.0.3"}
+    assert (await world.get("/connections/voice", headers=stranger)).status_code == 403
+    assert (await world.get("/connections/voice")).status_code == 403        # the server itself
+
+    shown = await world.get("/connections/voice", headers=HEADERS)
+    assert shown.status_code == 200
+    body = shown.json()
+    assert body["voice"]["voice_name"] == world.runtime.settings.tts_voice_name
+    assert body["chosen"] is False and "eleven_flash_v2_5" in body["models"]
+    assert body["sliders"]["speed"] == {"min": 0.7, "max": 1.2}
+    assert "key" not in shown.text.lower() or "api_key" not in shown.text
+
+    wanted = {"voice_id": "9375G6zswFk7v9bKTVQF", "voice_name": "Vikram", "style": 0.4}
+    text, digest = sealed(wanted)
+    bare = await world.post("/connections/voice", json={"values_json": text}, headers=HEADERS)
+    assert bare.status_code == 403 and bare.json()["code"] == "passkey_missing"
+
+    # An approval for one set of settings never stores another.
+    other, _ = sealed({"voice_id": "Q0Et7LOU7VpeoeCRQAVS", "voice_name": "Derek"})
+    crossed = await world.post("/connections/voice", headers=HEADERS,
+                               json={"values_json": other, "approval": await approval(world, f"voice:{digest}")})
+    assert crossed.status_code == 403
+
+    done = await world.post("/connections/voice", headers=HEADERS,
+                            json={"values_json": text, "approval": await approval(world, f"voice:{digest}")})
+    assert done.status_code == 200, done.text
+    assert done.json()["voice"] == {"voice_id": "9375G6zswFk7v9bKTVQF", "voice_name": "Vikram",
+                                    "model": world.runtime.settings.tts_model, "style": 0.4}
+    # Live, with no restart: the client the runtime holds is already speaking as the new voice.
+    assert world.runtime.voice.voice_id == "9375G6zswFk7v9bKTVQF"
+    assert world.runtime.voice._payload("hi")["voice_settings"] == {"style": 0.4}
+    assert (await world.get("/connections/voice", headers=HEADERS)).json()["chosen"] is True
+    # And it is recorded as a change, without anything of the key in it.
+    assert any(entry["connection"] == "elevenlabs" for entry in ledger.recent(5))
+
+
+async def test_the_voice_change_is_kept_and_read_back_after_a_restart(world):
+    await register(world)
+    wanted = {"voice_id": "9375G6zswFk7v9bKTVQF", "voice_name": "Vikram", "speed": 1.1}
+    text, digest = sealed(wanted)
+    await world.post("/connections/voice", headers=HEADERS,
+                     json={"values_json": text, "approval": await approval(world, f"voice:{digest}")})
+    # What a restart would read: the record itself, not the client that was changed in memory.
+    assert voice_prefs.read() == wanted
+

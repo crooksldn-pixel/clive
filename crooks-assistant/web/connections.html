@@ -39,6 +39,38 @@
   </section>
 </main>
 
+<template id="voice-template">
+  <section class="voice" aria-label="The voice">
+    <h3>The voice</h3>
+    <p class="muted small">Which voice CLIVE speaks in, and how it sounds. Changing it takes effect on the next
+      answer — nothing restarts. A slider left where it starts asks ElevenLabs for the voice's own default.</p>
+    <div class="voice-row">
+      <label>Voice <select class="voice-pick"></select></label>
+      <button class="btn small voice-list" type="button">Refresh the list</button>
+    </div>
+    <div class="voice-row">
+      <label>Model <select class="voice-model"></select></label>
+    </div>
+    <div class="sliders"></div>
+    <label class="voice-row"><input class="voice-boost" type="checkbox"> Speaker boost</label>
+    <div class="actions">
+      <button class="btn voice-preview" type="button">Preview</button>
+      <button class="btn primary voice-save" type="button">Save the voice</button>
+    </div>
+  </section>
+</template>
+
+<template id="slider-template">
+  <div class="slider">
+    <div class="slider-head">
+      <label class="slider-label"></label>
+      <span class="slider-value small muted"></span>
+    </div>
+    <input type="range">
+    <p class="slider-hint muted small"></p>
+  </div>
+</template>
+
 <template id="card-template">
   <article class="card">
     <div class="card-head">
@@ -54,6 +86,7 @@
       <div class="copy-row"><code class="redirect"></code><button class="btn small copy" type="button">Copy</button></div>
     </div>
     <form class="fields" autocomplete="off" novalidate></form>
+    <div class="extra"></div>
     <div class="actions">
       <button class="btn primary save" type="button">Save</button>
       <button class="btn test" type="button">Test</button>

@@ -20,6 +20,7 @@ import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 
@@ -157,6 +158,10 @@ class VoiceClient:
     ) -> None:
         self.voice_id = voice_id
         self.voice_name = voice_name or voice_id
+        # What the owner asked the voice to sound like (app/speech/voice_prefs.py). Empty means
+        # "say nothing and let ElevenLabs apply the voice's own defaults", which is what this
+        # client always did and what a fresh install still does.
+        self.voice_settings: dict[str, Any] = {}
         self.model = model
         self.output_format = output_format
         self.base_url = base_url.rstrip("/")
@@ -296,9 +301,33 @@ class VoiceClient:
     # ------------------------------------------------------------------ request
 
     def _payload(self, text: str) -> dict:
-        """The request body. Voice settings are deliberately absent: the voice's own defaults
-        are what was auditioned and approved, and the API applies them when we say nothing."""
-        return {"text": text, "model_id": self.model}
+        """The request body. Voice settings are sent only when the owner has set some: saying
+        nothing is how ElevenLabs is asked for the voice's own defaults, and that is still what
+        an untouched install does (app/speech/voice_prefs.py)."""
+        body: dict[str, Any] = {"text": text, "model_id": self.model}
+        if self.voice_settings:
+            body["voice_settings"] = dict(self.voice_settings)
+        return body
+
+    def apply(self, *, voice_id: str = "", voice_name: str = "", model: str = "",
+              voice_settings: dict[str, Any] | None = None) -> None:
+        """Speak as this voice from the next answer on, with no restart. Changing the voice clears
+        the remembered name ElevenLabs gave for the old id, so /health verifies the new one at its
+        next look rather than reporting a mismatch against the voice that is gone."""
+        changed_voice = bool(voice_id) and voice_id != self.voice_id
+        if voice_id:
+            self.voice_id = voice_id
+        if voice_name:
+            self.voice_name = voice_name
+        elif changed_voice:
+            self.voice_name = voice_id
+        if model:
+            self.model = model
+        if voice_settings is not None:
+            self.voice_settings = dict(voice_settings)
+        if changed_voice:
+            self._voice_checked_at = 0.0
+            self._voice_actual_name = None
 
     def _url(self, *, stream: bool) -> str:
         path = f"/text-to-speech/{self.voice_id}" + ("/stream" if stream else "")
@@ -510,6 +539,69 @@ class VoiceClient:
                 VoiceUnavailable("ElevenLabs returned no audio", kind="empty_audio")
             )
         return audio
+
+    async def voices(self) -> tuple[list[dict[str, Any]] | None, str]:
+        """Every voice this account can speak with: (list, "") or (None, why). Free — no synthesis.
+        Only the id, the name and a word on what it is: nothing else is the screen's business, and
+        the key never leaves this method."""
+        if not self.enabled:
+            return None, "ElevenLabs speech is switched off in settings"
+        try:
+            key = self._api_key()
+        except VoiceUnavailable as exc:
+            return None, exc.detail
+        try:
+            response = await self._client().get(
+                f"{self.base_url}/voices", headers={"xi-api-key": key}, timeout=10.0,
+            )
+        except httpx.HTTPError as exc:
+            return None, f"ElevenLabs could not be reached: {self._scrub(str(exc))[:120]}"
+        if response.status_code != 200:
+            return None, self._http_failure(response.status_code, response.text[:400]).detail
+        try:
+            listed = response.json().get("voices") or []
+        except ValueError:
+            return None, "ElevenLabs answered something unreadable"
+        found = []
+        for item in listed:
+            if not isinstance(item, dict):
+                continue
+            voice_id = str(item.get("voice_id") or "")
+            name = str(item.get("name") or "")
+            if not voice_id or not name:
+                continue
+            found.append({"voice_id": voice_id, "name": name[:60],
+                          "kind": str(item.get("category") or "")[:30]})
+        found.sort(key=lambda v: v["name"].lower())
+        return found, ""
+
+    async def say_once(self, text: str, *, voice_id: str = "", model: str = "",
+                       voice_settings: dict[str, Any] | None = None) -> bytes:
+        """One sentence in settings that are not this client's, for a preview. Nothing here changes
+        what the next answer sounds like: the overrides are used for this request only, and a
+        failure is not recorded against the voice in use, so auditioning a voice that cannot speak
+        never puts the working one into its cooldown."""
+        self._guard(text)
+        key = self._api_key()
+        body: dict[str, Any] = {"text": text, "model_id": model or self.model}
+        if voice_settings:
+            body["voice_settings"] = dict(voice_settings)
+        url = f"{self.base_url}/text-to-speech/{voice_id or self.voice_id}?output_format={self.output_format}"
+        response = await self._client().post(
+            url, headers={"xi-api-key": key, "accept": "audio/mpeg"}, json=body, timeout=self._timeout,
+        )
+        if response.status_code != 200:
+            raise self._http_failure(response.status_code, response.text[:400])
+        audio = response.content
+        if not audio:
+            raise VoiceUnavailable("ElevenLabs returned no audio", kind="empty_audio")
+        return audio
+
+    def why_not(self, exc: BaseException) -> str:
+        """A reason the owner can read, for a preview that did not speak. Never a traceback."""
+        if isinstance(exc, VoiceUnavailable):
+            return exc.detail
+        return f"ElevenLabs could not speak that: {self._scrub(str(exc))[:160]}"
 
     def _http_failure(self, code: int, body: str) -> VoiceUnavailable:
         """Name the failure by its shape. The body is included because it is what makes an
