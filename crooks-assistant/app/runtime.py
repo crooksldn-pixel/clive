@@ -518,6 +518,16 @@ def build(settings: Settings | None = None) -> Runtime:
         account=account,
     )
     voice.prefetch_enabled = settings.tts_prefetch
+    # The voice the owner chose on the Connections screen wins over the configured one, and his
+    # sliders over the voice's own defaults. Nothing stored means nothing changes: the `.env`
+    # voice speaks and no voice_settings are sent (app/speech/voice_prefs.py).
+    from app.speech import voice_prefs
+
+    voice_prefs.configure(state_dir=connections_dir(settings))
+    chosen = voice_prefs.read()
+    if chosen:
+        voice.apply(voice_id=chosen.get("voice_id", ""), voice_name=chosen.get("voice_name", ""),
+                    model=chosen.get("model", ""), voice_settings=voice_prefs.voice_settings(chosen))
     # The transcript is what was said: no term list biases either recogniser and nothing
     # rewrites the words afterwards (app/speech/transcribe.py).
     transcriber = Transcriber(

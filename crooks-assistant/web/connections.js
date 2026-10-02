@@ -334,6 +334,7 @@
     saveButton.addEventListener('click', () => save(connection, card));
     testButton.addEventListener('click', () => test(connection, card));
     disconnectButton.addEventListener('click', () => disconnect(connection, card));
+    if (connection.name === 'elevenlabs' && voiceState) $('.extra', card).append(drawVoice(card));
     if (connection.sign_in) {
       const box = $('.signin', card);
       box.hidden = false;
@@ -380,6 +381,140 @@
     approval_refused: 'approval refused',
   };
 
+  // ------------------------------------------------------------------ the voice
+
+  // The sliders, in the order they are shown, with the words the owner uses rather than
+  // ElevenLabs' own field names. "Expression" is `style`.
+  const SLIDER_WORDS = [
+    ['style', 'Expression', 'Flatter, or more performed.'],
+    ['stability', 'Stability', 'Lower varies more between takes; higher stays even.'],
+    ['similarity_boost', 'Similarity', 'How closely it holds to the original voice.'],
+    ['speed', 'Speed', 'How fast it talks.'],
+  ];
+  let voiceState = null;
+  let voiceAudio = null;
+
+  function voiceValues(panel) {
+    // What the screen is asking for, as the server takes it. A slider never touched is still sent:
+    // the owner opened the panel and chose to save, so what he sees is what he gets.
+    const chosen = $('.voice-pick', panel).value;
+    const values = { model: $('.voice-model', panel).value };
+    if (chosen) {
+      values.voice_id = chosen;
+      const option = $('.voice-pick', panel).selectedOptions[0];
+      values.voice_name = option ? option.dataset.name || option.textContent : '';
+    }
+    for (const [key] of SLIDER_WORDS) {
+      const input = $('.voice-' + key, panel);
+      if (input) values[key] = Number(input.value);
+    }
+    const boost = $('.voice-boost', panel);
+    if (boost) values.use_speaker_boost = boost.checked;
+    return values;
+  }
+
+  function drawVoice(card) {
+    const panel = $('#voice-template').content.firstElementChild.cloneNode(true);
+    const voice = voiceState.voice || {};
+    const pick = $('.voice-pick', panel);
+    const model = $('.voice-model', panel);
+    for (const [id, words] of Object.entries(voiceState.models || {})) {
+      model.append(new Option(words, id, false, id === voice.model));
+    }
+    // Until the voices are fetched the only option is the one speaking now: the panel is useful
+    // before ElevenLabs has been asked, and asking is one tap rather than every page load.
+    pick.append(new Option(voice.voice_name || 'the voice in use', voice.voice_id || ''));
+    pick.selectedIndex = 0;
+    const list = $('.voice-list', panel);
+    list.addEventListener('click', async () => {
+      list.disabled = true;
+      list.textContent = 'Asking ElevenLabs…';
+      const got = await call('/connections/voice/voices');
+      list.disabled = false;
+      list.textContent = 'Refresh the list';
+      if (!got.ok) { result(card, 'bad', got.detail || 'ElevenLabs would not list the voices.'); return; }
+      pick.textContent = '';
+      for (const item of got.voices) {
+        const option = new Option(item.kind ? item.name + ' — ' + item.kind : item.name, item.voice_id,
+                                  false, item.voice_id === voice.voice_id);
+        option.dataset.name = item.name;
+        pick.append(option);
+      }
+      if (!got.voices.some((v) => v.voice_id === voice.voice_id)) {
+        pick.append(new Option((voice.voice_name || 'in use') + ' — in use', voice.voice_id || '', true, true));
+      }
+      result(card, 'ok', got.voices.length + ' voice(s) on this account.');
+    });
+    for (const [key, label, hint] of SLIDER_WORDS) {
+      const bounds = (voiceState.sliders || {})[key];
+      if (!bounds) continue;
+      const row = $('#slider-template').content.firstElementChild.cloneNode(true);
+      $('.slider-label', row).textContent = label;
+      $('.slider-hint', row).textContent = hint;
+      const input = $('input', row);
+      input.classList.add('voice-' + key);
+      input.min = bounds.min;
+      input.max = bounds.max;
+      input.step = 0.05;
+      // Nothing stored means the voice's own default, which only ElevenLabs knows: the slider
+      // starts in the middle of what it accepts and says so, rather than inventing a number.
+      const held = voice[key];
+      const middle = (Number(bounds.min) + Number(bounds.max)) / 2;
+      input.value = held === undefined ? middle : held;
+      const shown = $('.slider-value', row);
+      const show = () => { shown.textContent = Number(input.value).toFixed(2) + (held === undefined && Number(input.value) === middle ? " (the voice's own)" : ''); };
+      input.addEventListener('input', show);
+      show();
+      $('.sliders', panel).append(row);
+    }
+    const boost = $('.voice-boost', panel);
+    boost.checked = voice.use_speaker_boost !== false;
+    const preview = $('.voice-preview', panel);
+    preview.addEventListener('click', async () => {
+      preview.disabled = true;
+      preview.textContent = 'Speaking…';
+      try {
+        const response = await fetch('/connections/voice/preview', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values: voiceValues(panel) }), credentials: 'same-origin',
+        });
+        if (!response.ok) {
+          let detail = 'ElevenLabs would not speak that.';
+          try { detail = (await response.json()).detail || detail; } catch (error) { /* not JSON */ }
+          result(card, 'bad', detail);
+        } else {
+          if (voiceAudio) { voiceAudio.pause(); URL.revokeObjectURL(voiceAudio.src); }
+          voiceAudio = new Audio(URL.createObjectURL(await response.blob()));
+          await voiceAudio.play();
+          result(card, 'ok', 'That is how it will sound.');
+        }
+      } catch (error) {
+        result(card, 'bad', 'The preview could not be played here.');
+      }
+      preview.disabled = false;
+      preview.textContent = 'Preview';
+    });
+    const keep = $('.voice-save', panel);
+    keep.disabled = !passkeysWork() || !current.passkeys.length;
+    keep.title = current.passkeys.length ? '' : 'Add a passkey first';
+    keep.addEventListener('click', async () => {
+      keep.disabled = true;
+      try {
+        const text = JSON.stringify(voiceValues(panel));
+        const approval = await approve('voice:' + await seal(text));
+        const done = await call('/connections/voice', { values_json: text, approval: approval });
+        if (!done.ok) { result(card, 'bad', done.detail || 'The voice was not changed.'); return; }
+        voiceState.voice = done.voice;
+        result(card, 'ok', 'CLIVE speaks as ' + done.voice.voice_name + ' from now on.');
+      } catch (error) {
+        result(card, 'bad', said(error));
+      } finally {
+        keep.disabled = false;
+      }
+    });
+    return panel;
+  }
+
   function drawChanges() {
     const list = $('#change-list');
     list.textContent = '';
@@ -418,6 +553,10 @@
     const data = await call('/connections/state');
     if (!data.ok) { notice('bad', data.detail || 'CLIVE would not show the connections.'); return; }
     current = data;
+    // Asked beside the cards and allowed to fail on its own: the keys are what this screen is for,
+    // and a voice that cannot be read must not take the rest of it down.
+    const heard = await call('/connections/voice');
+    voiceState = heard.ok ? heard : null;
     drawPasskeys();
     const cards = $('#cards');
     cards.textContent = '';

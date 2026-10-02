@@ -388,11 +388,23 @@ async def test_health_names_the_voice(client):
 
 
 async def test_the_configured_voice_is_the_one_that_was_approved(client):
-    """Derek is the approved production voice, from the default in the code to the URL the
+    """Derek is the approved *configured* voice, from the default in the code to the URL the
     request goes to. A `.env` line still wins over the default, so the check that matters at
     run time is not this one: /health asks ElevenLabs whose voice the id really is and fails
     when they disagree. What is proved here is that nothing between the setting and the
-    request substitutes a voice of its own, and that an id and a name never drift apart."""
+    request substitutes a voice of its own, and that an id and a name never drift apart.
+
+    Since 2 October the owner can also choose a voice on the Connections screen, which is kept
+    and wins over this setting at run time (app/speech/voice_prefs.py). That is deliberate: the
+    allow-list below stops a *typo in `.env`* reaching the tablet, and it still does, but it is
+    no longer the only thing that decides which voice speaks. What keeps that honest is the
+    `/health` check named above, which asks ElevenLabs for the chosen id's real name — see
+    tests/test_voice_settings.py, where choosing a voice is shown to clear the remembered name so
+    that check runs again on the new one. Nothing is stored in this test's world, so what is
+    asserted here is the untouched case: no stored choice, the configured voice speaks."""
+    from app.speech import voice_prefs
+
+    assert voice_prefs.read() == {}, "this test is about the configured voice, with nothing chosen"
     from config.settings import Settings
 
     # 1. the default in the code, with nothing configured at all
