@@ -32,6 +32,11 @@ EMAIL_THREADS = 3
 MAX_EVENTS = 5
 MAX_REFUNDS = 6
 MAX_TEXT = 200
+# A customer's own inbox read: a year back, enough threads for a timeline, and their address
+# with up to four of their order numbers (two spellings each) as the terms.
+CUSTOMER_EMAIL_DAYS = 365
+CUSTOMER_EMAIL_LIMIT = 10
+CUSTOMER_EMAIL_TERMS = 9
 # How long the tool waits for the customer's history and the inbox before answering with
 # what it has. The order itself is never waited on twice.
 ENRICH_BUDGET_S = 1.5
@@ -120,6 +125,13 @@ _ORDER_SELECTION = """
       createdAt
       note
       totalRefundedSet { shopMoney { amount currencyCode } }
+      transactions(first: 3) {
+        edges { node {
+          kind status gateway formattedGateway processedAt errorCode
+          amountSet { shopMoney { amount currencyCode } }
+          paymentDetails { ... on CardPaymentDetails { company number } }
+        } }
+      }
     }
     events(first: 5, sortKey: CREATED_AT, reverse: true) {
       edges { node { id message createdAt } }
@@ -168,8 +180,16 @@ query CrooksCustomerOrders($id: ID!, $n: Int!) {
         cancelledAt
         displayFulfillmentStatus
         displayFinancialStatus
+        returnStatus
+        note
         currentTotalPriceSet { shopMoney { amount currencyCode } }
-        lineItems(first: 5) { edges { node { title quantity } } }
+        lineItems(first: 5) { edges { node { title quantity variantTitle } } }
+        fulfillments(first: 3) { createdAt displayStatus trackingInfo(first: 1) { company } }
+        refunds(first: 3) {
+          createdAt
+          totalRefundedSet { shopMoney { amount currencyCode } }
+          transactions(first: 2) { edges { node { kind status gateway formattedGateway processedAt errorCode amountSet { shopMoney { amount currencyCode } } } } }
+        }
       } }
     }
   }
@@ -259,11 +279,7 @@ def shape_order(node: dict[str, Any]) -> dict[str, Any]:
             "number": tracking.get("number"),
             "url": tracking.get("url"),
         })
-    refunds = [
-        {"refund_id": r.get("id"), "created_at": r.get("createdAt"),
-         "amount": money(r.get("totalRefundedSet")), "note": _short(r.get("note"))}
-        for r in (node.get("refunds") or [])[:MAX_REFUNDS]
-    ]
+    refunds = [_refund(r) for r in (node.get("refunds") or [])[:MAX_REFUNDS] if isinstance(r, dict)]
     events = [
         {"at": (e.get("node") or {}).get("createdAt"), "message": _short((e.get("node") or {}).get("message"), 120)}
         for e in ((node.get("events") or {}).get("edges") or [])[:MAX_EVENTS]
@@ -321,6 +337,21 @@ def shape_order(node: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _refund(r: dict[str, Any]) -> dict[str, Any]:
+    """One refund, and — when Shopify read its transactions — whether the money has gone back,
+    in the payment provider's own answer (app/customers/payments.py). Without the transactions
+    it is the record alone, as it always was."""
+    out = {"refund_id": r.get("id"), "created_at": r.get("createdAt"),
+           "amount": money(r.get("totalRefundedSet")), "note": _short(r.get("note"))}
+    if r.get("transactions") is not None:
+        from app.customers import payments
+
+        state = payments.refund_state(r, policy=payments.policy_line())
+        out.update({"state": state["state"], "landed": state["landed"], "paid_to": state["to"] or None,
+                    "processed_at": state["processed_at"], "means": state["means"]})
+    return out
+
+
 def summary(order: dict[str, Any]) -> dict[str, Any]:
     """The thin shape a search returns: the same keys shopify_find_order always had."""
     return {k: order.get(k) for k in ("order_id", "order_number", "placed_at", "fulfillment", "payment", "total", "customer_name", "customer_id", "customer_email")}
@@ -367,6 +398,7 @@ def shape_customer_history(node: dict[str, Any], *, current_order_id: str | None
             "items_brief": brief[:MAX_TEXT] or None,
             "current": bool(current_order_id) and o.get("id") == current_order_id,
         }
+        row.update(_story(o))
         recent.append(row)
         if (
             not row["current"] and not row["cancelled_at"]
@@ -406,6 +438,34 @@ def shape_customer_history(node: dict[str, Any], *, current_order_id: str | None
         "other_unfulfilled": other_unfulfilled,
         "provenance": "SHOPIFY",
     }
+
+
+def _story(o: dict[str, Any]) -> dict[str, Any]:
+    """What happened to one of a customer's orders after it was placed — shipped, refunded,
+    returned, noted — for the customer's timeline (app/customers/history.py). Only the keys
+    Shopify answered: a read from before these were asked for adds nothing."""
+    out: dict[str, Any] = {}
+    if "fulfillments" in o:
+        out["shipped"] = [
+            {"at": f.get("createdAt"), "status": f.get("displayStatus"),
+             "carrier": ((f.get("trackingInfo") or [{}])[0] or {}).get("company")}
+            for f in (o.get("fulfillments") or [])[:3] if isinstance(f, dict)
+        ]
+    if "refunds" in o:
+        from app.customers import payments
+
+        out["refunds"] = []
+        for r in (o.get("refunds") or [])[:3]:
+            if not isinstance(r, dict):
+                continue
+            state = payments.refund_state(r) if r.get("transactions") is not None else {}
+            out["refunds"].append({"at": r.get("createdAt"), "amount": money(r.get("totalRefundedSet")),
+                                   "state": state.get("state"), "landed": state.get("landed")})
+    if o.get("returnStatus") and str(o.get("returnStatus")).upper() != "NO_RETURN":
+        out["return_status"] = o.get("returnStatus")
+    if o.get("note"):
+        out["note"] = _short(o.get("note"), 160)
+    return out
 
 
 def standing(count: int | None) -> str:
@@ -594,8 +654,30 @@ class Hydrator:
         self._trace("customer", customer_id, "", started, landed_history=history is not None)
         if history is None:
             raise ToolError(f"No customer with id {customer_id}.")
-        email = await self._email(history.get("email"), digits="")
-        return {**history, "email_threads": email}
+        email, threads = await self._customer_email(history)
+        # `_threads` is every thread the one read found — to them, from them, about their orders —
+        # for the customer's timeline (app/customers/history.py); `email_threads` stays what it
+        # always was, the threads FROM them.
+        return {**history, "email_threads": email, "_threads": threads}
+
+    async def _customer_email(self, history: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """One inbox read for a customer: anything from them, anything naming their address, and
+        anything naming one of their recent orders — over a year rather than an order's sixty days."""
+        if self._threads_for is None:
+            return {"available": False, "reason": "Gmail is not configured on this backend.", "threads": []}, []
+        address = str(history.get("email") or "").strip().lower()
+        numbers = [order_digits(r.get("order_number")) for r in history.get("recent") or [] if isinstance(r, dict)]
+        terms = ([address] if address else []) + [t for d in numbers if d for t in (f"CROOKS-{d}", f"#{d}")]
+        try:
+            found = await self._threads_for(sender=address, terms=terms[:CUSTOMER_EMAIL_TERMS],
+                                            days=CUSTOMER_EMAIL_DAYS, limit=CUSTOMER_EMAIL_LIMIT)
+        except Exception as exc:  # noqa: BLE001 — the customer stands without their email
+            log.warning("customer email unavailable: %s", type(exc).__name__)
+            return {"available": False, "reason": "unavailable", "threads": []}, []
+        if not found.get("available"):
+            return {"available": False, "reason": str(found.get("reason") or "")[:160], "threads": []}, []
+        threads = [t for t in found.get("threads") or [] if isinstance(t, dict)]
+        return {"available": True, "threads": correlate_threads(threads, customer_email=address, digits="")}, threads
 
     def forget(self, order_id: str) -> None:
         """The order has just been changed: whatever was held of it is no longer it — here,

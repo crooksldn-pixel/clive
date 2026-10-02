@@ -92,6 +92,11 @@ UI_TYPES = frozenset({
     # a project's stages with the one it is at, delegated tasks by person, or what CLIVE is doing
     # and what is next. Drawn when the model opens, shows or changes one, by web/objective-cards.js.
     "objective",
+    # the orders that most nearly fit what he said when nothing fits all of it (app/customers/
+    # match.py): one with the line that says why, or two or three and one short question. Never
+    # drawn as an order card, because it is not one he named; a tap on a row opens the order.
+    # Drawn by web/customers.js.
+    "order_match",
 })
 MAX_BATCH_ROWS = 50
 ANALYTIC_TOOLS = frozenset({"commerce_aggregate", "commerce_query", "inventory_query", "email_query"})
@@ -571,6 +576,11 @@ def _from_result(name: str, result: dict[str, Any]) -> list[dict[str, Any]]:
     if name == "shopify_find_order":
         orders = [_order(o) for o in _list(result.get("orders"), MAX_ORDERS)]
         out: list[dict[str, Any]] = []
+        if not orders and result.get("likely"):
+            # Nothing fits all of it; these nearly do, each with why (app/customers/match.py).
+            return [_ui("order_match", _order_match(result))]
+        if not orders and result.get("suggested"):
+            return [_ui("customer_list", _suggested(result))]
         if len(orders) == 1:
             out.append(_ui("order", orders[0]))
         elif orders:
@@ -616,9 +626,14 @@ def _from_result(name: str, result: dict[str, Any]) -> list[dict[str, Any]]:
         card = _customer(result)
         card["history"] = _history(result)
         card["related_email"] = _related_email(result.get("email_threads"))
+        timeline = _timeline(result.get("timeline"))
+        if timeline is not None:
+            card["timeline"] = timeline
         return [_ui("customer", card)]
     if name == "shopify_find_customer":
         customers = [_customer(c) for c in _list(result.get("customers"), MAX_CUSTOMERS)]
+        if not customers and result.get("suggested"):
+            return [_ui("customer_list", _suggested(result))]
         if len(customers) == 1:
             return [_ui("customer", customers[0])]
         if customers:
@@ -744,7 +759,9 @@ def _order(o: dict[str, Any], *, detail: bool = False) -> dict[str, Any]:
                 "outstanding": _money_text(money.get("outstanding")),
             } if money else None,
             "refunds": [
-                {"created_at": _text(r.get("created_at")), "amount": _money_text(r.get("amount")), "note": _text(r.get("note"))}
+                {"created_at": _text(r.get("created_at")), "amount": _money_text(r.get("amount")), "note": _text(r.get("note")),
+                 # Whether the money has gone back, as the payment provider answered Shopify.
+                 "state": _text(r.get("state"), 12), "landed": _text(r.get("landed"), 200)}
                 for r in _list(o.get("refunds"), 6)
             ],
             "history": _history(o.get("history")),
@@ -946,6 +963,69 @@ def _attention_items(order: dict[str, Any]) -> list[dict[str, Any]]:
             "level": a.get("level") if a.get("level") in ("red", "amber", "green") else "amber",
         })
     return out
+
+
+# The customers' cards (app/customers): bounded and copied key by key, like every card here.
+MAX_TIMELINE = 24
+MAX_MATCHES = 3
+_TIMELINE_KINDS = frozenset({"ordered", "cancelled", "shipped", "refund", "note", "email_in", "email_out", "email_about",
+                             "work_packed", "work_claimed", "work_done", "work_flagged", "work_released",
+                             "work_cancelled", "packed_screen", "clive", "objective"})
+_REF_KINDS = frozenset({"order", "email_thread", "objective"})
+
+
+def _order_match(result: dict[str, Any]) -> dict[str, Any]:
+    """The orders that nearly fit, each with the line that says why and what did and did not fit."""
+    verdict = _text(result.get("verdict"), 12)
+    rows = []
+    for row in _list(result.get("likely"), MAX_MATCHES):
+        rows.append({
+            "order_id": _text(row.get("order_id")), "order_number": _order_number(row.get("order_number")),
+            "customer_name": _text(row.get("customer_name")), "customer_id": _text(row.get("customer_id")),
+            "placed_at": _text(row.get("placed_at")), "total": _money_text(row.get("total")),
+            "fulfillment": _status(row.get("fulfillment")), "payment": _status(row.get("payment")),
+            "why": _text(row.get("why"), MAX_TEXT_CHARS),
+            "fits": [_text(f, 80) for f in (row.get("fits") or [])[:5] if isinstance(f, str)],
+            "misses": [_text(f, 80) for f in (row.get("misses") or [])[:4] if isinstance(f, str)],
+            "items": [{"title": _text(i.get("title")), "variant": _text(i.get("variant"))}
+                      for i in _list(row.get("matched_items"), 3)],
+        })
+    return {
+        "title": {"one": "Best match", "several": "Which one?", "check": "Is it this one?"}.get(verdict, "Closest orders"),
+        "verdict": verdict, "question": _text(result.get("question"), MAX_TEXT_CHARS),
+        "note": _text(result.get("note"), MAX_TEXT_CHARS) if verdict != "one" else "",
+        "asked": {k: _text(v, 80) for k, v in (result.get("asked") or {}).items() if isinstance(v, str)} if isinstance(result.get("asked"), dict) else {},
+        "rows": rows,
+    }
+
+
+def _suggested(result: dict[str, Any]) -> dict[str, Any]:
+    """Customers whose names sound like the one heard: a question, never an answer."""
+    return {
+        "title": "Did you mean?", "query": _text(result.get("query") or (result.get("asked") or {}).get("name")),
+        "customers": [{**_customer(c), "why": _text(c.get("why"), 80)} for c in _list(result.get("suggested"), MAX_CUSTOMERS)],
+        "ambiguous": True, "note": _text(result.get("question"), MAX_TEXT_CHARS),
+    }
+
+
+def _timeline(t: Any) -> dict[str, Any] | None:
+    """The customer's story, newest first (app/customers/history.py), bounded for the card."""
+    if not isinstance(t, dict):
+        return None
+    rows = []
+    for row in _list(t.get("rows"), MAX_TIMELINE):
+        kind = _text(row.get("kind"), 20)
+        ref_kind = _text(row.get("ref_kind"), 20)
+        rows.append({
+            "at": _text(row.get("at"), 40), "when": _text(row.get("when"), 30),
+            "kind": kind if kind in _TIMELINE_KINDS else "other",
+            "what": _text(row.get("what"), 120), "detail": _text(row.get("detail"), MAX_TEXT_CHARS),
+            "ref": _text(row.get("ref")) if ref_kind in _REF_KINDS else "", "ref_kind": ref_kind if ref_kind in _REF_KINDS else "",
+            "source": _text(row.get("source"), 20),
+        })
+    sources = t.get("sources") if isinstance(t.get("sources"), dict) else {}
+    return {"rows": rows, "count": _int(t.get("count")), "truncated": bool(t.get("truncated")),
+            "sources": [{"name": _text(k, 30), "said": _text(v, 60)} for k, v in list(sources.items())[:8]]}
 
 
 def _customer(c: dict[str, Any]) -> dict[str, Any]:
@@ -1526,7 +1606,7 @@ def _done_title(proposal) -> str:
         "refund_create": "Refunded", "order_shipping_address_set": "Address changed", "fulfillment_create": "Shipped",
         "gmail_draft_reply": "Draft saved", "gmail_draft_new": "Draft saved", "gmail_send_reply": "Reply sent", "gmail_send_new": "Email sent",
         "gmail_thread_archive": "Archived", "inventory_set": "Stock adjusted", "order_tags_remove": "Tags removed",
-        "fulfillment_tracking_set": "Tracking added",
+        "fulfillment_tracking_set": "Tracking added", "checkout_link_send": "Checkout link sent",
     }.get(proposal.operation, "Done")
 
 

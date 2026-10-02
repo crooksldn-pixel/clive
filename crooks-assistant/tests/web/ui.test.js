@@ -43,6 +43,8 @@ test('the vocabulary is exactly the presentation layer\'s', () => {
     'screen_remote',
     // One of his objectives, in the shape of its kind (round 12, web/objective-cards.js).
     'objective',
+    // The orders that nearly fit what he said when nothing fits all of it (web/customers.js).
+    'order_match',
   ]));
 });
 

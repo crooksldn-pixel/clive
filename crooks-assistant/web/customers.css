@@ -1,0 +1,41 @@
+/* Customers (web/customers.js): the order he meant, their story, a refund landing.
+ *
+ * Dots that mean something and nothing else: blue is a fact that fits or money that went back,
+ * iOS orange is one that does not or is still waiting, the bad red is a refund that failed. The
+ * timeline's dot says where a row came from: Shopify, the inbox, or CLIVE's own records.
+ */
+
+/* ---- the order he meant */
+.cm-rows .row{grid-template-columns:1fr auto}
+.cm-row .cm-why{grid-column:1 / -1;margin:6px 0 0;font-size:15px;line-height:1.35;color:var(--ink)}
+.cm-row.is-one{background:var(--glass-surface-strong);border-radius:var(--radius-control);padding:14px 12px;border-top:0;box-shadow:inset 3px 0 0 #0a84ff}
+.cm-facts{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:6px 14px;margin:8px 0 0;padding:0;list-style:none}
+.cm-fact{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-2)}
+.cm-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--ink-4)}
+.is-fit .cm-dot{background:#0a84ff;box-shadow:0 0 0 3px rgba(10,132,255,.18)}
+.is-miss .cm-dot{background:var(--warn);box-shadow:0 0 0 3px var(--warn-dim)}
+.is-wait .cm-dot{background:transparent;border:1.5px solid var(--warn)}
+.cm-question{margin:12px 0 0;font-size:16px;color:var(--ink)}
+.cm-note{margin:0 0 6px}
+
+/* ---- their story */
+.tl{list-style:none;margin:0;padding:0 0 0 2px;position:relative}
+.tl::before{content:"";position:absolute;left:5px;top:10px;bottom:10px;width:1px;background:var(--line)}
+.tl-row{display:grid;grid-template-columns:14px 74px 1fr;column-gap:10px;align-items:baseline;padding:9px 0;position:relative;min-height:0}
+.tl-row.tappable{cursor:pointer;border-radius:var(--radius-control)}
+.tl-row.tappable:active{background:var(--glass-control-active)}
+.tl-dot{width:9px;height:9px;border-radius:50%;background:var(--ink-4);align-self:center;position:relative;z-index:1;box-shadow:0 0 0 3px var(--bg-2)}
+.tl-row.is-shop .tl-dot{background:var(--ink-2)}
+.tl-row.is-mail .tl-dot{background:#0a84ff}
+.tl-row.is-clive .tl-dot{background:var(--ok)}
+.tl-row.k-refund .tl-dot,.tl-row.k-cancelled .tl-dot{background:var(--warn)}
+.tl-when{font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tl-what{font-size:15px;color:var(--ink);word-break:break-word}
+.tl-detail{grid-column:3;font-size:13px;color:var(--ink-3);word-break:break-word;margin-top:2px}
+.tl-sources{margin-top:10px}
+
+/* ---- a refund landing */
+.cm-refunds{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.cm-refund{display:flex;align-items:baseline;gap:8px;font-size:14px;color:var(--ink-2)}
+.cm-refund .cm-dot{position:relative;top:-1px}
+.cm-refund.is-miss .cm-dot{background:var(--bad);box-shadow:0 0 0 3px var(--bad-dim)}

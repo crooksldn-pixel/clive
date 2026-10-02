@@ -897,7 +897,8 @@
     const panels = [
       { name: 'overview', label: 'Overview', node: [
         overview,
-        section('money', 'Money', [moneyBlock(d)]),
+        // Customers (web/customers.js): each refund, and whether the money has gone back.
+        section('money', 'Money', [moneyBlock(d), customersKit() ? customersKit().refunds(d.refunds) : null]),
         d.note ? noteSection(d.note) : null,
       ] },
       { name: 'items', label: `Items${items.length ? ' · ' + items.length : ''}`, node: [
@@ -1139,11 +1140,14 @@
     ]);
     const history = d.history && typeof d.history === 'object' ? section('history', 'Orders', historyBlock(d.history)) : null;
     const mail = d.related_email && typeof d.related_email === 'object' ? section('email', 'Email', relatedEmailBlock(d.related_email)) : null;
-    if (!history && !mail) {
+    // Customers (web/customers.js): their whole story, newest first, when the Mac read it.
+    const story = d.timeline && typeof d.timeline === 'object' && customersKit() ? section('activity', 'History', [customersKit().timeline(d.timeline)]) : null;
+    if (!history && !mail && !story) {
       return [overview, h('p', { class: 'card-note', text: 'Ask for their orders or their emails to see more.' })];
     }
     return tabs([
       { name: 'overview', label: 'Overview', node: [overview] },
+      story ? { name: 'activity', label: 'History', node: [story] } : null,
       history ? { name: 'orders', label: 'Orders', node: [history] } : null,
       mail ? { name: 'email', label: 'Email', node: [mail] } : null,
     ].filter(Boolean), { initial: tabFor('customer', d, opts), onChange: tabReporter('customer', d, opts) });
@@ -1154,9 +1158,11 @@
     return card('customer_list', [
       h('div', { class: 'card-head' }, [h('div', {}, [kicker(d.ambiguous ? 'Which one?' : 'Customers'), h('h2', { class: 'card-title', text: text(d.title, 'Customers') })])]),
       emptyNote(d),
+      // A name heard rather than typed (app/customers/names.py): the question, and why each fits.
+      !d.empty && d.note ? h('p', { class: 'card-note', text: text(d.note) }) : null,
       h('ul', { class: 'rows tight' }, customers.map((c) => h('li', { class: 'row' }, [
         h('span', { class: 'row-main', text: text(c.name, '—') }),
-        h('span', { class: 'row-sub', text: text(c.email) }),
+        h('span', { class: 'row-sub', text: [text(c.email), text(c.why)].filter(Boolean).join(' · ') }),
         h('span', { class: 'row-side' }, [
           num(c.orders) !== null ? h('span', { class: 'card-meta', text: `${c.orders} order${c.orders === 1 ? '' : 's'}` }) : null,
           c.spent ? h('span', { class: 'amount', text: text(c.spent) }) : null,
@@ -3195,6 +3201,24 @@
     ], opts);
   }
 
+  // Customers (web/customers.js, loaded beside this file): the orders that most nearly fit what
+  // the owner said when nothing fits all of it. Without that file nothing is drawn.
+  function customersKit() {
+    const kit = typeof window !== 'undefined' ? window.CliveCustomers : globalThis.CliveCustomers;
+    return kit && typeof kit.matchBody === 'function' ? kit : null;
+  }
+
+  function renderOrderMatch(d, opts) {
+    const kit = customersKit();
+    if (!kit) return null;
+    return card('order_match', [
+      h('div', { class: 'card-head' }, [h('div', {}, [
+        kicker('Orders'),
+        h('h2', { class: 'card-title', text: text(d.title, 'Closest orders') }),
+      ])]),
+    ].concat(kit.matchBody(d)), opts);
+  }
+
   // One of the owner's objectives, in the shape of its kind (round 12). Drawn by
   // web/objective-cards.js, which the page loads beside this file; without it nothing is drawn.
   function renderObjective(d, opts) {
@@ -3238,6 +3262,7 @@
     workspace_plan: renderWorkspacePlan,
     screen_remote: renderScreenRemote,
     objective: renderObjective,
+    order_match: renderOrderMatch,
   };
   const TYPES = Object.keys(RENDERERS).concat(['context_stack']);
   // Both Phase 5 workstreams added to this list and the merge produced two declarations of
@@ -3253,7 +3278,9 @@
     // nothing to show, and went back to the orb — the edit made, the screen gone.
     'workspace',
     // An objective opened, shown or changed by voice is what the owner asked to see (round 12).
-    'objective'];
+    'objective',
+    // The order he meant, found from what he remembered (web/customers.js).
+    'order_match'];
 
   function isValid(item) {
     return Boolean(item) && typeof item === 'object' && typeof item.type === 'string'
@@ -3356,6 +3383,7 @@
     email_compose: ['compose_id'],
     workspace: ['workspace_id'],
     workspace_plan: ['workspace_id'],
+    order_match: ['title', 'question'],
   };
   const NESTED_KEY_OF = { product: ['products', 'product_id'], inventory: ['products', 'product_id'] };
   const SHELL_SUFFIX = '~shell';
