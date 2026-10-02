@@ -48,6 +48,10 @@ _TEST_ENV["CROOKS_ENV_FILE"] = ""
 # says so itself (tests/test_actions_routes.py configure, tests/test_proxy_identity.py).
 _TEST_ENV["CROOKS_ALLOWED_LOGINS"] = "owner@example.com"
 _TEST_ENV["CROOKS_LOCAL_OWNER"] = "true"
+# The interaction record is on by default on a server (app/observability/interactions.py). Off in
+# the offline world, as test mode is: a test about it turns it on itself, into its own folder
+# (tests/test_interaction_record.py), and every other test sees the timeline it always saw.
+_TEST_ENV["CROOKS_INTERACTION_RECORD"] = "false"
 
 from app.clients.shopify import ShopifyClient  # noqa: E402 — after the environment above
 from app.secrets import keychain  # noqa: E402

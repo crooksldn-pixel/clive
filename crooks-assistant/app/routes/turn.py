@@ -27,7 +27,7 @@ from app.actions import engine as action_engine
 from app.actions.grammar import AFFIRMATION_BLOCKED, affirmation_for, words_for
 from app.actions.grammar import FIXED_LINES as GRAMMAR_FIXED_LINES
 from app.logging.turnlog import redact
-from app.observability import timeline
+from app.observability import interactions, timeline
 from app.presentation import compact, present
 from app.providers.base import ToolCall
 from app.routes.actions import session_matches, writes_context
@@ -1920,6 +1920,8 @@ async def _answer(
     on_screen_claim: dict[str, Any] | None = None
     ui: list[dict[str, Any]] = []
     scene = None
+    # [recording] Which rule of app/screen.py decided the screen, for the interaction record.
+    carry_why: list[str] = []
     if not abandoned:
         # What the screen shows beside the answer: cards chosen from the tool results, never
         # from the prose. See app/presentation.py for the vocabulary and the bounds.
@@ -1936,7 +1938,7 @@ async def _answer(
         # instead of it (app/screen.py, round 12).
         said_numbers = _numbers_said(question, session, proposed) if seq is not None else frozenset()
         if branch is not None:
-            ui = screen.carry(ui, branch=branch, session=session, calls=calls, named=said_numbers)
+            ui = screen.carry(ui, branch=branch, session=session, calls=calls, named=said_numbers, why=carry_why)
         # Never "it's on your screen" when nothing is: an answer that says so over a screen
         # this turn left empty is made true — the one record it is about is drawn — or, when
         # that cannot be told, corrected before a word of it is spoken (round 12).
@@ -2098,6 +2100,14 @@ async def _answer(
             speak_requested=speak, tts_prefetched=bool(speak and answer and not abandoned),
             tool_calls=[{"tool": c.get("name"), "ok": c.get("ok"), "ms": c.get("ms"), "tool_call_id": c.get("tool_call_id") or None, "proposal_id": c.get("proposal_id")} for c in tool_calls] or None,
         )
+    # [recording] What this turn asked, heard, drew and why, for "look at our interaction"
+    # (app/observability/interactions.py). Off, one check; it never fails a turn.
+    interactions.after_turn(
+        session_id=session_id, turn_id=turn_id, question=question, transcript=transcript, answer=answer, ui=ui,
+        calls=calls, screen_state=screen_state, carry=carry_why, error_kind=error_kind, abandoned=abandoned,
+        timings=timings, branch=branch, claim=on_screen_claim, withheld=len(withheld), binding=binding, scene=scene,
+        session=session,
+    )
     payload = {
         "session_id": session_id,
         "turn_id": turn_id,

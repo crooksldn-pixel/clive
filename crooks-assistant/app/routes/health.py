@@ -287,7 +287,17 @@ def _observability(runtime) -> dict:
     the tablet turns its own telemetry on and off from this, within one poll."""
     timeline = getattr(runtime, "timeline", None)
     session = timeline.active if timeline is not None else None
+    # [recording] The interaction record's own day is not a test session, and is not said as one:
+    # "is a test running?" stays a question about tests. The page turns its telemetry on for
+    # either (web/telemetry.js `configure`), so `recording` names the day it is writing into.
+    from app.observability import interactions
+
+    recording = interactions.current()
+    if interactions.on(timeline):
+        session = None
     out = {"test_session": session.test_session_id if session is not None else None, "name": session.name if session is not None else None}
+    if recording is not None and recording.active_id:
+        out["recording"] = recording.active_id
     # Whether the page should send a copy of its screen too (CROOKS_SCREEN_SNAPSHOTS): only for a
     # test session of this timeline's own, never for a production recording. Said only when it
     # is so; the route refuses copies whenever it is not, whatever a page still believes.

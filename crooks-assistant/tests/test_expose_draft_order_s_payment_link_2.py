@@ -184,6 +184,7 @@ def test_the_tool_block_stays_within_its_budget():
         gmail_tools,
         gmail_writes,
         instagram_tools,
+        interaction_tools,
         ship24_tools,
         shopify_writes,
         show_again,
@@ -203,5 +204,6 @@ def test_the_tool_block_stays_within_its_budget():
     # 46,787 with a custom item on an existing order (shopify_order_add_custom_item, +656, measured),
     # and 46,851 with work_note's `flag` (+64, measured), and 47,330 with parcel tracking
     # (track_parcel, +479, measured), and 47,708 with a number on an objective (objective_open and
-    # objective_note's `number`, +378, measured).
-    assert total <= 47_708, f"the tool block is {total} bytes"
+    # objective_note's `number`, +378, measured), and 48,272 with CLIVE looking at its own
+    # interaction (interaction_review, +564, measured).
+    assert total <= 48_272, f"the tool block is {total} bytes"

@@ -1,7 +1,8 @@
-/* CROOKS OS — what the tablet actually did, for a test session.
+/* CROOKS OS — what the tablet actually did, for a test session and for the interaction record.
  *
- * While a test session is running on the Mac (the page learns it from /health and from every
- * /turn answer), the page keeps a small, structured account of itself: what it rendered —
+ * While a test session is running on the Mac, or the Mac's interaction record is on (/health's
+ * `observability.recording`, app/observability/interactions.py: on unless the owner switched it
+ * off), the page keeps a small, structured account of itself: what it rendered —
  * screen, card types, tabs, the chips on the rail and whether they were enabled — what the
  * owner touched, where it navigated, what failed to load, when it lost the Mac. Semantic
  * state, never the DOM: no markup, no screenshots, no text the cards showed.
@@ -81,7 +82,10 @@
   // The session in force on the Mac. From /health (every poll) and from every /turn answer,
   // so a session started on the Mac is noticed within one poll and no reload is needed.
   function configure(observability) {
-    const id = observability && observability.test_session ? String(observability.test_session) : (typeof observability === 'string' ? observability : '');
+    // A test session's id, or else the interaction record's day: either is something being
+    // written down, and the page's account goes to whichever is.
+    const named = observability && (observability.test_session || observability.recording);
+    const id = named ? String(named) : (typeof observability === 'string' ? observability : '');
     const was = enabled;
     testSession = id || null;
     enabled = Boolean(id);

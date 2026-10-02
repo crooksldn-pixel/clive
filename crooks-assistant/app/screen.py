@@ -256,8 +256,17 @@ def _fuller(fresh: dict[str, Any], shown: dict[str, Any]) -> bool:
 # ---------------------------------------------------------------------------- the rule
 
 
+#: Why `carry` did what it did, one word each, for the interaction record's decision trace
+#: (app/observability/interactions.py): the screen up stayed, or the answer is the screen now
+#: and which rule said so. Said into the caller's `why` list; nothing here reads it back.
+WHY_NOTHING_UP, WHY_NEW_SUBJECT, WHY_CHANGE_ELSEWHERE = "nothing_up", "new_subject", "change_elsewhere"
+WHY_NAMED_ELSEWHERE, WHY_READ_ELSEWHERE, WHY_CONTINUED, WHY_FAILED = (
+    "named_elsewhere", "read_elsewhere", "continued", "failed")
+
+
 def carry(ui: list[dict[str, Any]], *, branch: Any, session: Any = None, calls: Any = None,
-          named: frozenset[str] | set[str] = frozenset(), clock=time.time) -> list[dict[str, Any]]:
+          named: frozenset[str] | set[str] = frozenset(), clock=time.time,
+          why: list[str] | None = None) -> list[dict[str, Any]]:
     """The answer, continuing the half's screen when it brings no new subject (module docstring).
 
     Returns `ui` itself, untouched, whenever the answer is a screen of its own: a record the
@@ -270,19 +279,24 @@ def carry(ui: list[dict[str, Any]], *, branch: Any, session: Any = None, calls: 
     owner named an order that is not on the screen ("where is 1940" with #1938 up), or the
     model read a record that is not on it and drew no card for it. An answer about #1940 in
     words must not stand over #1938's card, where it would read as #1938's (round 9, D2-05).
+
+    `why`, when given, is told which rule decided (the WHY_ words above) and changes nothing.
     """
+    said = why if why is not None else []
     try:
-        return _carry(ui, branch=branch, session=session, calls=calls, named=named, clock=clock)
+        return _carry(ui, branch=branch, session=session, calls=calls, named=named, clock=clock, why=said)
     except Exception as exc:  # noqa: BLE001 — never at the cost of the turn
         log.warning("the screen could not be carried: %s", type(exc).__name__)
+        said.append(WHY_FAILED)
         return ui
 
 
-def _carry(ui, *, branch, session, calls, named, clock) -> list[dict[str, Any]]:
+def _carry(ui, *, branch, session, calls, named, clock, why) -> list[dict[str, Any]]:
     answer = [item for item in (ui or []) if isinstance(item, dict)]
     screen = showing(branch, clock=clock)
     screen_subjects = [item for item in screen if is_subject(item)]
     if not screen_subjects:
+        why.append(WHY_NOTHING_UP)
         return ui
     held = {identity(item): item for item in screen_subjects}
     fresh: dict[str, dict[str, Any]] = {}
@@ -291,6 +305,7 @@ def _carry(ui, *, branch, session, calls, named, clock) -> list[dict[str, Any]]:
             continue
         who = identity(item)
         if who not in held:
+            why.append(WHY_NEW_SUBJECT)
             return ui                      # a new subject: it is the screen now
         fresh[who] = item
     changes = [item for item in answer if kind(item) in CHANGE_CARDS]
@@ -298,9 +313,15 @@ def _carry(ui, *, branch, session, calls, named, clock) -> list[dict[str, Any]]:
     for change in changes:
         wanted = about(change, session)
         if wanted and not (wanted & on_screen):
+            why.append(WHY_CHANGE_ELSEWHERE)
             return ui                      # a change to something else is not drawn over this
-    if _named_elsewhere(named, screen) or _read_elsewhere(calls, on_screen):
+    if _named_elsewhere(named, screen):
+        why.append(WHY_NAMED_ELSEWHERE)
         return ui
+    if _read_elsewhere(calls, on_screen):
+        why.append(WHY_READ_ELSEWHERE)
+        return ui
+    why.append(WHY_CONTINUED)
     new_ids = {render_id(item) for item in changes}
     changed_refs: set[str] = set()
     for change in changes:
