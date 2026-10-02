@@ -147,6 +147,9 @@ test('a service not yet added draws its key box only when Connect is tapped, and
   const row = View.row(SHIP24, ctx());
   assert.equal(all(row, 'input').length, 0);
   const connect = buttonCalled(row, 'Connect');
+  // Announced as "Connect Ship24", not one of several bare "Connect"s.
+  assert.equal(connect.getAttribute('aria-labelledby'), 'connect-ship24 name-ship24');
+  assert.equal(one(row, 'h3').id, 'name-ship24');
   connect.dispatch('click');
   assert.equal(connect.hidden, true);
   assert.equal(keyBoxes(row).length, 1);

@@ -182,8 +182,10 @@
         const show = button('btn quiet show', 'Show', () => {
           input.type = input.type === 'password' ? 'text' : 'password';
           show.textContent = input.type === 'password' ? 'Show' : 'Hide';
+          show.setAttribute('aria-pressed', input.type === 'password' ? 'false' : 'true');
         });
-        show.setAttribute('aria-label', 'Show or hide ' + field.label);
+        show.setAttribute('aria-controls', id);
+        show.setAttribute('aria-pressed', 'false');
         add(line, show);
       }
       add(wrap, name, line);
@@ -263,12 +265,23 @@
     return box;
   }
 
+  // Ids for "Connect" and "Details", so each is announced with its connection's name: built from
+  // the connection's own name, and only when it is one of ours.
+  function ids(c, part) { return NAME.test(str(c.name)) ? part + '-' + c.name : ''; }
+
   function more(c, ctx, { head } = {}) {
     const details = el('details', 'conn-more');
     details.open = false;
     const summaryNode = el('summary', 'conn-summary');
     if (head) add(summaryNode, head);
-    else add(summaryNode, el('span', 'more-label', 'Details'));
+    else {
+      const words = el('span', 'more-label', 'Details');
+      if (ids(c, 'more')) {
+        words.id = ids(c, 'more');
+        summaryNode.setAttribute('aria-labelledby', ids(c, 'more') + ' ' + ids(c, 'name'));
+      }
+      add(summaryNode, words);
+    }
     add(summaryNode, el('span', 'chev'));
     add(details, summaryNode);
     const body = el('div', 'more-body');
@@ -320,7 +333,9 @@
     const dot = el('span', 'dot ' + tone(c, ctx));
     dot.setAttribute('aria-hidden', 'true');
     const main = el(block, 'conn-main');
-    add(main, el('h3', 'conn-name', c.label), el(para, 'conn-line', c.what));
+    const name = el('h3', 'conn-name', c.label);
+    if (ids(c, 'name')) name.id = ids(c, 'name');
+    add(main, name, el(para, 'conn-line', c.what));
     const said = status(c, ctx);
     const line = el(para, 'conn-status', said);
     if (!said) line.hidden = true;
@@ -399,6 +414,10 @@
         const first = holder.querySelector('input');
         if (first && first.focus) first.focus();
       });
+      if (ids(c, 'connect')) {
+        connect.id = ids(c, 'connect');
+        connect.setAttribute('aria-labelledby', ids(c, 'connect') + ' ' + ids(c, 'name'));
+      }
       add(head, connect);
       add(node, holder);
     }
