@@ -6,7 +6,8 @@ them is secret; they were checked for credential and customer shapes when copied
 - worker-01-status.json: clive/control/worker-01-status:status.json exactly as the worker-01 loop
   published it (commit and time in worker-01-git.json);
 - worker-01-requests.json: every requests/<id>.json on clive/control/worker-01-inbox, byte for
-  byte, each hashing to the request_sha256 the status names for it;
+  byte, each hashing to the request_sha256 the status names for it (the one fake key two of them
+  quote is put back at runtime: `request_files`);
 - worker-01-git.json: for every candidate and landed commit the status names, whether it is on
   clive/trunk (d74c99c3 when copied) and in the commit production runs (66d3e05d, the deploy record
   reports/deploy-66d3e05d.md on claude/deploy-66d3e05d-record), as `git merge-base --is-ancestor`
@@ -25,7 +26,7 @@ from pathlib import Path
 import httpx
 
 from app.engineering_bridge.github import EngineeringInbox
-from tests.fake_credentials import github_token
+from tests.fake_credentials import elevenlabs_key_as_written, github_token
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "builds"
 REPO = "crooksldn-pixel/clive"
@@ -39,8 +40,17 @@ def status() -> dict:
     return json.loads((FIXTURES / "worker-01-status.json").read_text(encoding="utf-8"))
 
 
+# Two request files quote a fake ElevenLabs key (it is what their build was about: the secret scanner
+# flagging a test's fake key). It is kept out of the tests' text, as every fake credential is, and put
+# back at runtime, so each file still hashes to the digest the loop published for it.
+FAKE_KEY_MARK = "@@FAKE_ELEVENLABS_KEY@@"
+FAKE_KEY_BODY = "elevenlabs_test_key_0123456789abcdef"
+
+
 def request_files() -> dict[str, str]:
-    return json.loads((FIXTURES / "worker-01-requests.json").read_text(encoding="utf-8"))["files"]
+    files = json.loads((FIXTURES / "worker-01-requests.json").read_text(encoding="utf-8"))["files"]
+    key = elevenlabs_key_as_written(FAKE_KEY_BODY)
+    return {rid: text.replace(FAKE_KEY_MARK, key) for rid, text in files.items()}
 
 
 def git() -> dict:

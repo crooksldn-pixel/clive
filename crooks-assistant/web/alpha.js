@@ -242,8 +242,9 @@
     // needs him, and the screen has its row among the tools. Drawn from its counts as last read.
     const buildsBrief = window.CliveBuilds ? window.CliveBuilds.briefNow() : null;
     const buildsWaiting = buildsBrief && buildsBrief.counts ? Number(buildsBrief.counts.needs_you) || 0 : 0;
-    const buildsRow = (title, sub) => h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'builds', onclick: () => window.CliveBuilds.open() },
-      h('span', { class: 'alpha-tile is-build' }, icon(ICON.build, 18)), rowMain(title, sub), icon(ICON.chev, 16));
+    // The row in Needs you carries the blue tile of something to answer; the tools row the steel of a build.
+    const buildsRow = (title, sub, tile) => h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'builds', onclick: () => window.CliveBuilds.open() },
+      h('span', { class: tile }, icon(ICON.build, 18)), rowMain(title, sub), icon(ICON.chev, 16));
     const needsCount = needs.length + (buildsWaiting ? 1 : 0);
     const COUNT_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
     // ---- the Builds screen · end
@@ -294,7 +295,7 @@
       needsCount ? h('h2', { class: 'alpha-h2', text: 'Needs you' }) : null,
       needsCount ? h('div', { class: 'alpha-group' }, ...needs.map(row),
         buildsWaiting ? buildsRow(buildsWaiting === 1 ? 'A build waits on your answer' : `${COUNT_WORDS[buildsWaiting] || buildsWaiting} builds wait on your answer`,
-          'Open Builds to decide') : null) : null,
+          'Open Builds to decide', 'alpha-tile') : null) : null,
       moving.length ? h('h2', { class: 'alpha-h2', text: 'In motion' }) : null,
       moving.length ? h('div', { class: 'alpha-group' }, ...moving.map(row)) : null,
       !objectives.length && !problem && !buildsWaiting ? h('p', { class: 'alpha-muted', text: 'Nothing ongoing. Tell CLIVE about something you want handled, and it stays here.' }) : null,
@@ -303,7 +304,8 @@
         h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'gap', onclick: () => openGap(g) },
           h('span', { class: 'alpha-tile is-quiet' }, icon(ICON.plug, 18)), rowMain(g.title || g.label, gapLine(g)), icon(ICON.chev, 16)))) : null,
       h('div', { class: 'alpha-group alpha-tools' },
-        window.CliveBuilds ? buildsRow('Builds', buildsBrief && buildsBrief.summary ? buildsBrief.summary : 'What is being built, and why') : null,
+        window.CliveBuilds ? buildsRow('Builds', buildsBrief && buildsBrief.summary ? buildsBrief.summary : 'What is being built, and why',
+          'alpha-tile is-build') : null,
         h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'support', onclick: openSupport },
           h('span', { class: 'alpha-tile is-quiet' }, icon(ICON.search, 18)),
           rowMain('Investigate a customer enquiry', 'Paste their message. Read-only.'), icon(ICON.chev, 16)),
