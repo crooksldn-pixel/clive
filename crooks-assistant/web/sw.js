@@ -58,6 +58,8 @@ const SHELL = [
   '/static/objective-cards.css',
   // Objectives by touch: the gestures and the bar the two above share (web/objective-touch.js).
   '/static/objective-touch.js',
+  // Objectives by touch, part C: a number to reach (web/objective-number.js).
+  '/static/objective-number.js',
   // Round 12: holding a record to put it on a screen. Code and styles only, like the remote.
   '/static/lift.js',
   '/static/lift.css',

@@ -13,6 +13,8 @@ published status and compare built candidates with the trunk (each at most once 
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -61,6 +63,12 @@ class DeadlineBody(BaseModel):
     deadline: str = Field(default="", max_length=10)
 
 
+class TargetBody(BaseModel):
+    # Bounded in words by the store (1 to 100,000), not here, so a target past it is refused as
+    # every other touch is: a 400 that says why.
+    target: int
+
+
 class UndoBody(BaseModel):
     token: str = Field(min_length=1, max_length=100)
 
@@ -74,19 +82,37 @@ def _refused(exc: ObjectiveError) -> JSONResponse:
     return JSONResponse(status_code=400, content={"code": "refused", "detail": str(exc)})
 
 
-def _full(obj) -> dict:
+async def _counted(obj) -> dict | None:
+    """What has sold of the objective's number, read from the order cache; None without one."""
+    from app.objectives import count
+
+    return await count.count(obj.number, deadline=obj.deadline) if obj.number else None
+
+
+def _summary(obj, tally: dict | None) -> dict:
+    """The home row's summary, with where the number stands when it was counted."""
+    from app.objectives import count
+
+    summary = obj.summary()
+    if summary.get("number") and tally is not None:
+        summary["number"] = {**summary["number"], **count.short(tally)}
+    return summary
+
+
+async def _full(obj) -> dict:
     # `card` is what the sheet draws the objective's shape from: the same payload as the
     # conversation's card (app/objectives/cards.py), so the two cannot show it differently.
     from app.objectives import cards
 
-    return {**obj.to_dict(), "summary": obj.summary(), "card": cards.data(obj)}
+    tally = await _counted(obj)
+    return {**obj.to_dict(), "summary": _summary(obj, tally), "card": cards.data(obj, tally)}
 
 
-def _touched(answer) -> dict:
+async def _touched(answer) -> dict:
     """A touch's answer: the record, the undo offer for what it changed, or the line saying it
     changed nothing."""
     obj, undo, said = answer
-    return {**_full(obj), "undo": undo, "said": said}
+    return {**await _full(obj), "undo": undo, "said": said}
 
 
 @router.get("")
@@ -98,7 +124,8 @@ async def list_objectives(request: Request, session_id: str = "") -> dict:
 
     live = store().live()
     issue_listed(request, session_id, [o.id for o in live])
-    return {"objectives": [o.summary() for o in live],
+    tallies = await asyncio.gather(*(_counted(o) for o in live))
+    return {"objectives": [_summary(o, tally) for o, tally in zip(live, tallies, strict=True)],
             "needs_you": sum(len(o.open_("attention")) for o in live)}
 
 
@@ -130,7 +157,7 @@ async def gaps() -> dict:
 @router.get("/{objective_id}", response_model=None)
 async def read_objective(objective_id: str) -> dict | JSONResponse:
     try:
-        return _full(store().get(objective_id))
+        return await _full(store().get(objective_id))
     except ObjectiveError as exc:
         return JSONResponse(status_code=404, content={"code": "not_found", "detail": str(exc)})
 
@@ -139,7 +166,7 @@ async def read_objective(objective_id: str) -> dict | JSONResponse:
 async def create_objective(body: CreateBody) -> dict | JSONResponse:
     title = body.title.strip() or " ".join(body.request.split()[:6])
     try:
-        return _full(store().create(title=title, request=body.request, deadline=body.deadline, by="owner",
+        return await _full(store().create(title=title, request=body.request, deadline=body.deadline, by="owner",
                                     kind=body.kind, stages=list(body.stages) or None,
                                     tasks=[task.model_dump() for task in body.tasks] or None))
     except ObjectiveError as exc:
@@ -149,7 +176,7 @@ async def create_objective(body: CreateBody) -> dict | JSONResponse:
 @router.post("/{objective_id}/note", response_model=None)
 async def owner_note(objective_id: str, body: TextBody) -> dict | JSONResponse:
     try:
-        return _full(store().owner_note(objective_id, body.text))
+        return await _full(store().owner_note(objective_id, body.text))
     except ObjectiveError as exc:
         return _refused(exc)
 
@@ -161,7 +188,7 @@ async def answer(objective_id: str, entry_id: str, body: TextBody) -> dict | JSO
     try:
         if body.text.strip():
             s.owner_note(objective_id, body.text)
-        return _full(s.resolve(objective_id, entry_id, note=body.text, by="owner"))
+        return await _full(s.resolve(objective_id, entry_id, note=body.text, by="owner"))
     except ObjectiveError as exc:
         return _refused(exc)
 
@@ -169,7 +196,7 @@ async def answer(objective_id: str, entry_id: str, body: TextBody) -> dict | JSO
 @router.post("/{objective_id}/items/{item_id}/authorise", response_model=None)
 async def authorise(objective_id: str, item_id: str) -> dict | JSONResponse:
     try:
-        return _full(store().authorise(objective_id, item_id))
+        return await _full(store().authorise(objective_id, item_id))
     except ObjectiveError as exc:
         return _refused(exc)
 
@@ -179,7 +206,7 @@ async def tick(objective_id: str, task_id: str, body: TaskBody) -> dict | JSONRe
     """The owner ticks one of the delegated tasks done, or back to not done, on his screen, or
     hands it to someone else (`who`). It changes CLIVE's list and nothing else: nobody is told."""
     try:
-        return _touched(store().touch_task(objective_id, task_id, done=body.done, who=body.who))
+        return await _touched(store().touch_task(objective_id, task_id, done=body.done, who=body.who))
     except ObjectiveError as exc:
         return _refused(exc)
 
@@ -189,7 +216,7 @@ async def stage(objective_id: str, body: StageBody) -> dict | JSONResponse:
     """The owner makes a stage the one the project is at now (its name, or "next"). A record of
     where the project is: nothing is ordered, booked or sent by it."""
     try:
-        return _touched(store().touch_stage(objective_id, body.stage))
+        return await _touched(store().touch_stage(objective_id, body.stage))
     except ObjectiveError as exc:
         return _refused(exc)
 
@@ -198,9 +225,27 @@ async def stage(objective_id: str, body: StageBody) -> dict | JSONResponse:
 async def deadline(objective_id: str, body: DeadlineBody) -> dict | JSONResponse:
     """The owner moves the date the objective must land by; an empty date takes it off."""
     try:
-        return _touched(store().touch_deadline(objective_id, body.deadline))
+        return await _touched(store().touch_deadline(objective_id, body.deadline))
     except ObjectiveError as exc:
         return _refused(exc)
+
+
+@router.post("/{objective_id}/target", response_model=None)
+async def target(objective_id: str, body: TargetBody) -> dict | JSONResponse:
+    """The owner drags his number's target up or down. The bar says the new target and, from the
+    count, where the pace now takes it; the record keeps only the target, and Undo puts it back."""
+    from app.objectives import count
+
+    try:
+        answer = await _touched(store().touch_target(objective_id, body.target))
+    except ObjectiveError as exc:
+        return _refused(exc)
+    tally = answer["card"].get("count")
+    said = count.pace_words({**tally, "target": answer["number"]["target"], "deadline": answer["deadline"]}) \
+        if tally and tally.get("counted") else ""
+    if answer["undo"] and said:
+        answer["undo"] = {**answer["undo"], "says": f"{answer['undo']['says']}. {said}"}
+    return answer
 
 
 @router.post("/{objective_id}/undo", response_model=None)
@@ -212,12 +257,12 @@ async def undo(objective_id: str, body: UndoBody) -> dict | JSONResponse:
         obj, said = store().undo(objective_id, body.token)
     except ObjectiveError as exc:
         return _refused(exc)
-    return {**_full(obj), "said": said}
+    return {**await _full(obj), "said": said}
 
 
 @router.post("/{objective_id}/status", response_model=None)
 async def status(objective_id: str, body: StatusBody) -> dict | JSONResponse:
     try:
-        return _full(store().set_status(objective_id, body.status, note=body.text, by="owner"))
+        return await _full(store().set_status(objective_id, body.status, note=body.text, by="owner"))
     except ObjectiveError as exc:
         return _refused(exc)

@@ -252,7 +252,8 @@
       const sub = mark && mark.late ? mark.late : o.attention === 'needs_you' && o.needs_you.length ? o.needs_you[0]
         : building || (o.blocked_by.length ? `Waiting for: ${o.blocked_by[0]}`
         : (shaped && shaped.sub) || o.doing || (o.next.length ? `Next: ${o.next[0]}` : ''));
-      const when = whenFor(o);
+      // A number's row leads with how many of the target (objectives by touch, C), as the design's does.
+      const when = (shaped && shaped.meta) || whenFor(o);
       const lead = o.kind === 'build' && !(o.attention === 'needs_you' && o.needs_you.length)
         ? h('span', { class: 'alpha-tile is-build' }, icon(ICON.build, 18))
         : needs.indexOf(o) >= 0
@@ -371,7 +372,7 @@
     const current = () => seq === sheetSeq && sheet.open;
     const open = (list) => list.filter((x) => !x.resolved_at);
     const cards = window.CliveObjectiveCards;
-    const shapedKind = cards && o.card && (o.kind === 'project' || o.kind === 'tasks');
+    const shapedKind = cards && o.card && (o.kind === 'project' || o.kind === 'tasks' || Boolean(o.card.number));
     // A project or delegated tasks say what they are and where they stand; any other objective
     // keeps the line it always had.
     const standing = ['needs_you', 'blocked', 'check_in', 'done', 'dropped'].includes(o.summary.attention) ? labelFor(o.summary.attention) : '';

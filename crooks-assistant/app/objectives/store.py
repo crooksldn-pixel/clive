@@ -60,12 +60,22 @@ he can make a stage now, tick a task, hand a task to someone else and drag the d
 by. Each of those is one ordinary change (``move_stage``, ``task``, ``design``: one locked write,
 one event, the design file and record in their order) wrapped by ``_touch``, which, under the same
 lock, keeps what the change could alter (the stages with their states and dates, the tasks, the
-deadline) as it was just before, and hands back a one-use token. ``undo`` with that token puts those
+deadline, the number) as it was just before, and hands back a one-use token. ``undo`` with that token puts those
 fields back exactly, from what was kept rather than by working out an inverse, as one more change
 with its own "Undone: ..." event, and only while nothing else has touched the objective since (the
 record's history ends where that change left it) and within a short window. Tokens live in this
 process's memory alone, a bounded few, never on the disk and never in a log: a restart forgets
 them, which is the honest answer six seconds after a restart anyway.
+
+A number to reach (objectives by touch, part C: "shift the last 200 hoodies by the 18th"). Any kind
+can carry one: what is counted (a product as the owner names it, matched the way the sales figures
+match his words), the target, the day counting starts and the words for what a unit is. It is one
+more design field, so it lives in the design file and nothing already stored changes: the store
+before round 12 never sees it, and a round-12 build that does not know it keeps it untouched and
+writes it back (``_design_extra``). The record holds only what he said; how many have sold is never
+stored here. It is read from the shop's orders when the objective is drawn (app/objectives/count.py),
+so a stored figure can never go stale or be mistaken for a count. The owner can drag the target on
+his screen, with the same six seconds to take it back as every other touch (``touch_target``).
 """
 
 from __future__ import annotations
@@ -82,10 +92,12 @@ import time
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, fields
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from app.analytics.periods import MAX_DAYS as COUNT_BACK_DAYS
 from app.objectives.gaps import _fsync_dir
 
 log = logging.getLogger("crooks.objectives")
@@ -125,8 +137,10 @@ TIDY_EVERY_S = 3600
 # The keys of obj_x.json: exactly what the store before round 12 reads (547f652f), in that order.
 RECORD_FIELDS = ("id", "title", "request", "created_at", "updated_at", "status", "status_set_by", "deadline",
                  "facts", "unknowns", "blockers", "items", "attention", "events", "kind", "engineering")
-# The keys of design/obj_x.json, beside ``version``.
-DESIGN_FIELDS = ("purpose", "done_when", "people", "stages", "tasks", "check_every_days")
+# The keys of design/obj_x.json, beside ``version``. `number` came after round 12 (part C) within
+# the same format: a build that does not know it keeps it as it found it, so it needs no new version
+# (a new version would set every design aside on a rollback, ``_verdict``).
+DESIGN_FIELDS = ("purpose", "done_when", "people", "stages", "tasks", "check_every_days", "number")
 DESIGN_DIR = "design"
 # Bounds that keep a record a thing a person reads, not a spreadsheet.
 MAX_STAGES = 10
@@ -142,7 +156,14 @@ UNDO_OFFER_S = 6
 UNDO_GRACE_S = 10
 UNDO_KEPT = 32
 # What an owner's touch can change, and so what its undo puts back.
-_RESTORABLE = ("stages", "tasks", "deadline")
+_RESTORABLE = ("stages", "tasks", "deadline", "number")
+# A number's bounds: a target a person counts towards, and a unit said in a few words. Counting
+# can start at most as far back as the order cache reads (a year), and its day, when he gives none,
+# is the day it was set in the shop's own time zone (London, as app/families/compose.py has it).
+MAX_TARGET = 100_000
+MAX_UNIT = 30
+_NUMBER_KEYS = ("of", "target", "since", "unit")
+SHOP_TZ = ZoneInfo("Europe/London")
 _ROLE = re.compile(r"^(?P<name>[^()]+?)\s*\((?P<role>[^()]*)\)\s*$")
 
 
@@ -254,6 +275,69 @@ def _check_every(value: Any) -> int | None:
     return days
 
 
+def _target(value: Any) -> int:
+    """A target: a whole number from 1 to MAX_TARGET, never a guess at what was meant."""
+    if isinstance(value, bool):
+        raise ObjectiveError("A target is a number.")
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ObjectiveError("A target is a number.") from exc
+    if number != value and str(number) != str(value).strip():
+        raise ObjectiveError("A target is a whole number.")
+    if not 1 <= number <= MAX_TARGET:
+        raise ObjectiveError(f"A target is between 1 and {MAX_TARGET:,}.")
+    return number
+
+
+def _shop_today() -> date:
+    return datetime.now(SHOP_TZ).date()
+
+
+def _number(value: Any, existing: dict | None) -> dict | None:
+    """A number as the owner set or changed it: what is counted, the target, the day counting
+    starts and the unit's words. Only what is passed changes; `{}` takes the number off. A new one
+    needs what is counted and the target; counting starts the day it is set unless he said when."""
+    if not isinstance(value, dict):
+        raise ObjectiveError("A number is what is counted (of), the target, and since when if he said.")
+    unknown = sorted(set(value) - set(_NUMBER_KEYS))
+    if unknown:
+        raise ObjectiveError(f"A number has {', '.join(_NUMBER_KEYS)}; not {', '.join(unknown)}.")
+    if not value:
+        if existing is None:
+            raise ObjectiveError("It has no number to take off.")
+        return None
+    merged = {**(existing or {}), **value}
+    if merged.get("of") in (None, "") or merged.get("target") in (None, ""):
+        raise ObjectiveError("A number needs what is counted (of) and its target.")
+    since = _date(merged.get("since"), what="day counting starts") or _shop_today().isoformat()
+    earliest = _shop_today() - timedelta(days=COUNT_BACK_DAYS)
+    # Only a day being set now is held to the year the orders reach back: a number set a year ago
+    # keeps its day when its target or its words change.
+    if "since" in value and date.fromisoformat(since) < earliest:
+        raise ObjectiveError(f"Orders are read back a year at most, so counting can start on {_on(earliest.isoformat())} "
+                             "at the earliest; nothing was changed.")
+    return {"of": _clean(merged["of"], limit=MAX_NAME, what="thing it counts"), "target": _target(merged["target"]),
+            "since": since, "unit": _optional(merged.get("unit"), limit=MAX_UNIT)}
+
+
+def _number_said(before: dict | None, after: dict | None) -> str:
+    """What a change to the number was, for the history, in the owner's words."""
+    if after is None:
+        return "No number"
+    unit = f" {after['unit']}" if after.get("unit") else ""
+    if before is None or before.get("of") != after["of"]:
+        return f"Counting {after['of']}: {after['target']:,}{unit} from {_on(after['since'])}"
+    said = []
+    if before.get("target") != after["target"]:
+        said.append(f"Target {after['target']:,}")
+    if before.get("since") != after["since"]:
+        said.append(f"counted from {_on(after['since'])}")
+    if before.get("unit") != after.get("unit"):
+        said.append(f"counted as {after['unit']}" if after.get("unit") else "no unit")
+    return ", ".join(said) or f"Counting {after['of']}, as it was"
+
+
 @dataclass
 class Objective:
     id: str
@@ -284,6 +368,9 @@ class Objective:
     # Jobs for named people: {id, who, text, due, done, done_at, at}.
     tasks: list[dict] = field(default_factory=list)
     check_every_days: int | None = None
+    # A number to reach, or None: {of, target, since, unit} (`_number`). What has sold is counted
+    # when it is drawn, never kept here.
+    number: dict | None = None
 
     def __post_init__(self) -> None:
         # Legacy JSON written before status_set_by existed has no such field, so the dataclass
@@ -405,6 +492,8 @@ class Objective:
                 parts.extend(str(entry.get(k) or "") for k in ("text", "source", "resolution", "who"))
         parts.extend(str(s.get("name") or "") for s in self.stages)
         parts.extend(str(p.get("name") or "") for p in self.people)
+        if self.number:
+            parts.append(str(self.number.get("of") or ""))
         found = _key(" ".join(parts))
         return all(word in found for word in _key(search).split())
 
@@ -425,7 +514,7 @@ class Objective:
         elif kind == "tasks":
             waiting = waiting + [f"{t['who']}: {t['text']}" for g in self.task_groups() for t in g["tasks"] if not t.get("done")]
         cadence = self.check_in()
-        return {
+        out = {
             "id": self.id,
             "title": self.title,
             "status": self.status,
@@ -451,6 +540,12 @@ class Objective:
             "people_tasks": [{"who": g["who"], "open": g["open"], "done": g["done"]} for g in self.task_groups()],
             "check_in": cadence,
         }
+        # The number as he set it, only on an objective that has one, so every other summary reads
+        # exactly as before. How many have sold is added by the owner's routes, which count it
+        # (app/objectives/count.py); the model reads the figures with the sales tools.
+        if self.number:
+            out["number"] = dict(self.number)
+        return out
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -494,7 +589,7 @@ def _from_record(raw: Any, design: Any = None) -> Objective:
     extra = {k: v for k, v in shape.items() if k not in DESIGN_FIELDS}
     for name in ("people", "stages", "tasks"):
         data[name] = list(shape.get(name) or [])
-    for name in ("purpose", "done_when", "check_every_days"):
+    for name in ("purpose", "done_when", "check_every_days", "number"):
         data[name] = shape.get(name)
     obj = Objective(**data)
     obj._design_extra = extra
@@ -555,6 +650,10 @@ def _well_formed(design: Any) -> bool:
                 isinstance(t, dict) and isinstance(t.get("id"), str) and isinstance(t.get("who"), str)
                 and isinstance(t.get("text"), str) and isinstance(t.get("done", False), bool) and text_or_none(t.get("due"))
                 for t in design.get("tasks", [])),
+            design.get("number") is None or (
+                isinstance(design["number"], dict) and isinstance(design["number"].get("of"), str)
+                and isinstance(design["number"].get("target"), int) and not isinstance(design["number"]["target"], bool)
+                and isinstance(design["number"].get("since"), str) and text_or_none(design["number"].get("unit"))),
         ))
     except (TypeError, AttributeError):
         return False
@@ -882,10 +981,11 @@ class ObjectiveStore:
     def create(self, *, title: str, request: str, deadline: str | None = None, by: str = "clive",
                kind: str = "business", purpose: str = "", done_when: str = "", people: list | None = None,
                check_every_days: int | None = None, stages: list | None = None, stage: str = "",
-               waiting_on: str = "", tasks: list | None = None) -> Objective:
+               waiting_on: str = "", tasks: list | None = None, number: dict | None = None) -> Objective:
         """A new objective, shaped by its kind. A project is opened with its stages (and the one
         it is at, when that is known); a tasks objective with its tasks, each with who does it.
-        Everything else in the design is optional and can be added later (`design`)."""
+        Any kind may carry a number to reach. Everything else in the design is optional and can be
+        added later (`design`)."""
         if kind not in KINDS:
             raise ObjectiveError(f"An objective is one of {', '.join(KINDS)}.")
         if kind == "project" and not stages:
@@ -900,7 +1000,8 @@ class ObjectiveStore:
                         request=_clean(request, limit=4000, what="request"), created_at=now, updated_at=now,
                         deadline=_date(deadline, what="deadline"), kind=kind,
                         purpose=_optional(purpose), done_when=_optional(done_when),
-                        people=self._people(people or []), check_every_days=_check_every(check_every_days))
+                        people=self._people(people or []), check_every_days=_check_every(check_every_days),
+                        number=_number(number, None) if number else None)
         if stages:
             obj.stages = self._stages([], stages)
             if stage:
@@ -1046,10 +1147,12 @@ class ObjectiveStore:
     def design(self, objective_id: str, *, by: str = "clive", title: str | None = None, kind: str | None = None,
                deadline: str | None = None, purpose: str | None = None, done_when: str | None = None,
                people: list | None = None, check_every_days: int | None = None, stages: list | None = None,
-               stage: str | None = None, waiting_on: str | None = None, due: str | None = None) -> Objective:
+               stage: str | None = None, waiting_on: str | None = None, due: str | None = None,
+               number: dict | None = None) -> Objective:
         """Change what the objective is: only what is passed changes, and an empty string clears
         a text or a date. `stages` is the whole list in its new order. With `stage`, `due` and
-        `waiting_on` are that stage's and nothing moves (moving is `move_stage`)."""
+        `waiting_on` are that stage's and nothing moves (moving is `move_stage`). `number` changes
+        only the parts of the number passed, and `{}` takes it off."""
         def fn(o: Objective) -> None:
             said: list[str] = []
             if title is not None:
@@ -1086,6 +1189,10 @@ class ObjectiveStore:
             if check_every_days is not None:
                 o.check_every_days = _check_every(check_every_days)
                 said.append(f"Check in every {o.check_every_days} days" if o.check_every_days else "No check-ins")
+            if number is not None:
+                before = o.number
+                o.number = _number(number, before)
+                said.append(_number_said(before, o.number))
             if stage is not None:
                 target = o.stages[self._stage_index(o, stage)] if _key(stage) != "next" else None
                 if target is None:
@@ -1276,6 +1383,19 @@ class ObjectiveStore:
             return act, says, (f"Due {_day(o.deadline)} again" if o.deadline else "No deadline again")
         return self._touch(objective_id, plan)
 
+    def touch_target(self, objective_id: str, target: Any) -> Touched:
+        """The owner dragged the number's target up or down. What that means for the pace is the
+        count's to say (the route adds it); here it is the target, as one ordinary change."""
+        def plan(o: Objective):
+            if not o.number:
+                raise ObjectiveError("This objective has no number, so it has no target to move.")
+            new, was = _target(target), o.number["target"]
+            if new == was:
+                return f"The target is already {new:,}."
+            act = lambda: self.design(objective_id, number={"target": new}, by="owner")  # noqa: E731
+            return act, f"Target {new:,}", f"Target {was:,} again"
+        return self._touch(objective_id, plan)
+
     @staticmethod
     def _lands(o: Objective, deadline: str) -> str:
         """What a new deadline means for a project's dated stages still to finish."""
@@ -1313,7 +1433,7 @@ class ObjectiveStore:
             self._undos.popitem(last=False)
 
     def undo(self, objective_id: str, token: str) -> tuple[Objective, str]:
-        """Take back the touch `token` was offered for: its stages, tasks and deadline exactly as
+        """Take back the touch `token` was offered for: its stages, tasks, deadline and number exactly as
         they were before it, if the objective has not changed since and the window is still open.
         Once used, or refused for being late or overtaken, the token is gone."""
         with self._lock:

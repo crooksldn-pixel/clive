@@ -95,7 +95,8 @@
     const open = (s) => s.state !== 'done';
     const firstOpen = stages.findIndex(open);
     // Every stage done is finished work, whatever the date said.
-    if (deadline && between(today, deadline) < 0 && (!stages.length || firstOpen >= 0)) {
+    const reached = counted(o) && day(counted(o).reached_on);
+    if (deadline && between(today, deadline) < 0 && (!stages.length || firstOpen >= 0) && !reached) {
       return { late: true, why: `Was due ${said(deadline, today)}`, from: firstOpen >= 0 ? firstOpen : null, by: 'deadline' };
     }
     const overdue = stages.findIndex((s) => open(s) && day(s.due) && between(today, day(s.due)) < 0);
@@ -106,7 +107,37 @@
       const after = stages.findIndex((s) => open(s) && day(s.due) && day(s.due) > deadline);
       if (after >= 0) return { late: true, why: `${text(stages[after].name)} would land after ${said(deadline, today)}`, from: after, by: 'stage' };
     }
+    // A number the pace leaves short of its deadline, as the Mac counted it.
+    const n = counted(o);
+    if (n && n.late && deadline) {
+      return { late: true, why: `${whole(n.by_deadline)} by ${said(deadline, today)}, ${whole(n.short)} short`, from: null, by: 'number' };
+    }
     return none;
+  }
+
+  // ---------------------------------------------------------------- a number, as the Mac counted it
+
+  const whole = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0);
+  // The summary's number, only when it was counted (app/routes/objectives.py adds the count).
+  function counted(o) {
+    const n = o && o.number && typeof o.number === 'object' ? o.number : null;
+    return n && n.counted === true && whole(n.target) > 0 ? n : null;
+  }
+  // The day the pace reaches the target, if it has one (or the day it was reached).
+  function landDay(o) {
+    const n = counted(o);
+    return n ? day(n.reached_on) || day(n.lands) : null;
+  }
+  // A ring of twenty, each a twentieth of the target, lit for the share sold.
+  function ring(sold, target, late) {
+    const out = [];
+    const lit = Math.round(Math.max(0, Math.min(1, sold / target)) * 20);
+    for (let i = 0; i < 20; i++) {
+      const a = -Math.PI / 2 + i / 20 * Math.PI * 2;
+      out.push({ x: 20 + Math.cos(a) * 15, y: 20 + Math.sin(a) * 15, r: 1.75, cls: i < lit ? `is-lit${late ? ' is-late' : ''}` : 'is-dim' });
+    }
+    out.push({ x: 20, y: 20, r: 2.2, cls: `is-now${late ? ' is-late' : ''}` });
+    return out;
   }
 
   // ---------------------------------------------------------------- a build, as stages
@@ -210,22 +241,20 @@
   function markDots(o, rows, opts) {
     if (!o || typeof o !== 'object') return null;
     const o2 = Object.assign({ lite: lite() }, opts || {});
-    if (o.kind === 'project') {
+    if (o.kind === 'project' && list(o.stages, 12).length) {
       const stages = list(o.stages, 12);
-      if (!stages.length) return null;
       let now = stages.findIndex((s) => s.state === 'current');
       if (now < 0) now = stages.every((s) => s.state === 'done') ? stages.length : -1;
       return road(stages.length, now, o2);
     }
-    if (o.kind === 'tasks') {
-      const groups = list(o.people_tasks, 4);
-      return groups.length ? people(groups, o2) : null;
-    }
+    if (o.kind === 'tasks' && list(o.people_tasks, 4).length) return people(list(o.people_tasks, 4), o2);
     if (o.kind === 'build') {
       const at = buildAt(o, rows);
-      return at === null ? null : road(BUILD_STAGES.length, at, Object.assign({}, o2, { steel: true }));
+      if (at !== null) return road(BUILD_STAGES.length, at, Object.assign({}, o2, { steel: true }));
     }
-    return null;
+    // Any other objective with a number counted: its ring.
+    const n = counted(o);
+    return n ? ring(whole(n.sold), whole(n.target), Boolean(n.late)) : null;
   }
 
   // ---------------------------------------------------------------- drawing
@@ -285,7 +314,8 @@
    * tile), the lateness line that comes first under its title, and what to draw under that.
    * `track` is the stage track the row already has, painted as dots in place. A deadline already
    * gone is said first on the row by the home itself ("past the date", before anything else), so
-   * the line here is a stage's lateness, which the home has no other way to say. */
+   * the line here is a stage's lateness, or a number's shortfall, which the home has no other way
+   * to say. */
   function rowMark(o, rows, track, opts) {
     const now = opts && opts.now ? opts.now : new Date();
     const late = lateness(o, now);
@@ -293,7 +323,7 @@
     const at = buildAt(o, rows);
     return {
       glyph: glyph(o, rows, 40, opts),
-      late: late.by === 'stage' ? late.why : null,
+      late: late.by === 'stage' || late.by === 'number' ? late.why : null,
       under: at !== null && !track ? buildTrack(at, opts) : null,
     };
   }
@@ -326,6 +356,12 @@
       const was = marks.get(d);
       if (!was || rank[state] > rank[was]) marks.set(d, state);
     });
+    // A number: the day the pace reaches its target. Short of the deadline, the days from the
+    // deadline to that day are an overrun like a late stage's.
+    const land = landDay(o);
+    const lIdx = land ? between(today, land) : null;
+    const n = counted(o);
+    if (n && n.late && lIdx !== null && lIdx >= 0) overrunTo = overrunTo === null ? lIdx : Math.max(overrunTo, lIdx);
     // The overrun: the days from the deadline to the last stage still due after it, or, with the
     // deadline already gone, from today to that stage. Days past a deadline with nothing due are
     // quiet, not red: nothing is known to land on them.
@@ -337,6 +373,7 @@
       let cls = 'hz-d';
       if (marks.has(d)) cls = `hz-m ${marks.get(d)}`;
       else if (lateDay) cls = 'hz-d is-late';
+      else if (lIdx !== null && d > 0 && d < lIdx && (dIdx === null || d <= dIdx)) cls = 'hz-d is-pace';
       else if (dIdx !== null && d > dIdx) cls = 'hz-d is-beyond';
       else if (monday) cls = 'hz-d is-monday';
       const r = marks.has(d) ? 3 : monday ? 1.5 : 1.2;
@@ -345,6 +382,11 @@
     }
     // The deadline on today itself is ringed as the deadline, inside today's ring.
     if (dIdx === 0) out[0].ring2 = late.late ? 'hz-ring is-late' : 'hz-ring';
+    // The day the pace lands, ringed: inside the deadline's ring when it is the same day.
+    if (lIdx !== null && lIdx >= 0 && lIdx < SPAN) {
+      const lands = `hz-ring is-land${n && n.late ? ' is-late' : ''}`;
+      if (out[lIdx].ring) out[lIdx].ring2 = lands; else out[lIdx].ring = lands;
+    }
     return out;
   }
 
@@ -354,10 +396,10 @@
     const next = list(o.stages, 12).filter((s) => s.state !== 'done').map((s) => day(s.due)).filter((d) => d && between(today, d) >= 0)
       .sort((a, b) => a - b)[0] || null;
     if (deadline && next) return next < deadline ? next : deadline;
-    return deadline || next;
+    return deadline || next || landDay(o);
   }
   function dated(o) {
-    return Boolean(day(o.deadline) || list(o.stages, 12).some((s) => day(s.due)));
+    return Boolean(day(o.deadline) || list(o.stages, 12).some((s) => day(s.due)) || landDay(o));
   }
 
   /* The horizon as data, from the home's own list. `opts`: {now, needs: [ids], builds: {id: rows}}. */
@@ -375,14 +417,19 @@
       const deadline = day(o.deadline);
       const key = hasDays ? keyDate(o, today) : null;
       let detail = 'No date';
+      const land = landDay(o);
       if (!build && deadline) detail = `Due ${said(deadline, today)}`;
+      else if (land && !list(o.stages, 12).some((s) => day(s.due))) detail = `Lands ${said(land, today)}`;
       else if (hasDays) {
         const next = list(o.stages, 12).find((s) => s.state !== 'done' && day(s.due) && between(today, day(s.due)) >= 0);
         detail = next ? `${text(next.name)} ${said(day(next.due), today)}` : 'No date ahead';
       }
+      // A number on pace says where it lands, beside its deadline.
+      const n = counted(o);
+      const paced = n && !late.late && land && deadline ? (n.reached_on ? `Reached ${said(land, today)}` : `Lands ${said(land, today)}`) : null;
       return {
         id: text(o.id), title: text(o.title), kind: text(o.kind), order: i,
-        late: late.late, detail, line: late.why || (hasDays ? null : waitsOn(o, rowsOf)),
+        late: late.late, detail, line: late.why || paced || (hasDays ? null : waitsOn(o, rowsOf)),
         days: hasDays ? daysOf(o, late, today) : [],
         build, key, source: o, builds: rowsOf,
         group: late.late ? 0 : hasDays ? 1 : build ? 2 : 3,
@@ -483,7 +530,7 @@
   return {
     SPAN, BUILD_STAGES,
     day, said, range, between, midnight,
-    lateness, buildAt, waitsOn, markDots, road, people,
+    lateness, buildAt, waitsOn, markDots, road, people, ring,
     glyph, paintTrack, rowMark, layout, draw,
   };
 });

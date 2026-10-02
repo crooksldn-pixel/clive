@@ -27,6 +27,11 @@
  * routes; the Mac's answer redraws the shape and the bar offers Undo for six seconds. Without the
  * touch file, a read-only drawing, or no bar, the shape is drawn exactly as before.
  *
+ * A number to reach (objectives by touch, part C) is drawn by web/objective-number.js, loaded before
+ * this file, for any kind that carries one: this file lends it the same bar, taps and routes, and
+ * the home row its words. The model's card carries no count (its tools never read the shop), so a
+ * drawing that can ask asks the owner's own route for the objective once, and draws its answer.
+ *
  * No dependency on the rest of the page, so it runs under Node against tests/web/dom-shim.js.
  */
 (function (root, factory) {
@@ -44,6 +49,11 @@
   const touchKit = () => {
     const kit = root && root.CliveObjectiveTouch;
     return kit && typeof kit.bar === 'function' ? kit : null;
+  };
+  // The Number shape, when the page has it: web/objective-number.js, loaded before this file.
+  const numberKit = () => {
+    const kit = root && root.CliveObjectiveNumber;
+    return kit && typeof kit.shape === 'function' ? kit : null;
   };
 
   function h(tag, cls, kids) {
@@ -138,6 +148,9 @@
     const kind = kindOf(d);
     if (kind === 'project') parts.push(stageCount(d));
     if (kind === 'tasks') parts.push(taskCount(d));
+    const N = numberKit();
+    const counted = N ? N.model(d) : null;
+    if (counted && counted.counted) parts.push(`${N.fmt(counted.total)} of ${N.fmt(counted.target)} sold`);
     if (text(d.deadline)) {
       const left = daysFrom(d.deadline, now);
       parts.push(`Due ${dateWords(d.deadline, now)}${left === null ? '' : ` · ${leftWords(left)}`}`);
@@ -207,6 +220,7 @@
       // Keyed by objective: a tap here and a tap on another drawing of it are the same element.
       tap: (key, part, how) => tap(`${objective}:${key}`, part, how),
       send: typeof opts.send === 'function' ? opts.send : T.post,
+      get: typeof opts.get === 'function' ? opts.get : getRecord,
       url: (tail) => `/objectives/${encodeURIComponent(objective)}${tail}`,
       // The Mac's answer is what is drawn next: the card or the sheet redraws itself from it.
       redraw: (record) => { if (record && record.card && typeof opts.onChange === 'function') opts.onChange(record); },
@@ -784,6 +798,41 @@
     return data;
   }
 
+  // ---------------------------------------------------------------- a number to reach
+
+  /* The Number shape (web/objective-number.js), lent this file's touch: the same bar, the same taps,
+   * the owner's own route for the target, and, for a card that came without a count, one ask of the
+   * objective's own record, whose answer is drawn as any touch's is. */
+  function numberOf(d, opts, now) {
+    const N = numberKit();
+    if (!N || !d.number || typeof d.number !== 'object') return null;
+    const ctx = live(d, opts, now);
+    const kit = ctx ? {
+      T: ctx.T, bar: ctx.bar, now, tap: ctx.tap,
+      commit: (tail, body) => commit(ctx, tail, body),
+      failed: (error) => failed(ctx, error),
+      load: async () => {
+        const latest = sending(ctx);
+        const record = await ctx.get(ctx.url(''));
+        if (latest()) ctx.redraw(record);
+        return record;
+      },
+    } : null;
+    return N.shape(d, kit);
+  }
+
+  async function getRecord(url) {
+    let response;
+    try {
+      response = await fetch(url, { method: 'GET', cache: 'no-store' });
+    } catch (error) {
+      throw new Error('CLIVE could not be reached');   // the browser's own words name no cause
+    }
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(text(data.detail) || `CLIVE answered ${response.status}`);
+    return data;
+  }
+
   // What CLIVE is doing and what comes next, for the kinds whose shape is its own work.
   function workOf(d) {
     const next = strings(d.next, 3);
@@ -836,6 +885,7 @@
     if (list(data.groups, 8).length) body.appendChild(groupsOf(data, opts, now));
     // Every task taken off: that is the answer, and it is said rather than left blank.
     else if (kind === 'tasks') body.appendChild(h('p', 'card-note', 'No tasks on it.'));
+    add(body, numberOf(data, opts, now));
     // The sheet lists CLIVE's own work items itself, with their approvals; the card does not.
     if ((kind === 'business' || kind === 'build') && !(opts && opts.sheet)) add(body, workOf(data));
     add(body, factsOf(data));
@@ -894,7 +944,7 @@
 
   // What a row on the home says under the title, in the kind's own terms, and the small
   // progression a project carries beside it. Null for a kind whose row is the home's own.
-  function row(summary) {
+  function row(summary, now) {
     const o = summary && typeof summary === 'object' ? summary : {};
     const kind = text(o.kind);
     if (o.attention === 'check_in' && o.check_in && typeof o.check_in === 'object' && o.check_in.quiet_days !== null) {
@@ -908,16 +958,18 @@
         : stages.length && stages.every((s) => s.state === 'done') ? 'Every stage done' : 'Not started';
       return { sub, track: stages.length ? track(stages) : null };
     }
-    if (kind === 'tasks') {
+    if (kind === 'tasks' && list(o.people_tasks, 8).length) {
       const people = list(o.people_tasks, 8);
-      if (!people.length) return null;
       const sub = people.map((p) => {
         const open = Number(p.open) || 0; const done = Number(p.done) || 0;
         return open === 0 ? `${text(p.who)} done` : `${text(p.who)} ${done} of ${open + done}`;
       }).join(' · ');
       return { sub, track: null };
     }
-    return null;
+    // A number to reach, on any other kind: how many of the target, and where the pace takes it.
+    const N = numberKit();
+    const said = N && o.number ? N.rowWords(o, now || new Date()) : null;
+    return said ? { sub: said.sub, track: null, meta: said.meta } : null;
   }
 
   return { card, shape, row, bar, statusLine, dateWords, leftWords, initials, KIND_WORD };

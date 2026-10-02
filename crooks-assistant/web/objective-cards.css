@@ -212,3 +212,59 @@ html[data-lite] .oc-task.is-lifted{box-shadow:0 0 0 1px rgba(var(--acc,10,132,25
   .ot-grip,.ot-ring,.ot-ring-mark,.oc-task.is-settling,.oc-steps.ot-live .oc-step,.oc-tasks.is-dragging .oc-group{transition:none}
   .ot-bar{animation:none}
 }
+
+/* ---- a number to reach (objectives by touch, part C, web/objective-number.js): the figure, where
+   the pace takes it, and the chart of dots, a column a day, the matrix faint so every dot has a
+   place. Blue is what has sold and where the pace goes; red only for what would fall short. Every
+   control is at least 44 px; with motion turned down nothing travels or grows. */
+.on-number{display:flex;flex-direction:column;gap:10px;padding:16px 18px 14px;border-radius:26px;background:rgba(118,118,128,.17);
+  box-shadow:inset 0 0 0 .5px rgba(255,255,255,.08)}
+.on-head{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
+.on-sold{font-size:60px;line-height:.95;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.on-of{flex:1;min-width:0;padding-bottom:3px;font-size:20px;line-height:1.3;color:rgba(235,235,245,.64);font-variant-numeric:tabular-nums}
+.on-seg{display:flex;gap:2px;padding:2px;border-radius:24px;background:rgba(255,255,255,.06)}
+.on-mode{all:unset;box-sizing:border-box;min-height:44px;padding:0 14px;border-radius:22px;display:flex;align-items:center;cursor:pointer;
+  font-size:14px;font-weight:600;color:rgba(235,235,245,.7);transition:background-color 200ms,color 200ms}
+.on-mode.is-on{background:rgba(255,255,255,.14);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}
+.on-mode:focus-visible,.on-target:focus-visible{outline:2px solid rgb(var(--acc,10,132,255));outline-offset:2px}
+.on-pace{margin:0;font-size:15px;font-weight:600;color:rgb(var(--acc-t1,64,156,255));font-variant-numeric:tabular-nums}
+.on-pace.is-late{color:#ff8a80}
+/* the chart's own pinch: no pan or zoom of the page starts on it (web/distances.js leaves it alone) */
+.on-chart{position:relative;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.on-svg{display:block;width:100%;height:auto;overflow:visible}
+.on-cell{fill:rgba(235,235,245,.06)}
+.on-dot.is-past{fill:rgba(235,235,245,.78)}
+.on-dot.is-today{fill:rgb(var(--acc,10,132,255))}
+.on-dot.is-past.is-part{fill:rgba(235,235,245,.4)}
+.on-dot.is-ahead{fill:none;stroke:rgba(64,156,255,.75);stroke-width:1.1}
+.on-dot.is-ahead.is-part{stroke:rgba(64,156,255,.4)}
+.on-dot.is-short{fill:none;stroke:rgba(255,138,128,.9);stroke-width:1.1}
+.on-line{fill:none;stroke-linecap:round;stroke-width:2.2;stroke-dasharray:.01 6}
+.on-line.is-target,.on-line.is-need{stroke:rgba(10,132,255,.95)}
+.on-line.is-target.is-late{stroke:rgba(255,138,128,.9)}
+.on-line.is-deadline{stroke:rgba(235,235,245,.45);stroke-width:1.8}
+.on-line.is-deadline.is-late{stroke:rgba(255,138,128,.8)}
+.on-meet{fill:rgb(var(--acc,10,132,255))}
+.on-meet.is-ring{fill:none;stroke:rgb(var(--acc,10,132,255));stroke-width:1.1}
+.on-meet.is-late{fill:#ff8a80}
+.on-meet.is-ring.is-late{fill:none;stroke:#ff8a80}
+.on-target{all:unset;box-sizing:border-box;position:absolute;right:0;top:calc(var(--y,50) * 1%);width:84px;height:44px;margin-top:-22px;
+  display:flex;align-items:center;justify-content:flex-end;cursor:ns-resize;touch-action:none;z-index:3}
+.on-target[hidden]{display:none}
+.on-pill{height:24px;padding:0 9px;border-radius:12px;display:flex;align-items:center;font-size:13px;font-weight:700;white-space:nowrap;color:#fff;
+  font-variant-numeric:tabular-nums;background:linear-gradient(180deg,#0a84ff,#0064d2);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 6px 18px -6px rgba(0,122,255,.6);transition:transform 200ms cubic-bezier(.32,.72,0,1)}
+.on-target.is-late .on-pill{background:linear-gradient(180deg,#ff6b5e,#d9453a)}
+.on-target.is-moving .on-pill{transform:scale(1.1)}
+.on-labels{position:relative;height:16px}
+.on-label{position:absolute;top:0;left:calc(var(--x,0) * 1%);transform:translateX(-50%);font-size:12px;font-weight:600;white-space:nowrap;
+  color:rgba(235,235,245,.6);font-variant-numeric:tabular-nums}
+.on-label.is-from{transform:none}
+.on-label.is-today{color:rgb(var(--acc-t1,64,156,255))}
+.on-label.is-late{color:#ff8a80}
+.on-source{margin:0;display:flex;align-items:center;gap:7px;font-size:13px;color:rgba(235,235,245,.5)}
+.on-src-dot{flex:none;width:6px;height:6px;border-radius:3px;background:#30d158}
+.on-source.is-unread .on-src-dot{background:rgba(235,235,245,.3)}
+.on-what{margin:0;font-size:17px;line-height:1.35}
+html[data-lite] .on-pill{box-shadow:none}
+@media (prefers-reduced-motion:reduce){.on-mode,.on-pill{transition:none}.on-target.is-moving .on-pill{transform:none}}

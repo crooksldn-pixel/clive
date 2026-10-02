@@ -22,9 +22,10 @@
  *
  * Whose fingers these are. Two fingers are this file's only when BOTH came down on the home, the
  * horizon or an objective's sheet (the same one), neither on the orb or the voice target, an
- * action surface, a field, the ask bar, the Displays tray, or a handle an objective's own touch
- * layer drags ("now", the date ring); and never while something is lifted (web/lift.js) or held
- * by that layer. web/touch.js's machine is never asked to give anything up: it pairs only voice
+ * action surface, a field, the ask bar, the Displays tray, a handle an objective's own touch
+ * layer drags ("now", the date ring), or a number's chart, whose own pinch is more or fewer days
+ * (web/objective-number.js: a pinch that starts on the chart is the chart's, never the sheet
+ * closing); and never while something is lifted (web/lift.js) or held by that layer. web/touch.js's machine is never asked to give anything up: it pairs only voice
  * pointers, and none of these is one, so the orb's division and merge stay exactly as they were.
  * Nothing here calls preventDefault on a pointer: one finger scrolls the home as it always did
  * (touch-action pan-y on the three views, horizon.css), a still hold still lifts (a second finger
@@ -106,11 +107,11 @@
   const VOICE = '#talk, #orb-frame';
   const APPROVAL = '.action-surface, .action-handle';
   const FIELD = 'input, textarea, select, [contenteditable="true"], [contenteditable=""]';
-  const OWNED = '.ask-bar, .alpha-composer, .lift-tray, .lift-layer, .lift-chip, .ot-grip, .ot-ring';
+  const OWNED = '.ask-bar, .alpha-composer, .lift-tray, .lift-layer, .lift-chip, .ot-grip, .ot-ring, .on-chart';
   // Not empty space: what a tap means something on (a row, a control, a stage, a task).
   const SOMETHING = 'button, a[href], input, select, textarea, label, summary, details, form, [role="button"], '
     + '[role="checkbox"], [role="tab"], [tabindex], [data-objective], [data-alpha], [data-hz], .oc-step, .oc-task, '
-    + '.oc-steps, .ot-when, .ot-bar, .alpha-item, .alpha-ask';
+    + '.oc-steps, .ot-when, .ot-bar, .on-chart, .alpha-item, .alpha-ask';
   function hitOf(node) {
     const close = (sel) => (node && typeof node.closest === 'function' ? node.closest(sel) : null);
     const zone = close('#alpha-sheet') ? 'sheet' : close('#alpha-horizon') ? 'horizon' : close('#alpha-home') ? 'home' : null;
@@ -190,7 +191,7 @@
   function busy() {
     const html = doc.documentElement;
     return html.classList.contains('lift-dragging') || html.classList.contains('lift-open')
-      || Boolean(doc.querySelector('.ot-grip.is-held, .ot-ring.is-moving, .oc-task.is-lifted'));
+      || Boolean(doc.querySelector('.ot-grip.is-held, .ot-ring.is-moving, .oc-task.is-lifted, .on-chart.is-pinching, .on-target.is-moving'));
   }
   // The home band is on the screen (in a conversation it gives way to the cards).
   const homeShown = () => doc.body && doc.body.getAttribute('data-mode') !== 'context';
