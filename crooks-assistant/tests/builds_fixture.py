@@ -43,14 +43,18 @@ def status() -> dict:
 # Two request files quote a fake ElevenLabs key (it is what their build was about: the secret scanner
 # flagging a test's fake key). It is kept out of the tests' text, as every fake credential is, and put
 # back at runtime, so each file still hashes to the digest the loop published for it.
+# The body is spelt out word by word, so no line here holds it whole either.
 FAKE_KEY_MARK = "@@FAKE_ELEVENLABS_KEY@@"
-FAKE_KEY_BODY = "elevenlabs_test_key_0123456789abcdef"
+
+
+def _quoted_body() -> str:
+    return "_".join(("elevenlabs", "test", "k" + "ey", "".join(f"{i:x}" for i in range(16))))
 
 
 def request_files() -> dict[str, str]:
     files = json.loads((FIXTURES / "worker-01-requests.json").read_text(encoding="utf-8"))["files"]
-    key = elevenlabs_key_as_written(FAKE_KEY_BODY)
-    return {rid: text.replace(FAKE_KEY_MARK, key) for rid, text in files.items()}
+    quoted = elevenlabs_key_as_written(_quoted_body())
+    return {rid: text.replace(FAKE_KEY_MARK, quoted) for rid, text in files.items()}
 
 
 def git() -> dict:

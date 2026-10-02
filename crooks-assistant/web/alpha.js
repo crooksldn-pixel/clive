@@ -304,8 +304,8 @@
         h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'gap', onclick: () => openGap(g) },
           h('span', { class: 'alpha-tile is-quiet' }, icon(ICON.plug, 18)), rowMain(g.title || g.label, gapLine(g)), icon(ICON.chev, 16)))) : null,
       h('div', { class: 'alpha-group alpha-tools' },
-        window.CliveBuilds ? buildsRow('Builds', buildsBrief && buildsBrief.summary ? buildsBrief.summary : 'What is being built, and why',
-          'alpha-tile is-build') : null,
+        window.CliveBuilds ? buildsRow('Builds', !buildsBrief ? 'What is being built, and why'
+          : buildsBrief.connected ? buildsBrief.summary : 'Not connected to the build loop', 'alpha-tile is-build') : null,
         h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'support', onclick: openSupport },
           h('span', { class: 'alpha-tile is-quiet' }, icon(ICON.search, 18)),
           rowMain('Investigate a customer enquiry', 'Paste their message. Read-only.'), icon(ICON.chev, 16)),

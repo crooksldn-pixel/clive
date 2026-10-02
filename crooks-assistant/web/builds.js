@@ -464,6 +464,7 @@
     S.back = doc().activeElement || null;
     U.panel.hidden = false;
     if (doc().body && doc().body.classList) doc().body.classList.add('bd-on');
+    U.scroll.scrollTop = 0;   // opened again, it starts at the top: what needs him first
     render();
     setTimeout(() => { U.panel.classList.add('is-open'); if (U.back.focus) U.back.focus(); }, 16);
     refresh();
