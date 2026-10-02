@@ -1,0 +1,151 @@
+/* The Builds screen (web/builds.js): every build of CLIVE itself, in plain words.
+
+   CLIVE design v1, as the home and the objectives canvas draw it: the obsidian ground, iOS type
+   (17 for a title, 15 for a line, 13 for a footnote), grouped cells, glass only on controls, and
+   iOS blue as the one accent. Dots mean something: a build's road is five stages, lit steel (CLIVE's
+   own engineering, as the horizon draws a build) as far as it has come; blue is where it is when it
+   moves or waits on George; red (the horizon's late red) is where it stopped. Nothing else is
+   coloured. Every target a finger aims at is at least 44 px. With motion turned down nothing
+   breathes and the screen does not slide; on the Tab A nothing breathes either. */
+
+.bd{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;color:#fff;
+  font-family:var(--font,-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif);
+  background:radial-gradient(64% 30% at 50% 8%,rgba(176,190,208,.15),rgba(176,190,208,.04) 55%,rgba(176,190,208,0) 76%),
+    linear-gradient(180deg,#16181c 0%,#0d0e11 46%,#060607 100%);
+  transform:translateX(100%);opacity:.6;transition:transform 440ms cubic-bezier(.32,.72,0,1),opacity 300ms}
+.bd.is-open{transform:none;opacity:1}
+.bd[hidden]{display:none}
+body.bd-on{overflow:hidden}
+
+.bd-top{flex:none;display:flex;align-items:center;padding:calc(10px + env(safe-area-inset-top,0px)) 16px 4px}
+.bd-back{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 16px 0 10px;
+  border-radius:22px;cursor:pointer;font-size:15px;font-weight:600;color:#fff;-webkit-tap-highlight-color:transparent;
+  background:linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,.04));
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.26),inset 0 -1px 1px rgba(255,255,255,.05),0 10px 26px -12px rgba(0,0,0,.6);
+  transition:transform 300ms cubic-bezier(.32,.72,0,1)}
+.bd-back:active{transform:scale(.96)}
+.bd-back:focus-visible{outline:2px solid rgb(var(--acc,10,132,255));outline-offset:2px}
+.bd-backchev{fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.bd-flash{margin:4px 16px 0;padding:10px 14px;border-radius:18px;font-size:15px;line-height:1.35;
+  background:rgba(118,118,128,.24);color:#fff}
+.bd-flash[hidden]{display:none}
+
+.bd-scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  padding:6px 16px calc(40px + env(safe-area-inset-bottom,0px));
+  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 14px);mask-image:linear-gradient(180deg,transparent 0,#000 14px)}
+.bd-hello{padding:0 4px}
+.bd-h1{margin:6px 0 0;font-size:34px;font-weight:700;line-height:1.12;letter-spacing:-.015em}
+.bd-summary{margin:6px 0 0;font-size:17px;line-height:1.35;color:rgba(235,235,245,.64)}
+.bd-asof{margin:6px 0 0;font-size:13px;color:rgba(235,235,245,.5)}
+.bd-problem{margin:12px 4px 0;font-size:15px;line-height:1.35;color:#ff8a80}
+.bd-empty{margin:24px 4px 0;font-size:17px;line-height:1.35;color:rgba(235,235,245,.64)}
+.bd-h2{margin:26px 4px 10px;font-size:22px;font-weight:700;letter-spacing:-.01em}
+.bd-list{border-radius:26px;overflow:hidden;background:rgba(118,118,128,.17);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.08);
+  -webkit-backdrop-filter:blur(30px) saturate(140%);backdrop-filter:blur(30px) saturate(140%)}
+html[data-lite] .bd-list{-webkit-backdrop-filter:none;backdrop-filter:none;background:#18191d}
+.bd-more{all:unset;box-sizing:border-box;display:block;width:100%;min-height:44px;margin-top:6px;padding:12px 4px;cursor:pointer;
+  font-size:15px;font-weight:600;color:rgb(var(--acc,10,132,255))}
+.bd-more:focus-visible{outline:2px solid rgb(var(--acc,10,132,255));border-radius:12px}
+
+/* one build: its title, its road and where it is; tap for the rest */
+.bd-build{position:relative}
+.bd-build + .bd-build::before{content:"";position:absolute;top:0;left:16px;right:0;border-top:.5px solid rgba(255,255,255,.12)}
+.bd-sum{list-style:none;display:flex;flex-direction:column;gap:7px;min-height:44px;padding:13px 16px 13px;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;transition:background-color 180ms}
+.bd-sum::-webkit-details-marker{display:none}
+.bd-sum:active{background-color:rgba(255,255,255,.06)}
+.bd-sum:focus-visible{outline:2px solid rgb(var(--acc,10,132,255));outline-offset:-2px;border-radius:26px}
+.bd-head{display:flex;align-items:flex-start;gap:10px}
+.bd-title{flex:1;min-width:0;font-size:17px;font-weight:600;letter-spacing:-.01em;line-height:1.3;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.bd-build[open] .bd-title{-webkit-line-clamp:unset;display:block}
+.bd-chev{flex:none;width:9px;height:9px;margin:7px 4px 0 0;border-right:2px solid rgba(235,235,245,.38);border-bottom:2px solid rgba(235,235,245,.38);
+  transform:rotate(-45deg);transition:transform 260ms cubic-bezier(.32,.72,0,1)}
+.bd-build[open] .bd-chev{transform:rotate(45deg)}
+.bd-line{display:flex;align-items:center;gap:12px;min-width:0}
+/* open, the big road below says it: the small one steps aside */
+.bd-build[open] .bd-sum .bd-road{display:none}
+.bd-state{flex:1;min-width:0;font-size:15px;line-height:1.3;color:rgba(235,235,245,.64)}
+.bd-build.is-needs_you .bd-state{color:rgb(var(--acc,10,132,255))}
+.bd-build.is-stopped .bd-state{color:#ff8a80}
+
+/* the road */
+.bd-road{flex:none;width:124px;height:16px;overflow:visible}
+.bd-road.is-big{width:100%;height:auto}
+.bd-run{fill:rgba(235,235,245,.16)}
+.bd-run.is-lit{fill:#8fa3c0}
+.bd-n.is-lit{fill:#8fa3c0}
+.bd-n.is-dim{fill:rgba(235,235,245,.2)}
+.bd-n.is-now{fill:rgb(var(--acc,10,132,255));animation:bd-breathe 2.4s ease-in-out infinite}
+.bd-n.is-ring{fill:none;stroke-width:1.6}
+.bd-n.is-you.is-ring{stroke:rgb(var(--acc,10,132,255));animation:bd-breathe 2.4s ease-in-out infinite}
+.bd-n.is-you.is-core{fill:rgb(var(--acc,10,132,255))}
+.bd-n.is-stop.is-ring{stroke:#ff8a80}
+.bd-n.is-stop.is-core{fill:#ff8a80}
+.bd-n.is-wait.is-ring{stroke:rgba(235,235,245,.5)}
+@keyframes bd-breathe{0%,100%{opacity:.45}50%{opacity:1}}
+.bd-roadbig{max-width:460px;margin:2px 0 14px}
+.bd-stages{display:grid;grid-template-columns:repeat(5,1fr);margin-top:4px}
+.bd-stage{font-size:12px;line-height:1.25;text-align:center;color:rgba(235,235,245,.45)}
+.bd-stage.is-lit{color:rgba(235,235,245,.7)}
+.bd-stage.is-now,.bd-stage.is-you{color:rgb(var(--acc,10,132,255));font-weight:600}
+.bd-stage.is-stop{color:#ff8a80;font-weight:600}
+.bd-stage.is-wait{color:#fff;font-weight:600}
+
+/* inside a build */
+.bd-body{padding:0 16px 16px}
+.bd-fact{margin:0 0 12px}
+.bd-flabel{margin:0 0 2px;font-size:13px;font-weight:600;color:rgba(235,235,245,.55)}
+.bd-ftext{margin:0;font-size:15px;line-height:1.4;color:rgba(235,235,245,.86)}
+.bd-muted{margin:0 0 12px;font-size:13px;line-height:1.4;color:rgba(235,235,245,.55)}
+.bd-findings{display:flex;flex-direction:column;gap:10px;margin:0 0 12px}
+.bd-finding{padding:12px 14px;border-radius:18px;background:rgba(255,255,255,.06)}
+.bd-fid{margin:0 0 6px;font-size:13px;font-weight:700;color:#ff8a80;font-variant-numeric:tabular-nums}
+.bd-finding .bd-ftext{margin-bottom:8px}
+
+/* the question he answers: the one blue thing on a build that waits on him */
+.bd-decision{margin:0 0 14px;padding:14px;border-radius:20px;background:rgba(10,132,255,.09);box-shadow:inset 0 0 0 .5px rgba(10,132,255,.35)}
+.bd-q{margin:0 0 4px;font-size:17px;font-weight:600;line-height:1.3;letter-spacing:-.01em}
+.bd-context{margin:0 0 6px;font-size:13px;line-height:1.4;color:rgba(235,235,245,.6)}
+.bd-answers{display:flex;flex-direction:column;gap:6px;margin:10px 0}
+.bd-ans{position:relative;display:flex;align-items:flex-start;gap:12px;min-height:44px;padding:10px 12px;border-radius:14px;cursor:pointer;
+  background:rgba(255,255,255,.05);-webkit-tap-highlight-color:transparent;transition:background-color 180ms}
+.bd-ans:active{background:rgba(255,255,255,.1)}
+.bd-ans.is-picked{background:rgba(10,132,255,.2)}
+.bd-ans:has(.bd-radio:focus-visible){outline:2px solid rgb(var(--acc,10,132,255));outline-offset:1px}
+.bd-radio{position:absolute;opacity:0;width:1px;height:1px;margin:0;pointer-events:none}
+.bd-dot{flex:none;width:20px;height:20px;margin-top:1px;border-radius:50%;box-sizing:border-box;border:2px solid rgba(235,235,245,.4);
+  transition:border-color 180ms,border-width 180ms}
+.bd-ans.is-picked .bd-dot{border:6px solid rgb(var(--acc,10,132,255))}
+.bd-anstext{display:flex;flex-direction:column;gap:2px;min-width:0}
+.bd-anshead{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px}
+.bd-anslabel{font-size:16px;font-weight:600}
+.bd-rec{font-size:13px;font-weight:600;color:rgb(var(--acc,10,132,255))}
+.bd-then{font-size:14px;line-height:1.35;color:rgba(235,235,245,.64)}
+.bd-because{margin:0 0 12px;font-size:13px;line-height:1.4;color:rgba(235,235,245,.7)}
+.bd-choose{display:block;width:100%;min-height:48px}
+.bd-choose:disabled{opacity:.45}
+.bd-said{margin:8px 0 0;font-size:14px;line-height:1.35;color:#ff8a80}
+.bd-said:empty{display:none}
+.bd-chosen{margin:0 0 14px;padding:12px 14px;border-radius:18px;background:rgba(255,255,255,.06)}
+.bd-chose{margin:0 0 2px;font-size:15px;font-weight:600}
+.bd-link{all:unset;display:inline-block;min-height:44px;line-height:44px;cursor:pointer;font-size:15px;font-weight:600;color:rgb(var(--acc,10,132,255))}
+.bd-link:focus-visible{outline:2px solid rgb(var(--acc,10,132,255));border-radius:8px}
+
+/* the technical record, out of the way */
+.bd-tech{margin-top:4px;border-top:.5px solid rgba(255,255,255,.1)}
+.bd-tech.is-inner{border-top:0;margin-top:2px}
+.bd-techsum{list-style:none;min-height:44px;display:flex;align-items:center;cursor:pointer;font-size:15px;color:rgba(235,235,245,.6)}
+.bd-techsum::-webkit-details-marker{display:none}
+.bd-techsum:focus-visible{outline:2px solid rgb(var(--acc,10,132,255));border-radius:8px}
+.bd-tech[open] > .bd-techsum{color:#fff}
+.bd-tk{margin:8px 0 2px;font-size:12px;font-weight:600;color:rgba(235,235,245,.5)}
+.bd-tv{margin:0;font-size:14px;line-height:1.45;color:rgba(235,235,245,.78);overflow-wrap:anywhere}
+.bd-tv.is-code{font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+html[data-lite] .bd-n.is-now,html[data-lite] .bd-n.is-you{animation:none}
+@media (prefers-reduced-motion:reduce){
+  .bd{transition:none}
+  .bd-n.is-now,.bd-n.is-you{animation:none}
+  .bd-chev,.bd-back,.bd-sum,.bd-ans,.bd-dot{transition:none}
+}
