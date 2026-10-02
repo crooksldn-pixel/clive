@@ -1,0 +1,16 @@
+{
+  "name": "crooksldn-push",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260702.1",
+    "typescript": "~6.0.3",
+    "wrangler": "^4.0.0"
+  }
+}

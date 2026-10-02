@@ -1,0 +1,21 @@
+# Cloudflare Worker that sends the app's push notifications.
+# Setup, start to finish, is in ../SETUP.md ("Push notifications").
+name = "crooksldn-push"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+# Created with:  npx wrangler kv namespace create PUSH
+# then paste the id it prints below.
+[[kv_namespaces]]
+binding = "PUSH"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+SHOP_NAME = "CROOKSLDN"
+
+# Secrets — never in this file. Set each with `npx wrangler secret put NAME`:
+#   SHOPIFY_WEBHOOK_SECRET  the signing key shown under Shopify admin →
+#                           Settings → Notifications → Webhooks
+#   BROADCAST_SECRET        a long random string; you send it to post a drop alert
+#   EXPO_ACCESS_TOKEN       optional; only if "enhanced push security" is on in Expo

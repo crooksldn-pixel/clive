@@ -1,0 +1,3 @@
+# The mobile app is a separate Expo project, not theme code.
+# shopify theme push must never upload it.
+mobile/
