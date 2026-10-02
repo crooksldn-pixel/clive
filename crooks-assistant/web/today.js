@@ -62,7 +62,6 @@
   let busy = false;              // a step or a question is under way
   let focusKey = '';             // the job they chose to look at, if not the first
   let view = 'work';             // work | list | talk
-  let lastSteps = null;          // what /today/state last said Undo could take back
   let picking = null;            // { step, jobs } while the page asks which one
   let bar = null;
   let orb = null;
@@ -713,7 +712,7 @@
 
   function youSaid(text) {
     const log = $('#talk-log');
-    if (!log.querySelector('.back')) log.before(button(state && state.me.owner ? 'Back' : 'Back to my work', closeTalk, 'back talk-back'));
+    if (!document.querySelector('.talk-back')) log.before(button(state && state.me.owner ? 'Back' : 'Back to my work', closeTalk, 'back talk-back'));
     const node = element('p', 'you', text);
     log.append(node);
     return node;
@@ -749,7 +748,7 @@
     youSaid(text);
     const waiting = cliveSaid('On it…', 'waiting');
     line('On it. CLIVE is working it out.', 'THINKING');
-    const before = { steps: state && state.last_steps, flags: flagsIn(state) };
+    const before = { steps: state && state.last_steps, flag: lastFlag(state) };
     const answer = await call('/turn', { text, session_id: sessionId() });
     busy = false;
     waiting.classList.remove('waiting');
@@ -760,7 +759,7 @@
     }
     await load();
     // A step CLIVE took on their list, or a note it left for George, said here as the page's own would be.
-    if (flagsIn(state) > before.flags) georgeCard(text);
+    if (lastFlag(state) !== before.flag) georgeCard(text);
     const now = state && state.last_steps;
     if (now && (!before.steps || now.at !== before.steps.at || now.item_id !== before.steps.item_id)) {
       offerUndo(now.item_id, now.steps, `CLIVE ${STEP_WORDS[now.steps[0]] || 'changed'} ${now.title}.`);
@@ -769,8 +768,10 @@
       answer.ok ? 'SUCCESS' : 'ERROR');
   }
 
-  function flagsIn(s) {
-    return ((s && s.record) || []).filter((e) => e.what === 'flagged' && e.who === s.me.id).length;
+  // Their newest note for George on the record, so a new one is seen whatever the record's length.
+  function lastFlag(s) {
+    const entry = ((s && s.record) || []).find((e) => e.what === 'flagged' && e.who === s.me.id);
+    return entry ? `${entry.at}|${entry.item_id}` : '';
   }
 
   // A change their CLIVE prepared (fulfil, a reply, stock): what it will do, and the gesture that
@@ -860,7 +861,6 @@
     }
     const was = JSON.stringify(state && [state.work, state.record, state.people]);
     state = data;
-    lastSteps = data.last_steps || null;
     document.body.dataset.who = state.me.owner ? 'owner' : 'team';
     $('#home').hidden = !state.me.owner;
     if (state.me.owner) {
