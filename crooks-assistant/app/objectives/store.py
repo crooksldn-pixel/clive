@@ -445,7 +445,9 @@ class Objective:
             # The shape, as short as a home row needs it.
             "stage": ({"name": here[1]["name"], "index": here[0], "count": len(self.stages),
                        "waiting_on": here[1].get("waiting_on"), "due": here[1].get("due")} if here else None),
-            "stages": [{"name": s["name"], "state": s["state"]} for s in self.stages],
+            # Each stage's date too, for the next six weeks on the home (web/horizon.js): one dot a
+            # day, each stage's day marked. None for a stage nobody gave a date.
+            "stages": [{"name": s["name"], "state": s["state"], "due": s.get("due")} for s in self.stages],
             "people_tasks": [{"who": g["who"], "open": g["open"], "done": g["done"]} for g in self.task_groups()],
             "check_in": cadence,
         }

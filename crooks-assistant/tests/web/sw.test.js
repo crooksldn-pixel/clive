@@ -136,6 +136,8 @@ const SHELL = ['/', '/static/style.css', '/static/app.js', '/static/ui.js', '/st
   '/static/lift.js', '/static/lift.css',
   // Round 12: soft scroll edges (web/edges.js) and cards formed of dots (web/dots-app.js).
   '/static/edges.js', '/static/edges.css', '/static/dots-app.js', '/static/dots-app.css',
+  // Objectives by touch, part B: the next six weeks (web/horizon.js) and the three distances (web/distances.js).
+  '/static/horizon.js', '/static/horizon.css', '/static/distances.js',
   '/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png', '/static/icon-maskable-192.png', '/static/icon-maskable-512.png'];
 
 async function installed() {

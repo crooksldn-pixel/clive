@@ -224,11 +224,30 @@ test('web/alpha.js never asks for the microphone, itself or through app.js', () 
   }
   // Its second door, round 12: window.CliveObjectiveCards draws an objective's shape
   // (web/objective-cards.js), and that file is held to the same rule as this one.
-  assert.deepEqual([...new Set(ALPHA.match(/\bwindow\.\w+/g))].sort(), ['window.CliveAlpha', 'window.CliveObjectiveCards']);
+  // Objectives by touch (B): window.CliveHorizon draws the next six weeks and each row's mark
+  // (web/horizon.js), window.CliveDistances moves between the three distances (web/distances.js),
+  // and window.CliveHome is what those two may read and do. Both files are held to the rule too.
+  assert.deepEqual([...new Set(ALPHA.match(/\bwindow\.\w+/g))].sort(),
+    ['window.CliveAlpha', 'window.CliveDistances', 'window.CliveHome', 'window.CliveHorizon', 'window.CliveObjectiveCards']);
   const CARDS = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'objective-cards.js'), 'utf8');
   for (const name of [...MIC, 'talk', 'orb-frame', 'mic-test', 'dispatchEvent', '.click(', 'CliveAlpha']) {
     assert.ok(!CARDS.includes(name), `web/objective-cards.js has ${JSON.stringify(name)}`);
   }
+  const HORIZON = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'horizon.js'), 'utf8');
+  for (const name of [...MIC, 'talk', 'orb-frame', 'mic-test', 'dispatchEvent', '.click(', 'CliveAlpha']) {
+    assert.ok(!HORIZON.includes(name), `web/horizon.js has ${JSON.stringify(name)}`);
+  }
+  const DISTANCES = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'distances.js'), 'utf8');
+  for (const name of [...MIC, 'mic-test', 'dispatchEvent', '.click(', 'CliveAlpha']) {
+    assert.ok(!DISTANCES.includes(name), `web/distances.js has ${JSON.stringify(name)}`);
+  }
+  // It names the voice target once, as what a pinch must never start on.
+  assert.deepEqual(DISTANCES.match(/talk|orb-frame/g), ['talk', 'orb-frame']);
+  assert.ok(DISTANCES.includes("const VOICE = '#talk, #orb-frame';"));
+  const homeAt = ALPHA.indexOf('window.CliveHome = {');
+  assert.notEqual(homeAt, -1);
+  const home = ALPHA.slice(homeAt, ALPHA.indexOf('\n  };', homeAt));
+  for (const name of MIC) assert.ok(!home.includes(name), `window.CliveHome reaches ${name}`);
   // Round 12: it also reads which conversation the page is in, to list objectives to it (web/lift.js
   // puts them on screens). A string, and nothing near the microphone: the loop below holds the door.
   assert.deepEqual([...new Set(ALPHA.match(/\bCliveAlpha\.\w+/g))].sort(), ['CliveAlpha.ask', 'CliveAlpha.isBusy', 'CliveAlpha.sessionId']);
