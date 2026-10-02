@@ -17,6 +17,7 @@ their card carries the number without a count, and the tablet asks its own route
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
 from app.objectives.store import KINDS, Objective
@@ -124,13 +125,25 @@ def _number(number: dict[str, Any]) -> dict[str, Any]:
 
 def _count(tally: dict[str, Any]) -> dict[str, Any]:
     """The count, key by key: figures as numbers, days as dates, and the one sentence it may say
-    when it could not count (app/objectives/count.py's own words)."""
+    when it could not count (app/objectives/count.py's own words).
+
+    At most a year and a day of days is sent. A number counted for longer sends its latest days, and
+    with them the day the series sent starts on (`first`) and what sold before it (`carried`), so the
+    tablet indexes its days, totals and dates from that day, never from when counting began."""
     if not tally.get("counted"):
         return {"counted": False, "why": _text(tally.get("why"))}
     pace = tally.get("pace")
+    days = [max(0, n) if (n := _int(v)) is not None else 0 for v in (tally.get("per_day") or [])]
+    sent = days[-MAX_DAYS:]
+    try:
+        first = (date.fromisoformat(str(tally.get("today"))) - timedelta(days=len(sent) - 1)).isoformat() if sent else None
+    except ValueError:
+        first = None
     return {
         "counted": True,
-        "per_day": [max(0, int(n)) for n in (tally.get("per_day") or [])[-MAX_DAYS:] if _int(n) is not None],
+        "per_day": sent,
+        "first": first,
+        "carried": sum(days[: len(days) - len(sent)]),
         "total": _int(tally.get("total")) or 0,
         "pace": round(float(pace), 2) if isinstance(pace, int | float) and not isinstance(pace, bool) else None,
         "pace_days": _int(tally.get("pace_days")) or 0,
@@ -141,6 +154,10 @@ def _count(tally: dict[str, Any]) -> dict[str, Any]:
         "days_early": _int(tally.get("days_early")),
         "by_deadline": _int(tally.get("by_deadline")),
         "short": _int(tally.get("short")),
+        "at_deadline": _int(tally.get("at_deadline")),
+        # What was counted, by name: the products his words matched, the most sold first.
+        "matched": [_text(t, MAX_NAME * 2) for t in (tally.get("matched") or [])[:3] if _text(t)],
+        "matched_more": _int(tally.get("matched_more")) or 0,
         "counted_at": _maybe(tally.get("counted_at"), 20),
         "age_s": _int(tally.get("age_s")),
     }

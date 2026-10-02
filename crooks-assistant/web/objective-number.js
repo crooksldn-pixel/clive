@@ -8,7 +8,10 @@
  *   the line    how many have sold of the target, and where the pace takes it ("At this pace: 200 by
  *               Wed 14 Oct, 4 days early"; red, "186 by Sun 18 Oct, 14 short", when it falls short).
  *               The pace is the average a day over the last 14 whole days, as the Mac counts it, and
- *               the same arithmetic runs here so a dragged target says its own day at once.
+ *               the same whole-number arithmetic runs here so a dragged target says its own day at
+ *               once, and "lands after the deadline" and "short" can never disagree. A number counted
+ *               for more than a year sends its latest days only: they are dated from the first day
+ *               sent, with what sold before it carried into every total.
  *   the chart   one column a day, the matrix faint so every dot has a place. Total: what has sold so
  *               far, a dot for each ten (more when the target is too big for ten to fit, fewer when it
  *               is small; the line under it says which), today blue, the days ahead at the pace as
@@ -16,9 +19,11 @@
  *               deadline a column of dots, and what would be short of it red. Per day: what sold each
  *               day, a dot for each one, the days ahead at the pace, and what each day needs from
  *               here to reach the target by the deadline.
- *   the source  "From Shopify, counted 2 min ago. Each dot is ten hoodies." Not counted (the shop
- *               could not be read, or the orders are still being read), it says so in the Mac's own
- *               words and draws no chart: nothing is drawn that was not counted.
+ *   the source  "From Shopify, counted 2 min ago. Counting Loopback Hoodie (Grey), Loopback Zip Hoodie.
+ *               Each dot is ten hoodies.": what his words matched, by name, since matching by words is
+ *               broad, the most sold first. Units are what is still on the orders after returns. Not
+ *               counted (the shop could not be read, or the orders are still being read), it says so
+ *               in the Mac's own words and draws no chart: nothing is drawn that was not counted.
  *
  * By touch (web/objective-touch.js): a double-tap on the chart switches Total and Per day (a line in
  * the bar that changes nothing); a tap says what that day holds; two fingers pinched on the chart show
@@ -88,7 +93,9 @@
   // ---------------------------------------------------------------- the count, and where it goes
 
   /* The number and its count, from the card: null when there is no number. `counted` only when the
-   * Mac counted it; then the days run from the first day counted (index 0) to today (`today`). */
+   * Mac counted it; then the days run from the first day sent (index 0: `count.first`, or the day
+   * counting began) to today (`today`), and what sold before the first day sent is `carried`, so a
+   * number counted for more than a year still totals and dates every day as the Mac does. */
   function model(d) {
     const n = d && d.number && typeof d.number === 'object' ? d.number : null;
     if (!n || !text(n.of)) return null;
@@ -97,51 +104,82 @@
     const since = day(n.since);
     const m = { of: text(n.of), unit: text(n.unit), target, since, deadline: day(d.deadline), count: c, counted: false, asked: Boolean(c) };
     const per = c && c.counted === true && Array.isArray(c.per_day) ? c.per_day.map(whole) : null;
-    if (!per || !per.length || !since || target < 1) return m;
-    let run = 0;
+    const start = (c && day(c.first)) || since;
+    if (!per || !per.length || !start || target < 1) return m;
     m.counted = true;
+    m.start = start;
+    m.carried = whole(c.carried);
+    let run = m.carried;
     m.perDay = per;
     m.cum = per.map((x) => (run += x));
     m.total = run;
     m.today = per.length - 1;
-    m.todayDate = plus(since, m.today);
+    m.todayDate = plus(start, m.today);
     const recent = per.slice(0, -1).slice(-PACE_DAYS);
-    m.pace = recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length : null;
+    // The pace as two whole numbers, as the Mac keeps it: units over whole days.
+    m.paceSold = recent.reduce((a, b) => a + b, 0);
     m.paceDays = recent.length;
-    m.dIdx = m.deadline ? between(since, m.deadline) : null;
+    m.pace = m.paceDays ? m.paceSold / m.paceDays : null;
+    m.dIdx = m.deadline ? between(start, m.deadline) : null;
+    m.atDeadline = typeof c.at_deadline === 'number' ? whole(c.at_deadline) : null;
+    m.reachedOn = day(c.reached_on);
+    m.matched = Array.isArray(c.matched) ? c.matched.slice(0, 3).map(text).filter(Boolean) : null;
+    m.matchedMore = whole(c.matched_more);
     m.ageS = c && typeof c.age_s === 'number' ? c.age_s : null;
     return m;
   }
 
-  /* Where a target stands at the pace (app/objectives/count.py `project`, the same arithmetic): the
-   * day it is reached (or was), days early, and, falling short of the deadline, how many by then and
-   * how many short. All as day indexes from the first day counted. */
+  // Whole-number division, exact for any count a shop sells: never a float that lands a hair over.
+  function floorDiv(a, b) {
+    let q = Math.floor(a / b);
+    while (q * b > a) q -= 1;
+    while ((q + 1) * b <= a) q += 1;
+    return q;
+  }
+  const ceilDiv = (a, b) => -floorDiv(-a, b);
+  // What the pace reaches by day `i` (after today), in whole units, as the Mac works it out.
+  const reaches = (m, i) => m.total + floorDiv(m.paceSold * (i - m.today), m.paceDays);
+
+  /* Where a target stands at the pace (app/objectives/count.py `project`, the same whole-number
+   * arithmetic): the day it is reached (or was), days early when it lands on or before the deadline,
+   * and when it lands after it (or not at all) late, with how many by then and how many short. Late
+   * and short are one fact, so "days early" is never negative. Day indexes from the first day sent. */
   function standing(m, t) {
-    const out = { t, reached: null, lands: null, far: false, early: null, by: null, short: null, late: false };
+    const out = { t, reached: null, before: false, lands: null, far: false, early: null, by: null, short: null, late: false };
     if (m.total >= t) {
-      out.reached = m.cum.findIndex((x) => x >= t);
+      if (m.carried >= t) {
+        // Crossed before the first day sent: the Mac's own day for its target, else said as before it.
+        out.reached = t === m.target && m.reachedOn ? between(m.start, m.reachedOn) : null;
+        out.before = out.reached === null;
+      } else {
+        out.reached = m.cum.findIndex((x) => x >= t);
+      }
       out.lands = out.reached;
-    } else if (m.pace) {
-      const ahead = Math.ceil((t - m.total) / m.pace);
+    } else if (m.paceSold) {
+      const ahead = ceilDiv((t - m.total) * m.paceDays, m.paceSold);
       if (ahead <= FAR) out.lands = m.today + ahead; else out.far = true;
     }
     if (m.dIdx === null) return out;
-    if (out.lands !== null) out.early = m.dIdx - out.lands;
-    if (out.lands === null || out.lands > m.dIdx) {
-      if (m.dIdx >= m.today && m.pace === null) return out;     // no whole day yet: nothing to project from
-      out.by = m.dIdx < m.today ? (m.dIdx >= 0 ? m.cum[m.dIdx] : 0) : Math.floor(m.total + m.pace * (m.dIdx - m.today));
-      out.short = Math.max(0, t - out.by);
-    }
-    out.late = Boolean(out.short) && out.reached === null;
+    if (out.lands !== null && out.lands <= m.dIdx) { out.early = m.dIdx - out.lands; return out; }
+    if (out.reached !== null || out.before) return out;          // reached after its date: reached
+    let by;
+    if (m.dIdx < m.today) by = m.dIdx >= 0 ? m.cum[m.dIdx] : (m.atDeadline !== null ? m.atDeadline : 0);
+    else if (m.pace === null) return out;                       // no whole day yet: nothing to project from
+    else by = reaches(m, m.dIdx);
+    if (by >= t) return out;                                    // a deadline past a year that the pace still makes
+    out.by = by;
+    out.short = t - by;
+    out.late = true;
     return out;
   }
 
   // The line under the figure, in the words app/objectives/count.py `pace_words` uses.
   function paceLine(m, t) {
     const s = standing(m, t);
-    const at = (i) => said(plus(m.since, i), m.todayDate);
+    const at = (i) => said(plus(m.start, i), m.todayDate);
     let words;
-    if (s.reached !== null) words = `${fmt(t)} reached on ${at(s.reached)}`;
+    if (s.before) words = `${fmt(t)} reached before ${short(m.start)}`;
+    else if (s.reached !== null) words = `${fmt(t)} reached on ${at(s.reached)}`;
     else if (s.short) {
       words = m.dIdx < m.today ? `Was due ${at(m.dIdx)}: ${fmt(s.by)} by then, ${fmt(s.short)} short`
         : `At this pace: ${fmt(s.by)} by ${at(m.dIdx)}, ${fmt(s.short)} short`;
@@ -152,7 +190,7 @@
     } else {
       words = `At this pace: ${fmt(t)} by ${at(s.lands)}`;
       if (s.early === 0) words += ', on the day';
-      else if (s.early !== null) words += `, ${s.early} day${s.early === 1 ? '' : 's'} early`;
+      else if (s.early !== null && s.early > 0) words += `, ${s.early} day${s.early === 1 ? '' : 's'} early`;
     }
     return { late: s.late, text: words, s };
   }
@@ -203,7 +241,7 @@
     const cols = Math.max(1, to - from);
     const col = PLOT_W / cols;
     const x = (i) => (i - from) * col + col / 2;
-    const ahead = (i) => (i <= m.today ? m.cum[i] : Math.min(m.total + (m.pace || 0) * (i - m.today), Math.max(m.total, t)));
+    const ahead = (i) => (i <= m.today ? m.cum[i] : Math.min(m.pace ? reaches(m, i) : m.total, Math.max(m.total, t)));
     let unit;
     let rows;
     if (total) {
@@ -262,7 +300,7 @@
     const labels = [];
     const label = (i, words, cls) => { if (inView(i)) labels.push({ x: (x(i) / W) * 100, text: words, cls }); };
     const near = (a, b, d) => a !== null && b !== null && Math.abs(x(a) - x(b)) < d;
-    if (!near(from, m.today, 70) && !near(from, m.dIdx, 70)) label(from, from === 0 ? short(m.since) : short(plus(m.since, from)), 'is-from');
+    if (!near(from, m.today, 70) && !near(from, m.dIdx, 70)) label(from, short(plus(m.start, from)), 'is-from');
     if (!near(m.today, m.dIdx, 56)) label(m.today, 'Today', 'is-today');
     if (m.dIdx !== null) label(m.dIdx, short(m.deadline), s.late ? 'is-deadline is-late' : 'is-deadline');
     return {
@@ -302,6 +340,13 @@
     if (seconds < 60) return 'just now';
     if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
     return `${Math.round(seconds / 3600)} h ago`;
+  }
+  // What his words matched, by name, since matching by words is broad: "Loopback Hoodie" is also in
+  // "Loopback Zip Hoodie". Nothing said for a card that did not carry it.
+  function counting(m) {
+    if (!m.matched) return '';
+    if (!m.matched.length) return ` Nothing has matched “${m.of}” yet.`;
+    return ` Counting ${m.matched.join(', ')}${m.matchedMore ? ` and ${fmt(m.matchedMore)} more` : ''}.`;
   }
   function caption(m, L, total) {
     if (total) return `Each dot is ${word(L.unit)} ${L.unit === 1 ? 'sold' : m.unit || 'sold'}.`;
@@ -420,7 +465,7 @@
       handle.hidden = !totalOn;
       chart.classList.toggle('is-day', !totalOn);
       const when = ago(m.ageS);
-      sourceWords.textContent = `From Shopify${when ? `, counted ${when}` : ''}. ${caption(m, L, totalOn)}`;
+      sourceWords.textContent = `From Shopify${when ? `, counted ${when}` : ''}.${counting(m)} ${caption(m, L, totalOn)}`;
     }
     // What depends on the target: the days ahead, the target's row, where the pace meets it, the
     // line under the figure and the handle. Drawn again at each step a drag passes.
@@ -565,8 +610,8 @@
       chart.classList.remove('is-pinching');
       swallowUntil = k.T.clock.now() + 450;
       if (V.from === was.shown) return;
-      k.bar.say(V.from === 0 ? `Since ${short(m.since)}: everything it has sold.`
-        : `From ${short(plus(m.since, V.from))}: the last ${m.today - V.from + 1} days, and the rest of the run.`);
+      k.bar.say(V.from === 0 && !m.carried ? `Since ${short(m.start)}: everything it has sold.`
+        : `From ${short(plus(m.start, V.from))}: the last ${m.today - V.from + 1} days, and the rest of the run.`);
     };
     chart.addEventListener('pointerup', lift);
     chart.addEventListener('pointercancel', lift);
@@ -574,10 +619,10 @@
 
   // What the record holds about one day, said when it is tapped.
   function aboutDay(m, i) {
-    const when = said(plus(m.since, i), m.todayDate);
+    const when = said(plus(m.start, i), m.todayDate);
     if (i <= m.today) return `${when}: ${fmt(m.perDay[i])} sold, ${fmt(m.cum[i])} by then.`;
     if (!m.pace) return `${when}: no pace to say what it reaches by then.`;
-    return `${when}: about ${fmt(Math.floor(m.total + m.pace * (i - m.today)))} by then, at ${m.pace.toFixed(1)} a day.`;
+    return `${when}: about ${fmt(reaches(m, i))} by then, at ${m.pace.toFixed(1)} a day.`;
   }
 
   // ---------------------------------------------------------------- touch: the target
@@ -590,7 +635,10 @@
     const { handle, box } = el;
     let busy = false;
     let from = V.target;
-    const kept = m.target;
+    // The target the record holds, as this drawing last heard it: from the record it was drawn from,
+    // then from each answer the Mac gives, whether or not that answer is drawn (an Undo sent since
+    // makes it not the latest, and Escape must not then put back a target the Mac no longer has).
+    let kept = m.target;
     const show = (t, held) => {
       const before = paceLine(m, V.target).late;
       V.target = t;
@@ -603,7 +651,11 @@
       show(t, false);
       busy = true;
       k.commit('/target', { target: t })
-        .then((record) => { if (!(record && record.card)) show(kept, false); })
+        .then((record) => {
+          const held = record && ((record.number && record.number.target) || (record.card && record.card.number && record.card.number.target));
+          if (held) kept = whole(held);
+          show(held ? kept : (record && record.card ? V.target : kept), false);
+        })
         .catch((error) => { show(kept, false); k.failed(error); })
         .then(() => { busy = false; });
     };

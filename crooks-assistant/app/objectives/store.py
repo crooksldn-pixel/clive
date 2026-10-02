@@ -312,7 +312,9 @@ def _number(value: Any, existing: dict | None) -> dict | None:
         raise ObjectiveError("A number needs what is counted (of) and its target.")
     since = _date(merged.get("since"), what="day counting starts") or _shop_today().isoformat()
     earliest = _shop_today() - timedelta(days=COUNT_BACK_DAYS)
-    if date.fromisoformat(since) < earliest:
+    # Only a day being set now is held to the year the orders reach back: a number set a year ago
+    # keeps its day when its target or its words change.
+    if "since" in value and date.fromisoformat(since) < earliest:
         raise ObjectiveError(f"Orders are read back a year at most, so counting can start on {_on(earliest.isoformat())} "
                              "at the earliest; nothing was changed.")
     return {"of": _clean(merged["of"], limit=MAX_NAME, what="thing it counts"), "target": _target(merged["target"]),

@@ -362,6 +362,86 @@ test('a refused target goes back and says so in the Mac\'s words', async () => {
   assert.deepEqual(barOf(card), { text: 'Not saved: A target is between 1 and 100,000.', kind: 'error', undo: false, shown: true });
 });
 
+// ---------------------------------------------------------------- the review of PR #92
+
+test('the day it lands and the shortfall are one fact: exactly on the day is on the day, never "-1 days early"', () => {
+  const per = [1, 0, 1, 1, 7, 7, 7, 9, 5, 1, 7, 6, 1];
+  const card = (target) => hoodie({ deadline: '2026-10-14', number: { of: 'Loopback Hoodie', target, since: '2026-09-17', unit: 'hoodies' },
+    count: Object.assign(hoodie().count, { per_day: per }) });
+  const m = N.model(card(118));
+  assert.deepEqual([N.paceLine(m, 118).text, N.paceLine(m, 118).late], ['At this pace: 118 by Wed 14 Oct, on the day', false]);
+  assert.deepEqual([N.paceLine(m, 119).text, N.paceLine(m, 119).late], ['At this pace: 118 by Wed 14 Oct, 1 short', true]);
+  for (let t = 54; t < 260; t += 1) {
+    for (let ahead = 0; ahead < 40; ahead += 1) {
+      const mm = N.model(Object.assign(card(t), { deadline: `2026-${ahead < 2 ? '09' : '10'}-${String(ahead < 2 ? 29 + ahead : ahead - 1).padStart(2, '0')}` }));
+      const s = N.standing(mm, t);
+      assert.equal(Boolean(s.short), s.lands === null || s.lands > mm.dIdx, `${t} +${ahead}`);
+      assert.ok(s.early === null || s.early >= 0);
+      assert.ok(!N.paceLine(mm, t).text.includes('-'), N.paceLine(mm, t).text);
+    }
+  }
+});
+
+test('a number counted for more than a year is indexed from the first day sent, with what sold before it', () => {
+  const card = hoodie({ deadline: null, number: { of: 'Loopback Hoodie', target: 900, since: '2025-08-26', unit: 'hoodies' },
+    count: Object.assign(hoodie().count, { per_day: new Array(366).fill(2), first: '2025-09-29', carried: 34 }) });
+  const m = N.model(card);
+  assert.equal(m.total, 766, 'what sold before the first day sent is carried');
+  assert.equal(N.aboutDay(m, m.today), 'Tue 29 Sep: 2 sold, 766 by then.');
+  assert.equal(N.aboutDay(m, 0), 'Mon 29 Sep 2025: 2 sold, 36 by then.');
+  assert.equal(N.paceLine(m, 900).text, 'At this pace: 900 by Sat 5 Dec', '134 more at two a day: 67 days from today');
+  assert.equal(N.paceLine(m, 30).text, '30 reached before 29 Sep', 'crossed before the days sent, and said so');
+  const drawnCard = drawn(card);
+  assert.equal(words(one(drawnCard, 'on-sold')), '766');
+  assert.equal(words(one(drawnCard, 'on-label')), '9 Sep', 'the first day shown (three months back), dated from the first day sent');
+});
+
+test('the source line names what was counted, the most sold first, and how many more', () => {
+  const card = drawn(hoodie({ count: Object.assign(hoodie().count, { matched: ['Loopback Hoodie (Grey)', 'Loopback Zip Hoodie'], matched_more: 2 }) }));
+  assert.equal(words(one(card, 'on-source')), 'From Shopify, counted 2 min ago. Counting Loopback Hoodie (Grey), Loopback Zip Hoodie and 2 more. Each dot is ten hoodies.');
+  const one_ = drawn(hoodie({ count: Object.assign(hoodie().count, { matched: ['Loopback Hoodie'], matched_more: 0 }) }));
+  assert.equal(words(one(one_, 'on-source')), 'From Shopify, counted 2 min ago. Counting Loopback Hoodie. Each dot is ten hoodies.');
+  const none = drawn(hoodie({ count: Object.assign(hoodie().count, { matched: [], matched_more: 0 }) }));
+  assert.equal(words(one(none, 'on-source')), 'From Shopify, counted 2 min ago. Nothing has matched “Loopback Hoodie” yet. Each dot is ten hoodies.');
+  const hostile = drawn(hoodie({ count: Object.assign(hoodie().count, { matched: [HOSTILE], matched_more: 0 }) }));
+  assert.ok(words(hostile).includes(HOSTILE) && attributes(hostile).every((a) => !a.includes('<')));
+});
+
+test('a target the Mac answered is the one Escape keeps, even when an Undo sent since means it is not drawn', async () => {
+  let release = null;
+  const asked = [];
+  const answer = (target, n) => {
+    const c = hoodie({ number: { of: 'Loopback Hoodie', target, since: '2026-09-01', unit: 'hoodies' } });
+    return { number: c.number, card: c, undo: { token: `tok-${n}`, ttl_s: 6, says: `Target ${target}` }, said: null };
+  };
+  const send = async (url, body) => {
+    asked.push([url.slice(`/objectives/${NID}`.length), body]);
+    if (url.endsWith('/undo')) throw new Error('It has changed since, so nothing was undone.');
+    if (body.target === 220) return answer(220, 1);
+    return new Promise((resolve) => { release = () => resolve(answer(body.target, 2)); });
+  };
+  const card = drawn(hoodie(), { send });
+  for (const key of ['ArrowUp', 'ArrowUp', 'Enter']) one(card, 'on-target').dispatch('keydown', { key });
+  await flush();
+  const handle = one(card, 'on-target');
+  assert.equal(handle.getAttribute('aria-valuenow'), '220', 'drawn from the first answer');
+  for (const key of ['ArrowUp', 'ArrowUp', 'ArrowUp', 'Enter']) handle.dispatch('keydown', { key });
+  one(one(card, 'ot-bar'), 'ot-undo').dispatch('click');      // the first one's Undo, sent meanwhile, refused
+  await flush();
+  release();
+  await flush();
+  assert.deepEqual(asked.map((a) => a[0]), ['/target', '/target', '/undo']);
+  const held = String(asked[1][1].target);
+  assert.notEqual(held, '220');
+  assert.equal(one(card, 'on-target'), handle, 'the answer to a touch sent before the Undo is not drawn');
+  assert.equal(handle.getAttribute('aria-valuenow'), held);
+  handle.dispatch('keydown', { key: 'Escape' });
+  assert.equal(handle.getAttribute('aria-valuenow'), held, 'Escape keeps what the Mac holds, not the target before it');
+  handle.dispatch('keydown', { key: 'ArrowUp' });
+  handle.dispatch('keydown', { key: 'Escape' });
+  assert.equal(handle.getAttribute('aria-valuenow'), held);
+});
+
 // ---------------------------------------------------------------- not counted
 
 test('a count that could not be read draws no chart and says why, in the Mac\'s words', () => {

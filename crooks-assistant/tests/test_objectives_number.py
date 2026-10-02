@@ -82,10 +82,13 @@ def sales(first: date, per_day: list[int], product: str = "Loopback Hoodie", col
 
 
 class Client:
-    def __init__(self, zone=LONDON, fail: Exception | None = None):
-        self.zone, self.fail, self.graphql_calls = zone, fail, 0
+    def __init__(self, zone=LONDON, fail: Exception | None = None, slow: float = 0.0):
+        self.zone, self.fail, self.slow, self.graphql_calls, self.zone_calls = zone, fail, slow, 0, 0
 
-    async def timezone(self):
+    async def timezone(self):                         # a shop query on the real client when not held
+        self.zone_calls += 1
+        if self.slow:
+            await asyncio.sleep(self.slow)
         if self.fail:
             raise self.fail
         return self.zone
@@ -329,7 +332,7 @@ def test_sales_are_counted_per_day_with_the_pace_and_the_day_it_lands(shop):
 def test_a_target_the_pace_falls_short_of_says_by_how_many(shop):
     shop.bind(Cache(sales(date(2026, 9, 1), SOLD)))
     tally = run({**HOODIE, "target": 250}, deadline="2026-10-18", now=NOW)
-    assert tally["lands"] == "2026-10-25" and tally["days_early"] == -7
+    assert tally["lands"] == "2026-10-25" and tally["days_early"] is None, "late is never a negative 'days early'"
     assert tally["by_deadline"] == 222 and tally["short"] == 28
     assert count.pace_words(tally) == "At this pace: 222 by Sun 18 Oct, 28 short"
     assert count.short(tally)["late"] is True
@@ -445,6 +448,121 @@ def test_a_target_moved_while_the_shop_is_unread_still_moves_and_says_only_the_t
     obj = hoodies(owner.store)
     body = owner.client.post(f"/objectives/{obj.id}/target", json={"target": 150}).json()
     assert body["undo"]["says"] == "Target 150" and body["card"]["count"]["counted"] is False
+
+
+# ------------------------------------------------------------------ the review of PR #92
+
+
+def test_the_day_it_lands_and_the_shortfall_are_one_fact_never_split_by_a_float():
+    """65 more at 52 over 12 days is exactly 15 days: on the day, not one after it with nothing
+    short (which said "-1 days early" and drew the row on pace)."""
+    per_day = [1, 0, 1, 1, 7, 7, 7, 9, 5, 1, 7, 6, 1]
+    today_ = date(2026, 10, 2)
+    first = today_ - timedelta(days=len(per_day) - 1)
+    due = (today_ + timedelta(days=15)).isoformat()
+    on = {**count.project(per_day, 118, first, today_, due), "counted": True, "today": today_.isoformat(), "target": 118}
+    assert on["lands"] == due and on["days_early"] == 0 and on["short"] is None
+    assert count.pace_words(on) == "At this pace: 118 by Sat 17 Oct, on the day" and count.short(on)["late"] is False
+    over = {**count.project(per_day, 119, first, today_, due), "counted": True, "today": today_.isoformat(), "target": 119}
+    assert over["days_early"] is None and over["short"] == 1 and over["by_deadline"] == 118
+    assert count.pace_words(over) == "At this pace: 118 by Sat 17 Oct, 1 short" and count.short(over)["late"] is True
+    # And for every target and deadline nearby: late exactly when it lands after the deadline.
+    for target in range(54, 260):
+        for ahead in range(0, 40):
+            due = today_ + timedelta(days=ahead)
+            got = count.project(per_day, target, first, today_, due.isoformat())
+            lands_after = got["lands"] is None or date.fromisoformat(got["lands"]) > due
+            assert bool(got["short"]) == lands_after, (target, ahead, got)
+            assert got["days_early"] is None or got["days_early"] >= 0, (target, ahead)
+            words = count.pace_words({**got, "counted": True, "today": today_.isoformat(), "target": target})
+            assert "-" not in words, words
+
+
+def test_a_number_counted_for_more_than_a_year_sends_its_first_day_and_what_came_before(s):
+    obj = s.create(title="Hoodies", request="x", number={"of": "Loopback Hoodie", "target": 900})
+    per_day = [1] * 34 + [2] * 366
+    tally = {"counted": True, "per_day": per_day, "total": sum(per_day), "today": "2026-10-02", "pace": 2.0, "pace_days": 14}
+    sent = cards.data(obj, tally)["count"]
+    assert len(sent["per_day"]) == 366 and sent["per_day"] == [2] * 366
+    assert sent["first"] == (date(2026, 10, 2) - timedelta(days=365)).isoformat(), "indexed from the first day sent"
+    assert sent["carried"] == 34 and sent["carried"] + sum(sent["per_day"]) == sent["total"] == 766
+    short_run = cards.data(obj, {**tally, "per_day": [3, 4], "total": 7})["count"]
+    assert short_run["first"] == "2026-10-01" and short_run["carried"] == 0
+
+
+def test_an_old_number_keeps_its_day_when_its_target_moves(s, monkeypatch):
+    long_ago = today() - timedelta(days=300)
+    obj = hoodies(s, since=long_ago)
+    later = today() + timedelta(days=100)
+    monkeypatch.setattr(store_module, "_shop_today", lambda: later)     # the day it was set is now >365 days back
+    moved = s.design(obj.id, number={"target": 250})
+    assert moved.number["target"] == 250 and moved.number["since"] == long_ago.isoformat()
+    touched, offer, said = s.touch_target(obj.id, 240)
+    assert touched.number["target"] == 240 and offer and said is None
+    assert s.design(obj.id, number={"unit": "grey hoodies"}).number["since"] == long_ago.isoformat()
+    with pytest.raises(ObjectiveError, match="read back a year at most"):
+        s.design(obj.id, number={"since": long_ago.isoformat()})     # set now, it is held to the year
+
+
+def test_what_was_counted_is_named_the_most_sold_first(shop):
+    noon = datetime(2026, 9, 20, 12, 0, tzinfo=LONDON)
+    shop.bind(Cache([
+        order(1, noon, ("Loopback Hoodie", 5), colour="Grey"),
+        order(2, noon, ("Loopback Zip Hoodie", 2), colour="Black"),
+        order(3, noon, ("Loopback Hoodie", 1), colour="Black"),
+        order(4, noon, ("Loopback Hoodie Kids", 1), colour="Grey"),
+        order(5, noon, ("Loopback Hoodie Bundle", 1), colour="Grey"),
+        order(6, noon, ("Loopback Hoodie Gift Card", 1)),
+        order(7, noon, ("Cell Block Tee", 9)),
+    ]))
+    broad = run(HOODIE, now=NOW)
+    assert broad["matched"] == ["Loopback Hoodie", "Loopback Zip Hoodie", "Loopback Hoodie Bundle"]
+    assert broad["matched_more"] == 2 and broad["total"] == 11
+    grey = run({**HOODIE, "of": "grey hoodie"}, now=NOW)
+    assert grey["matched"] == ["Loopback Hoodie (Grey)", "Loopback Hoodie Bundle (Grey)", "Loopback Hoodie Kids (Grey)"]
+    assert grey["matched_more"] == 0 and grey["total"] == 7
+    none = run({**HOODIE, "of": "pink joggers"}, now=NOW)
+    assert none["matched"] == [] and none["total"] == 0
+
+
+def test_returns_and_removals_are_not_sales(shop):
+    noon = datetime(2026, 9, 20, 12, 0, tzinfo=LONDON)
+    kept = order(1, noon, ("Loopback Hoodie", 3), colour="Grey")
+    kept["items"][0]["current_quantity"] = 1                # two of the three came back
+    older = order(2, noon, ("Loopback Hoodie", 2), colour="Grey")    # a row read before the cache kept it
+    shop.bind(Cache([kept, older]))
+    assert run(HOODIE, now=NOW)["total"] == 3
+
+
+def test_an_unreadable_shop_is_asked_once_a_minute_and_once_for_every_count_waiting(shop):
+    down = shop.bind(Cache([], client=Client(fail=RuntimeError("no shop"))))
+    for _ in range(3):
+        assert run(HOODIE, now=NOW)["counted"] is False
+    assert run({**HOODIE, "of": "grey hoodie"}, now=NOW)["counted"] is False
+    assert down.client.zone_calls == 1, "a failure to read the shop is kept for the minute"
+    failing = shop.bind(Cache([], fail=RuntimeError("Shopify down")))
+    run(HOODIE, now=NOW)
+    run(HOODIE, now=NOW)
+    assert failing.views == 1, "an unread answer is kept for the minute, as a count is"
+    slow = shop.bind(Cache(sales(date(2026, 9, 1), SOLD), client=Client(slow=0.05)))
+
+    async def together():
+        return await asyncio.gather(*(count.count({**HOODIE, "of": of}, now=NOW) for of in ("Loopback Hoodie", "grey hoodie", "hoodie")))
+
+    assert all(t["counted"] for t in asyncio.run(together()))
+    assert slow.client.zone_calls == 1, "one call for the zone, shared by every count waiting on it"
+    run({**HOODIE, "target": 300}, now=NOW)
+    assert slow.client.zone_calls == 1, "and once read, it is known"
+
+
+def test_the_home_polled_while_the_shop_is_down_asks_it_once(owner, shop):
+    down = shop.bind(Cache([], client=Client(fail=RuntimeError("no shop"))))
+    for of in ("Loopback Hoodie", "grey hoodie", "Cell Block Tee"):
+        owner.store.create(title=of, request=of, number={"of": of, "target": 50})
+    for _ in range(2):
+        listed = owner.client.get("/objectives").json()["objectives"]
+        assert [o["number"]["counted"] for o in listed] == [False, False, False]
+    assert down.client.zone_calls == 1
 
 
 # ------------------------------------------------------------------ the owner's alone, and nothing written
