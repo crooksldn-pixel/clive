@@ -237,6 +237,9 @@ Sampling, waiting on Northfield, never a list of to-dos. tasks: jobs handed to n
 ("give Rosa and Kit these to do later"); one task per job, each with who, and due only when he \
 gave a date. It is his list: nothing is sent to them, so never say you told them. build: a change \
 to CLIVE itself. business: any other goal you work through in steps (a trip, an application). \
+Any kind may carry number when he names a count to reach ("shift the last 200 hoodies by the 18th"): \
+of is the product in his words, target, since only if he said, unit (hoodies). His screen counts \
+the sales from the shop's orders, so never record a count; set changes only what you pass, {{}} takes it off. \
 A project's stages and the people's tasks are the plan itself: never propose them again as work \
 items, which are only for what you would do. Fill purpose, done_when, people, deadline and check_every_days only from what he said. \
 objective_open returns missing and ask: missing is the only thing worth asking (a project's date; \

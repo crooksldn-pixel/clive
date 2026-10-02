@@ -728,7 +728,7 @@ test('the touch file keeps the page\'s rules: text only, the owner\'s own routes
   // The drawings post only to the owner's own routes for one objective: these four, nothing else.
   const cards = fs.readFileSync(path.join(WEB, 'objective-cards.js'), 'utf8');
   const tails = [...cards.matchAll(/(?:commit\([^,]+, |ctx\.url\()[`']([^`'$]*)/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(tails)].sort(), ['/deadline', '/stage', '/tasks/', '/undo']);
+  assert.deepEqual([...new Set(tails)].sort(), ['', '/deadline', '/stage', '/tasks/', '/undo']);
   const index = fs.readFileSync(path.join(WEB, 'index.html'), 'utf8');
   assert.ok(index.indexOf('/static/objective-touch.js') > 0 && index.indexOf('/static/objective-touch.js') < index.indexOf('/static/objective-cards.js'),
     'loaded before the drawings that use it');

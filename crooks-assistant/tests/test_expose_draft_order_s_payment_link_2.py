@@ -202,5 +202,6 @@ def test_the_tool_block_stays_within_its_budget():
     # tool by tool where the bytes went), 46,131 with the team's four tools (+2,213, measured),
     # 46,787 with a custom item on an existing order (shopify_order_add_custom_item, +656, measured),
     # and 46,851 with work_note's `flag` (+64, measured), and 47,330 with parcel tracking
-    # (track_parcel, +479, measured).
-    assert total <= 47_330, f"the tool block is {total} bytes"
+    # (track_parcel, +479, measured), and 47,708 with a number on an objective (objective_open and
+    # objective_note's `number`, +378, measured).
+    assert total <= 47_708, f"the tool block is {total} bytes"

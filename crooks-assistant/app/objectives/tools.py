@@ -22,6 +22,11 @@ rather than a fifth one, which would need its own place on the gate's allow-list
 choosing a kind are in the system prompt once (app/kb/loader.py). Each call that opens, shows or
 changes one objective returns its card for the tablet under `_surfaces` (app/objectives/cards.py),
 which the model never reads (app/tools/dispatch.py `_render`).
+
+A number to reach (objectives by touch, part C) rides the same way: `number` on objective_open, and
+on objective_note's `set`, where only the parts passed change and `{}` takes it off. These tools
+record what he said and read nothing from the shop; what has sold is counted on the owner's screen
+(app/objectives/count.py through app/routes/objectives.py), and the model asks the sales tools.
 """
 
 from __future__ import annotations
@@ -56,6 +61,10 @@ _NAMES = {"type": "array", "items": {"type": "string"}}
 # past its limit whole rather than cut it (round 13, S6-02).
 _PEOPLE = {**_NAMES, "maxItems": MAX_PEOPLE}
 _STAGES = {**_NAMES, "maxItems": MAX_STAGES}
+# A number to reach: what is counted, in his words, its target, since when if he said, the unit.
+# Its meaning is said once, in the system prompt (app/kb/loader.py), not here.
+_NUMBER = {"type": "object", "properties": {"of": {"type": "string"}, "target": {"type": "integer"}, "since": _DATE,
+                                            "unit": {"type": "string"}}}
 
 
 def _short(obj) -> dict[str, Any]:
@@ -92,6 +101,7 @@ def _full(obj) -> dict[str, Any]:
             "waiting_on": {"type": "string", "description": "who that stage waits on"},
             "tasks": {"type": "array", "maxItems": MAX_TASKS, "items": {"type": "object", "properties": {
                 "who": {"type": "string"}, "text": {"type": "string"}, "due": _DATE}, "required": ["who", "text"]}},
+            "number": _NUMBER,
         },
         "required": ["title", "request", "kind"],
     },
@@ -100,11 +110,11 @@ def _full(obj) -> dict[str, Any]:
 async def objective_open(title: str, request: str, kind: str = "business", deadline: str | None = None,
                          purpose: str = "", done_when: str = "", people: list | None = None,
                          check_every_days: int | None = None, stages: list | None = None, stage: str = "",
-                         waiting_on: str = "", tasks: list | None = None) -> dict:
+                         waiting_on: str = "", tasks: list | None = None, number: dict | None = None) -> dict:
     try:
         obj = store().create(title=title, request=request, deadline=deadline, kind=kind, purpose=purpose,
                              done_when=done_when, people=people, check_every_days=check_every_days,
-                             stages=stages, stage=stage, waiting_on=waiting_on, tasks=tasks)
+                             stages=stages, stage=stage, waiting_on=waiting_on, tasks=tasks, number=number)
     except ObjectiveError as exc:
         raise ToolError(str(exc)) from exc
     return {**_full(obj), "missing": obj.missing(), "ask": obj.ask()}
@@ -185,6 +195,7 @@ async def objective_show(objective_id: str) -> dict:
             "who": {"type": "string"},
             "due": {"type": "string"},
             "done": {"type": "boolean"},
+            "number": _NUMBER,
         },
         "required": ["objective_id", "action"],
     },
@@ -196,13 +207,14 @@ async def objective_note(objective_id: str, action: str, text: str = "", source:
                          deadline: str | None = None, purpose: str | None = None, done_when: str | None = None,
                          people: list | None = None, check_every_days: int | None = None,
                          stages: list | None = None, stage: str | None = None, waiting_on: str | None = None,
-                         who: str | None = None, due: str | None = None, done: bool | None = None) -> dict:
+                         who: str | None = None, due: str | None = None, done: bool | None = None,
+                         number: dict | None = None) -> dict:
     s = store()
     try:
         if action == "set":
             obj = s.design(objective_id, title=title, kind=kind or None, deadline=deadline, purpose=purpose,
                            done_when=done_when, people=people, check_every_days=check_every_days,
-                           stages=stages, stage=stage, waiting_on=waiting_on, due=due)
+                           stages=stages, stage=stage, waiting_on=waiting_on, due=due, number=number)
         elif action == "stage":
             obj = s.move_stage(objective_id, stage or text, waiting_on=waiting_on, due=due)
         elif action == "task":

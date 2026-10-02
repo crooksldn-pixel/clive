@@ -139,8 +139,8 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `instagram_thread` | family:instagram | test_instagram.py | — |
 | `inventory_query` | recipe:landing_products, family:product_reads | test_analytics_tools.py, test_followups_reads.py | landing_products |
 | `objective_list` | family:objectives | test_displays.py, test_let_objectives_marked_complete_or_removed_2.py, test_tool_boundary.py | — |
-| `objective_note` | family:objectives | test_let_objectives_marked_complete_or_removed_2.py, test_objective_design.py, test_objectives.py, test_tool_boundary.py | — |
-| `objective_open` | family:objectives | test_objective_design.py, test_r13_objective_design_rules.py | — |
+| `objective_note` | family:objectives | test_let_objectives_marked_complete_or_removed_2.py, test_objective_design.py, test_objectives.py, test_objectives_number.py, test_tool_boundary.py | — |
+| `objective_open` | family:objectives | test_objective_design.py, test_objectives_number.py, test_r13_objective_design_rules.py | — |
 | `objective_show` | family:objectives | test_let_objectives_marked_complete_or_removed_2.py, test_objective_design.py | — |
 | `people_list` | family:people | test_people.py | — |
 | `person_note` | family:people | test_people.py | — |

@@ -82,6 +82,12 @@ body.alpha:has(.alpha-composer.is-typing) .alpha-horizon{opacity:.3;filter:blur(
 .hz-g.is-steel.is-lit,.hz-g.is-steel.is-now{fill:#8fa3c0}
 .hz-g.is-ring{fill:rgba(235,235,245,.4)}
 .hz-g.is-ring.is-clive,.hz-g.is-now.is-clive{fill:rgba(10,132,255,.6)}
+/* a number (part C): its ring lit red when the pace falls short; on the horizon the days to where the
+   pace lands a faint blue, and that day ringed */
+.hz-g.is-late{fill:#ff8a80}
+.hz-d.is-pace{fill:rgba(10,132,255,.42)}
+.hz-ring.is-land{fill:none;stroke-dasharray:2 2.4}
+.hz-ring.is-land.is-late{stroke:#ff8a80}
 
 /* a project's stage track on its row (web/objective-cards.js), drawn as a run of dots a stage */
 .alpha-row .oc-track{height:10px;gap:8px;max-width:244px}
