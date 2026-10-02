@@ -64,6 +64,10 @@ const SHELL = [
   '/static/edges.css',
   '/static/dots-app.js',
   '/static/dots-app.css',
+  // Objectives by touch, part B: the next six weeks and the pinch between the three distances.
+  '/static/horizon.js',
+  '/static/horizon.css',
+  '/static/distances.js',
   '/manifest.webmanifest',
   '/static/icon-192.png',
   '/static/icon-512.png',

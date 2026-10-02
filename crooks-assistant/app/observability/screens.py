@@ -115,6 +115,10 @@ DATA_NAMES = frozenset({
     # Round 12, holding a record to put it on a screen (web/lift.js): which objective a row on the
     # home is, and which screen a tile in the Displays tray is. Ids, never words.
     "data-objective", "data-screen",
+    # Objectives by touch, part B (web/distances.js, web/horizon.js): which of the three distances
+    # the page is at, the horizon's own controls and rows, and a home row that will land late.
+    # Words of the page's own ("home", "horizon", "row", "true"), never the owner's.
+    "data-distance", "data-hz", "data-late",
 })
 # data- names whose values are free text by what they are for: kept, but empty. `data-words` is
 # the ask bar's account of the live words it shows (round 9, F-02): whatever the page puts there,

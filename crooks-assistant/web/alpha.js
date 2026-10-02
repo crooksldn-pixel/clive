@@ -193,6 +193,7 @@
 
   const OWNER = 'George';
   let firstRender = true;
+  let homeNeeds = [];   // the ids of what needs him, as the home last drew them (objectives by touch, B)
   function whenFor(o) {
     if (o.attention === 'done') return 'Done';
     if (o.days_left == null) return null;
@@ -245,7 +246,10 @@
       // say how far each person has got (web/objective-cards.js). A question or a blocker
       // still comes first.
       const shaped = window.CliveObjectiveCards ? window.CliveObjectiveCards.row(o) : null;
-      const sub = o.attention === 'needs_you' && o.needs_you.length ? o.needs_you[0]
+      // Objectives by touch, part B (web/horizon.js): the row's mark in dots, every dot a stage or
+      // a task, its stage track drawn as dots, and lateness said first, before even a question.
+      const mark = window.CliveHorizon ? window.CliveHorizon.rowMark(o, builds[o.id] || [], shaped && shaped.track) : null;
+      const sub = mark && mark.late ? mark.late : o.attention === 'needs_you' && o.needs_you.length ? o.needs_you[0]
         : building || (o.blocked_by.length ? `Waiting for: ${o.blocked_by[0]}`
         : (shaped && shaped.sub) || o.doing || (o.next.length ? `Next: ${o.next[0]}` : ''));
       const when = whenFor(o);
@@ -256,18 +260,23 @@
         : h('span', { class: `alpha-state is-${o.attention}` }, o.attention === 'done' ? icon(ICON.tick, 15) : null);
       const main = rowMain(o.title, sub, when);
       if (shaped && shaped.track) main.append(shaped.track);
+      else if (mark && mark.under) main.append(mark.under);   // objectives by touch (B): a build's road
       // `data-objective`: which objective the row is, for holding it and putting it on a screen (web/lift.js).
-      return h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'objective', 'data-attention': o.attention, 'data-kind': o.kind, 'data-objective': o.id, onclick: () => openObjective(o.id) },
-        lead, main, icon(ICON.chev, 16));
+      return h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'objective', 'data-attention': o.attention, 'data-kind': o.kind,
+        'data-late': mark && mark.late ? 'true' : null, 'data-objective': o.id, onclick: () => openObjective(o.id) },
+        (mark && mark.glyph) || lead, main, icon(ICON.chev, 16));
     };
 
     home.classList.toggle('is-first', firstRender);
     firstRender = false;
+    homeNeeds = needs.map((o) => o.id);   // objectives by touch (B): what the next six weeks says needs him
     home.replaceChildren(...[
       h('div', { class: 'alpha-hello' },
         h('p', { class: 'alpha-date', text: now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }) }),
         h('h1', { class: 'alpha-h1', text: `${part}, ${OWNER}.` }),
-        h('p', { class: 'alpha-summary', text: summary })),
+        h('p', { class: 'alpha-summary', text: summary }),
+        // Objectives by touch (B): the next six weeks without a gesture (web/distances.js).
+        window.CliveDistances ? window.CliveDistances.homeControl() : null),
       problem ? h('p', { class: 'alpha-blocked', text: `Objectives could not be read: ${problem}` }) : null,
       needs.length ? h('h2', { class: 'alpha-h2', text: 'Needs you' }) : null,
       needs.length ? h('div', { class: 'alpha-group' }, ...needs.map(row)) : null,
@@ -286,6 +295,7 @@
           h('span', { class: 'alpha-tile is-quiet' }, icon(ICON.plus, 18)),
           rowMain('New objective', 'Something for CLIVE to keep alive'), icon(ICON.chev, 16))),
     ].filter(Boolean));
+    if (window.CliveDistances) window.CliveDistances.drawn();   // objectives by touch (B): the horizon follows
   }
 
   function labelFor(attention) {
@@ -546,6 +556,13 @@
         ...(r.evidence || []).map((e) => h('p', { class: 'alpha-event', text: `${e.source}: ${e.summary}` }))),
     ].filter(Boolean));
   }
+
+  // ------------------------------------------------------------------ objectives by touch, part B
+  // What the three distances (web/distances.js) and the next six weeks (web/horizon.js) read and
+  // do: the objectives and builds as last read, which need him, and a sheet opened or put away.
+  window.CliveHome = {
+    objectives: () => objectives, builds: () => builds, needs: () => homeNeeds.slice(), openObjective, closeSheet,
+  };
 
   // ------------------------------------------------------------------ keep it current
   refresh();
