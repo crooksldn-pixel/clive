@@ -70,10 +70,25 @@ FAMILY = register(CapabilityFamily(
 # often is. What is missing is anything that reports back, and that is a provider nobody has
 # connected. `detail` carries no full stop: `families.words()` adds one, and the line the model
 # reads is short because it is paid on every model-path turn.
+#
+# Ship24 is that provider, one parcel at a time (app/tools/ship24_tools.py, track_parcel), so the
+# state is PROBED from its key: with one stored, whether a parcel arrived IS a fact CLIVE can
+# look up, and telling the model otherwise at the top of every turn would stop it asking. Without
+# one, the reason is the Ship24 family's own, word for word, so the two share one line of the
+# model's prompt (`families.words()` groups by state and reason) instead of paying for two.
+async def _delivery_probe(_runtime: Any) -> dict[str, Any]:
+    from app.clients import ship24
+
+    if ship24.api_key():
+        return {"state": "READY", "detail": "Ship24 is connected: track_parcel reads one parcel's carrier scans"}
+    return {"state": "DISCONNECTED", "detail": ship24.NOT_CONNECTED}
+
+
 DELIVERY = register(CapabilityFamily(
     key="delivery_tracking", label="Delivery status", area="shipping",
     what="whether a parcel has actually arrived",
     state="DISCONNECTED",
     detail="no carrier is connected, so whether a parcel arrived is not a fact CLIVE holds — "
            "only fulfilled/unfulfilled, and whether a tracking number exists",
+    probe=_delivery_probe,
 ))

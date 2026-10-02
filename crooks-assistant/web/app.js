@@ -316,6 +316,8 @@ const DETAIL_WORDS = {
   // Reading Instagram (read-only: nothing is sent)
   instagram_inbox: ['Checking', 'Instagram messages'], instagram_thread: ['Reading', 'the conversation'],
   instagram_comments: ['Checking', 'Instagram comments'],
+  // Tracking a parcel with the carrier (read-only: nothing in the shop changes)
+  track_parcel: ['Tracking', 'the parcel'],
   people_list: ['Checking', 'who does what'],
   person_note: ['Noting', 'who they are'],
   work_list: ['Checking', 'the work list'],

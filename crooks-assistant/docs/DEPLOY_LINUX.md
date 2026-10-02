@@ -63,11 +63,15 @@ it?**
 ### Static — encrypted credentials
 
 `elevenlabs_api_key`, `shopify_client_id`, `shopify_client_secret`, `shopify_static_token`,
-`claude_oauth_token`, `youtube_api_key`.
+`claude_oauth_token`, `youtube_api_key`, `ship24_api_key`.
 
 `youtube_api_key` is optional. It is a YouTube Data API v3 key that CLIVE uses to search YouTube
 when the owner asks for a video on a screen ("play the Heat trailer on the TV"). Without it, a
 YouTube link still plays; only search needs the key (app/clients/youtube.py).
+
+`ship24_api_key` is optional, and normally pasted on the Connections screen rather than stored
+here. It is a Ship24 Tracking API key that CLIVE uses to say where a parcel is from the carrier's
+own scans (app/clients/ship24.py); without it, parcel tracking reads as not connected.
 
 Read at runtime and never written. Encrypted with `systemd-creds encrypt`, which binds the
 blob to this host, and mounted read-only into the service's own private tmpfs by

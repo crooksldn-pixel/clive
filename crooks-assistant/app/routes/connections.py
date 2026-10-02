@@ -34,7 +34,8 @@ router = APIRouter()
 WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
 MAX_BODY = 64 * 1024
 CREDENTIAL_ID = re.compile(r"^[A-Za-z0-9_-]{16,1400}$")
-NAME = re.compile(r"^[a-z]{2,20}$")
+# A connection's name in an address: a letter, then letters and digits ("ship24").
+NAME = re.compile(r"^[a-z][a-z0-9]{1,19}$")
 SEAL = re.compile(r"^[0-9a-f]{64}$")
 
 

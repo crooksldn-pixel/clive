@@ -83,6 +83,8 @@ STATIC_KEYS = frozenset({
     "github_engineering_inbox_token",
     # Read by app/clients/youtube.py for each search and never written by the application.
     "youtube_api_key",
+    # Read by app/clients/ship24.py for each parcel looked up and never written by the application.
+    "ship24_api_key",
     # The Meta app's id and secret: read by scripts/instagram.py when a new token is exchanged
     # by hand, never written by the application.
     "instagram_app_id",
