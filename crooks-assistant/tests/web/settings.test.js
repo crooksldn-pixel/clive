@@ -570,3 +570,40 @@ test('while the pill shows, the answer line keeps clear of it, and gets the room
   assert.ok(css.includes('body.alpha[data-mode="context"] .orb-zone{padding-right:calc(64px + var(--conn-room, 0px))}'),
     'the line in context mode leaves the settings button and the pill their room');
 });
+
+// 2 October (the owner: "get my settings working"): Instagram's family sits in the customers area
+// and its row told him to "Connect Shopify"; and a row that asks him to connect a service is a way
+// to the screen where that is done, the Connections screen.
+test('a disconnected Instagram says Instagram, and the step is a link to Connections', () => {
+  const page = boot();
+  const data = healthy();
+  data.families.instagram = { key: 'instagram', label: 'Instagram', area: 'customers', what: 'read Instagram messages and comments', state: 'DISCONNECTED', detail: 'no token stored', operations: [], hide: false };
+  page.sandbox.drawOwnerSettings(data);
+  const row = page.el.needs.children.find((node) => node.querySelector('.oname').textContent === 'Instagram');
+  assert.ok(row, 'Instagram is one of the owner\'s steps');
+  assert.equal(row.querySelector('.odetail').textContent, 'Connect Instagram to turn this on.');
+  assert.doesNotMatch(row.querySelector('.odetail').textContent, /Shopify/);
+  assert.equal(row.tagName.toLowerCase(), 'a');
+  assert.equal(row.href, '/connections');
+});
+
+test('the sheet reaches Connections and the team, as rows that open their screens', () => {
+  const at = (id) => INDEX.indexOf(`id="${id}"`);
+  assert.ok(at('set-places') > at('set-needs') && at('set-places') < at('set-conversation'),
+    'after what CLIVE needs from the owner, before Conversation');
+  assert.match(INDEX, /<a class="orow olink" role="listitem" id="open-connections" href="\/connections">/);
+  assert.match(INDEX, /<a class="orow olink" role="listitem" id="open-team" href="\/today">/);
+});
+
+test('"Speak answers aloud" is kept on the device, and Preview voice speaks whatever it says', () => {
+  assert.ok(SOURCE.includes("el.speakToggle.checked = store.get('crooks.speak', '1') !== '0';"));
+  assert.ok(SOURCE.includes("store.set('crooks.speak', el.speakToggle.checked ? '1' : '0')"));
+  // Both voices ask the same question, so the Android fallback that runs after ElevenLabs fails
+  // speaks the preview too; flipping the checkbox around the call never reached it.
+  assert.ok(SOURCE.includes("if (!window.speechSynthesis || !speakingAllowed() || !text)"));
+  assert.ok(SOURCE.includes('if (!speakingAllowed()) { settle(isError); return; }'));
+  const preview = cut("el.preview.addEventListener('click'", '\n});\n');
+  assert.ok(preview.includes('previewing = true;'));
+  assert.ok(!preview.includes('el.speakToggle.checked ='), 'the owner\'s switch is never touched by a preview');
+  assert.ok(cut('function settle(isError)', '\n}\n').includes('previewing = false;'));
+});

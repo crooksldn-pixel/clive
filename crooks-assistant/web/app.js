@@ -510,9 +510,16 @@ function stopSpeaking() {
   speakingVia = null;
 }
 
+// "Preview voice" speaks once whatever "Speak answers aloud" says, through whichever path
+// answers (ElevenLabs, or the Android fallback after it), until that speech settles. Flipping the
+// checkbox around the call did not reach the fallback, which runs later and found it off again.
+let previewing = false;
+function speakingAllowed() { return el.speakToggle.checked || previewing; }
+
 // Where the screen lands once nothing is speaking any more.
 function settle(isError) {
   speakingVia = null;
+  previewing = false;
   if (!busy && !recording) setState(isError ? 'ERROR' : 'READY', isError ? lastErrorTitle : '');
   // The answer named the build it was made for; if this page is older, take the new one now
   // that nothing is being said.
@@ -543,7 +550,7 @@ function chunkForSpeech(text, limit = 200) {
 // `reason` is logged rather than shown — the owner wants the answer, not an apology.
 function browserSpeak(text, { isError = false, reason = '' } = {}) {
   T.record('speak', { via: 'browser', reason: reason || undefined, ms: speakRequestedAt ? Date.now() - speakRequestedAt : undefined });
-  if (!window.speechSynthesis || !el.speakToggle.checked || !text) { settle(isError); return; }
+  if (!window.speechSynthesis || !speakingAllowed() || !text) { settle(isError); return; }
   console.warn(`[crooks] ElevenLabs voice unavailable (${reason || 'unknown'}) — using the Android voice`);
   const generation = speakGeneration;
   const parts = chunkForSpeech(text);
@@ -575,7 +582,7 @@ function browserSpeak(text, { isError = false, reason = '' } = {}) {
 // milliseconds. Every way this can fail ends in browserSpeak, never in silence.
 async function speakAnswer(text, { isError = false } = {}) {
   if (!text) { settle(isError); return; }
-  if (!el.speakToggle.checked) { settle(isError); return; }
+  if (!speakingAllowed()) { settle(isError); return; }
   stopSpeaking();
   const generation = speakGeneration;
   speakRequestedAt = Date.now();
@@ -1144,8 +1151,14 @@ const CONNECT_SUBJECTS = {
   shipping: 'a shipping provider', email: 'Gmail',
   orders: 'Shopify', customers: 'Shopify', products: 'Shopify', analytics: 'Shopify',
 };
-function connectSubject(f) {
+// A family whose own service is one of the Connections screen's is named by that service, before
+// its area: Instagram's family sits in the customers area, and was told to "Connect Shopify".
+const CONNECT_FAMILIES = { instagram: 'Instagram' };
+function connectSubject(f, key) {
+  if (CONNECT_FAMILIES[key]) return CONNECT_FAMILIES[key];
   const said = String(f.detail || '');
+  if (/\binstagram\b/i.test(said)) return 'Instagram';
+  if (/\bship24\b/i.test(said)) return 'Ship24';
   if (/\bcarrier\b/i.test(said)) return 'a carrier';
   if (/\bshipping provider\b/i.test(said)) return 'a shipping provider';
   if (/\bgmail\b/i.test(said)) return 'Gmail';
@@ -1166,7 +1179,7 @@ function needsRows(data) {
     if (!checks[key] || checks[key].ok !== false) continue;
     const fault = serviceFault(key, checks[key]);
     const word = SERVICE_STEP_WORDS[fault.kind];
-    if (word) rows.push({ name: SERVICE_WORDS[key].name, state: 'attention', word, detail: fault.detail });
+    if (word) rows.push({ name: SERVICE_WORDS[key].name, state: 'attention', word, detail: fault.detail, href: '/connections' });
   }
   for (const key of Object.keys(families).sort()) {
     const f = families[key] || {};
@@ -1179,10 +1192,11 @@ function needsRows(data) {
         : `CLIVE does not yet have the ${holder} permission this needs. Allow it in ${holder} to turn this on.`;
       rows.push({ name: String(f.label || key), state: 'attention', word: 'Needs your permission', detail });
     } else if (f.state === 'DISCONNECTED') {
-      const subject = connectSubject(f);
+      const subject = connectSubject(f, key);
       if (!subject) continue;
       const tell = /^(whether|what|which|when|where|who|how)\b/.test(task) ? ` so CLIVE can tell you ${task}` : ' to turn this on';
-      rows.push({ name: String(f.label || key), state: 'attention', word: 'Not connected', detail: `Connect ${subject}${tell}.` });
+      rows.push({ name: String(f.label || key), state: 'attention', word: 'Not connected', detail: `Connect ${subject}${tell}.`,
+                  href: CONNECTABLE.has(subject) ? '/connections' : '' });
     }
   }
   if (voice.failure_kind === 'credit' || speech.scribe_failure_kind === 'credit') {
@@ -1196,9 +1210,14 @@ function needsRows(data) {
   return rows;
 }
 
+// The services the Connections screen itself connects (app/connections/catalog.py). A row that
+// asks the owner to connect one of them is a link to that screen; Shopify and Gmail rows too,
+// since their keys are there.
+const CONNECTABLE = new Set(['Instagram', 'Ship24', 'Shopify', 'Gmail', 'ElevenLabs', 'YouTube', 'GitHub']);
 function ownerRow(row) {
-  const node = document.createElement('div');
-  node.className = 'orow';
+  const node = document.createElement(row.href ? 'a' : 'div');
+  node.className = row.href ? 'orow olink' : 'orow';
+  if (row.href) node.href = row.href;
   node.setAttribute('role', 'listitem');
   node.dataset.state = row.state || 'ok';
   const name = document.createElement('span'); name.className = 'oname'; name.textContent = row.name;
@@ -4389,14 +4408,16 @@ el.preview.addEventListener('click', () => {
   // Previews the real voice, through the real path — which is also the quickest way to tell
   // whether ElevenLabs is answering from the tablet itself.
   unlockSpeech();
-  const previous = el.speakToggle.checked;
-  el.speakToggle.checked = true;
+  previewing = true;
   speakAnswer('Twelve orders today, four hundred and thirty pounds.');
-  el.speakToggle.checked = previous;
 });
 el.timingToggle.addEventListener('change', () => { if (!el.timingToggle.checked) el.timings.hidden = true; });
 el.streamToggle.checked = store.get('crooks.stream', '1') !== '0';
 el.streamToggle.addEventListener('change', () => store.set('crooks.stream', el.streamToggle.checked ? '1' : '0'));
+// Kept on this device like the stream switch: it used to come back on at every reload, and the
+// page reloads itself for every new build.
+el.speakToggle.checked = store.get('crooks.speak', '1') !== '0';
+el.speakToggle.addEventListener('change', () => store.set('crooks.speak', el.speakToggle.checked ? '1' : '0'));
 el.resetSession.addEventListener('click', async () => {
   const form = new FormData();
   form.append('session_id', sessionId);

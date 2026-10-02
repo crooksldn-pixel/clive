@@ -22,8 +22,12 @@ KINDS = ("staff", "contact")
 MAX_PEOPLE = 50
 MAX_TEXT = 400
 MAX_AREAS = 12
-LOGIN = re.compile(r"^[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,24}$")
-EMAIL = LOGIN
+EMAIL = re.compile(r"^[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,24}$")
+# The login Tailscale says someone signed in with, as the door compares it (lower case): an email
+# address, or one of Tailscale's own forms with no dot after the "@": "name@github" (GitHub sign-in)
+# and "name@passkey" (a Tailscale passkey). The email-only rule turned those away, so someone who
+# signs in to Tailscale either way could never be let in (2 October).
+LOGIN = re.compile(r"^[a-z0-9._%+-]{1,64}@(?:[a-z0-9-]{1,63}\.){0,8}[a-z0-9-]{1,63}$")
 HANDLE = re.compile(r"^@?[A-Za-z0-9._]{1,30}$")
 # Ids that already mean someone else in CLIVE's records: "owner" is George in the work list and its
 # record (app/work), "clive" is CLIVE itself, "local" is the server. A person called "Owner" gets
@@ -200,6 +204,10 @@ class PeopleStore:
                 if kind not in KINDS:
                     raise PeopleError("a person is staff (uses CLIVE) or a contact (someone CLIVE can ask)")
                 target.kind = kind
+            elif fields.get("login"):
+                # A login is how someone signs in to use CLIVE, so a card given one with no kind is staff.
+                # Before, it stayed a contact and the login was dropped without a word (2 October).
+                target.kind = "staff"
             if name and not created:
                 target.name = name
             for key in ("role", "uses", "notes"):
@@ -221,8 +229,11 @@ class PeopleStore:
                 target.phone = _clip(fields["phone"], 32)
             if fields.get("login"):
                 login = str(fields["login"]).strip().lower()
+                if target.kind != "staff":
+                    raise PeopleError("only the team signs in: say they are staff, and the login is kept")
                 if not LOGIN.fullmatch(login):
-                    raise PeopleError("a login is the email address they sign in to Tailscale with")
+                    raise PeopleError("a login is what they sign in to Tailscale with: an email address, "
+                                      "or a name@github or name@passkey login")
                 clash = next((p for p in people.values() if p.login == login and p.person_id != target.person_id), None)
                 if clash is not None:
                     raise PeopleError(f"that login is already {clash.name}'s")

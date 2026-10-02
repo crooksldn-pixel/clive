@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 
@@ -507,6 +507,32 @@ class Housekeeper:
 app = FastAPI(title="CROOKS Assistant", version="0.1.0", lifespan=lifespan)
 
 
+def _wants_page(request: Request) -> bool:
+    """A person opening a page in a browser, as against the app's own calls, which keep their JSON."""
+    return request.method == "GET" and "text/html" in request.headers.get("accept", "")
+
+
+def _not_let_in_page(login: str) -> HTMLResponse:
+    """What someone sees on their phone when their login is not let in: who Tailscale says they are,
+    and the one thing to do about it. It used to be a line of raw JSON (2 October)."""
+    import html
+
+    who = html.escape(login)
+    body = f"""<!doctype html><html lang="en-GB"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>CLIVE</title>
+<style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0b0d;color:#f2f2f5;
+font:17px/1.45 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;padding:24px}}main{{max-width:420px}}
+h1{{font-size:24px;font-weight:600;margin:0 0 12px}}p{{margin:0 0 12px;color:#b8b8c0}}
+code{{display:block;margin:4px 0 16px;padding:12px 14px;border-radius:12px;background:#1c1c21;color:#fff;
+font:16px ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all;user-select:all}}</style></head>
+<body><main><h1>You're not let in yet</h1>
+<p>Tailscale says you are signed in as:</p><code>{who}</code>
+<p>Ask George to add you on CLIVE's Team screen with exactly that login, then tap <b>Let them in</b>.
+If he already has, he still needs to let you in.</p>
+<p>Then come back to this page.</p></main></body></html>"""
+    return HTMLResponse(content=body, status_code=403, headers={"Cache-Control": "no-store"})
+
+
 @app.middleware("http")
 async def guard_and_freshness(request: Request, call_next):
     """Two small things every request passes through.
@@ -551,6 +577,10 @@ async def guard_and_freshness(request: Request, call_next):
         from app.people import door as staff_door
 
         if not staff_door.staff_login(login):
+            log.warning("refused a login that is neither the owner's nor let in for the team (path=%s)",
+                        request.url.path)
+            if _wants_page(request):
+                return _not_let_in_page(login)
             return JSONResponse(status_code=403, content={"error": "not allowed", "who": login})
     # Everything that is not public is the owner's, by the one rule (principal_check): a turn and
     # every tool the model reaches through it, every command, record and card, the pad's heartbeat

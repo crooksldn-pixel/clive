@@ -305,11 +305,45 @@ def _login(request: Request) -> str:
         raise _Refused(exc.status, exc.code, exc.detail) from None
 
 
+def _owner_logins(request: Request) -> set[str]:
+    return {str(x).lower() for x in (getattr(getattr(request.app.state, "runtime", None), "allowed_logins", ()) or ())}
+
+
+@router.post("/today/people")
+@_guarded
+async def today_people_add(request: Request) -> JSONResponse:
+    """The owner adds someone to the team from the People tab: their name and the login they sign in
+    to Tailscale with. It writes their card and a waiting grant, nothing more: letting them in is
+    still the owner's passkey, on "Let them in". Before this, the only way was telling CLIVE, which
+    had to get the kind and the login exactly right (2 October)."""
+    by = _owner_only()
+    body = await _body(request)
+    name, login = str(body.get("name") or "").strip(), str(body.get("login") or "").strip().lower()
+    if not name or not login:
+        raise _Refused(400, "missing", "Give their name and the login they sign in to Tailscale with.")
+    if login in _owner_logins(request):
+        raise _Refused(409, "owner_login", "That login is the owner's own: a member of the team signs in with "
+                                           "their own.")
+    person, created = people.note({"name": name, "kind": "staff", "login": login,
+                                   "role": str(body.get("role") or "")})
+    state = access.ask(person.person_id, person.login)
+    work.record({"who": by, "what": "person_added", "item_id": person.person_id, "detail": person.name})
+    return _answer({"person": {"person_id": person.person_id, "name": person.name, "login": person.login},
+                    "access": state, "created": created})
+
+
 @router.post("/today/access/{person_id}/approve")
 @_guarded
 async def today_access_approve(request: Request, person_id: str) -> JSONResponse:
     body = await _body(request)
     by, used, login = _access_step(request, person_id, "approve", body)
+    if not access.state(person_id):
+        # A staff card with a login but no grant behind it (made before grants were asked, or by hand):
+        # the passkey just approved this person with this login, so ask and let in together.
+        person = people.get(person_id)
+        if person is None or person.kind != "staff":
+            raise _Refused(409, "not_staff", "Only a member of the team can be let in.")
+        access.ask(person_id, login)
     try:
         access.approve(person_id, login=login, by=by, passkey=used.get("id", ""))
     except access.AccessError as exc:
