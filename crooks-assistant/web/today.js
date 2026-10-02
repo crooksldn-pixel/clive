@@ -339,8 +339,7 @@
     }
     const head = heading(card);
     const what = primary(card);
-    box.dataset.kind = card.kind;
-    box.dataset.key = card.key;
+    box.dataset.kind = ORDER_OF_KINDS[card.kind] === undefined ? 'job' : card.kind;   // one of five fixed words
     box.dataset.state = card.mine && card.claimed ? 'yours' : 'next';
     const kick = card.mine && card.claimed ? 'Yours now' : card.mine ? 'Handed to you' : 'Next up';
     box.append(element('p', 'now-kick', kick), element('h1', 'now-big', head.big));
@@ -861,7 +860,8 @@
     }
     const was = JSON.stringify(state && [state.work, state.record, state.people]);
     state = data;
-    document.body.dataset.who = state.me.owner ? 'owner' : 'team';
+    document.body.classList.remove('loading');
+    document.body.classList.toggle('is-owner', state.me.owner);
     $('#home').hidden = !state.me.owner;
     if (state.me.owner) {
       $('#work').hidden = true;

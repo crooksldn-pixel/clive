@@ -64,7 +64,7 @@ async function open(browser, viewport, headers) {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(`${BASE}/today`, { waitUntil: 'load' });
-  await page.waitForFunction(() => document.body.dataset.who !== 'loading', null, { timeout: 20000 });
+  await page.waitForFunction(() => !document.body.classList.contains('loading'), null, { timeout: 20000 });
   await sleep(500);
   return { context, page, errors };
 }
@@ -118,7 +118,7 @@ async function phoneStaff(browser) {
   const row = await rowFor(page, '#2106');
   check('the next jobs are one tap away', Boolean(row));
   if (row) await row.click();
-  await page.waitForSelector('#now[data-key^="order:"] .go');
+  await page.waitForFunction(() => (document.querySelector('#now .now-big') || {}).textContent === '#2106', null, { timeout: 8000 });
   check('the job chosen fills the screen with one action', (await text(page, '#now .now-big')) === '#2106' && (await text(page, '#now .go')) === 'Take it',
     await text(page, '#now .go'));
   await page.click('#now .go');
