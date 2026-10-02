@@ -173,3 +173,14 @@ test('nothing throws but CLIVE never answers: the overlay still goes by itself',
   pg.advance(700);
   assert.ok(pg.root.removed);
 });
+
+// 2 October (the owner: the gear did nothing for several seconds after a full start-up): once CLIVE
+// is there, a tap ends the start-up at once; before that, a tap still only hurries the animation.
+test('a tap once CLIVE is online ends the start-up at once', () => {
+  const at = STARTUP.indexOf("root.addEventListener('pointerdown'");
+  assert.notEqual(at, -1);
+  const handler = STARTUP.slice(at, STARTUP.indexOf('\n  });', at));
+  const online = handler.indexOf('if (ready()) { finish(); return; }');
+  const hurry = handler.indexOf('E.simulate(T0 + 5.15)');
+  assert.ok(online !== -1 && hurry !== -1 && online < hurry, 'online is asked first');
+});

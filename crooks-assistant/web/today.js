@@ -22,7 +22,7 @@
     done: 'finished', cancelled: 'cancelled', fulfilled: 'fulfilled', tracking_added: 'added tracking to',
     replied: 'replied to', reply_drafted: 'drafted a reply to', stock_set: 'set the stock of',
     routine_set: 'set a routine:', routine_stopped: 'stopped a routine:', access_approved: 'let in',
-    access_suspended: 'took access away from', flagged: 'flagged for George:',
+    access_suspended: 'took access away from', person_added: 'added to the team:', flagged: 'flagged for George:',
     fulfilled_undone: 'undid the fulfilment of', tracking_added_undone: 'undid the tracking on',
     replied_undone: 'undid the reply to', reply_drafted_undone: 'deleted the draft reply to',
     stock_set_undone: 'put back the stock of',
@@ -483,6 +483,7 @@
     $('#ask').addEventListener('submit', send);
     $('#assign').addEventListener('submit', (event) => { event.preventDefault(); submitForm(event.target, '/today/assign', 'Handed out.'); });
     $('#routine').addEventListener('submit', (event) => { event.preventDefault(); submitForm(event.target, '/today/routine', 'Routine set.'); });
+    $('#person-add').addEventListener('submit', (event) => { event.preventDefault(); submitForm(event.target, '/today/people', 'Added. Tap Let them in when you are ready.'); });
     load(true);
     window.setInterval(() => { if (document.visibilityState === 'visible' && tab !== 'ask') load(); }, 60000);
   });

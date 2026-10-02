@@ -254,6 +254,9 @@
   root.addEventListener('pointerdown', () => {
     if (finished) return;
     try {
+      // A tap once CLIVE is there is someone who wants the app now (the gear, a card): the start-up
+      // steps aside at once instead of playing on over it for up to eight seconds.
+      if (ready()) { finish(); return; }
       if (kind === 'full' && !loadAt && E.time() < T0 + 5.1) { E.simulate(T0 + 5.15); return; }
     } catch (e) { bail(); return; }
     if (failed()) finish();

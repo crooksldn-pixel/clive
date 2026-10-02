@@ -87,6 +87,18 @@
   <section id="s-people" class="section" hidden>
     <h2>The team and the people CLIVE can ask</h2>
     <p class="muted small">Tell CLIVE who someone is ("Mia works in the office: packing, emails, Instagram") and they appear here. A team member's login waits for your passkey before they can use CLIVE.</p>
+    <h2>Add someone to the team</h2>
+    <!-- Their name and the login Tailscale shows for them (an email address, or name@github /
+         name@passkey). It only adds them, waiting: "Let them in" below is still your passkey.
+         When they are refused, the page they see shows the exact login to type here. -->
+    <form id="person-add" class="panel form" autocomplete="off">
+      <div class="row2">
+        <label>Name <input name="name" required maxlength="80" placeholder="Emily"></label>
+        <label>Tailscale login <input name="login" required maxlength="200" autocapitalize="none" spellcheck="false" placeholder="emily@gmail.com"></label>
+      </div>
+      <label>What they do <input name="role" maxlength="160" placeholder="Packing and the inbox"></label>
+      <button class="btn primary" type="submit">Add to the team</button>
+    </form>
     <ul id="people" class="jobs"></ul>
   </section>
 

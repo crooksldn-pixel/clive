@@ -123,7 +123,7 @@ async def test_every_route_but_the_teams_stays_the_owners(team):
         ("POST", "/turn"), ("GET", "/today"), ("GET", "/today/state"),
         ("POST", "/today/claim"), ("POST", "/today/release"), ("POST", "/today/packed"), ("POST", "/today/counts"),
         ("POST", "/today/done"), ("POST", "/today/assign"), ("POST", "/today/cancel"), ("POST", "/today/routine"),
-        ("POST", "/today/routine/stop"), ("POST", "/today/access/scr_000000000000/approve"),
+        ("POST", "/today/routine/stop"), ("POST", "/today/people"), ("POST", "/today/access/scr_000000000000/approve"),
         ("POST", "/today/access/scr_000000000000/suspend"),
         ("POST", "/actions/row"), ("POST", "/actions/scr_000000000000/arm"), ("POST", "/actions/scr_000000000000/commit"),
         ("POST", "/actions/scr_000000000000/dismiss"), ("GET", "/actions/states"), ("GET", "/actions/scr_000000000000"),
@@ -217,6 +217,44 @@ async def test_an_approval_is_for_the_login_he_saw_and_never_his_own(team, world
     assert loginless.status_code == 400                                       # an approval always names the login
 
 
+async def test_the_owner_adds_someone_on_the_people_tab_and_lets_them_in_with_his_passkey(team, world):  # noqa: F811
+    """2 October (the owner: "get staff sign in working"): adding someone took telling CLIVE exactly right,
+    a GitHub or passkey Tailscale login could not be kept at all, and a refused phone showed raw JSON."""
+    emily = {"Tailscale-User-Login": "emily@github", "X-Forwarded-For": "100.64.0.9"}
+    page = await world.get("/", headers={**emily, "Accept": "text/html"})
+    assert page.status_code == 403 and page.headers["content-type"].startswith("text/html")
+    assert "emily@github" in page.text and "Team screen" in page.text and "<script" not in page.text
+    api = await world.get("/today/state", headers=emily)                      # the app's own calls keep JSON
+    assert api.status_code == 403 and api.json() == {"error": "not allowed", "who": "emily@github"}
+
+    await register(world)
+    added = await world.post("/today/people", headers=HEADERS,
+                             json={"name": "Emily", "login": "Emily@GitHub", "role": "packing and the inbox"})
+    assert added.status_code == 200 and added.json()["access"] == "pending" and added.json()["created"] is True
+    card = people.get("emily")
+    assert card.kind == "staff" and card.login == "emily@github" and card.role == "packing and the inbox"
+    assert (await world.get("/today/state", headers=emily)).status_code == 403          # waiting for his passkey
+    done = await world.post("/today/access/emily/approve", headers=HEADERS, json={
+        "approval": await approval(world, "access:approve:emily:emily@github"), "login": "emily@github"})
+    assert done.status_code == 200 and done.json()["access"] == "active"
+    assert (await world.get("/today/state", headers=emily)).json()["me"]["id"] == "emily"
+    for refused in ({"name": "", "login": "x@example.com"}, {"name": "X", "login": ""}):
+        missing = await world.post("/today/people", headers=HEADERS, json=refused)
+        assert missing.status_code == 400 and missing.json()["code"] == "missing"
+    own = await world.post("/today/people", headers=HEADERS, json={"name": "Me", "login": OWNER})
+    assert own.status_code == 409 and own.json()["code"] == "owner_login"
+
+
+async def test_a_staff_card_with_no_grant_behind_it_is_let_in_by_the_passkey_all_the_same(team, world):  # noqa: F811
+    """The People tab offered "Let them in" for a login with no grant, and the approval then failed."""
+    people.note({"name": "Kit", "kind": "staff", "login": "kit@passkey"})
+    assert access.state("kit") == ""
+    await register(world)
+    done = await world.post("/today/access/kit/approve", headers=HEADERS, json={
+        "approval": await approval(world, "access:approve:kit:kit@passkey"), "login": "kit@passkey"})
+    assert done.status_code == 200 and access.state("kit") == "active"
+
+
 async def test_the_server_itself_is_refused_letting_someone_in_and_said_so(team):
     """The server is the owner for his reads here (CROOKS_LOCAL_OWNER), but letting someone in needs his
     passkey from his own device: refused in this route's own shape, never an unhandled error."""
@@ -230,7 +268,8 @@ async def test_the_owners_steps_are_refused_to_the_team(team):
     let_mia_in()
     for path, body in (("/today/assign", {"title": "Do my job"}), ("/today/routine", {"title": "x", "cadence": "daily"}),
                        ("/today/cancel", {"item_id": "w_261001_00000000"}), ("/today/routine/stop", {"routine_id": "r_1"}),
-                       ("/today/access/mia/approve", {}), ("/today/access/mia/suspend", {})):
+                       ("/today/access/mia/approve", {}), ("/today/access/mia/suspend", {}),
+                       ("/today/people", {"name": "Kit", "login": "kit@example.com"})):
         refused = await team.post(path, json=body, headers=AS_MIA)
         assert refused.status_code == 403 and refused.json()["code"] == "owners", path
     assert work.items() == []

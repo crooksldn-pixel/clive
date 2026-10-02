@@ -84,6 +84,27 @@ def test_a_contact_has_no_login_even_if_one_was_given(stores):
     assert person.login == ""
 
 
+@pytest.mark.parametrize("given, kept", [
+    ("Emily@GitHub", "emily@github"),           # Tailscale's GitHub sign-in: no dot after the "@"
+    ("kit@passkey", "kit@passkey"),              # a Tailscale passkey login
+    ("rosa@crooksldn.co.uk", "rosa@crooksldn.co.uk"),
+])
+def test_every_login_tailscale_gives_is_kept(given, kept):
+    """2 October: the email-only rule turned name@github and name@passkey away, so someone signing in
+    to Tailscale either way could never be let in."""
+    person, _ = people.note({"name": "Someone", "kind": "staff", "login": given})
+    assert person.login == kept and people.by_login(kept) is not None
+
+
+def test_a_login_makes_someone_staff_and_is_never_dropped_without_a_word():
+    """2 October: a card given a login and no kind stayed a contact and its login was wiped silently."""
+    emily, _ = people.note({"name": "Emily", "login": "emily@example.com"})
+    assert emily.kind == "staff" and emily.login == "emily@example.com"
+    with pytest.raises(PeopleError, match="only the team signs in"):
+        people.note({"name": "Hen", "kind": "contact", "login": "hen@example.com"})
+    assert people.find("hen") is None or people.find("hen").login == ""
+
+
 def test_an_unreadable_record_is_a_refusal_never_an_empty_team(stores):
     (stores / "people.json").write_text("{not json")
     with pytest.raises(PeopleError):

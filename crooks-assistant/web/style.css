@@ -825,6 +825,11 @@ body[data-mode="orb"] .dock{background:linear-gradient(180deg,rgba(7,7,10,0),rgb
 .orow[data-state="ok"] .ostate{color:var(--ok)}
 .orow[data-state="attention"] .ostate{color:var(--warn)}
 .odetail{grid-column:1 / -1;color:var(--ink-3);font-size:13px;line-height:1.5;word-break:break-word}
+/* A row that opens another screen (Connections, Team): the whole row is the target, and it says so
+   with the chevron iOS uses for "goes somewhere", never a coloured button. */
+a.orow{color:inherit;text-decoration:none;-webkit-tap-highlight-color:transparent;cursor:pointer}
+a.orow .oname::after{content:"\203A";margin-left:var(--sp-2);color:var(--ink-3)}
+a.orow:active{opacity:.6}
 .dev-switch{margin-top:var(--sp-6);padding-top:var(--sp-2);border-top:1px solid var(--line);color:var(--ink-2)}
 .dev{border:1px dashed rgba(255,159,10,.4);border-radius:var(--r-2);padding:12px 14px;margin-top:20px}
 .dev h3{color:var(--warn)}
