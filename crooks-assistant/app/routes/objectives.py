@@ -1,7 +1,10 @@
 """The owner's screen onto objectives: list, read, create, answer, authorise, tick a task, close.
 
 These are the only callers that act as the owner (``by="owner"``): authorising a work item and
-closing an objective are refused to the model's tools by the store itself. Access is the
+closing an objective are refused to the model's tools by the store itself. His touches on an
+objective (make a stage now, tick or hand over a task, move the date it must land by) each answer
+with the record and, when they changed something, an undo offer he has six seconds to take
+(``POST /objectives/{id}/undo``); a touch that changed nothing says so instead, in ``said``. Access is the
 application's: the tailnet allow-list middleware in app/main.py has already refused any caller
 who is not one of the owner's logins. Nothing here reaches a store, an inbox or the outside world,
 with one read-only exception: /objectives/builds and /objectives/gaps read the engineering loop's
@@ -45,7 +48,21 @@ class TextBody(BaseModel):
 
 
 class TaskBody(BaseModel):
-    done: bool
+    # Ticked done or open, handed to someone else, or both; at least one (`tick`).
+    done: bool | None = None
+    who: str | None = Field(default=None, max_length=200)
+
+
+class StageBody(BaseModel):
+    stage: str = Field(min_length=1, max_length=120)
+
+
+class DeadlineBody(BaseModel):
+    deadline: str = Field(default="", max_length=10)
+
+
+class UndoBody(BaseModel):
+    token: str = Field(min_length=1, max_length=100)
 
 
 class StatusBody(BaseModel):
@@ -63,6 +80,13 @@ def _full(obj) -> dict:
     from app.objectives import cards
 
     return {**obj.to_dict(), "summary": obj.summary(), "card": cards.data(obj)}
+
+
+def _touched(answer) -> dict:
+    """A touch's answer: the record, the undo offer for what it changed, or the line saying it
+    changed nothing."""
+    obj, undo, said = answer
+    return {**_full(obj), "undo": undo, "said": said}
 
 
 @router.get("")
@@ -152,12 +176,43 @@ async def authorise(objective_id: str, item_id: str) -> dict | JSONResponse:
 
 @router.post("/{objective_id}/tasks/{task_id}", response_model=None)
 async def tick(objective_id: str, task_id: str, body: TaskBody) -> dict | JSONResponse:
-    """The owner ticks one of the delegated tasks done, or back to not done, on his screen. It
-    changes CLIVE's list and nothing else: nobody is told."""
+    """The owner ticks one of the delegated tasks done, or back to not done, on his screen, or
+    hands it to someone else (`who`). It changes CLIVE's list and nothing else: nobody is told."""
     try:
-        return _full(store().task(objective_id, item_id=task_id, done=body.done, by="owner"))
+        return _touched(store().touch_task(objective_id, task_id, done=body.done, who=body.who))
     except ObjectiveError as exc:
         return _refused(exc)
+
+
+@router.post("/{objective_id}/stage", response_model=None)
+async def stage(objective_id: str, body: StageBody) -> dict | JSONResponse:
+    """The owner makes a stage the one the project is at now (its name, or "next"). A record of
+    where the project is: nothing is ordered, booked or sent by it."""
+    try:
+        return _touched(store().touch_stage(objective_id, body.stage))
+    except ObjectiveError as exc:
+        return _refused(exc)
+
+
+@router.post("/{objective_id}/deadline", response_model=None)
+async def deadline(objective_id: str, body: DeadlineBody) -> dict | JSONResponse:
+    """The owner moves the date the objective must land by; an empty date takes it off."""
+    try:
+        return _touched(store().touch_deadline(objective_id, body.deadline))
+    except ObjectiveError as exc:
+        return _refused(exc)
+
+
+@router.post("/{objective_id}/undo", response_model=None)
+async def undo(objective_id: str, body: UndoBody) -> dict | JSONResponse:
+    """The owner takes back his last touch on this objective, within its six seconds: what it
+    changed is put back exactly, or, if the objective has changed since or the time is up, nothing
+    is, and he is told why. `said` is what was put back, in words."""
+    try:
+        obj, said = store().undo(objective_id, body.token)
+    except ObjectiveError as exc:
+        return _refused(exc)
+    return {**_full(obj), "said": said}
 
 
 @router.post("/{objective_id}/status", response_model=None)

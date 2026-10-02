@@ -1,0 +1,123 @@
+/* Objectives by touch, part B: the next six weeks (web/horizon.js), the pinch between the three
+   distances (web/distances.js), and each objective's mark in dots on its home row.
+
+   Colours are the design's and nothing else: blue for where it is and what is done, red only for
+   what will land late, steel for CLIVE's own engineering, quiet white for what is still to come.
+   Every target a finger aims at is at least 44 px. With motion turned down nothing breathes and
+   nothing travels (distances.js changes the view in place); on the Tab A nothing breathes either. */
+
+/* One finger scrolls the three views; two are web/distances.js's. */
+.alpha-home,.alpha-horizon,#alpha-sheet{touch-action:pan-y}
+
+/* ---- the horizon: it shares the home's band of the grid, and stands in for it when it is up */
+body.alpha .alpha-horizon{grid-area:alpha;position:relative;z-index:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:6px 16px 20px;display:flex;flex-direction:column;color:#fff}
+body.alpha .alpha-horizon[hidden],body.alpha[data-mode="context"] .alpha-horizon{display:none}
+.alpha-horizon > *{flex-shrink:0}
+.alpha-home.is-away{visibility:hidden}
+/* listening or typing, it gives way to the bar as the home does (alpha.css) */
+body.alpha .alpha-horizon{transition:opacity 460ms cubic-bezier(.32,.72,0,1),filter 460ms}
+body.alpha:has(#stage[data-state="LISTENING"]) .alpha-horizon{opacity:.25;filter:blur(8px)}
+body.alpha:has(.alpha-composer.is-typing) .alpha-horizon{opacity:.3;filter:blur(10px)}
+
+.hz-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:0 4px 6px}
+.hz-hello{min-width:0;display:flex;flex-direction:column;gap:4px}
+.hz-range{margin:0;font-size:13px;font-weight:600;letter-spacing:.01em;text-transform:uppercase;color:rgba(235,235,245,.62)}
+.hz-h1{margin:0;font-size:30px;line-height:1.1;font-weight:700;letter-spacing:-.02em;color:#fff}
+.hz-summary{margin:2px 0 0;font-size:17px;line-height:1.35;color:rgba(235,235,245,.64)}
+
+/* the way between the two without a gesture: glass capsules, like the bar */
+.hz-home,.hz-go{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;
+  border-radius:22px;cursor:pointer;font-size:15px;font-weight:600;color:#fff;-webkit-tap-highlight-color:transparent;
+  background:linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,.04));
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.26),inset 0 -1px 1px rgba(255,255,255,.05),0 10px 26px -12px rgba(0,0,0,.6);
+  transition:transform 300ms cubic-bezier(.32,.72,0,1)}
+.hz-home{flex:none;padding:0 16px 0 10px;margin-top:2px}
+.hz-go{margin-top:14px}
+.hz-home:active,.hz-go:active{transform:scale(.96)}
+.hz-home:focus-visible,.hz-go:focus-visible{outline:2px solid rgb(var(--acc,10,132,255));outline-offset:2px}
+.hz-chev{flex:none;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.hz-go-dots{flex:none}
+.hz-go-dots circle{fill:rgba(235,235,245,.55)}
+.hz-go-dots circle:first-child{fill:rgb(var(--acc,10,132,255))}
+
+/* the weeks: each Monday by its date */
+.hz-weeks{display:block;width:100%;height:18px;margin:10px 0 0;overflow:visible}
+.hz-week{font-size:12px;font-weight:600;fill:rgba(235,235,245,.6);text-anchor:middle;font-variant-numeric:tabular-nums}
+
+/* a row: its mark, its title, its date; then its days, one dot each; then, in words, what is late
+   or what it waits on */
+.hz-rows{display:flex;flex-direction:column;gap:2px}
+.hz-row{all:unset;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;width:100%;min-height:44px;padding:12px 0 14px;
+  border-radius:18px;cursor:pointer;color:#fff;-webkit-tap-highlight-color:transparent;transition:background-color 180ms}
+.hz-row:active{background-color:rgba(255,255,255,.05)}
+.hz-row:focus-visible{outline:2px solid rgb(var(--acc,10,132,255));outline-offset:-2px}
+.hz-row-head{display:flex;align-items:center;gap:10px;padding:0 4px;min-width:0}
+.hz-row .hz-glyph{flex:none;width:28px;height:28px}
+.hz-title{flex:1;min-width:0;font-size:17px;font-weight:600;letter-spacing:-.01em;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hz-detail{flex:none;font-size:14px;color:rgba(235,235,245,.6);font-variant-numeric:tabular-nums}
+.hz-days{display:block;width:100%;height:22px;overflow:visible}
+.hz-line{padding:0 4px 0 42px;font-size:15px;line-height:1.3;color:rgba(235,235,245,.64)}
+.hz-detail.is-late,.hz-line.is-late{color:#ff8a80}
+
+/* the days */
+.hz-d{fill:rgba(235,235,245,.22)}
+.hz-d.is-monday{fill:rgba(235,235,245,.4)}
+.hz-d.is-beyond{fill:rgba(235,235,245,.1)}
+.hz-d.is-late{fill:#ff8a80}
+.hz-m.is-done{fill:rgb(var(--acc,10,132,255))}
+.hz-m.is-now{fill:rgb(var(--acc,10,132,255));animation:hz-breathe 2.4s ease-in-out infinite}
+.hz-m.is-next{fill:rgba(235,235,245,.85)}
+.hz-m.is-late{fill:#ff8a80}
+.hz-today{fill:none;stroke:rgba(235,235,245,.7);stroke-width:1.3}
+.hz-ring{fill:rgba(10,132,255,.16);stroke:rgb(var(--acc,10,132,255));stroke-width:1.8}
+.hz-today.is-late{stroke:#ff8a80}
+.hz-ring.is-late{fill:rgba(255,138,128,.16);stroke:#ff8a80}
+
+/* ---- the mark: the lead of a home row, and the first thing in a horizon row */
+.alpha-row > .hz-glyph{flex:none;width:40px;height:40px}
+.hz-g.is-lit,.hz-g.is-now{fill:rgb(var(--acc,10,132,255))}
+.hz-g.is-now{animation:hz-breathe 2.4s ease-in-out infinite}
+.hz-g.is-dim{fill:rgba(235,235,245,.3)}
+.hz-g.is-steel.is-lit,.hz-g.is-steel.is-now{fill:#8fa3c0}
+.hz-g.is-ring{fill:rgba(235,235,245,.4)}
+.hz-g.is-ring.is-clive,.hz-g.is-now.is-clive{fill:rgba(10,132,255,.6)}
+
+/* a project's stage track on its row (web/objective-cards.js), drawn as a run of dots a stage */
+.alpha-row .oc-track{height:10px;gap:8px;max-width:244px}
+.alpha-row .oc-seg{height:10px;background:none;box-shadow:none;border-radius:0}
+.hz-track{display:flex;gap:8px;height:10px;width:100%;max-width:244px;margin:7px 0 1px}
+.hz-seg{flex:1;min-width:6px;height:10px}
+.hz-run{display:block;width:100%;height:10px;overflow:visible}
+.hz-t{fill:rgba(235,235,245,.3)}
+.oc-seg.is-done .hz-t,.hz-seg.is-done .hz-t{fill:rgb(var(--acc,10,132,255))}
+.oc-seg.is-current .hz-t,.hz-seg.is-current .hz-t{fill:rgba(10,132,255,.5)}
+.oc-seg.is-current .hz-t.is-first,.hz-seg.is-current .hz-t.is-first{animation:hz-breathe 2.4s ease-in-out infinite}
+.hz-track.is-steel .hz-seg.is-done .hz-t{fill:#8fa3c0}
+.hz-track.is-steel .hz-seg.is-current .hz-t{fill:rgba(143,163,192,.55)}
+.oc-seg[data-late] .hz-t{fill:#ff8a80}
+/* lateness first, in red, under the title */
+.alpha-row[data-late="true"] .alpha-row-sub{color:#ff8a80}
+
+/* ---- moving between the distances */
+/* the level the fingers would land on, said while they move */
+.hz-pill{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);max-width:calc(100vw - 32px);
+  box-sizing:border-box;min-height:28px;padding:5px 14px;border-radius:14px;display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:600;line-height:1.3;text-align:center;color:#fff;background:rgba(44,44,50,.92);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.16),0 10px 24px -10px rgba(0,0,0,.7);z-index:40;opacity:0;transition:opacity 260ms;pointer-events:none}
+.hz-pill.is-on{opacity:1}
+.hz-pill:empty{display:none}
+/* said to a screen reader when the level changes */
+.hz-status{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+/* the orb: large over the home, a little smaller over the next six weeks */
+body.alpha[data-mode="orb"][data-distance="horizon"] .orb-frame{transform:scale(.78)}
+/* an objective forming out of its row brings its own entrance */
+body.alpha .alpha-sheet.hz-forming{animation:none}
+
+@keyframes hz-breathe{0%,100%{opacity:.5}50%{opacity:1}}
+html[data-lite] .hz-m.is-now,html[data-lite] .hz-g.is-now,html[data-lite] .hz-t.is-first{animation:none}
+@media (prefers-reduced-motion:reduce){
+  .hz-m.is-now,.hz-g.is-now,.hz-t.is-first{animation:none}
+  .hz-pill,.hz-row,.hz-home,.hz-go,body.alpha .alpha-horizon{transition:none}
+  body.alpha[data-distance] .orb-frame{transition:none}
+}

@@ -169,7 +169,7 @@ async function conversation(browser) {
   await shot(page, 'tablet-02-tasks-card');
 
   // ---- a tick on the card marks it done on the Mac
-  await tap(page, '#cards .card-objective.is-tasks .oc-group .oc-task');
+  await tap(page, '#cards .card-objective.is-tasks .oc-group .oc-task .oc-check');
   await page.waitForTimeout(900);
   const ticked = await visibleCard(page, 'tasks');
   const stored = await record(page, 'tasks');
@@ -239,7 +239,7 @@ async function sheets(browser, size) {
 
   await sheetFor(page, 'tasks');
   const kitBefore = await record(page, 'tasks');
-  await tap(page, '#alpha-sheet .oc-group:nth-of-type(2) .oc-task');
+  await tap(page, '#alpha-sheet .oc-group:nth-of-type(2) .oc-task .oc-check');
   await page.waitForTimeout(900);
   const sheet = await page.evaluate(() => Array.from(document.querySelectorAll('#alpha-sheet .oc-group')).map((g) => ({ who: g.querySelector('.oc-who').textContent, count: g.querySelector('.oc-count').textContent })));
   const kitAfter = await record(page, 'tasks');

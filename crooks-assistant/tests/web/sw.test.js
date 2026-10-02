@@ -130,10 +130,14 @@ const SHELL = ['/', '/static/style.css', '/static/app.js', '/static/ui.js', '/st
   '/static/remote.js', '/static/remote.css',
   // Round 12: an objective in the shape of its kind (web/objective-cards.js).
   '/static/objective-cards.js', '/static/objective-cards.css',
+  // Objectives by touch: the gestures and the bar the two above share (web/objective-touch.js).
+  '/static/objective-touch.js',
   // Round 12: holding a record to put it on a screen (web/lift.js).
   '/static/lift.js', '/static/lift.css',
   // Round 12: soft scroll edges (web/edges.js) and cards formed of dots (web/dots-app.js).
   '/static/edges.js', '/static/edges.css', '/static/dots-app.js', '/static/dots-app.css',
+  // Objectives by touch, part B: the next six weeks (web/horizon.js) and the three distances (web/distances.js).
+  '/static/horizon.js', '/static/horizon.css', '/static/distances.js',
   '/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png', '/static/icon-maskable-192.png', '/static/icon-maskable-512.png'];
 
 async function installed() {

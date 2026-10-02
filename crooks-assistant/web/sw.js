@@ -56,6 +56,8 @@ const SHELL = [
   // Round 12: an objective in the shape of its kind (web/objective-cards.js).
   '/static/objective-cards.js',
   '/static/objective-cards.css',
+  // Objectives by touch: the gestures and the bar the two above share (web/objective-touch.js).
+  '/static/objective-touch.js',
   // Round 12: holding a record to put it on a screen. Code and styles only, like the remote.
   '/static/lift.js',
   '/static/lift.css',
@@ -64,6 +66,10 @@ const SHELL = [
   '/static/edges.css',
   '/static/dots-app.js',
   '/static/dots-app.css',
+  // Objectives by touch, part B: the next six weeks and the pinch between the three distances.
+  '/static/horizon.js',
+  '/static/horizon.css',
+  '/static/distances.js',
   '/manifest.webmanifest',
   '/static/icon-192.png',
   '/static/icon-512.png',
