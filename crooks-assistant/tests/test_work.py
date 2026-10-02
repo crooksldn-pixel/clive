@@ -455,6 +455,73 @@ async def test_orders_to_pack_are_read_from_shopify_with_only_what_is_left_to_pa
     assert (await live._orders(SimpleNamespace(shopify=None)))["available"] is False
 
 
+async def test_an_order_whose_label_is_printed_is_still_the_job_until_someone_says_it_is_done():
+    """Buying a label fulfils the order in Shopify, which used to drop it off the board before the
+    box was packed (owner, 2 October). It is read a second time, marked, and kept."""
+    shop = FakeShop(
+        {"data": {"orders": {"edges": [an_order(1001, [
+            {"name": "Hoodie", "variantTitle": "M", "sku": "HD-M", "quantity": 2, "unfulfilledQuantity": 2}])]}}},
+        {"data": {"orders": {"edges": [an_order(1002, [
+            {"name": "Cap", "variantTitle": None, "sku": "CP", "quantity": 3, "unfulfilledQuantity": 0}],
+            status="FULFILLED")]}}},
+    )
+    answer = await live._orders(SimpleNamespace(shopify=shop))
+    # The list of what is still to pack is asked for exactly as it always was.
+    assert shop.asked[0][1]["q"] == live.TO_PACK_QUERY and shop.asked[0][1]["n"] == live.ORDERS_MAX
+    # The second read is bounded: fulfilled, not cancelled, and only recently touched.
+    second = shop.asked[1][1]["q"]
+    assert "fulfillment_status:fulfilled" in second and "updated_at:>=" in second
+    assert "NOT status:cancelled" in second and shop.asked[1][1]["n"] == live.LABELLED_MAX
+
+    still, labelled = answer["items"]
+    assert still["ref"] == "order:gid://shopify/Order/1001" and still["labelled"] is False
+    assert labelled["ref"] == "order:gid://shopify/Order/1002" and labelled["labelled"] is True
+    # Nothing is left unfulfilled on it, but the box still has to be packed: it says what goes in.
+    assert labelled["title"] == "Pack #1002: 3 items for Jane Doe"
+    assert labelled["lines"] == [{"item": "Cap", "sku": "CP", "quantity": 3}]
+    assert "label already printed" in labelled["details"]
+
+
+async def test_an_order_in_both_reads_is_listed_once_and_as_work_still_to_do():
+    """A partly fulfilled order answers both queries. It is the unfinished one that counts."""
+    partly = an_order(1001, [{"name": "Hoodie", "variantTitle": "M", "sku": "HD-M", "quantity": 2,
+                              "unfulfilledQuantity": 1}], status="PARTIALLY_FULFILLED")
+    shop = FakeShop({"data": {"orders": {"edges": [partly]}}}, {"data": {"orders": {"edges": [partly]}}})
+    [row] = (await live._orders(SimpleNamespace(shopify=shop)))["items"]
+    assert row["labelled"] is False and row["lines"] == [{"item": "Hoodie (M)", "sku": "HD-M", "quantity": 1}]
+
+
+async def test_the_second_read_failing_never_takes_down_what_is_still_to_pack():
+    class HalfBrokenShop(FakeShop):
+        async def graphql(self, query, variables=None):
+            self.asked.append((query, variables or {}))
+            if len(self.asked) > 1:
+                raise RuntimeError("Shopify said no")
+            return self.answers.pop(0)
+
+    shop = HalfBrokenShop({"data": {"orders": {"edges": [an_order(1001, [
+        {"name": "Hoodie", "variantTitle": "M", "sku": "HD-M", "quantity": 2, "unfulfilledQuantity": 2}])]}}})
+    answer = await live._orders(SimpleNamespace(shopify=shop))
+    assert answer["available"] is True
+    assert [r["ref"] for r in answer["items"]] == ["order:gid://shopify/Order/1001"]
+
+
+def test_how_far_back_a_printed_label_is_still_todays_work():
+    moment = datetime(2026, 10, 2, 12, 0, 0, tzinfo=UTC)
+    assert "updated_at:>=2026-10-01T12:00:00Z" in live._labelled_query(moment)
+
+
+async def test_a_labelled_order_leaves_the_board_only_once_it_is_marked_done(monkeypatch):
+    """The whole point: Shopify calling it fulfilled is not what finishes it — CLIVE's record is."""
+    finding(monkeypatch, orders=[{**order_row(), "labelled": True, "details": "label already printed"}])
+    kit = await view.today_for(None, who="kit", owner=False)
+    assert [r["ref"] for r in kit["found"]] == [ORDER_1]
+    job = work.claim_found(ref=ORDER_1, kind="pack_order", title="Pack #1001", details="", who="mia")
+    work.packed(job.item_id, who="mia")
+    work.done(job.item_id, who="mia")
+    assert (await view.today_for(None, who="kit", owner=False))["found"] == []
+
+
 async def test_emails_waiting_carry_what_clive_knows_about_who_wrote(monkeypatch):
     from app.tools import gmail_tools
 

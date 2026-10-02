@@ -188,6 +188,7 @@
     else { pill.textContent = job.assignee_name ? 'For ' + job.assignee_name : kind; }
     const bits = [job.details];
     if (job.created_via === VIA_CLIVE) bits.push('via CLIVE');
+    if (job.labelled) bits.push('label printed');
     if (job.due) bits.push('due ' + job.due);
     if ((job.evidence && job.evidence.packed) || job.packed) bits.push(('packed ' + when((job.evidence && job.evidence.packed_at) || job.packed_at)).trim());
     if (job.evidence && job.evidence.note) bits.push('“' + job.evidence.note + '”');
@@ -207,7 +208,7 @@
       if (job.kind === 'pack_order' && !(job.evidence && job.evidence.packed) && !job.packed) {
         actions.append(button('Packed', () => step('/today/packed', { item_id: id }, result), 'primary'));
       }
-      if (job.kind === 'pack_order') actions.append(button('Fulfil with CLIVE', () => ask('Fulfil ' + orderName(job) + ' with tracking number ')));
+      if (job.kind === 'pack_order' && !job.labelled) actions.append(button('Fulfil with CLIVE', () => ask('Fulfil ' + orderName(job) + ' with tracking number ')));
       if (job.kind === 'reply_email') actions.append(button('Draft a reply with CLIVE', () => ask('Draft a reply to the email: ' + job.title.replace(/^Reply to /, '') + '. ')));
       if (job.kind === 'reply_instagram') actions.append(element('span', 'muted small', 'Reply in the Instagram app, then mark it done.'));
       if (job.kind === 'stock_count') countForm(job, root);

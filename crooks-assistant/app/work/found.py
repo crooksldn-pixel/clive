@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 log = logging.getLogger("crooks.work")
@@ -27,6 +27,16 @@ KEEP_S = {"orders": 60.0, "emails": 120.0, "instagram": 300.0}
 # Even a fresh read (a page opened) reuses an answer this young: phones opening together ask once.
 MIN_FRESH_S = 10.0
 ORDERS_MAX = 25
+# Buying a shipping label fulfils the order in Shopify, which used to take it straight off the
+# board: the "to pack" read asks for unfulfilled orders only, so the moment a label existed the
+# job vanished although nobody had packed the box (owner, 2 October). Printing the label is one
+# step of the job, not the job. So orders Shopify already calls fulfilled are read as well, for
+# this long after they were last touched, and the board keeps showing them until someone marks
+# the job done in CLIVE — which app/work/view.py already decides from the kept record, so a job
+# that was finished here never comes back. This is a second, smaller read of its own: the list of
+# what is still to pack is asked for exactly as before and can never be crowded out by it.
+LABELLED_WINDOW_H = 24
+LABELLED_MAX = 15
 EMAILS_SCANNED = 20
 EMAILS_MAX = 12
 INSTAGRAM_MAX = 12
@@ -84,15 +94,26 @@ def _ago(stamp: str | int | None, now: datetime | None = None) -> str:
     return "just now"
 
 
-async def _orders(runtime: Any) -> dict[str, Any]:
-    shop = getattr(runtime, "shopify", None)
-    graphql = getattr(shop, "graphql", None)
-    if not callable(graphql):
-        return {"available": False, "reason": "Shopify is not connected", "items": []}
-    payload = await graphql(_ORDERS_QUERY, {
-        "q": "status:open AND (fulfillment_status:unfulfilled OR fulfillment_status:partial) AND NOT financial_status:voided",
-        "n": ORDERS_MAX,
-    })
+TO_PACK_QUERY = ("status:open AND (fulfillment_status:unfulfilled OR fulfillment_status:partial) "
+                 "AND NOT financial_status:voided")
+
+
+def _labelled_query(now: datetime | None = None) -> str:
+    """Orders a label has already been made for, recently enough to still be today's work."""
+    since = (now or datetime.now(UTC)) - timedelta(hours=LABELLED_WINDOW_H)
+    return (f"fulfillment_status:fulfilled AND updated_at:>={since.strftime('%Y-%m-%dT%H:%M:%SZ')} "
+            "AND NOT status:cancelled AND NOT financial_status:voided")
+
+
+def _amount(line: dict[str, Any], whole: bool) -> int:
+    """How many of a line are the job: what is left to fulfil, or the whole line on an order a
+    label was made for, where Shopify counts nothing as left but the box is still to be packed."""
+    if whole:
+        return int(line.get("quantity", 0) or 0)
+    return int(line.get("unfulfilledQuantity", line.get("quantity", 0)) or 0)
+
+
+def _order_rows(payload: dict[str, Any] | None, *, labelled: bool = False) -> list[dict[str, Any]]:
     edges = ((((payload or {}).get("data") or {}).get("orders") or {}).get("edges")) or []
     items = []
     for edge in edges:
@@ -100,8 +121,12 @@ async def _orders(runtime: Any) -> dict[str, Any]:
         if not node.get("id"):
             continue
         lines = [(e or {}).get("node") or {} for e in ((node.get("lineItems") or {}).get("edges") or [])]
-        to_pack = [li for li in lines if int(li.get("unfulfilledQuantity", li.get("quantity", 0)) or 0) > 0]
-        count = sum(int(li.get("unfulfilledQuantity", li.get("quantity", 0)) or 0) for li in to_pack)
+        left = [li for li in lines if int(li.get("unfulfilledQuantity", li.get("quantity", 0)) or 0) > 0]
+        # A labelled order has nothing left unfulfilled, but the box still has to be packed: show
+        # what was ordered, so the row says what goes in it rather than "0 items".
+        whole = labelled and not left
+        to_pack = lines if whole else left
+        count = sum(_amount(li, whole) for li in to_pack)
         who = ((node.get("customer") or {}).get("displayName")) or "a customer"
         placed = node.get("processedAt") or node.get("createdAt") or ""
         note = " ".join(str(node.get("note") or "").split())[:200]
@@ -112,15 +137,35 @@ async def _orders(runtime: Any) -> dict[str, Any]:
             "details": "; ".join(filter(None, [
                 f"placed {_ago(placed)} ago" if _ago(placed) else "",
                 ((node.get("shippingLine") or {}).get("title") or ""),
+                "label already printed" if labelled else "",
                 f"note: {note}" if note else "",
             ])),
             "order_number": node.get("name"),
             "lines": [{"item": f"{li.get('name')}" + (f" ({li.get('variantTitle')})" if li.get("variantTitle") else ""),
                        "sku": li.get("sku") or "",
-                       "quantity": int(li.get("unfulfilledQuantity", li.get("quantity", 0)) or 0)} for li in to_pack],
+                       "quantity": _amount(li, whole)} for li in to_pack],
             "since": placed,
             "partly": node.get("displayFulfillmentStatus") == "PARTIALLY_FULFILLED",
+            "labelled": labelled,
         })
+    return items
+
+
+async def _orders(runtime: Any) -> dict[str, Any]:
+    shop = getattr(runtime, "shopify", None)
+    graphql = getattr(shop, "graphql", None)
+    if not callable(graphql):
+        return {"available": False, "reason": "Shopify is not connected", "items": []}
+    items = _order_rows(await graphql(_ORDERS_QUERY, {"q": TO_PACK_QUERY, "n": ORDERS_MAX}))
+    seen = {row["ref"] for row in items}
+    # Asked on its own and allowed to fail on its own: what is still to pack is the list that
+    # matters, and a second read going wrong must never take it down with it.
+    try:
+        labelled = await graphql(_ORDERS_QUERY, {"q": _labelled_query(), "n": LABELLED_MAX})
+    except Exception as exc:  # noqa: BLE001 - the orders still to pack are answered regardless
+        log.warning("work: labelled orders unavailable (%s)", type(exc).__name__)
+        labelled = None
+    items.extend(row for row in _order_rows(labelled, labelled=True) if row["ref"] not in seen)
     return {"available": True, "items": items}
 
 
