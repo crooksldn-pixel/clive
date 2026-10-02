@@ -1,94 +1,237 @@
-/* CLIVE · Today — the team's work list, in the app's dark glass (web/style.css), on its own page. */
+/* CLIVE · Today: the team's own CLIVE, in George's language (the objectives canvas he approved):
+ * dark, iOS-like, the system's SF type, one blue for what can be done, orange for what is George's,
+ * and nothing decorative. Built for a thumb while packing and for reading at arm's length on the
+ * shared tablet: one job in big type, one big action, every target at least 56 px, the ask bar
+ * always at the foot of the screen.
+ *
+ * One radius rule: surfaces 22 px, controls fully round. One accent: blue. Orange is a meaning
+ * (George's to do), red only for something that went wrong.
+ */
 :root{
-  --bg-0:#07070a; --bg-1:#0d0d10; --bg-2:#131317;
-  --glass:rgba(255,255,255,.05); --glass-2:rgba(255,255,255,.075); --glass-3:rgba(255,255,255,.12);
-  --line:rgba(255,255,255,.10); --line-2:rgba(255,255,255,.18);
-  --ink:#ebe8e0; --ink-2:#b9b6ae; --ink-3:#83827c;
-  --ok:#79c996; --warn:#ff9f0a; --bad:#dc7f6c;
-  --ok-dim:rgba(121,201,150,.16); --warn-dim:rgba(255,159,10,.16); --bad-dim:rgba(220,127,108,.16);
-  --radius-panel:20px; --radius-control:14px;
-  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --ground:#060607;
+  --fill:rgba(118,118,128,.17);          /* a grouped surface */
+  --fill-2:rgba(118,118,128,.26);
+  --hair:rgba(255,255,255,.08);
+  --ink:#fff;
+  --ink-2:rgba(235,235,245,.66);
+  --ink-3:rgba(235,235,245,.40);
+  --blue:#0a84ff;
+  --blue-ink:#409cff;
+  --blue-dim:rgba(10,132,255,.16);
+  --orange:#ff9f0a;
+  --orange-dim:rgba(255,159,10,.10);
+  --red:#ff8a80;
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display",system-ui,"Helvetica Neue",Roboto,Arial,sans-serif;
+  --r:22px;
+  --gutter:18px;
+  /* the type scale: a phone, then the shared tablet at arm's length */
+  --t-kick:13px; --t-body:18px; --t-small:16px; --t-big:40px; --t-line:21px; --t-go:21px; --t-row:19px;
+  --go-h:64px; --dock-h:76px;
+}
+@media (min-width:700px){
+  :root{ --t-kick:15px; --t-body:23px; --t-small:20px; --t-big:64px; --t-line:28px; --t-go:26px; --t-row:24px;
+    --go-h:80px; --dock-h:92px; --gutter:32px; }
 }
 *{box-sizing:border-box}
-html{background:var(--bg-0)}
-body{margin:0;color:var(--ink);background:var(--bg-0);font:16px/1.5 var(--font);-webkit-font-smoothing:antialiased}
+html{background:var(--ground)}
+body{margin:0;color:var(--ink);background:var(--ground);font:var(--t-body)/1.4 var(--font);-webkit-font-smoothing:antialiased;
+  -webkit-tap-highlight-color:transparent}
 [hidden]{display:none!important}
 button,input,select,textarea{font:inherit;color:inherit}
-:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+:focus-visible{outline:3px solid var(--blue-ink);outline-offset:3px}
 
-.page{max-width:760px;margin:0 auto;padding:max(16px,env(safe-area-inset-top)) 16px max(40px,env(safe-area-inset-bottom))}
-.top h1{font-size:28px;line-height:1.2;margin:8px 0 4px}
-.back{display:inline-block;color:var(--ink-2);text-decoration:none;padding:6px 0}
-.lede{color:var(--ink-2);margin:0 0 12px}
-.muted{color:var(--ink-2)}
-.small{font-size:14px}
-h2{font-size:18px;margin:22px 0 10px}
+.page{max-width:860px;margin:0 auto;padding:max(14px,env(safe-area-inset-top)) var(--gutter) calc(var(--dock-h) + 120px + env(safe-area-inset-bottom))}
 
-.tabs{display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;scrollbar-width:none}
-.tabs button{flex:none;border:1px solid var(--line-2);background:var(--glass);border-radius:999px;padding:8px 14px;min-height:40px;cursor:pointer}
-.tabs button[aria-current="page"]{background:var(--ink);color:var(--bg-0);border-color:var(--ink)}
+/* ---------------------------------------------------------------- CLIVE: the orb and its line */
+.clive{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:12px;min-height:72px;padding:6px 0 10px}
+.orb{width:48px;height:48px}
+@media (min-width:700px){.orb{width:64px;height:64px}}
+.line{margin:0;font-size:var(--t-line);line-height:1.3;font-weight:500;letter-spacing:-.01em;text-wrap:pretty}
+.home{grid-column:1 / -1;justify-self:start;color:var(--blue-ink);text-decoration:none;font-size:var(--t-small);padding:8px 0;min-height:44px}
 
-.notice{border-radius:var(--radius-control);padding:12px 14px;margin:8px 0 12px;background:var(--glass-2);border:1px solid var(--line-2)}
-.notice.ok{background:var(--ok-dim);border-color:transparent}
-.notice.bad{background:var(--bad-dim);border-color:transparent}
+/* ---------------------------------------------------------------- the job in hand */
+.now{position:relative;margin:6px 0 0;padding:22px 20px 18px;border-radius:var(--r);background:var(--fill);
+  box-shadow:inset 0 0 0 .5px var(--hair);touch-action:pan-y;user-select:none;-webkit-user-select:none;overflow:hidden}
+@media (min-width:700px){.now{padding:32px 32px 26px}}
+.now-kick{margin:0 0 6px;font-size:var(--t-kick);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+/* the dot says whose it is: filled blue once it is yours, an empty ring while it is next up */
+.now[data-state] .now-kick::before{content:"";display:inline-block;width:9px;height:9px;border-radius:5px;margin-right:9px;vertical-align:0;
+  box-sizing:border-box;border:2px solid var(--ink-3)}
+.now[data-state="yours"] .now-kick::before{background:var(--blue);border-color:var(--blue)}
+.now-big{margin:0;font-size:var(--t-big);line-height:1.05;font-weight:700;letter-spacing:-.025em;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.now-small{margin:8px 0 0;font-size:var(--t-body);color:var(--ink-2);overflow-wrap:anywhere}
+.lines{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:2px}
+.line-row{display:grid;grid-template-columns:2.2em 1fr;align-items:baseline;gap:10px;padding:10px 0;border-top:.5px solid var(--hair)}
+.line-row:first-child{border-top:0}
+.qty{font-weight:700;font-variant-numeric:tabular-nums;text-align:right;font-size:calc(var(--t-body) * 1.15)}
+.item{font-size:var(--t-body)}
+.notes{margin:14px 0 0;color:var(--ink-2);font-size:var(--t-small)}
+.said{margin:16px 0 0;padding:12px 14px;border-radius:16px;background:rgba(0,0,0,.28);color:var(--ink-2);font-size:var(--t-small);
+  font-style:italic;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
 
-.jobs{list-style:none;margin:0;padding:0;display:grid;gap:10px}
-.job,.panel{background:var(--glass-2);border:1px solid var(--line);border-radius:var(--radius-panel);padding:14px}
-.jobs.quiet .job{background:transparent}
-.job-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
-.job-title{font-weight:600}
-.job-details,.job-snippet{margin:6px 0 0}
-.job-details:empty,.job-snippet:empty{display:none}
-.job-snippet{border-left:2px solid var(--line-2);padding-left:10px;color:var(--ink-2);font-style:italic}
-.job-lines{margin:8px 0 0;padding-left:18px}
-.job-lines:empty{display:none}
-.pill{flex:none;font-size:12px;padding:2px 9px;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-2);white-space:nowrap}
-.pill.mine{color:var(--ok);background:var(--ok-dim);border-color:transparent}
-.pill.wait{color:var(--warn);background:var(--warn-dim);border-color:transparent}
+/* the one action: full width, at the thumb */
+.go{all:unset;box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:100%;min-height:var(--go-h);margin:22px 0 0;
+  padding:0 24px;border-radius:999px;background:var(--blue);color:#fff;font-size:var(--t-go);font-weight:600;letter-spacing:-.01em;
+  cursor:pointer;text-align:center;transition:transform 120ms ease,background-color 160ms ease}
+.go:active{transform:scale(.98);background:#0071e3}
+.go:focus-visible{outline:3px solid var(--blue-ink);outline-offset:3px}
+.go:disabled{opacity:.45;cursor:default}
+.go.holding{background:#0064cc}
+/* holding the card: the action fills in, and lets go of nothing until it is full */
+.now::after{content:"";position:absolute;left:0;bottom:0;height:5px;width:100%;background:var(--blue);transform:scaleX(0);transform-origin:left}
+.now.holding::after{transform:scaleX(1);transition:transform 600ms linear}
+.others{display:flex;flex-wrap:wrap;gap:4px 18px;margin:10px 0 0}
+.link{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;min-height:52px;padding:0 4px;color:var(--blue-ink);
+  font-size:var(--t-small);font-weight:500;cursor:pointer;text-decoration:none}
+.link:focus-visible{outline:3px solid var(--blue-ink);outline-offset:2px;border-radius:10px}
+.now.empty{padding-bottom:28px}
+.now.empty .now-big{color:var(--ink-2)}
 
-.actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0}
-.actions:empty{display:none}
-.btn{appearance:none;border:1px solid var(--line-2);background:var(--glass);border-radius:var(--radius-control);padding:9px 14px;min-height:44px;cursor:pointer}
-.btn:active{background:var(--glass-3)}
-.btn.primary{background:var(--ink);color:var(--bg-0);border-color:var(--ink)}
-.btn.danger{color:var(--bad);border-color:var(--bad-dim)}
-.btn.small{min-height:36px;padding:6px 10px;font-size:14px}
-.btn[disabled]{opacity:.4;cursor:default}
-.btn.holding{background:var(--warn-dim);border-color:var(--warn)}
-.result{margin:8px 0 0;min-height:0}
+/* which one: two or three that fit what was said */
+.choice{all:unset;box-sizing:border-box;display:block;width:100%;min-height:64px;margin:12px 0 0;padding:16px 20px;border-radius:18px;
+  background:var(--fill-2);font-size:var(--t-row);font-weight:600;cursor:pointer;overflow-wrap:anywhere}
+.choice:active{transform:scale(.99)}
+
+/* a stock count, a line at a time */
+.count{margin:18px 0 0;display:grid;gap:8px}
+.count-rows{display:grid;gap:10px}
+/* what was counted on its own line, the number under it between two big steppers */
+.count-row{display:grid;grid-template-columns:64px 1fr 64px;gap:8px;align-items:center;padding:12px;border-radius:18px;background:rgba(0,0,0,.2)}
+.count-row .count-name{grid-column:1 / -1}
+.count-name,.count-number,.field{width:100%;min-width:0;min-height:56px;border:0;border-radius:16px;background:rgba(0,0,0,.35);color:var(--ink);
+  padding:0 14px;font-size:var(--t-body);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.14)}
+.count-number{text-align:center;font-variant-numeric:tabular-nums;font-weight:700;font-size:calc(var(--t-body) * 1.3);padding:0 4px;-moz-appearance:textfield}
+.count-number::-webkit-outer-spin-button,.count-number::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.step{all:unset;box-sizing:border-box;display:grid;place-items:center;min-height:56px;border-radius:999px;background:var(--fill-2);
+  font-size:26px;font-weight:600;cursor:pointer}
+.step:active{background:var(--blue-dim)}
+::placeholder{color:var(--ink-3)}
+
+/* ---------------------------------------------------------------- after this, and the lists */
+.part{margin:30px 4px 10px;font-size:var(--t-small);font-weight:600;color:var(--ink-2)}
+.group{border-radius:var(--r);background:var(--fill);box-shadow:inset 0 0 0 .5px var(--hair);overflow:hidden}
+.row{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:12px;width:100%;min-height:64px;padding:12px 18px;cursor:pointer;
+  border-top:.5px solid var(--hair)}
+.group > :first-child,.person:first-child > .row{border-top:0}
+.row:active{background:rgba(255,255,255,.06)}
+.row:focus-visible{outline:3px solid var(--blue-ink);outline-offset:-3px}
+.row-words{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.row-big{font-size:var(--t-row);font-weight:600;overflow-wrap:anywhere}
+.row-small{font-size:var(--t-small);color:var(--ink-2);overflow-wrap:anywhere}
+.row-go{flex:none;color:var(--blue-ink);font-size:var(--t-small);font-weight:500}
+.row-more .row-big{color:var(--blue-ink);font-weight:500}
+.done-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;min-height:56px;padding:10px 18px;border-top:.5px solid var(--hair)}
+.done-row:first-child{border-top:0}
+.done-row .row-big{font-weight:500;color:var(--ink-2)}
+.tick{display:grid;place-items:center;width:26px;height:26px;border-radius:13px;background:var(--blue);color:#fff;font-size:15px;font-weight:700}
+.quiet{margin:0;padding:16px 18px;color:var(--ink-2);font-size:var(--t-small)}
+.sheet{padding-top:4px}
+.back{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;min-height:52px;padding:0 20px;margin:4px 0 8px;border-radius:999px;
+  background:var(--fill-2);color:var(--ink);font-size:var(--t-small);font-weight:600;cursor:pointer}
+.back::before{content:"";width:9px;height:9px;margin-right:10px;border-left:2.5px solid currentColor;border-bottom:2.5px solid currentColor;transform:rotate(45deg)}
+
+/* ---------------------------------------------------------------- talking to CLIVE */
+.talk-log{display:grid;gap:14px;padding:8px 0 0}
+.you{justify-self:end;max-width:88%;margin:0;padding:12px 16px;border-radius:20px;background:var(--fill-2);color:var(--ink);
+  font-size:var(--t-small);overflow-wrap:anywhere;white-space:pre-wrap}
+.said-clive{margin:0;font-size:var(--t-body);line-height:1.45;overflow-wrap:anywhere;white-space:pre-wrap}
+.said-clive.waiting{color:var(--ink-2)}
+.said-clive.error{color:var(--red)}
+.card{padding:18px 20px;border-radius:var(--r);background:var(--fill);box-shadow:inset 0 0 0 .5px var(--hair)}
+.card-title{margin:0;font-size:var(--t-row);font-weight:700;letter-spacing:-.01em}
+.card-body{margin:8px 0 0;font-size:var(--t-body);overflow-wrap:anywhere}
+.card-note{margin:8px 0 0;font-size:var(--t-small);color:var(--ink-2);overflow-wrap:anywhere}
+/* George's to do: a warning, not a failure (the canvas's orange) */
+.card.george{background:var(--orange-dim);box-shadow:inset 0 0 0 1.5px rgba(255,159,10,.75)}
+.card.george .card-title{color:var(--orange)}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:12px 0 0;font-size:var(--t-small)}
+.facts dt{color:var(--ink-2)}
+.facts dd{margin:0;overflow-wrap:anywhere}
+.body{margin:12px 0 0;padding:12px 14px;border-radius:14px;background:rgba(0,0,0,.35);white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--t-small)}
+.result{margin:10px 0 0;font-size:var(--t-small)}
 .result:empty{display:none}
-.result.ok{color:var(--ok)}
-.result.bad{color:var(--bad)}
+.result.ok{color:var(--blue-ink)}
+.result.bad{color:var(--red)}
 
-.form{display:grid;gap:10px}
-.form label{display:grid;gap:4px;font-size:14px;color:var(--ink-2)}
-.form input,.form select,.job-count input,.job input,.ask textarea{width:100%;min-width:0;background:var(--bg-1);color:var(--ink);
-  border:1px solid var(--line-2);border-radius:var(--radius-control);padding:10px 12px;font-size:16px}
-.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.job-count{display:grid;gap:8px;margin:10px 0 0}
-.count-row{display:grid;grid-template-columns:1fr 92px 36px;gap:8px;align-items:center}
-.count-row input[type="number"]{text-align:right;font-family:var(--mono)}
+/* ---------------------------------------------------------------- the dock: on every screen */
+.dock{position:fixed;left:0;right:0;bottom:0;z-index:10;padding:10px var(--gutter) max(12px,env(safe-area-inset-bottom));
+  background:linear-gradient(180deg,rgba(6,6,7,0),rgba(6,6,7,.92) 28%,var(--ground))}
+.bar-slot,.ask{max-width:860px;margin:0 auto}
+.bar-slot{margin-bottom:10px}
+.ask{display:flex;align-items:flex-end;gap:10px}
+.ask-field{flex:1;min-width:0;border-radius:calc(var(--dock-h) / 2);background:rgba(44,44,50,.96);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.10),inset 0 0 0 .5px rgba(255,255,255,.12)}
+.ask-field input{width:100%;min-height:var(--dock-h);border:0;background:transparent;padding:0 24px;font-size:var(--t-body);color:var(--ink)}
+.ask-field input:focus{outline:none}
+.ask-field:focus-within{box-shadow:inset 0 0 0 2px var(--blue)}
+/* while they speak, what is heard takes the field's place */
+.heard{margin:0;min-height:var(--dock-h);display:flex;align-items:center;padding:10px 24px;font-size:var(--t-body);color:var(--ink);overflow-wrap:anywhere}
+.ask-field.hearing input{display:none}
+.mic,.send{all:unset;box-sizing:border-box;flex:none;display:grid;place-items:center;width:var(--dock-h);height:var(--dock-h);border-radius:999px;
+  background:var(--blue);color:#fff;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.mic svg,.send svg{width:40%;height:40%;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.mic:focus-visible,.send:focus-visible{outline:3px solid var(--blue-ink);outline-offset:3px}
+.mic.listening{background:#fff;color:var(--blue);box-shadow:0 0 0 6px var(--blue-dim)}
+body.listening .ask-field{box-shadow:inset 0 0 0 2px var(--blue)}
 
-.chat{display:grid;gap:10px;margin:0 0 12px}
-.msg{border-radius:var(--radius-control);padding:10px 12px;max-width:92%;white-space:pre-wrap;overflow-wrap:anywhere}
-.msg.me{justify-self:end;background:var(--glass-3)}
-.msg.clive{justify-self:start;background:var(--glass-2);border:1px solid var(--line)}
-.card{border:1px solid var(--warn);border-radius:var(--radius-control);padding:10px 12px;background:var(--warn-dim)}
-.card .what{font-weight:600}
-.card .facts{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin:8px 0}
-.card .facts dt{color:var(--ink-2)}
-.card .facts dd{margin:0;overflow-wrap:anywhere}
-.card .body{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg-1);border-radius:10px;padding:8px 10px;margin:8px 0}
-.ask{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}
-.ask textarea{resize:vertical;min-height:48px}
+/* the bar (web/objective-touch.js): what a step did, Undo for six seconds */
+.ot-bar{display:flex;align-items:center;gap:12px;min-height:64px;padding:0 8px 0 20px;border-radius:32px;
+  background:linear-gradient(180deg,rgba(58,58,66,.98),rgba(36,36,42,.98));
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.26),0 12px 32px -10px rgba(0,0,0,.6)}
+.ot-bar-mark{flex:none;display:grid;place-items:center}
+.ot-bar:not([data-kind="did"]) .ot-bar-mark{display:none}
+.ot-bar-tick{width:22px;height:22px;fill:none;stroke:var(--blue-ink);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.ot-bar-text{flex:1;min-width:0;padding:10px 0;font-size:var(--t-small);line-height:1.3;overflow-wrap:anywhere}
+.ot-bar[data-kind="info"] .ot-bar-text{color:rgba(235,235,245,.9)}
+.ot-bar[data-kind="error"] .ot-bar-text{color:var(--red)}
+.ot-undo{all:unset;box-sizing:border-box;flex:none;display:flex;align-items:center;min-height:52px;padding:0 20px;border-radius:26px;
+  background:var(--blue-dim);font-size:var(--t-small);font-weight:700;color:var(--blue-ink);cursor:pointer}
+.ot-undo:focus-visible{outline:3px solid var(--blue-ink);outline-offset:2px}
+.ot-undo:disabled{opacity:.5}
 
-.record{list-style:none;margin:0;padding:0}
-.record li{padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+/* ---------------------------------------------------------------- George's side */
+.segments{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;margin:6px 0 4px;border-radius:999px;background:var(--fill)}
+.segment{all:unset;box-sizing:border-box;display:grid;place-items:center;min-height:48px;border-radius:999px;font-size:var(--t-small);
+  font-weight:600;color:var(--ink-2);cursor:pointer}
+.segment[aria-pressed="true"]{background:var(--fill-2);color:var(--ink);box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
+.segment:focus-visible{outline:3px solid var(--blue-ink);outline-offset:-3px}
+.flag{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;min-height:64px;padding:12px 12px 12px 18px;border-top:.5px solid var(--hair)}
+.flag:first-child{border-top:0}
+.flag-words{flex:1 1 210px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.pill{all:unset;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;min-height:48px;padding:0 18px;border-radius:999px;
+  background:var(--blue);color:#fff;font-size:var(--t-small);font-weight:600;cursor:pointer}
+.pill.quiet-pill{background:var(--fill-2);color:var(--ink)}
+.pill:focus-visible{outline:3px solid var(--blue-ink);outline-offset:2px}
+.person > .row{border-top:.5px solid var(--hair)}
+.group > .person:first-child > .row{border-top:0}
+.record{list-style:none;margin:0;padding:0;border-radius:var(--r);background:var(--fill);overflow:hidden}
+.record li{display:flex;justify-content:space-between;gap:14px;padding:12px 18px;border-top:.5px solid var(--hair);font-size:var(--t-small)}
 .record li:first-child{border-top:0}
-.record .when{color:var(--ink-3);font-size:13px}
+.record.inset{border-radius:0;background:rgba(0,0,0,.18)}
+.record-words{min-width:0;overflow-wrap:anywhere}
+.record-when{flex:none;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.compose{display:grid;gap:10px;padding:16px;border-radius:var(--r);background:var(--fill)}
+.compose .go{margin-top:8px}
+.field.big{font-size:var(--t-row);font-weight:600}
+.label{display:block;margin:8px 4px -2px;font-size:var(--t-small);font-weight:600;color:var(--ink-2)}
+.hint{margin:4px 4px 0;font-size:var(--t-small);color:var(--ink-2)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;min-height:48px;padding:0 18px;border-radius:999px;background:var(--fill-2);
+  font-size:var(--t-small);font-weight:500;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--blue);color:#fff}
+.chip.wide{justify-self:start}
+.chip:focus-visible{outline:3px solid var(--blue-ink);outline-offset:2px}
 
-@media (max-width:420px){
-  .row2{grid-template-columns:1fr}
-  .top h1{font-size:24px}
+/* the shared tablet, on its side: the job in hand beside what comes after */
+@media (min-width:1100px) and (orientation:landscape){
+  .page{max-width:1240px}
+  .work{display:grid;grid-template-columns:1.25fr 1fr;gap:0 32px;align-items:start}
+  .now{grid-row:1 / span 2}
+  .bar-slot,.ask{max-width:1240px}
+  .after .part:first-child,.more .part:first-child{margin-top:6px}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .go,.now.holding::after{transition:none}
+  .ot-bar{animation:none}
 }

@@ -3,6 +3,9 @@
 A member of the team sees their own jobs, what is up for grabs (jobs for anyone and what CLIVE
 found: orders to pack, emails and Instagram messages waiting), and what they have done today; they
 claim, mark packed, enter counts and finish with a note, and ask CLIVE (POST /turn) for the rest.
+Since 3 October each step can be undone for a few seconds (/today/undo: their own latest steps,
+nothing else), and what only the owner may do is noted for him in their words (/today/flag), so
+the screen answers "That's George's to do; I've told him" rather than an error.
 The owner sees everyone's, hands out jobs and routines, reads the record of who did what, and lets
 a new member of the team in: their access waits for his passkey (app/people/access.py).
 
@@ -101,11 +104,18 @@ def _named(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out = []
     for row in rows:
         named = dict(row)
-        for key in ("assignee", "claimed_by", "done_by", "who", "packed_by"):
+        for key in ("assignee", "claimed_by", "done_by", "who", "packed_by", "created_by"):
             if named.get(key):
                 named[f"{key}_name"] = _name_of(str(named[key]))
         out.append(named)
     return out
+
+
+def _stepped(item: Any) -> JSONResponse:
+    """A step's answer: the job as it is now, and the step it took, which the screen can hand back
+    to /today/undo for a few seconds (web/today.js)."""
+    step = str((item.events[-1] if item.events else {}).get("what") or "")
+    return _answer({"job": _named([item.summary()])[0], "step": step})
 
 
 def _guarded(handler):
@@ -141,7 +151,8 @@ async def today_state(request: Request, fresh: bool = False) -> JSONResponse:
     board = await view.today_for(runtime, who=who, owner=owner, fresh=bool(fresh))
     for key in ("mine", "mine_found", "up_for_grabs", "found", "in_hand", "team", "done"):
         board[key] = _named(board.get(key) or [])
-    out: dict[str, Any] = {"me": {"id": who, "owner": owner, "name": name}, "work": board}
+    out: dict[str, Any] = {"me": {"id": who, "owner": owner, "name": name}, "work": board,
+                           "last_steps": work.last_steps(who)}
     if owner:
         grants = access.all_grants()
         out["people"] = [{**p.public(), "access": (grants.get(p.person_id) or {}).get("status") or ""}
@@ -169,7 +180,7 @@ async def today_claim(request: Request) -> JSONResponse:
         if row is None:
             raise _Refused(409, "gone", "That is not on today's list any more. Pull to refresh.")
         item = work.claim_found(ref=row["ref"], kind=row["kind"], title=row["title"], details=row.get("details") or "", who=who)
-    return _answer({"job": _named([item.summary()])[0]})
+    return _stepped(item)
 
 
 @router.post("/today/release")
@@ -177,7 +188,7 @@ async def today_claim(request: Request) -> JSONResponse:
 async def today_release(request: Request) -> JSONResponse:
     who, owner, _ = _who()
     item = work.release(str((await _body(request)).get("item_id") or ""), who=who, owner=owner)
-    return _answer({"job": _named([item.summary()])[0]})
+    return _stepped(item)
 
 
 @router.post("/today/packed")
@@ -185,7 +196,7 @@ async def today_release(request: Request) -> JSONResponse:
 async def today_packed(request: Request) -> JSONResponse:
     who, owner, _ = _who()
     item = work.packed(str((await _body(request)).get("item_id") or ""), who=who, owner=owner)
-    return _answer({"job": _named([item.summary()])[0]})
+    return _stepped(item)
 
 
 @router.post("/today/counts")
@@ -197,7 +208,7 @@ async def today_counts(request: Request) -> JSONResponse:
     if not isinstance(counts, list):
         raise _Refused(400, "bad_request", "Enter the counts as lines.")
     item = work.counted(str(body.get("item_id") or ""), counts, who=who, owner=owner)
-    return _answer({"job": _named([item.summary()])[0]})
+    return _stepped(item)
 
 
 @router.post("/today/done")
@@ -206,6 +217,36 @@ async def today_done(request: Request) -> JSONResponse:
     who, owner, _ = _who()
     body = await _body(request)
     item = work.done(str(body.get("item_id") or ""), who=who, note=str(body.get("note") or ""), owner=owner)
+    return _stepped(item)
+
+
+@router.post("/today/undo")
+@_guarded
+async def today_undo(request: Request) -> JSONResponse:
+    """Undo, for the few seconds the screen offers it: the caller's own latest steps on one job,
+    named as the screen saw them made, put back (app/work/store.py take_back). Never anyone else's
+    step, never a change a card made, and nothing the person could not have done the other way."""
+    who, _owner, _ = _who()
+    body = await _body(request)
+    steps = body.get("steps")
+    if not isinstance(steps, list) or not all(isinstance(s, str) for s in steps):
+        raise _Refused(400, "bad_request", "The screen sent something unreadable. Reload it.")
+    item, taken = work.take_back(str(body.get("item_id") or ""), who=who, steps=steps)
+    return _answer({"job": _named([item.summary()])[0], "taken": taken})
+
+
+@router.post("/today/flag")
+@_guarded
+async def today_flag(request: Request) -> JSONResponse:
+    """Something only the owner may do, asked for by a member of the team (a refund, a discount, a
+    change to an order's money): noted for him as a job of his, in their words, so the screen can
+    say "That's George's to do; I've told him" and mean it. It does nothing else: anyone could
+    already flag a job for him through CLIVE (work_note flag)."""
+    who, _owner, _ = _who()
+    body = await _body(request)
+    ref = str(body.get("ref") or "")
+    item = work.flag(title=str(body.get("title") or ""), details=str(body.get("details") or ""),
+                     ref=ref if ref else "", by=who)
     return _answer({"job": _named([item.summary()])[0]})
 
 

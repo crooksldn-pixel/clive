@@ -2,124 +2,70 @@
 <html lang="en-GB">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#07070a">
+<meta name="theme-color" content="#060607">
 <meta name="referrer" content="no-referrer">
+<meta name="mobile-web-app-capable" content="yes">
 <title>CLIVE · Today</title>
 <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
 <link rel="apple-touch-icon" href="/static/icon-192.png">
 <link rel="stylesheet" href="/static/today.css?b=__BUILD__">
 </head>
-<body>
-<main class="page">
-  <header class="top">
-    <a class="back" id="back" href="/" hidden>← CLIVE</a>
-    <h1 id="hello">Today</h1>
-    <p class="lede" id="lede">Loading…</p>
-    <nav class="tabs" id="tabs" aria-label="Sections"></nav>
+<body data-who="loading">
+<!-- The team's own CLIVE (web/today.js): CLIVE's orb and one line saying what happens next, the one
+     job in hand in big type with one obvious action, and an ask bar on every screen that takes a
+     tap, a sentence typed, or a sentence said while holding the button. The owner's side of the
+     team (web/today-owner.js) is on the same page: who is on what, handing out, and people. -->
+<main class="page" id="page">
+  <header class="clive">
+    <canvas id="orb" class="orb" width="96" height="96" aria-hidden="true"></canvas>
+    <p id="line" class="line" role="status" aria-live="polite">Getting your work</p>
+    <a class="home" id="home" href="/" hidden>Your CLIVE</a>
   </header>
 
-  <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
-
-  <section id="s-work" class="section">
-    <div id="mine-box">
-      <h2>Yours</h2>
-      <p class="muted small" id="mine-empty" hidden>Nothing yours yet. Claim something below.</p>
-      <ul id="mine" class="jobs"></ul>
-    </div>
-    <div id="grabs-box">
-      <h2>Up for grabs</h2>
-      <p class="muted small" id="grabs-empty" hidden>Nothing waiting. Nice.</p>
-      <ul id="grabs" class="jobs"></ul>
-      <p class="muted small" id="sources"></p>
-    </div>
-    <div id="hand-box" hidden>
-      <h2 id="hand-title">In hand</h2>
-      <ul id="hand" class="jobs"></ul>
-    </div>
-    <div id="done-box">
-      <h2>Done today</h2>
-      <ul id="done" class="jobs quiet"></ul>
-    </div>
+  <section id="work" class="work" hidden>
+    <article id="now" class="now" aria-live="polite"></article>
+    <section id="after" class="after" aria-label="After this"></section>
+    <section id="more" class="more"></section>
   </section>
 
-  <section id="s-ask" class="section" hidden>
-    <h2>Ask CLIVE</h2>
-    <p class="muted small">Fulfil an order, draft and send a reply, look up stock, or ask how to do a job. Every change comes up as a card for you to confirm.</p>
-    <div id="chat" class="chat" aria-live="polite"></div>
-    <form id="ask" class="ask" autocomplete="off">
-      <textarea id="ask-text" rows="2" placeholder="Ask CLIVE…" aria-label="Ask CLIVE"></textarea>
-      <button class="btn primary" type="submit" id="ask-go">Ask</button>
-    </form>
+  <section id="list" class="sheet" hidden aria-label="Every job"></section>
+
+  <section id="talk" class="sheet talk" hidden aria-label="Talking to CLIVE">
+    <div id="talk-log" class="talk-log"></div>
   </section>
 
-  <section id="s-team" class="section" hidden>
-    <h2>Hand out a job</h2>
-    <form id="assign" class="panel form" autocomplete="off">
-      <label>What <input name="title" required maxlength="160" placeholder="Restock the shelves"></label>
-      <label>Details <input name="details" maxlength="400" placeholder="Hoodies and tees first"></label>
-      <div class="row2">
-        <label>Who <select name="to" id="assign-to"><option value="">Whoever is free</option></select></label>
-        <label>When <input name="due" type="date"></label>
-      </div>
-      <label>Kind <select name="kind"><option value="job">A job</option><option value="stock_count">A stock count</option></select></label>
-      <button class="btn primary" type="submit">Hand it out</button>
-    </form>
-    <h2>Routines</h2>
-    <ul id="routines" class="jobs quiet"></ul>
-    <form id="routine" class="panel form" autocomplete="off">
-      <label>What <input name="title" required maxlength="120" placeholder="Tidy the desks"></label>
-      <div class="row2">
-        <label>How often <select name="cadence">
-          <option value="daily">Every day</option><option value="weekdays">Weekdays</option>
-          <option value="mon">Mondays</option><option value="tue">Tuesdays</option><option value="wed">Wednesdays</option>
-          <option value="thu">Thursdays</option><option value="fri">Fridays</option><option value="sat">Saturdays</option><option value="sun">Sundays</option>
-        </select></label>
-        <label>Who <select name="to" id="routine-to"><option value="">Whoever is free</option></select></label>
-      </div>
-      <button class="btn" type="submit">Set the routine</button>
-    </form>
-    <h2>Everyone's work</h2>
-    <ul id="team" class="jobs"></ul>
-  </section>
-
-  <section id="s-people" class="section" hidden>
-    <h2>The team and the people CLIVE can ask</h2>
-    <p class="muted small">Tell CLIVE who someone is ("Mia works in the office: packing, emails, Instagram") and they appear here. A team member's login waits for your passkey before they can use CLIVE.</p>
-    <h2>Add someone to the team</h2>
-    <!-- Their name and the login Tailscale shows for them (an email address, or name@github /
-         name@passkey). It only adds them, waiting: "Let them in" below is still your passkey.
-         When they are refused, the page they see shows the exact login to type here. -->
-    <form id="person-add" class="panel form" autocomplete="off">
-      <div class="row2">
-        <label>Name <input name="name" required maxlength="80" placeholder="Emily"></label>
-        <label>Tailscale login <input name="login" required maxlength="200" autocapitalize="none" spellcheck="false" placeholder="emily@gmail.com"></label>
-      </div>
-      <label>What they do <input name="role" maxlength="160" placeholder="Packing and the inbox"></label>
-      <button class="btn primary" type="submit">Add to the team</button>
-    </form>
-    <ul id="people" class="jobs"></ul>
-  </section>
-
-  <section id="s-record" class="section" hidden>
-    <h2>Who did what</h2>
-    <ol id="record" class="record"></ol>
+  <section id="owner" class="owner" hidden>
+    <nav id="segments" class="segments" aria-label="Team sections"></nav>
+    <div id="owner-team" class="owner-part"></div>
+    <div id="owner-hand" class="owner-part" hidden></div>
+    <div id="owner-people" class="owner-part" hidden></div>
   </section>
 </main>
 
-<template id="job-template">
-  <li class="job">
-    <div class="job-head"><span class="job-title"></span><span class="pill"></span></div>
-    <p class="job-details muted small"></p>
-    <p class="job-snippet small"></p>
-    <ul class="job-lines small"></ul>
-    <div class="job-count" hidden></div>
-    <div class="actions"></div>
-    <p class="result small" aria-live="polite"></p>
-  </li>
-</template>
+<footer class="dock" id="dock">
+  <div id="bar-slot" class="bar-slot"></div>
+  <form id="ask" class="ask" autocomplete="off">
+    <div class="ask-field">
+      <p id="heard" class="heard" aria-live="polite" hidden></p>
+      <input id="ask-text" type="text" enterkeyhint="send" maxlength="600" spellcheck="true"
+             placeholder="Say what you did, or ask" aria-label="Tell CLIVE what you did, or ask">
+    </div>
+    <button id="send" class="send" type="submit" aria-label="Send" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+    </button>
+    <button id="mic" class="mic" type="button" aria-label="Hold to speak">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    </button>
+  </form>
+</footer>
 
+<script src="/static/orb.js?b=__BUILD__" defer></script>
+<script src="/static/objective-touch.js?b=__BUILD__" defer></script>
+<script src="/static/today-say.js?b=__BUILD__" defer></script>
+<script src="/static/today-voice.js?b=__BUILD__" defer></script>
 <script src="/static/today.js?b=__BUILD__" defer></script>
+<script src="/static/today-owner.js?b=__BUILD__" defer></script>
 </body>
 </html>

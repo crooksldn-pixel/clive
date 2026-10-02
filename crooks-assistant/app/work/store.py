@@ -10,6 +10,8 @@ work/record.jsonl (append-only). All 0600, written atomically. The ladder:
 * A finished job keeps what proves it: packed, the counts, a note, the change that closed it.
 * The owner hands jobs out and sets routines; the team takes and finishes them, and anyone may flag
   a job for the owner.
+* Anyone may take back their own latest steps on a job for a short while (take_back): a mis-tap is
+  put right on the spot, and the record keeps both the step and its undoing.
 """
 
 from __future__ import annotations
@@ -43,6 +45,12 @@ DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # A job or routine the owner's assistant made, rather than the owner with his own taps: text it read
 # in an email or a DM may have steered it, so the team can tell the two apart.
 VIA_CLIVE = "clive"
+# The team's Undo (web/today.js, 3 October): the steps a person may take back on their own job, and
+# for how long after the latest of them. The screen offers it for six seconds; this is the server's
+# own limit, with room for a slow phone. A change a card made (a fulfilment, a reply) is never taken
+# back here: it has its own undo, on its card.
+TAKE_BACK = ("claimed", "released", "packed", "counted", "done")
+UNDO_WINDOW_S = 120
 
 
 class WorkError(ValueError):
@@ -433,8 +441,11 @@ class WorkStore:
                 raise WorkError("enter at least one count")
             if len(clean) > MAX_COUNTS:
                 raise WorkError(f"a count holds at most {MAX_COUNTS} lines")
+            before = list(item.evidence.get("counts") or [])
             item.evidence = {**item.evidence, "counts": clean, "counted_by": who, "counted_at": now()}
-            return self._step(item, who, "counted", detail=f"{len(clean)} line{'s' if len(clean) != 1 else ''}")
+            # What the count was before, kept on the step so Undo can put it back (take_back).
+            return self._step(item, who, "counted", detail=f"{len(clean)} line{'s' if len(clean) != 1 else ''}",
+                              kept={"before": before})
 
     def done(self, item_id: str, *, who: str, note: str = "", owner: bool = False, evidence: dict | None = None) -> WorkItem:
         with self._lock:
@@ -454,6 +465,71 @@ class WorkStore:
                 raise WorkError(f"that job is already {item.status}")
             return self._step(item, by, "cancelled", status="cancelled")
 
+    # ------------------------------------------------------------------ taking a step back (3 October)
+
+    def take_back(self, item_id: str, *, who: str, steps: list[str]) -> tuple[WorkItem, list[str]]:
+        """Put a job back as it was before `who`'s latest steps on it. `steps` names them, newest
+        first, as the screen saw them made ("done", "packed", "claimed"): they must be the job's last
+        steps, every one theirs, every one in TAKE_BACK, the newest within UNDO_WINDOW_S, and the job
+        not closed by a card's change. Anything else is refused in words and nothing changes."""
+        wanted = [str(s) for s in steps or []][:5]
+        with self._lock:
+            item = self._must(item_id)
+            trail = list(reversed(item.events))[:len(wanted)]
+            if not wanted or [e.get("what") for e in trail] != wanted:
+                raise WorkError("that job has moved on since, so there is nothing to undo")
+            if any(e.get("who") != who or e.get("what") not in TAKE_BACK for e in trail):
+                raise WorkError("only your own last steps can be undone")
+            if not _recent(trail[0].get("at")):
+                raise WorkError("that was too long ago to undo; ask CLIVE to put it right")
+            if item.evidence.get("proposal_id"):
+                raise WorkError("a change made through a card closed that job; its own card can undo it")
+            for event in trail:
+                self._reverse(item, event, who)
+            item.events.append({"at": now(), "who": who, "what": "undone", "detail": ", ".join(wanted)})
+            item.events = item.events[-60:]
+            self._save(item)
+        for what in wanted:
+            self.record({"who": who, "what": f"{what}_undone", "item_id": item.item_id, "ref": item.ref, "detail": item.title})
+        return item, wanted
+
+    def _reverse(self, item: WorkItem, event: dict[str, Any], who: str) -> None:
+        what = event.get("what")
+        if what == "claimed":
+            item.status, item.claimed_by, item.claimed_at = "open", "", ""
+        elif what == "released":
+            item.status, item.claimed_by, item.claimed_at = "claimed", who, now()
+        elif what == "packed":
+            item.evidence = {k: v for k, v in item.evidence.items() if k not in ("packed", "packed_by", "packed_at")}
+        elif what == "counted":
+            before = event.get("before") or []
+            kept = {k: v for k, v in item.evidence.items() if k not in ("counts", "counted_by", "counted_at")}
+            item.evidence = {**kept, "counts": before} if before else kept
+        elif what == "done":
+            item.status = "claimed" if item.claimed_by else "open"
+            item.done_by, item.done_at = "", ""
+            if event.get("detail"):
+                item.evidence = {k: v for k, v in item.evidence.items() if k != "note"}
+
+    def last_steps(self, who: str) -> dict[str, Any] | None:
+        """`who`'s latest steps that Undo can still take back, on whichever job they were: what the
+        screen offers to undo after CLIVE took a step for them in words. None when there are none."""
+        best: tuple[str, WorkItem, list[str]] | None = None
+        for item in self.items():
+            run: list[str] = []
+            for event in reversed(item.events):
+                if event.get("who") != who or event.get("what") not in TAKE_BACK or not _recent(event.get("at")):
+                    break
+                run.append(str(event["what"]))
+            if run and not item.evidence.get("proposal_id"):
+                at = str(item.events[-1].get("at") or "")
+                if best is None or at > best[0]:
+                    best = (at, item, run[:5])
+        if best is None:
+            return None
+        at, item, run = best
+        return {"item_id": item.item_id, "steps": run, "title": item.title, "kind": item.kind, "at": at}
+
     # ------------------------------------------------------------------ helpers
 
     def _must(self, item_id: str) -> WorkItem:
@@ -472,12 +548,15 @@ class WorkStore:
             raise WorkError(f"{item.claimed_by} has that job")
         return item
 
-    def _step(self, item: WorkItem, who: str, what: str, *, detail: str = "", **changes: Any) -> WorkItem:
+    def _step(self, item: WorkItem, who: str, what: str, *, detail: str = "", kept: dict | None = None,
+              **changes: Any) -> WorkItem:
         for key, value in changes.items():
             setattr(item, key, value)
         event = {"at": now(), "who": who, "what": what}
         if detail:
             event["detail"] = detail
+        if kept:
+            event.update(kept)              # on the job's own story only, never in the record
         item.events.append(event)
         item.events = item.events[-60:]
         self._save(item)
@@ -504,6 +583,17 @@ def _about(entry: dict[str, Any], ref: str) -> bool:
         return True
     number = re.fullmatch(r"#?(\d{3,10})", ref.strip())
     return bool(number) and re.search(rf"(?<!\d){number.group(1)}(?!\d)", str(entry.get("detail") or "")) is not None
+
+
+def _recent(stamp: Any) -> bool:
+    """Whether a step was taken within UNDO_WINDOW_S of now."""
+    try:
+        then = datetime.fromisoformat(str(stamp))
+    except ValueError:
+        return False
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=UTC)
+    return datetime.now(UTC) - then <= timedelta(seconds=UNDO_WINDOW_S)
 
 
 def due_on_or_before(item: WorkItem, day: str) -> bool:
