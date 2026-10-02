@@ -617,6 +617,7 @@ _TOOL_CONFIG = (
     ("app.connections.ledger", ("_CONFIG",)),
     ("app.people.access", ("_CONFIG", "_CACHE")),
     ("app.work.tools", ("_RUNTIME",)),
+    ("app.speech.voice_prefs", ("_CONFIG",)),
 )
 # And the stores `build` configures by setting an instance's attributes: (module, the instance's
 # name there, its attributes) — the team's cards (`people_store.configure`) and the work list's
