@@ -76,12 +76,14 @@
   function matchRow(r, one) {
     const ref = text(r.order_id);
     const number = text(r.order_number);
-    const items = list(r.items, 3).map((i) => [text(i.title), text(i.variant)].filter(Boolean).join(' · ')).filter(Boolean);
+    // One statement per fact: the why line names the goods and the day, so the row does not say
+    // them again, and the name the row already shows is not repeated at the head of the line.
+    const who = text(r.customer_name);
+    const why = who && text(r.why).startsWith(`${who} — `) ? text(r.why).slice(who.length + 3) : text(r.why);
     const row = h('li', `row cm-row${one ? ' is-one' : ''}`, [
-      h('span', 'row-main', [h('strong', null, number || '—'), ' ', text(r.customer_name)]),
-      h('span', 'row-sub', [day(r.placed_at), items.length ? ` · ${items.join(', ')}` : ''].join('')),
+      h('span', 'row-main', [h('strong', null, number || '—'), ' ', who]),
       h('span', 'row-side', [h('span', 'amount', text(r.total))]),
-      h('p', 'cm-why', text(r.why)),
+      h('p', 'cm-why', why || day(r.placed_at)),
       factDots(r.fits, r.misses),
     ]);
     return opener(row, 'order', ref, number);
@@ -106,23 +108,23 @@
     const rows = list(t.rows, 24);
     const sources = list(t.sources, 8);
     const body = rows.length
-      ? h('ol', 'tl', rows.map((r) => {
+      ? h('ol', 'cst-tl', rows.map((r) => {
         const kind = text(r.ref_kind);
-        const row = h('li', `tl-row ${SOURCE_CLASS[text(r.source)] || ''} k-${text(r.kind).replace(/[^a-z_]/g, '')}`, [
-          h('span', 'tl-dot'),
-          h('span', 'tl-when', text(r.when)),
-          h('span', 'tl-what', text(r.what)),
-          text(r.detail) ? h('span', 'tl-detail', text(r.detail)) : null,
+        const row = h('li', `cst-row ${SOURCE_CLASS[text(r.source)] || ''} k-${text(r.kind).replace(/[^a-z_]/g, '')}`, [
+          h('span', 'cst-dot'),
+          h('span', 'cst-when', text(r.when)),
+          h('span', 'cst-what', text(r.what)),
+          text(r.detail) ? h('span', 'cst-detail', text(r.detail)) : null,
         ]);
         const label = (text(r.what).match(/#\d{1,10}/) || [''])[0];
         return opener(row, kind, text(r.ref), label);
       }))
       : h('p', 'card-note', 'Nothing is recorded about them yet.');
     const said = sources.map((s) => `${text(s.name)}: ${text(s.said)}`).filter((s) => s.length > 2).join(' · ');
-    return h('div', 'tl-wrap', [
+    return h('div', 'cst-wrap', [
       body,
       t.truncated ? h('p', 'card-meta', `The newest ${rows.length} of ${text(t.count)} things.`) : null,
-      said ? h('p', 'card-meta tl-sources', said) : null,
+      said ? h('p', 'card-meta cst-sources', said) : null,
     ]);
   }
 

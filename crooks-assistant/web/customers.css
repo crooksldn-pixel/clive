@@ -19,20 +19,20 @@
 .cm-note{margin:0 0 6px}
 
 /* ---- their story */
-.tl{list-style:none;margin:0;padding:0 0 0 2px;position:relative}
-.tl::before{content:"";position:absolute;left:5px;top:10px;bottom:10px;width:1px;background:var(--line)}
-.tl-row{display:grid;grid-template-columns:14px 74px 1fr;column-gap:10px;align-items:baseline;padding:9px 0;position:relative;min-height:0}
-.tl-row.tappable{cursor:pointer;border-radius:var(--radius-control)}
-.tl-row.tappable:active{background:var(--glass-control-active)}
-.tl-dot{width:9px;height:9px;border-radius:50%;background:var(--ink-4);align-self:center;position:relative;z-index:1;box-shadow:0 0 0 3px var(--bg-2)}
-.tl-row.is-shop .tl-dot{background:var(--ink-2)}
-.tl-row.is-mail .tl-dot{background:#0a84ff}
-.tl-row.is-clive .tl-dot{background:var(--ok)}
-.tl-row.k-refund .tl-dot,.tl-row.k-cancelled .tl-dot{background:var(--warn)}
-.tl-when{font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
-.tl-what{font-size:15px;color:var(--ink);word-break:break-word}
-.tl-detail{grid-column:3;font-size:13px;color:var(--ink-3);word-break:break-word;margin-top:2px}
-.tl-sources{margin-top:10px}
+.cst-tl{list-style:none;margin:0;padding:0 0 0 2px;position:relative}
+.cst-tl::before{content:"";position:absolute;left:5px;top:10px;bottom:10px;width:1px;background:var(--line)}
+.cst-row{display:grid;grid-template-columns:14px 74px 1fr;column-gap:10px;align-items:baseline;padding:9px 0;position:relative;min-height:0}
+.cst-row.tappable{cursor:pointer;border-radius:var(--radius-control)}
+.cst-row.tappable:active{background:var(--glass-control-active)}
+.cst-dot{width:9px;height:9px;border-radius:50%;background:var(--ink-4);align-self:center;position:relative;z-index:1;box-shadow:0 0 0 3px var(--bg-2)}
+.cst-row.is-shop .cst-dot{background:var(--ink-2)}
+.cst-row.is-mail .cst-dot{background:#0a84ff}
+.cst-row.is-clive .cst-dot{background:var(--ok)}
+.cst-row.k-refund .cst-dot,.cst-row.k-cancelled .cst-dot{background:var(--warn)}
+.cst-when{font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.cst-what{font-size:15px;color:var(--ink);word-break:break-word}
+.cst-detail{grid-column:3;font-size:13px;color:var(--ink-3);word-break:break-word;margin-top:2px}
+.cst-sources{margin-top:10px}
 
 /* ---- a refund landing */
 .cm-refunds{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}

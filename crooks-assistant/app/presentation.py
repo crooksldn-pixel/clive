@@ -1653,6 +1653,7 @@ def _merge(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     seen_orders: dict[str, int] = {}
     seen_workspaces: dict[str, int] = {}
     seen_objectives: dict[str, int] = {}
+    seen_customers: dict[str, int] = {}
     for item in items:
         if item["type"] == "workspace":
             # Opened and then changed in the same turn ("a new order for Mia, and add a
@@ -1678,6 +1679,17 @@ def _merge(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     out[index] = item
                 continue
             seen_orders[ref] = len(out)
+        if item["type"] == "customer":
+            # The same rule for a person: found, then their history read, is one card — the one
+            # with the history on it (app/customers/history.py), where the first one was drawn.
+            ref = str(item["data"].get("customer_id") or "")
+            if ref and ref in seen_customers:
+                index = seen_customers[ref]
+                if item["data"].get("history") or item["data"].get("timeline") or not out[index]["data"].get("history"):
+                    out[index] = item
+                continue
+            if ref:
+                seen_customers[ref] = len(out)
         out.append(item)
     return out
 

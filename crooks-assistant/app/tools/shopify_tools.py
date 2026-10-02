@@ -816,7 +816,10 @@ async def _find_by_evidence(evidence: dict[str, str], limit: int) -> dict[str, A
     if not rows:
         # Nothing has ALL of it. One fact may have been misheard — the name most often — so the
         # orders that could be it are scored on every fact together (app/customers/match.py).
-        await _closest(client, result, evidence, list(nodes.values()), clauses, bool(name_ids))
+        try:
+            await _closest(client, result, evidence, list(nodes.values()), clauses, bool(name_ids))
+        except Exception as exc:  # noqa: BLE001 — the strict answer stands without the second look
+            log.warning("closest orders unavailable: %s", type(exc).__name__)
     return result
 
 

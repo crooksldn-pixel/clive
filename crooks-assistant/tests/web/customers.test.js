@@ -94,7 +94,7 @@ test("a customer's story is its own tab on their card, newest first", () => {
   } }]).nodes[0];
   const tabs = card.querySelectorAll('.tab').map((t) => t.allText());
   assert.deepEqual(tabs, ['Overview', 'History']);
-  const rows = all(card, 'tl-row');
+  const rows = all(card, 'cst-row');
   assert.equal(rows.length, 3);
   assert.equal(rows[0].dataset.ref, ORDER);
   assert.equal(rows[1].dataset.kind, 'email_thread');
