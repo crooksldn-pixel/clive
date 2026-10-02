@@ -178,8 +178,9 @@ def _work_rows(order_ids: set[str], labels: dict[str, str]) -> tuple[list[dict[s
         if order_id not in order_ids or what not in _WORK_SAID:
             continue
         who = _person(entry.get("who"))
+        detail = " · ".join(p for p in ("work list", who, _clip(entry.get("note"), 80)) if p)
         out.append(_row(entry.get("at"), f"work_{what}", f"{_WORK_SAID[what]} {labels.get(order_id, 'their order')}",
-                        f"work list · {who}" if who else "work list", ref=order_id, ref_kind="order", source="CLIVE"))
+                        detail, ref=order_id, ref_kind="order", source="CLIVE"))
     return out, f"{len(out)} step{'s' if len(out) != 1 else ''}"
 
 

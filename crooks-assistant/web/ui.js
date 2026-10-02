@@ -1153,6 +1153,13 @@
     ].filter(Boolean), { initial: tabFor('customer', d, opts), onChange: tabReporter('customer', d, opts) });
   }
 
+  // Customers: a row that opens that customer carries their Shopify id (CUSTOMER_REF, above) and
+  // nothing else of theirs.
+  function customerRowOpens(c) {
+    const ref = text(c.customer_id);
+    return CUSTOMER_REF.test(ref) ? { class: 'row tappable', role: 'button', data: { ref, kind: 'customer' } } : { class: 'row' };
+  }
+
   function renderCustomerList(d, opts) {
     const customers = list(d.customers, 6);
     return card('customer_list', [
@@ -1160,7 +1167,9 @@
       emptyNote(d),
       // A name heard rather than typed (app/customers/names.py): the question, and why each fits.
       !d.empty && d.note ? h('p', { class: 'card-note', text: text(d.note) }) : null,
-      h('ul', { class: 'rows tight' }, customers.map((c) => h('li', { class: 'row' }, [
+      // A row opens that customer (their card, and their story) — one tap rather than saying the
+      // name again. Only a customer's own id goes on the row; nothing of theirs is an attribute.
+      h('ul', { class: 'rows tight' }, customers.map((c) => h('li', customerRowOpens(c), [
         h('span', { class: 'row-main', text: text(c.name, '—') }),
         h('span', { class: 'row-sub', text: [text(c.email), text(c.why)].filter(Boolean).join(' · ') }),
         h('span', { class: 'row-side' }, [

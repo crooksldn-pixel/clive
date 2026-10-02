@@ -603,20 +603,22 @@ def _check_evidence(node: dict[str, Any], evidence: dict[str, str]) -> dict[str,
     if "item" in evidence:
         matched_lines = [line for line in lines if item_matches(evidence["item"], line["title"], line["variant"], line["sku"])]
         held["item"] = bool(matched_lines)
-    if "when" in evidence:
+    window = _when_window(evidence) if "when" in evidence else None
+    if window is not None:
         # Held to everything the words might mean (app/customers/when.py): "last week" holds an
-        # order of nine days ago, because that is what some people mean by it.
-        window = _when_window(evidence)
-        held["when"] = bool(window and window.fit(_shop_day(node)) > 0)
+        # order of nine days ago, because that is what some people mean by it. Words that are not
+        # a day this build knows are not held against anything; they are said back (`unread`).
+        held["when"] = window.fit(_shop_day(node)) > 0
     if "amount" in evidence:
         from app.customers.match import amount_of
 
         said = amount_of(evidence["amount"])
         total = ((node.get("currentTotalPriceSet") or {}).get("shopMoney") or {}).get("amount")
-        try:
-            held["amount"] = said is not None and abs(float(total) - said) <= max(0.5, said * 0.01)
-        except (TypeError, ValueError):
-            held["amount"] = False
+        if said is not None:
+            try:
+                held["amount"] = abs(float(total) - said) <= max(0.5, said * 0.01)
+            except (TypeError, ValueError):
+                held["amount"] = False
     return {"held": held, "lines": matched_lines}
 
 

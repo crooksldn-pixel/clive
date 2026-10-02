@@ -202,3 +202,21 @@ async def test_a_tap_on_the_match_opens_the_order_without_asking_again(world):
     assert body["ok"] is True, body
     assert [i["data"]["order_number"] for i in body["ui"] if i["type"] == "order"] == ["#2201"]
     assert len(world.model.prompts) == 1 and "look up Alcya" in world.model.prompts[0], "the tap reached no model"
+
+
+async def test_words_that_are_not_a_day_are_not_held_against_the_order(world):
+    """"Alicia's grey hoodie, whenever it was": the day is unknown, not wrong — the order is found."""
+    await say(world, "Alicia's grey hoodie, whenever it was",
+              ("shopify_find_order", {"name": "Alicia", "item": "grey hoodie", "when": "whenever it was"}))
+    told = result(world, "shopify_find_order")
+    assert [o["order_number"] for o in told["orders"]] == ["CROOKS-2201"]
+
+
+async def test_a_tap_on_a_name_that_sounds_like_it_opens_their_story(world):
+    await say(world, "look up Alysa", ("shopify_find_order", {"name": "Alysa"}))
+    opened = await world.post("/command", data={"session_id": "c1", "command": "open.entity", "kind": "customer",
+                                                "ref": ALICIA}, headers=PROXIED)
+    body = opened.json()
+    assert body["ok"] is True, body
+    (customer,) = [i["data"] for i in body["ui"] if i["type"] == "customer"]
+    assert customer["name"] == "Alicia Grant" and customer["timeline"]["rows"][0]["what"] == "Refunded £45.00 on #2201"

@@ -115,3 +115,18 @@ test('a refund under the money says whether it landed', () => {
   assert.ok(lines[0].classList.contains('is-fit') && lines[1].classList.contains('is-miss'));
   assert.match(lines[1].allText(), /the card was declined/);
 });
+
+test('a name offered as a question opens that customer on a tap, and carries only their id', () => {
+  const card = UI.render([{ type: 'customer_list', data: {
+    title: 'Did you mean?', ambiguous: true, note: 'Nobody is called Alysa. Did you mean Alicia Grant or Alison Grey?',
+    customers: [{ customer_id: 'gid://shopify/Customer/9201', name: 'Alicia Grant', email: 'alicia.grant@example.com', orders: 2, why: "sounds like 'Alysa'" },
+                { customer_id: 'not-an-id', name: 'Somebody', email: '', orders: 0, why: '' }],
+  } }]).nodes[0];
+  const rows = card.querySelectorAll('.row');
+  assert.equal(rows[0].dataset.kind, 'customer');
+  assert.equal(rows[0].dataset.ref, 'gid://shopify/Customer/9201');
+  assert.ok(!JSON.stringify(rows[0].dataset).includes('Alicia'));
+  assert.equal(rows[1].dataset.ref, undefined);
+  assert.match(card.allText(), /sounds like 'Alysa'/);
+  assert.match(card.allText(), /Did you mean Alicia Grant or Alison Grey\?/);
+});
