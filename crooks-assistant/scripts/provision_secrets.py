@@ -63,6 +63,10 @@ HELP = {
         "Credentials -> Create credentials -> API key, restricted to that API. CLIVE searches "
         "YouTube with it to play videos on your screens."
     ),
+    "ship24_api_key": (
+        "Ship24 dashboard -> API keys (dashboard.ship24.com/integrations/api-keys): the Default key "
+        "made when you chose a plan (it starts apik_). CLIVE tracks parcels with it."
+    ),
     "instagram_access_token": (
         "Meta for Developers -> the CLIVE app -> Instagram -> API setup with Instagram login -> "
         "Generate token for the crooksldn account (a long-lived token, 60 days). CLIVE reads "

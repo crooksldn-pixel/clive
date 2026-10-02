@@ -73,6 +73,14 @@ CONNECTIONS: tuple[Connection, ...] = (
         requires=("youtube_api_key",),
     ),
     Connection(
+        name="ship24", label="Ship24",
+        what="Tracks parcels with the carrier's own scans, so CLIVE can say where an order is.",
+        fields=(Field("ship24_api_key", "API key",
+                      hint="Ship24 dashboard → API keys (dashboard.ship24.com/integrations/api-keys): the "
+                           "Default key, made when you chose a plan. It starts apik_."),),
+        requires=("ship24_api_key",), family="parcel_tracking",
+    ),
+    Connection(
         name="github", label="GitHub",
         what="Lets CLIVE file build requests for its own engineering.",
         fields=(Field("github_engineering_inbox_token", "Fine-grained token",

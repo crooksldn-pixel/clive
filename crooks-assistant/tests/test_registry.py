@@ -137,6 +137,7 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
         gmail_tools,
         gmail_writes,
         instagram_tools,
+        ship24_tools,
         shopify_tools,
         shopify_writes,
         show_again,
@@ -421,7 +422,12 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # change is George's: noting it on the work list for him. The ceiling is raised by exactly what
     # was measured, leaving no headroom.
     # Both together: 46,851 (46,787 + 64), measured on the merged tree.
-    assert total <= 46_851, f"the tool block is {total} bytes"
+    #
+    # 47_330 is parcel tracking (app/tools/ship24_tools.py, tests/test_ship24.py), +479 bytes
+    # measured (46,851 before, 47,330 after): track_parcel 479, a tracking number and an optional
+    # carrier. Imported above because app/runtime.py offers it. With no Ship24 key stored its family
+    # is DISCONNECTED and it is not offered at all (runtime.withheld_by_family).
+    assert total <= 47_330, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

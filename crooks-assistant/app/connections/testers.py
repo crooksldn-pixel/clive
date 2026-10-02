@@ -7,6 +7,9 @@ What each asks (read-only, and spending nothing):
   Shopify      the client-credentials token request for this shop; the token minted is dropped
   GitHub       GET /repos/<the clive repository>, which says whether the token may write there
   Instagram    GET /me with the token, which names the account it reads
+  Ship24       GET /trackers?limit=1, which lists trackers and creates none, so it spends none of
+               a per-shipment plan's shipments; per-call plans count only /tracking/search, which
+               this never calls (app/clients/ship24.py has the docs relied on)
 
 The key goes in a header or a request body, never in an address. What comes back is described
 in our own words; nothing a service wrote is quoted, and no key appears in any detail.
@@ -157,12 +160,34 @@ async def _instagram(values: dict[str, str], settings: Any, changed: frozenset[s
     return Outcome(False, reasons.get(refused.kind, "Instagram refused that token; nothing was changed."))
 
 
+async def _ship24(values: dict[str, str], settings: Any) -> Outcome:
+    from app.clients import ship24
+
+    async with http_client() as client:
+        response = await client.get(f"{ship24.API}/trackers", params={"limit": "1"}, headers={
+            "Authorization": f"Bearer {values['ship24_api_key']}", "Accept": "application/json"})
+    if response.status_code == 200:
+        return Outcome(True, "Ship24 accepted the key.")
+    if response.status_code == 401:
+        return Outcome(False, "Ship24 refused that key. Check you copied all of it (Ship24's keys start apik_).")
+    if ship24.refusal(response).kind == "no_plan":
+        # The key is genuine (a bad one is a 401); it is only not on a per-shipment plan. Whether it
+        # is on a per-call one could be learned only by spending a call, so it is not asked here.
+        return Outcome(True, "Ship24 accepted the key, but says it has no per-shipment plan. If it is on a "
+                             "per-call plan, CLIVE uses that and each look-up counts as one call; if it has no "
+                             "plan, choose one at dashboard.ship24.com → Subscriptions.")
+    if response.status_code == 429:
+        return Outcome(False, "Ship24 is limiting requests just now. Try again in a minute.")
+    return Outcome(False, f"Ship24 answered {response.status_code}; nothing was changed.")
+
+
 TESTERS = {
     "elevenlabs": _elevenlabs,
     "youtube": _youtube,
     "shopify": _shopify,
     "github": _github,
     "instagram": _instagram,
+    "ship24": _ship24,
 }
 
 

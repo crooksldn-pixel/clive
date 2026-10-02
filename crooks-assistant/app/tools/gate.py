@@ -174,6 +174,13 @@ _KNOWN_TOOLS = frozenset({
     # conversation_id is an issued-id argument declared there. Named here one by one, because
     # this is an allow-list.
     "instagram_inbox", "instagram_thread", "instagram_comments",
+    # Parcel tracking (app/tools/ship24_tools.py): one parcel's carrier scans, by its tracking
+    # number, from Ship24 (app/clients/ship24.py). It talks to Ship24 and nothing else, so no
+    # Shopify order, fulfilment or customer can change through it. On a per-shipment plan its
+    # first look-up of a number starts a tracker at Ship24, which is how that plan tracks; the
+    # result says so. GREEN: a carrier, a status and depot scans, and never the recipient. Named
+    # here because this is an allow-list.
+    "track_parcel",
     # The team (app/people/tools.py) and the work list (app/work/tools.py). Like the objective
     # tools above, they read and change only CLIVE's own records on this machine: a person's card,
     # a job, its claim and its record. No message is sent and the shop is not touched by them, and

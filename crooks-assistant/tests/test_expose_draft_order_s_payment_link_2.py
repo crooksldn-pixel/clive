@@ -184,6 +184,7 @@ def test_the_tool_block_stays_within_its_budget():
         gmail_tools,
         gmail_writes,
         instagram_tools,
+        ship24_tools,
         shopify_writes,
         show_again,
     )
@@ -200,5 +201,6 @@ def test_the_tool_block_stays_within_its_budget():
     # alone, 43,918 once closing an objective out landed beside it (+16, measured; that file says
     # tool by tool where the bytes went), 46,131 with the team's four tools (+2,213, measured),
     # 46,787 with a custom item on an existing order (shopify_order_add_custom_item, +656, measured),
-    # and 46,851 with work_note's `flag` (+64, measured).
-    assert total <= 46_851, f"the tool block is {total} bytes"
+    # and 46,851 with work_note's `flag` (+64, measured), and 47,330 with parcel tracking
+    # (track_parcel, +479, measured).
+    assert total <= 47_330, f"the tool block is {total} bytes"

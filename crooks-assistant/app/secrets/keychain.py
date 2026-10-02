@@ -64,6 +64,9 @@ KNOWN_KEYS = (
     # Finds videos for the owner's screens (app/clients/youtube.py): a YouTube Data API v3 key,
     # read-only by what that API is. Absent, a YouTube link still plays; only search needs it.
     "youtube_api_key",
+    # Tracks parcels by the carrier's own scans (app/clients/ship24.py): a Ship24 Tracking API key.
+    # Absent, CLIVE says parcel tracking is not connected; nothing else needs it.
+    "ship24_api_key",
     # Reads the CROOKS Instagram account's messages and comments (app/clients/instagram.py): a
     # long-lived Instagram User access token, renewed by the application before its 60 days run
     # out. The app id and secret are the Meta app's, kept for exchanging a new short-lived token

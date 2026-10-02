@@ -555,6 +555,7 @@ def build(settings: Settings | None = None) -> Runtime:
         gmail_writes,
         instagram_tools,
         mock,
+        ship24_tools,
         shopify_tools,
         shopify_writes,
         show_again,

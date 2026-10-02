@@ -146,6 +146,10 @@ async def after_change(runtime: Any, keys: tuple[str, ...], *, new_token: bool =
         from app.clients import instagram as instagram_client
 
         instagram_client.adopt_new_token()
+    if "ship24_api_key" in changed:
+        from app.clients import ship24 as ship24_client
+
+        ship24_client.forget_plan()            # a new key may be on the other plan
     refresh = getattr(runtime, "family_states", None)
     if callable(refresh):
         try:
