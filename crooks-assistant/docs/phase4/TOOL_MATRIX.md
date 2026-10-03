@@ -184,7 +184,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_store_credit_add` | command:a tapped control, family:store_credit | test_r11_turn.py, test_r13_off_target.py, test_store_credit.py | store_credit_give |
 | `shopify_variant_search` | recipe:order_line, recipe:order_add_item, family:order_edit | test_order_edit.py | order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers |
 | `show_again` | family:recall | test_r12_surfaces.py | — |
-| `submit_engineering_request` | family:engineering | test_build_from_clive.py, test_capability_gaps.py, test_engineering_bridge.py, test_r11_engineering_off.py | — |
+| `submit_engineering_request` | family:engineering | test_build_from_clive.py, test_capability_gaps.py, test_engineering_bridge.py, test_interaction_record.py, test_r11_engineering_off.py | — |
 | `track_parcel` | family:parcel_tracking | test_ship24.py | — |
 | `work_list` | family:work | test_work.py, test_work_review_fixes.py | — |
 | `work_note` | family:work | test_work.py, test_work_review_fixes.py | — |
