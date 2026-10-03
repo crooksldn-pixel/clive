@@ -117,7 +117,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `batch_email_archive` | the model only | test_batch.py | — |
 | `batch_email_drafts` | the model only | test_batch.py | — |
 | `batch_email_send` | the model only | test_tool_boundary.py | — |
-| `batch_order_tags_add` | the model only | test_batch.py, test_council_fixes.py | — |
+| `batch_order_tags_add` | the model only | test_batch.py, test_council_fixes.py, test_decline.py | — |
 | `batch_order_tags_remove` | the model only | test_batch.py | — |
 | `close_screen` | family:put_away | test_r12_surfaces.py | — |
 | `commerce_aggregate` | recipe:landing_sales, recipe:landing_products, family:analytics | test_analytics_tools.py, test_council_fixes.py, test_r13_timeline_names.py, test_working_sets.py | landing_products, landing_sales |
