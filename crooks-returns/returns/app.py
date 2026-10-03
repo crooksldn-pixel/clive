@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
+from starlette.concurrency import run_in_threadpool
 
 from returns.api import build_routers
 from returns.labels import ClickAndDrop
@@ -22,7 +28,27 @@ def create_app(settings: Settings | None = None, service: ReturnsService | None 
         else:
             shopify, labels = GraphQLShopify(settings), ClickAndDrop(settings)
         service = ReturnsService(settings, Store(settings.db_path), shopify, labels)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        # Flag overdue labels on a timer, so no outside scheduler is needed.
+        async def ticker() -> None:
+            while True:
+                await asyncio.sleep(settings.tick_interval_s)
+                try:
+                    await run_in_threadpool(service.tick)
+                except Exception:  # noqa: BLE001 - one failed check must not stop the next
+                    logging.getLogger("returns.tick").exception("overdue check failed")
+
+        task = asyncio.create_task(ticker()) if settings.tick_interval_s > 0 else None
+        yield
+        if task:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
     app = FastAPI(
+        lifespan=lifespan,
         title="CROOKS Returns",
         version="0.1.0",
         docs_url="/api/docs",

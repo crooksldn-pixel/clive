@@ -98,6 +98,26 @@ API docs are served at `/api/docs`.
      store-credit balance.
    - Clear `RETURNS_PILOT_ORDER_NUMBERS` to open it to everyone.
 
+## On your own server (Hetzner)
+
+`docker-compose.yml` runs the service and Caddy, which fetches and renews the HTTPS
+certificate by itself. The service checks for overdue labels on its own every 15 minutes.
+
+1. **Address.** Where crooksldn.com's DNS is managed, add an `A` record: name `returns`,
+   value the server's IPv4 address.
+2. **Ports.** Allow 80 and 443 in the Hetzner Cloud firewall (and `ufw allow 80,443/tcp` if
+   ufw is on). If something on the server already uses 80 or 443, put this site in that web
+   server instead of running Caddy.
+3. **Docker.** `curl -fsSL https://get.docker.com | sh`
+4. **Code.** `git clone -b claude/compassionate-dirac-44hnee https://github.com/crooksldn-pixel/clive.git /opt/clive`
+   (the repository is private: sign in with a GitHub token when asked).
+5. **Settings.** `cd /opt/clive/crooks-returns && cp .env.example .env && nano .env`
+6. **Start.** `docker compose up -d --build`, then open `https://returns.crooksldn.com/health`.
+7. **Backups.** Turn on Backups for the server in the Hetzner console. The returns live in
+   `/opt/clive/crooks-returns/data/returns.sqlite3`.
+8. **Updates.** `cd /opt/clive && git pull && cd crooks-returns && docker compose up -d --build`
+9. **Logs.** `docker compose logs -f returns`
+
 ## Going live
 
 1. **Shopify app.** In the Dev Dashboard, create a custom app for the store (or reuse CLIVE's

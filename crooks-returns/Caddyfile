@@ -1,0 +1,5 @@
+# Serves the returns service on your address over HTTPS (certificate from Let's Encrypt).
+{$RETURNS_DOMAIN} {
+	encode gzip
+	reverse_proxy returns:8100
+}

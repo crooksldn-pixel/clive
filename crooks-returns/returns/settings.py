@@ -75,6 +75,8 @@ class Settings(BaseSettings):
     refund_outbound_shipping_on_full_return: bool = True
     # How long a return may sit approved with "label later" before it is flagged overdue.
     label_due_hours: int = 24
+    # How often the service checks for overdue labels by itself, in seconds. 0 turns it off.
+    tick_interval_s: int = 900
     # Let Shopify send its own return emails (label, refund). Edit them in Shopify admin ->
     # Settings -> Notifications so they carry the CROOKS look.
     shopify_notify_customer: bool = True

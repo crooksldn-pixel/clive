@@ -1,0 +1,40 @@
+# CROOKS Returns on your own server: the returns service plus Caddy, which gets and renews
+# the HTTPS certificate for your address automatically.
+#
+#   1. cp .env.example .env   and fill it in (RETURNS_DOMAIN is the address, e.g. returns.crooksldn.com)
+#   2. docker compose up -d --build
+#   3. open https://<your address>/health
+#
+# Returns are saved in ./data/returns.sqlite3 beside this file.
+
+services:
+  returns:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RETURNS_DB_PATH: /data/returns.sqlite3
+      RETURNS_PUBLIC_BASE_URL: https://${RETURNS_DOMAIN}
+    volumes:
+      - ./data:/data
+    expose:
+      - "8100"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - returns
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      RETURNS_DOMAIN: ${RETURNS_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
