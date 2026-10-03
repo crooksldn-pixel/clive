@@ -76,6 +76,28 @@ RETURNS_SHOPIFY_BACKEND=fake RETURNS_DEV_SKIP_PROXY_SIGNATURE=true \
 
 API docs are served at `/api/docs`.
 
+## Test before launch
+
+1. **Preview, no setup.** The clickable preview runs the real portal page on sample orders with
+   a staff/CLIVE panel beside it. Nothing touches the store.
+2. **Locally.** `RETURNS_SHOPIFY_BACKEND=fake` (above) runs the real service on sample orders.
+3. **On the real store, hidden from customers.**
+   - Do steps 1 to 4 of "Going live" below, with `RETURNS_PILOT_ORDER_NUMBERS` set to your
+     own test orders. Every other order number gets "Online returns are not open yet".
+   - Leave `RETURNS_RETURN_LABEL_COST_PENCE` empty and Click & Drop unset until you want to
+     test one paid label; approvals then use "label later" or "customer posts it".
+   - `npm run push` sends the theme to the unpublished **CROOKSLDN — Staging** theme. Open
+     `https://5wn03t-nm.myshopify.com/pages/returns?preview_theme_id=202053779799`.
+   - Test orders: create a draft order in the admin for your own customer account, mark it as
+     paid (manual payment, so refunds move no money), and fulfil it. A real fulfilment
+     counts as delivered three days after dispatch unless the carrier reports delivery
+     sooner.
+   - Run each path once: size swap, store credit, change-of-mind refund (self-ship), faulty
+     refund, label later then add tracking, and a return that arrives damaged. Check each one
+     in the Shopify admin (the order's Returns), in `GET /api/v1/returns`, and in your
+     store-credit balance.
+   - Clear `RETURNS_PILOT_ORDER_NUMBERS` to open it to everyone.
+
 ## Going live
 
 1. **Shopify app.** In the Dev Dashboard, create a custom app for the store (or reuse CLIVE's

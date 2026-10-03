@@ -116,6 +116,9 @@ class ReturnsService:
         digits = verify.normalise_order_number(order_number)
         if not digits or not (proof or "").strip():
             raise ActionError(verify.NOT_FOUND, 404)
+        pilot = self.s.pilot_orders()
+        if pilot and digits not in pilot:
+            raise ActionError("Online returns are not open yet. Please contact us.", 403)
         if self.by_order.blocked(digits) or self.by_ip.blocked(ip):
             raise ActionError(verify.LOCKED, 429)
         matches = [o for o in self.shopify.find_orders(digits) if verify.proof_matches(o, proof)]

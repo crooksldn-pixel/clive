@@ -193,3 +193,11 @@ def test_shopify_admin_changes_flow_back(svc, shop):
     shop.returns[rid]["status"] = "CLOSED"
     synced = svc.shopify_changed(rid, "returns/close")
     assert synced.status == Status.completed and synced.timeline[-1].actor == "shopify_admin"
+
+
+def test_pilot_mode_only_admits_listed_orders(svc):
+    svc.s.pilot_order_numbers = "#1800, 1939"
+    assert svc.lookup("1939", "customer@example.com", "1.1.1.1")[1].name == "#1939"
+    with pytest.raises(ActionError) as e:
+        svc.lookup("1950", "customer@example.com", "1.1.1.1")
+    assert e.value.status == 403

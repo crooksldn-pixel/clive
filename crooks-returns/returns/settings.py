@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     session_ttl_s: int = 3600
     # Local development only: accept portal calls that did not come through the app proxy.
     dev_skip_proxy_signature: bool = False
+    # Pilot mode: when set, only these order numbers (comma-separated digits) can use the portal.
+    # Lets the service run against the real store, on the Staging theme, before launch.
+    pilot_order_numbers: str = ""
     timezone: str = "Europe/London"
 
     # --- policy (decided 2026-10-03) ---
@@ -99,6 +102,11 @@ class Settings(BaseSettings):
                 floor, bonus = part.split(":")
                 bands.append((int(floor), int(bonus)))
         return sorted(bands)
+
+    def pilot_orders(self) -> set[str]:
+        return {
+            "".join(c for c in p if c.isdigit()) for p in self.pilot_order_numbers.split(",")
+        } - {""}
 
     def excluded_tags(self) -> set[str]:
         return {t.strip().casefold() for t in self.non_returnable_tags.split(",") if t.strip()}
