@@ -128,7 +128,14 @@ function page({ contexts, dots, engine }) {
     return e;
   };
   down.raw = (e) => { if (heard.pointerdown) heard.pointerdown(e); return e; };
-  return { run, advance, frame, root: els.startup, sandbox, els, down };
+  // Any other event the document is handed on its way down (a pointerup, a click).
+  const hear = (type, extra) => {
+    const e = Object.assign({ isTrusted: true, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} }, extra);
+    if (heard[type]) heard[type](e);
+    return e;
+  };
+  const clock = (ms) => { now += ms; };
+  return { run, advance, frame, root: els.startup, sandbox, els, down, hear, clock };
 }
 
 const gone = (root) => root.classList.contains('is-gone');
@@ -251,4 +258,41 @@ test('once CLIVE is there, a tap anywhere else ends the start-up and reaches not
   later.frame(); later.frame();
   later.els.system.dataset.phase = 'online';
   assert.equal(later.down({}).stopped, true, 'nor is a tap on nothing in particular');
+});
+
+// Review of the design pass (3 Oct): a stopped tap used to stop every pointerup and click for
+// 900 ms after it, so Orders tapped 0.4 s later opened nothing and the app beneath was left
+// thinking a finger was still down. Only the stopped tap's own click is swallowed now.
+test('a stopped tap swallows its own click and nothing else', () => {
+  const { pg } = running();
+  const tap = pg.down.raw({ target: control('.dock-btn'), pointerId: 7, isTrusted: true, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} });
+  assert.equal(tap.stopped, true, 'the tap itself only hurried the start-up');
+  assert.equal(pg.hear('pointerup', { pointerId: 7 }).stopped, false, 'its pointerup goes on to the app');
+  assert.equal(pg.hear('click', { pointerId: 7 }).stopped, true, 'its click is the one thing swallowed');
+  assert.equal(pg.hear('click', { pointerId: 7 }).stopped, false, 'and only once');
+});
+
+test('a second tap 0.4 s later is a new pointer, and its click goes through', () => {
+  const { pg } = running();
+  pg.down.raw({ target: {}, pointerId: 3, isTrusted: true, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} });
+  pg.clock(400);
+  // The first finger's click never came (it slid); the second finger's does.
+  assert.equal(pg.hear('click', { pointerId: 4 }).stopped, false, 'Orders, tapped again, opens Orders');
+  assert.equal(pg.hear('pointerup', { pointerId: 4 }).stopped, false);
+});
+
+test('a stopped tap whose click never comes holds nothing back for long', () => {
+  const { pg } = running();
+  pg.down.raw({ target: {}, pointerId: 1, isTrusted: true, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} });
+  pg.clock(1000);
+  assert.equal(pg.hear('click', { pointerId: 1 }).stopped, false, 'a mouse click a second later is a new click');
+  // On a browser that puts no pointer id on a click, the click that follows is the tap's.
+  const { pg: old } = running();
+  old.down.raw({ target: {}, isTrusted: true, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} });
+  assert.equal(old.hear('click', {}).stopped, true);
+  assert.equal(old.hear('click', {}).stopped, false, 'and only that one');
+  // A click from the keyboard (pointer id -1) is never a finger's.
+  const { pg: keys } = running();
+  keys.down.raw({ target: {}, pointerId: 2, isTrusted: true, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} });
+  assert.equal(keys.hear('click', { pointerId: -1 }).stopped, false);
 });
