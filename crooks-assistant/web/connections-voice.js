@@ -11,6 +11,8 @@
  *     otherwise it says "the voice's own setting" with no number. Nothing on it is made up;
  *   - "Use the voice's own settings" appears once something is saved here, and goes back to the voice
  *     set up on the server with nothing sent but the words, after his passkey (web/connections.js);
+ *   - the voice's name is never sent: CLIVE takes it from ElevenLabs as it saves (an option's own
+ *     words, "Derek, in use", were once stored as the name);
  *   - every word from the server goes in as text; no attribute is built from what it sent.
  *
  * No network and no dependency on the page: what it needs is handed in (ctx.on), so it runs under
@@ -65,10 +67,8 @@
   // only when he moved it or it is already stored, so an untouched one stays the voice's own.
   function values(form) {
     const out = { model: form.model.value };
-    if (form.pick.value) {
-      out.voice_id = form.pick.value;
-      out.voice_name = form.names.get(form.pick.value) || '';
-    }
+    // The voice's name is not sent: CLIVE asks ElevenLabs what the voice is called as it saves it.
+    if (form.pick.value) out.voice_id = form.pick.value;
     for (const [key, input] of Object.entries(form.sliders)) {
       if (form.moved.has(key) || has(form.held, key)) out[key] = Number(input.value);
     }
@@ -89,7 +89,7 @@
     const on = (ctx && ctx.on) || {};
     const voice = state.voice || {};
     const held = voice;                    // what is stored comes back inside the voice in use
-    const form = { held, moved: new Set(), names: new Map(), sliders: {}, boost: null, own: {}, rows: {} };
+    const form = { held, moved: new Set(), sliders: {}, boost: null, own: {}, rows: {} };
     const root = make('section', 'voice');
     root.setAttribute('aria-label', 'The voice');
     add(root, make('h4', 'more-h', 'The voice'),
@@ -106,7 +106,6 @@
     // Until the voices are fetched the only option is the one speaking now: the panel is useful
     // before ElevenLabs has been asked, and asking is one tap rather than every page load.
     add(pick, option(voice.voice_name || 'The voice in use', voice.voice_id));
-    form.names.set(String(voice.voice_id || ''), voice.voice_name || '');
     pick.value = String(voice.voice_id || '');
     form.pick = pick;
     const list = make('button', 'btn quiet voice-list', 'More voices');
@@ -120,14 +119,11 @@
       if (!got || !got.ok) { say(result, 'bad', (got && got.detail) || "ElevenLabs wouldn't list the voices."); return; }
       const voices = Array.isArray(got.voices) ? got.voices : [];
       pick.textContent = '';
-      form.names.clear();
       for (const item of voices) {
         add(pick, option(item.kind ? item.name + ', ' + item.kind : item.name, item.voice_id));
-        form.names.set(String(item.voice_id), String(item.name || ''));
       }
       if (!voices.some((v) => v.voice_id === voice.voice_id)) {
         add(pick, option((voice.voice_name || 'The voice') + ', in use', voice.voice_id));
-        form.names.set(String(voice.voice_id || ''), voice.voice_name || '');
       }
       pick.value = String(voice.voice_id || '');
       say(result, 'ok', voices.length + (voices.length === 1 ? ' voice' : ' voices') + ' on this account.');

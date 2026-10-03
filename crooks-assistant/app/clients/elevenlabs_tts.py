@@ -162,6 +162,9 @@ class VoiceClient:
         # "say nothing and let ElevenLabs apply the voice's own defaults", which is what this
         # client always did and what a fresh install still does.
         self.voice_settings: dict[str, Any] = {}
+        # Whether the voice speaking was saved on the Connections screen (app/speech/voice_prefs.py)
+        # rather than configured in `.env`: /health then names that record, not the `.env` lines.
+        self.chosen_here = False
         self.model = model
         self.output_format = output_format
         self.base_url = base_url.rstrip("/")
@@ -310,10 +313,13 @@ class VoiceClient:
         return body
 
     def apply(self, *, voice_id: str = "", voice_name: str = "", model: str = "",
-              voice_settings: dict[str, Any] | None = None) -> None:
+              voice_settings: dict[str, Any] | None = None, chosen_here: bool | None = None) -> None:
         """Speak as this voice from the next answer on, with no restart. Changing the voice clears
         the remembered name ElevenLabs gave for the old id, so /health verifies the new one at its
-        next look rather than reporting a mismatch against the voice that is gone."""
+        next look rather than reporting a mismatch against the voice that is gone. `chosen_here`
+        says whether the voice now speaking came from the Connections screen's record."""
+        if chosen_here is not None:
+            self.chosen_here = chosen_here
         changed_voice = bool(voice_id) and voice_id != self.voice_id
         if voice_id:
             self.voice_id = voice_id
@@ -726,6 +732,14 @@ class VoiceClient:
             self._api_key()
         except VoiceUnavailable as exc:
             return False, f"{self._scrub(str(exc))} · {note}"
+        if self.voice_mismatch and self.chosen_here:
+            # The voice speaking came from the Connections screen, not `.env`: its record is what
+            # to put right, and saving the voice again there takes the name from ElevenLabs itself.
+            return False, (
+                f"the voice saved on the Connections screen, {self.voice_id}, is the one ElevenLabs "
+                f"calls '{self.voice_mismatch}', not {self.voice_name}: save the voice again there "
+                f"(Connections, ElevenLabs, The voice), or use the voice's own settings · {note}"
+            )
         if self.voice_mismatch:
             return False, (
                 f"CROOKS_TTS_VOICE_ID {self.voice_id} is the voice ElevenLabs calls "

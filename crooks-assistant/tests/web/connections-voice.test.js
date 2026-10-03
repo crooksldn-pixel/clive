@@ -69,6 +69,19 @@ test('picking a voice and saving with no slider touched sends the voice and noth
   assert.equal(saved[0].model, 'eleven_flash_v2_5');
 });
 
+test("the voice's name is never sent, not even the fallback option's words for the voice in use", async () => {
+  const { panel, saved } = drawn({ voice_id: 'NotOnTheAccount00001', voice_name: 'Derek' });
+  await tick();
+  one(panel, '.voice-list').dispatch('click');
+  await tick();
+  const pick = one(panel, '.voice-pick');
+  assert.equal(pick.value, 'NotOnTheAccount00001');
+  assert.ok(pick.allText().includes('Derek, in use'), 'the voice in use is still offered');
+  one(panel, '.voice-save').dispatch('click');
+  await tick();
+  assert.deepEqual(saved[0], { model: 'eleven_flash_v2_5', voice_id: 'NotOnTheAccount00001' });
+});
+
 test('a slider he moved, or the speaker boost he switched, is sent; the rest are not', async () => {
   const { panel, saved } = drawn();
   await tick();

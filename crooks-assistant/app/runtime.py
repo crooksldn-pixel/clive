@@ -527,7 +527,8 @@ def build(settings: Settings | None = None) -> Runtime:
     chosen = voice_prefs.read()
     if chosen:
         voice.apply(voice_id=chosen.get("voice_id", ""), voice_name=chosen.get("voice_name", ""),
-                    model=chosen.get("model", ""), voice_settings=voice_prefs.voice_settings(chosen))
+                    model=chosen.get("model", ""), voice_settings=voice_prefs.voice_settings(chosen),
+                    chosen_here=bool(chosen.get("voice_id")))
     # The transcript is what was said: no term list biases either recogniser and nothing
     # rewrites the words afterwards (app/speech/transcribe.py).
     transcriber = Transcriber(
