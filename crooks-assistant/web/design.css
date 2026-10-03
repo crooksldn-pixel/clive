@@ -131,7 +131,7 @@ body.alpha .context-nav .chip:disabled{opacity:.35}
   body.alpha #prev-btn:not([hidden]){min-width:42px;padding:0 4px 0 10px;margin-right:-6px}
   body.alpha #next-btn:not([hidden]){min-width:42px;padding:0 10px 0 4px;margin-left:-6px}
   body.alpha #prev-btn:not([hidden]) ~ #stack .chip-set{padding:0 10px}
-  body.alpha #stack .chip-set[data-walking="true"] .chip-label{display:none}
+  body.alpha #stack .chip-set.is-walking .chip-label{display:none}
 }
 
 /* ------------------------------------------------------------------ 4. A change waiting for him */

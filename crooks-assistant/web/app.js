@@ -2369,7 +2369,9 @@ function setChip() {
   // The kicker counts; the label names. It used to read "3 ORDERS" beside a label already
   // reading "Orders", which spent rail width saying one word twice.
   kind.textContent = at > 0 ? `${at} of ${currentSet.count}` : `${currentSet.count}`;
-  if (at > 0) chip.dataset.walking = 'true';   // design pass (3 Oct): "2 of 3" can stand without the name on a phone
+  // Design pass (3 Oct): "2 of 3" can stand without the name on a phone. A class, not a data
+  // attribute: the page's data names are a fixed list (app/observability/screens.py).
+  if (at > 0) chip.classList.add('is-walking');
   const label = document.createElement('span'); label.className = 'chip-label'; label.textContent = currentSet.label || currentSet.kind;
   chip.appendChild(kind); chip.appendChild(label);
   chip.addEventListener('click', () => {
@@ -3325,7 +3327,7 @@ async function declineAction(proposalId, node, button) {
   if (button) button.disabled = false;
   // No answer is not "no": the decline may have reached CLIVE and its reply been lost, so the
   // page does not claim the change is still waiting (review of the design pass, 3 Oct).
-  notifyControl(String((payload && payload.detail) || "Couldn't reach CLIVE \u2014 it may still be waiting."), button,
+  notifyControl(String((payload && payload.detail) || 'Couldn\u2019t reach CLIVE \u2014 it may still be waiting.'), button,
     { tone: 'warn', code: codeOf(payload && payload.code, 'not_withdrawn') });
 }
 // ---- design pass · end
