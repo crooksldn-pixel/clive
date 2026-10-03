@@ -134,6 +134,27 @@ def test_guest_orders_get_no_store_credit(orders, settings):
     assert Resolution.store_credit not in [o.resolution for o in q.options]
 
 
+def test_free_items_earn_no_credit_or_bonus(orders, settings):
+    # A gifted or 100%-off item must not turn into £5 of store credit.
+    recent, _, _ = orders
+    recent.lines[0].unit_paid_pence = 0
+    assert policy.credit_bonus(0, settings) == 0
+    q = policy.quote(recent, [sel(TEE, Reason.changed_mind)], TODAY, settings)
+    kinds = [o.resolution for o in q.options]
+    assert Resolution.store_credit not in kinds
+    refund = option(q, Resolution.refund)
+    # The label fee can't be taken off nothing, so no refund ever goes below zero.
+    assert [p.choice for p in refund.postage] == [Postage.self_ship]
+    assert all(p.total_pence >= 0 for o in q.options for p in o.postage)
+
+
+def test_label_fee_never_exceeds_the_refund(orders, settings):
+    recent, _, _ = orders
+    recent.lines[0].unit_paid_pence = 200  # heavily discounted, less than the £3.50 label
+    q = policy.quote(recent, [sel(TEE, Reason.changed_mind)], TODAY, settings)
+    assert Postage.paid_label not in [p.choice for p in option(q, Resolution.refund).postage]
+
+
 def test_quantity_and_ownership_checked(orders, settings):
     recent, _, _ = orders
     with pytest.raises(policy.PolicyError):

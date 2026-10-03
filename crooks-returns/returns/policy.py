@@ -135,6 +135,8 @@ def check_line(order: Order, line: OrderLine, today: date, settings: Settings) -
 
 
 def credit_bonus(items_pence: int, settings: Settings) -> int:
+    if items_pence <= 0:
+        return 0  # nothing was paid, so there is nothing to top up
     bonus = 0
     for floor, amount in settings.bonus_bands():
         if items_pence >= floor:
@@ -288,7 +290,8 @@ def quote(order: Order, selections: list[Selection], today: date, settings: Sett
         )
 
     # 2. Store credit with a bonus, and free postage: value kept, so the label is on us.
-    if order.customer_id:
+    # Not offered on items that were free (gifted, 100% off): there is no value to keep.
+    if order.customer_id and items > 0:
         bonus = credit_bonus(items, settings)
         options.append(
             Option(
@@ -319,8 +322,8 @@ def quote(order: Order, selections: list[Selection], today: date, settings: Sett
                 total_pence=total,
             )
         ]
-        if settings.return_label_cost_pence is not None:
-            fee = settings.return_label_cost_pence
+        fee = settings.return_label_cost_pence
+        if fee is not None and fee <= total:
             postage.insert(
                 0,
                 PostageOption(
