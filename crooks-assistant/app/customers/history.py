@@ -14,7 +14,8 @@ happened, what it was, and where it came from:
     Gmail       threads from them, to them, and naming one of their orders — one inbox read,
                 the one the customer card already made, over a year (app/context/order.py)
     work list   who claimed, packed and finished each of their orders (app/work/store.py)
-    screens     orders of theirs marked packed on a screen (app/displays/store.py)
+    screens     orders of theirs marked packed on a screen (app/displays/store.py) — the
+                owner's screens, so only when the owner is the one asking
     CLIVE       the changes CLIVE made to their orders, and whether each was proven
                 (the action ledger, which holds ids and outcomes, never content)
     objectives  the owner's objectives that name them or one of their orders — the owner's
@@ -199,7 +200,10 @@ def _person(who: Any) -> str:
         return "the team"
 
 
-def _screen_rows(numbers: dict[str, str]) -> tuple[list[dict[str, Any]], str]:
+def _screen_rows(numbers: dict[str, str], *, owner: bool) -> tuple[list[dict[str, Any]], str]:
+    if not owner:
+        # The screens are the owner's: what they marked is his to see, like his objectives.
+        return [], "the owner's own"
     from app.displays import store as displays
 
     held = displays._STORE
@@ -315,7 +319,7 @@ def timeline(history: dict[str, Any], threads: list[dict[str, Any]] | None, *, o
         sources["Gmail"] = f"{len(found)} thread{'s' if len(found) != 1 else ''}"
     for key, (more, said) in (
         ("work list", _work_rows(order_ids, labels)),
-        ("screens", _screen_rows(numbers)),
+        ("screens", _screen_rows(numbers, owner=owner)),
         ("CLIVE's changes", _clive_rows(order_ids, str(history.get("customer_id") or ""), labels)),
         ("objectives", _objective_rows(str(history.get("name") or ""), email, numbers, owner=owner)),
     ):

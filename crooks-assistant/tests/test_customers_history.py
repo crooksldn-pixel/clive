@@ -152,6 +152,24 @@ def test_the_owners_objectives_are_his_own():
     assert rows == [] and said == "the owner's own"
 
 
+def test_the_owners_screens_are_his_own_too(monkeypatch):
+    """A member of the team is not shown what the owner's screens marked."""
+    from app.displays import store as displays
+
+    class Screens:
+        def done(self, *, order=None, limit=10, ref=None):
+            return [{"kind": "order", "title": "Order #2150", "ref": "gid://shopify/Order/2150", "screen": "Studio TV",
+                     "how": "screen", "done_at": "2026-08-24T07:30:00Z"}]
+
+    monkeypatch.setattr(displays, "_STORE", Screens())
+    story = {"recent": [{"order_id": "gid://shopify/Order/2150", "order_number": "CROOKS-2150", "placed_at": "2026-08-20T10:00:00Z"}],
+             "orders": 1, "email": "a@example.com"}
+    staff = history.timeline(story, [], owner=False, today=datetime.now(UTC).date())
+    assert "Packed #2150" not in _whats(staff) and staff["sources"]["screens"] == "the owner's own"
+    owner = history.timeline(story, [], owner=True, today=datetime.now(UTC).date())
+    assert "Packed #2150" in _whats(owner)
+
+
 def test_an_inbox_that_was_not_read_says_so_rather_than_looking_empty():
     told = history.timeline({"recent": [], "orders": 0, "email": "a@example.com"}, None, owner=True,
                             today=datetime.now(UTC).date())
