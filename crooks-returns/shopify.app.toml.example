@@ -9,6 +9,11 @@ client_id = "<CLIENT ID FROM THE DEV DASHBOARD>"
 application_url = "https://<RETURNS HOST>/health"
 embedded = false
 
+# Required by the CLI. The service authenticates with client credentials and never sends
+# anyone through this redirect.
+[auth]
+redirect_urls = ["https://<RETURNS HOST>/auth/callback"]
+
 [access_scopes]
 scopes = "read_orders,read_customers,read_products,read_returns,write_returns,read_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,read_third_party_fulfillment_orders,read_store_credit_accounts,read_store_credit_account_transactions,write_store_credit_account_transactions"
 
