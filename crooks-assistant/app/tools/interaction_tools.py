@@ -81,13 +81,24 @@ async def interaction_review(minutes: int = DEFAULT_MINUTES, about: str = "") ->
         if about:
             out["about"] = _about(about, out["on_screen"], [], [])
         return out
-    events = await asyncio.to_thread(record.window, minutes=minutes)
     session_id = str(getattr(session, "session_id", "") or "")
+    said = {t.get("turn_id"): t for t in record.recent.turns(session_id)} if session_id else {}
+    # Reading the files and finding the friction are the slow part of a busy day: off the loop.
+    out.update(await asyncio.to_thread(_looked, record, session_id, said, minutes, about, out["on_screen"]))
+    out["to_file"] = ("if he agrees it should be fixed: engineering_status with areas true, then "
+                      "submit_engineering_request with this excerpt in requested_outcome; he holds the card to file it")
+    return out
+
+
+def _looked(record: Any, session_id: str, said: dict[str, Any], minutes: int, about: str,
+            on_screen: Any) -> dict[str, Any]:
+    """Everything the record says about this conversation's window, in one pass off the event
+    loop: its turns, what the tablet drew, the friction, the speech, the excerpt."""
+    events, cut = record.look(minutes=minutes)
     mine = [e for e in events if not e.get("session_id") or e.get("session_id") == session_id]
     turns = [e for e in mine if e.get("kind") == "interaction_turn"]
-    said = {t.get("turn_id"): t for t in record.recent.turns(session_id)} if session_id else {}
     found = friction.find(mine)
-    out["turns"] = [_turn(t, said.get(t.get("turn_id"))) for t in turns[-MAX_TURNS:]]
+    out: dict[str, Any] = {"turns": [_turn(t, said.get(t.get("turn_id"))) for t in turns[-MAX_TURNS:]]}
     tablet = interactions.tablet_said(mine)
     if tablet is not None:
         out["tablet_last_drew"] = tablet
@@ -96,11 +107,13 @@ async def interaction_review(minutes: int = DEFAULT_MINUTES, about: str = "") ->
     if speech["turns"]:
         out["speech"] = speech
     if about:
-        out["about"] = _about(about, out["on_screen"], turns, mine)
-    out["excerpt"] = excerpt(mine, found, minutes=minutes)
+        out["about"] = _about(about, on_screen, turns, mine)
+    out["excerpt"] = excerpt(mine, found, minutes=minutes, cut=cut)
     out["record"] = {"on": True, "window_minutes": minutes, "events": len(mine), "turns": len(turns), **record.bounds}
-    out["to_file"] = ("if he agrees it should be fixed: engineering_status with areas true, then "
-                      "submit_engineering_request with this excerpt in requested_outcome; he holds the card to file it")
+    if cut is not None:
+        # A busy day: the window reaches back further than one look reads, and that is said.
+        out["record"]["cut_short"] = (f"a busy day: only what happened since {_clock(cut)} was read, not the whole "
+                                      f"{minutes} minutes asked for")
     return out
 
 
@@ -235,14 +248,15 @@ def _about(about: str, on_screen: Any, turns: list[dict[str, Any]], events: list
 # --------------------------------------------------------------- the excerpt for a build
 
 
-def excerpt(events: list[dict[str, Any]], found: list[friction.Finding], *, minutes: int) -> str:
+def excerpt(events: list[dict[str, Any]], found: list[friction.Finding], *, minutes: int, cut: float | None = None) -> str:
     """The window as a build request may carry it: turn by turn, the request shape, the tools,
     the cards drawn and why, the times; then each finding and the easier way. Ids, kinds,
     counts, clocks and the product's own words — never what was said or anyone's name — and
-    scrubbed again by the timeline's rule on the way out."""
+    scrubbed again by the timeline's rule on the way out. A window cut short says so."""
     turns = [e for e in events if e.get("kind") == "interaction_turn"]
     taps = len(friction.owner_taps(events))
-    lines = [f"Interaction excerpt from CLIVE's interaction record: the last {minutes} minutes, "
+    span = f"since {_clock(cut)} (a busy day: not the whole {minutes} minutes)" if cut is not None else f"the last {minutes} minutes"
+    lines = [f"Interaction excerpt from CLIVE's interaction record: {span}, "
              f"{len(turns)} turn(s), {taps} tap(s). No words said and no names: ids, kinds, counts and times."]
     for turn in turns[-MAX_TURNS:]:
         why = turn.get("why") if isinstance(turn.get("why"), dict) else {}

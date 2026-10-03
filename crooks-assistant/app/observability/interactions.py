@@ -139,15 +139,27 @@ class InteractionRecord(Timeline):
     def window(self, *, minutes: float = 15.0, now: float | None = None) -> list[dict[str, Any]]:
         """The record's events from the last `minutes`, oldest first: the end of today's file,
         and of yesterday's when the window reaches back past midnight."""
+        return self.look(minutes=minutes, now=now)[0]
+
+    def look(self, *, minutes: float = 15.0, now: float | None = None) -> tuple[list[dict[str, Any]], float | None]:
+        """The window, and where it was cut short: on a busy day the end of a file read
+        (TAIL_BYTES) can begin after the window does, and then the earliest moment actually read
+        is returned so the answer can say so. None when the whole window was read."""
         self.flush(timeout_s=1.0)
         at = float(now if now is not None else self.clock())
         since = at - max(0.5, float(minutes)) * 60.0
         days: InteractionDays = self.sessions  # type: ignore[assignment]
         out: list[dict[str, Any]] = []
+        cut: float | None = None
         for path in days.days()[-2:]:
-            out.extend(e for e in _tail_events(path) if since <= float(e.get("ts") or 0.0) <= at + 1.0)
+            events, short = _tail(path)
+            if short and events and float(events[0].get("ts") or 0.0) > since:
+                cut = max(cut or 0.0, float(events[0].get("ts") or 0.0))
+            out.extend(e for e in events if since <= float(e.get("ts") or 0.0) <= at + 1.0)
         out.sort(key=lambda e: (float(e.get("ts") or 0.0), int(e.get("seq") or 0)))
-        return out
+        if cut is not None:
+            out = [e for e in out if float(e.get("ts") or 0.0) >= cut]
+        return out, cut
 
 
 # Free text the page sends about itself, written by its shape (a length and a digest) in this
@@ -186,6 +198,19 @@ def _card_reasons_by_shape(card: Any, shaped: Any) -> Any:
     if isinstance(out.get("surface"), dict) and out["surface"].get("reason"):
         out["surface"] = {**out["surface"], "reason": shaped(out["surface"]["reason"])}
     return out
+
+
+def _tail(path: Path, limit: int | None = None) -> tuple[list[dict[str, Any]], bool]:
+    """The events at the end of one day's file — at most `limit` bytes of it, from a line start —
+    and whether that was less than the whole file."""
+    limit = TAIL_BYTES if limit is None else limit
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return [], False
+    if size <= limit:
+        return read_events(path), False
+    return _tail_events(path, limit), True
 
 
 def _tail_events(path: Path, limit: int = TAIL_BYTES) -> list[dict[str, Any]]:

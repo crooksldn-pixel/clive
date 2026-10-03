@@ -696,3 +696,30 @@ def test_the_words_held_in_memory_age_out_as_they_are_added_and_the_team_never_p
     clock.now += interactions.Recent.MAX_AGE_S + 5
     recent.add("owner-phone", {"turn_id": "turn_o2", "at": clock.now, "question": "and now"})
     assert recent.held() == {"owner": 1, "team": 0}, "aged out when something was added, not only when read"
+
+
+async def test_a_busy_day_is_said_as_cut_short_and_the_reading_is_off_the_loop(tmp_path, monkeypatch):
+    import threading
+
+    clock = Clock(time.time() - 1200)
+    record = record_in(tmp_path, clock=clock)
+    for i in range(200):
+        clock.now += 5
+        record.emit("tool_finished", session_id="tab1", turn_id=f"turn_{i}", tool="gmail_search", ok=True, ms=10.0, n=i)
+    interactions.after_turn(session_id="tab1", turn_id="turn_last", question="show me the spam", transcript=None, answer="",
+                            ui=[], calls=[], screen_state="cleared", carry=[], error_kind=None, abandoned=False,
+                            timings={"total": 500.0})
+    monkeypatch.setattr(interactions, "TAIL_BYTES", 6_000)
+    where: list[bool] = []
+    find = friction.find
+
+    def watched(events):
+        where.append(threading.current_thread() is threading.main_thread())
+        return find(events)
+
+    monkeypatch.setattr(friction, "find", watched)
+    out = await _review(Session(session_id="tab1"), minutes=60)
+    assert "a busy day" in out["record"]["cut_short"] and "a busy day: not the whole 60 minutes" in out["excerpt"]
+    assert where == [False], "the friction is found in a worker thread, not on the event loop"
+    whole = await _review(Session(session_id="tab1"), minutes=1)
+    assert "cut_short" not in whole["record"], "a window the look reads whole is not said to be cut"
