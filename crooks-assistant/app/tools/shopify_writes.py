@@ -430,9 +430,24 @@ async def _execute_refund(execution: dict) -> dict:
     payload = await client.mutate("refund_create", {"input": dict(execution["input"])})
     hydrator().forget(order_id)
     refund = ((payload.get("data") or {}).get("refundCreate") or {}).get("refund") or {}
+    _forget_customer(str(execution.get("customer_id") or ""))
     if not refund.get("id"):
         raise ShopifyError("Shopify did not confirm the refund.")
     return {"refund_id": str(refund["id"])}
+
+
+def _forget_customer(customer_id: str) -> None:
+    """customers: a refund on their order changes the customer's story (app/customers/history.py)
+    — a refund row, CLIVE's change — so whatever is held of it (for Back, a tap, a read asked
+    twice) is dropped the moment the refund has been sent, and the next look reads it again."""
+    if not customer_id:
+        return
+    try:
+        from app.memory.store import invalidate_for_write
+
+        invalidate_for_write("customer", customer_id)
+    except Exception:  # noqa: BLE001 — a refund is sent whether or not a cache can be told
+        log.debug("could not drop the customer's held story", exc_info=True)
 
 
 def _verify_refund(before: dict, observed: dict, execution: dict) -> tuple[bool, str]:
@@ -622,7 +637,9 @@ async def shopify_refund_create(
         read_back += f", shipping {shipping_words}"
     read_back += (", restocking" if location else "") + (", emailing the customer" if notify else ", without emailing the customer")
     return Prepared(
-        execution={"order_id": str(order_id), "input": refund_input, "amount": f"{total:.2f}", "currency": currency},
+        execution={"order_id": str(order_id), "input": refund_input, "amount": f"{total:.2f}", "currency": currency,
+                   # Whose story the refund changes (`_execute_refund` drops what is held of it).
+                   "customer_id": str(order.get("customer_id") or "")},
         before=refund_fingerprint(state),
         expected_after={"refunded": f"{refunded_so_far + total:.2f}"},
         entity_ref=str(order_id),

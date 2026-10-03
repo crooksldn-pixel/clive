@@ -6,6 +6,17 @@ The owner's decision of 1 October 2026, given in the review session:
 - keys may be stored from the app, not only typed at a server prompt: "yes";
 - every change asks for a passkey at that moment: "yes".
 
+## What the screen shows
+
+The screen is grouped by what you have to do, not by how each connection is built (redesigned 2 October 2026):
+
+- **Needs you**: anything broken, running out or failing its test, each with the one thing that puts it right: a box for the key the service refused, *Sign in again* for an Instagram sign-in that is running out, or *Check again* when the service only did not answer.
+- **Working**: one quiet row each, saying what it lets CLIVE do and "Connected · checked 2 min ago". No key box. Tap the row for its details: what it unlocks (the capability families' own names and states), what stops without it, the account, where the key is kept, the last check, and *Check now*, *Replace key* and *Disconnect*. ElevenLabs' details hold the voice: the picker, the sliders, Preview and Save.
+- **Not connected**: what you could add. Its key box appears only when you tap *Connect*. Gmail says it connects at the server for now.
+- **Passkeys** and **Recent changes** come last.
+
+Opening the screen asks every connected service again with the same tests as *Check now* (`POST /connections/check`), at most once a minute for each however many devices open it. The tests read only and spend nothing (`app/connections/testers.py`); Gmail is asked as `/health` asks it.
+
 ## Using it
 
 1. **Open the screen.** It is CLIVE's address followed by `/connections`, on your phone: `https://<your CLIVE>.<your tailnet>.ts.net/connections`. Add it to the home screen if you like.
@@ -13,12 +24,12 @@ The owner's decision of 1 October 2026, given in the review session:
    - Set up the first one on **your own phone**, before anything else: until one exists, the screen lets the first device that opens it make one. Every later one is approved by a passkey you already have, and the server itself can never make one or approve a change.
    - **Not on a shared tablet.** A passkey on the shop tablet approves with that tablet's PIN, so anyone who knows it could change a key or let someone onto the team. Keep passkeys on devices only you unlock.
    - The iPhone and the iPad share passkeys through iCloud Keychain.
-3. **Paste a key and tap Save.**
+3. **Paste a key and tap Save.** A box is there only where one is needed: under a connection that needs you, after *Connect*, or after *Replace key* in a working one's details.
    - Your passkey is asked for.
    - CLIVE then tests the key with the service, and stores it only if it works.
    - It is live at once, with no restart.
    - A saved secret is never shown again; an app ID is shown, because it is not a secret.
-4. **Test** asks the service again with what is stored. It changes nothing, so it asks no passkey.
+4. **Check now** asks the service again with what is stored. It changes nothing, so it asks no passkey.
 5. **Disconnect** asks your passkey. CLIVE stops using the key at once, even where the server still holds an older copy.
 6. **Sign in with Instagram.**
    - Save the Instagram app ID and app secret on the card, once.
@@ -61,7 +72,8 @@ CLIVE itself never takes a key. Its prompt sends you to this screen, and stops y
 
 ## Not yet
 
-- **Sign in with Google.** The Gmail card says Gmail is set up at the server for now (`make gmail`). Google sign-in comes next.
+- **Sign in with Google.** The Gmail row says Gmail is set up at the server for now (`make gmail`). Google sign-in from the screen needs: the Google Cloud OAuth client's ID and secret stored as two new keys; this CLIVE's `https://<name>.ts.net/connections/google/callback` added to that client's authorised redirect URIs; and the consent screen published (an app left in Testing gets 7-day tokens). Then the same pattern as Instagram's sign-in: a passkey-approved start, the callback storing the authorised-user JSON as `gmail_token` in the app tier.
+- **Install the Shopify app from the screen.** Shopify connects with the CLIVE app's client ID and secret (the client-credentials grant), which only work for an app released and installed in the shop's own organisation. An install button would need the app's OAuth redirect URL set to this CLIVE's `https://<name>.ts.net/connections/shopify/callback` in the Shopify Dev Dashboard, the scopes listed in `SHOPIFY_SCOPES.md` requested there, and a token-exchange callback; until then the screen asks for the ID and secret only when they are missing or refused.
 - **A phone notification when a key changes.** CLIVE has no delivery channel yet; the record is on the screen.
 - **On a Mac.** Keys stored from the app go to the login Keychain, which the system already encrypts.
 - **Clients' own connections** (IDEA-038). Each client's CLIVE cannot be a sign-in return address for the providers, so that needs one public sign-in service.
@@ -70,7 +82,7 @@ CLIVE itself never takes a key. Its prompt sends you to this screen, and stops y
 
 | What | Where |
 |---|---|
-| The screen | `web/connections.html`, `connections.js`, `connections.css` |
+| The screen | `web/connections.html`, `connections.js` (asks and acts), `connections-view.js` (draws the rows), `connections.css` |
 | Its routes | `app/routes/connections.py` |
 | Store, test, disconnect, record | `app/connections/service.py`, `ledger.py` |
 | What can be connected | `app/connections/catalog.py` |
@@ -78,4 +90,4 @@ CLIVE itself never takes a key. Its prompt sends you to this screen, and stops y
 | Passkeys | `app/connections/passkeys.py` |
 | Sign in with Instagram | `app/connections/instagram.py` |
 | The app tier of the secret store | `app/secrets/vault.py`, read through `linux_store.py` |
-| Tests | `tests/test_connections_*.py`, `tests/test_secrets_vault.py`, `tests/fake_passkey.py` |
+| Tests | `tests/test_connections_*.py` (the page's purpose: `test_connections_page.py`; in Chromium: `test_connections_browser.py` with `scripts/browser/connections.js` and `tests/connections_world.py`), `tests/web/connections.test.js`, `tests/test_secrets_vault.py`, `tests/fake_passkey.py` |

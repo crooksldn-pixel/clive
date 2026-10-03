@@ -122,7 +122,8 @@ async def test_every_route_but_the_teams_stays_the_owners(team):
     assert sorted(theirs) == sorted([
         ("POST", "/turn"), ("GET", "/today"), ("GET", "/today/state"),
         ("POST", "/today/claim"), ("POST", "/today/release"), ("POST", "/today/packed"), ("POST", "/today/counts"),
-        ("POST", "/today/done"), ("POST", "/today/assign"), ("POST", "/today/cancel"), ("POST", "/today/routine"),
+        ("POST", "/today/done"), ("POST", "/today/undo"), ("POST", "/today/flag"),
+        ("POST", "/today/assign"), ("POST", "/today/cancel"), ("POST", "/today/routine"),
         ("POST", "/today/routine/stop"), ("POST", "/today/people"), ("POST", "/today/access/scr_000000000000/approve"),
         ("POST", "/today/access/scr_000000000000/suspend"),
         ("POST", "/actions/row"), ("POST", "/actions/scr_000000000000/arm"), ("POST", "/actions/scr_000000000000/commit"),

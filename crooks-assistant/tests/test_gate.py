@@ -275,12 +275,17 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     # client, so the tables below are unchanged.
     assert "track_parcel" in gate._KNOWN_TOOLS and not gate._looks_like_mutation("track_parcel")
     assert "track_parcel" not in gate._PII_TOOLS
-    assert len(gate._KNOWN_TOOLS) == 54, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
+    # CLIVE looking at its own interaction (app/tools/interaction_tools.py, 2026-10-02): a read of
+    # CLIVE's own records on this machine, GREEN on its ToolSpec, named without a mutation verb, so
+    # the tables below are unchanged.
+    assert "interaction_review" in gate._KNOWN_TOOLS and not gate._looks_like_mutation("interaction_review")
+    assert "interaction_review" not in gate._PII_TOOLS
+    assert len(gate._KNOWN_TOOLS) == 55, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
                                           "screen_off and screen_remote, then screen_play and screen_video, "
                                           "then round 12's shopify_order_build, show_again and close_screen, "
                                           "then instagram_inbox, instagram_thread and instagram_comments, "
                                           "then people_list, person_note, work_list and work_note, "
-                                          "then skill_list and skill_read, then track_parcel")
+                                          "then skill_list and skill_read, then track_parcel, then interaction_review")
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",

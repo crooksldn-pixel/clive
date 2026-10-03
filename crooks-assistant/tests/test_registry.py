@@ -137,6 +137,7 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
         gmail_tools,
         gmail_writes,
         instagram_tools,
+        interaction_tools,
         ship24_tools,
         shopify_tools,
         shopify_writes,
@@ -434,7 +435,23 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # since, unit), its meaning said once in the system prompt rather than in either schema. No new
     # tool, so nothing new on the gate's allow-list. The ceiling is raised by exactly what was
     # measured, leaving no headroom.
-    assert total <= 47_708, f"the tool block is {total} bytes"
+    #
+    # 48_272 is CLIVE looking at its own interaction (app/tools/interaction_tools.py,
+    # tests/test_interaction_record.py), +564 bytes measured (47,708 before, 48,272 after):
+    # interaction_review 564, a window in minutes and what he asked after. Imported above because
+    # app/runtime.py offers it. What it buys is "what's on my screen?", "why aren't you showing me
+    # bulk actions?" and "look at our interaction" answered from what was drawn rather than from
+    # memory; when to use it is one paragraph of the system prompt. The ceiling is raised by
+    # exactly what was measured, leaving no headroom.
+    # 48_708 is the customers workstream (2 October; app/customers, app/families/checkout_link.py,
+    # tests/test_customers_*.py), +1,000 bytes measured on its own (47,708 before, 48,708 after):
+    # shopify_checkout_link_send 728 (a new write: a customer, items by words or variant, his
+    # words), shopify_find_order +186 (`when` and `amount`, and one sentence on `likely`),
+    # shopify_customer_history +49 (`timeline`), shopify_order_detail +37 (whether each refund
+    # `landed`). The write is staged like every write, so nothing new on the gate's read
+    # allow-list. The ceiling is raised by exactly what was measured, leaving no headroom.
+    # Together (3 October, both merged): 49_272, measured.
+    assert total <= 49_272, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

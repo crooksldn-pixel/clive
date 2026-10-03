@@ -423,6 +423,8 @@ def _in_customer_history(graph: EntityGraph, source: str, result: dict[str, Any]
         "recent_truncated": result.get("recent_truncated"),
         "history_failed": False,
         "history_read": True,
+        # Their whole story, newest first (app/customers/history.py), for the Activity section.
+        **({"timeline": result["timeline"]} if isinstance(result.get("timeline"), dict) else {}),
     }, source=source))
     if person is None:
         return

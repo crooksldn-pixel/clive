@@ -13,6 +13,11 @@ What each asks (read-only, and spending nothing):
 
 The key goes in a header or a request body, never in an address. What comes back is described
 in our own words; nothing a service wrote is quoted, and no key appears in any detail.
+
+A failed test also says what would put it right (`fix`), so the screen offers that one thing and
+no other: "key" (the service refused the key itself: paste a new one), "service" (the key is
+good, something is to be changed at the service: then check again) or "retry" (the service did
+not answer, or is limiting requests: nothing is wrong with the key, check again).
 """
 
 from __future__ import annotations
@@ -34,9 +39,13 @@ class Outcome:
     detail: str
     who: str = ""            # the account the key belongs to, when the service says
     checked: bool = True     # False: nothing to ask until the owner signs in
+    fix: str = ""            # a failure's remedy: "key", "service" or "retry" (empty: "key")
 
     def as_dict(self) -> dict[str, Any]:
-        return {"ok": self.ok, "detail": self.detail, "who": self.who, "checked": self.checked}
+        out = {"ok": self.ok, "detail": self.detail, "who": self.who, "checked": self.checked}
+        if not self.ok:
+            out["fix"] = self.fix or "key"
+        return out
 
 
 def http_client() -> httpx.AsyncClient:
@@ -63,7 +72,7 @@ async def _elevenlabs(values: dict[str, str], settings: Any) -> Outcome:
                              "if it covers speech-to-text and text-to-speech.")
     if response.status_code == 401:
         return Outcome(False, "ElevenLabs refused that key. Check you copied all of it.")
-    return Outcome(False, f"ElevenLabs answered {response.status_code}; nothing was changed.")
+    return Outcome(False, f"ElevenLabs answered {response.status_code}; nothing was changed.", fix="retry")
 
 
 async def _youtube(values: dict[str, str], settings: Any) -> Outcome:
@@ -77,17 +86,17 @@ async def _youtube(values: dict[str, str], settings: Any) -> Outcome:
         return Outcome(False, "Google says that is not a valid API key.")
     if "accessnotconfigured" in body or "has not been used" in body or "service_disabled" in body:
         return Outcome(False, "The key works, but the YouTube Data API is not switched on in its Google "
-                              "Cloud project. Enable it there, then try again.")
+                              "Cloud project. Enable it there, then try again.", fix="service")
     if response.status_code == 403:
         return Outcome(False, "Google refused the key for YouTube: it may be restricted to other APIs or "
-                              "to other addresses.")
-    return Outcome(False, f"Google answered {response.status_code}; nothing was changed.")
+                              "to other addresses.", fix="service")
+    return Outcome(False, f"Google answered {response.status_code}; nothing was changed.", fix="retry")
 
 
 async def _shopify(values: dict[str, str], settings: Any) -> Outcome:
     shop = str(getattr(settings, "shopify_shop_domain", "") or "").strip()
     if not shop.endswith(".myshopify.com"):
-        return Outcome(False, "No shop is set on the server (CROOKS_SHOPIFY_SHOP_DOMAIN).")
+        return Outcome(False, "No shop is set on the server (CROOKS_SHOPIFY_SHOP_DOMAIN).", fix="service")
     async with http_client() as client:
         response = await client.post(f"https://{shop}/admin/oauth/access_token", json={
             "client_id": values["shopify_client_id"], "client_secret": values["shopify_client_secret"],
@@ -97,11 +106,11 @@ async def _shopify(values: dict[str, str], settings: Any) -> Outcome:
         return Outcome(True, f"Shopify accepted the app's ID and secret for {shop}.", who=shop)
     if "shop_not_permitted" in body:
         return Outcome(False, "Shopify says this app belongs to another organisation than the shop. "
-                              "Make the app in the shop's own organisation.")
+                              "Make the app in the shop's own organisation.", fix="service")
     if response.status_code in (400, 401, 403):
         return Outcome(False, f"Shopify refused that ID and secret for {shop}. Check the app is "
                               "released and installed on the shop.")
-    return Outcome(False, f"Shopify answered {response.status_code}; nothing was changed.")
+    return Outcome(False, f"Shopify answered {response.status_code}; nothing was changed.", fix="retry")
 
 
 async def _github(values: dict[str, str], settings: Any) -> Outcome:
@@ -115,16 +124,16 @@ async def _github(values: dict[str, str], settings: Any) -> Outcome:
     if response.status_code == 401:
         return Outcome(False, "GitHub refused that token. It may have expired or been copied short.")
     if response.status_code == 404:
-        return Outcome(False, f"That token cannot see {repository}. Give it that repository.")
+        return Outcome(False, f"That token cannot see {repository}. Give it that repository.", fix="service")
     if response.status_code != 200:
-        return Outcome(False, f"GitHub answered {response.status_code}; nothing was changed.")
+        return Outcome(False, f"GitHub answered {response.status_code}; nothing was changed.", fix="retry")
     try:
         allowed = response.json().get("permissions") or {}
     except (ValueError, AttributeError):
         allowed = {}
     if not allowed.get("push"):
         return Outcome(False, f"That token can read {repository} but not write to it. Give it Contents: "
-                              "read and write.")
+                              "read and write.", fix="service")
     return Outcome(True, f"GitHub accepted the token for {repository}.", who=repository)
 
 
@@ -157,7 +166,9 @@ async def _instagram(values: dict[str, str], settings: Any, changed: frozenset[s
         "permission": "Instagram accepted the token but it lacks a permission CLIVE needs.",
         "rate_limited": "Instagram is limiting requests just now. Try again in a few minutes.",
     }
-    return Outcome(False, reasons.get(refused.kind, "Instagram refused that token; nothing was changed."))
+    fixes = {"permission": "service", "rate_limited": "retry"}
+    return Outcome(False, reasons.get(refused.kind, "Instagram refused that token; nothing was changed."),
+                   fix=fixes.get(refused.kind, "key"))
 
 
 async def _ship24(values: dict[str, str], settings: Any) -> Outcome:
@@ -177,8 +188,8 @@ async def _ship24(values: dict[str, str], settings: Any) -> Outcome:
                              "per-call plan, CLIVE uses that and each look-up counts as one call; if it has no "
                              "plan, choose one at dashboard.ship24.com → Subscriptions.")
     if response.status_code == 429:
-        return Outcome(False, "Ship24 is limiting requests just now. Try again in a minute.")
-    return Outcome(False, f"Ship24 answered {response.status_code}; nothing was changed.")
+        return Outcome(False, "Ship24 is limiting requests just now. Try again in a minute.", fix="retry")
+    return Outcome(False, f"Ship24 answered {response.status_code}; nothing was changed.", fix="retry")
 
 
 TESTERS = {
@@ -201,9 +212,10 @@ async def run(name: str, values: dict[str, str], settings: Any, *, changed: froz
     try:
         outcome = await (tester(values, settings, changed) if name == "instagram" else tester(values, settings))
     except httpx.TimeoutException:
-        return Outcome(False, "The service did not answer in time; nothing was changed. Try again.")
+        return Outcome(False, "The service did not answer in time; nothing was changed. Try again.", fix="retry")
     except httpx.HTTPError:
-        return Outcome(False, "The service could not be reached from the server; nothing was changed.")
+        return Outcome(False, "The service could not be reached from the server; nothing was changed.", fix="retry")
     except KeyError:
         return Outcome(False, "Fill in every field for this connection.")
-    return Outcome(outcome.ok, _scrub(outcome.detail, values), _scrub(outcome.who, values), outcome.checked)
+    return Outcome(outcome.ok, _scrub(outcome.detail, values), _scrub(outcome.who, values), outcome.checked,
+                   outcome.fix)

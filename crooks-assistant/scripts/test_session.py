@@ -98,6 +98,7 @@ def cmd_status(args) -> int:
         held = count_events(store.timeline_path(active))
         print(f"{active.test_session_id}  events on disk={held}  (marked on disk; {backend})")
         return 0
+    _say_recording(answer)
     if not answer.get("active"):
         last = answer.get("last") or {}
         print("no test session running" + (f"; last: {last.get('test_session_id')}" if last else ""))
@@ -109,6 +110,14 @@ def cmd_status(args) -> int:
           f"which may yet be dropped; dropped {dropped}; {mine} written by the backend running now)")
     print(f"timeline: {answer.get('path')}")
     return 0
+
+
+def _say_recording(answer: dict) -> None:
+    """The interaction record, said apart from any test (app/observability/interactions.py)."""
+    held = answer.get("recording") if isinstance(answer.get("recording"), dict) else None
+    if held:
+        print(f"interaction record: on, today's day {held.get('day')}, {held.get('keep_days')} days kept, "
+              f"words {held.get('words')} ({held.get('folder')})")
 
 
 def cmd_stop(args) -> int:

@@ -293,6 +293,10 @@ WORDS: dict[str, tuple[str, ...]] = {
     # A refusal a tap or a row met, as the tool gave it: it can quote what was typed or said.
     "command_stage": ("detail",),
     "row_action": ("detail",),
+    # The interaction record's own account of a turn (app/observability/interactions.py): what
+    # was asked and heard, what was answered, and the titles of the cards drawn — a customer's
+    # name, an email's subject.
+    "interaction_turn": ("question", "heard", "answer", "titles"),
 }
 # What the tablet sends about itself (POST /telemetry, `tablet_<kind>`) that echoes what the Mac
 # drew or what he said: a listing's label (his words), a half's label and the headlines of the
@@ -457,6 +461,14 @@ def _take_back(fd: int, keep_to: int, wrote_to: int) -> bool:
 class Timeline:
     # The shared hold on WRITER_LOCK, once taken (an fd kept for the life of the process).
     _writer_lock: int | None = None
+    # How big one file may grow. None is a test session's MAX_TIMELINE_BYTES; the interaction
+    # record (app/observability/interactions.py) sets its own, smaller, day.
+    max_file_bytes: int | None = None
+
+    def _keeps_words(self, session: TestSession | None) -> bool:
+        """Whether this timeline writes the owner's words as said (`keeps_words`). A sink with a
+        rule of its own — the interaction record's switch — says so here."""
+        return keeps_words(session)
 
     def __init__(self, sessions: TestSessions, *, clock=time.time) -> None:
         self.sessions = sessions
@@ -561,6 +573,11 @@ class Timeline:
             # First, and whatever this timeline does with it: a production recording runs when
             # no test session does, which is the whole point of it.
             mirror.emit(kind, source=source, ts=ts, **fields)
+        return self._write(kind, source=source, ts=ts, **fields)
+
+    def _write(self, kind: str, *, source: str = "mac", ts: float | None = None, **fields: Any) -> dict[str, Any] | None:
+        """This timeline's own line for one event, and nothing for its mirror (`emit` hands the
+        mirror its copy first). Never raises."""
         try:
             # This timeline's OWN session: `active` is true while a recording runs, and a
             # recording's line is the mirror's to write, not this one's.
@@ -601,7 +618,7 @@ class Timeline:
                     continue
                 event[key] = value
             words = _words_for(str(kind))
-            if words and not keeps_words(session):
+            if words and not self._keeps_words(session):
                 event = _words_by_shape(event, words)
             # The envelope — its time, sequence, session and kind — is the timeline's own, and is
             # never redacted: a customer's postcode digits once turned `iso` into "[name]-09-29".
@@ -764,6 +781,7 @@ class Timeline:
         is always on, and a day's timeline must not be able to fill the disk."""
         from app.observability.session import MAX_TIMELINE_BYTES
 
+        limit = int(self.max_file_bytes or MAX_TIMELINE_BYTES)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
@@ -776,7 +794,7 @@ class Timeline:
                 # Where this append begins, under its hold: every byte from here to the end is
                 # this append's, which is what lets a failed write take back exactly its own.
                 start = os.lseek(fd, 0, os.SEEK_END)
-                room = MAX_TIMELINE_BYTES - start
+                room = limit - start
                 keep: list[bytes] = []
                 for line in lines:
                     data = (line + "\n").encode("utf-8")
@@ -808,7 +826,7 @@ class Timeline:
                     # Full: one line says so, and nothing more is written to this file.
                     self._full.add(path)
                     _write_all(fd, (json.dumps({"kind": "timeline_full", "ts": self.clock(),
-                                                "max_bytes": MAX_TIMELINE_BYTES}) + "\n").encode("utf-8"))
+                                                "max_bytes": limit}) + "\n").encode("utf-8"))
             finally:
                 os.close(fd)
             return len(keep), len(lines) - len(keep)

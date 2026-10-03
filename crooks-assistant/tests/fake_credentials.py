@@ -131,6 +131,13 @@ def elevenlabs_key(seed: str = "") -> str:
     return "sk" + "_" + body(_seed("elevenlabs", seed), 48, HEX)
 
 
+def elevenlabs_key_as_written(written_body: str) -> str:
+    """An ElevenLabs-shaped value exactly as a real record quoted it, re-joined here at runtime: a
+    fixture copied byte for byte from such a record (tests/fixtures/builds) must hash to the digest
+    the record was published with, so its body is the record's own, not one drawn from a seed."""
+    return "sk" + "_" + written_body
+
+
 def elevenlabs_single_use_token(seed: str = "", *, length: int = 40) -> str:
     """An ElevenLabs single-use token, as the server mints one for the phone's live words
     (app/routes/voice.py): a fixed prefix and an opaque body."""

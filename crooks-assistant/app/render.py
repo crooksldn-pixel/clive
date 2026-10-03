@@ -84,6 +84,8 @@ KEY_OF: dict[str, tuple[str, ...]] = {
     # in (§15, §27 — app/progressive.py). One per turn, patched in place for the life of it,
     # which is what makes "patch the sections, never replace the workspace" possible at all.
     "workspace_plan": ("workspace_id",),
+    # The orders that nearly fit what he said (app/customers/match.py): one card per question.
+    "order_match": ("title", "question"),
 }
 
 # A product or an inventory card is about a product, and the query that found it is not its

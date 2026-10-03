@@ -2,7 +2,9 @@
 whoever confirmed it, and the record says so: who fulfilled #1234, who replied to that email, who
 set the stock of that hoodie, and who took one of those back. Called by the commit route once a
 change has been made (app/routes/actions.py); never raises, because the change is made whatever
-the list says.
+the list says. A job already finished on the list when the change lands (Today packs and finishes in
+one tap, and the fulfilment card comes after) has the change written onto it, so it reads as
+finished and its Undo is refused.
 """
 
 from __future__ import annotations
@@ -78,13 +80,21 @@ def _after(proposal: Any) -> None:
     work.record({"who": who, "what": what, "ref": ref, "detail": label, "proposal_id": getattr(proposal, "proposal_id", "")})
     if not (closes and ref):
         return
+    proof = {what: True, "by": who, "proposal_id": getattr(proposal, "proposal_id", "")}
     for item in work.by_ref(ref):
         # A change closes the found job it was for, never a job flagged for the owner about the
         # same order or email: that one is his to finish.
-        if item.source != "found" or item.status not in ("open", "claimed"):
+        if item.source != "found":
+            continue
+        if item.status == "done":
+            # Finished on the list before the card landed (Today's one-tap Packed packs and finishes):
+            # the change is written onto it, so it is not left "packed, waiting" and Undo cannot
+            # reopen a job whose fulfilment stands (the review of 3 October).
+            work.stamp(item.item_id, proof)
+            continue
+        if item.status not in ("open", "claimed"):
             continue
         try:
-            work.done(item.item_id, who=who, owner=True,
-                      evidence={what: True, "by": who, "proposal_id": getattr(proposal, "proposal_id", "")})
+            work.done(item.item_id, who=who, owner=True, evidence=proof)
         except WorkError:
             continue

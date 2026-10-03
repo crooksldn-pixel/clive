@@ -55,6 +55,26 @@ test('a session on the Mac turns it on, from /health or from a /turn answer, and
   assert.equal(T.status().queued, 0);
 });
 
+test('the interaction record turns it on too, and never turns on the screen copies', () => {
+  // /health says `recording` when the Mac's interaction record is on (app/observability/
+  // interactions.py) and no test session is running: the page's account goes to it. The screen
+  // copies stay a test session's alone, so `screens` is never implied by a recording.
+  T.reset();
+  const batches = capture();
+  assert.equal(T.configure({ test_session: null, name: null, recording: 'ts-20261002-090000-always-on' }), true);
+  assert.equal(T.status().enabled, true);
+  assert.equal(T.status().screens, false);
+  T.record('rail_tap', { action: 'email_archive', state: 'enabled' });
+  assert.equal(T.flush(false), true);
+  assert.deepEqual(batches[0].body.events.map((e) => e.kind), ['session_joined', 'rail_tap']);
+  assert.equal(batches[0].body.test_session_id, 'ts-20261002-090000-always-on');
+  // A test session named on the Mac wins the name; switched off, nothing is recorded.
+  assert.equal(T.configure({ test_session: 'ts-2', recording: 'ts-20261002-090000-always-on' }), true);
+  assert.equal(T.status().test_session, 'ts-2');
+  assert.equal(T.configure({ test_session: null, name: null }), false);
+  assert.equal(T.record('rail_tap', {}), null);
+});
+
 test('events are batched and bounded, and a flush on unload is marked as such', () => {
   T.reset();
   const batches = capture();

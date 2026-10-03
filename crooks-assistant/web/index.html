@@ -19,6 +19,8 @@
 <!-- Round 9: the remote for the owner's screens (web/remote.js). -->
 <link rel="stylesheet" href="/static/remote.css">
 <link rel="stylesheet" href="/static/objective-cards.css">
+<!-- Customers: the order he meant, their story, a refund landing (web/customers.js). -->
+<link rel="stylesheet" href="/static/customers.css">
 <!-- Round 12: hold an order or an objective and put it on a screen (web/lift.js). -->
 <link rel="stylesheet" href="/static/lift.css">
 <!-- Round 12: soft scroll edges (web/edges.js) and cards that form from CLIVE's dots (web/dots-app.js). -->
@@ -26,6 +28,8 @@
 <link rel="stylesheet" href="/static/dots-app.css">
 <!-- Objectives by touch, part B: the next six weeks, the three distances, and marks in dots. -->
 <link rel="stylesheet" href="/static/horizon.css">
+<!-- The Builds screen: every build of CLIVE itself in plain words, and the decisions it needs (web/builds.js). -->
+<link rel="stylesheet" href="/static/builds.css">
 </head>
 <body data-mode="orb">
 
@@ -286,7 +290,7 @@
     <section id="set-places" class="set-section" aria-label="Connections and team">
       <h3>Connections and team</h3>
       <div class="set-list" role="list">
-        <a class="orow olink" role="listitem" id="open-connections" href="/connections"><span class="oname">Connections</span><span class="odetail">Your passkey, and the keys CLIVE uses: the shop, Instagram, parcel tracking, the voice, videos.</span></a>
+        <a class="orow olink" role="listitem" id="open-connections" href="/connections"><span class="oname">Connections</span><span class="odetail">What CLIVE is connected to, what each lets it do, and anything that needs you.</span></a>
         <a class="orow olink" role="listitem" id="open-team" href="/today"><span class="oname">Team</span><span class="odetail">Who can use CLIVE on their own phone, and the day's work.</span></a>
       </div>
     </section>
@@ -347,12 +351,16 @@
 <script src="/static/objective-number.js"></script>
 <!-- Round 12: an objective drawn in the shape of its kind, for ui.js's card and alpha.js's sheet. -->
 <script src="/static/objective-cards.js"></script>
+<!-- Customers: the order he meant, their story, a refund landing; drawn by ui.js through it. -->
+<script src="/static/customers.js"></script>
 <script src="/static/ui.js"></script>
 <script src="/static/app.js"></script>
 <!-- Objectives by touch, part B: the next six weeks and each objective's mark in dots (web/horizon.js),
      and the pinch between the three distances (web/distances.js); before alpha.js, which draws with them. -->
 <script src="/static/horizon.js"></script>
 <script src="/static/distances.js"></script>
+<!-- The Builds screen (web/builds.js); before alpha.js, whose home carries its row. -->
+<script src="/static/builds.js"></script>
 <script src="/static/alpha.js"></script>
 <!-- Round 9: the remote for the owner's screens, opened by CLIVE's screen_remote card. -->
 <script src="/static/remote.js"></script>

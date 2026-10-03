@@ -128,11 +128,18 @@ async def status(request: Request) -> JSONResponse | dict:
     if (refused := _refused(request)) is not None:
         return refused
     runtime = request.app.state.runtime
-    session = runtime.timeline.active
+    # [recording] A test session, or the experience recording; never the interaction record's own
+    # day (app/observability/interactions.py `reported`), which is said apart, so "is a test
+    # running?" has a true answer.
+    from app.observability import interactions
+
+    session = interactions.reported(runtime.timeline)
+    recording = interactions.current()
+    also = {"recording": {"day": recording.active_id, **recording.bounds}} if recording is not None and recording.active_id else {}
     if session is None:
         last = runtime.tests.last()
-        return {"active": False, "last": _summary(last) if last else None}
-    return {"active": True, **_summary(session), "path": str(runtime.tests.timeline_path(session)), "events": runtime.timeline.counts}
+        return {"active": False, "last": _summary(last) if last else None, **also}
+    return {"active": True, **_summary(session), "path": str(runtime.tests.timeline_path(session)), "events": runtime.timeline.counts, **also}
 
 
 @router.post("/test-session/stop", response_model=None)

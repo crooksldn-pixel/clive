@@ -227,8 +227,13 @@ test('web/alpha.js never asks for the microphone, itself or through app.js', () 
   // Objectives by touch (B): window.CliveHorizon draws the next six weeks and each row's mark
   // (web/horizon.js), window.CliveDistances moves between the three distances (web/distances.js),
   // and window.CliveHome is what those two may read and do. Both files are held to the rule too.
+  // The Builds screen: window.CliveBuilds opens it and reads its counts (web/builds.js), held to the rule below.
   assert.deepEqual([...new Set(ALPHA.match(/\bwindow\.\w+/g))].sort(),
-    ['window.CliveAlpha', 'window.CliveDistances', 'window.CliveHome', 'window.CliveHorizon', 'window.CliveObjectiveCards']);
+    ['window.CliveAlpha', 'window.CliveBuilds', 'window.CliveDistances', 'window.CliveHome', 'window.CliveHorizon', 'window.CliveObjectiveCards']);
+  const BUILDS = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'builds.js'), 'utf8');
+  for (const name of [...MIC, 'talk', 'orb-frame', 'mic-test', 'dispatchEvent', '.click(', 'CliveAlpha']) {
+    assert.ok(!BUILDS.includes(name), `web/builds.js has ${JSON.stringify(name)}`);
+  }
   const CARDS = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'objective-cards.js'), 'utf8');
   for (const name of [...MIC, 'talk', 'orb-frame', 'mic-test', 'dispatchEvent', '.click(', 'CliveAlpha']) {
     assert.ok(!CARDS.includes(name), `web/objective-cards.js has ${JSON.stringify(name)}`);

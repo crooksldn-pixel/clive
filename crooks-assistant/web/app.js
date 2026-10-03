@@ -307,6 +307,8 @@ const DETAIL_WORDS = {
   shopify_order_fulfil: ['Fulfilling', 'the order', true], shopify_refund_create: ['Refunding', 'the order', true],
   shopify_order_shipping_address_set: ['Changing', 'the delivery address', true],
   shopify_fulfillment_tracking_set: ['Adding', 'the tracking number', true],
+  // Customers (app/families/checkout_link.py): the draft and the email it prepares, held for him.
+  shopify_checkout_link_send: ['Preparing', 'the checkout link', true],
   shopify_inventory_adjust: ['Changing', 'the stock count', true], shopify_store_credit_add: ['Adding', 'store credit', true],
   shopify_discount_create: ['Creating', 'the discount', true],
   // Reading the inbox
@@ -352,6 +354,8 @@ const DETAIL_WORDS = {
   show_again: ['Bringing back', 'what you had open'],
   // Round 12, the second pass: "close that", "put it away" (app/tools/close_screen.py).
   close_screen: ['Clearing', 'your screen'],
+  // [recording] CLIVE reading back what it drew and did (app/tools/interaction_tools.py).
+  interaction_review: ['Looking back', 'at what you saw'],
 };
 const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;
@@ -2434,6 +2438,8 @@ function renderTurn(data) {
   // Round 9, the screens remote: CLIVE's screen_remote card (his answer when the owner asks for a
   // remote) opens the remote for its screen over the app (web/remote.js). The card is drawn as usual.
   if (window.CliveRemote) window.CliveRemote.fromTurn(data.ui);
+  // The Builds screen (web/builds.js): a turn in which CLIVE read the build queue for him opens it.
+  if (window.CliveBuilds) window.CliveBuilds.fromTurn(data);
   if (ui.skipped.length) console.warn('[crooks] skipped ui items:', ui.skipped.join(', '));
   el.errline.textContent = '';
   lastErrorTitle = '';

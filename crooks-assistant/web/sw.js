@@ -72,6 +72,12 @@ const SHELL = [
   '/static/horizon.js',
   '/static/horizon.css',
   '/static/distances.js',
+  // The Builds screen: every build in plain words, and the decisions it needs (web/builds.js).
+  '/static/builds.js',
+  '/static/builds.css',
+  // Customers: the order he meant, their story, a refund landing (web/customers.js).
+  '/static/customers.js',
+  '/static/customers.css',
   '/manifest.webmanifest',
   '/static/icon-192.png',
   '/static/icon-512.png',

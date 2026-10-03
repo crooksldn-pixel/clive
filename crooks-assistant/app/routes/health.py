@@ -35,7 +35,7 @@ async def health(request: Request, fresh: int = Query(default=0)) -> dict:
     state = request.app.state
     cached = getattr(state, "health_cache", None)
     if not fresh and cached and time.time() - cached[0] < CACHE_TTL_S:
-        return _guarded(request, {**_live(runtime, cached[1]), "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)})
+        return _guarded(request, {**_live(runtime, cached[1]), "observability": _observability(runtime, request), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)})
     lock = getattr(state, "health_lock", None)
     if lock is None:
         lock = state.health_lock = asyncio.Lock()
@@ -44,10 +44,10 @@ async def health(request: Request, fresh: int = Query(default=0)) -> dict:
         # doubling the work.
         cached = getattr(state, "health_cache", None)
         if not fresh and cached and time.time() - cached[0] < CACHE_TTL_S:
-            return _guarded(request, {**_live(runtime, cached[1]), "observability": _observability(runtime), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)})
+            return _guarded(request, {**_live(runtime, cached[1]), "observability": _observability(runtime, request), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)})
         result = await _health(runtime)
         state.health_cache = (time.time(), result)
-        return _guarded(request, {**result, "observability": _observability(runtime), "pad": _pad(), "cached": False, "age_s": 0.0})
+        return _guarded(request, {**result, "observability": _observability(runtime, request), "pad": _pad(), "cached": False, "age_s": 0.0})
 
 
 # What /health says to a caller the owner rule refuses (the 2026-09-27 deploy review, round 8,
@@ -74,6 +74,16 @@ def _guarded(request: Request, result: dict) -> dict:
         return out
     _who, code, _detail = principal_verdict(request)
     return out if not code else _liveness(out)
+
+
+def _the_owners(request: Request | None) -> bool:
+    """Whether this request is the owner's (the owner rule) or the server's own status reader."""
+    if request is None:
+        return False
+    from app import local_cli
+    from app.routes.actions import principal_check
+
+    return local_cli.admits(request) or not principal_check(request)[1]
 
 
 def _liveness(out: dict) -> dict:
@@ -282,12 +292,23 @@ def _pad(now: float | None = None) -> dict:
     return pad_module.current().status(now=now)
 
 
-def _observability(runtime) -> dict:
+def _observability(runtime, request: Request | None = None) -> dict:
     """Whether a test session is on, read at answer time rather than from the cached checks:
     the tablet turns its own telemetry on and off from this, within one poll."""
     timeline = getattr(runtime, "timeline", None)
-    session = timeline.active if timeline is not None else None
+    # [recording] What is said to be running is a test session or the experience recording, never
+    # the interaction record's own day: "is a test running?" stays a question about tests
+    # (app/observability/interactions.py `reported`). The page turns its telemetry on for the
+    # record too (web/telemetry.js `configure`), so `recording` names the day it is writing into —
+    # to the owner's own devices only, whose telemetry the record keeps: a team member's phone
+    # posting its account would only be refused at the door.
+    from app.observability import interactions
+
+    session = interactions.reported(timeline)
     out = {"test_session": session.test_session_id if session is not None else None, "name": session.name if session is not None else None}
+    recording = interactions.current()
+    if recording is not None and recording.active_id and _the_owners(request):
+        out["recording"] = recording.active_id
     # Whether the page should send a copy of its screen too (CROOKS_SCREEN_SNAPSHOTS): only for a
     # test session of this timeline's own, never for a production recording. Said only when it
     # is so; the route refuses copies whenever it is not, whatever a page still believes.
