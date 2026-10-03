@@ -34,7 +34,7 @@
 
   // A step, by the words that mean it. Longer phrases first: "give it back" before "give".
   const STEPS = [
-    ['undo', ['undo that', 'undo', 'take that back', 'go back', 'oops', 'my mistake', 'mistake', 'wrong one', 'cancel that', 'cancel it']],
+    ['undo', ['undo that', 'undo', 'take that back', 'go back', 'oops', 'my mistake', 'mistake', 'wrong one']],
     ['release', ['give it back', 'give back', 'giving it back', 'hand it back', 'put it back', 'cant do', 'cannot do', 'drop it', 'release', 'someone else', 'not mine', 'leave it']],
     ['next', ['next one', 'next job', 'the next', 'next']],
     ['packed', ['packed up', 'packed', 'boxed up', 'boxed', 'bagged up', 'bagged']],
@@ -47,6 +47,9 @@
   // Steps that may be said together: "packed and done", "I'll take the next one".
   const TOGETHER = new Set(['packed+done', 'done+packed', 'next+claim', 'claim+next']);
   const SHOW_NEXT = /^(whats next|what is next|what now|whats now|what do i do( now| next)?|what next)$/;
+  // "Cancel it" is either an undo of their own step or an order to cancel, which is George's: never
+  // guessed, and never a silent undo (the review of 3 October). The page asks which they meant.
+  const CANCEL_WHICH = /^(please )?cancel( it| that| this)?( one)?( please)?$/;
 
   function words(text) {
     return String(text || '').toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9#\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -65,7 +68,8 @@
    * claimed, title, words: [its title's and its lines' words] } as web/today.js makes them, the first of `mine` being the job on
    * screen now and the first of `grabs` the one shown next. Returns one of:
    *   { do: 'claim'|'packed'|'done'|'release', job }   { do: 'undo' }   { do: 'next', job }
-   *   { do: 'pick', step, jobs }   { do: 'show' } (what is next)   { do: 'george' }   { do: 'ask' }
+   *   { do: 'pick', step, jobs }   { do: 'show' } (what is next)   { do: 'cancel' } (undo, or George's?)
+   *   { do: 'george' }   { do: 'ask' }
    *   { do: 'none' } */
   function read(text, board) {
     const said = words(text);
@@ -75,6 +79,7 @@
     const grabs = (board && board.grabs) || [];
     if (GEORGE.test(said)) return QUESTION.test(said) || raw.includes('?') ? { do: 'ask' } : { do: 'george' };
     if (SHOW_NEXT.test(said.replace(/\s*#?$/, ''))) return { do: 'show' };
+    if (CANCEL_WHICH.test(said)) return { do: 'cancel' };
     if (raw.includes('?') || QUESTION.test(said)) return { do: 'ask' };
     let rest = ` ${said} `;
     let step = '';

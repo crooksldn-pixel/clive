@@ -329,6 +329,7 @@
     const box = $('#now');
     box.textContent = '';
     box.className = 'now';
+    if (picking && picking.cancel) { drawCancel(box, b); return; }
     if (picking) { drawPick(box); return; }
     const card = focused(b);
     if (!card) {
@@ -449,6 +450,27 @@
   }
 
   // Two or three jobs fitted what they said equally: they choose, never the page.
+  // "Cancel that": their own last step, or an order for George to cancel? Asked, never guessed.
+  function drawCancel(box, b) {
+    box.classList.add('pick');
+    const card = focused(b);
+    const order = card && card.kind === 'pack_order' ? (card.order || heading(card).big) : '';
+    box.append(element('p', 'now-kick', 'Which did you mean?'), element('h1', 'now-big', 'Cancel what?'));
+    const undo = element('button', 'choice', 'Undo my last step');
+    undo.type = 'button';
+    undo.addEventListener('click', () => { picking = null; draw(); undoLatest(); });
+    const george = element('button', 'choice', order ? `Ask George to cancel order ${order}` : 'Ask George to cancel an order');
+    george.type = 'button';
+    george.addEventListener('click', () => {
+      const said = picking.said;
+      picking = null;
+      draw();
+      if (order) tellGeorge(`Cancel order ${order} (${said})`, b);
+      else prefill('Ask George to cancel order ');
+    });
+    box.append(undo, george, button('Neither', () => { picking = null; draw(); }));
+  }
+
   function drawPick(box) {
     box.classList.add('pick');
     box.append(element('p', 'now-kick', 'Which one?'), element('h1', 'now-big', 'Tap the one you mean'));
@@ -554,6 +576,7 @@
   }
 
   function guidance(card) {
+    if (picking && picking.cancel) return 'Undo your last step, or ask George to cancel the order?';
     if (picking) return 'More than one job fits that. Tap the one you mean.';
     if (!card) return 'Nothing waiting right now. I will put new orders here as they come in.';
     return primary(card).next;
@@ -610,6 +633,7 @@
     if (read.do === 'undo') { await undoLatest(); return; }
     if (read.do === 'show') { setView('work'); focusKey = ''; draw(); return; }
     if (read.do === 'pick') { picking = { step: read.step, jobs: read.jobs }; setView('work'); draw(); return; }
+    if (read.do === 'cancel') { picking = { cancel: true, said }; setView('work'); draw(); return; }
     if (read.do === 'george') { await tellGeorge(said, b); return; }
     await askClive(said);
   }

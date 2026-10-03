@@ -55,7 +55,7 @@ test('the steps a packer says are read as steps on the right job', () => {
 });
 
 test('undo, and what is next, are read without touching a job', () => {
-  for (const said of ['undo', 'Undo that', 'oops', 'my mistake', 'cancel that']) assert.deepEqual(SAY.read(said, BOARD), { do: 'undo' }, said);
+  for (const said of ['undo', 'Undo that', 'oops', 'my mistake']) assert.deepEqual(SAY.read(said, BOARD), { do: 'undo' }, said);
   for (const said of ["what's next?", 'What now', 'what do I do next']) assert.deepEqual(SAY.read(said, BOARD), { do: 'show' }, said);
   assert.deepEqual(SAY.read('   ', BOARD), { do: 'none' });
 });
@@ -105,4 +105,12 @@ test('only the steps a tap can take ever come back', () => {
   for (const step of steps) assert.ok(['claim', 'packed', 'done', 'release', 'undo', 'show', 'pick', 'george', 'ask', 'none'].includes(step), step);
   assert.equal(SAY.read('send an email to Jane', BOARD).do, 'ask');
   assert.equal(SAY.read('fulfil 2106 with tracking 123', BOARD).do, 'ask');
+});
+
+test('“cancel it” is never a silent undo: the page is told to ask which they meant', () => {
+  for (const said of ['cancel it', 'Cancel that', 'cancel', 'cancel this one please']) {
+    assert.deepEqual(SAY.read(said, BOARD), { do: 'cancel' }, said);
+  }
+  assert.deepEqual(SAY.read('cancel the order for Sam', BOARD), { do: 'george' });   // plainly George's
+  assert.deepEqual(SAY.read('undo that', BOARD), { do: 'undo' });                    // plainly an undo
 });
