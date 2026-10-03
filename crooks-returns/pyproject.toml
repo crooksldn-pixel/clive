@@ -11,6 +11,9 @@ dependencies = [
   "tzdata>=2024.2",
 ]
 
+[project.scripts]
+returns-ctl = "returns.ctl:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.3", "ruff>=0.7"]
 

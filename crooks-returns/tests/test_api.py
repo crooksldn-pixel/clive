@@ -94,3 +94,26 @@ def test_health_reports_policy(svc):
     h = client(svc).get("/health").json()
     assert h["policy"]["window_days"] == 14
     assert h["policy"]["return_label_cost"] == "£3.50"
+
+
+def test_staff_tool_lists_and_acts(svc, monkeypatch, capsys):
+    from returns import ctl
+    from returns.models import Postage, Reason, Resolution, Selection
+
+    session, _ = svc.lookup("1939", "customer@example.com", "1.1.1.1")
+    order = svc.order_for_session(session)
+    ret = svc.submit(
+        order,
+        [Selection(fulfillment_line_item_id=TEE, quantity=1, reason=Reason.changed_mind)],
+        Resolution.refund,
+        Postage.self_ship,
+    )
+    monkeypatch.setattr(ctl, "build_service", lambda settings: svc)
+    assert ctl.main(["list"]) == 0
+    assert ret.id in capsys.readouterr().out
+    assert ctl.main(["approve", ret.id, "self_ship", "--yes", "--as", "george"]) == 0
+    out = capsys.readouterr().out
+    assert "requested -> awaiting_shipment" in out
+    assert ctl.main(["receive", ret.id, "--yes"]) == 0
+    assert "-> completed" in capsys.readouterr().out
+    assert ctl.main(["decline", ret.id, "--yes"]) == 1

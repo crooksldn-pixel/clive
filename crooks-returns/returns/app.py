@@ -24,16 +24,19 @@ class UTF8JSONResponse(JSONResponse):
     media_type = "application/json; charset=utf-8"
 
 
+def build_service(settings: Settings) -> ReturnsService:
+    if settings.shopify_backend == "fake":
+        from returns.fake import FakeLabels, FakeShopify
+
+        shopify, labels = FakeShopify(), FakeLabels()
+    else:
+        shopify, labels = GraphQLShopify(settings), ClickAndDrop(settings)
+    return ReturnsService(settings, Store(settings.db_path), shopify, labels)
+
+
 def create_app(settings: Settings | None = None, service: ReturnsService | None = None) -> FastAPI:
     settings = settings or get_settings()
-    if service is None:
-        if settings.shopify_backend == "fake":
-            from returns.fake import FakeLabels, FakeShopify
-
-            shopify, labels = FakeShopify(), FakeLabels()
-        else:
-            shopify, labels = GraphQLShopify(settings), ClickAndDrop(settings)
-        service = ReturnsService(settings, Store(settings.db_path), shopify, labels)
+    service = service or build_service(settings)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
