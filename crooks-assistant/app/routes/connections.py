@@ -241,8 +241,11 @@ def _known_action(action: str) -> bool:
     if kind == "signin":
         return rest == "instagram"
     if kind == "voice":
-        # The voice and how it sounds, signed as one text like a save (app/speech/voice_prefs.py).
-        return bool(SEAL.fullmatch(rest))
+        # The voice and how it sounds, signed as one text like a save (app/speech/voice_prefs.py), or
+        # going back to the voice's own settings, signed the same way under a name of its own so an
+        # approval for one is never the other's.
+        verb, _, digest = rest.rpartition(":")
+        return bool(SEAL.fullmatch(digest)) and verb in ("", "reset")
     if kind == "passkey":
         verb, _, identity = rest.partition(":")
         return (verb == "add" and not identity) or (verb == "remove" and bool(CREDENTIAL_ID.fullmatch(identity)))
@@ -378,11 +381,34 @@ async def connections_voice_list(request: Request) -> JSONResponse:
     return _answer({"voices": found})
 
 
+@router.get("/connections/voice/voices/{voice_id}")
+@_guarded
+async def connections_voice_one(request: Request, voice_id: str) -> JSONResponse:
+    """One voice's own settings, as ElevenLabs reports them, so a slider the owner has not moved can
+    show the voice's real value. Only what ElevenLabs reported: a setting it does not report is
+    absent, and the screen says "the voice's own setting" with no number (app/speech/voice_prefs.py)."""
+    from app.speech import voice_prefs
+
+    _who(request)
+    if not voice_prefs.VOICE_ID.fullmatch(voice_id or ""):
+        raise _Refused(404, "unknown_voice", "There is no such voice.")
+    found, why = await _voice_client(request).voice_details(voice_id)
+    if found is None:
+        raise _Refused(502, "voice_unavailable", why or "ElevenLabs could not be asked just now.")
+    return _answer({"voice_id": voice_id, "voice_name": found["name"],
+                    "own": voice_prefs.voice_settings(voice_prefs.clean(found["settings"]))})
+
+
 @router.post("/connections/voice")
 @_guarded
 async def connections_voice_save(request: Request) -> JSONResponse:
     """Keep the voice and the sliders, and speak that way from the next answer on — no restart.
-    The passkey signs the very text the values arrived as, exactly as a key save does."""
+    The passkey signs the very text the values arrived as, exactly as a key save does.
+
+    The voice's name is ElevenLabs' own, asked for its id at the moment of saving (GET /voices/{id},
+    through the voice's own client), never the page's words: a name taken from the page once stored
+    "Derek, in use", and /health then reported a mismatch with nothing actually wrong (the post-deploy
+    review of 3 October). If ElevenLabs cannot say what the voice is called, nothing is kept."""
     from app.speech import voice_prefs
 
     who = _who(request)
@@ -393,16 +419,61 @@ async def connections_voice_save(request: Request) -> JSONResponse:
         _approve(body, "voice", who=who, origin=origin, device=device)       # says "needs your passkey"
     digest, values = sealed(body.get("values_json"))
     _approve(body, f"voice:{digest}", who=who, origin=origin, device=device)
-    kept = await asyncio.to_thread(voice_prefs.write, values)
     voice = _voice_client(request)
+    wanted = voice_prefs.clean(values)
+    wanted.pop("voice_name", None)
+    if wanted.get("voice_id"):
+        found, why = await voice.voice_details(wanted["voice_id"])
+        if found is None:
+            raise _Refused(502, "voice_unconfirmed", "ElevenLabs couldn't say what that voice is called, so "
+                                                     f"nothing was changed: {why or 'it did not answer'}.")
+        wanted["voice_name"] = found["name"]
+    kept = await asyncio.to_thread(voice_prefs.write, wanted)
     voice.apply(voice_id=kept.get("voice_id", ""), voice_name=kept.get("voice_name", ""),
-                model=kept.get("model", ""), voice_settings=voice_prefs.voice_settings(kept))
+                model=kept.get("model", ""), voice_settings=voice_prefs.voice_settings(kept),
+                chosen_here=True if kept.get("voice_id") else None)
     ledger.record("voice_changed", connection="elevenlabs", who=who, device=device, ok=True,
                   detail=f"{voice.voice_name} · {voice.model}")
     log.info("connections: the voice is now %s (%s)", voice.voice_name, voice.model)
     return _answer({"voice": {"voice_id": voice.voice_id, "voice_name": voice.voice_name,
                               "model": voice.model, **voice_prefs.voice_settings(kept)},
                     "chosen": bool(kept)})
+
+
+# What the page signs to go back to the voice's own settings: always this text, sealed like a save's.
+RESET_VOICE = {"reset": True}
+
+
+@router.post("/connections/voice/reset")
+@_guarded
+async def connections_voice_reset(request: Request) -> JSONResponse:
+    """"Use the voice's own settings": forget what was saved here (voice_prefs.forget), and speak as
+    the configured voice with no settings sent, so ElevenLabs applies the voice's own — from the
+    next answer, no restart. The passkey signs `voice:reset:<SHA-256 of the text>`, exactly as a save
+    signs its values."""
+    from app.speech import voice_prefs
+
+    who = _who(request)
+    origin, _ = _origin(request)
+    device = _device(request)
+    body = await _body(request)
+    if body.get("approval") is None:
+        _approve(body, "voice:reset", who=who, origin=origin, device=device)  # says "needs your passkey"
+    digest, values = sealed(body.get("values_json"))
+    if values != RESET_VOICE:
+        raise _Refused(400, "bad_request", "The screen sent something unreadable. Reload it.")
+    _approve(body, f"voice:reset:{digest}", who=who, origin=origin, device=device)
+    voice = _voice_client(request)
+    await asyncio.to_thread(voice_prefs.forget)
+    settings = _settings(request)
+    voice.apply(voice_id=str(getattr(settings, "tts_voice_id", "") or ""),
+                voice_name=str(getattr(settings, "tts_voice_name", "") or ""),
+                model=str(getattr(settings, "tts_model", "") or ""), voice_settings={}, chosen_here=False)
+    ledger.record("voice_reset", connection="elevenlabs", who=who, device=device, ok=True,
+                  detail=f"{voice.voice_name} · {voice.model}")
+    log.info("connections: the voice is back to %s (%s) in its own settings", voice.voice_name, voice.model)
+    return _answer({"voice": {"voice_id": voice.voice_id, "voice_name": voice.voice_name, "model": voice.model},
+                    "chosen": False})
 
 
 @router.post("/connections/voice/preview")

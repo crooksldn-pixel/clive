@@ -52,12 +52,18 @@ class Services:
     def __init__(self) -> None:
         self.calls: list[httpx.Request] = []
         self.elevenlabs = 200
+        # The account's voices, as ElevenLabs answers GET /voices/{id}: a name and its own settings.
+        self.voices: dict[str, dict] = {}
         self.instagram_token = 200
         self.granted = "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments"
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.calls.append(request)
         host, path = request.url.host, request.url.path
+        if host == "api.elevenlabs.io" and path.startswith("/v1/voices/"):
+            found = self.voices.get(path.rsplit("/", 1)[-1])
+            return (httpx.Response(200, json={"voice_id": path.rsplit("/", 1)[-1], **found}) if found
+                    else httpx.Response(404, json={"detail": {"status": "voice_not_found"}}))
         if host == "api.elevenlabs.io":
             return httpx.Response(self.elevenlabs, json={"detail": {"status": "invalid_api_key"}}
                                   if self.elevenlabs == 401 else [{"model_id": "scribe_v1"}])
@@ -106,6 +112,14 @@ async def world(client, tmp_path, monkeypatch):  # noqa: F811 - fixtures importe
     vault.bind()
     passkeys.reset()
     sign_in.reset()
+
+
+def speaking(http):
+    """The runtime's voice, with a key and ElevenLabs answered by the stand-in services."""
+    voice = http.runtime.voice
+    voice.enabled, voice._key, voice.base_url = True, KEY, "https://api.elevenlabs.io/v1"
+    voice._http = httpx.AsyncClient(transport=httpx.MockTransport(http.services))
+    return voice
 
 
 async def register(http, device=None, *, approval=None):
@@ -454,6 +468,10 @@ async def test_the_approval_covers_the_exact_text_the_page_sent(world):
 
 async def test_the_voice_is_the_owners_and_only_with_a_passkey_for_those_very_settings(world):
     await register(world)
+    speaking(world)
+    world.services.voices = {"9375G6zswFk7v9bKTVQF": {"name": "Vikram", "settings": {}}}
+    vault.store("elevenlabs_api_key", KEY)                 # a key is stored: the answer must hold none of it
+    assert linux_store.read("elevenlabs_api_key") == KEY
     stranger = {"Tailscale-User-Login": "other@example.com", "X-Forwarded-For": "100.64.0.3"}
     assert (await world.get("/connections/voice", headers=stranger)).status_code == 403
     assert (await world.get("/connections/voice")).status_code == 403        # the server itself
@@ -464,7 +482,8 @@ async def test_the_voice_is_the_owners_and_only_with_a_passkey_for_those_very_se
     assert body["voice"]["voice_name"] == world.runtime.settings.tts_voice_name
     assert body["chosen"] is False and "eleven_flash_v2_5" in body["models"]
     assert body["sliders"]["speed"] == {"min": 0.7, "max": 1.2}
-    assert "key" not in shown.text.lower() or "api_key" not in shown.text
+    # Never the key: neither its name nor the value stored.
+    assert "api_key" not in shown.text and KEY not in shown.text
 
     wanted = {"voice_id": "9375G6zswFk7v9bKTVQF", "voice_name": "Vikram", "style": 0.4}
     text, digest = sealed(wanted)
@@ -492,6 +511,8 @@ async def test_the_voice_is_the_owners_and_only_with_a_passkey_for_those_very_se
 
 async def test_the_voice_change_is_kept_and_read_back_after_a_restart(world):
     await register(world)
+    speaking(world)
+    world.services.voices = {"9375G6zswFk7v9bKTVQF": {"name": "Vikram", "settings": {}}}
     wanted = {"voice_id": "9375G6zswFk7v9bKTVQF", "voice_name": "Vikram", "speed": 1.1}
     text, digest = sealed(wanted)
     await world.post("/connections/voice", headers=HEADERS,
@@ -499,3 +520,121 @@ async def test_the_voice_change_is_kept_and_read_back_after_a_restart(world):
     # What a restart would read: the record itself, not the client that was changed in memory.
     assert voice_prefs.read() == wanted
 
+
+async def test_a_voices_own_settings_are_what_elevenlabs_reports_and_nothing_is_made_up(world):
+    """The post-deploy review of 3 October: an untouched slider said "(the voice's own)" beside a
+    number nobody had reported. The screen now asks ElevenLabs for the voice's own settings and is
+    told only those it reports; a voice that reports none gets none."""
+    await register(world)
+    speaking(world)
+    world.services.voices = {
+        "9375G6zswFk7v9bKTVQF": {"name": "Vikram", "settings": {"stability": 0.71, "use_speaker_boost": True,
+                                                                "latency": 3}},
+        "Q0Et7LOU7VpeoeCRQAVS": {"name": "Derek", "settings": None},
+    }
+    stranger = {"Tailscale-User-Login": "other@example.com", "X-Forwarded-For": "100.64.0.3"}
+    assert (await world.get("/connections/voice/voices/9375G6zswFk7v9bKTVQF", headers=stranger)).status_code == 403
+    shown = await world.get("/connections/voice/voices/9375G6zswFk7v9bKTVQF", headers=HEADERS)
+    assert shown.status_code == 200, shown.text
+    assert shown.json()["own"] == {"stability": 0.71, "use_speaker_boost": True}
+    assert shown.json()["voice_name"] == "Vikram" and KEY not in shown.text
+    bare = await world.get("/connections/voice/voices/Q0Et7LOU7VpeoeCRQAVS", headers=HEADERS)
+    assert bare.status_code == 200 and bare.json()["own"] == {}
+    asked = [c for c in world.services.calls if c.url.path.startswith("/v1/voices/")]
+    assert [c.headers["xi-api-key"] for c in asked] == [KEY, KEY]
+    assert (await world.get("/connections/voice/voices/not-a-voice", headers=HEADERS)).status_code == 404
+    gone = await world.get("/connections/voice/voices/" + "Z" * 20, headers=HEADERS)
+    assert gone.status_code == 502 and gone.json()["code"] == "voice_unavailable"
+
+
+async def test_the_voice_goes_back_to_its_own_settings_only_with_a_passkey_for_exactly_that(world):
+    """The post-deploy review of 3 October: nothing called voice_prefs.forget(), so once a voice or a
+    slider was saved there was no way back to the voice's own settings. "Use the voice's own
+    settings" is approved like a save (the passkey signs `voice:reset:<SHA-256 of the text>`), forgets
+    the record and speaks as the configured voice with nothing sent but the words."""
+    await register(world)
+    speaking(world)
+    world.services.voices = {"9375G6zswFk7v9bKTVQF": {"name": "Vikram", "settings": {}}}
+    wanted = {"voice_id": "9375G6zswFk7v9bKTVQF", "voice_name": "Vikram", "style": 0.4, "speed": 1.1}
+    text, digest = sealed(wanted)
+    kept = await world.post("/connections/voice", headers=HEADERS,
+                            json={"values_json": text, "approval": await approval(world, f"voice:{digest}")})
+    assert kept.status_code == 200 and world.runtime.voice.voice_id == "9375G6zswFk7v9bKTVQF"
+
+    reset, reset_digest = sealed({"reset": True})
+    for action in ("voice:reset", "voice:undo:" + reset_digest, "voice:reset:" + reset_digest[:-1]):
+        assert (await world.post("/connections/approve", json={"action": action}, headers=HEADERS)).status_code == 400
+    bare = await world.post("/connections/voice/reset", json={"values_json": reset}, headers=HEADERS)
+    assert bare.status_code == 403 and bare.json()["code"] == "passkey_missing"
+    # An approval for a save never goes back, and one for going back never saves.
+    crossed = await world.post("/connections/voice/reset", headers=HEADERS,
+                               json={"values_json": reset, "approval": await approval(world, f"voice:{reset_digest}")})
+    assert crossed.status_code == 403
+    as_save = await world.post("/connections/voice", headers=HEADERS,
+                               json={"values_json": reset, "approval": await approval(world, f"voice:reset:{reset_digest}")})
+    assert as_save.status_code == 403
+    other, other_digest = sealed({"reset": True, "style": 1})
+    odd = await world.post("/connections/voice/reset", headers=HEADERS,
+                           json={"values_json": other, "approval": await approval(world, f"voice:reset:{other_digest}")})
+    assert odd.status_code == 400
+    assert voice_prefs.read() == wanted                                      # none of those changed anything
+
+    done = await world.post("/connections/voice/reset", headers=HEADERS,
+                            json={"values_json": reset, "approval": await approval(world, f"voice:reset:{reset_digest}")})
+    assert done.status_code == 200, done.text
+    settings = world.runtime.settings
+    assert done.json() == {"ok": True, "chosen": False, "voice": {
+        "voice_id": settings.tts_voice_id, "voice_name": settings.tts_voice_name, "model": settings.tts_model}}
+    assert voice_prefs.read() == {} and not (voice_prefs._path()).exists()
+    # Live at once: the configured voice, and no voice_settings at all, so ElevenLabs uses the voice's own.
+    assert world.runtime.voice.voice_id == settings.tts_voice_id
+    assert world.runtime.voice._payload("hi") == {"text": "hi", "model_id": settings.tts_model}
+    assert (await world.get("/connections/voice", headers=HEADERS)).json()["chosen"] is False
+    assert ledger.recent()[0]["action"] == "voice_reset" and ledger.recent()[0]["who"] == OWNER
+
+
+async def test_a_saved_voice_is_named_by_elevenlabs_never_by_the_page(world):
+    """The post-deploy review of 3 October: with the voice in use missing from the account's list, the
+    page's fallback option saved the name "Derek, in use"; /health then went red and pointed at .env
+    lines that were no longer the source. The name is now ElevenLabs' own, asked as the voice is saved."""
+    await register(world)
+    voice = speaking(world)
+    world.services.voices = {"Q0Et7LOU7VpeoeCRQAVS": {"name": "Derek", "settings": {}}}
+    text, digest = sealed({"voice_id": "Q0Et7LOU7VpeoeCRQAVS", "voice_name": "Derek, in use", "model": "eleven_flash_v2_5"})
+    done = await world.post("/connections/voice", headers=HEADERS,
+                            json={"values_json": text, "approval": await approval(world, f"voice:{digest}")})
+    assert done.status_code == 200, done.text
+    assert done.json()["voice"]["voice_name"] == "Derek" and voice.voice_name == "Derek"
+    assert voice_prefs.read()["voice_name"] == "Derek"
+    asked = [c for c in world.services.calls if c.url.path == "/v1/voices/Q0Et7LOU7VpeoeCRQAVS"]
+    assert len(asked) == 1 and asked[0].method == "GET"
+    # /health asks ElevenLabs what the id is called, and the pair it was saved as is true.
+    voice._voice_checked_at = 0.0
+    assert await voice.verify_voice() == "Derek" and voice.voice_mismatch is None
+
+
+async def test_a_voice_elevenlabs_cannot_name_is_not_saved(world):
+    await register(world)
+    voice = speaking(world)
+    before = (voice.voice_id, voice.voice_name)
+    text, digest = sealed({"voice_id": "9375G6zswFk7v9bKTVQF", "voice_name": "Vikram"})
+    refused = await world.post("/connections/voice", headers=HEADERS,
+                               json={"values_json": text, "approval": await approval(world, f"voice:{digest}")})
+    assert refused.status_code == 502 and refused.json()["code"] == "voice_unconfirmed"
+    assert "nothing was changed" in refused.json()["detail"] and KEY not in refused.text
+    assert voice_prefs.read() == {} and (voice.voice_id, voice.voice_name) == before
+
+
+async def test_elevenlabs_refusing_the_list_or_a_preview_is_said_in_words_not_a_crash(world):
+    """Found while fixing the voice: both routes read `.detail` from the voice client's failure, which
+    it did not have, so "More voices" or Preview with ElevenLabs refusing was a server error instead of
+    ElevenLabs' own reason."""
+    await register(world)
+    speaking(world)
+    world.services.elevenlabs = 401
+    listed = await world.get("/connections/voice/voices", headers=HEADERS)
+    assert listed.status_code == 502 and listed.json()["code"] == "voices_unavailable"
+    assert "ElevenLabs returned 401" in listed.json()["detail"] and KEY not in listed.text
+    heard = await world.post("/connections/voice/preview", headers=HEADERS, json={"values": {}})
+    assert heard.status_code == 502 and heard.json()["code"] == "preview_failed"
+    assert "ElevenLabs returned 401" in heard.json()["detail"] and KEY not in heard.text

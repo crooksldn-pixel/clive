@@ -139,3 +139,21 @@ async def test_a_preview_speaks_in_the_asked_for_voice_and_changes_nothing():
     assert (voice.voice_id, voice.model, voice.voice_settings) == (
         "Q0Et7LOU7VpeoeCRQAVS", "eleven_flash_v2_5", {})
     assert voice._payload("hello") == {"text": "hello", "model_id": "eleven_flash_v2_5"}
+
+
+def test_health_names_the_record_on_the_connections_screen_when_that_is_where_the_voice_came_from():
+    """A mismatch on a voice saved from the Connections screen is put right there, not in `.env`."""
+    configured = a_voice()
+    configured._key, configured._voice_actual_name = "a-key-long-enough", "Brian"
+    ok, detail = configured.health()
+    assert not ok and "CROOKS_TTS_VOICE_ID" in detail                 # from .env: the .env lines, as before
+    chosen = a_voice()
+    chosen.apply(voice_id="9375G6zswFk7v9bKTVQF", voice_name="Vikram", chosen_here=True)
+    chosen._key, chosen._voice_actual_name = "a-key-long-enough", "Brian"
+    ok, detail = chosen.health()
+    assert not ok and "saved on the Connections screen" in detail and "9375G6zswFk7v9bKTVQF" in detail
+    assert ".env" not in detail and "CROOKS_TTS_VOICE" not in detail
+    # Going back to the configured voice points at .env again.
+    chosen.apply(voice_id="Q0Et7LOU7VpeoeCRQAVS", voice_name="Derek", chosen_here=False)
+    chosen._voice_actual_name = "Brian"
+    assert "CROOKS_TTS_VOICE_ID" in chosen.health()[1]

@@ -48,6 +48,11 @@ class VoiceUnavailable(RuntimeError):
         super().__init__(detail)
         self.kind = kind
 
+    @property
+    def detail(self) -> str:
+        """The human detail, as str(exc): what the Connections screen shows (voices(), why_not())."""
+        return str(self)
+
 
 class VoiceStream:
     """An MP3 arriving from ElevenLabs, forwarded chunk by chunk.
@@ -162,6 +167,9 @@ class VoiceClient:
         # "say nothing and let ElevenLabs apply the voice's own defaults", which is what this
         # client always did and what a fresh install still does.
         self.voice_settings: dict[str, Any] = {}
+        # Whether the voice speaking was saved on the Connections screen (app/speech/voice_prefs.py)
+        # rather than configured in `.env`: /health then names that record, not the `.env` lines.
+        self.chosen_here = False
         self.model = model
         self.output_format = output_format
         self.base_url = base_url.rstrip("/")
@@ -310,10 +318,13 @@ class VoiceClient:
         return body
 
     def apply(self, *, voice_id: str = "", voice_name: str = "", model: str = "",
-              voice_settings: dict[str, Any] | None = None) -> None:
+              voice_settings: dict[str, Any] | None = None, chosen_here: bool | None = None) -> None:
         """Speak as this voice from the next answer on, with no restart. Changing the voice clears
         the remembered name ElevenLabs gave for the old id, so /health verifies the new one at its
-        next look rather than reporting a mismatch against the voice that is gone."""
+        next look rather than reporting a mismatch against the voice that is gone. `chosen_here`
+        says whether the voice now speaking came from the Connections screen's record."""
+        if chosen_here is not None:
+            self.chosen_here = chosen_here
         changed_voice = bool(voice_id) and voice_id != self.voice_id
         if voice_id:
             self.voice_id = voice_id
@@ -575,6 +586,35 @@ class VoiceClient:
         found.sort(key=lambda v: v["name"].lower())
         return found, ""
 
+    async def voice_details(self, voice_id: str) -> tuple[dict[str, Any] | None, str]:
+        """One voice as ElevenLabs describes it (GET /voices/{id}): ({"voice_id", "name",
+        "settings"}, "") or (None, why). Free, no synthesis. `settings` is what ElevenLabs reports
+        as the voice's own, as it reported it, and empty when it reports none: nothing is filled
+        in here. The caller has checked the id's shape; the key never leaves this method."""
+        if not self.enabled:
+            return None, "ElevenLabs speech is switched off in settings"
+        try:
+            key = self._api_key()
+        except VoiceUnavailable as exc:
+            return None, self._scrub(str(exc))
+        try:
+            response = await self._client().get(
+                f"{self.base_url}/voices/{voice_id}", headers={"xi-api-key": key}, timeout=10.0,
+            )
+        except httpx.HTTPError as exc:
+            return None, f"ElevenLabs could not be reached ({type(exc).__name__})"
+        if response.status_code != 200:
+            return None, str(self._http_failure(response.status_code, response.text[:400]))
+        try:
+            body = response.json()
+        except ValueError:
+            return None, "ElevenLabs answered something unreadable"
+        name = " ".join(str((body or {}).get("name") or "").split())[:60] if isinstance(body, dict) else ""
+        if not name:
+            return None, "ElevenLabs did not say what that voice is called"
+        settings = body.get("settings")
+        return {"voice_id": voice_id, "name": name, "settings": settings if isinstance(settings, dict) else {}}, ""
+
     async def say_once(self, text: str, *, voice_id: str = "", model: str = "",
                        voice_settings: dict[str, Any] | None = None) -> bytes:
         """One sentence in settings that are not this client's, for a preview. Nothing here changes
@@ -697,6 +737,14 @@ class VoiceClient:
             self._api_key()
         except VoiceUnavailable as exc:
             return False, f"{self._scrub(str(exc))} · {note}"
+        if self.voice_mismatch and self.chosen_here:
+            # The voice speaking came from the Connections screen, not `.env`: its record is what
+            # to put right, and saving the voice again there takes the name from ElevenLabs itself.
+            return False, (
+                f"the voice saved on the Connections screen, {self.voice_id}, is the one ElevenLabs "
+                f"calls '{self.voice_mismatch}', not {self.voice_name}: save the voice again there "
+                f"(Connections, ElevenLabs, The voice), or use the voice's own settings · {note}"
+            )
         if self.voice_mismatch:
             return False, (
                 f"CROOKS_TTS_VOICE_ID {self.voice_id} is the voice ElevenLabs calls "

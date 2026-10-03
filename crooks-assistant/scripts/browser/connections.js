@@ -14,7 +14,10 @@
  * Last, the passkey approval end to end, unchanged in what it asks: at CLIVE's own address
  * (localhost here), with the owner's passkey in Chromium's virtual authenticator, a new GitHub
  * token is pasted over the refused one and saved in one step (Save, the passkey, CLIVE's test with
- * GitHub), and the row moves to Working with no key box, the change in Recent changes.
+ * GitHub), and the row moves to Working with no key box, the change in Recent changes. Then the voice
+ * is saved untouched: what is sent is the voice and the model and no setting he did not choose, and an
+ * untouched slider shows the voice's own value only where ElevenLabs reported one; and once something is
+ * saved, "Use the voice's own settings" goes back to the voice set up on the server, with the passkey.
  *
  * Prints one JSON object: { ok, checks, shots }.
  */
@@ -185,6 +188,17 @@ async function judge(browser, size) {
     check('phone: ElevenLabs\' details hold the voice picker, its sliders, Preview and Save',
       voice.open && voice.pick && voice.sliders === 4 && voice.preview && voice.save, JSON.stringify(voice));
     check('phone: opening ElevenLabs\' details shows no key box until Replace key', voice.keys === 0, JSON.stringify(voice));
+    // An untouched slider: the voice's own value where ElevenLabs reported one (Derek's stability),
+    // and no number where it did not (his expression and speed); the speaker boost neither on nor off.
+    const own = await page.evaluate(() => {
+      const row = document.querySelector('.conn[data-name="elevenlabs"]');
+      const said = (key) => row.querySelector('.voice-' + key).parentNode.querySelector('.slider-value').textContent;
+      return { stability: said('stability'), style: said('style'), speed: said('speed'),
+        boost: row.querySelector('.voice-boost').indeterminate };
+    });
+    check('phone: an untouched slider shows the voice\'s own value only where ElevenLabs reported one, and no number otherwise',
+      own.stability === '0.50 (the voice\'s own)' && own.style === 'the voice\'s own setting' && own.speed === 'the voice\'s own setting'
+      && own.boost === true, JSON.stringify(own));
     await page.evaluate(() => document.querySelector('.conn[data-name="elevenlabs"]').scrollIntoView({ block: 'start' }));
     await shot(page, 'phone-details', false);
     // What Shopify lets CLIVE do, and what stops without it, from the capability registry.
@@ -316,6 +330,48 @@ async function oneStep(browser) {
   await shot(page, 'phone-saved', false);
   const found = await leaks(page, []);
   check('one step: the token just saved is not on the page', !found.length, found.join(', '));
+
+  // The voice, saved without touching a slider: the voice and the model, and no setting he did not choose.
+  const sent = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/connections/voice') sent.push(request.postData() || '');
+  });
+  await page.click('.conn[data-name="elevenlabs"] summary');
+  await page.waitForTimeout(300);
+  await page.click('.conn[data-name="elevenlabs"] .voice-save');
+  await page.waitForFunction(() => /CLIVE speaks as/.test(document.querySelector('#notice').textContent), null, { timeout: 15000 })
+    .catch(() => {});
+  const voiceSaved = await page.evaluate(() => document.querySelector('#notice').textContent);
+  let values = {};
+  try { values = JSON.parse(JSON.parse(sent[0] || '{}').values_json || '{}'); } catch (error) { values = {}; }
+  const settings = Object.keys(values).filter((k) => !['voice_id', 'voice_name', 'model'].includes(k));
+  check('one step: the voice saved untouched sends the voice and the model and no setting, and says who speaks now',
+    sent.length === 1 && values.voice_id && values.model && !settings.length && voiceSaved === 'CLIVE speaks as Derek from now on.',
+    JSON.stringify({ values, voiceSaved }));
+  await page.evaluate(() => document.querySelector('.conn[data-name="elevenlabs"] .voice-save').scrollIntoView({ block: 'center' }));
+  await shot(page, 'phone-voice-saved', false);
+
+  // Something is saved now, so the way back is offered: one step, with the passkey, to the voice set up
+  // on the server in its own settings.
+  const offered = await page.evaluate(() => Boolean(document.querySelector('.conn[data-name="elevenlabs"] .voice-reset')));
+  const resets = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/connections/voice/reset') resets.push(request.postData() || '');
+  });
+  if (offered) await page.click('.conn[data-name="elevenlabs"] .voice-reset');
+  // The notice comes as the answer does; the screen is drawn again a moment later, without the button.
+  await page.waitForFunction(() => /again, in the voice's own settings/.test(document.querySelector('#notice').textContent)
+    && !document.querySelector('.conn[data-name="elevenlabs"] .voice-reset'), null, { timeout: 15000 }).catch(() => {});
+  const back = await page.evaluate(() => ({
+    notice: document.querySelector('#notice').textContent,
+    still: Boolean(document.querySelector('.conn[data-name="elevenlabs"] .voice-reset')),
+    changes: [...document.querySelectorAll('.change-what')].map((n) => n.textContent),
+  }));
+  check('one step: once a voice is saved, "Use the voice\'s own settings" goes back to the voice set up on the server',
+    offered && resets.length === 1 && back.notice === 'CLIVE speaks as Derek again, in the voice\'s own settings.' && !back.still
+    && back.changes.includes('Voice back to Derek · eleven_flash_v2_5, in its own settings'), JSON.stringify(back));
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await shot(page, 'phone-voice-reset', false);
   check('one step: no script errors', !errors.length, errors.join(' | '));
   await context.close();
 }

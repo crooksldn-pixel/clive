@@ -329,3 +329,13 @@ def test_the_rows_under_node():
                             capture_output=True, text=True, timeout=120, cwd=ROOT)
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
     assert "# fail 0" in result.stdout
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_the_voice_panel_under_node():
+    """tests/web/connections-voice.test.js: a slider or the speaker boost is sent only when he moved
+    it or it is stored, and an untouched one shows the voice's own value only as ElevenLabs reported it."""
+    result = subprocess.run([NODE, "--test", str(ROOT / "tests" / "web" / "connections-voice.test.js")],
+                            capture_output=True, text=True, timeout=120, cwd=ROOT)
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+    assert "# fail 0" in result.stdout

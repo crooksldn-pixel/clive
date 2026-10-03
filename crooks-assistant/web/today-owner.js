@@ -140,7 +140,9 @@
       for (const job of mine) group.append(forYou(job));
       box.append(group);
     }
-    const packed = (state.work.in_hand || []).filter((r) => r.status === 'packed');
+    // Packed and waiting for tracking, the team's own list (web/today.js): never an order Shopify
+    // already calls fulfilled, which its Fulfil would fulfil a second time.
+    const packed = C().waitingForTracking(state.work.in_hand);
     if (packed.length) {
       box.append(el('h2', 'part', 'Packed, waiting for tracking'));
       const waiting = el('div', 'group');

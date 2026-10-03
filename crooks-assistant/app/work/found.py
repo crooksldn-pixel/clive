@@ -31,10 +31,14 @@ ORDERS_MAX = 25
 # board: the "to pack" read asks for unfulfilled orders only, so the moment a label existed the
 # job vanished although nobody had packed the box (owner, 2 October). Printing the label is one
 # step of the job, not the job. So orders Shopify already calls fulfilled are read as well, for
-# this long after they were last touched, and the board keeps showing them until someone marks
-# the job done in CLIVE — which app/work/view.py already decides from the kept record, so a job
-# that was finished here never comes back. This is a second, smaller read of its own: the list of
-# what is still to pack is asked for exactly as before and can never be crowded out by it.
+# this long after their latest fulfilment was made, and the board keeps showing them until someone
+# marks the job done in CLIVE — which app/work/view.py already decides from the kept record, so a
+# job that was finished here never comes back. This is a second, smaller read of its own: the list
+# of what is still to pack is asked for exactly as before and can never be crowded out by it.
+#
+# The window is the fulfilment's, never the order's last change: read by `updated_at`, any edit to
+# an older order (a refund through the customers flow, a tag, a note) put it back on the board for
+# a day as a box to pack, and staff could pack a second one (the post-deploy review of 3 October).
 LABELLED_WINDOW_H = 24
 LABELLED_MAX = 15
 EMAILS_SCANNED = 20
@@ -57,6 +61,35 @@ query WorkOrders($q: String!, $n: Int!) {
   }
 }
 """
+
+# The fulfilled orders, with each one's fulfilments: when each was made and what Shopify says of it.
+# Validated against the Admin API schema with Shopify's own validator (3 October). Newest placed
+# first, so older orders edited in the window are the ones a full page leaves out, not today's.
+_LABELLED_QUERY = """
+query WorkLabelledOrders($q: String!, $n: Int!) {
+  orders(first: $n, query: $q, sortKey: PROCESSED_AT, reverse: true) {
+    edges { node {
+      id name processedAt createdAt cancelledAt note displayFulfillmentStatus displayFinancialStatus
+      customer { displayName }
+      shippingLine { title }
+      fulfillments(first: 10) { createdAt status displayStatus }
+      lineItems(first: 25) { edges { node { name sku quantity unfulfilledQuantity variantTitle } } }
+    } }
+  }
+}
+"""
+# What the latest fulfilment's display status says about the box. Only these two say a label was
+# bought; any other fulfilment says no more than that Shopify calls the order fulfilled.
+LABEL_WORDS = {"LABEL_PRINTED": "label already printed", "LABEL_PURCHASED": "label bought"}
+FULFILLED_WORDS = "already fulfilled in Shopify"
+# The carrier has the parcel, or the customer does: the box was packed, so it is no packing job.
+CARRIER_HAS_IT = frozenset({"CARRIER_PICKED_UP", "PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELAYED",
+                            "ATTEMPTED_DELIVERY", "NOT_DELIVERED", "DELIVERED", "READY_FOR_PICKUP"})
+# A fulfilment that did not happen, or whose label was voided, is no fulfilment of the box.
+NOT_MADE = frozenset({"CANCELLED", "ERROR", "FAILURE"})
+VOIDED = frozenset({"CANCELED", "LABEL_VOIDED", "FAILURE"})
+# An order whose money went back, all of it, or that was voided, is not a box to send.
+MONEY_GONE = frozenset({"REFUNDED", "VOIDED"})
 
 
 def reset(source: str = "") -> None:
@@ -99,10 +132,36 @@ TO_PACK_QUERY = ("status:open AND (fulfillment_status:unfulfilled OR fulfillment
 
 
 def _labelled_query(now: datetime | None = None) -> str:
-    """Orders a label has already been made for, recently enough to still be today's work."""
+    """Fulfilled orders that changed in the window, refunded and cancelled ones left out. Shopify's
+    search can only narrow by when an order last changed, which every order fulfilled in the window
+    did, but so does an older one that was refunded, tagged or noted since: this is the first cut,
+    and _fulfilled_note() decides from the fulfilments themselves."""
     since = (now or datetime.now(UTC)) - timedelta(hours=LABELLED_WINDOW_H)
     return (f"fulfillment_status:fulfilled AND updated_at:>={since.strftime('%Y-%m-%dT%H:%M:%SZ')} "
-            "AND NOT status:cancelled AND NOT financial_status:voided")
+            "AND NOT status:cancelled AND NOT financial_status:voided AND NOT financial_status:refunded")
+
+
+def _fulfilled_note(node: dict[str, Any], since: datetime) -> str | None:
+    """What to say of a fulfilled order whose box may still be to pack, or None when it is not today's
+    packing: cancelled or refunded, its latest fulfilment made before the window (an older order
+    changed since), or already with the carrier."""
+    if node.get("cancelledAt") or str(node.get("displayFinancialStatus") or "").upper() in MONEY_GONE:
+        return None
+    made = []
+    for f in node.get("fulfillments") or []:
+        if not isinstance(f, dict) or str(f.get("status") or "").upper() in NOT_MADE:
+            continue
+        if str(f.get("displayStatus") or "").upper() in VOIDED:
+            continue
+        at = when(f.get("createdAt"))
+        if at is not None:
+            made.append((at, str(f.get("displayStatus") or "").upper()))
+    if not made:
+        return None
+    at, shown = max(made)
+    if at < since or shown in CARRIER_HAS_IT:
+        return None
+    return LABEL_WORDS.get(shown, FULFILLED_WORDS)
 
 
 def _amount(line: dict[str, Any], whole: bool) -> int:
@@ -113,13 +172,21 @@ def _amount(line: dict[str, Any], whole: bool) -> int:
     return int(line.get("unfulfilledQuantity", line.get("quantity", 0)) or 0)
 
 
-def _order_rows(payload: dict[str, Any] | None, *, labelled: bool = False) -> list[dict[str, Any]]:
+def _order_rows(payload: dict[str, Any] | None, *, labelled: bool = False,
+                since: datetime | None = None) -> list[dict[str, Any]]:
+    """The rows for an order read. `labelled` rows are the fulfilled orders: each is kept only when
+    _fulfilled_note() says it is still today's packing, and says why in its own words."""
     edges = ((((payload or {}).get("data") or {}).get("orders") or {}).get("edges")) or []
     items = []
     for edge in edges:
         node = (edge or {}).get("node") or {}
         if not node.get("id"):
             continue
+        fulfilled = ""
+        if labelled:
+            fulfilled = _fulfilled_note(node, since or datetime.now(UTC) - timedelta(hours=LABELLED_WINDOW_H))
+            if fulfilled is None:
+                continue
         lines = [(e or {}).get("node") or {} for e in ((node.get("lineItems") or {}).get("edges") or [])]
         left = [li for li in lines if int(li.get("unfulfilledQuantity", li.get("quantity", 0)) or 0) > 0]
         # A labelled order has nothing left unfulfilled, but the box still has to be packed: show
@@ -137,7 +204,7 @@ def _order_rows(payload: dict[str, Any] | None, *, labelled: bool = False) -> li
             "details": "; ".join(filter(None, [
                 f"placed {_ago(placed)} ago" if _ago(placed) else "",
                 ((node.get("shippingLine") or {}).get("title") or ""),
-                "label already printed" if labelled else "",
+                fulfilled,
                 f"note: {note}" if note else "",
             ])),
             "order_number": node.get("name"),
@@ -160,12 +227,15 @@ async def _orders(runtime: Any) -> dict[str, Any]:
     seen = {row["ref"] for row in items}
     # Asked on its own and allowed to fail on its own: what is still to pack is the list that
     # matters, and a second read going wrong must never take it down with it.
+    now = datetime.now(UTC)
     try:
-        labelled = await graphql(_ORDERS_QUERY, {"q": _labelled_query(), "n": LABELLED_MAX})
+        labelled = await graphql(_LABELLED_QUERY, {"q": _labelled_query(now), "n": LABELLED_MAX})
     except Exception as exc:  # noqa: BLE001 - the orders still to pack are answered regardless
         log.warning("work: labelled orders unavailable (%s)", type(exc).__name__)
         labelled = None
-    items.extend(row for row in _order_rows(labelled, labelled=True) if row["ref"] not in seen)
+    rows = _order_rows(labelled, labelled=True, since=now - timedelta(hours=LABELLED_WINDOW_H))
+    # Read newest first; shown oldest first, as the orders still to pack are.
+    items.extend(row for row in reversed(rows) if row["ref"] not in seen)
     return {"available": True, "items": items}
 
 

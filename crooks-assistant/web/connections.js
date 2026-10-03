@@ -1,5 +1,6 @@
 /* CLIVE · Connections: asks CLIVE what it is connected to, and makes the owner's changes
- * (app/routes/connections.py). How each row looks is web/connections-view.js's.
+ * (app/routes/connections.py). How each row looks is web/connections-view.js's, and the voice panel
+ * inside ElevenLabs is web/connections-voice.js's.
  *
  * On opening, the screen draws what CLIVE last knew, then asks every connected service again
  * (POST /connections/check: at most once a minute each, however often the screen is opened) and
@@ -17,6 +18,7 @@
   'use strict';
 
   const View = window.CliveConnectionsView;
+  const Voice = window.CliveConnectionsVoice;
   const $ = (selector, root) => (root || document).querySelector(selector);
   const NOTICES = {
     signed_in: ['ok', 'Instagram is connected.'],
@@ -39,7 +41,6 @@
   let checkedAt = 0;
   let voiceState = null;
   let voiceAudio = null;
-  const voiceNames = new WeakMap();   // an option's voice name, kept here rather than in an attribute
   const NAME = /^[a-z][a-z0-9]{1,19}$/;
 
   // ------------------------------------------------------------ base64url, as WebAuthn needs it
@@ -259,179 +260,85 @@
 
   // ------------------------------------------------------------------ the voice, on ElevenLabs
 
-  // The sliders, in the order they are shown, with the words the owner uses rather than
-  // ElevenLabs' own field names. "Expression" is `style`.
-  const SLIDER_WORDS = [
-    ['style', 'Expression', 'Flatter, or more performed.'],
-    ['stability', 'Stability', 'Lower varies more between takes; higher stays even.'],
-    ['similarity_boost', 'Similarity', 'How closely it holds to the original voice.'],
-    ['speed', 'Speed', 'How fast it talks.'],
-  ];
+  // The panel is web/connections-voice.js's; these are what it asks of CLIVE. Each answers in words
+  // the panel shows ({ ok, detail }), and never throws.
+  const voiceOwn = new Map();         // a voice's own settings, as ElevenLabs reported them, by voice id
 
-  function make(tag, cls, text) {
-    const node = document.createElement(tag);
-    if (cls) node.className = cls;
-    if (text) node.textContent = text;
-    return node;
-  }
+  const voiceAsks = {
+    list: () => call('/connections/voice/voices'),
 
-  function voiceValues(panel) {
-    // What the screen is asking for, as the server takes it. A slider never touched is still sent:
-    // the owner opened the panel and chose to save, so what he sees is what he gets.
-    const pick = $('.voice-pick', panel);
-    const values = { model: $('.voice-model', panel).value };
-    if (pick.value) {
-      values.voice_id = pick.value;
-      const option = pick.selectedOptions[0];
-      values.voice_name = option ? voiceNames.get(option) || option.textContent : '';
-    }
-    for (const [key] of SLIDER_WORDS) {
-      const input = $('.voice-' + key, panel);
-      if (input) values[key] = Number(input.value);
-    }
-    const boost = $('.voice-boost', panel);
-    if (boost) values.use_speaker_boost = boost.checked;
-    return values;
-  }
+    async details(voiceId) {
+      if (voiceOwn.has(voiceId)) return voiceOwn.get(voiceId);
+      const got = await call('/connections/voice/voices/' + encodeURIComponent(voiceId));
+      if (!got.ok) return null;
+      voiceOwn.set(voiceId, got.own || {});
+      return got.own || {};
+    },
 
-  function voicePanel() {
-    if (!voiceState) return null;
-    const voice = voiceState.voice || {};
-    const panel = make('section', 'voice');
-    panel.setAttribute('aria-label', 'The voice');
-    panel.append(make('h4', 'more-h', 'The voice'),
-      make('p', 'voice-help', 'Which voice CLIVE speaks in, and how it sounds. A change counts from the next answer; nothing restarts.'));
-    const result = make('p', 'more-result');
-    result.setAttribute('role', 'status');
-
-    const pickRow = make('div', 'voice-row');
-    const pickLabel = make('label', 'voice-label', 'Voice');
-    const pick = make('select', 'voice-pick');
-    pick.id = 'voice-pick';
-    pickLabel.htmlFor = pick.id;
-    // Until the voices are fetched the only option is the one speaking now: the panel is useful
-    // before ElevenLabs has been asked, and asking is one tap rather than every page load.
-    pick.append(new Option(voice.voice_name || 'The voice in use', voice.voice_id || ''));
-    const list = make('button', 'btn quiet voice-list', 'More voices');
-    list.type = 'button';
-    list.addEventListener('click', async () => {
-      list.disabled = true;
-      list.textContent = 'Asking ElevenLabs…';
-      const got = await call('/connections/voice/voices');
-      list.disabled = false;
-      list.textContent = 'More voices';
-      if (!got.ok) { say(result, 'bad', got.detail || "ElevenLabs wouldn't list the voices."); return; }
-      pick.textContent = '';
-      for (const item of got.voices) {
-        const option = new Option(item.kind ? item.name + ', ' + item.kind : item.name, item.voice_id,
-          false, item.voice_id === voice.voice_id);
-        voiceNames.set(option, item.name);
-        pick.append(option);
-      }
-      if (!got.voices.some((v) => v.voice_id === voice.voice_id)) {
-        pick.append(new Option((voice.voice_name || 'The voice') + ', in use', voice.voice_id || '', true, true));
-      }
-      say(result, 'ok', got.voices.length + (got.voices.length === 1 ? ' voice' : ' voices') + ' on this account.');
-    });
-    pickRow.append(pickLabel, pick, list);
-
-    const modelRow = make('div', 'voice-row');
-    const modelLabel = make('label', 'voice-label', 'Model');
-    const model = make('select', 'voice-model');
-    model.id = 'voice-model';
-    modelLabel.htmlFor = model.id;
-    for (const [id, words] of Object.entries(voiceState.models || {})) model.append(new Option(words, id, false, id === voice.model));
-    modelRow.append(modelLabel, model);
-    panel.append(pickRow, modelRow);
-
-    const sliders = make('div', 'sliders');
-    for (const [key, label, hint] of SLIDER_WORDS) {
-      const bounds = (voiceState.sliders || {})[key];
-      if (!bounds) continue;
-      const row = make('div', 'slider');
-      const head = make('div', 'slider-head');
-      const name = make('label', 'slider-label', label);
-      const shown = make('span', 'slider-value');
-      const input = make('input', 'voice-' + key);
-      input.type = 'range';
-      input.id = 'voice-' + key;
-      name.htmlFor = input.id;
-      input.min = bounds.min;
-      input.max = bounds.max;
-      input.step = 0.05;
-      // Nothing stored means the voice's own default, which only ElevenLabs knows: the slider
-      // starts in the middle of what it accepts and says so, rather than inventing a number.
-      const held = voice[key];
-      const middle = (Number(bounds.min) + Number(bounds.max)) / 2;
-      input.value = held === undefined ? middle : held;
-      const show = () => { shown.textContent = Number(input.value).toFixed(2) + (held === undefined && Number(input.value) === middle ? " (the voice's own)" : ''); };
-      input.addEventListener('input', show);
-      show();
-      head.append(name, shown);
-      row.append(head, input, make('p', 'slider-hint', hint));
-      sliders.append(row);
-    }
-    panel.append(sliders);
-
-    const boostRow = make('label', 'voice-switch');
-    const boost = make('input', 'voice-boost');
-    boost.type = 'checkbox';
-    boost.checked = voice.use_speaker_boost !== false;
-    boostRow.append(boost, document.createTextNode('Speaker boost'));
-    panel.append(boostRow);
-
-    const actions = make('div', 'more-actions');
-    const preview = make('button', 'btn voice-preview', 'Preview');
-    preview.type = 'button';
-    preview.addEventListener('click', async () => {
-      preview.disabled = true;
-      preview.textContent = 'Speaking…';
+    async preview(values) {
       try {
         const response = await fetch('/connections/voice/preview', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ values: voiceValues(panel) }), credentials: 'same-origin',
+          body: JSON.stringify({ values: values }), credentials: 'same-origin',
         });
         if (!response.ok) {
           let detail = "ElevenLabs wouldn't speak that.";
           try { detail = (await response.json()).detail || detail; } catch (error) { /* not JSON */ }
-          say(result, 'bad', detail);
-        } else {
-          if (voiceAudio) { voiceAudio.pause(); URL.revokeObjectURL(voiceAudio.src); }
-          voiceAudio = new Audio(URL.createObjectURL(await response.blob()));
-          await voiceAudio.play();
-          say(result, 'ok', "That's how it will sound.");
+          return { ok: false, detail: detail };
         }
+        if (voiceAudio) { voiceAudio.pause(); URL.revokeObjectURL(voiceAudio.src); }
+        voiceAudio = new Audio(URL.createObjectURL(await response.blob()));
+        await voiceAudio.play();
+        return { ok: true };
       } catch (error) {
-        say(result, 'bad', "The preview couldn't be played here.");
+        return { ok: false, detail: "The preview couldn't be played here." };
       }
-      preview.disabled = false;
-      preview.textContent = 'Preview';
-    });
-    const keep = make('button', 'btn primary voice-save', 'Save the voice');
-    keep.type = 'button';
-    keep.disabled = !canChange();
-    keep.addEventListener('click', async () => {
-      if (needPasskey(result)) return;
-      keep.disabled = true;
+    },
+
+    // The passkey signs the very text of the values sent, as a key's save does.
+    async save(values, busy) {
+      if (needPasskey(null)) return { ok: false, detail: 'Set up your passkey first: every change asks for it.' };
       try {
-        const text = JSON.stringify(voiceValues(panel));
-        keep.textContent = 'Approve on your device…';
+        const text = JSON.stringify(values);
+        busy('Approve on your device…');
         const approval = await approve('voice:' + await seal(text));
+        busy('Saving…');
         const done = await call('/connections/voice', { values_json: text, approval: approval });
-        if (!done.ok) { say(result, 'bad', done.detail || 'The voice was not changed.'); return; }
+        if (!done.ok) return { ok: false, detail: done.detail || 'The voice was not changed.' };
         voiceState.voice = done.voice;
+        voiceState.chosen = done.chosen;
         notice('ok', 'CLIVE speaks as ' + done.voice.voice_name + ' from now on.');
         await load({ fresh: 'elevenlabs' });
+        return { ok: true };
       } catch (error) {
-        say(result, 'bad', said(error));
-      } finally {
-        keep.disabled = false;
-        keep.textContent = 'Save the voice';
+        return { ok: false, detail: said(error) };
       }
-    });
-    actions.append(preview, keep);
-    panel.append(actions, result);
-    return panel;
+    },
+  };
+
+  // "Use the voice's own settings": signed exactly as a save is, under a name of its own
+  // (voice:reset:<SHA-256 of the text>), so an approval for one is never the other's.
+  voiceAsks.reset = async function reset(busy) {
+    if (needPasskey(null)) return { ok: false, detail: 'Set up your passkey first: every change asks for it.' };
+    try {
+      const text = JSON.stringify({ reset: true });
+      busy('Approve on your device…');
+      const approval = await approve('voice:reset:' + await seal(text));
+      busy('Going back…');
+      const done = await call('/connections/voice/reset', { values_json: text, approval: approval });
+      if (!done.ok) return { ok: false, detail: done.detail || 'Nothing changed.' };
+      voiceState.voice = done.voice;
+      voiceState.chosen = false;
+      notice('ok', 'CLIVE speaks as ' + done.voice.voice_name + ' again, in the voice\'s own settings.');
+      await load({ fresh: 'elevenlabs' });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, detail: said(error) };
+    }
+  };
+
+  function voicePanel() {
+    return voiceState ? Voice.panel(voiceState, { canChange: canChange(), on: voiceAsks }) : null;
   }
 
   // ------------------------------------------------------------ drawing
