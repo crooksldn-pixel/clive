@@ -2304,9 +2304,11 @@ async function semanticCommand(name, extra) {
 // The chip read "CLIVE" and posted `navigation.home`, which lands on this half's dock landing
 // — the orders list, on the phone as well, where nothing else went home. Now it reads "Home",
 // like the horizon's Home (web/horizon.js), and does what it says: the home, with what needs
-// him and what is moving. Nothing is asked of the Mac and nothing it holds is touched — the
-// trail, the open list and any card waiting for a gesture are where they were, and the
-// orders landing is the Orders icon's. Pressed again it is the same screen.
+// him and what is moving. The page draws it at once; the Mac is told the screen went
+// (`screen.home`, app/commands.py) so a reload draws the home too, not the order that was up —
+// and nothing else it holds is touched: the trail, the open list and any card waiting for a
+// gesture are where they were, and the orders landing is the Orders icon's. Pressed again it
+// is the same screen.
 // The cards leave the deck as they always did on the way back to CLIVE — they go back to the
 // orb as dots (web/dots-app.js) — and are kept here, in the history, for Recent and Back.
 async function goHome() {
@@ -2314,6 +2316,9 @@ async function goHome() {
   clear(el.cards);
   setMode('orb');
   renderRecent();
+  // Only once the Mac holds this conversation (`branchState`): before then it has no screen to
+  // clear, and a fresh page asking would be refused. Offline, the page is home all the same.
+  if (branchState) await semanticCommand('screen.home');
 }
 
 // The orb screen keeps one quiet way back to what was last shown.

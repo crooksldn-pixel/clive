@@ -61,3 +61,34 @@ def test_the_start_up_takes_no_touches_of_its_own():
     css = (WEB / "startup.css").read_text(encoding="utf-8")
     rule = css[css.index(".startup{"):css.index("}", css.index(".startup{"))]
     assert "pointer-events:none" in rule
+
+
+def test_home_tells_the_mac_the_screen_went():
+    """Review of the design pass (3 Oct): Home drew the home on the page and told the Mac nothing,
+    so a reload redrew the order that had been up. `screen.home` clears the Mac's copy of the
+    screen as "close that" does: put away, still there for "pull that back up", the trail kept."""
+    from app import commands
+    from app.families import load_all
+    from app.session.models import Session
+
+    load_all()
+    spec = commands.get("screen.home")
+    assert spec is not None and spec.touch, "the page can post it"
+    session = Session(session_id="home")
+    branch = session.branch()
+    branch.shown([{"type": "order", "data": {"order_id": "gid://shopify/Order/1957", "order_number": "#1957"}}],
+                 "Order 1957.", "show me 1957")
+    trail = list(branch.nav)
+    assert branch.public()["has_workspace"] is True
+    out = commands.run("screen.home", commands.Ctx(runtime=None, session=session, branch=branch))
+    assert out.ok and "recipe" not in out.changed, "it reads nothing and draws nothing"
+    assert branch.public()["has_workspace"] is False, "a reload has no order to put back"
+    assert [e["card"]["type"] for e in branch.shown_before] == ["order"], "pull that back up still finds it"
+    assert list(branch.nav) == trail
+
+
+def test_the_page_posts_it_on_home():
+    app_js = (WEB / "app.js").read_text(encoding="utf-8")
+    body = app_js[app_js.index("async function goHome()"):app_js.index("\n}\n", app_js.index("async function goHome()"))]
+    assert "semanticCommand('screen.home')" in body
+    assert "navigation.home" not in body, "the orders landing stays the Orders icon's"
