@@ -218,6 +218,17 @@ async def test_a_day_he_says_narrows_the_strict_search_at_shopify(world):
     assert [o["order_number"] for o in result(world, "shopify_find_order")["orders"]] == ["CROOKS-2201"]
 
 
+async def test_a_day_only_near_what_he_said_is_never_called_a_match_for_it(world):
+    """Theo's jeans were ordered two days ago. "Yesterday" is near that, not it: the order is
+    offered as near yesterday, never listed as matching "yesterday"."""
+    await say(world, "Theo Marsh's jeans from yesterday",
+              ("shopify_find_order", {"name": "Theo Marsh", "item": "jeans", "when": "yesterday"}))
+    told = result(world, "shopify_find_order")
+    assert told["orders"] == []
+    (near,) = told["likely"]
+    assert near["order_number"] == "CROOKS-2203" and any(f.endswith("near yesterday") for f in near["fits"])
+
+
 async def test_a_day_he_says_that_is_not_a_day_is_said_back(world):
     await say(world, "Alysa's grey hoodie, whenever", ("shopify_find_order", {"name": "Alysa", "item": "grey hoodie", "when": "whenever it was"}))
     assert result(world, "shopify_find_order")["unread"] == ["when ('whenever it was')"]

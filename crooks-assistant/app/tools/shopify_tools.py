@@ -605,10 +605,12 @@ def _check_evidence(node: dict[str, Any], evidence: dict[str, str]) -> dict[str,
         held["item"] = bool(matched_lines)
     window = _when_window(evidence) if "when" in evidence else None
     if window is not None:
-        # Held to everything the words might mean (app/customers/when.py): "last week" holds an
-        # order of nine days ago, because that is what some people mean by it. Words that are not
-        # a day this build knows are not held against anything; they are said back (`unread`).
-        held["when"] = window.fit(_shop_day(node)) > 0
+        # Held to what the words mean (app/customers/when.py), not to what they might also mean:
+        # an order only NEAR "last week" is never listed as matching it. The search at Shopify
+        # takes the near days too, so such an order is still scored with everything else and
+        # offered as "near last week" (`_closest`). Words that are not a day this build knows are
+        # not held against anything; they are said back (`unread`).
+        held["when"] = window.fit(_shop_day(node)) >= 1.0
     if "amount" in evidence:
         from app.customers.match import amount_of
 
