@@ -1744,6 +1744,10 @@ def scenes_enabled() -> bool:
 
 
 def _writing_id(timeline) -> str | None:
+    # [recording] Never to a team member's page: the door refuses its telemetry, so turning it on
+    # there would only fill the log with refusals (the interaction record is always on).
+    if _staff_request():
+        return None
     session = timeline.active
     return session.test_session_id if session is not None else None
 

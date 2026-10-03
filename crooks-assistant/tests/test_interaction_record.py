@@ -609,3 +609,29 @@ async def test_through_the_routes_every_turn_and_tap_is_recorded_and_the_tool_re
     client.runtime.timeline.flush()
     assert read_events(Path(stopped["path"])) and record.recent.last("tab1")["question"] == "show me the spam"
 
+
+
+# ------------------------------------------------- the independent review's notes (2 October)
+
+
+async def test_recording_is_said_only_to_the_owner_and_never_turns_the_teams_telemetry_on(client, monkeypatch):
+    """/health is public. Its `recording` goes to the owner's own devices only (a team member's or
+    a stranger's page gets liveness), a team member's turn never turns the page's telemetry on —
+    the door would only refuse its batches — and the pad's own heartbeat says recording, so the
+    appliance's bounded account is kept in the record too."""
+    from app.routes import health as health_module
+    from app.routes import turn as turn_module
+
+    configure(client, local=True)
+    record = interactions.current()
+    owners = (await client.get("/health", headers=PROXIED)).json()
+    assert owners["observability"]["recording"] == record.active_id
+    stranger = {"Tailscale-User-Login": "someone@example.com", "X-Forwarded-For": "100.64.0.3"}
+    theirs = (await client.get("/health", headers=stranger)).json()
+    assert "observability" not in theirs and "recording" not in json.dumps(theirs)
+    assert "recording" not in health_module._observability(client.runtime, None), "no request: not said"
+    assert turn_module._writing_id(client.runtime.timeline) == record.active_id
+    monkeypatch.setattr(turn_module, "_staff_request", lambda: True)
+    assert turn_module._writing_id(client.runtime.timeline) is None, "a team member's page is never told"
+    beat = (await client.post("/pad/heartbeat", headers=PROXIED, json={"app_version": "0.4.2", "device_model": "SM-T290"})).json()
+    assert beat["recording"] is True
