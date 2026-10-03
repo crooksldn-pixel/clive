@@ -456,25 +456,32 @@
     };
   }
 
-  // A redraw must never wipe a key being typed: while a box holds something, only the words
-  // that change with time are brought up to date.
-  function typing() {
-    const at = document.activeElement;
-    return [...document.querySelectorAll('input.key-input')].some((input) => input.value) ||
-      Boolean(at && at.matches && at.matches('input, select, textarea') && at.closest('.key-form, .voice'));
-  }
-
+  // A redraw regroups every row by what is true now, and never wipes what the owner is in the
+  // middle of: a row he is typing a key into (not the ID the page filled in itself), or working the
+  // voice on, is kept as it is, in the place its new state puts it, with its words brought up to date.
   function draw({ fresh } = {}) {
     const ctx = context();
     $('#summary').textContent = View.summary(current, ctx);
-    if (typing()) { touchStatuses(ctx); return; }
-    const open = new Set([...document.querySelectorAll('.conn[data-name] > details[open], .conn[data-name] details.conn-more[open]')]
-      .map((d) => d.closest('.conn').dataset.name));
     const holder = $('#groups');
+    const active = document.activeElement;
+    const kept = new Map();
+    for (const row of holder.querySelectorAll('.conn[data-name]')) {
+      if (View.inUse(row, active)) kept.set(row.dataset.name, row);
+    }
+    const open = new Set([...holder.querySelectorAll('.conn[data-name] details.conn-more[open]')]
+      .map((d) => d.closest('.conn').dataset.name));
     holder.textContent = '';
     for (const section of View.groups(current, ctx)) holder.append(section);
+    for (const [name, old] of kept) {
+      const drawn = holder.querySelector('.conn[data-name="' + name + '"]');
+      if (drawn) drawn.replaceWith(old);
+    }
+    // Taken out and put back, a kept row lost the cursor: it goes back where he left it.
+    if (active && [...kept.values()].some((row) => row.contains(active))) active.focus({ preventScroll: true });
+    touchStatuses(ctx);
     holder.setAttribute('aria-busy', checking.size ? 'true' : 'false');
     for (const name of open) {
+      if (kept.has(name)) continue;
       const details = holder.querySelector('.conn[data-name="' + name + '"] details.conn-more');
       if (details) details.open = true;
     }
@@ -491,11 +498,16 @@
   function touchStatuses(ctx) {
     for (const c of current.connections) {
       if (!NAME.test(String(c.name || ''))) continue;
-      const line = document.querySelector('.conn[data-name="' + c.name + '"] .conn-status');
-      if (!line) continue;
-      const words = View.status(c, ctx);
-      line.textContent = words;
-      line.hidden = !words;
+      const row = document.querySelector('.conn[data-name="' + c.name + '"]');
+      if (!row) continue;
+      const line = row.querySelector('.conn-status');
+      if (line) {
+        const words = View.status(c, ctx);
+        line.textContent = words;
+        line.hidden = !words;
+      }
+      const dot = row.querySelector('.dot');
+      if (dot) dot.className = 'dot ' + View.tone(c, ctx);
     }
   }
 

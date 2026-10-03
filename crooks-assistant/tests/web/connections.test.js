@@ -158,6 +158,28 @@ test('a service not yet added draws its key box only when Connect is tapped, and
   assert.equal(connect.hidden, false);
 });
 
+test('a row is in use only while it holds something he typed, never the ID the page filled in', () => {
+  // The review of 889f3284: the Client ID box the page fills in itself counted as typing, so after
+  // Shopify refused its ID and secret the screen stopped regrouping at all.
+  const refused = Object.assign({}, SHOPIFY, { state: 'needs_attention', group: 'attention', fix: 'key',
+    needs: ['shopify_client_id', 'shopify_client_secret'] });
+  const shop = View.row(refused, ctx());
+  const [id, secret] = keyBoxes(shop);
+  assert.equal(id.value, 'id-0123', 'the page filled the ID in');
+  assert.equal(View.inUse(shop, null), false, 'a filled-in ID is not typing');
+  secret.value = 'half a secret';
+  assert.equal(View.inUse(shop, null), true, 'what he typed is kept');
+  secret.value = '';
+  id.value = 'another-id';
+  assert.equal(View.inUse(shop, null), true, 'an ID he changed is kept');
+  // The cursor in a box of the row's own form keeps it too; a button does not.
+  const github = View.row(GITHUB, ctx());
+  const box = keyBoxes(github)[0];
+  assert.equal(View.inUse(github, box), true);
+  assert.equal(View.inUse(github, one(github, '.key-save')), false);
+  assert.equal(View.inUse(View.row(SHIP24, ctx()), box), false, 'the cursor in another row');
+});
+
 test('Gmail, set up at the server, asks for nothing here and says so', () => {
   const row = View.row(GMAIL, ctx());
   assert.equal(all(row, 'input').length, 0);

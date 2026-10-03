@@ -261,6 +261,13 @@ async function oneStep(browser) {
     privateKey: FLOW.passkey.key, signCount: 1 } });
   await page.goto(`${base}/connections`, { waitUntil: 'networkidle' });
   await page.waitForSelector('[data-ready="true"]', { timeout: 15000 });
+  // Boxes left open elsewhere (the review of 889f3284): Shopify's Replace, whose Client ID the page
+  // fills in itself, and Ship24's Connect with a few characters typed. Neither may stop the screen
+  // regrouping when GitHub is saved, and what was typed into Ship24's box must still be there.
+  await page.click('.conn[data-name="shopify"] summary');
+  await page.click('.conn[data-name="shopify"] .conn-replace');
+  await page.click('.conn[data-name="ship24"] .conn-open');
+  await page.fill('.conn[data-name="ship24"] input.key-input', 'typed so far');
   await page.fill('.conn[data-name="github"] input.key-input', FLOW.github);
   await page.click('.conn[data-name="github"] .key-save');
   const moved = await page.waitForSelector('#group-working .conn[data-name="github"]', { timeout: 20000 })
@@ -273,11 +280,15 @@ async function oneStep(browser) {
       keys: row ? row.querySelectorAll('input.key-input').length : -1,
       status: row ? (row.querySelector('.conn-status') || {}).textContent : '',
       notice: document.querySelector('#notice').textContent,
+      kept: (document.querySelector('.conn[data-name="ship24"] input.key-input') || {}).value || '',
+      busy: document.querySelector('#groups').getAttribute('aria-busy'),
       changes: [...document.querySelectorAll('.change-what')].map((n) => n.textContent),
     };
   });
   check('one step: Save asks the passkey, CLIVE tests the token with GitHub, and GitHub moves to Working',
     moved && after.group === 'working' && after.keys === 0 && /^Connected · checked/.test(after.status), JSON.stringify(after));
+  check('one step: the screen regroups with boxes open elsewhere, and keeps what was typed in them',
+    moved && after.kept === 'typed so far' && after.busy === 'false', JSON.stringify(after));
   check('one step: it says what GitHub said, and the change is in Recent changes',
     /^GitHub accepted the token/.test(after.notice) && after.changes.includes('GitHub key saved'), JSON.stringify(after));
   await page.evaluate(() => window.scrollTo(0, 0));

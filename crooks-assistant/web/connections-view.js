@@ -116,6 +116,23 @@
     return '';
   }
 
+  // Whether the owner is in the middle of something on this row that a redraw would wipe: a key
+  // box holding what he typed (not the ID the page filled in itself), or the cursor in one of its
+  // boxes or in the voice settings. Such a row is kept as it is when the screen is redrawn.
+  function inUse(row, active) {
+    for (const input of row.querySelectorAll('input')) {
+      const box = BOXES.get(input);
+      if (box && input.value && input.value !== box.saved) return true;
+    }
+    if (!active || !active.tagName || !/^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName)) return false;
+    let inside = false;
+    for (let at = active; at; at = at.parentNode) {
+      if (at.classList && (at.classList.contains('key-form') || at.classList.contains('voice'))) inside = true;
+      if (at === row) return inside;
+    }
+    return false;
+  }
+
   function tone(c, ctx) {
     if (ctx.checking && ctx.checking.has(c.name)) return 'is-busy';
     return { connected: 'is-ok', needs_attention: 'is-warn' }[c.state] || 'is-off';
@@ -487,5 +504,5 @@
     return list;
   }
 
-  return { groups, row, summary, passkeys, changes, ago, status, keyForm, replaceWords, boxOf, GROUPS };
+  return { groups, row, summary, passkeys, changes, ago, status, tone, inUse, keyForm, replaceWords, boxOf, GROUPS };
 });
