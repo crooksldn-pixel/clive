@@ -427,6 +427,21 @@ async def test_a_members_tap_makes_only_the_changes_the_owner_allowed_them_in_th
     assert proposal.caller == MIA and len(team.store.mutations) == 1
 
 
+async def test_a_members_not_now_is_recorded_as_theirs(team):
+    """Review of the design pass (3 Oct): "Not now" from a member of the team withdraws the
+    change in their own conversation and is recorded as theirs, not as the owner's."""
+    from app.routes.actions import DECLINED_BY_STAFF
+
+    let_mia_in()
+    with authority.acting_as(authority.for_owner(OWNER)):
+        proposal = await staged(team, session_id="m1")
+    team.runtime.sessions.get_or_create("m1").login = MIA
+    answer = await team.post(f"/actions/{proposal.proposal_id}/decline", data={"session_id": "m1"}, headers=AS_MIA)
+    assert answer.status_code == 200, answer.text
+    assert proposal.status.value == "REVOKED" and team.store.mutations == []
+    assert proposal.reason == DECLINED_BY_STAFF and proposal.caller == MIA
+
+
 async def test_the_owners_tap_on_his_own_card_is_unchanged(team):
     with authority.acting_as(authority.for_owner(OWNER)):
         proposal = await staged(team, session_id="o1")

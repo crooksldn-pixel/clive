@@ -79,6 +79,7 @@ async def test_not_now_withdraws_a_waiting_change_and_applies_nothing(client):
     assert answer.json() == {"proposal_id": proposal.proposal_id, "status": "revoked", "withdrawn": True}
     assert proposal.status is ActionStatus.REVOKED
     assert proposal.reason == DECLINED_BY_OWNER
+    assert proposal.caller == OWNER, "the ledger line names who said it"
     assert client.store.mutations == []
 
 
