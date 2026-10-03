@@ -100,7 +100,7 @@ class Settings(BaseSettings):
     p2g_client_secret: str = ""
     # Couriers to offer, best first, matched against Parcel2Go's courier slugs. Only services
     # the customer can use without a printer (a QR code at the shop) are booked.
-    p2g_couriers: str = "inpost,evri,royal-mail"
+    p2g_couriers: str = "evri,inpost,royal-mail"
     # Signs Parcel2Go's tracking webhooks (set the same secret on the API credential).
     p2g_webhook_secret: str = ""
 

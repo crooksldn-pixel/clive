@@ -244,8 +244,11 @@ class Parcel2Go:
             ):
                 found[want] = option
         prefs = self.s.p2g_courier_list()
-        # No printer first; otherwise in the order CROOKS prefers.
-        ordered = sorted(found.values(), key=lambda o: (o.printer, prefs.index(o.courier)))
+        # No printer first, then cheapest (what most customers will pick is what costs us least),
+        # then the order CROOKS prefers.
+        ordered = sorted(
+            found.values(), key=lambda o: (o.printer, o.price_pence, prefs.index(o.courier))
+        )
         if with_shops:
             for option in ordered:
                 option.shops = self.drop_shops(option.drop_off_code, postcode)[:3]
