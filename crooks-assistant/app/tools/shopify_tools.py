@@ -1141,7 +1141,12 @@ async def shopify_customer_history(customer_id: str) -> dict:
         from app.tools import authority
 
         held = authority.current()
-        owner = held is not None and held.kind == authority.OWNER
+        # The owner's own records (his objectives, his screens) are in the story when the owner is
+        # asking — and when the read is made AHEAD for him: a service authority is only ever
+        # derived from the owner's (app/tools/authority.py `derive`), and what a prefetch reads is
+        # served back to him, so a story made ahead without his records would be served to him
+        # without them. A member of the team never holds either.
+        owner = held is not None and held.kind in (authority.OWNER, authority.SERVICE)
         email = result.get("email_threads") if isinstance(result.get("email_threads"), dict) else {}
         read = threads if email.get("available") else None
         result["timeline"] = history.timeline(result, read, owner=owner, ours=await _our_address())

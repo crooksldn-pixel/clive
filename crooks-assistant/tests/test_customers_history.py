@@ -146,6 +146,36 @@ async def test_what_clive_recorded_about_them_is_in_their_story(world, monkeypat
     assert sources["work list"] == "2 steps" and sources["CLIVE's changes"] == "1 change" and sources["objectives"] == "1 objective"
 
 
+async def test_a_read_made_ahead_for_the_owner_still_carries_his_own_records(world, monkeypatch, tmp_path):
+    """A prefetch runs under a service authority derived from the owner's, and its answer is served
+    back to him: it must not be the story without his objectives."""
+    from app.objectives import store as objectives
+    from app.objectives.store import ObjectiveStore
+    from app.tools import authority, shopify_tools
+
+    held = ObjectiveStore(tmp_path / "objectives")
+    held.create(title="Make it right with Alicia Grant", request="Alicia Grant's hoodie needs a gift receipt", by="owner")
+    monkeypatch.setattr(objectives, "_STORE", held)
+    owner = authority.for_owner("owner@example.com")
+    ahead = owner.derive("prefetch:customer", 30, tools=["shopify_customer_history"])
+    try:
+        with authority.acting_as(ahead):
+            told = await shopify_tools.shopify_customer_history(ALICIA)
+    finally:
+        owner.revoke()
+    assert "Objective: Make it right with Alicia Grant" in _whats(told["timeline"])
+    assert told["timeline"]["sources"]["objectives"] == "1 objective"
+    # And a member of the team asking is still not shown them.
+    staff = authority.for_staff("p_kai", "kai@example.com")
+    try:
+        with authority.acting_as(staff):
+            theirs = await shopify_tools.shopify_customer_history(ALICIA)
+    finally:
+        staff.revoke()
+    assert not any(w.startswith("Objective:") for w in _whats(theirs["timeline"]))
+    assert theirs["timeline"]["sources"]["objectives"] == "the owner's own"
+
+
 def test_the_owners_objectives_are_his_own():
     """A member of the team asking about a customer is told everything but the owner's own records."""
     rows, said = history._objective_rows("Alicia Grant", "alicia.grant@example.com", {}, owner=False)
