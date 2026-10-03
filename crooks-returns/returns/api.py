@@ -234,7 +234,14 @@ def build_routers(svc: ReturnsService) -> list[APIRouter]:
     @api.get("/orders/{order_name}/returns", dependencies=[Depends(reader)])
     def order_returns(order_name: str) -> dict[str, Any]:
         digits = re.sub(r"\D", "", order_name)
-        rows = svc.store.for_order_name(order_name) or svc.store.for_order_name(f"#{digits}")
+        rows = svc.store.for_order_name(order_name)
+        if not rows and digits:
+            # "2131", "#2131" and "CROOKS-2131" all mean the same order.
+            rows = [
+                r
+                for r in svc.store.search(limit=100_000)
+                if re.sub(r"\D", "", r.order_name) == digits
+            ]
         return {"returns": [svc.staff(r) for r in rows]}
 
     @api.get("/stats", dependencies=[Depends(reader)])

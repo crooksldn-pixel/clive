@@ -240,5 +240,10 @@ cards for returns exist.
 - Staff screen: `/admin`, embedded in Shopify admin under Apps -> CROOKS Returns. Lists
   returns, shows each one, runs every action with its preview, the health check and the test
   order list. Checks Shopify's session token on every call.
-- Not done yet: Click & Drop credentials, an exchange for a different product, and keep-it
-  offers. The setup steps are in `crooks-returns/README.md`.
+- Labels: Parcel2Go (PrePay). The customer picks Evri / InPost / Royal Mail with the nearest
+  drop-off shops; approval books it; tracking webhooks move the return. Click & Drop is kept,
+  switched off.
+- Live on crooksldn.com/pages/returns since 2026-10-03.
+- Briefs: `BRIEF_CLIVE.md` (API, webhooks and how CLIVE should integrate) and `BRIEF_THEME.md`
+  (theme files, settings, where to link it).
+- Not done yet: an exchange for a different product, and keep-it offers. The setup steps are in `crooks-returns/README.md`.

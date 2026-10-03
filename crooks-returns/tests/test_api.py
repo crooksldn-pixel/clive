@@ -44,6 +44,8 @@ def test_portal_to_clive_round_trip(svc):
     assert listed[0]["attention"] == ["needs_approval"]
     assert "store credit £30.00" in listed[0]["summary"]
     assert c.get("/api/v1/orders/1939/returns", headers=read).json()["returns"]
+    assert c.get("/api/v1/orders/CROOKS-1939/returns", headers=read).json()["returns"]
+    assert not c.get("/api/v1/orders/1940/returns", headers=read).json()["returns"]
 
     url = f"/api/v1/returns/{made['id']}/actions/approve"
     assert c.post(url, json={"idempotency_key": "a"}, headers=read).status_code == 403
