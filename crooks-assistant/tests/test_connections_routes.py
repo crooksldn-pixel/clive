@@ -623,3 +623,18 @@ async def test_a_voice_elevenlabs_cannot_name_is_not_saved(world):
     assert refused.status_code == 502 and refused.json()["code"] == "voice_unconfirmed"
     assert "nothing was changed" in refused.json()["detail"] and KEY not in refused.text
     assert voice_prefs.read() == {} and (voice.voice_id, voice.voice_name) == before
+
+
+async def test_elevenlabs_refusing_the_list_or_a_preview_is_said_in_words_not_a_crash(world):
+    """Found while fixing the voice: both routes read `.detail` from the voice client's failure, which
+    it did not have, so "More voices" or Preview with ElevenLabs refusing was a server error instead of
+    ElevenLabs' own reason."""
+    await register(world)
+    speaking(world)
+    world.services.elevenlabs = 401
+    listed = await world.get("/connections/voice/voices", headers=HEADERS)
+    assert listed.status_code == 502 and listed.json()["code"] == "voices_unavailable"
+    assert "ElevenLabs returned 401" in listed.json()["detail"] and KEY not in listed.text
+    heard = await world.post("/connections/voice/preview", headers=HEADERS, json={"values": {}})
+    assert heard.status_code == 502 and heard.json()["code"] == "preview_failed"
+    assert "ElevenLabs returned 401" in heard.json()["detail"] and KEY not in heard.text

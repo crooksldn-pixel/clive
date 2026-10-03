@@ -48,6 +48,11 @@ class VoiceUnavailable(RuntimeError):
         super().__init__(detail)
         self.kind = kind
 
+    @property
+    def detail(self) -> str:
+        """The human detail, as str(exc): what the Connections screen shows (voices(), why_not())."""
+        return str(self)
+
 
 class VoiceStream:
     """An MP3 arriving from ElevenLabs, forwarded chunk by chunk.
