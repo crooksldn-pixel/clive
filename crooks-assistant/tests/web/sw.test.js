@@ -144,7 +144,7 @@ const SHELL = ['/', '/static/style.css', '/static/app.js', '/static/ui.js', '/st
   '/static/builds.js', '/static/builds.css',
   // Customers: the order he meant, their story, a refund landing (web/customers.js).
   '/static/customers.js', '/static/customers.css',
-  // CROOKS Returns: the returns card, an order's returns, the home's row (web/returns.js).
+  // CROOKS Returns: the returns card, the returns on an order, the row on the home (web/returns.js).
   '/static/returns.js', '/static/returns.css',
   // The design pass of 3 Oct (web/design.css).
   '/static/design.css',

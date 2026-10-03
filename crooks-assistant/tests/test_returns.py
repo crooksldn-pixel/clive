@@ -140,18 +140,36 @@ def test_a_bad_request_is_refused_as_a_bad_request_before_availability():
 
 def test_no_return_mutation_is_registered_anywhere():
     """The check that fails if somebody rushes it in: no registered write tool, and no
-    reviewed operation, names a return, an exchange, a replacement or a resend. Unknown writes
-    fail closed (invariant 14), so until a WriteSpec exists there is nothing to execute."""
+    reviewed Shopify operation, makes a return, an exchange, a replacement or a resend in Shopify
+    itself. Unknown writes fail closed (invariant 14), so nothing CLIVE holds can execute one.
+
+    Since 3 October (DEC-061) a return's changes go only through CROOKS Returns, the owner's own
+    service, which makes the Shopify return itself: CLIVE's one return write is `return_action`,
+    which calls that service's actions after the owner's approval and never Shopify. So the
+    check is now exact rather than absent: that one operation, sent to CROOKS Returns, and the
+    four returns tools by name, and no reviewed Shopify mutation whose document names a return,
+    a reverse delivery or a reverse fulfilment."""
     import app.tools.batch_tools  # noqa: F401
     import app.tools.gmail_writes  # noqa: F401
+    import app.tools.returns_tools  # noqa: F401
     import app.tools.shopify_writes  # noqa: F401
+    from app.clients import crooks_returns
+    from app.clients.shopify import REVIEWED_MUTATIONS
     from app.tools import registry
 
-    operations = {s.write.operation for s in registry.all_specs() if s.write is not None}
-    operations |= {s.batch.operation for s in registry.all_specs() if s.batch is not None}
+    specs = registry.all_specs()
+    operations = {s.write.operation for s in specs if s.write is not None}
+    operations |= {s.batch.operation for s in specs if s.batch is not None}
     for word in ("return", "exchange", "replacement", "resend"):
-        assert not [op for op in operations if word in op], f"a {word} mutation is registered"
-    assert not [s.name for s in registry.all_specs() if "return" in s.name or "exchange" in s.name]
+        named = [op for op in operations if word in op]
+        assert named == (["return_action"] if word == "return" else []), f"a {word} mutation is registered: {named}"
+    action = next(s for s in specs if s.write is not None and s.write.operation == "return_action")
+    assert action.write.service == crooks_returns.NAME and action.write.mutation == "returns:action"
+    assert sorted(s.name for s in specs if "return" in s.name or "exchange" in s.name) == [
+        "return_action", "return_find", "returns_open", "returns_stats"]
+    words = ("return", "reversedelivery", "reversefulfillment", "exchange")
+    assert not [name for name, reviewed in REVIEWED_MUTATIONS.items()
+                if any(word in reviewed.document.lower() for word in words)], "a Shopify return mutation is reviewed"
 
 
 async def test_the_four_rows_say_not_implemented_and_name_the_scope_to_grant():
