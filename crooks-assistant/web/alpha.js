@@ -160,6 +160,7 @@
   // What CLIVE cannot do yet (GET /objectives/gaps): each gap, how often it came up and what
   // became of it. Drawn when it arrives; the home does not wait for it.
   let gaps = { gaps: [], summary: {} };
+  let lastNeeds = 0;   // what the last read said needs him, for a redraw when the Builds counts land
   async function refresh() {
     let needsYou = 0;
     try {
@@ -174,11 +175,12 @@
       renderHome(0, String(err.message || err));
       return;
     }
+    // The Builds screen's counts for its row (web/builds.js): asked for beside the rest and never
+    // waited for; the home is drawn again when they land, with what it last drew from.
+    lastNeeds = needsYou;
+    if (window.CliveBuilds) window.CliveBuilds.brief().then((brief) => { if (brief) renderHome(lastNeeds); });
     try {
-      // The Builds screen's counts for its row (web/builds.js), read beside the gaps, never blocking them.
-      const briefing = window.CliveBuilds ? window.CliveBuilds.brief() : null;
       gaps = await api('/objectives/gaps');
-      if (briefing) await briefing;
       if (objectives.some((o) => o.kind === 'build' && (o.engineering || []).length)) {
         builds = (await api('/objectives/builds')).builds || {};
       }

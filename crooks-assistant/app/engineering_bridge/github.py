@@ -13,15 +13,22 @@ The token is read from the secret store (app/secrets) at the moment of each call
 local for that one call: it is never kept on the client, logged, or put into an error, and no
 error here carries GitHub's own text or a URL. Without it every call returns NotConnected and
 no request is made.
+
+A burst of reads (the Builds screen's board: the status, each request file, each comparison with
+the trunk) can share one HTTP client and its connections: inside `async with inbox.session()`,
+every call made by that task and the tasks it starts goes through one client, closed at the end.
+A context variable carries it, so no other caller's call ever lands on it.
 """
 
 from __future__ import annotations
 
 import base64
+import contextlib
+import contextvars
 import json
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -118,6 +125,11 @@ def read_token() -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
     return value.strip()
+
+
+# The client a session shares with the calls made inside it (EngineeringInbox.session).
+_SESSION: contextvars.ContextVar[tuple[int, httpx.AsyncClient] | None] = contextvars.ContextVar(
+    "engineering_inbox_session", default=None)
 
 
 class EngineeringInbox:
@@ -246,7 +258,25 @@ class EngineeringInbox:
         log.info("engineering inbox: filed %s as commit %s", path, sha[:12])
         return Created(path=path, commit_sha=sha)
 
+    @contextlib.asynccontextmanager
+    async def session(self) -> AsyncIterator[EngineeringInbox]:
+        """One client for every call this task and the tasks it starts make, until the block ends.
+        Nested, the outer session's client is used."""
+        if _SESSION.get() is not None and _SESSION.get()[0] == id(self):
+            yield self
+            return
+        async with self._new_client() as client:
+            mark = _SESSION.set((id(self), client))
+            try:
+                yield self
+            finally:
+                _SESSION.reset(mark)
+
     # ------------------------------------------------------------------ helpers
+
+    def _new_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(base_url=self._api_url, transport=self._transport, timeout=self._timeout_s,
+                                 follow_redirects=False)
 
     def _token(self) -> str | None:
         try:
@@ -274,11 +304,13 @@ class EngineeringInbox:
             "User-Agent": "clive-engineering-bridge",
         }
         self.requests_made += 1
+        shared = _SESSION.get()
         try:
-            async with httpx.AsyncClient(
-                base_url=self._api_url, transport=self._transport, timeout=self._timeout_s, follow_redirects=False,
-            ) as client:
-                response = await client.request(method, url, params=params, json=body, headers=headers)
+            if shared is not None and shared[0] == id(self):
+                response = await shared[1].request(method, url, params=params, json=body, headers=headers)
+            else:
+                async with self._new_client() as client:
+                    response = await client.request(method, url, params=params, json=body, headers=headers)
         except httpx.HTTPError as exc:
             # The exception's own text can carry the URL; only its kind travels.
             log.warning("engineering inbox: %s did not complete (%s)", method, type(exc).__name__)

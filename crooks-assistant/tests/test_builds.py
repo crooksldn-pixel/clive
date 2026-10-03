@@ -11,11 +11,16 @@ What is proved, on the worker-01 loop's own status as it stood on 2 Oct 2026 (te
   with no SHA, branch or request id on any build's face; the running commit unknown, or the trunk
   unreadable, is said rather than guessed; CLIVE's own gap and objective records say why it matters;
 - the decisions: the question, its answers and the recommendation, bound to the stop as published;
-  an answer recorded as a valid owner judgment the kernel's own reader accepts, a change of mind a
-  correction that keeps the first answer byte for byte, a ledger that was tampered with never appended
-  to, and the read-back with its chain head;
+  every answer says only what is true today (nothing acts on an answer by itself: the independent
+  review of fe36872f, B-1), and an answer that asks for something to be done keeps the build in
+  Needs you, answered, until a new try is filed; an answer recorded as a valid owner judgment the
+  kernel's own reader accepts, one ASCII line whatever the loop's data holds, 0600 whatever the file
+  was; a change of mind a correction that keeps the first answer byte for byte, a ledger that was
+  tampered with never appended to, and the read-back with its chain head;
 - the routes: the owner's alone; a stale question records nothing; engineering_status carries the
-  answer on the request it is about; GitHub is read once a minute, each title once.
+  answer on the request it is about, and whether a new try has acted on it; GitHub is read once a
+  minute, each title once, through one client per board; a request id outside the inbox's rule costs
+  its own title and nothing else.
 """
 
 from __future__ import annotations
@@ -262,7 +267,8 @@ def test_sixty_five_requests_are_thirty_eight_builds_by_the_loops_retry_conventi
 def test_the_real_board_puts_each_build_where_george_reads_it():
     payload = _board()
     assert [g["key"] for g in payload["groups"]] == ["needs_you", "stopped", "live"]
-    assert payload["counts"] == {"needs_you": 2, "in_progress": 0, "queued": 0, "stopped": 2, "landed": 0, "live": 34}
+    assert payload["counts"] == {"needs_you": 2, "answered": 0, "in_progress": 0, "queued": 0, "stopped": 2, "landed": 0,
+                                 "live": 34}
     assert payload["summary"] == "Two builds need you. Nothing is being built right now."
     needs = payload["groups"][0]["builds"]
     assert [b["key"] for b in needs] == ["skill-read-runtime-tool", "status-publishes-findings"], "newest first"
@@ -367,6 +373,13 @@ def test_a_stop_that_is_georges_puts_one_question_with_answers_and_a_recommendat
         gate = decisions.card(_by_id(rid), plain.why_stopped(_by_id(rid)))
         assert gate["question"] == "To do what you asked, the builder must change an existing test. Do you allow it?"
         assert [a["key"] for a in gate["answers"]] == ["allow", "keep", "later"] and gate["recommended"] == "allow"
+    # Every answer says only what is true today: nothing acts on an answer by itself yet.
+    for card in (q, decisions.card(_by_id("skill-read-runtime-tool"), plain.why_stopped(_by_id("skill-read-runtime-tool")))):
+        said = " ".join(a["then"] for a in card["answers"])
+        assert not re.search(r"Director (files|stops|looks)|builder goes on", said), said
+        assert [a["key"] for a in card["answers"] if a["acts"]] in (["retry"], ["allow"])
+        assert card["waiting"] == ("The build loop can't read answers yet, so nothing happens by itself: it stays in "
+                                   "Needs you, answered, until a new try is filed.")
     # A stop that is the Director's puts no question to George.
     assert decisions.card(_by_id("expose-draft-order-s-payment-link-3"),
                           plain.why_stopped(_by_id("expose-draft-order-s-payment-link-3"))) is None
@@ -411,17 +424,45 @@ def test_a_ledger_that_was_tampered_with_is_never_appended_to(tmp_path):
     assert ledger.path.read_text(encoding="utf-8") == tampered
 
 
-def test_an_answered_build_leaves_his_list_and_says_what_he_chose(tmp_path):
+def test_an_answer_that_asks_for_nothing_takes_the_build_off_his_list(tmp_path):
     ledger = decisions.ledger(tmp_path / "objectives")
     q = _question()
     decisions.decide(ledger, q, "drop", principal="team@crooksldn.com", session_id="s1",
                      now=datetime(2026, 10, 2, 22, 0, tzinfo=UTC))
     payload = _board(judgments=ledger.effective())
-    assert payload["counts"]["needs_you"] == 1 and payload["counts"]["stopped"] == 3
+    assert payload["counts"]["needs_you"] == 1 and payload["counts"]["answered"] == 0 and payload["counts"]["stopped"] == 3
     build = next(b for b in _all(payload) if b["key"] == "status-publishes-findings")
     assert build["state"] == "decided" and build["words"] == "Dropped by you" and build["road"]["mark_kind"] == "stop"
     assert build["chosen"]["label"] == "Drop it" and build["chosen"]["decided_at"] == "2026-10-02T22:00:00+00:00"
+    assert build["chosen"]["waiting"] == "" and build["group"] == "stopped"
     assert build["decision"] == q, "the question stays, to change the answer"
+
+
+def test_an_answer_that_asks_for_action_stays_in_needs_you_until_something_acts(tmp_path):
+    """The review of fe36872f, B-1: nothing reads the ledger yet, so "Try again" must not drop the
+    build out of his list as though it were in hand."""
+    ledger = decisions.ledger(tmp_path / "objectives")
+    q = _question()
+    decisions.decide(ledger, q, "retry", principal="team@crooksldn.com", session_id="s1",
+                     now=datetime(2026, 10, 2, 22, 0, tzinfo=UTC))
+    payload = _board(judgments=ledger.effective())
+    assert payload["counts"]["needs_you"] == 1 and payload["counts"]["answered"] == 1
+    assert payload["summary"] == "One build needs you. One answered, waiting to be acted on. Nothing is being built right now."
+    needs = payload["groups"][0]
+    assert needs["key"] == "needs_you" and [b["key"] for b in needs["builds"]] == [
+        "skill-read-runtime-tool", "status-publishes-findings"], "unanswered first"
+    build = needs["builds"][1]
+    assert build["state"] == "answered" and build["words"] == "Answered, waiting to be acted on"
+    assert build["road"]["mark_kind"] == "wait" and build["when"]["event"] == "stopped"
+    assert build["chosen"]["then"] == "Asks for a fresh try that starts from the reviewer's open findings."
+    assert build["chosen"]["waiting"].startswith("The build loop can't read answers yet")
+    # A new try filed for it is what acts on it: the build is then that try, and the question is gone.
+    newer = dict(_by_id("status-publishes-findings"), request_id="status-publishes-findings-2", stage="RUNNING",
+                 recorded_at="2026-10-02T23:00:00+00:00", blocker=None, candidate_sha=None)
+    moved = board_module.board([*_items(), newer], requests=_requests(), commits=_commits(), running_known=True,
+                               links={}, judgments=ledger.effective())
+    build = next(b for b in _all(moved) if b["key"] == "status-publishes-findings")
+    assert build["state"] == "building" and build["chosen"] is None and moved["counts"]["answered"] == 0
 
 
 # ------------------------------------------------------------------ the routes and the reads
@@ -454,7 +495,7 @@ def test_an_answer_to_the_question_as_drawn_is_recorded_and_a_stale_one_is_not(l
     assert not ledger_path.exists(), "nothing was recorded for a refused answer"
     done = client.post("/objectives/builds/decide", headers=OWNER, json=body).json()
     assert done["recorded"] is True and done["chosen"]["label"] == "Try again"
-    assert done["board"]["counts"]["needs_you"] == 1
+    assert done["board"]["counts"]["needs_you"] == 1 and done["board"]["counts"]["answered"] == 1
     (record,) = load_judgment_ledger(ledger_path)[0].records
     assert record.provenance.principal_id == "team@crooksldn.com" and record.provenance.session_id == "a1b2c3d4e5f6a7b8"
     back = client.get("/objectives/builds/decisions", headers=OWNER).json()
@@ -466,9 +507,19 @@ async def test_engineering_status_carries_his_answer_on_the_request_it_is_about(
     decisions.decide(decisions.ledger(), q, "retry", principal="team@crooksldn.com", session_id="s1")
     out = await engineering_tools.engineering_status()
     row = next(r for r in out["requests"] if r["request_id"] == "status-publishes-findings")
-    assert row["owner_decision"]["answer"] == "Try again"
-    assert row["owner_decision"]["what_happens_next"].startswith("The Director files a fresh try")
+    said = row["owner_decision"]
+    assert said["answer"] == "Try again" and said["needs_acting_on"] is True
+    assert said["means"] == "Asks for a fresh try that starts from the reviewer's open findings."
+    assert said["acted_on"].startswith("No: the build loop cannot read the owner's answers")
     assert all("owner_decision" not in r for r in out["requests"] if r["request_id"] != "status-publishes-findings")
+    # A try filed after his answer is what acted on it.
+    later = dict(_by_id("status-publishes-findings"), request_id="status-publishes-findings-2", stage="RUNNING",
+                 recorded_at="2099-01-01T00:00:00+00:00")
+    loop.status["requests"].append(later)
+    engineering_tools._progress_cache.clear()
+    out = await engineering_tools.engineering_status()
+    row = next(r for r in out["requests"] if r["request_id"] == "status-publishes-findings")
+    assert row["owner_decision"]["acted_on"] == "Yes: status-publishes-findings-2 was filed after it."
 
 
 async def test_github_is_read_sparingly_and_each_title_once(loop, monkeypatch):
@@ -496,6 +547,66 @@ async def test_a_request_file_that_is_not_what_the_loop_took_in_gives_no_title(l
     build = next(b for b in _all(payload) if b["key"] == rid)
     assert build["title"] == "" and payload["problems"] == [
         "1 request could not be read from GitHub yet, so its title is missing."]
+
+
+async def test_one_board_read_is_one_github_client_four_at_a_time(loop, monkeypatch):
+    from app.engineering_bridge.github import EngineeringInbox
+
+    made, flying, most = [], [0], [0]
+    new_client = EngineeringInbox._new_client
+
+    def counted(self):
+        made.append(1)
+        return new_client(self)
+
+    handle = loop.handle
+
+    def watched(request):
+        flying[0] += 1
+        most[0] = max(most[0], flying[0])
+        try:
+            return handle(request)
+        finally:
+            flying[0] -= 1
+
+    monkeypatch.setattr(EngineeringInbox, "_new_client", counted)
+    monkeypatch.setattr(loop, "handle", watched)
+    builds_fixture.bind(monkeypatch, loop)
+    payload = await read.current()
+    assert payload["counts"]["live"] == 34 and len(loop.calls) > 100
+    assert len(made) == 1, "a cold start reads everything through one client"
+    assert most[0] <= read.CONCURRENCY
+
+
+async def test_a_request_id_outside_the_inbox_rule_costs_its_title_and_nothing_else(loop, objectives):
+    odd = dict(_by_id("status-publishes-findings"), request_id="Not A Valid Id!", recorded_at="2026-10-02T09:00:00+00:00")
+    loop.status["requests"].append(odd)
+    payload = await read.current()
+    assert payload["connected"] and payload["counts"]["needs_you"] == 3
+    assert payload["problems"] == ["1 request could not be read from GitHub yet, so its title is missing."]
+    assert not any("Not A Valid Id" in c for c in loop.calls), "no path is ever made from it"
+    client = _client()
+    assert client.get("/objectives/builds/board", headers=OWNER).status_code == 200
+    q = _question(payload=payload)
+    body = {"build": "status-publishes-findings", "proposal_id": q["proposal_id"], "fingerprint": q["fingerprint"],
+            "answer": "drop", "session_id": "s1"}
+    assert client.post("/objectives/builds/decide", headers=OWNER, json=body).status_code == 200
+
+
+def test_a_ledger_line_is_ascii_whatever_the_loops_data_holds_and_the_file_is_0600(tmp_path):
+    """The review of fe36872f: a U+2028 written as itself splits the line for the kernel's reader
+    (str.splitlines), and a ledger that existed with a wider mode keeps it unless the write narrows it."""
+    ledger = decisions.ledger(tmp_path / "objectives")
+    ledger.path.parent.mkdir(parents=True)
+    ledger.path.write_bytes(b"")
+    os.chmod(ledger.path, 0o644)
+    q = dict(_question(), attempt_id="status-publishes-findings-a4\u2028x\u0085y")
+    record, _ = decisions.decide(ledger, q, "retry", principal="team@crooksldn.com", session_id="s1")
+    raw = ledger.path.read_bytes()
+    assert raw.isascii() and raw.count(b"\n") == 1 and "\\u2028" in raw.decode("ascii")
+    loaded, _digest = load_judgment_ledger(ledger.path)
+    assert loaded.records == (record,) and loaded.records[0].attempt_id.endswith("\u2028x\u0085y")
+    assert oct(os.stat(ledger.path).st_mode & 0o777) == "0o600"
 
 
 async def test_with_github_away_the_screen_says_so(loop):

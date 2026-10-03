@@ -30,6 +30,7 @@ from typing import Any
 from app.builds import board as board_module
 from app.builds import decisions
 from app.engineering_bridge.github import TRUNK_REF, GitHubError, NotConnected
+from app.engineering_bridge.requests import valid_request_id
 from app.tools import engineering_tools
 from app.tools.engineering_tools import _said
 
@@ -61,7 +62,9 @@ async def _read_request(inbox, item: dict[str, Any], gate: asyncio.Semaphore) ->
     async with gate:
         try:
             found = await inbox.request_file(rid)
-        except GitHubError:
+        except (GitHubError, ValueError):
+            # ValueError: an id the bridge refuses to name a path for (RequestRefused is one). Never
+            # raised past here: one bad id must not cost him the board (the review of fe36872f).
             _unread[rid] = time.monotonic()
             return
     if isinstance(found, NotConnected) or not found.exists:
@@ -91,9 +94,10 @@ async def _read_request(inbox, item: dict[str, Any], gate: asyncio.Semaphore) ->
 
 
 async def request_files(inbox, items: list[dict[str, Any]]) -> int:
-    """Read the request files not yet in hand; returns how many could not be read."""
+    """Read the request files not yet in hand; returns how many could not be read. An id outside the
+    inbox's own rule (app/engineering_bridge/requests.py) has no file to read and is not asked for."""
     now = time.monotonic()
-    wanted = [i for i in items if i.get("request_id") and i["request_id"] not in _requests
+    wanted = [i for i in items if valid_request_id(i.get("request_id")) and i["request_id"] not in _requests
               and now - _unread.get(i["request_id"], -RETRY_S) >= RETRY_S]
     gate = asyncio.Semaphore(CONCURRENCY)
     await asyncio.gather(*(_read_request(inbox, i, gate) for i in wanted[:MAX_FILE_READS]))
@@ -191,14 +195,20 @@ def _latest_commits(items: list[dict[str, Any]]) -> list[str]:
 
 
 async def current() -> dict[str, Any]:
-    """The Builds screen's whole payload, as it stands now."""
+    """The Builds screen's whole payload, as it stands now. Every read it makes of GitHub goes through
+    one client for the whole board, four at a time (EngineeringInbox.session)."""
+    inbox = engineering_tools._client()
+    async with inbox.session():
+        return await _current(inbox)
+
+
+async def _current(inbox) -> dict[str, Any]:
     status, problem = await engineering_tools.loop_status()
     if status is None:
         return {"connected": False, "summary": problem or "The engineering loop's status could not be read.",
                 "groups": [], "counts": {}, "problems": [problem] if problem else []}
     data = status.data if status.published else {}
     items = engineering_tools._items(data)
-    inbox = engineering_tools._client()
     problems = []
     if problem:
         problems.append(f"Showing the status as last read: a fresh read failed ({problem})")

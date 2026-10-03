@@ -10,8 +10,9 @@
  *   and a road on every build, no SHA or branch on any build's face, the builds that need him open,
  *   five live builds and a way to all of them;
  * - the question: three answers, one recommended, nothing chosen until he picks one, the button then
- *   naming it, his pick sent with the question exactly as drawn, and a refusal said in place; an
- *   answered build says what he chose and lets him change it;
+ *   naming it, his pick sent with the question exactly as drawn, and a refusal said in place; what is
+ *   true of an answer that asks for action said before he picks (nothing acts on it by itself yet);
+ *   an answered build says what he chose, that it waits to be acted on, and lets him change it;
  * - a reviewer's finding as What's wrong, Why it matters, What fixes it;
  * - which turns open the screen: CLIVE reading the build queue for him, never while filing a build;
  * - every word from the Mac lands as text, even a hostile one, and no attribute carries it.
@@ -123,6 +124,9 @@ test('the question: three answers, one recommended, nothing chosen until he pick
   assert.equal(answers.length, 3);
   assert.equal(answers.filter((a) => a.classList.contains('is-recommended')).length, 1);
   assert.match(box.querySelector('.bd-because').textContent, /^Recommended: Try again\. GitHub's tests pass on it/);
+  assert.equal(box.querySelector('.bd-waiting').textContent, build.decision.waiting);
+  assert.match(build.decision.waiting, /^The build loop can't read answers yet/);
+  assert.ok(!/Director files|builder goes on/.test(box.allText()), 'no answer claims something acts on it');
   const choose = box.querySelector('.bd-choose');
   assert.equal(choose.disabled, true);
   assert.equal(choose.textContent, 'Pick an answer');
@@ -148,11 +152,14 @@ test('the question: three answers, one recommended, nothing chosen until he pick
 
 test('an answered build says what he chose, and lets him change it', real, () => {
   const build = Object.assign({}, BOARD.groups[0].builds[0], {
-    state: 'decided', group: 'stopped', words: 'Waiting for the Director to try again',
-    chosen: { key: 'retry', label: 'Try again', then: 'The Director files a fresh try that starts from the reviewer\'s open findings.', decided_at: local(2026, 9, 2, 14, 58) },
+    state: 'answered', group: 'needs_you', words: 'Answered, waiting to be acted on',
+    chosen: { key: 'retry', label: 'Try again', then: 'Asks for a fresh try that starts from the reviewer\'s open findings.',
+      waiting: BOARD.groups[0].builds[0].decision.waiting, decided_at: local(2026, 9, 2, 14, 58) },
   });
   const node = B.buildNode(build, { now: NOW });
   assert.equal(node.querySelector('.bd-chose').textContent, 'You chose Try again, 2 min ago.');
+  assert.match(node.querySelector('.bd-chosen').querySelector('.bd-waiting').textContent, /^The build loop can't read answers yet/);
+  assert.match(node.querySelector('.bd-state').textContent, /^Answered, waiting to be acted on, stopped /);
   assert.equal(node.querySelectorAll('.bd-decision').length, 0);
   node.querySelector('.bd-link').dispatch('click');
   assert.equal(node.querySelectorAll('.bd-decision').length, 1);

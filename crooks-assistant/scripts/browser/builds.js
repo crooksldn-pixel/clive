@@ -12,7 +12,8 @@
  *     its title, its road of five dots and where it is in words, and no SHA, branch or request id
  *     on the face; the technical details hold them;
  *   - a build that waits on him carries its question with three answers, one recommended; picking
- *     one and choosing records it, and the build then says what he chose;
+ *     one and choosing records it, and the build then says what he chose and that nothing acts on it
+ *     by itself yet, staying in Needs you, answered;
  *   - "What's being built?" asked of CLIVE opens the screen; Home closes it;
  *   - nothing is wider than the screen, every button is a finger's size, and with motion turned
  *     down nothing breathes.
@@ -137,8 +138,11 @@ async function phone(browser) {
   await page.waitForTimeout(500);
   const chose = await page.locator('.bd-chosen').first().textContent();
   check('his answer is recorded and shown on the build', /You chose /.test(chose), chose);
-  const after = await page.$$eval('.bd .bd-h2', (hs) => hs.map((h) => h.textContent));
-  check('the answered build leaves Needs you', after[0] === 'Needs you' && (await page.locator('.bd .bd-group').first().locator('.bd-build').count()) === 1, after.join(','));
+  // Nothing acts on his answer by itself yet: it stays in Needs you, answered, and says so.
+  const answered = await page.$$eval('.bd .bd-group:first-of-type .bd-build', (b) => b.map((x) => [x.className, x.querySelector('.bd-state').textContent]));
+  check('the answered build stays in Needs you, waiting to be acted on, and says nothing acts on it yet',
+    answered.length === 2 && answered.some(([cls, state]) => /is-answered/.test(cls) && /^Answered, waiting to be acted on/.test(state))
+      && /can't read answers yet/.test(chose), JSON.stringify(answered));
   await page.locator('.bd-chosen').first().scrollIntoViewIfNeeded();
   await shot(page, 'phone-05-answer-recorded');
   await page.waitForSelector('.bd-flash[hidden]', { state: 'attached', timeout: 8000 }).catch(() => {});

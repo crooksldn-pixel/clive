@@ -205,6 +205,8 @@
     box.appendChild(answers);
     const rec = list(q.answers).find((a) => a.recommended);
     if (rec && text(q.because)) add(box, el('p', 'bd-because', `Recommended: ${text(rec.label)}. ${text(q.because)}`));
+    // What is true of an answer that asks for something to be done: nothing acts on it by itself yet.
+    if (list(q.answers).some((a) => a.acts) && text(q.waiting)) add(box, el('p', 'bd-waiting', q.waiting));
     choose.addEventListener('click', async () => {
       if (!picked || typeof handlers.decide !== 'function') return;
       choose.disabled = true;
@@ -226,6 +228,7 @@
     const box = el('div', 'bd-chosen');
     const when = ago(c.decided_at, on && on.now);
     add(box, el('p', 'bd-chose', `You chose ${text(c.label)}${when ? `, ${when}` : ''}.`), el('p', 'bd-then', c.then));
+    if (text(c.waiting)) add(box, el('p', 'bd-waiting', c.waiting));
     if (b.decision) {
       const change = el('button', 'bd-link', 'Change your answer');
       change.type = 'button';

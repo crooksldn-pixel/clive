@@ -24,6 +24,13 @@ binds to what he saw; when the build moves on, the question is a new proposal. N
 the loop's gate or files anything: the answer is recorded and read back (`read_back`, and on each
 request in engineering_status) for the Director and the loop. Binding it to the kernel's own gate
 proposal needs the loop to publish that proposal; see the build report of 3 Oct 2026.
+
+So every answer says only what is true today (the independent review of fe36872f, B-1). An answer
+that asks for something to be done ("Try again", "Allow the change") is recorded and nothing acts on
+it by itself: the build loop cannot read the ledger yet. Such a build stays in Needs you, answered,
+"waiting to be acted on", until the build moves on (a new try filed, a new stop), which is a new
+question. An answer that asks for nothing to be done ("Leave it for now", "Drop it", "Keep things as
+they are") is true the moment it is recorded, and the build leaves his list.
 """
 
 from __future__ import annotations
@@ -60,33 +67,38 @@ REVIEW_LIMIT, OWNER_GATE = "review_limit", "owner_gate"
 class Answer:
     key: str
     label: str
-    then: str                     # what happens next, in his words
+    then: str                     # what the answer means, in his words: only what is true today
     decision: OwnerDecision
     reason: ReasonCode
+    acts: bool = False            # it asks for something to be done, which nothing does by itself yet
 
+
+# Said on every answer that asks for something to be done, and on the build once he has given one.
+WAITING = ("The build loop can't read answers yet, so nothing happens by itself: it stays in Needs you, "
+           "answered, until a new try is filed.")
+ANSWERED = "Answered, waiting to be acted on"
 
 ANSWERS: dict[str, tuple[Answer, ...]] = {
     REVIEW_LIMIT: (
-        Answer("retry", "Try again", "The Director files a fresh try that starts from the reviewer's open findings.",
-               OwnerDecision.APPROVED, ReasonCode.ACCEPTED_AS_PROPOSED),
+        Answer("retry", "Try again", "Asks for a fresh try that starts from the reviewer's open findings.",
+               OwnerDecision.APPROVED, ReasonCode.ACCEPTED_AS_PROPOSED, acts=True),
         Answer("later", "Leave it for now", "Nothing changes. It stays stopped and off your list until you pick it up.",
                OwnerDecision.DEFERRED, ReasonCode.NOT_NOW),
-        Answer("drop", "Drop it", "The Director stops trying. It stays in the history.",
+        Answer("drop", "Drop it", "It stays stopped and comes off your list. It stays in the history.",
                OwnerDecision.DECLINED, ReasonCode.OTHER_BOUNDED),
     ),
     OWNER_GATE: (
-        Answer("allow", "Allow the change", "The Director files it again with that change allowed, and the builder goes on.",
-               OwnerDecision.APPROVED, ReasonCode.ACCEPTED_AS_PROPOSED),
-        Answer("keep", "Keep things as they are", "It stays stopped, and the Director looks for a way that leaves them as they are.",
+        Answer("allow", "Allow the change", "Asks for it to be filed again with that change allowed.",
+               OwnerDecision.APPROVED, ReasonCode.ACCEPTED_AS_PROPOSED, acts=True),
+        Answer("keep", "Keep things as they are", "It stays stopped as it is and comes off your list.",
                OwnerDecision.DECLINED, ReasonCode.RISK_TOO_HIGH),
         Answer("later", "Decide later", "Nothing changes. It stays stopped and off your list until you pick it up.",
                OwnerDecision.DEFERRED, ReasonCode.NOT_NOW),
     ),
 }
 
-# What his answer leaves the build saying on the screen.
-AFTER = {"retry": "Waiting for the Director to try again", "drop": "Dropped by you", "later": "Left for now",
-         "allow": "Waiting for the Director to file it again", "keep": "Kept as it is"}
+# What his answer leaves the build saying on the screen; one that asks for action says ANSWERED.
+AFTER = {"drop": "Dropped by you", "later": "Left for now", "keep": "Kept as it is"}
 
 
 class DecisionError(Exception):
@@ -186,8 +198,10 @@ def card(item: dict[str, Any], why: dict[str, Any], *, tries: int = 1, stops: in
         "request_id": rid,
         "question": question,
         "context": context,
-        "answers": [{"key": a.key, "label": a.label, "then": a.then, "recommended": a.key == recommended}
-                    for a in answers],
+        "answers": [{"key": a.key, "label": a.label, "then": a.then, "recommended": a.key == recommended,
+                     "acts": a.acts} for a in answers],
+        # What is true of the answers that ask for something to be done, said before he picks one.
+        "waiting": WAITING,
         "recommended": recommended,
         "because": because,
         # The digest is in the id too: a question put again in other words is another proposal, never
@@ -216,7 +230,9 @@ def chosen(record: JudgmentRecord | None) -> dict[str, Any] | None:
     answer = answer_of(record) if record is not None else None
     if record is None or answer is None:
         return None
-    return {"key": answer.key, "label": answer.label, "then": answer.then, "after": AFTER.get(answer.key, ""),
+    return {"key": answer.key, "label": answer.label, "then": answer.then,
+            "after": ANSWERED if answer.acts else AFTER.get(answer.key, ""), "acts": answer.acts,
+            "waiting": WAITING if answer.acts else "",
             "decision": record.decision.value, "decided_at": record.decided_at.astimezone(UTC).isoformat(timespec="seconds"),
             "judgment_id": record.judgment_id}
 
@@ -254,12 +270,16 @@ class OwnerLedger:
                 self.ledger().append(judgment)
             except (JudgmentLedgerError, JudgmentValidationError) as exc:
                 raise DecisionError(f"That answer could not be recorded: {exc}") from None
-            line = json.dumps(judgment_to_dict(judgment), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+            # ASCII only: a line separator in the loop's data (U+2028, U+0085 ...) written as itself would
+            # split the line for the kernel's reader, which reads the ledger with str.splitlines().
+            line = json.dumps(judgment_to_dict(judgment), sort_keys=True, ensure_ascii=True, separators=(",", ":"))
             folder = self.path.parent
             folder.mkdir(parents=True, exist_ok=True, mode=0o700)
             fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
             try:
-                os.write(fd, (line + "\n").encode("utf-8"))
+                # 0600 whatever the file was made with: a ledger that already existed keeps no wider mode.
+                os.fchmod(fd, 0o600)
+                os.write(fd, (line + "\n").encode("ascii"))
                 os.fsync(fd)
             finally:
                 os.close(fd)

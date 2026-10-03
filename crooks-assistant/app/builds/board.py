@@ -11,10 +11,13 @@ grouped by that id, and the newest try says where the build is. The earlier trie
 details. Where it is comes from the loop's own published fields and two facts read from GitHub:
 whether its work is on the trunk, and whether it is in the commit this CLIVE runs. It is one of:
 
-    needs you     the loop left the next step to him (its words), and he has not answered yet
+    needs you     the loop left the next step to him (its words), and he has not answered yet; or he
+                  asked for something to be done, which nothing has done yet ("answered, waiting to
+                  be acted on": the loop cannot read his answers, app/builds/decisions.py)
     in progress   being built, being repaired, being reviewed, or approved and on its way in
     queued        filed, no builder has started it
-    stopped       the loop stopped it and the Director, not George, decides what next; or he answered
+    stopped       the loop stopped it and the Director, not George, decides what next; or he
+                  answered that nothing more be done
     on the trunk  merged, not in the commit CLIVE runs yet
     live          in the commit CLIVE runs
 
@@ -318,12 +321,16 @@ def build(members: list[dict[str, Any]], requests: dict[str, dict[str, str]], co
             answered = judgments.get(question["proposal_id"])
             out["decision"] = question
             out["chosen"] = decisions.chosen(answered)
-            if out["chosen"]:
-                # His answer is on the build; it leaves his list whatever he chose.
+            if out["chosen"] and out["chosen"]["acts"]:
+                # He asked for something to be done, and nothing reads the ledger yet: it stays on his
+                # list, answered, until the build moves on (the independent review of fe36872f, B-1).
+                out.update(state="answered", words=out["chosen"]["after"])
+                out["road"] = _road(where["road"]["lit"], where["road"]["mark"], "wait")
+            elif out["chosen"]:
+                # An answer that asks for nothing to be done is true once recorded: it leaves his list.
                 out.update(state="decided", group="stopped", words=out["chosen"]["after"])
-                ended = out["chosen"]["key"] in ("drop", "keep")
-                out["road"] = _road(where["road"]["lit"], where["road"]["mark"], "stop" if ended else "wait")
-    out["when"] = _when(latest, out["state"] if out["state"] != "decided" else "stopped")
+                out["road"] = _road(where["road"]["lit"], where["road"]["mark"], "stop")
+    out["when"] = _when(latest, "stopped" if out["state"] in ("decided", "answered") else out["state"])
     out["details"] = _details(members, latest, request)
     return out
 
@@ -366,10 +373,13 @@ def _words_count(n: int) -> str:
 
 def summary(counts: dict[str, int], running_known: bool) -> str:
     you = counts.get("needs_you", 0)
+    answered = counts.get("answered", 0)
     moving = counts.get("in_progress", 0)
     landed = counts.get("landed", 0)
     parts = ["Nothing needs you." if not you else
              f"{_words_count(you)} build{' needs' if you == 1 else 's need'} you."]
+    if answered:
+        parts.append(f"{_words_count(answered)} answered, waiting to be acted on.")
     parts.append("Nothing is being built right now." if not moving else f"{_words_count(moving)} in progress.")
     if landed:
         parts.append(f"{_words_count(landed)} on the trunk, not live yet." if running_known else f"{_words_count(landed)} on the trunk.")
@@ -387,6 +397,11 @@ def board(items: list[dict[str, Any]], *, requests: dict[str, dict[str, str]], c
     for key in GROUPS:
         rows = sorted((b for b in built if b["group"] == key), key=lambda b: b["when"].get("at") or "", reverse=True)
         counts[key] = len(rows)
+        if key == "needs_you":
+            # What still waits on his answer, and apart from it what he answered that waits on others.
+            counts["answered"] = sum(1 for b in rows if b["state"] == "answered")
+            counts[key] -= counts["answered"]
+            rows.sort(key=lambda b: b["state"] == "answered")   # stable: unanswered first, newest first in each
         if rows:
             groups.append({"key": key, "title": GROUP_TITLES[key], "builds": rows})
     return {"summary": summary(counts, running_known), "counts": counts, "groups": groups,

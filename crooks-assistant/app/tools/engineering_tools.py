@@ -158,7 +158,7 @@ async def engineering_status(areas: bool = False) -> dict:
         raise ToolError(str(exc)) from None
     _remember(status)
     out = project(status, head, branch=inbox.inbox_branch)
-    _with_owner_decisions(out["requests"])
+    _with_owner_decisions(out["requests"], _items(status.data if status.published else {}))
     out["host"] = inbox.host
     if isinstance(trunk, InboxHead) and trunk.sha:
         out["base"] = {"ref": TRUNK_REF, "sha": trunk.sha}
@@ -171,12 +171,15 @@ async def engineering_status(areas: bool = False) -> dict:
     return out
 
 
-def _with_owner_decisions(rows: list[dict]) -> None:
+def _with_owner_decisions(rows: list[dict], items: list[dict]) -> None:
     """George's answer on a build that waited on him (the Builds screen, app/builds/decisions.py),
     put on the request it is about, so whoever reads the build reads his answer with it. Read from
-    the judgment ledger; nothing is put on a row when there is none or it cannot be read."""
+    the judgment ledger; nothing is put on a row when there is none or it cannot be read. The loop
+    cannot read the ledger, so an answer that asks for something to be done says that nothing has
+    acted on it: whoever files builds is the one to act."""
     try:
         from app.builds import decisions
+        from app.builds.board import _iso, family_key
 
         records = list(decisions.ledger().effective().values())
     except Exception:  # noqa: BLE001 - the status is said whole without them
@@ -187,11 +190,24 @@ def _with_owner_decisions(rows: list[dict]) -> None:
         rid = decisions.request_of(record)
         if rid and (rid not in latest or record.decided_at > latest[rid].decided_at):
             latest[rid] = record
+    # A try filed after his answer, in the same build (the loop's -2, -3 ... convention), is what acting on it is.
+    filed: dict[str, list[tuple[str, str]]] = {}
+    for item in items:
+        rid = str(item.get("request_id") or "")
+        filed.setdefault(family_key(rid), []).append((_iso(item.get("recorded_at")), rid))
     for row in rows:
-        said = decisions.chosen(latest.get(row.get("request_id", "")))
-        if said:
-            row["owner_decision"] = {"answer": said["label"], "what_happens_next": said["then"],
-                                     "decided_at": said["decided_at"]}
+        rid = row.get("request_id", "")
+        said = decisions.chosen(latest.get(rid))
+        if not said:
+            continue
+        row["owner_decision"] = {"answer": said["label"], "means": said["then"], "decided_at": said["decided_at"],
+                                 "needs_acting_on": said["acts"]}
+        if said["acts"]:
+            after = sorted(r for at, r in filed.get(family_key(rid), []) if r != rid and at > said["decided_at"])
+            row["owner_decision"]["acted_on"] = (
+                f"Yes: {_words(after[-1], 80)} was filed after it." if after else
+                "No: the build loop cannot read the owner's answers, so nothing has acted on it yet. "
+                "Filing the new try is what acts on it.")
 
 
 def _not_connected(result: NotConnected) -> dict:
