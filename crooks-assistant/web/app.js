@@ -356,6 +356,9 @@ const DETAIL_WORDS = {
   close_screen: ['Clearing', 'your screen'],
   // [recording] CLIVE reading back what it drew and did (app/tools/interaction_tools.py).
   interaction_review: ['Looking back', 'at what you saw'],
+  // CROOKS Returns (app/tools/returns_tools.py): reading returns, and an action prepared for his approval.
+  returns_open: ['Checking', 'returns'], return_find: ['Finding', 'the return'],
+  returns_stats: ['Counting', 'returns'], return_action: ['Preparing', 'the return step', true],
 };
 const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;
