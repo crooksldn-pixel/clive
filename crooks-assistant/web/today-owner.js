@@ -33,7 +33,7 @@
   const WEEKDAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
   // When the team hold to speak, their phone's speech service (Google's or Apple's) hears them.
   const SPEECH_NOTE = "When the team speak to CLIVE, their phone's speech service hears them (Google's on Android, " +
-    "Apple's on an iPhone) and only the words reach CLIVE. Your Mac never gets the audio.";
+    "Apple's on an iPhone) and only the words reach CLIVE. CLIVE itself never gets the audio.";
   let part = 'team';
   let open = '';                 // the person whose day is unfolded
   const draft = { who: '', when: 'now', count: false, day: '', weekday: 'mon' };
