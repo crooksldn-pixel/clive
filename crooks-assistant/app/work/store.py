@@ -409,7 +409,9 @@ class WorkStore:
     def release(self, item_id: str, *, who: str, owner: bool = False) -> WorkItem:
         with self._lock:
             item = self._held(item_id, who, owner)
-            return self._step(item, who, "released", status="open", claimed_by="", claimed_at="")
+            # Who had it, kept on the step: undoing the owner's give-back hands it back to them, not to him.
+            holder = {"holder": item.claimed_by, "held_since": item.claimed_at} if item.claimed_by else None
+            return self._step(item, who, "released", status="open", claimed_by="", claimed_at="", kept=holder)
 
     def packed(self, item_id: str, *, who: str, owner: bool = False) -> WorkItem:
         with self._lock:
@@ -500,7 +502,8 @@ class WorkStore:
         if what == "claimed":
             item.status, item.claimed_by, item.claimed_at = "open", "", ""
         elif what == "released":
-            item.status, item.claimed_by, item.claimed_at = "claimed", who, now()
+            holder = str(event.get("holder") or who)
+            item.status, item.claimed_by, item.claimed_at = "claimed", holder, str(event.get("held_since") or now())
         elif what == "packed":
             item.evidence = {k: v for k, v in item.evidence.items() if k not in ("packed", "packed_by", "packed_at")}
         elif what == "counted":

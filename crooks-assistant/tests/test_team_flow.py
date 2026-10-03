@@ -288,3 +288,22 @@ async def test_undo_takes_back_only_steps_that_are_all_still_recent(team):  # no
     assert work.get(item_id).status == "claimed" and work.get(item_id).evidence.get("packed")
     fresh = await team.post("/today/undo", json={"item_id": item_id, "steps": ["packed"]}, headers=AS_MIA)
     assert fresh.status_code == 200 and not work.get(item_id).evidence.get("packed")
+
+
+async def test_undoing_the_owners_give_back_hands_the_job_back_to_who_had_it(team):  # noqa: F811
+    """George gave back Mia's job and undid it: the job came back as his, not hers."""
+    let_mia_in()
+    claimed = await team.post("/today/claim", json={"ref": ORDER_REF}, headers=AS_MIA)
+    item_id = claimed.json()["job"]["item_id"]
+    since = work.get(item_id).claimed_at
+    given = await team.post("/today/release", json={"item_id": item_id}, headers=PROXIED)
+    assert given.status_code == 200 and work.get(item_id).status == "open"
+    undone = await team.post("/today/undo", json={"item_id": item_id, "steps": ["released"]}, headers=PROXIED)
+    assert undone.status_code == 200
+    item = work.get(item_id)
+    assert (item.status, item.claimed_by, item.claimed_at) == ("claimed", "mia", since)
+    assert [r["ref"] for r in (await team.get("/today/state", headers=AS_MIA)).json()["work"]["mine_found"]] == [ORDER_REF]
+    # Her own give-back, undone, is hers again too.
+    await team.post("/today/release", json={"item_id": item_id}, headers=AS_MIA)
+    await team.post("/today/undo", json={"item_id": item_id, "steps": ["released"]}, headers=AS_MIA)
+    assert work.get(item_id).claimed_by == "mia"
