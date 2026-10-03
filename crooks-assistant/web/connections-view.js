@@ -46,6 +46,7 @@
     signed_in: 'signed in', sign_in_started: 'sign-in started', sign_in_cancelled: 'sign-in cancelled',
     sign_in_failed: 'sign-in failed', passkey_added: 'Passkey added', passkey_removed: 'Passkey removed',
     approval_refused: 'An approval was refused', voice_changed: 'voice changed',
+    voice_reset: "voice back to its own settings",
     access_approved: 'Let onto the team', access_suspended: 'Taken off the team',
   };
 
@@ -503,6 +504,7 @@
       const verb = ACTIONS[change.action] || str(change.action).replace(/_/g, ' ');
       let what = subject ? subject + ' ' + verb : verb.charAt(0).toUpperCase() + verb.slice(1);
       if (change.action === 'voice_changed' && change.detail) what = 'Voice changed to ' + change.detail;
+      if (change.action === 'voice_reset' && change.detail) what = 'Voice back to ' + change.detail + ", in its own settings";
       if (/^access_/.test(str(change.action)) && change.detail) what = verb + ': ' + change.detail;
       const item = el('li', 'change' + (change.ok === false ? ' is-failed' : ''));
       const where = [change.device ? 'from ' + change.device : '', clock(change.at), people.size > 1 ? str(change.who) : '']

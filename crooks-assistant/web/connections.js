@@ -316,6 +316,27 @@
     },
   };
 
+  // "Use the voice's own settings": signed exactly as a save is, under a name of its own
+  // (voice:reset:<SHA-256 of the text>), so an approval for one is never the other's.
+  voiceAsks.reset = async function reset(busy) {
+    if (needPasskey(null)) return { ok: false, detail: 'Set up your passkey first: every change asks for it.' };
+    try {
+      const text = JSON.stringify({ reset: true });
+      busy('Approve on your device…');
+      const approval = await approve('voice:reset:' + await seal(text));
+      busy('Going back…');
+      const done = await call('/connections/voice/reset', { values_json: text, approval: approval });
+      if (!done.ok) return { ok: false, detail: done.detail || 'Nothing changed.' };
+      voiceState.voice = done.voice;
+      voiceState.chosen = false;
+      notice('ok', 'CLIVE speaks as ' + done.voice.voice_name + ' again, in the voice\'s own settings.');
+      await load({ fresh: 'elevenlabs' });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, detail: said(error) };
+    }
+  };
+
   function voicePanel() {
     return voiceState ? Voice.panel(voiceState, { canChange: canChange(), on: voiceAsks }) : null;
   }

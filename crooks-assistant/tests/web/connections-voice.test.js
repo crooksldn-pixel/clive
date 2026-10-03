@@ -155,3 +155,22 @@ test('nothing from the server is read as markup, and Save is off where no passke
   assert.equal(one(panel, '.voice-save').disabled, true);
   assert.equal(Voice.panel(null, {}), null);
 });
+
+test("\"Use the voice's own settings\" is there once something is saved, says where it goes back to, and asks the page", async () => {
+  const fresh = Voice.panel(state(), { canChange: true, on: {} });
+  assert.equal(one(fresh, '.voice-reset'), null, 'nothing saved here: nothing to go back from');
+  const asked = [];
+  const chosen = Object.assign(state({ voice_id: '9375G6zswFk7v9bKTVQF', voice_name: 'Vikram', style: 0.4 }),
+    { chosen: true, configured: { voice_id: 'Q0Et7LOU7VpeoeCRQAVS', voice_name: 'Derek', model: 'eleven_flash_v2_5' } });
+  const panel = Voice.panel(chosen, { canChange: true, on: { reset: async (busy) => { busy('Approve on your device…'); asked.push('reset'); return { ok: false, detail: 'Cancelled.' }; } } });
+  const reset = one(panel, '.voice-reset');
+  assert.equal(reset.textContent, Voice.RESET_WORDS);
+  assert.match(panel.allText(), /CLIVE speaks as Derek, the voice set up on the server, in its own settings\./);
+  reset.dispatch('click');
+  await tick();
+  assert.deepEqual(asked, ['reset']);
+  assert.equal(reset.textContent, Voice.RESET_WORDS, 'back to its own words once answered');
+  assert.equal(one(panel, '.more-result').textContent, 'Cancelled.');
+  const locked = Voice.panel(chosen, { canChange: false, on: {} });
+  assert.equal(one(locked, '.voice-reset').disabled, true, 'no passkey possible here');
+});

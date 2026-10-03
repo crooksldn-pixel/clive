@@ -538,3 +538,49 @@ async def test_a_voices_own_settings_are_what_elevenlabs_reports_and_nothing_is_
     assert (await world.get("/connections/voice/voices/not-a-voice", headers=HEADERS)).status_code == 404
     gone = await world.get("/connections/voice/voices/" + "Z" * 20, headers=HEADERS)
     assert gone.status_code == 502 and gone.json()["code"] == "voice_unavailable"
+
+
+async def test_the_voice_goes_back_to_its_own_settings_only_with_a_passkey_for_exactly_that(world):
+    """The post-deploy review of 3 October: nothing called voice_prefs.forget(), so once a voice or a
+    slider was saved there was no way back to the voice's own settings. "Use the voice's own
+    settings" is approved like a save (the passkey signs `voice:reset:<SHA-256 of the text>`), forgets
+    the record and speaks as the configured voice with nothing sent but the words."""
+    await register(world)
+    speaking(world)
+    world.services.voices = {"9375G6zswFk7v9bKTVQF": {"name": "Vikram", "settings": {}}}
+    wanted = {"voice_id": "9375G6zswFk7v9bKTVQF", "voice_name": "Vikram", "style": 0.4, "speed": 1.1}
+    text, digest = sealed(wanted)
+    kept = await world.post("/connections/voice", headers=HEADERS,
+                            json={"values_json": text, "approval": await approval(world, f"voice:{digest}")})
+    assert kept.status_code == 200 and world.runtime.voice.voice_id == "9375G6zswFk7v9bKTVQF"
+
+    reset, reset_digest = sealed({"reset": True})
+    for action in ("voice:reset", "voice:undo:" + reset_digest, "voice:reset:" + reset_digest[:-1]):
+        assert (await world.post("/connections/approve", json={"action": action}, headers=HEADERS)).status_code == 400
+    bare = await world.post("/connections/voice/reset", json={"values_json": reset}, headers=HEADERS)
+    assert bare.status_code == 403 and bare.json()["code"] == "passkey_missing"
+    # An approval for a save never goes back, and one for going back never saves.
+    crossed = await world.post("/connections/voice/reset", headers=HEADERS,
+                               json={"values_json": reset, "approval": await approval(world, f"voice:{reset_digest}")})
+    assert crossed.status_code == 403
+    as_save = await world.post("/connections/voice", headers=HEADERS,
+                               json={"values_json": reset, "approval": await approval(world, f"voice:reset:{reset_digest}")})
+    assert as_save.status_code == 403
+    other, other_digest = sealed({"reset": True, "style": 1})
+    odd = await world.post("/connections/voice/reset", headers=HEADERS,
+                           json={"values_json": other, "approval": await approval(world, f"voice:reset:{other_digest}")})
+    assert odd.status_code == 400
+    assert voice_prefs.read() == wanted                                      # none of those changed anything
+
+    done = await world.post("/connections/voice/reset", headers=HEADERS,
+                            json={"values_json": reset, "approval": await approval(world, f"voice:reset:{reset_digest}")})
+    assert done.status_code == 200, done.text
+    settings = world.runtime.settings
+    assert done.json() == {"ok": True, "chosen": False, "voice": {
+        "voice_id": settings.tts_voice_id, "voice_name": settings.tts_voice_name, "model": settings.tts_model}}
+    assert voice_prefs.read() == {} and not (voice_prefs._path()).exists()
+    # Live at once: the configured voice, and no voice_settings at all, so ElevenLabs uses the voice's own.
+    assert world.runtime.voice.voice_id == settings.tts_voice_id
+    assert world.runtime.voice._payload("hi") == {"text": "hi", "model_id": settings.tts_model}
+    assert (await world.get("/connections/voice", headers=HEADERS)).json()["chosen"] is False
+    assert ledger.recent()[0]["action"] == "voice_reset" and ledger.recent()[0]["who"] == OWNER

@@ -9,6 +9,8 @@
  *     the panel. Opening it and saving a voice changes the voice and nothing else;
  *   - an untouched slider shows the voice's own value only when ElevenLabs reported it, and says so;
  *     otherwise it says "the voice's own setting" with no number. Nothing on it is made up;
+ *   - "Use the voice's own settings" appears once something is saved here, and goes back to the voice
+ *     set up on the server with nothing sent but the words, after his passkey (web/connections.js);
  *   - every word from the server goes in as text; no attribute is built from what it sent.
  *
  * No network and no dependency on the page: what it needs is handed in (ctx.on), so it runs under
@@ -32,6 +34,7 @@
   ];
   const BOOST = 'use_speaker_boost';
   const OWN = "the voice's own setting";
+  const RESET_WORDS = "Use the voice's own settings";
 
   function make(tag, cls, text) {
     const node = doc().createElement(tag);
@@ -242,10 +245,34 @@
       if (!done || !done.ok) say(result, 'bad', (done && done.detail) || 'The voice was not changed.');
     });
     add(actions, preview, keep);
-    add(root, actions, result);
+    add(root, actions);
+    if (state.chosen) add(root, ...resetting(state, ctx, result));
+    add(root, result);
     ownOf(pick.value);
     return root;
   }
 
-  return { panel, values, sliderWords, SLIDER_WORDS, OWN };
+  // Back to the voice's own settings: shown once something has been saved here, since before that
+  // there is nothing to go back from. It forgets what was saved and the voice set up on the server
+  // speaks again, with nothing sent but the words, so ElevenLabs applies the voice's own settings.
+  function resetting(state, ctx, result) {
+    const on = (ctx && ctx.on) || {};
+    const configured = (state.configured || {}).voice_name;
+    const hint = make('p', 'voice-reset-hint', 'Forgets what was saved here. CLIVE speaks as ' +
+      (configured ? configured + ', the voice set up on the server,' : 'the voice set up on the server') + ' in its own settings.');
+    const reset = make('button', 'btn quiet voice-reset', RESET_WORDS);
+    reset.type = 'button';
+    reset.disabled = !(ctx && ctx.canChange);
+    reset.addEventListener('click', async () => {
+      reset.disabled = true;
+      say(result, '', '');
+      const done = on.reset ? await on.reset((text) => { reset.textContent = text; }) : null;
+      reset.disabled = !(ctx && ctx.canChange);
+      reset.textContent = RESET_WORDS;
+      if (!done || !done.ok) say(result, 'bad', (done && done.detail) || 'Nothing changed.');
+    });
+    return [reset, hint];
+  }
+
+  return { panel, values, sliderWords, SLIDER_WORDS, OWN, RESET_WORDS };
 });

@@ -241,8 +241,11 @@ def _known_action(action: str) -> bool:
     if kind == "signin":
         return rest == "instagram"
     if kind == "voice":
-        # The voice and how it sounds, signed as one text like a save (app/speech/voice_prefs.py).
-        return bool(SEAL.fullmatch(rest))
+        # The voice and how it sounds, signed as one text like a save (app/speech/voice_prefs.py), or
+        # going back to the voice's own settings, signed the same way under a name of its own so an
+        # approval for one is never the other's.
+        verb, _, digest = rest.rpartition(":")
+        return bool(SEAL.fullmatch(digest)) and verb in ("", "reset")
     if kind == "passkey":
         verb, _, identity = rest.partition(":")
         return (verb == "add" and not identity) or (verb == "remove" and bool(CREDENTIAL_ID.fullmatch(identity)))
@@ -421,6 +424,42 @@ async def connections_voice_save(request: Request) -> JSONResponse:
     return _answer({"voice": {"voice_id": voice.voice_id, "voice_name": voice.voice_name,
                               "model": voice.model, **voice_prefs.voice_settings(kept)},
                     "chosen": bool(kept)})
+
+
+# What the page signs to go back to the voice's own settings: always this text, sealed like a save's.
+RESET_VOICE = {"reset": True}
+
+
+@router.post("/connections/voice/reset")
+@_guarded
+async def connections_voice_reset(request: Request) -> JSONResponse:
+    """"Use the voice's own settings": forget what was saved here (voice_prefs.forget), and speak as
+    the configured voice with no settings sent, so ElevenLabs applies the voice's own — from the
+    next answer, no restart. The passkey signs `voice:reset:<SHA-256 of the text>`, exactly as a save
+    signs its values."""
+    from app.speech import voice_prefs
+
+    who = _who(request)
+    origin, _ = _origin(request)
+    device = _device(request)
+    body = await _body(request)
+    if body.get("approval") is None:
+        _approve(body, "voice:reset", who=who, origin=origin, device=device)  # says "needs your passkey"
+    digest, values = sealed(body.get("values_json"))
+    if values != RESET_VOICE:
+        raise _Refused(400, "bad_request", "The screen sent something unreadable. Reload it.")
+    _approve(body, f"voice:reset:{digest}", who=who, origin=origin, device=device)
+    voice = _voice_client(request)
+    await asyncio.to_thread(voice_prefs.forget)
+    settings = _settings(request)
+    voice.apply(voice_id=str(getattr(settings, "tts_voice_id", "") or ""),
+                voice_name=str(getattr(settings, "tts_voice_name", "") or ""),
+                model=str(getattr(settings, "tts_model", "") or ""), voice_settings={})
+    ledger.record("voice_reset", connection="elevenlabs", who=who, device=device, ok=True,
+                  detail=f"{voice.voice_name} · {voice.model}")
+    log.info("connections: the voice is back to %s (%s) in its own settings", voice.voice_name, voice.model)
+    return _answer({"voice": {"voice_id": voice.voice_id, "voice_name": voice.voice_name, "model": voice.model},
+                    "chosen": False})
 
 
 @router.post("/connections/voice/preview")
