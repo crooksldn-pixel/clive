@@ -573,6 +573,7 @@ def load() -> None:
     import app.tools.gmail_tools  # noqa: F401
     import app.tools.gmail_writes  # noqa: F401
     import app.tools.instagram_tools  # noqa: F401
+    import app.tools.interaction_tools  # noqa: F401
     import app.tools.ship24_tools  # noqa: F401
     import app.tools.shopify_tools  # noqa: F401
     import app.tools.shopify_writes  # noqa: F401

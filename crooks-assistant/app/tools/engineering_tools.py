@@ -726,6 +726,13 @@ async def submit_engineering_request(
     could name its own base could start from anywhere. The base is the trunk's head, read here;
     the checks are built here, from fixed commands, over the test files the paths name."""
     objective_id = _objective(objective_id)
+    # [recording] Nothing a customer said or is called reaches a build request: what is asked for
+    # is scrubbed by the timeline's own rule — contact details by shape, and the names this process
+    # has been shown — before it is built, so the card he holds shows what will be filed.
+    from app.observability.timeline import holds_a_told_name, scrub_text
+
+    if isinstance(requested_outcome, str) and (holds_a_told_name(requested_outcome) or scrub_text(requested_outcome) != requested_outcome):
+        requested_outcome = scrub_text(requested_outcome)
     paths = [repo_path(p) for p in allowed_paths] if isinstance(allowed_paths, (list, tuple)) else allowed_paths
     criteria = list(acceptance_criteria or [])
 

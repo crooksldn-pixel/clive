@@ -564,6 +564,7 @@ def build(settings: Settings | None = None) -> Runtime:
         gmail_tools,
         gmail_writes,
         instagram_tools,
+        interaction_tools,
         mock,
         ship24_tools,
         shopify_tools,
@@ -696,6 +697,18 @@ def build(settings: Settings | None = None) -> Runtime:
         )
         log.info("experience recording is ON (transcripts %s); logs/%s/",
                  "kept" if settings.record_transcripts else "as shape only", recorder_module.DIR_NAME)
+    # [recording] The interaction record (app/observability/interactions.py): every turn and
+    # gesture of normal use, so CLIVE can look at what it drew and why. In front of whatever
+    # mirror is there, which still gets every event. CROOKS_INTERACTION_RECORD=false turns it off.
+    from app.observability import interactions
+
+    if settings.interaction_record:
+        timeline.mirror = interactions.install(
+            interactions.InteractionRecord.from_settings(settings, behind=timeline.mirror))
+        log.info("the interaction record is ON: logs/%s/, %s days kept, words %s", interactions.DIR_NAME,
+                 settings.interaction_record_keep_days, "kept" if settings.interaction_record_words else "by their shape")
+    else:
+        interactions.install(None)
 
     # The manifest, and the recipes the taps name, before the first tap. The families
     # registered their recipes when they loaded above; asserting they are read-only is what

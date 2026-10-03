@@ -235,6 +235,23 @@ class Settings(BaseSettings):
     # runs. For an afternoon spent diagnosing a mis-hearing, deliberately, never by default.
     record_transcripts: bool = False
 
+    # --- the interaction record (app/observability/interactions.py) ---
+    # Always recording: every turn and gesture of normal use, so CLIVE can be asked "what's on
+    # screen?", "why aren't you showing me X?" and "look at our interaction" and answer from what
+    # it actually drew and did (the interaction_review tool). One file a day in
+    # logs/interactions/, 0600 in a 0700 folder, on this server only, redacted exactly as a test
+    # session is: credentials and contact details by shape, the customer names this process has
+    # been shown, and the owner's own words and the cards' titles written by their shape (a
+    # length and a digest). CROOKS_INTERACTION_RECORD=false turns it off.
+    interaction_record: bool = True
+    # How long a day is kept, and how big a day may grow: past either it goes or stops growing.
+    interaction_record_keep_days: int = 7
+    interaction_record_day_mb: int = 16
+    # The owner's words and the cards' titles kept as they were said and drawn (still scrubbed of
+    # contact details and told names), rather than by their shape. His decision, never a default:
+    # a customer's name he says that no read returned cannot be found and taken out.
+    interaction_record_words: bool = False
+
     # --- dev toggles ---
     # Every recording is a recording of the office. Kept on disk only when asked for
     # (CROOKS_SAVE_CAPTURES=true), for diagnosing a mis-hearing; never by default.

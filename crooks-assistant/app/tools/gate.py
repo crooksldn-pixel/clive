@@ -195,6 +195,13 @@ _KNOWN_TOOLS = frozenset({
     # is reachable from them, and a step a skill describes still goes through this gate like any
     # other call. Named here one by one, because this is an allow-list.
     "skill_list", "skill_read",
+    # CLIVE looking at its own interaction (app/tools/interaction_tools.py): what is on the owner's
+    # screen now, as the Mac drew it; why each recent screen was shown; and where the interaction
+    # had friction, from the interaction record on this machine (app/observability/interactions.py).
+    # It reads CLIVE's own records and nothing else: no store, inbox, screen or message is reachable
+    # from it, and it stages nothing. Named without a mutation verb; named here because this is an
+    # allow-list.
+    "interaction_review",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops
