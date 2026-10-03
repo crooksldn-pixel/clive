@@ -131,6 +131,12 @@ def seed(runtime, state: Path, patch=setattr) -> None:
     work.assign(title="Count the hoodies on the back rail", kind="stock_count", assignee="mia", by="owner")
     work.assign(title="Restock the tee shelf", details="Blacks first, then the whites", by="owner")
     work.add_routine(title="Tidy the packing bench", cadence="daily", by="owner")
+    # #2107's label was bought, so Shopify calls it fulfilled, and Kit packed it and marked it done: it is
+    # finished here, and is never offered a Fulfil as if it were waiting for its tracking.
+    labelled = work.claim_found(ref="order:gid://shopify/Order/5002", kind="pack_order",
+                                title="Pack #2107: 1 item for Sam Reyes", details="", who="kit")
+    work.packed(labelled.item_id, who="kit")
+    work.done(labelled.item_id, who="kit")
     answers = _found()
 
     async def found(_runtime, *, fresh=False):

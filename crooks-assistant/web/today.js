@@ -154,6 +154,13 @@
     };
   }
 
+  // Orders packed and waiting for their tracking, which is where Fulfil is offered: never one Shopify
+  // already calls fulfilled (a label bought for it, app/work/found.py `labelled`), which a Fulfil would
+  // fulfil a second time. The one list both sides of the page draw from (web/today-owner.js too).
+  function waitingForTracking(rows) {
+    return (rows || []).filter((r) => r.status === 'packed' && !r.labelled);
+  }
+
   function board() {
     const work = state.work;
     const mine = [...work.mine_found, ...work.mine].map((r) => cardOf(r, 'mine'));
@@ -161,7 +168,7 @@
     mine.sort((a, b) => (b.claimed - a.claimed));
     const grabs = [...work.found, ...work.up_for_grabs].map((r) => cardOf(r, 'grabs'));
     grabs.sort((a, b) => (ORDER_OF_KINDS[a.kind] ?? 9) - (ORDER_OF_KINDS[b.kind] ?? 9));
-    const waiting = (work.in_hand || []).filter((r) => r.status === 'packed').map((r) => cardOf(r, 'waiting'));
+    const waiting = waitingForTracking(work.in_hand).map((r) => cardOf(r, 'waiting'));
     return { mine, grabs, waiting, done: work.done || [] };
   }
 
@@ -529,6 +536,7 @@
   function drawMore(b) {
     const box = $('#more');
     box.textContent = '';
+    // b.waiting is waitingForTracking's: nothing already fulfilled in Shopify is offered a Fulfil here.
     if (b.waiting.length) {
       box.append(element('h2', 'part', 'Packed, waiting for tracking'));
       const group = element('div', 'group');
@@ -939,7 +947,7 @@
 
   // What the owner's side (web/today-owner.js) shares with this page.
   window.CliveToday = {
-    call, post, element, button, when, sentence, recordLine, jobNotes, heading, cardOf, load, line,
+    call, post, element, button, when, sentence, recordLine, jobNotes, heading, cardOf, load, line, waitingForTracking,
     ask: askClive, handle, offerUndo, bar: () => bar, state: () => state, RECORD_WORDS, VIA_CLIVE,
     prefill, showWork, guidanceNow: () => (state ? guidance(focused(board())) : ''),
   };

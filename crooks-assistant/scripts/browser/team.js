@@ -13,6 +13,8 @@
  *   - holding the job in hand does its one action;
  *   - an owner-only ask (a refund) is never tried: "That's George's to do. I've told him.", and it is
  *     on his list, both when the page reads it and when their CLIVE does;
+ *   - an order Shopify already calls fulfilled (its label bought) is never "waiting for tracking"
+ *     with a Fulfil, on the team's page or on George's;
  *   - every screen has the ask bar, nothing on it is smaller than a thumb, and no page error.
  * Prints one JSON object: { ok, checks: [{ name, ok, detail }], shots }.
  */
@@ -111,6 +113,10 @@ async function phoneStaff(browser) {
   check('the page opens as Mia, with her CLIVE line and the ask bar', (await text(page, '#line')).length > 10 && await page.isVisible('#ask-text') && await page.isVisible('#mic'),
     await text(page, '#line'));
   await shot(page, 'phone-staff-now');
+  // #2107, its label bought and packed by Kit, is done: not waiting for tracking, and no Fulfil for it.
+  const more = await text(page, '#more');
+  check('an order Shopify already calls fulfilled is never waiting for tracking on the team\'s page',
+    !/#2107/.test(more) && !/waiting for tracking/.test(more), more.slice(0, 200));
   const small = await smallTargets(page);
   check('nothing to tap is smaller than a thumb', small.length === 0, small.join(', '));
 
@@ -226,7 +232,11 @@ async function owner(browser) {
   await sleep(300);
   check("tapping a name shows that person's day, step by step", (await page.$$('#owner-team .record.inset li')).length >= 3);
 
-  // An order someone packed: Fulfil starts the sentence for his CLIVE, with the order in it.
+  // An order someone packed: Fulfil starts the sentence for his CLIVE, with the order in it. Never for
+  // #2107, whose label was bought: Shopify already calls it fulfilled.
+  check('an order Shopify already calls fulfilled has no Fulfil on George\'s side',
+    (await page.$$('#owner-team .flag:has-text("#2107") .pill:has-text("Fulfil")')).length === 0
+    && (await page.$$('#owner-team .flag:has-text("#2106") .pill:has-text("Fulfil")')).length === 1);
   await page.click('#owner-team .flag:has-text("#2106") .pill:has-text("Fulfil")');
   check('an order in other hands, packed, has its Fulfil', (await page.inputValue('#ask-text')) === 'Fulfil order #2106 with tracking number ',
     await page.inputValue('#ask-text'));
