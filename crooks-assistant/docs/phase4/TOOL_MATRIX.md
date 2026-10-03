@@ -154,7 +154,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `screen_video` | family:screens | test_r11_screens_server.py, test_screen_video.py | — |
 | `shopify_abandoned_checkouts` | family:abandoned_checkouts | test_abandoned.py, test_followups_reads.py, test_r11_families.py | abandoned_checkouts, abandoned_window |
 | `shopify_checkout_link_send` | command:a tapped control, family:checkout_link | test_customers_checkout.py | — |
-| `shopify_customer_history` | command:cursor:customers, family:customer_reads | test_context.py, test_n_plus_one.py | customer_history, linked_entities, nav_home_landing, store_credit_give, store_credit_not_on_this_store |
+| `shopify_customer_history` | command:cursor:customers, family:customer_reads | test_context.py, test_customers_history.py, test_n_plus_one.py | customer_history, linked_entities, nav_home_landing, store_credit_give, store_credit_not_on_this_store |
 | `shopify_discount_check` | recipe:discount_code, family:discount_create | test_discounts.py | discount_code_taken, discount_new_code |
 | `shopify_discount_create` | command:a tapped control, family:discount_create | test_discounts.py | discount_new_code, discount_sentence_defers |
 | `shopify_discount_open` | family:discount_create | test_discounts.py | discount_sentence_defers |
@@ -170,7 +170,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shopify_order_build` | family:order_create | test_r12_orders.py | order_by_voice |
 | `shopify_order_cancel` | family:order_cancel | test_cancel.py, test_tap_reads_only.py, test_tool_boundary.py, test_turn_boundary.py | — |
 | `shopify_order_create` | command:a tapped control, family:order_create | test_order_create.py | order_by_voice, order_new |
-| `shopify_order_detail` | command:cursor:orders, family:order_reads | test_capability_gaps.py, test_context.py, test_gate.py, test_progressive_turn.py, test_shopify_tools.py, test_tool_boundary.py, test_turn_authority_path.py, test_turn_boundary.py | back, customer_history, enrichment, graph_order_to_email, linked_entities, nav_branch_isolation, nav_home_landing, order_add_custom_item_sentence, order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers, order_add_item_stale_picker, order_lookup, recording_is_observability, split_branches, store_credit_give, store_credit_not_on_this_store, tabs, unsupported_edit |
+| `shopify_order_detail` | command:cursor:orders, family:order_reads | test_capability_gaps.py, test_context.py, test_customers_refunds.py, test_gate.py, test_progressive_turn.py, test_shopify_tools.py, test_tool_boundary.py, test_turn_authority_path.py, test_turn_boundary.py | back, customer_history, enrichment, graph_order_to_email, linked_entities, nav_branch_isolation, nav_home_landing, order_add_custom_item_sentence, order_add_item_ambiguous, order_add_item_cancelled, order_add_item_picker, order_add_item_sentence_defers, order_add_item_stale_picker, order_lookup, recording_is_observability, split_branches, store_credit_give, store_credit_not_on_this_store, tabs, unsupported_edit |
 | `shopify_order_fulfil` | family:order_fulfil | test_fulfil.py | — |
 | `shopify_order_note_append` | family:order_notes | test_actions.py, test_engine_hooks.py, test_r11_no_authority.py, test_r11_turn.py, test_r12_surfaces.py, test_turn_boundary.py | — |
 | `shopify_order_open` | family:order_create | test_order_create.py | order_by_voice |
