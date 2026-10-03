@@ -132,6 +132,13 @@ async def test_the_name_is_wrong_and_the_item_and_the_day_still_pick_the_order(w
     assert cards(body, "order_match")[0]["rows"][0]["order_number"] == "#2203"
 
 
+async def test_one_order_whose_name_is_not_the_one_he_said_is_asked_about_not_called_the_best_match(world):
+    body = await say(world, "find Rachel's indigo jeans from two days ago",
+                     ("shopify_find_order", {"name": "Rachel", "item": "indigo jeans", "when": "2 days ago"}))
+    (shown,) = cards(body, "order_match")
+    assert shown["verdict"] == "one" and shown["title"] == "Is it this one?"
+
+
 async def test_an_amount_and_a_day_with_a_misheard_name(world):
     told_body = await say(world, "Thea's order, ninety quid, two days ago",
                           ("shopify_find_order", {"name": "Thea", "amount": "90", "when": "2 days ago"}))

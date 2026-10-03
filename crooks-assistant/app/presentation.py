@@ -991,7 +991,9 @@ def _order_match(result: dict[str, Any]) -> dict[str, Any]:
                       for i in _list(row.get("matched_items"), 3)],
         })
     return {
-        "title": {"one": "Best match", "several": "Which one?", "check": "Is it this one?"}.get(verdict, "Closest orders"),
+        # One order that fits all but the name he said is a question on the glass, not an answer.
+        "title": "Is it this one?" if verdict == "one" and result.get("name_differs")
+        else {"one": "Best match", "several": "Which one?", "check": "Is it this one?"}.get(verdict, "Closest orders"),
         "verdict": verdict, "question": _text(result.get("question"), MAX_TEXT_CHARS),
         "note": " ".join(p for p in (_text(result.get("note"), MAX_TEXT_CHARS) if verdict != "one" else "",
                                      _text(result.get("unread_note"), MAX_TEXT_CHARS)) if p),

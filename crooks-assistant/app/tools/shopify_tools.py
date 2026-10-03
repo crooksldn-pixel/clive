@@ -936,6 +936,8 @@ async def _closest(client: ShopifyClient, result: dict[str, Any], evidence: dict
     result["verdict"] = found["kind"]
     if found.get("question"):
         result["question"] = found["question"]
+    if found.get("name_differs"):
+        result["name_differs"] = True
     key = "one_name_differs" if found.get("name_differs") else "check_someone_else" if found.get("someone_else") else found["kind"]
     result["instruction"] = match.INSTRUCTIONS[key].replace("{said}", str(evidence.get("name") or ""))
 
