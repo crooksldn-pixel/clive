@@ -191,6 +191,8 @@ class ReturnLine(BaseModel):
     exchange_variant_id: str | None = None
     exchange_variant_title: str | None = None
     exchange_sku: str | None = None
+    # The new variant's list price, so the swap can be priced at what the customer paid.
+    exchange_price_pence: int | None = None
     exchange_direction: str | None = None  # size_up, size_down, same, other
 
 

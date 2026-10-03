@@ -134,6 +134,7 @@ class FakeShopify:
         self.calls: list[tuple[str, Any]] = []
         self.returns: dict[str, dict[str, Any]] = {}
         self.fail: set[str] = set()
+        self.holds: list[str] = []
 
     def _maybe_fail(self, name: str) -> None:
         if name in self.fail:
@@ -185,14 +186,22 @@ class FakeShopify:
                 for ln in ret.lines
             },
             "exchange_line_item_ids": [
-                gid("ExchangeLineItem") for ln in ret.lines if ln.exchange_variant_id
+                gid("ExchangeLineItem")
+                for ln in ret.lines
+                if ln.exchange_variant_id
+                for _ in range(ln.quantity)
             ],
         }
         self.returns[rid] = {
             "id": rid,
             "status": "OPEN",
             "refunds": {"nodes": []},
-            "exchangeLineItems": {"nodes": [{"id": e} for e in created["exchange_line_item_ids"]]},
+            "exchangeLineItems": {
+                "nodes": [
+                    {"id": e, "lineItems": [{"id": f"line-{e}"}]}
+                    for e in created["exchange_line_item_ids"]
+                ]
+            },
         }
         for ln in ret.lines:
             for o_line in self.orders[ret.order_id].lines:
@@ -228,6 +237,9 @@ class FakeShopify:
 
     def read_return(self, return_id: str) -> dict[str, Any]:
         return self.returns[return_id]
+
+    def exchange_holds(self, order_id: str, line_item_ids: list[str]) -> list[str]:
+        return list(self.holds)
 
     def cancel_return(self, return_id: str) -> str:
         self.calls.append(("returnCancel", {"id": return_id}))

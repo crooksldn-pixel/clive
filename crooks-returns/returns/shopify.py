@@ -68,6 +68,7 @@ class ShopifyPort(Protocol):
     def process_return(self, payload: dict[str, Any], key: str) -> str: ...
     def credit(self, customer_id: str, pence: int, currency: str, key: str) -> str: ...
     def read_return(self, return_id: str) -> dict[str, Any]: ...
+    def exchange_holds(self, order_id: str, line_item_ids: list[str]) -> list[str]: ...
     def cancel_return(self, return_id: str) -> str: ...
 
 
@@ -177,6 +178,16 @@ mutation ReturnsReturnCreate($input: ReturnInput!) {
       returnLineItems(first: 50) { nodes { ... on ReturnLineItem { id fulfillmentLineItem { id } } } }
     }
     userErrors { field message code }
+  }
+}
+"""
+
+Q_EXCHANGE_HOLDS = """
+query ReturnsExchangeHolds($id: ID!) {
+  order(id: $id) {
+    fulfillmentOrders(first: 20) {
+      nodes { status fulfillmentHolds { reason } lineItems(first: 20) { nodes { lineItem { id } } } }
+    }
   }
 }
 """
@@ -366,11 +377,21 @@ def return_input(ret: Return, reason_ids: dict[str, str]) -> dict[str, Any]:
         "requestedAt": ret.created_at.isoformat(),
         "returnLineItems": lines,
     }
-    exchanges = [
-        {"variantId": line.exchange_variant_id, "quantity": line.quantity}
-        for line in ret.lines
-        if line.exchange_variant_id
-    ]
+    exchanges = []
+    for line in ret.lines:
+        if not line.exchange_variant_id:
+            continue
+        item: dict[str, Any] = {"variantId": line.exchange_variant_id, "quantity": 1}
+        # Price the swap at what the customer paid: without this, a discounted order's swap is
+        # charged at full price and Shopify holds it for the difference.
+        off = (line.exchange_price_pence or line.unit_paid_pence) - line.unit_paid_pence
+        if off > 0:
+            item["appliedDiscount"] = {
+                "description": "Exchange at the price paid",
+                "value": {"amount": {"amount": to_amount(off), "currencyCode": ret.currency}},
+            }
+        # One line per unit, so the discount means the same whatever Shopify multiplies it by.
+        exchanges.extend(dict(item) for _ in range(line.quantity))
     if exchanges:
         payload["exchangeLineItems"] = exchanges
     if ret.money.fee_pence:
@@ -523,6 +544,19 @@ class GraphQLShopify:
         if not node:
             raise ShopifyError("Shopify has no such return.")
         return node
+
+    def exchange_holds(self, order_id: str, line_item_ids: list[str]) -> list[str]:
+        """Hold reasons on the fulfilment orders carrying these exchange items (empty: free)."""
+        nodes = self._call(Q_EXCHANGE_HOLDS, {"id": order_id})["order"]["fulfillmentOrders"][
+            "nodes"
+        ]
+        wanted = set(line_item_ids)
+        return [
+            h["reason"]
+            for fo in nodes
+            if any(li["lineItem"]["id"] in wanted for li in fo["lineItems"]["nodes"])
+            for h in fo.get("fulfillmentHolds") or []
+        ]
 
     # ----------------------------------------------------------------------- writes
 

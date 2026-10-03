@@ -201,3 +201,32 @@ def test_pilot_mode_only_admits_listed_orders(svc):
     with pytest.raises(ActionError) as e:
         svc.lookup("1950", "customer@example.com", "1.1.1.1")
     assert e.value.status == 403
+
+
+def test_swap_is_priced_at_what_was_paid(svc, shop):
+    # Paid £20 for a £25 tee (discount code): the swap must not ask for the other £5.
+    shop.orders["gid://shopify/Order/1939"].lines[0].unit_paid_pence = 2000
+    ret = submit(svc, Resolution.exchange, Postage.self_ship, exchange={TEE: LARGE})
+    act(svc, ret, "approve")
+    item = shop.called("returnCreate")[0]["exchangeLineItems"][0]
+    assert item["quantity"] == 1
+    assert item["appliedDiscount"]["value"]["amount"] == {"amount": "5.00", "currencyCode": "GBP"}
+
+
+def test_free_order_swap_is_fully_discounted(svc, shop):
+    # The live test order CROOKS-2129 was £0: Shopify held its £25 swap "awaiting payment".
+    shop.orders["gid://shopify/Order/1939"].lines[0].unit_paid_pence = 0
+    ret = submit(svc, Resolution.exchange, Postage.self_ship, exchange={TEE: LARGE})
+    act(svc, ret, "approve")
+    item = shop.called("returnCreate")[0]["exchangeLineItems"][0]
+    assert item["appliedDiscount"]["value"]["amount"]["amount"] == "25.00"
+
+
+def test_a_held_swap_is_not_reported_as_confirmed(svc, shop):
+    ret = submit(svc, Resolution.exchange, Postage.self_ship, exchange={TEE: LARGE})
+    act(svc, ret, "approve")
+    shop.holds = ["AWAITING_PAYMENT"]
+    out = act(svc, ret, "receive")
+    assert out["status"] == "completed" and not out["verified"]
+    assert "AWAITING_PAYMENT" in out["error"]
+    assert "error" in svc.staff(svc.store.get(ret.id))["attention"]

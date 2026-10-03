@@ -213,6 +213,7 @@ class ReturnsService:
                     v = allowed[want]
                     line.exchange_variant_id, line.exchange_variant_title = v.id, v.title
                     line.exchange_sku = v.sku
+                    line.exchange_price_pence = v.price_pence
                     line.exchange_direction = policy.exchange_direction(
                         by_id[line.fulfillment_line_item_id], v.id
                     )
@@ -653,9 +654,10 @@ class ReturnsService:
         }
         if ret.resolution == Resolution.exchange:
             exchanged = [ln for ln in ret.lines if ln.exchange_variant_id]
+            # One exchange line per unit (see return_input), so each is processed singly.
+            assert len(ret.shopify.exchange_line_item_ids) == sum(ln.quantity for ln in exchanged)
             payload["exchangeLineItems"] = [
-                {"id": eid, "quantity": ln.quantity}
-                for eid, ln in zip(ret.shopify.exchange_line_item_ids, exchanged, strict=True)
+                {"id": eid, "quantity": 1} for eid in ret.shopify.exchange_line_item_ids
             ]
         elif ret.resolution == Resolution.store_credit:
             payload["financialTransfer"] = {
@@ -762,14 +764,34 @@ class ReturnsService:
 
     def _verify_closed(self, ret: Return) -> bool:
         """Read the return back. Money resolutions must show a refund in Shopify; an exchange
-        must show its exchange lines. Anything else stays unverified, and says so."""
+        must show its new items free to ship (not held). Anything else stays unverified, and
+        says so."""
         try:
             node = self.shopify.read_return(ret.shopify.return_id)
         except ShopifyError:
             return False
         ret.shopify.refund_ids = [r["id"] for r in (node.get("refunds") or {}).get("nodes", [])]
         if ret.resolution == Resolution.exchange:
-            return bool((node.get("exchangeLineItems") or {}).get("nodes"))
+            line_ids = [
+                li["id"]
+                for n in (node.get("exchangeLineItems") or {}).get("nodes", [])
+                for li in n.get("lineItems") or []
+            ]
+            if not line_ids:
+                return False
+            # Shopify holds an exchange it thinks is owed money; that is not a finished swap.
+            try:
+                holds = self.shopify.exchange_holds(ret.order_id, line_ids)
+            except ShopifyError:
+                return False
+            if holds:
+                ret.last_error = (
+                    "Shopify is holding the exchange item ("
+                    + ", ".join(sorted(set(holds)))
+                    + "). Check the order's balance, then release the hold in the order."
+                )
+                return False
+            return True
         return bool(ret.shopify.refund_ids)
 
     # ===================================================================== upkeep
@@ -840,6 +862,8 @@ class ReturnsService:
                 for ln in ret.lines
             ],
             "postage": ret.postage.chosen.value,
+            # How staff approved it, which can differ from what the customer picked.
+            "postage_mode": ret.postage.mode.value if ret.postage.mode else None,
             "label_url": label,
             "tracking": ret.postage.tracking,
             "tracking_url": ret.postage.tracking_url,
@@ -850,8 +874,9 @@ class ReturnsService:
             "credit": gbp(ret.money.credit_pence)
             if ret.resolution == Resolution.store_credit
             else None,
+            # Only while they still have to post it.
             "return_address": self._return_address()
-            if ret.postage.mode == PostageMode.self_ship
+            if ret.postage.mode == PostageMode.self_ship and ret.status == Status.awaiting_shipment
             else None,
             "decline_reason": ret.decline_reason,
         }

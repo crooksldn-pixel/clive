@@ -305,7 +305,8 @@
       var at = STATUS_STEP[ret.status];
       if (at == null) return '';
       var finish = ret.resolution === 'exchange' ? 'Swap sent out' : ret.resolution === 'store_credit' ? 'Credit added' : 'Refunded';
-      var steps = ['Requested', 'Approved', ret.postage === 'self_ship' ? 'You post it' : 'Label sent', 'On its way back', 'Arrived with us', finish];
+      var selfShip = ret.postage_mode ? ret.postage_mode === 'self_ship' : ret.postage === 'self_ship';
+      var steps = ['Requested', 'Approved', selfShip ? 'You post it' : 'Label sent', 'On its way back', 'Arrived with us', finish];
       return '<ol class="rd-timeline">' + steps.map(function (s, i) {
         var mark = i < at ? ' data-done' : i === at ? ' data-now' : '';
         return '<li' + mark + '><span class="rd-dot">' + (i < at ? '<span style="color:#0a0a0a">' + TICK + '</span>' : '') + '</span><span>' + esc(s) + '</span></li>';
