@@ -429,13 +429,30 @@ class FakeShop:
         return self.answers.pop(0) if self.answers else {"data": {}}
 
 
-def an_order(number, lines, *, status="UNFULFILLED", note=""):
+def an_order(number, lines, *, status="UNFULFILLED", note="", fulfillments=None, money="PAID", cancelled=None):
     return {"node": {
         "id": f"gid://shopify/Order/{number}", "name": f"#{number}", "processedAt": "2026-10-01T08:00:00Z",
         "note": note, "displayFulfillmentStatus": status, "customer": {"displayName": "Jane Doe"},
-        "shippingLine": {"title": "Royal Mail Tracked 48"},
+        "shippingLine": {"title": "Royal Mail Tracked 48"}, "displayFinancialStatus": money, "cancelledAt": cancelled,
+        "fulfillments": fulfillments or [],
         "lineItems": {"edges": [{"node": line} for line in lines]},
     }}
+
+
+def fulfilled(hours_ago, shown="LABEL_PRINTED", status="SUCCESS"):
+    """One of an order's fulfilments, made this many hours before now, as Shopify reads it."""
+    at = (datetime.now(UTC) - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {"createdAt": at, "status": status, "displayStatus": shown}
+
+
+CAP = {"name": "Cap", "variantTitle": None, "sku": "CP", "quantity": 3, "unfulfilledQuantity": 0}
+
+
+async def labelled_rows(*orders):
+    """What the board makes of the fulfilled-orders read, with nothing left to pack in the first."""
+    shop = FakeShop({"data": {"orders": {"edges": []}}}, {"data": {"orders": {"edges": list(orders)}}})
+    answer = await live._orders(SimpleNamespace(shopify=shop))
+    return answer["items"], shop
 
 
 async def test_orders_to_pack_are_read_from_shopify_with_only_what_is_left_to_pack():
@@ -463,7 +480,7 @@ async def test_an_order_whose_label_is_printed_is_still_the_job_until_someone_sa
             {"name": "Hoodie", "variantTitle": "M", "sku": "HD-M", "quantity": 2, "unfulfilledQuantity": 2}])]}}},
         {"data": {"orders": {"edges": [an_order(1002, [
             {"name": "Cap", "variantTitle": None, "sku": "CP", "quantity": 3, "unfulfilledQuantity": 0}],
-            status="FULFILLED")]}}},
+            status="FULFILLED", fulfillments=[fulfilled(2)])]}}},
     )
     answer = await live._orders(SimpleNamespace(shopify=shop))
     # The list of what is still to pack is asked for exactly as it always was.
@@ -509,6 +526,57 @@ async def test_the_second_read_failing_never_takes_down_what_is_still_to_pack():
 def test_how_far_back_a_printed_label_is_still_todays_work():
     moment = datetime(2026, 10, 2, 12, 0, 0, tzinfo=UTC)
     assert "updated_at:>=2026-10-01T12:00:00Z" in live._labelled_query(moment)
+
+
+async def test_an_older_order_changed_today_does_not_come_back_as_a_box_to_pack():
+    """The post-deploy review of 3 October: read by `updated_at`, a refund, a tag or a note on an order
+    fulfilled days ago put it back on the board for a day as "Pack #… label already printed", and staff
+    could pack a second box. What counts is when its latest fulfilment was made."""
+    old = an_order(990, [CAP], status="FULFILLED", fulfillments=[fulfilled(72)])
+    fresh = an_order(1002, [CAP], status="FULFILLED", fulfillments=[fulfilled(72), fulfilled(3)])
+    rows, shop = await labelled_rows(old, fresh)
+    assert [r["order_number"] for r in rows] == ["#1002"], "only the order whose latest fulfilment is today's"
+    assert "fulfillments(first: 10) { createdAt status displayStatus }" in shop.asked[1][0]
+    assert "cancelledAt" in shop.asked[1][0] and shop.asked[1][0] == live._LABELLED_QUERY
+    # Just inside and just outside the window.
+    edge, gone = (an_order(1003, [CAP], status="FULFILLED", fulfillments=[fulfilled(23.5)]),
+                  an_order(1004, [CAP], status="FULFILLED", fulfillments=[fulfilled(24.5)]))
+    assert [r["order_number"] for r in (await labelled_rows(edge, gone))[0]] == ["#1003"]
+
+
+async def test_a_refunded_or_cancelled_order_is_no_box_to_pack():
+    rows, shop = await labelled_rows(
+        an_order(1005, [CAP], status="FULFILLED", fulfillments=[fulfilled(2)], money="REFUNDED"),
+        an_order(1006, [CAP], status="FULFILLED", fulfillments=[fulfilled(2)], cancelled="2026-10-03T09:00:00Z"),
+        an_order(1007, [CAP], status="FULFILLED", fulfillments=[fulfilled(2)], money="VOIDED"),
+    )
+    assert rows == []
+    assert "NOT financial_status:refunded" in shop.asked[1][1]["q"] and "NOT status:cancelled" in shop.asked[1][1]["q"]
+
+
+async def test_a_label_is_named_only_when_shopify_says_one_was_bought():
+    rows, _ = await labelled_rows(
+        an_order(1010, [CAP], status="FULFILLED", fulfillments=[fulfilled(2, "LABEL_PRINTED")]),
+        an_order(1011, [CAP], status="FULFILLED", fulfillments=[fulfilled(2, "LABEL_PURCHASED")]),
+        an_order(1012, [CAP], status="FULFILLED", fulfillments=[fulfilled(2, "MARKED_AS_FULFILLED")]),
+        an_order(1013, [CAP], status="FULFILLED", fulfillments=[fulfilled(2, "FULFILLED")]),
+    )
+    said = {r["order_number"]: r["details"] for r in rows}
+    assert "label already printed" in said["#1010"] and "label bought" in said["#1011"]
+    for number in ("#1012", "#1013"):
+        assert "already fulfilled in Shopify" in said[number] and "label" not in said[number], said[number]
+    assert all(r["labelled"] for r in rows), "fulfilled in Shopify: the page offers no second fulfilment"
+
+
+async def test_a_parcel_the_carrier_has_or_a_fulfilment_undone_is_no_box_to_pack():
+    rows, _ = await labelled_rows(
+        an_order(1020, [CAP], status="FULFILLED", fulfillments=[fulfilled(5, "IN_TRANSIT")]),
+        an_order(1021, [CAP], status="FULFILLED", fulfillments=[fulfilled(5, "DELIVERED")]),
+        # A label bought today and voided, over an old fulfilment: nothing of today's was made.
+        an_order(1022, [CAP], status="FULFILLED", fulfillments=[fulfilled(90), fulfilled(2, "LABEL_VOIDED", "CANCELLED")]),
+        an_order(1023, [CAP], status="FULFILLED", fulfillments=[]),
+    )
+    assert rows == []
 
 
 async def test_a_labelled_order_leaves_the_board_only_once_it_is_marked_done(monkeypatch):
