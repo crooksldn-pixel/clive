@@ -171,6 +171,32 @@ def _expiring(connection: catalog.Connection, days: int) -> str:
     return f"The {connection.label} sign-in runs out {left}, and CLIVE hasn't renewed it."
 
 
+# What a sign-in that Instagram refuses needs, by the kind of refusal its client last met
+# (app/clients/instagram.py): each is put right by signing in again.
+SIGN_IN_TROUBLE = {
+    "token": "{label} no longer accepts CLIVE's sign-in.",
+    "permission": "{label}'s sign-in is missing a permission CLIVE needs: when you sign in again, allow messages "
+                  "and comments.",
+    "refresh_blocked": "CLIVE couldn't renew the {label} sign-in.",
+}
+
+
+def _trouble(connection: catalog.Connection, family: dict[str, Any], family_state: str,
+             sign_in_ready: bool) -> tuple[str, str]:
+    """A capability family in trouble while the keys are in: what to say, and what puts it right.
+    A sign-in that is refused, or short of a scope, is signed in again; anything else is checked
+    again (the review of 889f3284, note 3)."""
+    detail = str(family.get("detail") or family_state.replace("_", " ").lower())
+    if not (connection.sign_in and sign_in_ready):
+        return detail, "retry"
+    from app.clients import instagram as instagram_client
+
+    kind = str(instagram_client.state().get("last_error_kind") or "")
+    if family_state == "MISSING_SCOPE" or kind in SIGN_IN_TROUBLE:
+        return SIGN_IN_TROUBLE.get(kind, SIGN_IN_TROUBLE["permission"]).format(label=connection.label), "signin"
+    return detail, "retry"
+
+
 def card(runtime: Any, connection: catalog.Connection, *, tests: dict[str, dict[str, Any]],
          families: dict[str, dict[str, Any]], origin: str) -> dict[str, Any]:
     """One connection as its row shows it: never a secret, an ID only because it is not one.
@@ -208,16 +234,16 @@ def card(runtime: Any, connection: catalog.Connection, *, tests: dict[str, dict[
     elif last and not last.get("ok"):
         state, detail = "needs_attention", str(last.get("detail") or "The last test failed.")
         fix = str(last.get("fix") or ("server" if connection.set_up_at else "key"))
-        if fix == "key" and sign_in_ready:
-            fix = "signin"
+        if fix in ("key", "service") and sign_in_ready:
+            fix = "signin"                 # a refused token, or one short of a permission: sign in again
         elif fix == "key":
             needs = [k for k in connection.requires if catalog.field(connection, k)]
     elif days is not None and days < EXPIRING_DAYS:
         state, detail = "needs_attention", _expiring(connection, days)
         fix, needs = ("signin", []) if sign_in_ready else ("key", ["instagram_access_token"])
     elif family_state in TROUBLED:
-        state, detail = "needs_attention", str(family.get("detail") or family_state.replace("_", " ").lower())
-        fix = "retry"
+        state = "needs_attention"
+        detail, fix = _trouble(connection, family, family_state, sign_in_ready)
     else:
         state, detail = "connected", str(last.get("detail") or "Connected.")
     out = {

@@ -130,6 +130,44 @@ async def test_a_sign_in_running_out_needs_the_owner_before_it_stops(world, inst
     assert "runs out in 3 days" in ending["detail"]
 
 
+async def _instagram_signed_in(http):
+    await register(http)
+    await save(http, "instagram", {"instagram_app_id": body("page-ig", 16, DIGITS),
+                                   "instagram_app_secret": body("page-ig-secret", 32, HEX)})
+    vault.store("instagram_access_token", bearer_token("page-ig-token"))
+
+
+async def test_instagram_missing_a_permission_is_put_right_by_signing_in_again(world, monkeypatch, instagram_forgotten):  # noqa: F811
+    """The review of 889f3284 (note 3): a token that lacks a permission, or a scope Instagram has
+    not granted, is put right by signing in again and allowing it, not by a new key or by waiting."""
+    await _instagram_signed_in(world)
+
+    async def lacks(values, settings, changed=frozenset()):
+        return testers.Outcome(False, "Instagram accepted the token but it lacks a permission CLIVE needs.",
+                               fix="service")
+
+    monkeypatch.setitem(testers.TESTERS, "instagram", lacks)
+    await world.post("/connections/instagram/test", json={}, headers=HEADERS)
+    shown, _ = await cards(world)
+    assert (shown["instagram"]["group"], shown["instagram"]["fix"], shown["instagram"]["needs"]) == ("attention", "signin", [])
+
+
+@pytest.mark.parametrize("family, kind", [
+    ({"state": "MISSING_SCOPE", "detail": "instagram_business_manage_messages not granted"}, ""),
+    ({"state": "TEMPORARILY_UNAVAILABLE", "detail": "@crooksldn: the last call was refused (permission)"}, "permission"),
+])
+async def test_instagram_refusing_its_sign_in_asks_to_sign_in_again(world, instagram_forgotten, family, kind):  # noqa: F811
+    await _instagram_signed_in(world)
+    await world.post("/connections/instagram/test", json={}, headers=HEADERS)
+    if kind:
+        instagram_client._note(last_error_kind=kind)
+    world.runtime.family_states_table = {"instagram": family}
+    shown, _ = await cards(world)
+    ig = shown["instagram"]
+    assert (ig["group"], ig["fix"], ig["needs"]) == ("attention", "signin", [])
+    assert "(permission)" not in ig["detail"], "said in our words"
+
+
 # ------------------------------------------------------------------ Gmail, set up at the server
 
 async def test_gmail_asks_for_nothing_here_and_is_connected_when_it_answers(world, tmp_path, monkeypatch):  # noqa: F811 - the fixture imported above

@@ -197,6 +197,26 @@ test('a sign-in running out asks him to sign in again, not for a key', () => {
   assert.deepEqual(signedIn, ['instagram']);
 });
 
+test('Instagram can always be signed in to again from its details, once, whatever its state', () => {
+  // The review of 889f3284 (note 3): only a row whose fix was "signin" offered it.
+  const signed = [];
+  const on = { signIn: (c) => signed.push(c.name) };
+  const working = Object.assign({}, INSTAGRAM, { state: 'connected', group: 'working', fix: '', detail: 'Connected.' });
+  const waiting = Object.assign({}, INSTAGRAM, { fix: 'retry', detail: 'Instagram did not answer.' });
+  for (const c of [working, waiting]) {
+    const row = View.row(c, ctx({ on }));
+    const again = all(row, 'button').filter((b) => b.textContent === 'Sign in again');
+    assert.equal(again.length, 1, c.fix || 'working');
+    assert.ok(!again[0].disabled);
+    again[0].dispatch('click');
+  }
+  assert.deepEqual(signed, ['instagram', 'instagram']);
+  const ending = View.row(INSTAGRAM, ctx());
+  assert.equal(all(ending, 'button').filter((b) => b.textContent === 'Sign in again').length, 1, 'not twice');
+  const notReady = View.row(Object.assign({}, working, { sign_in: Object.assign({}, INSTAGRAM.sign_in, { ready: false }) }), ctx());
+  assert.equal(all(notReady, 'button').filter((b) => b.textContent === 'Sign in again').length, 0);
+});
+
 test('Save hands the typed values to the page, and nothing a change needs is skipped', () => {
   const saved = [];
   const row = View.row(GITHUB, ctx({ on: { save: (c, form, inputs) => saved.push([c.name, inputs.length]) } }));

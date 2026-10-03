@@ -325,6 +325,13 @@
       replace.setAttribute('aria-expanded', 'false');
       if (!asking) add(actions, replace);
       if (c.sign_in) {
+        // Signing in again puts right most of what goes wrong with a sign-in, so it is always here
+        // once the app is in, unless the row's own fix is already that button.
+        if (c.sign_in.ready && !(c.group === 'attention' && c.fix === 'signin')) {
+          const again = button('btn conn-signin', 'Sign in again', () => ctx.on && ctx.on.signIn && ctx.on.signIn(c, again, result));
+          if (!ctx.canChange) again.disabled = true;
+          add(actions, again);
+        }
         const app = button('btn conn-app', 'Change the Meta app', () => {
           if (holder.firstChild) { holder.textContent = ''; return; }
           add(holder, keyForm(c, ['instagram_app_id', 'instagram_app_secret'], ctx, { cancel: () => { holder.textContent = ''; } }));
