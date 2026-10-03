@@ -254,6 +254,13 @@ def fingerprint(ret: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _settle(_execution: dict, _sent: dict) -> None:
+    """Nothing to wait for. Declared so that an action whose answer never came back (a timeout, or
+    a 503 after the service had already made the Shopify return) is never written off as "nothing
+    was changed" on one re-read: the engine says it could not confirm it, and to check the return."""
+    return None
+
+
 async def _observe(execution: dict) -> Observed:
     try:
         ret = await client.get_return(execution["return_id"])
@@ -394,6 +401,7 @@ def _present(proposal) -> dict:
         execute=_execute,
         present=_present,
         verify=verify,
+        settle=_settle,
         risk=_risk,
         # The owner's swipe at the tool's own tier; the risk hook makes a money-moving card his hold.
         interaction="swipe_commit",
@@ -403,7 +411,7 @@ def _present(proposal) -> dict:
         service=client.NAME,
         says_failure=True,
         spoken_success="Done, on the return for order {label}.",
-        spoken_failure="CROOKS Returns didn't confirm that.",
+        spoken_failure="CROOKS Returns didn't confirm that; check the return before asking again.",
         spoken_stale="That return changed since this was prepared, so nothing was sent.",
     ),
 )

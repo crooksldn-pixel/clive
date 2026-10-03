@@ -379,8 +379,8 @@ async def test_an_error_the_service_reported_is_said_in_its_words(stub, engine, 
     _, proposal = await stage(session, action="complete")
     result = await gesture(engine, proposal)
     assert result.code == "unverified" and proposal.status is ActionStatus.UNVERIFIED
-    assert result.spoken == ("CROOKS Returns didn't confirm that. CROOKS Returns recorded it, but part of it failed: "
-                             "Shopify did not process the return: refused (test)")
+    assert result.spoken == ("CROOKS Returns didn't confirm that; check the return before asking again. CROOKS Returns "
+                             "recorded it, but part of it failed: Shopify did not process the return: refused (test)")
     from app.presentation import present_action
 
     (card,) = present_action(result)
@@ -398,6 +398,49 @@ async def test_a_refused_execute_says_who_refused_and_that_nothing_changed(stub,
 
     (card,) = present_action(result)
     assert card["data"]["recovery"] == "CROOKS Returns refused it: Refused by the stub. Nothing was changed."
+
+
+@pytest.mark.parametrize("no_answer", ["503", "timeout"])
+@pytest.mark.usefixtures("owner_asking")
+async def test_an_action_that_got_no_answer_is_never_said_to_have_changed_nothing(stub, engine, session, monkeypatch, no_answer):
+    """A 503 can come after the service made the Shopify return, and a timeout while it is still
+    working: one re-read showing the return as it was proves nothing. Not confirmed, check it."""
+    _, proposal = await stage(session, action="note", text="rang her")
+    if no_answer == "503":
+        stub.fail["/actions/note"] = 503
+    else:
+        real = stub.transport()
+
+        def slow(request):
+            if request.method == "POST" and request.url.path.endswith("/actions/note"):
+                raise httpx.ReadTimeout("no answer", request=request)
+            return real.handle_request(request)
+
+        monkeypatch.setattr(rc, "http_client", lambda timeout_s: httpx.AsyncClient(transport=httpx.MockTransport(slow)))
+    result = await gesture(engine, proposal, hold=False)
+    assert result.code == "unverified" and proposal.status is ActionStatus.UNVERIFIED, result.spoken
+    assert "Nothing was changed" not in result.spoken and "check the return" in result.spoken
+    from app.presentation import present_action, present_proposal_state
+
+    (card,) = present_action(result)
+    assert card["data"]["service"] == "returns" and "check the return" in card["data"]["recovery"]
+    assert "Nothing was changed" not in str(card) and "nothing was changed" not in str(card)
+    # Asked about again later, with no voice line to carry, the card still says the same.
+    (later,) = present_proposal_state(proposal)
+    assert later["data"]["recovery"] == "The change could not be confirmed. Check the return before asking again."
+
+
+@pytest.mark.usefixtures("owner_asking")
+async def test_the_fixed_words_for_an_outcome_name_crooks_returns_and_the_return(stub, engine, session):
+    from app.presentation import present_proposal_state
+
+    _, proposal = await stage(session, action="note", text="rang her")
+    proposal.status = ActionStatus.FAILED
+    (card,) = present_proposal_state(proposal, code="service_unavailable")
+    assert card["data"]["recovery"] == "CROOKS Returns could not be reached. Nothing was changed."
+    proposal.status = ActionStatus.STALE
+    (card,) = present_proposal_state(proposal, code="stale")
+    assert card["data"]["recovery"] == "The return changed since this was prepared. Ask again for a fresh one."
 
 
 @pytest.mark.usefixtures("owner_asking")

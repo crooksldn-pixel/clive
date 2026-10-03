@@ -1613,7 +1613,7 @@ def present_proposal_state(
         # say "not applied" about a change that may be on the order this second.
         items.append(_error(_service_of(proposal), "in_progress", *_OUTCOME_WORDS["in_progress"]))
     else:
-        title, words = _OUTCOME_WORDS.get(code, _OUTCOME_WORDS["failed"])
+        title, words = _outcome_words(proposal, code)
         if code == "refused":
             # The service answered and said no: its reason, bounded, is the one useful line.
             words = f"{_service_name(proposal)} refused it: {_text(proposal.reason, 140)}. Nothing was changed."
@@ -1693,6 +1693,18 @@ _OUTCOME_WORDS: dict[str, tuple[str, str]] = {
     "failed": ("Not applied", "That did not go through. Nothing was changed."),
     "refused": ("Refused", "The service answered and said no. Nothing was changed."),
 }
+
+
+def _outcome_words(proposal, code: str) -> tuple[str, str]:
+    """The fixed words for an outcome, naming who the change went to (`service_name`: Gmail, or
+    CROOKS Returns, rather than Shopify) and, for a return, the return rather than the order."""
+    title, words = _OUTCOME_WORDS.get(code, _OUTCOME_WORDS["failed"])
+    service = _service_name(proposal)
+    if service != "Shopify":
+        words = words.replace("Shopify", service)
+    if str(getattr(proposal, "entity_kind", "") or "") == "return":
+        words = words.replace("The order", "The return").replace("the order", "the return")
+    return title, words
 
 
 # --------------------------------------------------------------------------- merging, memory
