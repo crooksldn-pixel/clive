@@ -41,12 +41,13 @@ class ShopifyRefused(ShopifyError):
 # Shopify's reason library is keyed by stable handles; these are the ones each of our reasons
 # maps to, best first. An unmatched reason is still sent, as a note on the return line.
 REASON_HANDLES: dict[Reason, list[str]] = {
-    Reason.too_small: ["too-small", "too_small", "too-tight", "size-too-small"],
-    Reason.too_big: ["too-big", "too_big", "too-loose", "size-too-large"],
-    Reason.changed_mind: ["unwanted", "unwanted_2", "changed-mind", "no-longer-needed"],
-    Reason.not_as_described: ["not_as_described", "not-as-described"],
-    Reason.faulty: ["defective", "damaged", "quality"],
-    Reason.wrong_item: ["wrong-item", "wrong_item", "received-wrong-item"],
+    # The first handle of each is the one the CROOKS store's library uses (checked 2026-10-03).
+    Reason.too_small: ["too-small", "too_small", "size-too-small"],
+    Reason.too_big: ["too-big", "too_big", "size-too-large"],
+    Reason.changed_mind: ["changed-my-mind", "unwanted", "unwanted_2", "changed-mind"],
+    Reason.not_as_described: ["item-not-as-described", "not_as_described", "not-as-described"],
+    Reason.faulty: ["damaged-or-defective", "defective", "damaged"],
+    Reason.wrong_item: ["received-the-wrong-item", "wrong-item", "received-wrong-item"],
 }
 
 

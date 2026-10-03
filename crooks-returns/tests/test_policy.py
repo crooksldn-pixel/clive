@@ -195,3 +195,23 @@ def test_size_chart_parsing():
         {"name": "Size", "optionValues": [{"name": "S"}, {"name": "M"}]},
     ]
     assert size_option_of(opts) == ("Size", ["S", "M"])
+
+
+def test_reasons_map_to_the_stores_library():
+    from returns.shopify import reason_ids_from
+
+    live = [
+        "unknown",
+        "changed-my-mind",
+        "item-not-as-described",
+        "received-the-wrong-item",
+        "other-reason",
+        "damaged-or-defective",
+        "too-small",
+        "too-big",
+        "style",
+        "color",
+    ]
+    ids = reason_ids_from([{"id": f"gid://{h}", "handle": h, "deleted": False} for h in live])
+    assert len(ids) == 6
+    assert ids["faulty"] == "gid://damaged-or-defective"
