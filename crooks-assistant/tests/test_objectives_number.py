@@ -73,6 +73,8 @@ def sales(first: date, per_day: list[int], product: str = "Loopback Hoodie", col
     rows, n = [], 1000
     for i, sold in enumerate(per_day):
         noon = datetime.combine(first + timedelta(days=i), datetime.min.time(), tzinfo=LONDON) + timedelta(hours=12)
+        # Today's noon is still to come before midday: today's sales are then a second ago, still today.
+        noon = min(noon, datetime.now(LONDON) - timedelta(seconds=1))
         if sold:
             rows.append(order(n, noon, (product, sold), colour=colour))
         rows.append(order(n + 1, noon, ("Cell Block Tee", 3)))                      # another product
