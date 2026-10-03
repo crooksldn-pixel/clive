@@ -74,7 +74,9 @@ function page({ contexts, dots, engine }) {
     els[id] = new El(id === 'startup-dots' || id === 'startup-bloom' || id === 'startup-fx' ? 'canvas' : 'div', p);
   }
   els.system.dataset.phase = 'connecting';
+  const heard = {};   // what the start-up listens for on the document (design pass, 3 Oct)
   const document = {
+    addEventListener: (type, fn) => { heard[type] = fn; },
     getElementById: (id) => els[id] || null,
     querySelector: () => ({ getAttribute: () => 'build-1' }),
     createElement: (tag) => new El(tag, p),
@@ -118,7 +120,15 @@ function page({ contexts, dots, engine }) {
     now = until;
   };
   const frame = () => { const list = frames.splice(0); list.forEach((fn) => fn(now)); };
-  return { run, advance, frame, root: els.startup, sandbox };
+  // A finger put down on `target` (something with `closest`), as the browser hands it to the
+  // document on the way down; says whether the start-up stopped it there.
+  const down = (target) => {
+    const e = { target, isTrusted: true, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} };
+    if (heard.pointerdown) heard.pointerdown(e);
+    return e;
+  };
+  down.raw = (e) => { if (heard.pointerdown) heard.pointerdown(e); return e; };
+  return { run, advance, frame, root: els.startup, sandbox, els, down };
 }
 
 const gone = (root) => root.classList.contains('is-gone');
@@ -177,10 +187,68 @@ test('nothing throws but CLIVE never answers: the overlay still goes by itself',
 // 2 October (the owner: the gear did nothing for several seconds after a full start-up): once CLIVE
 // is there, a tap ends the start-up at once; before that, a tap still only hurries the animation.
 test('a tap once CLIVE is online ends the start-up at once', () => {
-  const at = STARTUP.indexOf("root.addEventListener('pointerdown'");
+  // Design pass (3 Oct): the handler hears the tap on the document now (the layer takes no
+  // touches); the rule it is held to here is the same.
+  const at = STARTUP.indexOf('function onDown(e)');
   assert.notEqual(at, -1);
-  const handler = STARTUP.slice(at, STARTUP.indexOf('\n  });', at));
-  const online = handler.indexOf('if (ready()) { finish(); return; }');
+  const handler = STARTUP.slice(at, STARTUP.indexOf('\n  }\n', at));
+  const online = handler.indexOf('if (ready()) { finish();');
   const hurry = handler.indexOf('E.simulate(T0 + 5.15)');
   assert.ok(online !== -1 && hurry !== -1 && online < hurry, 'online is asked first');
+});
+
+// Design pass (3 Oct): a tap during the start-up is not spent on it. Before CLIVE is there it
+// only hurries the animation and reaches nothing; once CLIVE is there it ends the start-up, and
+// a tap on the dock or the gear goes on to what was pressed. Nothing else is reached unseen.
+function control(selector) {
+  return { closest: (sel) => (sel.split(',').map((x) => x.trim()).includes(selector) ? { selector } : null) };
+}
+function running() {
+  const simulated = [];
+  const engine = () => ({ time: () => 0, destroy() {}, at() {}, boot() {}, quick() {}, setHome() {}, handoff() {}, simulate: (t) => simulated.push(t) });
+  const pg = page({ contexts: goodContext, engine });
+  pg.run();
+  pg.frame(); pg.frame();
+  return { pg, simulated };
+}
+
+test('before CLIVE answers, a tap on the dock only hurries the start-up and reaches nothing', () => {
+  const { pg, simulated } = running();
+  const tap = pg.down(control('.dock-btn'));
+  assert.equal(tap.stopped, true, 'the app beneath never hears it');
+  assert.deepEqual(simulated, [5.15], 'the animation skipped ahead');
+  assert.ok(!gone(pg.root), 'and the start-up is still up, waiting for CLIVE');
+});
+
+test('once CLIVE is there, a tap on the dock or the gear ends the start-up and goes through', () => {
+  for (const selector of ['.dock-btn', '#settings-btn']) {
+    const { pg } = running();
+    pg.els.system.dataset.phase = 'online';
+    const tap = pg.down(control(selector));
+    assert.equal(tap.stopped, false, `${selector} hears the tap`);
+    assert.ok(gone(pg.root), 'the start-up stepped aside at once');
+  }
+});
+
+test('an event a script dispatches on an element is not a finger, and passes as it always did', () => {
+  const { pg } = running();
+  const heard = pg.sandbox.document;
+  assert.ok(heard);
+  const scripted = { target: control('.action-surface'), isTrusted: false, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} };
+  pg.down.raw(scripted);
+  assert.equal(scripted.stopped, false);
+  assert.ok(!gone(pg.root), 'and it does not end the start-up');
+});
+
+test('once CLIVE is there, a tap anywhere else ends the start-up and reaches nothing', () => {
+  const { pg } = running();
+  pg.els.system.dataset.phase = 'online';
+  const tap = pg.down(control('.action-surface'));
+  assert.equal(tap.stopped, true, 'a control on a card is never pressed through the start-up');
+  assert.ok(gone(pg.root));
+  const later = page({ contexts: goodContext, engine: () => ({ time: () => 0, destroy() {}, at() {}, boot() {}, quick() {}, setHome() {}, handoff() {}, simulate() {} }) });
+  later.run();
+  later.frame(); later.frame();
+  later.els.system.dataset.phase = 'online';
+  assert.equal(later.down({}).stopped, true, 'nor is a tap on nothing in particular');
 });

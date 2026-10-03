@@ -251,16 +251,34 @@
     setMark('is-quick');
     E.at(T0 + 0.3, () => { setMark('is-quick is-load'); watch(); });
   }
-  root.addEventListener('pointerdown', () => {
-    if (finished) return;
+  // A tap while the start-up is up (design pass, 3 Oct). It used to land on the start-up itself
+  // and be spent there: a finger on the Orders icon in the first five seconds of the day opened
+  // nothing, and the next tap had to be made again. The layer takes no touches now (startup.css)
+  // and this hears the tap first, on the way down to the app:
+  //   - CLIVE is there: the start-up steps aside at once, and a tap on the dock or the gear goes
+  //     through to it, so it opens what was pressed. Those are the only controls let through —
+  //     fixed, in places he knows by hand — and nothing on a card is ever reached unseen.
+  //   - CLIVE is not there yet: the tap skips ahead, as it always did, and reaches nothing.
+  const PASS = '.dock-btn, #settings-btn';
+  let swallowUntil = 0;
+  const swallow = (e) => { if (e.isTrusted && Date.now() < swallowUntil) { e.stopPropagation(); e.preventDefault(); } };
+  function onDown(e) {
+    // A finger's tap, not one a script dispatched on an element of its own choosing.
+    if (finished || gone || !e.isTrusted) return;
+    const target = e.target && e.target.closest ? e.target.closest(PASS) : null;
+    let through = false;
     try {
-      // A tap once CLIVE is there is someone who wants the app now (the gear, a card): the start-up
-      // steps aside at once instead of playing on over it for up to eight seconds.
-      if (ready()) { finish(); return; }
-      if (kind === 'full' && !loadAt && E.time() < T0 + 5.1) { E.simulate(T0 + 5.15); return; }
-    } catch (e) { bail(); return; }
-    if (failed()) finish();
-  });
+      if (ready()) { finish(); through = Boolean(target); }
+      else if (kind === 'full' && !loadAt && E.time() < T0 + 5.1) E.simulate(T0 + 5.15);
+      else if (failed()) finish();
+    } catch (err) { bail(); }
+    if (through) return;
+    swallowUntil = Date.now() + 900;
+    e.stopPropagation();
+    e.preventDefault();
+  }
+  document.addEventListener('pointerdown', onDown, true);
+  for (const type of ['pointerup', 'click']) document.addEventListener(type, swallow, true);
   requestAnimationFrame(() => requestAnimationFrame(() => {
     try { if (kind === 'full') runFull(); else runQuick(); } catch (e) { bail(); }
   }));

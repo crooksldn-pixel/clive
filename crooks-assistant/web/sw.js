@@ -78,6 +78,8 @@ const SHELL = [
   // Customers: the order he meant, their story, a refund landing (web/customers.js).
   '/static/customers.js',
   '/static/customers.css',
+  // The design pass of 3 Oct: the answer in full, Home, approval weights, the dock (web/design.css).
+  '/static/design.css',
   '/manifest.webmanifest',
   '/static/icon-192.png',
   '/static/icon-512.png',

@@ -4,7 +4,10 @@
 .startup{position:fixed;inset:0;z-index:40;overflow:hidden;isolation:isolate;background:#07070a;color:#fff;
   font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text",system-ui,"Helvetica Neue",Helvetica,sans-serif;
   -webkit-font-smoothing:antialiased;user-select:none;-webkit-user-select:none;touch-action:none;
-  transition:opacity .6s ease;animation:startup-giveway 0s linear 12s forwards}
+  transition:opacity .6s ease;animation:startup-giveway 0s linear 12s forwards;
+  /* It takes no touches (design pass, 3 Oct): startup.js hears a tap on its way down and decides
+     whether it reaches the dock or the gear beneath, or only ends the start-up. */
+  pointer-events:none}
 .startup.is-live{animation:none}
 .startup.is-gone{opacity:0;pointer-events:none}
 @keyframes startup-giveway{to{opacity:0;visibility:hidden;pointer-events:none}}

@@ -144,6 +144,8 @@ const SHELL = ['/', '/static/style.css', '/static/app.js', '/static/ui.js', '/st
   '/static/builds.js', '/static/builds.css',
   // Customers: the order he meant, their story, a refund landing (web/customers.js).
   '/static/customers.js', '/static/customers.css',
+  // The design pass of 3 Oct (web/design.css).
+  '/static/design.css',
   '/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png', '/static/icon-maskable-192.png', '/static/icon-maskable-512.png'];
 
 async function installed() {

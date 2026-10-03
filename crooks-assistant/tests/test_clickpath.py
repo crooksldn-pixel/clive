@@ -10,12 +10,10 @@ Two tests. The first needs no browser and holds the shape of the matrix: the fou
 brief names, each with the hops it names, and the discipline that keeps them honest. The
 second walks them in Chromium.
 
-Expected failures on this tree, both real and both named in the run's own detail:
-
-  * path 1 stops at step 4 of 8 — an order card, with its Customer tab open, offers no control
-    that opens the customer. Order → Customer is not walkable at all.
-  * path 3 stops at step 7 of 7 — Cancel on the composer does nothing, and the Mac's own
-    answer says why: "There is no email open on this half to do that to."
+No failure is expected on this tree. The two this file once named walk now: Order → Customer
+(path 1, step 4) and Cancel on the composer (path 3, step 7). The design pass of 3 October put the
+dock under a finger on the 601 px Tab A, where the first hop of every path used to find no icon,
+and retired path 4's Split hops with Split (DEC-050).
 """
 
 from __future__ import annotations
@@ -33,10 +31,12 @@ REQUIRED_PATHS = {
     ),
     "2-inbox-thread-customer-order-back": ("Inbox → Thread → Customer → Order → Back", 5),
     "3-customer-inbox-compose-cancel": ("Customer → Inbox → Compose → Cancel", 7),
-    "4-split-two-halves-independent": (
-        "Split → select left → open order → switch right → open inbox → switch left → Back "
-        "→ switch right", 9,
-    ),
+    # Retired under DEC-050: George retired user-facing Split on 20 Sep 2026, and DEC-050 with
+    # DEC-037/038 says Split-specific UI and tests are migration evidence, not permanent
+    # requirements. Its eight Split hops (Split → select left → open order → switch right → open
+    # inbox → switch left → Back → switch right) and their whole-path check are retired; its first
+    # hop, a finger on the Orders icon at the Tab A's size, is the dock's and is still walked.
+    "4-split-two-halves-independent": ("Orders (the Split hops are retired: DEC-050)", 1),
 }
 
 

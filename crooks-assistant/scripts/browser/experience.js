@@ -327,6 +327,8 @@ async function main() {
       area: document.body.dataset.area || '', mode: document.body.dataset.mode || '',
       answer: ((document.querySelector('#answer') || {}).textContent || '').trim(),
       chip: ((document.querySelector('#stack .chip-set') || {}).textContent || '').trim(),
+      // Design pass (3 Oct): what the home holds, for Home's own destination.
+      home: (document.querySelector('#alpha-home') || { children: [] }).children.length,
     };
   });
 
@@ -357,9 +359,14 @@ async function main() {
     first.type === 'order' && second.type === 'order' && first.ref && second.ref && first.ref !== second.ref
     && /1 of 3/.test(first.answer) && /2 of 3/.test(second.answer),
     `1st=${first.ref} "${first.answer}" 2nd=${second.ref} "${second.answer}"`);
+  // Design pass (3 Oct): Back is drawn only when there is somewhere to go back to — the greyed
+  // placeholder was part of the permanent strip GENERATIVE_UI_V1 §4 removed — so it appears after
+  // the first Next. What must not happen is what the slot was for: the control under the thumb
+  // changing. Next is anchored at the row's far end, so it stays put, and Back appears at the
+  // other end, never where Next was.
+  const clear = (b) => !b || b.w === 0 || b.x + b.w <= atList.next.x || b.x >= atList.next.x + atList.next.w;
   check('neither chip moves under the thumb while the list is walked',
-    first.next.x === atList.next.x && second.next.x === atList.next.x
-    && first.back.x === atList.back.x && second.back.x === atList.back.x,
+    first.next.x === atList.next.x && second.next.x === atList.next.x && clear(first.back) && clear(second.back),
     `next x ${atList.next.x}/${first.next.x}/${second.next.x} back x ${atList.back.x}/${first.back.x}/${second.back.x}`);
   check('the screen says where in the list you are, on the card as well as in the sentence',
     /2\s*of\s*3/.test(second.chip), `chip="${second.chip}"`);
@@ -400,24 +407,27 @@ async function main() {
     JSON.stringify(out.back));
   await shot('05-list-walk');
 
-  // The Assistant chip, with a thumb. It is a place: a landing with cards on it, in the
-  // context mode — not the orb screen the old client-only Home dropped the owner onto, and
-  // not a replay of the record that happened to be oldest on the trail.
+  // Home, with a thumb. Design pass (3 Oct): the chip is "Home" and goes to the home — what needs
+  // him and what is moving — as the horizon's Home does; the orders landing is the Orders icon's.
+  // (It was "CLIVE" and landed on this half's dock landing, which on the phone was the only way
+  // anywhere and was the orders list.) Never a replay of the record oldest on the trail.
   await say('show me order 1938');
   const atRecord = await walkState();
   check('a record is open to press Home from', atRecord.type === 'order', `type=${atRecord.type}`);
   await page.evaluate(() => document.querySelector('#home-btn').click());
   await sleep(1600);
   const landed = await walkState();
-  check('the Assistant chip lands on a landing with cards, not on the orb',
-    landed.mode === 'context' && landed.types.indexOf('order_list') !== -1 && landed.type !== 'order',
+  check('Home lands on the home, not on a landing',
+    landed.mode === 'orb',
     `mode=${landed.mode} types=${landed.types.join(',')}`);
   await page.evaluate(() => document.querySelector('#home-btn').click());
   await sleep(1600);
   const landedTwice = await walkState();
+  // Design pass (3 Oct): the destination is the home, so "still has cards on it" is "the home
+  // is drawn": the same screen both times, with the home on it.
   check('pressed twice, it is the same landing both times and still has cards on it',
-    JSON.stringify(landedTwice.types) === JSON.stringify(landed.types) && landedTwice.rows > 0,
-    `first=${landed.types.join(',')} again=${landedTwice.types.join(',')} rows=${landedTwice.rows}`);
+    landedTwice.mode === landed.mode && landedTwice.mode === 'orb' && landedTwice.home > 0,
+    `first=${landed.mode} again=${landedTwice.mode} home=${landedTwice.home}`);
   await shot('08-assistant-landing');
 
   // ---- 9. touch, then voice, with a finger rather than with fetch

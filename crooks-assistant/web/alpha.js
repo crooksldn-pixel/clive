@@ -144,7 +144,9 @@
   function head(title, sub) {
     return h('div', { class: 'alpha-sheet-head' },
       h('div', {}, h('h2', { text: title }), sub ? h('p', { class: 'alpha-muted', text: sub }) : null),
-      h('button', { class: 'btn primary', type: 'button', text: 'Done', 'data-alpha': 'done', onclick: closeSheet }));
+      // Design pass (3 Oct): "Close", quiet — it only puts the sheet away. It said "Done" in the
+      // brightest button on the sheet, a word away from "Mark done" (web/design.css).
+      h('button', { class: 'btn alpha-close-sheet', type: 'button', text: 'Close', 'data-alpha': 'done', onclick: closeSheet }));
   }
   function flash(text) {
     const note = h('p', { class: 'alpha-flash', role: 'status', text });
@@ -491,10 +493,12 @@
     }
     // Why Mark done did not close it, said on the sheet itself, where the owner is looking.
     const notDone = h('p', { class: 'alpha-blocked', role: 'status', 'data-alpha': 'mark_done_failed', hidden: true });
+    // Design pass (3 Oct): completing it is the filled button and says what it does; Close is
+    // the quiet one at the top. The same confirm, by the objective's name, as before.
     blocks.push(h('div', { class: 'row-btns' },
-      h('button', { class: 'btn', type: 'button', text: 'Mark done', 'data-alpha': 'mark_done', onclick: async () => {
+      h('button', { class: 'btn primary alpha-complete', type: 'button', text: 'Mark as done', 'data-alpha': 'mark_done', onclick: async () => {
         // Named, so the owner confirms the objective this closes, not whichever he thinks is open.
-        if (!confirm(`Close "${o.title}" as done?`)) return;
+        if (!confirm(`Mark "${o.title}" as done?`)) return;
         notDone.textContent = '';
         notDone.hidden = true;
         try {

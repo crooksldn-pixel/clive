@@ -128,6 +128,8 @@ async def test_every_route_but_the_teams_stays_the_owners(team):
         ("POST", "/today/access/scr_000000000000/suspend"),
         ("POST", "/actions/row"), ("POST", "/actions/scr_000000000000/arm"), ("POST", "/actions/scr_000000000000/commit"),
         ("POST", "/actions/scr_000000000000/dismiss"), ("GET", "/actions/states"), ("GET", "/actions/scr_000000000000"),
+        # The design pass's "Not now" (3 Oct 2026): withdrawing their own proposal, as they may arm or dismiss it.
+        ("POST", "/actions/scr_000000000000/decline"),
     ])
     for owners in ("/connections/state", "/objectives", "/speak", "/tools", "/state/scr_000000000000", "/reset",
                    "/cancel", "/openapi.json"):

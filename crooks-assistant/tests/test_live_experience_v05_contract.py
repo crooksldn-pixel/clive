@@ -33,8 +33,9 @@ def test_v05_initial_html_matches_clive_ready_framing_before_javascript_runs() -
 
     assert ">CLIVE ready</p>" in source
     assert ">Ask, interrupt, or continue</p>" in source
-    assert 'aria-label="Back to CLIVE"' in source
-    assert "<span>CLIVE</span>" in source
+    # Design pass (3 Oct): the chip is Home, as on the horizon, and goes to the home.
+    assert 'aria-label="Home"' in source
+    assert "<span>Home</span>" in source
     assert ">System ready.</p>" not in source
     assert ">What do you need?</p>" not in source
 
