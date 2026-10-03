@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 
 from app.tools.gate import Disposition, Tier, classify
-from tests.customers_world import INVOICE_HOST, MIA, cards, hold, say, vid, world_fixture
+from tests.customers_world import ALICIA, INVOICE_HOST, MIA, cards, hold, say, vid, world_fixture
 
 world = pytest.fixture(world_fixture)
 
@@ -169,3 +169,16 @@ async def test_the_prepare_step_on_its_own_builds_the_email_and_sends_nothing(wo
     assert prepared.execution["draft_id"] == "", "a fresh message, never a Gmail draft sent in its place"
     assert prepared.execution["checkout_draft_id"] in world.store.drafts
     assert _sends(world) == []
+
+
+async def test_words_naming_another_customers_order_are_refused_before_any_draft_is_made(world):
+    """The check every new email gets (app/tools/gmail_writes.py): an email to Alicia that names
+    #2205 — Mia's order, on the screen a moment ago — is refused, and no draft is left behind."""
+    await say(world, "show me order 2205", ("shopify_find_order", {"query": "2205"}))
+    await say(world, "send Alicia a checkout link for the black tee, size M",
+              ("shopify_find_customer", {"query": "Alicia Grant"}),
+              ("shopify_checkout_link_send", {"customer_id": ALICIA, "items": [{"item": "black tee", "size": "M"}],
+                                              "message": "Hi Alicia, following up on order 2205, here is the tee."}))
+    told = next(c for c in world.model.calls if c.name == "shopify_checkout_link_send")
+    assert not told.ok and "names order 2205" in told.error and "not the customer on that order" in told.error
+    assert world.store.mutations == [] and world.store.drafts == {} and _sends(world) == []

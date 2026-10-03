@@ -350,6 +350,9 @@ async def shopify_checkout_link_send(customer_id: str, items: list, message: str
     if not isinstance(items, list) or not 1 <= len(items) <= MAX_ITEMS:
         raise ToolError(f"Give one to {MAX_ITEMS} items.")
     customer = await _customer(str(customer_id))
+    # The check every new email gets, before anything is made: words that name an order whose
+    # customer is someone else ("following up on order 2205", Mia's) are refused here.
+    await gmail_writes._new_email_held_to_the_orders_it_names(f"{SUBJECT}\n{text}", customer)
     lines = [await _resolve(item) for item in items]
     node = await _the_draft(customer, lines)
     link = str(node.get("invoiceUrl") or "").strip()
