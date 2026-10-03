@@ -253,6 +253,25 @@ def current() -> InteractionRecord | None:
     return _current
 
 
+def reported(timeline: Any) -> TestSession | None:
+    """What /health and /test-session/status say is running: the test session this timeline
+    writes, else a recording a mirror behind it writes (the experience recorder, `make
+    record-start`) — never this record's own day, which is always running and said apart."""
+    if timeline is None:
+        return None
+    own = getattr(timeline, "own", None)
+    if own is not None:
+        return own
+    held = getattr(timeline, "mirror", None)
+    while held is not None:
+        if held is not _current:
+            running = getattr(held, "own", None)
+            if running is not None:
+                return running
+        held = getattr(held, "mirror", None)
+    return None
+
+
 def on(timeline: Any) -> bool:
     """Whether `timeline`'s active session is this record's day rather than a test session or
     a recording somebody started: what /health and /test-session/status say apart."""

@@ -296,16 +296,15 @@ def _observability(runtime, request: Request | None = None) -> dict:
     """Whether a test session is on, read at answer time rather than from the cached checks:
     the tablet turns its own telemetry on and off from this, within one poll."""
     timeline = getattr(runtime, "timeline", None)
-    session = timeline.active if timeline is not None else None
-    # [recording] The interaction record's own day is not a test session, and is not said as one:
-    # "is a test running?" stays a question about tests. The page turns its telemetry on for
-    # either (web/telemetry.js `configure`), so `recording` names the day it is writing into — to
-    # the owner's own devices only, whose telemetry the record keeps: a team member's phone
+    # [recording] What is said to be running is a test session or the experience recording, never
+    # the interaction record's own day: "is a test running?" stays a question about tests
+    # (app/observability/interactions.py `reported`). The page turns its telemetry on for the
+    # record too (web/telemetry.js `configure`), so `recording` names the day it is writing into —
+    # to the owner's own devices only, whose telemetry the record keeps: a team member's phone
     # posting its account would only be refused at the door.
     from app.observability import interactions
 
-    if interactions.on(timeline):
-        session = None
+    session = interactions.reported(timeline)
     out = {"test_session": session.test_session_id if session is not None else None, "name": session.name if session is not None else None}
     recording = interactions.current()
     if recording is not None and recording.active_id and _the_owners(request):

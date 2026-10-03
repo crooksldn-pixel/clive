@@ -746,3 +746,18 @@ async def test_a_build_request_never_carries_a_customer(monkeypatch):
         inbox_id=HEAD, title="Bulk archive", requested_outcome="Archive a whole list in one hold.", allowed_paths=["app/tools/batch_tools.py"],
         request_id="bulk-archive-plain")
     assert "Archive a whole list in one hold." in plain.execution["content"], "nothing to take out: as he said it"
+
+
+def test_the_experience_recording_is_still_reported_with_the_record_in_front(tmp_path):
+    from app.observability import recorder as recorder_module
+
+    recordings = recorder_module.Recordings(tmp_path)
+    recorder = recorder_module.Recorder(recordings)
+    main = Timeline(TestSessions(tmp_path))
+    main.mirror = interactions.install(InteractionRecord(InteractionDays(tmp_path), behind=recorder))
+    assert interactions.reported(main) is None, "the record's own day is never reported as running"
+    hour = recordings.start("an hour of real use")
+    assert interactions.reported(main).test_session_id == hour.test_session_id
+    test = main.start("a walkthrough")
+    assert interactions.reported(main).test_session_id == test.test_session_id, "a test he started comes first"
+    main.stop()
