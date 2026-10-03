@@ -1,0 +1,102 @@
+{%- comment -%}
+  Returns, said as reassurance: if it doesn't fit, it's sorted. Size swaps
+  lead, because a swap keeps the customer in the right piece; refunds are
+  stated as easy, never pitched.
+
+  Wording lives in Theme settings → CROOKS — Returns promise, so every place
+  that shows it says the same thing and is changed in one place. Each line is a
+  promise made at the point of sale, so it must stay true to the returns policy
+  (Terms → Returns).
+
+  Accepts:
+    variant  'custody' — an extra step at the end of the product page's Chain of
+                         custody list. Emits an <li>: render it inside that <ol>,
+                         and load crooks-returns.css outside the list.
+                         Pass step: the number it carries.
+             'line'    — one quiet line, for the cart
+             'strip'   — the lines three across from tablet up, for the tracking page
+             'panel'   — the lines stacked in a bordered panel
+    bare     true inside the promo band, which has its own label and button:
+             drops this snippet's label and link so nothing is said twice
+{%- endcomment -%}
+{%- liquid
+  assign crk_rp_variant = variant | default: 'panel'
+  assign crk_rp_url = settings.crk_ret_link
+  if crk_rp_url == blank
+    assign crk_rp_url = pages['returns'].url | default: '/pages/returns'
+  endif
+  assign crk_rp_link = false
+  if settings.crk_ret_link_label != blank and bare != true
+    assign crk_rp_link = true
+  endif
+-%}
+
+{%- capture crk_rp_items -%}
+  {%- for i in (1..3) -%}
+    {%- liquid
+      assign t_key = 'crk_ret_' | append: i | append: '_title'
+      assign b_key = 'crk_ret_' | append: i | append: '_body'
+      assign t = settings[t_key]
+      assign b = settings[b_key]
+    -%}
+    {%- if t != blank -%}
+      <li class="crk-retp__item">
+        <span class="crk-retp__icon" aria-hidden="true">
+          {%- case i -%}
+            {%- when 1 -%}<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><path d="M3 7h12M12 4l3 3-3 3M17 13H5M8 10l-3 3 3 3"/></svg>
+            {%- when 2 -%}<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><path d="M15 9a5 5 0 1 1-1.5-3.6"/><path d="M15 3v3.5h-3.5"/></svg>
+            {%- else -%}<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3h5v5H3zM12 3h5v5h-5zM3 12h5v5H3z"/><path d="M12 12h2v2h-2zM15 15h2v2h-2zM15 12h2M12 17h2"/></svg>
+          {%- endcase -%}
+        </span>
+        <span class="crk-retp__text">
+          <strong class="crk-retp__title">{{ t }}</strong>
+          {%- if b != blank -%}<span class="crk-retp__body">{{ b }}</span>{%- endif -%}
+        </span>
+      </li>
+    {%- endif -%}
+  {%- endfor -%}
+{%- endcapture -%}
+
+{%- case crk_rp_variant -%}
+  {%- when 'custody' -%}
+    <li class="crk-retp crk-retp--custody">
+      <span class="crk-label">{% if step < 10 %}0{% endif %}{{ step }} {{ settings.crk_ret_custody_label | default: 'Returns & swaps' }}</span>
+      <ul class="crk-retp__list">{{ crk_rp_items }}</ul>
+      {%- if crk_rp_link -%}
+        <p class="crk-retp__foot"><a class="crk-retp__link" href="{{ crk_rp_url }}">{{ settings.crk_ret_link_label }}<span class="crk-retp__arrow" aria-hidden="true">→</span></a></p>
+      {%- endif -%}
+    </li>
+
+  {%- when 'line' -%}
+    {{ 'crooks-returns.css' | asset_url | stylesheet_tag }}
+    <p class="crk-retp crk-retp--line">
+      {%- for i in (1..3) -%}
+        {%- assign t_key = 'crk_ret_' | append: i | append: '_title' -%}
+        {%- if settings[t_key] != blank -%}
+          <span class="crk-retp__bit">{{ settings[t_key] }}</span>
+        {%- endif -%}
+      {%- endfor -%}
+      {%- if crk_rp_link -%}
+        <a class="crk-retp__link" href="{{ crk_rp_url }}">{{ settings.crk_ret_link_label }}<span class="crk-retp__arrow" aria-hidden="true">→</span></a>
+      {%- endif -%}
+    </p>
+
+  {%- else -%}
+    {{ 'crooks-returns.css' | asset_url | stylesheet_tag }}
+    <aside class="crk-retp crk-retp--{{ crk_rp_variant }}" aria-label="{{ settings.crk_ret_kicker | default: 'Returns' | escape }}">
+      {%- if settings.crk_ret_kicker != blank and bare != true -%}
+        <p class="crk-retp__kicker">{{ settings.crk_ret_kicker }}</p>
+      {%- endif -%}
+      <ul class="crk-retp__list">{{ crk_rp_items }}</ul>
+      {%- if crk_rp_link or settings.crk_ret_small != blank -%}
+        <p class="crk-retp__foot">
+          {%- if crk_rp_link -%}
+            <a class="crk-retp__link" href="{{ crk_rp_url }}">{{ settings.crk_ret_link_label }}<span class="crk-retp__arrow" aria-hidden="true">→</span></a>
+          {%- endif -%}
+          {%- if settings.crk_ret_small != blank -%}
+            <span class="crk-retp__small">{{ settings.crk_ret_small }}</span>
+          {%- endif -%}
+        </p>
+      {%- endif -%}
+    </aside>
+{%- endcase -%}

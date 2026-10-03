@@ -21,28 +21,28 @@
           "type": "clause",
           "settings": {
             "title": "Returns",
-            "body": "<p>You have 14 days from delivery to tell us you want to return something, and 14 days from then to post it back.</p><p><strong>Start your return here: <a href=\"https://5wn03tnm.aftership.com\">the returns centre</a>.</strong> It takes your order number and email, and issues the return so we can match the parcel to you.</p><p>Items must be unworn, unwashed, and have their tags attached.</p><p>Return postage is paid by you. That covers a change of mind, the wrong size, a swap, or any other reason of your own. We only cover return postage when the item was faulty or we sent the wrong thing.</p><p>Returns go to: Oairo UK Office, Bourne End Business Park, Bourne End, Buckinghamshire, SL8 5AS, United Kingdom.</p>"
+            "body": "<p>You have 14 days from delivery to start a return for a change of mind, and 14 days from then to send it back. Items must be unworn, unwashed and have their tags attached. Sale items are treated the same as full price.</p><p><strong>Start it at the <a href=\"/pages/returns\">returns desk</a>.</strong> Enter your order number and the email, postcode or phone you ordered with, choose the items, then pick a size swap, store credit or a refund.</p><p><strong>Postage.</strong> Size swaps and store credit come with a free return label. For a refund to your card after a change of mind, you can send it back yourself, or use our drop-off label at cost (from £2.98), taken off your refund. Faulty or wrong items are always free to return.</p><p><strong>No printer needed.</strong> Return labels are a QR code. Show it at an Evri, InPost or Post Office drop-off and they do the rest. The returns desk shows you the nearest ones.</p><p>Sending it yourself? Use a tracked service and post it to: Oairo UK Office, Bourne End Business Park, Bourne End, Buckinghamshire, SL8 5AS, United Kingdom.</p>"
           }
         },
         "c4": {
           "type": "clause",
           "settings": {
             "title": "Size swaps",
-            "body": "<p>You pay the postage sending the original back to us. We do not charge a fee for the swap itself, and we cover the postage sending the new size out to you.</p><p>Request the swap through <a href=\"https://5wn03tnm.aftership.com\">the returns centre</a> and say which size you want. Swaps depend on that size being in stock — if it is not, we refund you instead.</p>"
+            "body": "<p>Free, return postage included. Choose a swap at the <a href=\"/pages/returns\">returns desk</a> and pick your new size. It ships as soon as your return arrives back with us, at no cost to you.</p><p>Swaps depend on the new size being in stock. If it is not, you can take store credit or a refund instead.</p>"
           }
         },
         "c5": {
           "type": "clause",
           "settings": {
             "title": "Faults and wrong items",
-            "body": "<p>If we sent the wrong item, or it arrived faulty or damaged, that is on us. Message us with your order number and a photo and we will refund or replace it in full, and we cover the postage both ways.</p><p>You have the full 14 days to report a fault either way. The 48 hours below is not a shorter deadline on your side \u2014 it is only what the courier gives <em>us</em>.</p><p>For damage that happened in transit, telling us within 48 hours of delivery lets us raise a claim while the courier's window is still open. Later than that and we will still put it right; we just wear the cost instead of them.</p>"
+            "body": "<p>If we sent the wrong item, or it arrived faulty, damaged or not as described, that is on us.</p><p>Start a return at the <a href=\"/pages/returns\">returns desk</a> within 30 days of delivery and tell us what is wrong. Return postage is free, and a full refund is always available. Rather message us? Send your order number and a photo.</p><p>For damage that happened in transit, telling us within 48 hours of delivery lets us raise a claim while the courier's window is still open. That is our deadline, not yours: later than that and we still put it right.</p>"
           }
         },
         "c6": {
           "type": "clause",
           "settings": {
             "title": "Refunds",
-            "body": "<p>Approved refunds go back to your original payment method within 5–7 days of us receiving the item.</p><p>Original shipping charges are not refunded unless the item was faulty or wrongly sent, and neither is the postage you paid to send something back to us. Items marked final sale are labelled as such on the product page and cannot be returned.</p><p>None of this affects your statutory rights.</p>"
+            "body": "<p>Refunds go back to your original payment method within 5–7 days of your return reaching us. Store credit is added to your account as soon as your return arrives.</p><p>Return a whole order for a refund and we refund the standard delivery charge too. Postage you paid to send something back yourself is not refunded, unless the item was faulty or wrong.</p><p>None of this affects your statutory rights.</p>"
           }
         },
         "c7": {
@@ -65,6 +65,13 @@
             "title": "Contact",
             "body": "<p>Email <a href=\"mailto:crooksldn@gmail.com\">crooksldn@gmail.com</a> or DM <a href=\"https://instagram.com/crooksldn\">@crooksldn</a> with your order number. We reply within 1–2 working days.</p>"
           }
+        },
+        "c10": {
+          "type": "clause",
+          "settings": {
+            "title": "Store credit",
+            "body": "<p>Prefer to keep shopping? Take store credit instead of a refund and we add a bonus: £5 on returns under £40, £10 from £40. Return postage is free.</p><p>The credit is added to your account as soon as your return arrives back with us.</p>"
+          }
         }
       },
       "block_order": [
@@ -72,6 +79,7 @@
         "c2",
         "c3",
         "c4",
+        "c10",
         "c5",
         "c6",
         "c7",
@@ -83,7 +91,7 @@
         "heading": "TERMS",
         "standfirst": "How buying from us actually works — carriage, dispatch, returns and refunds, in plain English. The full legal texts are linked at the bottom.",
         "revised_label": "LAST REVISED",
-        "revised": "20.08.2026",
+        "revised": "03.10.2026",
         "show_index": true,
         "index_label": "Clause index",
         "legal_note": "THE FULL LEGAL TEXTS:"

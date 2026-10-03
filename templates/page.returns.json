@@ -1,0 +1,19 @@
+{
+  "sections": {
+    "returns": {
+      "type": "returns-portal",
+      "settings": {
+        "kicker": "CROOKS LDN / Returns desk",
+        "heading": "Returns & exchanges",
+        "endpoint": "/apps/returns/api",
+        "accent": "#A77AC7",
+        "policy_title": "Returns policy",
+        "contact_url": "shopify://pages/contact",
+        "intro": "<p>Wrong size? Swap it free. Changed your mind? Take store credit with a bonus on top. Labels are a QR code, so no printer needed. You have 14 days from delivery.</p>"
+      }
+    }
+  },
+  "order": [
+    "returns"
+  ]
+}

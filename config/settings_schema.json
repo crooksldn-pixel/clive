@@ -2527,5 +2527,102 @@
         "default": "/pages/tracking"
       }
     ]
+  },
+  {
+    "name": "CROOKS — Returns promise",
+    "settings": [
+      {
+        "type": "paragraph",
+        "content": "Returns told as reassurance, not as a pitch: size swaps first, refunds stated as easy. Shown as the last step of Chain of custody on product pages, as one line on the cart and on the tracking page. Every line is a promise at the point of sale: keep it true to the returns policy."
+      },
+      {
+        "type": "checkbox",
+        "id": "crk_ret_on_product",
+        "label": "Add returns to Chain of custody on product pages",
+        "default": true
+      },
+      {
+        "type": "text",
+        "id": "crk_ret_custody_label",
+        "label": "Chain of custody step name",
+        "default": "Returns & swaps"
+      },
+      {
+        "type": "text",
+        "id": "crk_ret_kicker",
+        "label": "Label (tracking page)",
+        "default": "Returns desk"
+      },
+      {
+        "type": "header",
+        "content": "Line 1"
+      },
+      {
+        "type": "text",
+        "id": "crk_ret_1_title",
+        "label": "Title",
+        "default": "Free size swaps"
+      },
+      {
+        "type": "text",
+        "id": "crk_ret_1_body",
+        "label": "Detail",
+        "default": "Wrong size? Swap it free, return postage included."
+      },
+      {
+        "type": "header",
+        "content": "Line 2"
+      },
+      {
+        "type": "text",
+        "id": "crk_ret_2_title",
+        "label": "Title",
+        "default": "Easy returns"
+      },
+      {
+        "type": "text",
+        "id": "crk_ret_2_body",
+        "label": "Detail",
+        "default": "Changed your mind? Start a return online within 14 days of delivery."
+      },
+      {
+        "type": "header",
+        "content": "Line 3"
+      },
+      {
+        "type": "text",
+        "id": "crk_ret_3_title",
+        "label": "Title",
+        "default": "No printer needed"
+      },
+      {
+        "type": "text",
+        "id": "crk_ret_3_body",
+        "label": "Detail",
+        "default": "Return labels are a QR code. Show it at Evri, InPost or a Post Office."
+      },
+      {
+        "type": "header",
+        "content": "Link and small print"
+      },
+      {
+        "type": "text",
+        "id": "crk_ret_link_label",
+        "label": "Link label",
+        "default": "Returns desk"
+      },
+      {
+        "type": "url",
+        "id": "crk_ret_link",
+        "label": "Link",
+        "info": "Leave empty for the Returns page (/pages/returns)."
+      },
+      {
+        "type": "text",
+        "id": "crk_ret_small",
+        "label": "Small print (tracking page)",
+        "default": "14 days from delivery. Faulty or wrong items: 30 days, always free."
+      }
+    ]
   }
 ]

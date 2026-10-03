@@ -1,0 +1,120 @@
+{%- comment -%}
+  Crooks — Returns promo. Sells the returns desk before anyone needs it.
+
+  Two layouts:
+    band  — heading, the three steps, the promise lines and a QR code that opens
+            the returns page on a phone (desktop only: a phone cannot scan itself).
+    strip — just the promise lines, for the tracking page.
+    line  — the promise titles on one quiet line, for the cart.
+
+  The promise lines come from Theme settings → CROOKS — Returns promise, shared
+  with the product page panel. The steps and heading are this section's own.
+{%- endcomment -%}
+{%- liquid
+  assign crk_rb_url = section.settings.cta_url
+  if crk_rb_url == blank
+    assign crk_rb_url = pages['returns'].url | default: '/pages/returns'
+  endif
+-%}
+{{ 'crooks.css' | asset_url | stylesheet_tag }}
+{{ 'crooks-returns.css' | asset_url | stylesheet_tag }}
+
+<section
+  class="crk-root crk-section crk-retband crk-retband--{{ section.settings.layout }}"
+  data-crk-section="returns-promo"
+  {% if section.settings.layout == 'band' and section.settings.heading != blank %}aria-labelledby="crk-retband-h-{{ section.id }}"{% else %}aria-label="{{ settings.crk_ret_kicker | default: 'Returns' | escape }}"{% endif %}
+>
+  <div class="crk-inner">
+    {%- if section.settings.layout == 'strip' or section.settings.layout == 'line' -%}
+      {%- render 'crooks-returns-promise', variant: section.settings.layout -%}
+    {%- else -%}
+      <div class="crk-retband__top">
+        <div class="crk-retband__copy">
+          {%- if section.settings.kicker != blank -%}
+            <p class="crk-eyebrow">{{ section.settings.kicker }}</p>
+          {%- endif -%}
+          {%- if section.settings.heading != blank -%}
+            <h2 class="crk-h2 crk-retband__h" id="crk-retband-h-{{ section.id }}">{{ section.settings.heading }}</h2>
+          {%- endif -%}
+          {%- if section.settings.intro != blank -%}
+            <div class="crk-retband__intro">{{ section.settings.intro }}</div>
+          {%- endif -%}
+          {%- if section.settings.cta_label != blank -%}
+            <a class="crk-btn crk-btn--fill crk-retband__cta" href="{{ crk_rb_url }}">{{ section.settings.cta_label }}</a>
+          {%- endif -%}
+        </div>
+        {%- if section.settings.show_qr -%}
+          <figure class="crk-retq">
+            <div class="crk-retq__code">{%- render 'crooks-returns-qr' -%}</div>
+            {%- if section.settings.qr_caption != blank -%}
+              <figcaption class="crk-retq__cap">{{ section.settings.qr_caption }}</figcaption>
+            {%- endif -%}
+          </figure>
+        {%- endif -%}
+      </div>
+
+      <ol class="crk-retband__steps">
+        {%- for i in (1..3) -%}
+          {%- liquid
+            assign t_key = 'step_' | append: i | append: '_title'
+            assign b_key = 'step_' | append: i | append: '_body'
+            assign t = section.settings[t_key]
+            assign b = section.settings[b_key]
+          -%}
+          {%- if t != blank -%}
+            <li class="crk-retband__step">
+              <span class="crk-retband__num" aria-hidden="true">0{{ i }}</span>
+              <strong class="crk-retband__steph">{{ t }}</strong>
+              {%- if b != blank -%}<span class="crk-retband__stepb">{{ b }}</span>{%- endif -%}
+            </li>
+          {%- endif -%}
+        {%- endfor -%}
+      </ol>
+
+      {%- if section.settings.show_promise -%}
+        {%- render 'crooks-returns-promise', variant: 'strip', bare: true -%}
+      {%- endif -%}
+    {%- endif -%}
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Crooks — Returns promo",
+  "tag": "div",
+  "settings": [
+    {
+      "type": "select",
+      "id": "layout",
+      "label": "Layout",
+      "options": [
+        { "value": "band", "label": "Band — steps, promise lines and QR code" },
+        { "value": "strip", "label": "Strip — promise lines only" },
+        { "value": "line", "label": "Line — one quiet line" }
+      ],
+      "default": "band"
+    },
+    { "type": "paragraph", "content": "The three promise lines are edited in Theme settings → CROOKS — Returns promise, so every page says the same thing." },
+    { "type": "header", "content": "Band" },
+    { "type": "text", "id": "kicker", "label": "Kicker", "default": "Returns desk" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Wrong size? Sorted." },
+    { "type": "richtext", "id": "intro", "label": "Intro", "default": "<p>Swap to the right size free, or return it online in a few steps. No emails back and forth, and no printer.</p>" },
+    { "type": "text", "id": "cta_label", "label": "Button label", "default": "How returns work" },
+    { "type": "url", "id": "cta_url", "label": "Button link", "info": "Leave empty for the Returns page." },
+    { "type": "checkbox", "id": "show_qr", "label": "Show the QR code (desktop only)", "info": "A real QR code that opens crooksldn.com/pages/returns on a phone.", "default": true },
+    { "type": "text", "id": "qr_caption", "label": "QR caption", "default": "On a laptop? Scan to carry on on your phone." },
+    { "type": "text", "id": "step_1_title", "label": "Step 1 title", "default": "Find your order" },
+    { "type": "text", "id": "step_1_body", "label": "Step 1 detail", "default": "Your order number, plus the email, postcode or phone you ordered with." },
+    { "type": "text", "id": "step_2_title", "label": "Step 2 title", "default": "Pick your deal" },
+    { "type": "text", "id": "step_2_body", "label": "Step 2 detail", "default": "Swap the size free, or choose store credit or a refund." },
+    { "type": "text", "id": "step_3_title", "label": "Step 3 title", "default": "Drop it off" },
+    { "type": "text", "id": "step_3_body", "label": "Step 3 detail", "default": "Show the QR code at Evri, InPost or a Post Office. The returns desk lists the nearest ones." },
+    { "type": "checkbox", "id": "show_promise", "label": "Show the promise lines under the steps", "default": true }
+  ],
+  "presets": [
+    { "name": "Crooks — Returns promo" },
+    { "name": "Crooks — Returns strip", "settings": { "layout": "strip" } },
+    { "name": "Crooks — Returns line", "settings": { "layout": "line" } }
+  ]
+}
+{% endschema %}

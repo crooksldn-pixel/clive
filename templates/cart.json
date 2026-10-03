@@ -264,12 +264,19 @@
     "set_line": {
       "type": "crooks-set-cart",
       "settings": {}
+    },
+    "returns_strip": {
+      "type": "crooks-returns-promo",
+      "settings": {
+        "layout": "line"
+      }
     }
   },
   "order": [
     "carriage",
     "set_line",
     "cart-section",
+    "returns_strip",
     "product_list_NNFgcy"
   ]
 }

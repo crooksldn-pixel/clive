@@ -32,6 +32,12 @@ const SITE = `https://${SHOP_DOMAIN}`;
 export const ORDER_LOOKUP_URL =
   process.env.EXPO_PUBLIC_ORDER_LOOKUP_URL ?? 'https://5wn03tnm.aftership.com';
 
+/**
+ * The returns desk: size swaps, store credit or a refund, with a QR-code
+ * drop-off label. Same page as the website's, so the policy lives in one place.
+ */
+export const RETURNS_URL = `${SITE}/pages/returns`;
+
 /** The shopper's Shopify account: every order, from the website or the app. */
 export const ACCOUNT_URL = `${SITE}/account`;
 

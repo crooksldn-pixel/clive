@@ -1,3 +1,6 @@
 # The mobile app is a separate Expo project, not theme code.
 # shopify theme push must never upload it.
 mobile/
+
+# Notes and paste-ready policy text, not theme code.
+docs/

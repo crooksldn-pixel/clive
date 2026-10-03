@@ -241,8 +241,8 @@
             "url_4": "shopify://policies/refund-policy",
             "label_5": "TRACK ORDER",
             "url_5": "shopify://pages/tracking",
-            "label_6": "RETURNS",
-            "url_6": "https://5wn03tnm.aftership.com"
+            "label_6": "RETURNS & SWAPS",
+            "url_6": "shopify://pages/returns"
           }
         },
         "c3": {

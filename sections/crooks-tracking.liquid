@@ -224,7 +224,7 @@
 
           {%- if section.settings.returns_url != blank and section.settings.returns_cta != blank -%}
             <p class="crk-track__alt">
-              <a class="crk-textbtn" href="{{ section.settings.returns_url }}" target="_blank" rel="noopener">{{ section.settings.returns_cta }}</a>
+              <a class="crk-textbtn" href="{{ section.settings.returns_url }}"{% if section.settings.returns_url contains '://' %} target="_blank" rel="noopener"{% endif %}>{{ section.settings.returns_cta }}</a>
             </p>
           {%- endif -%}
         {%- endif -%}
@@ -289,7 +289,7 @@
     { "type": "text", "id": "lookup_email_field", "label": "Email field name", "default": "email" },
     { "type": "text", "id": "lookup_note", "label": "Note under the form", "default": "Both are on your confirmation email. Opens the tracking centre in a new tab." },
     { "type": "url", "id": "returns_url", "label": "Returns link" },
-    { "type": "text", "id": "returns_cta", "label": "Returns link label", "default": "Start a return instead" },
+    { "type": "text", "id": "returns_cta", "label": "Returns link label", "info": "Opens in the same tab for a page on this site, a new tab for an outside address.", "default": "Start a return instead" },
     { "type": "textarea", "id": "gate_note", "label": "Note", "default": "No account? The tracking link in your dispatch email opens your order without one." },
     { "type": "header", "content": "No orders" },
     { "type": "textarea", "id": "no_orders", "label": "No orders text", "default": "No orders are filed under this account yet." },

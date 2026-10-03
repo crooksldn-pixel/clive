@@ -1,0 +1,22 @@
+{%- comment -%}
+  Paste into Shopify admin → Settings → Notifications → Customer notifications:
+  Shipping confirmation and Delivered (and Order confirmation if you want it),
+  just below the main button. Opens the returns desk with the order already
+  looked up. Size swap first in the wording, on purpose.
+  "&amp;" not "&": Shopify's notification editor rejects a bare & in an href.
+{%- endcomment -%}
+<table class="row actions">
+  <tr>
+    <td class="empty-line">&nbsp;</td>
+  </tr>
+  <tr>
+    <td class="actions__cell">
+      <table class="button main-action-cell">
+        <tr>
+          <td class="button__cell"><a href="https://crooksldn.com/pages/returns?order={{ order_name | url_encode }}&amp;proof={{ email | url_encode }}" class="button__text">Wrong size? Swap it free</a></td>
+        </tr>
+      </table>
+      <p style="margin-top: 12px; font-size: 13px; color: #999;">Changed your mind? Returns are online too, with a QR-code label: no printer needed.</p>
+    </td>
+  </tr>
+</table>

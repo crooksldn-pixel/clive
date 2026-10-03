@@ -25,9 +25,9 @@
           "type": "link",
           "settings": {
             "label": "Start a return or a size swap",
-            "url": "https://5wn03tnm.aftership.com",
-            "note": "RETURNS CENTRE",
-            "new_tab": true
+            "url": "shopify://pages/returns",
+            "note": "RETURNS DESK",
+            "new_tab": false
           }
         },
         "l3": {
@@ -49,7 +49,12 @@
           }
         }
       },
-      "block_order": ["l1", "l2", "l3", "l4"],
+      "block_order": [
+        "l1",
+        "l2",
+        "l3",
+        "l4"
+      ],
       "settings": {
         "eyebrow": "GET IN TOUCH",
         "heading": "CONTACT",
@@ -70,5 +75,7 @@
       }
     }
   },
-  "order": ["contact"]
+  "order": [
+    "contact"
+  ]
 }

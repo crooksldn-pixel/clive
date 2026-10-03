@@ -5,7 +5,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
 import { Display, Label, Micro, Mono } from '@/components/Type';
-import { ACCOUNT_URL, HELP_PAGES, ORDER_LOOKUP_URL } from '@/lib/config';
+import { ACCOUNT_URL, HELP_PAGES, ORDER_LOOKUP_URL, RETURNS_URL } from '@/lib/config';
 import { dropAlertsOn, enablePush, pushState, setDropAlerts, type PushState } from '@/lib/push';
 import { useOrders, type PlacedOrder } from '@/state/orders';
 import { colour, hairline, space } from '@/theme/tokens';
@@ -64,6 +64,12 @@ export default function OrdersScreen() {
         <View style={s.actions}>
           <Button label="Track an order" onPress={() => open(ORDER_LOOKUP_URL)} accessibilityHint="Order number and email" />
           <Button label="Sign in for full order history" variant="ghost" onPress={() => open(ACCOUNT_URL)} />
+          <Button
+            label="Swap a size or return"
+            variant="ghost"
+            onPress={() => open(RETURNS_URL)}
+            accessibilityHint="Opens the returns desk: free size swaps, QR-code drop-off, no printer"
+          />
         </View>
 
         <View style={s.section}>

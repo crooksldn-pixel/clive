@@ -30,11 +30,11 @@
           "type": "link",
           "settings": {
             "label": "Start a return",
-            "url": "https://5wn03tnm.aftership.com",
-            "note": "RETURNS CENTRE",
+            "url": "shopify://pages/returns",
+            "note": "RETURNS DESK",
             "keywords": "return,returns,send back,exchange,swap,wrong size,refund me,returning",
             "always": true,
-            "new_tab": true
+            "new_tab": false
           }
         },
         "l2": {

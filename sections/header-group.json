@@ -25,11 +25,18 @@
           "settings": {
             "message": "[count] PRODUCTS CURRENTLY ONLINE"
           }
+        },
+        "m2": {
+          "type": "message",
+          "settings": {
+            "message": "FREE SIZE SWAPS // EASY RETURNS, NO PRINTER NEEDED"
+          }
         }
       },
       "block_order": [
         "m1",
-        "m3"
+        "m3",
+        "m2"
       ],
       "settings": {
         "rotate": true,

@@ -686,6 +686,7 @@
               </button>
             </h2>
             <div class="crk-section-body" id="crk-custody-body"{% unless section.settings.custody_open %} hidden{% endunless %}>
+              {%- if settings.crk_ret_on_product -%}{{ 'crooks-returns.css' | asset_url | stylesheet_tag }}{%- endif -%}
               <ol class="crk-custody">
                 {%- for block in section.blocks -%}
                   {%- if block.type != 'custody_step' -%}{%- continue -%}{%- endif -%}
@@ -694,6 +695,15 @@
                     <p class="crk-body">{{ block.settings.body }}</p>
                   </li>
                 {%- endfor -%}
+                {%- comment -%}
+                  Returns close the chain: after Delivered, what happens if it doesn't
+                  fit. Here rather than under the buy button, so it reassures without
+                  pitching a return. Wording: Theme settings → CROOKS — Returns promise.
+                {%- endcomment -%}
+                {%- if settings.crk_ret_on_product -%}
+                  {%- assign crk_ret_step = section.blocks.size | plus: 1 -%}
+                  {%- render 'crooks-returns-promise', variant: 'custody', step: crk_ret_step -%}
+                {%- endif -%}
               </ol>
             </div>
           </section>
@@ -984,7 +994,7 @@
         { "type": "custody_step", "settings": { "label": "Logged", "body": "Orders placed before 18:00 are dispatched the same day, Monday to Saturday. After 18:00, the next dispatch day." } },
         { "type": "custody_step", "settings": { "label": "Dispatched", "body": "Shipped with Royal Mail Tracked. Free UK shipping over \u00a330, and free Tracked 24 over \u00a380." } },
         { "type": "custody_step", "settings": { "label": "In transit", "body": "Tracking issued by email. UK 1–2 working days. International 7–14 working days." } },
-        { "type": "custody_step", "settings": { "label": "Delivered", "body": "You have 14 days from delivery to return unworn goods with tags attached. Return postage is yours unless we sent the wrong thing or it arrived faulty. Start a return by email: crooksldn@gmail.com." } }
+        { "type": "custody_step", "settings": { "label": "Delivered", "body": "You have 14 days from delivery to send back unworn pieces with tags on. Faulty or wrong items: 30 days, always free." } }
       ]
     }
   ]

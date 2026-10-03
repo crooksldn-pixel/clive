@@ -1,0 +1,135 @@
+/* ==========================================================================
+   CROOKS — returns promise (snippet crooks-returns-promise) and the
+   Returns promo section (sections/crooks-returns-promo).
+
+   Built only on the --crk-* tokens, so it follows the site's dark and light
+   modes with no rules of its own. Square corners, 1px rules, no shadows.
+   ========================================================================== */
+
+/* ---- promise panel ---- */
+.crk-retp {
+  margin-top: 16px;
+  border: 1px solid var(--crk-line);
+  background: var(--crk-panel);
+  color: var(--crk-text);
+  font-family: var(--crk-font-mono);
+}
+.crk-retp .crk-retp__kicker {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 0; padding: 10px 14px;
+  border-bottom: 1px solid var(--crk-line);
+  font-size: 10px; font-weight: 500; letter-spacing: .3em; text-transform: uppercase;
+  color: var(--crk-accent);
+}
+/* A small "desk is open" light. Static: it states a fact, it is not a loader. */
+.crk-retp__dot { width: 6px; height: 6px; background: var(--crk-accent); flex: none }
+.crk-retp .crk-retp__list { list-style: none; margin: 0; padding: 0 }
+.crk-retp .crk-retp__item {
+  display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--crk-line);
+}
+.crk-retp__icon {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border: 1px solid var(--crk-line);
+  color: var(--crk-accent);
+}
+.crk-retp__text { display: block; min-width: 0 }
+.crk-retp__title {
+  display: block;
+  font-size: 11px; font-weight: 500; letter-spacing: .18em; text-transform: uppercase; line-height: 1.4;
+  color: var(--crk-text);
+}
+.crk-retp__body { display: block; margin-top: 2px; font-size: 12px; line-height: 1.5; letter-spacing: .01em; color: var(--crk-dim) }
+.crk-retp .crk-retp__foot {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px;
+  margin: 0; padding: 12px 14px;
+}
+.crk-retp .crk-retp__link {
+  display: inline-flex; align-items: center; min-height: 24px;
+  font-size: 10px; font-weight: 500; letter-spacing: .3em; text-transform: uppercase;
+  color: var(--crk-text); text-decoration: none;
+  border-bottom: 1px solid var(--crk-accent);
+}
+.crk-retp .crk-retp__link:hover { color: var(--crk-accent) }
+.crk-retp__arrow { margin-left: 8px }
+.crk-retp .crk-retp__link:focus-visible { outline: 2px solid var(--crk-accent); outline-offset: 3px }
+.crk-retp__small { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; line-height: 1.5; color: var(--crk-micro) }
+
+/* ---- strip: three across once there is room ---- */
+.crk-retp--strip { margin-top: 0 }
+@media (min-width: 768px) {
+  .crk-retp.crk-retp--strip .crk-retp__list { display: grid; grid-template-columns: repeat(3, 1fr) }
+  .crk-retp--strip .crk-retp__item.crk-retp__item { border-right: 1px solid var(--crk-line) }
+  .crk-retp--strip .crk-retp__item.crk-retp__item:last-child { border-right: 0 }
+}
+
+/* ---- promo section ---- */
+.crk-retband--strip > .crk-inner { padding-top: 24px; padding-bottom: 24px }
+.crk-retband__top { display: grid; gap: 24px; align-items: center }
+.crk-retband__copy { min-width: 0 }
+.crk-retband .crk-retband__h { margin-top: 12px }
+.crk-retband .crk-retband__intro { margin-top: 12px; max-width: 52ch; color: var(--crk-dim) }
+.crk-retband .crk-retband__intro p { margin: 0 }
+.crk-retband .crk-retband__cta { margin-top: 24px; width: 100% }
+@media (min-width: 768px) { .crk-retband .crk-retband__cta { width: auto } }
+
+.crk-retband .crk-retband__steps {
+  list-style: none; margin: 32px 0 24px; padding: 0;
+  display: grid; gap: 0;
+  border-top: 1px solid var(--crk-line);
+}
+.crk-retband .crk-retband__step {
+  display: grid; grid-template-columns: 44px 1fr; grid-template-rows: auto 1fr; align-items: start; column-gap: 12px; row-gap: 4px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--crk-line);
+}
+.crk-retband__num {
+  grid-row: span 2;
+  font-family: var(--crk-font-display); font-size: 32px; line-height: 1; color: var(--crk-accent);
+}
+.crk-retband__steph { font-size: 11px; font-weight: 500; letter-spacing: .2em; text-transform: uppercase; color: var(--crk-text) }
+.crk-retband__stepb { font-size: 12px; line-height: 1.5; color: var(--crk-dim) }
+@media (min-width: 768px) {
+  .crk-retband .crk-retband__steps { grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--crk-line) }
+  .crk-retband .crk-retband__step { border-bottom: 0; border-right: 1px solid var(--crk-line); padding: 20px 20px 20px 0 }
+  .crk-retband .crk-retband__step + .crk-retband__step { padding-left: 20px }
+  .crk-retband .crk-retband__step:last-child { border-right: 0 }
+}
+
+/* QR: desktop only — on a phone it would ask you to scan your own screen. */
+.crk-retband .crk-retq { display: none; margin: 0 }
+@media (min-width: 1024px) {
+  .crk-retband__top { grid-template-columns: 1fr auto; gap: 48px }
+  .crk-retband .crk-retq { display: grid; justify-items: center; gap: 12px; width: 188px; padding: 14px; border: 1px solid var(--crk-line); background: var(--crk-panel) }
+  .crk-retq__code { width: 160px; height: 160px }
+  .crk-retq__svg { display: block; width: 100%; height: 100% }
+  .crk-retq__cap { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; line-height: 1.5; text-align: center; color: var(--crk-micro) }
+}
+
+/* ---- inside Chain of custody: the step after Delivered ---- */
+.crk-record .crk-custody .crk-retp--custody,
+.crk-retp.crk-retp--custody {
+  grid-column: 1 / -1;
+  margin: 0; border: 0; background: none;
+}
+.crk-retp--custody .crk-retp__list { margin-top: 8px }
+.crk-retp.crk-retp--custody .crk-retp__item { grid-template-columns: 26px 1fr; gap: 10px; padding: 8px 0; border-bottom: 0 }
+.crk-retp--custody .crk-retp__icon { width: 26px; height: 26px }
+.crk-retp--custody .crk-retp__title { font-size: 10px }
+.crk-record .crk-custody .crk-retp__foot,
+.crk-retp.crk-retp--custody .crk-retp__foot { margin: 4px 0 0; padding: 0 }
+@media (min-width: 768px) {
+  .crk-retp.crk-retp--custody .crk-retp__list { display: grid; grid-template-columns: repeat(3, 1fr); column-gap: 16px }
+}
+
+/* ---- one line, for the cart ---- */
+.crk-root .crk-retp.crk-retp--line {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px;
+  margin: 0; padding: 0; border: 0; background: none;
+  font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--crk-dim);
+}
+.crk-retp__bit + .crk-retp__bit::before { content: "/"; margin-right: 14px; color: var(--crk-line) }
+.crk-retp--line .crk-retp__link { margin-left: auto }
+.crk-retband--line > .crk-inner { padding-top: 16px; padding-bottom: 16px }

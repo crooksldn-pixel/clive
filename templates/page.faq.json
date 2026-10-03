@@ -68,7 +68,7 @@
           "type": "qa",
           "settings": {
             "question": "Do you do exchanges?",
-            "answer": "<p>Yes. You pay the postage sending the original back to us. There is no fee for the swap itself, and we cover the postage sending the new size out to you. Start it in <a href=\"https://5wn03tnm.aftership.com\">the returns centre</a> and say which size you want — swaps depend on that size being in stock, and if it is not we refund you instead.</p>"
+            "answer": "<p>Yes, and size swaps are free, return postage included. Start one at the <a href=\"/pages/returns\">returns desk</a>, pick your new size, and it ships as soon as your return reaches us.</p><p>Swaps depend on that size being in stock. If it is not, you can take store credit or a refund instead.</p>"
           }
         },
         "g3": {
@@ -81,21 +81,21 @@
           "type": "qa",
           "settings": {
             "question": "Can I return something?",
-            "answer": "<p>Yes. <a href=\"https://5wn03tnm.aftership.com\">Start your return here</a> — it takes your order number and email. You have 14 days from delivery to tell us, and 14 days from then to post it back, unworn and with tags attached. Return postage is yours \u2014 change of mind, wrong size, a swap, any reason of your own. We only cover it if the item was faulty or we sent the wrong thing.</p><p>Full detail is on the <a href=\"/pages/terms#returns\">terms page</a>.</p>"
+            "answer": "<p>Yes, at the <a href=\"/pages/returns\">returns desk</a>. Enter your order number and the email, postcode or phone you ordered with, choose the items, and pick a size swap, store credit or a refund. You have 14 days from delivery; items need to be unworn, unwashed and with tags on.</p><p>Swaps and store credit come with a free return label, and store credit gets a bonus on top: £5 on returns under £40, £10 from £40. For a refund to your card you can post it yourself, or use our drop-off label at cost (from £2.98), taken off the refund.</p><p>Full detail is on the <a href=\"/pages/terms#returns\">terms page</a>.</p>"
           }
         },
         "q10": {
           "type": "qa",
           "settings": {
             "question": "When will I get my refund?",
-            "answer": "<p>Within 5–7 days of us receiving the item, back to the payment method you used. Original shipping charges are not refunded unless the item was faulty or wrongly sent, and neither is the postage you paid to send it back.</p>"
+            "answer": "<p>Within 5–7 days of your return reaching us, back to the payment method you used. Store credit lands in your account as soon as the return arrives.</p><p>Return a whole order and the standard delivery charge comes back too. Postage you paid yourself is only refunded if the item was faulty or wrong.</p>"
           }
         },
         "q11": {
           "type": "qa",
           "settings": {
             "question": "My item is faulty or you sent the wrong thing.",
-            "answer": "<p>That is on us. Message us with your order number and a photo and we will refund or replace it in full and cover the postage both ways. You have the full 14 days to report it.</p><p>If the damage happened in transit, telling us within 48 hours lets us claim against the courier while their window is open. That is our deadline, not yours \u2014 report it later and we still put it right.</p>"
+            "answer": "<p>That is on us. Start a return at the <a href=\"/pages/returns\">returns desk</a> within 30 days of delivery and choose faulty or wrong item: the return label is free and a full refund is always available. Rather message us? Send your order number and a photo.</p><p>If the damage happened in transit, telling us within 48 hours lets us claim against the courier while their window is open. That is our deadline, not yours: report it later and we still put it right.</p>"
           }
         },
         "g4": {
@@ -122,7 +122,14 @@
           "type": "qa",
           "settings": {
             "question": "Can I change or cancel my order?",
-            "answer": "<p>Message us as fast as you can with your order number. If it has not been packed we will sort it. Once it is dispatched it has to go through the returns process instead.</p>"
+            "answer": "<p>Message us as fast as you can with your order number. If it has not been packed we will sort it. Once it is dispatched it has to go through the <a href=\"/pages/returns\">returns desk</a> instead.</p>"
+          }
+        },
+        "q15": {
+          "type": "qa",
+          "settings": {
+            "question": "Do I need a printer to send something back?",
+            "answer": "<p>No. Your return label is a QR code. Show it on your phone at an Evri, InPost or Post Office drop-off and they handle the rest. The returns desk shows you the nearest ones.</p>"
           }
         }
       },
@@ -139,6 +146,7 @@
         "q8",
         "g3",
         "q9",
+        "q15",
         "q10",
         "q11",
         "g4",

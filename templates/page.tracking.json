@@ -4,13 +4,21 @@
       "type": "crooks-tracking",
       "settings": {
         "lookup_url": "https://5wn03tnm.aftership.com",
-        "returns_url": "https://5wn03tnm.aftership.com",
+        "returns_url": "shopify://pages/returns",
         "gate_body": "Signed in, every order you have placed is here with its full chain of custody. Not signed in? Look it up with your order number and the email you used.",
-        "gate_cta": "Sign in for full order history"
+        "gate_cta": "Sign in for full order history",
+        "returns_cta": "Need to send something back? Start a return"
+      }
+    },
+    "returns_strip": {
+      "type": "crooks-returns-promo",
+      "settings": {
+        "layout": "strip"
       }
     }
   },
   "order": [
-    "main"
+    "main",
+    "returns_strip"
   ]
 }
