@@ -260,7 +260,10 @@ async def test_the_standing_capability_line_is_paid_for_once_per_turn_and_stays_
     # 920 is Instagram (app/tools/instagram_tools.py): "- DISCONNECTED — no token stored:
     # Instagram", +44 characters measured (872 before, 916 after), said only on a server with no
     # Instagram token stored. Once one is, the family is READY and this line costs nothing.
-    assert len(block) <= 920, f"{len(block)} chars on every model turn:\n{block}"
+    # 1,003 is CROOKS Returns (app/tools/returns_tools.py): "- DISCONNECTED — no CROOKS Returns
+    # keys stored: Acting on returns, Reading returns", +83 characters measured (854 before, 937
+    # after, with the two families sharing one line), said only on a server with no returns keys.
+    assert len(block) <= 1_003, f"{len(block)} chars on every model turn:\n{block}"
 
     # The instruction appears once, at the head, and never on a line.
     assert block.count("Do not attempt") == 1, block

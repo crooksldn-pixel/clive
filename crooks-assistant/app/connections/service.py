@@ -238,6 +238,9 @@ def card(runtime: Any, connection: catalog.Connection, *, tests: dict[str, dict[
             fix = "signin"                 # a refused token, or one short of a permission: sign in again
         elif fix == "key":
             needs = [k for k in connection.requires if catalog.field(connection, k)]
+            # The service said which of its keys it refused (CROOKS Returns): ask for those alone.
+            named = [k for k in (last.get("refused") or []) if k in needs]
+            needs = named or needs
     elif days is not None and days < EXPIRING_DAYS:
         state, detail = "needs_attention", _expiring(connection, days)
         fix, needs = ("signin", []) if sign_in_ready else ("key", ["instagram_access_token"])
@@ -378,6 +381,10 @@ async def after_change(runtime: Any, keys: tuple[str, ...], *, new_token: bool =
         from app.clients import ship24 as ship24_client
 
         ship24_client.forget_plan()            # a new key may be on the other plan
+    if changed & {"crooks_returns_read_key", "crooks_returns_write_key"}:
+        from app.clients import crooks_returns
+
+        crooks_returns.forget()                # the open returns are read whole with the new key
     refresh = getattr(runtime, "family_states", None)
     if callable(refresh):
         try:
@@ -398,6 +405,8 @@ def _cleaned(connection: catalog.Connection, values: Any) -> dict[str, str]:
             continue                                   # left empty: keep what is stored
         if not isinstance(raw, str):
             raise ConnectionsError("bad_field", f"{item.label}: paste it as text.")
+        if item.env:
+            raw = _from_env_line(raw, item.env)
         try:
             out[item.key] = vault.clean(raw)
         except ValueError as exc:
@@ -405,6 +414,16 @@ def _cleaned(connection: catalog.Connection, values: Any) -> dict[str, str]:
     if not out:
         raise ConnectionsError("nothing", "Nothing was entered, so nothing changed.")
     return out
+
+
+def _from_env_line(raw: str, name: str) -> str:
+    """A key copied from a server's .env as grep printed it: `NAME=value` is the value, quotes
+    round it go, and of a comma-separated list (keys being rotated) the first is taken."""
+    text = raw.strip()
+    if text.upper().startswith(f"{name.upper()}="):
+        text = text.split("=", 1)[1].strip()
+    text = text.strip("'\"").strip()
+    return text.split(",", 1)[0].strip() if "," in text else text
 
 
 async def save(runtime: Any, name: str, values: Any, *, who: str, device: str) -> testers.Outcome:

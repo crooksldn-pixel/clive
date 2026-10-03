@@ -201,6 +201,11 @@ class Settings(BaseSettings):
     # (instagram_access_token), never a setting.
     instagram_api_version: str = "v25.0"
 
+    # --- CROOKS Returns (the owner's own returns service; app/clients/crooks_returns.py) ---
+    # Where it answers. Its two keys are secrets (crooks_returns_read_key, crooks_returns_write_key),
+    # stored from the Connections screen, never settings.
+    returns_base_url: str = "https://returns.crooksldn.com"
+
     # --- test mode, always on ---
     # On, every day is one test session that the backend starts itself ("always-on"), closes
     # at local midnight and follows with the next: nothing has to be started on the host for

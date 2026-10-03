@@ -67,6 +67,7 @@
     tick: ['m5 12.5 4.5 4.5L19 7.5'],
     build: ['m4 20 9-9', 'M11 5.5 14.5 2l7.5 7.5-3.5 3.5z'],
     plug: ['M9 3v5', 'M15 3v5', 'M7 8h10v3a5 5 0 0 1-10 0z', 'M12 16v5'],
+    back: ['M9 14 4 9l5-5', 'M4 9h11a5 5 0 0 1 0 10h-4'],   // a return: the parcel coming back
   };
 
   // The one bar. A tap opens the keyboard (here); a hold is the microphone, and that is decided
@@ -179,6 +180,8 @@
     // waited for; the home is drawn again when they land, with what it last drew from.
     lastNeeds = needsYou;
     if (window.CliveBuilds) window.CliveBuilds.brief().then((brief) => { if (brief) renderHome(lastNeeds); });
+    // CROOKS Returns (web/returns.js): how many returns need him, beside the rest and never waited for.
+    if (window.CliveReturns) window.CliveReturns.brief().then((brief) => { if (brief) renderHome(lastNeeds); });
     try {
       gaps = await api('/objectives/gaps');
       if (objectives.some((o) => o.kind === 'build' && (o.engineering || []).length)) {
@@ -247,7 +250,17 @@
     // The row in Needs you carries the blue tile of something to answer; the tools row the steel of a build.
     const buildsRow = (title, sub, tile) => h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'builds', onclick: () => window.CliveBuilds.open() },
       h('span', { class: tile }, icon(ICON.build, 18)), rowMain(title, sub), icon(ICON.chev, 16));
-    const needsCount = needs.length + (buildsWaiting ? 1 : 0);
+    // ---- CROOKS Returns (web/returns.js): returns that need him are one row in Needs you. A tap asks
+    // CLIVE, as if he had said it, so the answer is the returns card with its actions.
+    const returnsBrief = window.CliveReturns ? window.CliveReturns.briefNow() : null;
+    const returnsWaiting = returnsBrief && returnsBrief.connected && returnsBrief.available ? Number(returnsBrief.needs) || 0 : 0;
+    const returnsRow = () => h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'returns',
+      onclick: () => { if (window.CliveAlpha && !window.CliveAlpha.isBusy()) window.CliveAlpha.ask('Which returns need me?'); } },
+      h('span', { class: 'alpha-tile' }, icon(ICON.back, 18)),
+      rowMain(returnsWaiting === 1 ? 'A return needs you' : `${returnsWaiting} returns need you`, String(returnsBrief.words || '')),
+      icon(ICON.chev, 16));
+    // ---- CROOKS Returns · end
+    const needsCount = needs.length + (buildsWaiting ? 1 : 0) + (returnsWaiting ? 1 : 0);
     const COUNT_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
     // ---- the Builds screen · end
     const summary = needsCount
@@ -297,7 +310,8 @@
       needsCount ? h('h2', { class: 'alpha-h2', text: 'Needs you' }) : null,
       needsCount ? h('div', { class: 'alpha-group' }, ...needs.map(row),
         buildsWaiting ? buildsRow(buildsWaiting === 1 ? 'A build waits on your answer' : `${COUNT_WORDS[buildsWaiting] || buildsWaiting} builds wait on your answer`,
-          'Open Builds to decide', 'alpha-tile') : null) : null,
+          'Open Builds to decide', 'alpha-tile') : null,
+        returnsWaiting ? returnsRow() : null) : null,
       moving.length ? h('h2', { class: 'alpha-h2', text: 'In motion' }) : null,
       moving.length ? h('div', { class: 'alpha-group' }, ...moving.map(row)) : null,
       !objectives.length && !problem && !buildsWaiting ? h('p', { class: 'alpha-muted', text: 'Nothing ongoing. Tell CLIVE about something you want handled, and it stays here.' }) : null,

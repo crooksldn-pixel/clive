@@ -101,7 +101,7 @@
 
   // ------------------------------------------------------------------ their story
 
-  const SOURCE_CLASS = { Shopify: 'is-shop', Gmail: 'is-mail', CLIVE: 'is-clive' };
+  const SOURCE_CLASS = { Shopify: 'is-shop', Gmail: 'is-mail', CLIVE: 'is-clive', Returns: 'is-returns' };
 
   function timeline(t) {
     if (!t || typeof t !== 'object') return null;

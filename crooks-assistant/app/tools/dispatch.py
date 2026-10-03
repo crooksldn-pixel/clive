@@ -46,7 +46,9 @@ _READABLE_ERRORS = _readable_errors()
 # Result keys whose values are ids the assistant may later use in a detail-style lookup.
 _ID_KEYS = ("order_id", "customer_id", "thread_id", "message_id", "variant_id", "line_item_id", "id",
             # Instagram (app/tools/instagram_tools.py): a conversation, a post, a comment.
-            "conversation_id", "media_id", "comment_id")
+            "conversation_id", "media_id", "comment_id",
+            # CROOKS Returns (app/tools/returns_tools.py): a return, which return_action must act on.
+            "return_id")
 # Result keys whose values are a person's details. Remembered so the turn log can scrub them.
 # `username` is an Instagram handle, which is always a person's (app/tools/instagram_tools.py).
 _PII_KEYS = ("customer_name", "customer_email", "name", "from", "from_email", "email", "displayName", "zip", "company", "phone",

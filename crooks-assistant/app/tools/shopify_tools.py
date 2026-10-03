@@ -1070,7 +1070,33 @@ async def shopify_order_detail(order_id: str) -> dict:
     # A short wait for the history and the inbox: the card collects what is still on its way,
     # and the model is told so. The order itself is read fresh, or reused from a search a
     # moment ago.
-    return await hydrator().order(str(order_id), budget_s=MODEL_BUDGET_S)
+    order = await hydrator().order(str(order_id), budget_s=MODEL_BUDGET_S)
+    return await _with_returns(order)
+
+
+async def _with_returns(order: dict) -> dict:
+    """CROOKS Returns on this order (app/tools/returns_tools.py), for the owner alone: where each
+    return stands and what it needs. A member of the team never holds an owner's authority, so
+    their card never carries it; nothing is added when the service is not connected, and when it
+    does not answer in time the card says so. Never changes the order read the hydrator holds."""
+    try:
+        from app.tools import authority, returns_tools
+
+        held = authority.current()
+        if held is None or held.kind not in (authority.OWNER, authority.SERVICE) or not order.get("order_number"):
+            return order
+        found = await returns_tools.returns_on_order(order.get("order_number"))
+    except Exception as exc:  # noqa: BLE001 — the order stands without its returns
+        log.warning("returns on the order unavailable: %s", type(exc).__name__)
+        return order
+    if not found:
+        return order
+    out = dict(order)
+    if found.get("returns"):
+        out["returns"] = found["returns"]
+    elif found.get("note"):
+        out["returns_note"] = found["note"]
+    return out
 
 
 @tool(
@@ -1149,10 +1175,24 @@ async def shopify_customer_history(customer_id: str) -> dict:
         owner = held is not None and held.kind in (authority.OWNER, authority.SERVICE)
         email = result.get("email_threads") if isinstance(result.get("email_threads"), dict) else {}
         read = threads if email.get("available") else None
-        result["timeline"] = history.timeline(result, read, owner=owner, ours=await _our_address())
+        returns = await _story_returns(result) if owner else None
+        result["timeline"] = history.timeline(result, read, owner=owner, ours=await _our_address(), returns=returns)
     except Exception as exc:  # noqa: BLE001 — the history stands without its timeline
         log.warning("customer timeline unavailable: %s", type(exc).__name__)
     return result
+
+
+async def _story_returns(history: dict) -> tuple[list[dict], str] | None:
+    """Their returns in CROOKS Returns across their recent orders, for the owner's story of them;
+    None when the service is not connected, so the story does not mention it."""
+    from app.clients import crooks_returns
+    from app.context.order import order_digits
+    from app.tools import returns_tools
+
+    if not crooks_returns.read_key():
+        return None
+    numbers = [order_digits(o.get("order_number")) for o in history.get("recent") or [] if isinstance(o, dict)]
+    return await returns_tools.returns_for_story([n for n in numbers if n])
 
 
 async def _our_address() -> str:

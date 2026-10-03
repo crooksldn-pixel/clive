@@ -45,6 +45,8 @@ test('the vocabulary is exactly the presentation layer\'s', () => {
     'objective',
     // The orders that nearly fit what he said when nothing fits all of it (web/customers.js).
     'order_match',
+    // CROOKS Returns: what needs him, one return, a period's numbers (web/returns.js).
+    'returns',
   ]));
 });
 

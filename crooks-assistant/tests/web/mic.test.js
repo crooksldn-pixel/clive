@@ -228,8 +228,14 @@ test('web/alpha.js never asks for the microphone, itself or through app.js', () 
   // (web/horizon.js), window.CliveDistances moves between the three distances (web/distances.js),
   // and window.CliveHome is what those two may read and do. Both files are held to the rule too.
   // The Builds screen: window.CliveBuilds opens it and reads its counts (web/builds.js), held to the rule below.
+  // CROOKS Returns: window.CliveReturns reads the count of returns that need him (web/returns.js), held to the rule below.
   assert.deepEqual([...new Set(ALPHA.match(/\bwindow\.\w+/g))].sort(),
-    ['window.CliveAlpha', 'window.CliveBuilds', 'window.CliveDistances', 'window.CliveHome', 'window.CliveHorizon', 'window.CliveObjectiveCards']);
+    ['window.CliveAlpha', 'window.CliveBuilds', 'window.CliveDistances', 'window.CliveHome', 'window.CliveHorizon', 'window.CliveObjectiveCards',
+      'window.CliveReturns']);
+  const RETURNS = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'returns.js'), 'utf8');
+  for (const name of [...MIC, 'talk', 'orb-frame', 'mic-test', 'dispatchEvent', '.click(', 'CliveAlpha']) {
+    assert.ok(!RETURNS.includes(name), `web/returns.js has ${JSON.stringify(name)}`);
+  }
   const BUILDS = fs.readFileSync(path.join(__dirname, '..', '..', 'web', 'builds.js'), 'utf8');
   for (const name of [...MIC, 'talk', 'orb-frame', 'mic-test', 'dispatchEvent', '.click(', 'CliveAlpha']) {
     assert.ok(!BUILDS.includes(name), `web/builds.js has ${JSON.stringify(name)}`);

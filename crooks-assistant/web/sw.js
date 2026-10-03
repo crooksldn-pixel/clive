@@ -78,6 +78,9 @@ const SHELL = [
   // Customers: the order he meant, their story, a refund landing (web/customers.js).
   '/static/customers.js',
   '/static/customers.css',
+  // CROOKS Returns: the returns card, an order's returns, the home's row.
+  '/static/returns.js',
+  '/static/returns.css',
   '/manifest.webmanifest',
   '/static/icon-192.png',
   '/static/icon-512.png',

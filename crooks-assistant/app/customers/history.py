@@ -20,6 +20,9 @@ happened, what it was, and where it came from:
                 (the action ledger, which holds ids and outcomes, never content)
     objectives  the owner's objectives that name them or one of their orders — the owner's
                 own records, so only when the owner is the one asking
+    Returns     their returns in CROOKS Returns (app/tools/returns_tools.py), on their recent
+                orders: when each was asked for and where it stands — read by the caller, for
+                the owner alone, and handed in, so this file still makes no call of its own
 
 It reads only: CLIVE's own records on this machine and what the customer read already holds. No
 Shopify or Gmail call is made here, so the timeline costs the customer card nothing it did not
@@ -306,8 +309,9 @@ def _objective_rows(name: str, email: str, numbers: dict[str, str], *, owner: bo
 
 
 def timeline(history: dict[str, Any], threads: list[dict[str, Any]] | None, *, owner: bool, ours: str = "",
-             today: date | None = None) -> dict[str, Any]:
-    """The customer's story, newest first, and what each source contributed."""
+             today: date | None = None, returns: tuple[list[dict[str, Any]], str] | None = None) -> dict[str, Any]:
+    """The customer's story, newest first, and what each source contributed. `returns` is what CROOKS
+    Returns said of their orders and how it answered, when the owner is asking and it is connected."""
     today = today or datetime.now(when_words.SHOP_TZ).date()
     recent = [o for o in history.get("recent") or [] if isinstance(o, dict)]
     order_ids = {str(o.get("order_id")) for o in recent if o.get("order_id")}
@@ -333,6 +337,14 @@ def timeline(history: dict[str, Any], threads: list[dict[str, Any]] | None, *, o
     ):
         rows += more
         sources[key] = said
+    if owner and returns is not None:
+        from app.returns import views as returns_views
+
+        found, said = returns
+        mine = [r for r in found if str(r.get("order_id") or "") in order_ids]
+        rows += [_row(r["at"], r["kind"], r["what"], r["detail"], ref=r["ref"], ref_kind=r["ref_kind"], source=r["source"])
+                 for r in returns_views.timeline_rows(mine)]
+        sources["CROOKS Returns"] = said
     floor = datetime.min.replace(tzinfo=UTC)
     rows.sort(key=lambda r: r["_t"] or floor, reverse=True)
     shown = rows[:MAX_ROWS]

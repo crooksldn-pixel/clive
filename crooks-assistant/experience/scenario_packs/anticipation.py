@@ -179,8 +179,17 @@ async def returns_are_not_available_yet(h: Harness) -> Result:
                               f"{key}={row.get('state')!r}"))
         r.checks.append(check(f"{capability.label.lower()} names the scope to grant",
                               row.get("scope") == capability.scopes[0], f"{row.get('scope')!r}"))
-    registered = [s.name for s in registry.all_specs() if "return" in s.name or "exchange" in s.name]
-    r.checks.append(check("no return mutation is registered at all", not registered, f"{registered}"))
+    # CROOKS Returns (app/tools/returns_tools.py, 3 October 2026) adds the only tools named for
+    # returns: three reads of the owner's returns service and one change staged through ITS
+    # actions. None of them is a Shopify mutation: CLIVE still cannot start a return itself.
+    from app.clients.shopify import REVIEWED_MUTATIONS
+
+    registered = sorted(s.name for s in registry.all_specs() if "return" in s.name or "exchange" in s.name)
+    r.checks.append(check("the only tools named for returns are CROOKS Returns' own",
+                          registered == ["return_action", "return_find", "returns_open", "returns_stats"], f"{registered}"))
+    shopify = [s.name for s in registry.all_specs() if ("return" in s.name or "exchange" in s.name)
+               and s.write is not None and (s.write.mutation in REVIEWED_MUTATIONS or not s.write.mutation.startswith("returns:"))]
+    r.checks.append(check("no Shopify return mutation is registered at all", not shopify, f"{shopify}"))
     return r
 
 

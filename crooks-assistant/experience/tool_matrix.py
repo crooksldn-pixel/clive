@@ -574,6 +574,7 @@ def load() -> None:
     import app.tools.gmail_writes  # noqa: F401
     import app.tools.instagram_tools  # noqa: F401
     import app.tools.interaction_tools  # noqa: F401
+    import app.tools.returns_tools  # noqa: F401
     import app.tools.ship24_tools  # noqa: F401
     import app.tools.shopify_tools  # noqa: F401
     import app.tools.shopify_writes  # noqa: F401
@@ -989,6 +990,8 @@ def _error_ui(name: str) -> str:
         return "shopify"
     if name.startswith("gmail_"):
         return "gmail"
+    if name.startswith(("returns_", "return_")):
+        return "returns"
     return ""
 
 

@@ -67,6 +67,11 @@ KNOWN_KEYS = (
     # Tracks parcels by the carrier's own scans (app/clients/ship24.py): a Ship24 Tracking API key.
     # Absent, CLIVE says parcel tracking is not connected; nothing else needs it.
     "ship24_api_key",
+    # CROOKS Returns, the owner's own returns service (app/clients/crooks_returns.py): the keys its
+    # .env lists for CLIVE (RETURNS_CLIVE_READ_KEYS, RETURNS_CLIVE_WRITE_KEYS). The read key reads
+    # returns; the write key is sent only with an action the owner approved on its card.
+    "crooks_returns_read_key",
+    "crooks_returns_write_key",
     # Reads the CROOKS Instagram account's messages and comments (app/clients/instagram.py): a
     # long-lived Instagram User access token, renewed by the application before its 60 days run
     # out. The app id and secret are the Meta app's, kept for exchanging a new short-lived token

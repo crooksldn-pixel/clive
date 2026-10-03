@@ -2,19 +2,37 @@
 
 **Purpose:** compact active context for GPT/Claude/Fable/engineering workers  
 **Status:** ACTIVE — update whenever a material product/architecture state changes  
-**As of:** 2026-09-30 (round 13 in production; the ship rule, acceptance, skills and capacity decided; filing on; the loop lands its own work from its next re-pin; 2026-09-29 and earlier are kept below as history)
+**As of:** 2026-10-03 (production is `b33ccbc2`, the trunk head, deployed at 17:48 UTC after `cac1a9e7` was kept; CROOKS Returns, the owner's own returns service, is live beside CLIVE; 2026-09-30 and earlier are kept below as history)
 
 This file is intentionally not a historical transcript. It answers: **what is true and important now?**
 
 For historical rationale, use Git and DECISIONS.md. For release evolution rules, use EVOLUTION_POLICY.md.
 
-## Now — 2026-09-30
+## Now — 2026-10-03
 
 Where anything further down this file disagrees with this section, this section is the current truth and the text below is history.
 
 | | SHA | What it is |
 |---|---|---|
-| **Production** (`/opt/crooks-os`) | `87e10c33` | Round 13 (PR #58), deployed 29 Sep, 23:10–23:49 UTC. The owner waived a further exact-SHA review at 22:23 ("give me a prompt to get this shipped and deployed now"), so no multi-part review was run. The installed tree is identical to `1c8f1636`, the tree GitHub acceptance was green on. `healthcheck.py -v` exits 0 and the phone check passed (`through=tailscale owner=true refusal=none`). Record: `claude/deploy-round-13-record` (`090d6f8f`, `crooks-assistant/reports/deploy-round-13.md`). |
+| **Production** (`/opt/crooks-os`) | `b33ccbc2` | PR #95, the post-deploy fixes: the six notes of the post-deploy review of `cac1a9e7` plus one found on the way (a voice's settings never invented, a reset with its own passkey action, shipped orders off the packing board). Deployed 3 Oct, install 17:48:12–17:48:17 UTC, on **the owner's waiver** of the independent exact-SHA review, following the completed post-deploy review of `cac1a9e7`. Acceptance green on the exact SHA (run 37128652668); `/health` 200 with all 12 checks `ok`, build `83524b275b07`; `.env`, unit and drop-ins unchanged. Kept once the owner's own phone `/whoami` line appears, which was the one step outstanding when it was recorded. Record: `claude/deploy-b33ccbc2-record` (`d5f0ad2b`, `reports/deploy-b33ccbc2.md`). Rollback target `cac1a9e7` with `/root/crooks-unit-before-b33ccbc2.main.service`. |
+| **Trunk** | `b33ccbc2` | The same SHA as production. |
+| **Before it** | `cac1a9e7` | The overnight build of 2–3 October (PR #94: Connections, recording, team, customers, builds). Deployed 3 Oct, 13:01:16–13:01:21 UTC, by the owner's prompt through Claude Code, on **the owner's waiver** of the exact-SHA review (none was run; PR #94 merged with no review). Acceptance green on the exact SHA (run 37124177410); `healthcheck.py -v` exit 0, build `fdf72e24cc1e`. Its record (`claude/deploy-cac1a9e7-record`, `b00460a9`, `crooks-assistant/reports/deploy-cac1a9e7.md`) left two owner-device checks open; **the post-deploy review's verdict was KEEP**, and its six notes are what `b33ccbc2` fixed. |
+| **Earlier** | `4d2dc00f` ← `66d3e05d` ← `718fbc41` ← `87e10c33` | `4d2dc00f` (voice settings on Connections, labelled orders kept on the list) was live before `cac1a9e7`; it has no deploy record of its own on origin. `66d3e05d` (PR #89 and #90: settings and team sign-in, Ship24) was deployed 2 Oct, 13:49–14:08 UTC, on the owner's waiver (`claude/deploy-66d3e05d-record`, `2cd615aa`). `718fbc41` was a sanctioned deploy on the night of 1 October with no record of its own (the `66d3e05d` record says so). `87e10c33` is round 13, below. |
+
+**GitHub Actions is not running jobs** (from 3 Oct, by 17:52 UTC): every run since then fails at once with "The job was not started because recent account payments have failed or your spending limit needs to be increased". Nothing is tested on GitHub until the account's billing is put right (GitHub → Settings → Billing and plans).
+
+**CROOKS Returns** ([DECISIONS.md](./DECISIONS.md) DEC-061). The owner's own returns and exchanges service, replacing AfterShip: `https://returns.crooksldn.com`, its own Docker Compose container (service and Caddy) on `crooks-os-prod-1` at `/opt/clive/crooks-returns`, from branch `claude/compassionate-dirac-44hnee`, folder `crooks-returns/`. He built and deployed it himself on 3 October, **outside the CLIVE engineering kernel: it has no kernel task, review or acceptance record.** Shopify is the record of every return; the service holds the request, the customer's choices, the Parcel2Go label (PrePay), the timeline and what needs attention. Its settings are its own `.env` (`RETURNS_*`).
+- CLIVE reaches it only through its `/api/v1`, with a read key and a write key stored on the Connections screen (the owner copies them from `grep CLIVE /opt/clive/crooks-returns/.env`). Until both are stored, CLIVE says returns are not connected and offers none of their tools.
+- Reads, the owner's alone: the open returns and what each needs, one return and where it is, a period's numbers; the home's Needs you row, the order card's Returns section, the customer's story.
+- Writes are proposals: the card is the service's own preview; only his gesture executes; money-moving actions are his hold. Never the customers' portal, the service's database, or Shopify's return mutations.
+- No webhooks: CLIVE asks at most once a minute while someone is using it, then `?since=`. Receiving the service's webhooks needs a way in and a door decision that are his (DEC-061 lists them).
+- Integration branch: `claude/returns-in-clive` (not on the trunk or production until landed and deployed).
+
+## 2026-09-30 (history)
+
+| | SHA | What it is |
+|---|---|---|
+| **Production** (`/opt/crooks-os`) on 30 Sep, since replaced (see 2026-10-03 above) | `87e10c33` | Round 13 (PR #58), deployed 29 Sep, 23:10–23:49 UTC. The owner waived a further exact-SHA review at 22:23 ("give me a prompt to get this shipped and deployed now"), so no multi-part review was run. The installed tree is identical to `1c8f1636`, the tree GitHub acceptance was green on. `healthcheck.py -v` exits 0 and the phone check passed (`through=tailscale owner=true refusal=none`). Record: `claude/deploy-round-13-record` (`090d6f8f`, `crooks-assistant/reports/deploy-round-13.md`). |
 | **Trunk** | `2c8d2caf`, ahead of production | For the assistant it adds `c191de7a` (Instagram read-only, which stays inert until the owner stores a token; `docs/INSTAGRAM.md`), PR #62 (the digester holds per skill), PR #65 (curated mode; the secret prompt refuses control characters), PR #66 and PR #67's `engineering_status` wording. The rest is loop code and product memory. |
 | **The loop on clive-worker-01** | `40e6a73f` | Re-pinned on 30 Sep at 15:19 UTC under the owner's waiver, with builder checks, the green GitHub gate and product memory from the trunk. PR #63 and PR #67 take effect at the next re-pin. |
 

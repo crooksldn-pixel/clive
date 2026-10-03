@@ -28,6 +28,7 @@
 .cst-row.is-shop .cst-dot{background:var(--ink-2)}
 .cst-row.is-mail .cst-dot{background:#0a84ff}
 .cst-row.is-clive .cst-dot{background:var(--ok)}
+.cst-row.is-returns .cst-dot{background:transparent;border:1.5px solid #0a84ff}
 .cst-row.k-refund .cst-dot,.cst-row.k-cancelled .cst-dot{background:var(--warn)}
 .cst-when{font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .cst-what{font-size:15px;color:var(--ink);word-break:break-word}

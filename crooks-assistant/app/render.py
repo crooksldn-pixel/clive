@@ -86,6 +86,9 @@ KEY_OF: dict[str, tuple[str, ...]] = {
     "workspace_plan": ("workspace_id",),
     # The orders that nearly fit what he said (app/customers/match.py): one card per question.
     "order_match": ("title", "question"),
+    # CROOKS Returns (app/returns/views.py `card`): one card for what needs him ("open"), one per
+    # order or return asked about, one per period of numbers, each patched when asked again.
+    "returns": ("key",),
 }
 
 # A product or an inventory card is about a product, and the query that found it is not its

@@ -899,6 +899,9 @@
         overview,
         // Customers (web/customers.js): each refund, and whether the money has gone back.
         section('money', 'Money', [moneyBlock(d), customersKit() ? customersKit().refunds(d.refunds) : null]),
+        // CROOKS Returns on this order, the owner's alone (web/returns.js): where each stands.
+        returnsKit() && (list(d.returns, 4).length || d.returns_note)
+          ? section('returns', 'Returns', returnsKit().onOrder(d.returns, d.returns_note)) : null,
         d.note ? noteSection(d.note) : null,
       ] },
       { name: 'items', label: `Items${items.length ? ' · ' + items.length : ''}`, node: [
@@ -3228,6 +3231,26 @@
     ].concat(kit.matchBody(d)), opts);
   }
 
+  // CROOKS Returns (web/returns.js, loaded beside this file): the open returns and what each
+  // needs, one return and where it is, or a period's numbers. Without that file nothing is drawn.
+  function returnsKit() {
+    const kit = typeof window !== 'undefined' ? window.CliveReturns : globalThis.CliveReturns;
+    return kit && typeof kit.body === 'function' ? kit : null;
+  }
+
+  function renderReturns(d, opts) {
+    const kit = returnsKit();
+    if (!kit) return null;
+    const said = kit.sub(d);
+    return card('returns', [
+      h('div', { class: 'card-head' }, [h('div', {}, [
+        kicker('CROOKS Returns'),
+        h('h2', { class: 'card-title', text: kit.title(d) }),
+        said ? h('p', { class: 'card-sub', text: said }) : null,
+      ])]),
+    ].concat(kit.body(d)), opts);
+  }
+
   // One of the owner's objectives, in the shape of its kind (round 12). Drawn by
   // web/objective-cards.js, which the page loads beside this file; without it nothing is drawn.
   function renderObjective(d, opts) {
@@ -3272,6 +3295,7 @@
     screen_remote: renderScreenRemote,
     objective: renderObjective,
     order_match: renderOrderMatch,
+    returns: renderReturns,
   };
   const TYPES = Object.keys(RENDERERS).concat(['context_stack']);
   // Both Phase 5 workstreams added to this list and the merge produced two declarations of
@@ -3289,7 +3313,9 @@
     // An objective opened, shown or changed by voice is what the owner asked to see (round 12).
     'objective',
     // The order he meant, found from what he remembered (web/customers.js).
-    'order_match'];
+    'order_match',
+    // CROOKS Returns: what needs him, one return, a period's numbers (web/returns.js).
+    'returns'];
 
   function isValid(item) {
     return Boolean(item) && typeof item === 'object' && typeof item.type === 'string'
@@ -3393,6 +3419,7 @@
     workspace: ['workspace_id'],
     workspace_plan: ['workspace_id'],
     order_match: ['title', 'question'],
+    returns: ['key'],
   };
   const NESTED_KEY_OF = { product: ['products', 'product_id'], inventory: ['products', 'product_id'] };
   const SHELL_SUFFIX = '~shell';

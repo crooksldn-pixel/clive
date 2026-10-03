@@ -97,7 +97,13 @@ UI_TYPES = frozenset({
     # drawn as an order card, because it is not one he named; a tap on a row opens the order.
     # Drawn by web/customers.js.
     "order_match",
+    # CROOKS Returns, the owner's returns service (app/tools/returns_tools.py): the open returns
+    # and what each needs, one return's story and where it is, or a period's numbers. Built by
+    # app/returns/views.py `card` from the read's own result; drawn by web/returns.js.
+    "returns",
 })
+# The CROOKS Returns reads, each drawn as the "returns" card (app/returns/views.py).
+RETURNS_TOOLS = frozenset({"returns_open", "return_find", "returns_stats"})
 MAX_BATCH_ROWS = 50
 ANALYTIC_TOOLS = frozenset({"commerce_aggregate", "commerce_query", "inventory_query", "email_query"})
 # The read tools that put a workspace on the owner's screen (app/families/_workspace.py).
@@ -571,6 +577,10 @@ def _from_result(name: str, result: dict[str, Any]) -> list[dict[str, Any]]:
         from app.analytics.present import build, working_set_items
 
         return build(result, tool=name) + working_set_items(result)
+    if name in RETURNS_TOOLS:
+        from app.returns import views as returns_views
+
+        return [_ui("returns", returns_views.card(name, result))]
     if name == "shopify_order_detail":
         return [_ui("order", _order(result, detail=True))]
     if name == "shopify_find_order":
@@ -768,6 +778,33 @@ def _order(o: dict[str, Any], *, detail: bool = False) -> dict[str, Any]:
             "history": _history(o.get("history")),
             "email": _related_email(o.get("email")),
             "pending": [_text(p, 20) for p in (o.get("pending") or [])[:4] if isinstance(p, str)],
+        })
+        # CROOKS Returns on this order, the owner's alone (app/tools/shopify_tools.py adds them
+        # only for him): where each stands and what it needs. Absent when there are none.
+        returns = _order_returns(o.get("returns"))
+        if returns:
+            out["returns"] = returns
+        if o.get("returns_note"):
+            out["returns_note"] = _text(o.get("returns_note"), MAX_NOTE_CHARS)
+    return out
+
+
+def _order_returns(value: Any) -> list[dict[str, Any]]:
+    out = []
+    for r in _list(value, 4):
+        if not isinstance(r, dict):
+            continue
+        postage = r.get("postage") if isinstance(r.get("postage"), dict) else {}
+        url = _text(postage.get("tracking_url"), 300)
+        out.append({
+            "return_id": _text(r.get("return_id"), 48), "status": _text(r.get("status"), 20),
+            "status_words": _text(r.get("status_words"), 60), "resolution": _text(r.get("resolution"), 20),
+            "summary": _text(r.get("summary"), 240), "where": _text(r.get("where"), 300),
+            "attention_words": [_text(a, 30) for a in _list_strings(r.get("attention_words"), 5)],
+            "money": [{"label": _text(m.get("label"), 30), "shown": _text(m.get("shown"), 20)}
+                      for m in _list(r.get("money"), 6) if isinstance(m, dict)],
+            "tracking": _text(postage.get("tracking"), 40), "tracking_url": url if url.startswith("https://") else "",
+            "error": _text(r.get("error"), MAX_NOTE_CHARS),
         })
     return out
 
@@ -971,7 +1008,9 @@ MAX_TIMELINE = 24
 MAX_MATCHES = 3
 _TIMELINE_KINDS = frozenset({"ordered", "cancelled", "shipped", "refund", "note", "email_in", "email_out", "email_about",
                              "work_packed", "work_claimed", "work_done", "work_flagged", "work_released",
-                             "work_cancelled", "packed_screen", "clive", "objective"})
+                             "work_cancelled", "packed_screen", "clive", "objective",
+                             # a return asked for, and where it stands (CROOKS Returns, the owner's alone)
+                             "return"})
 _REF_KINDS = frozenset({"order", "email_thread", "objective"})
 
 
@@ -1218,6 +1257,8 @@ def _tool_error(call: ToolCall, session: Session | None) -> dict[str, Any]:
         service, title = "shopify", "Shopify unavailable"
     elif name.startswith("gmail_"):
         service, title = "gmail", "Email unavailable"
+    elif name.startswith(("returns_", "return_")):
+        service, title = "returns", "CROOKS Returns unavailable"
     else:
         service, title = "assistant", "Lookup failed"
     if blocked:
@@ -1383,11 +1424,21 @@ def present_action(result, *, session: Session | None = None, writes: dict[str, 
 
 
 def _service_of(proposal) -> str:
+    if _service_name(proposal) == "CROOKS Returns":
+        return "returns"
     return "gmail" if str(proposal.tool_name or "").startswith("gmail_") else "shopify"
 
 
 def _service_name(proposal) -> str:
-    return "Gmail" if _service_of(proposal) == "gmail" else "Shopify"
+    """Who the change was sent to: the write's own word when it names one (app/actions/engine.py)."""
+    from app.actions.engine import service_name
+    from app.tools import registry
+
+    try:
+        write = registry.get(proposal.tool_name).write
+    except KeyError:
+        write = None
+    return service_name(str(proposal.tool_name or ""), write)
 
 
 # --------------------------------------------------------------------------- batches
@@ -1535,6 +1586,11 @@ def present_proposal_state(
         }))
         if isinstance(proposal.entity, dict) and proposal.entity_kind == "order":
             items.append(_ui("order", _order(proposal.entity, detail=True)))
+        elif isinstance(proposal.entity, dict) and proposal.entity_kind == "return":
+            # The return as CROOKS Returns now holds it, from the proving re-read.
+            from app.returns import views as returns_views
+
+            items.append(_ui("returns", returns_views.card("return_find", {"returns": [proposal.entity]})))
         elif isinstance(proposal.entity, dict) and proposal.entity.get("kind") == "email" and proposal.entity.get("body"):
             e = proposal.entity
             items.append(_ui("email_draft", {

@@ -905,3 +905,32 @@ The unrestricted-English prose-freeze parser experiment is therefore parked as h
 **Reason:** the owner wanted routine repository-only engineering to stop depending on relayed terminal commands (DEC-015), without giving up the evidence gates.
 
 **Consequences:** The authority has since been used: the remote engineering loop is running (see [CURRENT_TRUTH.md](./CURRENT_TRUTH.md)). It covered that one bounded activation only. It grants no deploy, runtime, secrets, permissions or business-write authority; later changes to the loop, its hosts or its privileges follow their own owner decisions (DEC-058).
+
+---
+
+## DEC-061 — CROOKS Returns is an owner-deployed service outside the engineering kernel; CLIVE connects to it read-first, writes as proposals, money on the owner's hold
+
+**Date:** 2026-10-03
+**Status:** ACTIVE
+**Source:** the owner's brief for the CLIVE builder (`docs/returns/BRIEF_CLIVE.md` and `docs/returns/SCOPE.md` on branch `claude/compassionate-dirac-44hnee`), which says to record the service this way
+
+**Decision:** CROOKS Returns (`https://returns.crooksldn.com`) is the owner's own returns and exchanges service, replacing AfterShip. He built it and deployed it himself on 3 October 2026, in its own Docker Compose container (service plus Caddy) on `crooks-os-prod-1` at `/opt/clive/crooks-returns`, from branch `claude/compassionate-dirac-44hnee`, folder `crooks-returns/`. It was built **outside the CLIVE engineering kernel**: it has no kernel task, no review record and no acceptance record, and none is to be assumed. Shopify stays the system of record (an approved request becomes a native Shopify Return); the service adds the request before Shopify knows of it, the customer's choices, the Parcel2Go label paid from the PrePay balance, the timeline and the attention flags. Its settings are its own `.env` (`RETURNS_*`), never CLIVE's.
+
+CLIVE connects to it as the brief's section 6 says, and only through its `/api/v1`:
+- **Read-only first, the owner's alone.** `returns_open`, `return_find` and `returns_stats` (`app/tools/returns_tools.py`), the home's Needs you row (`GET /returns/brief`), the order card's Returns section and the customer's story. No staff member's set and no bounded service work names them.
+- **Writes are proposals.** `return_action` reads the return, asks the service's `/preview`, and stages a card that is that preview — its `will` lines and money exactly as returned. A refused preview stages nothing. Only the owner's gesture executes, with an idempotency key made for that card (the service scopes it to the return and the action) and actor `clive for George`; the result is verified (the re-read shows what the service said it did, with no error) or the service's own error.
+- **Money only on his hold.** Approve with `label_now` or `no_return`, `label` with no tracking (it buys one), `receive` in condition `ok`, and `complete` are raised to RED and so are hold-to-arm; every other action is his swipe.
+- **Never** the customers' portal (`/proxy/api/*`), the service's SQLite file, or Shopify's return mutations for a return the service owns. A return's money moves through `return_action`, never `shopify_refund_create`.
+- **Keys through Connections.** A "CROOKS Returns" card with a read key and a write key (`crooks_returns_read_key`, `crooks_returns_write_key`), stored and tested like Ship24's; the owner copies them from `grep CLIVE /opt/clive/crooks-returns/.env`. The base URL is the setting `CROOKS_RETURNS_BASE_URL` (default `https://returns.crooksldn.com`).
+- **No webhooks yet.** Receiving the service's signed webhooks would mean a new route through the access door, which is the owner's decision. Until he makes it, CLIVE asks `GET /returns?open=true` at most once a minute and only while someone is using CLIVE, then `?since=` for what changed.
+
+**Reason:** the service and CLIVE are separate trust boundaries (the service takes public traffic; CLIVE is behind Tailscale with owner-only writes), and the owner's rule `proposed ≠ authorised ≠ started ≠ completed ≠ verified` holds for a change made through another system as for one CLIVE makes itself.
+
+**Consequences:** CLIVE gains no authority over the service: it cannot change its settings, its policy or its data except through the actions the owner approves on a card. The service's code is tested against CLIVE's client offline (`tests/test_crooks_returns_contract.py`, which runs the service's own code from that branch with its fake Shopify and simulated Parcel2Go), not reviewed by the kernel. A change to the service is the owner's, on its own branch, and does not pass through CLIVE's engineering loop.
+
+**What a webhook from the service would need, when the owner decides it:**
+1. **A way in.** CLIVE listens on `127.0.0.1:8000` behind `tailscale serve`; the service runs in a Docker container, where `127.0.0.1` is the container itself, so today it cannot reach CLIVE at all. One of: CLIVE also listening on the Docker bridge address, or the service container on the host's network. That is a unit or compose change on the production host.
+2. **A door that lets it through.** Every route but the public ones needs the owner's Tailscale identity (`app/main.py` `guard_and_freshness`); the service has none. The route (for example `POST /hooks/returns`) would join the door's public paths, and its own signature check becomes its only lock: `X-Crooks-Returns-Signature` is hex HMAC-SHA256 of the raw body with the shared secret, compared in constant time; anything unsigned, malformed or over a small size is refused before it is parsed.
+3. **A shared secret.** Generated once, stored as a new CLIVE key (`crooks_returns_webhook_secret`, static tier) and as `RETURNS_CLIVE_WEBHOOK_SECRET` in `/opt/clive/crooks-returns/.env`, with `RETURNS_CLIVE_WEBHOOK_URL` set to the route's address as the container reaches it; the service restarted.
+4. **What it does with an event.** Nothing a customer could steer: it reads only `event` and the return's `id`, keeps none of the body (the body carries the customer's email and address), and drops the minute's cache (`app/clients/crooks_returns.py` `forget()`), so the home's row and the next read ask again. It changes nothing in the service and stages nothing.
+5. **Reconciliation stays.** Delivery is at most once and never retried, so the minute's poll and `?since=` remain the source of truth either way.
