@@ -23,7 +23,10 @@ from tests.customers_world import ALICIA, PROXIED, THEO, cards, result, say, wor
 
 world = pytest.fixture(world_fixture)
 
-SPELLINGS = ("Alysa", "Alcya", "Alisya", "Elissa")
+# George's own four (2 October): "Alysa could be Alicia or Alcya or Alisya." Heard as one, the shop
+# holds Alicia Grant.
+GEORGES_FOUR = ("Alysa", "Alicia", "Alcya", "Alisya")
+SPELLINGS = ("Alysa", "Alcya", "Alisya")
 
 
 # --------------------------------------------------------------------------- the rules alone
@@ -35,6 +38,24 @@ def test_each_of_his_spellings_sounds_like_alicia_and_not_like_somebody_else(hea
     assert alicia["score"] >= names.FITS and not alicia["exact"]
     for other in ("Theo Marsh", "Mia Jones", "Poppy De-Witt", "Sam Cole"):
         assert names.name_likeness(heard, other)["score"] < names.DIFFERS, other
+
+
+@pytest.mark.parametrize("heard", GEORGES_FOUR)
+@pytest.mark.parametrize("written", GEORGES_FOUR)
+def test_any_of_his_four_spellings_fits_any_other(heard, written):
+    assert names.name_likeness(heard, written)["score"] >= names.FITS
+
+
+@pytest.mark.parametrize(("heard", "written"), [
+    ("Alicia", "Ellis Moore"), ("Alicia", "Elise Hart"), ("Alicia", "Alice Ward"), ("Ellis", "Alicia Grant"),
+    ("Elise", "Alicia Grant"), ("Alice", "Alicia Grant"), ("Tom", "Tim Bell"), ("Tim", "Tom Bell"),
+    ("Dan", "Don Reid"), ("Jake", "Jack Hall"), ("Jack", "Jake Hall"), ("Elissa", "Alicia Grant"),
+])
+def test_names_that_differ_only_in_their_vowels_are_never_a_full_match(heard, written):
+    """The reviewer's pairs: the same consonants, other vowels, another name. At most "not sure"."""
+    likeness = names.name_likeness(heard, written)
+    assert likeness["score"] < names.FITS, likeness
+    assert names.heard_words(heard, likeness) != f"name heard as '{heard}'"
 
 
 def test_a_name_is_exact_a_nickname_or_neither():
@@ -64,6 +85,19 @@ def test_an_amount_is_one_number_or_nothing():
 
 
 # --------------------------------------------------------------------------- one clear answer
+
+
+async def test_a_real_customers_name_on_somebody_elses_order_is_a_question_not_an_answer(world):
+    """The reviewer's case: "Alicia" is a real customer, and the only black cap is Ellis Moore's.
+    The cap is offered — as a question, with Ellis's name on it — never as the answer."""
+    body = await say(world, "Alicia who ordered the black cap",
+                     ("shopify_find_order", {"name": "Alicia", "item": "black cap"}))
+    told = result(world, "shopify_find_order")
+    assert told["orders"] == [] and told["verdict"] == "check"
+    assert [r["customer_name"] for r in told["likely"]] == ["Ellis Moore"]
+    assert told["question"].startswith("Is it Ellis Moore's") and "a real customer's (Alicia)" in told["instruction"]
+    (shown,) = cards(body, "order_match")
+    assert shown["title"] != "Best match" and shown["question"] == told["question"]
 
 
 @pytest.mark.parametrize("heard", SPELLINGS)

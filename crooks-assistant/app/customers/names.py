@@ -86,6 +86,10 @@ _VOWELS = frozenset("aeiou")
 # two a name is "not sure": it adds a little, and is never what an answer rests on.
 FITS = 0.78
 DIFFERS = 0.6
+# The vowels' likeness below which the same consonants are another name ("Ellis" for "Alicia",
+# "Tim" for "Tom"), and the most such a word can score: not sure, never a fit.
+VOWELS_FIT = 0.6
+NOT_SURE = 0.7
 
 
 def fold_letters(text: Any) -> str:
@@ -113,15 +117,17 @@ def spelt(word: str) -> str:
     w = w.replace("c", "k")
     # "y" inside a word is a vowel ("Alysa"); at the front, before a vowel, it is a consonant.
     w = w[0] + w[1:].replace("y", "i") if len(w) > 1 else w
-    w = re.sub(r"(.)\1+", r"\1", w)
-    if len(w) > 3 and w.endswith("e") and w[-2] not in _VOWELS:
+    # A final "e" after two consonants is silent ("Clarke", "Anne"). After one consonant that
+    # follows a vowel it changes that vowel ("Jake" is not "Jack", "Mike" is not "Mick"), so it stays.
+    if len(w) > 3 and w.endswith("e") and w[-2] not in _VOWELS and w[-3] not in _VOWELS:
         w = w[:-1]
-    return w
+    return re.sub(r"(.)\1+", r"\1", w)
 
 
 def key(word: str) -> str:
     """The first sound and the consonants after it: "Alysa", "Alicia", "Alcya" and "Elissa"
-    are all "als"."""
+    are all "als" — and so are "Ellis" and "Alice", which is why the vowels are held too
+    (`vowels`, `word_likeness`)."""
     s = spelt(word)
     if not s:
         return ""
@@ -129,6 +135,12 @@ def key(word: str) -> str:
     rest = [c for c in s[1:] if c not in _VOWELS and c not in "hwy"]
     out = first + "".join(rest)
     return re.sub(r"(.)\1+", r"\1", out)
+
+
+def vowels(word: str) -> str:
+    """The vowels of the word as it sounds, in order: "Alysa" is "aia", "Alicia" "aiia", "Ellis"
+    "ei", "Tom" "o" and "Tim" "i"."""
+    return "".join(c for c in spelt(word) if c in _VOWELS)
 
 
 def jaro_winkler(a: str, b: str) -> float:
@@ -190,16 +202,23 @@ def word_likeness(said: str, have: str) -> tuple[float, str]:
         return 0.96, "sounds"
     s_key, h_key = key(said), key(have)
     same_key = s_key == h_key
-    # The consonants carry a name; the vowels are what speech blurs. A different first sound
-    # is a different name far more often than a mishearing, so it costs a third.
+    # The consonants carry most of a name, and speech blurs the vowels — but only so far:
+    # "Alysa" heard is "Alicia" written (aia, aiia), while "Ellis" (ei), "Alice" (aie), "Tim"
+    # for "Tom" and "Jack" for "Jake" share their consonants and are other names. A different
+    # first sound is a different name far more often than a mishearing, so it costs a third.
     sound = 1.0 if same_key else edit_likeness(s_key, h_key)
-    score = 0.6 * sound + 0.4 * jaro_winkler(s_spelt, h_spelt)
+    s_vowels, h_vowels = vowels(said), vowels(have)
+    voiced = 1.0 if s_vowels == h_vowels else edit_likeness(s_vowels, h_vowels)
+    score = 0.45 * sound + 0.35 * voiced + 0.2 * jaro_winkler(s_spelt, h_spelt)
     if s_key[:1] != h_key[:1]:
         score *= 0.7
     typo = edit_likeness(said, have)
-    if typo >= 0.8:
+    if typo >= 0.8 and voiced >= VOWELS_FIT:
         score = max(score, typo)
-    return round(min(score, 0.95), 3), "sounds" if same_key else "spelt"
+    if voiced < VOWELS_FIT:
+        # Vowels this unlike are another name with the same consonants: never a full match.
+        score = min(score, NOT_SURE)
+    return round(min(score, 0.95), 3), "sounds" if same_key and voiced >= VOWELS_FIT else "spelt"
 
 
 def name_likeness(said: Any, *names: Any) -> dict[str, Any]:

@@ -819,7 +819,7 @@ async def _find_by_evidence(evidence: dict[str, str], limit: int) -> dict[str, A
         # Nothing has ALL of it. One fact may have been misheard — the name most often — so the
         # orders that could be it are scored on every fact together (app/customers/match.py).
         try:
-            await _closest(client, result, evidence, list(nodes.values()), clauses, bool(name_ids))
+            await _closest(client, result, evidence, list(nodes.values()), clauses, name_ids)
         except Exception as exc:  # noqa: BLE001 — the strict answer stands without the second look
             log.warning("closest orders unavailable: %s", type(exc).__name__)
     return result
@@ -866,10 +866,14 @@ def _fragment(evidence: dict[str, str], key: str) -> bool:
 
 
 async def _closest(client: ShopifyClient, result: dict[str, Any], evidence: dict[str, str],
-                   nodes: list[dict[str, Any]], clauses: list[str], held_to_name: bool) -> None:
+                   nodes: list[dict[str, Any]], clauses: list[str], name_ids: list[str]) -> None:
     """Put the orders that most nearly fit on `result`, as `likely`, when any fits well enough
-    to show. Never raises: a second look that fails leaves the first answer as it was."""
+    to show. Never raises: a second look that fails leaves the first answer as it was.
+
+    `name_ids`: the customers the name said IS. An order of somebody else's is then a question."""
     from app.customers import match
+
+    held_to_name = bool(name_ids)
 
     try:
         today = datetime.now(await client.timezone()).date()
@@ -892,7 +896,7 @@ async def _closest(client: ShopifyClient, result: dict[str, Any], evidence: dict
             log.info("closest: the wider search did not answer: %s", type(exc).__name__)
     candidates += _cached_candidates(evidence)
     ev = match.evidence_from(evidence, today)
-    found = match.verdict(match.rank(candidates, ev, today), ev, today)
+    found = match.verdict(match.rank(candidates, ev, today), ev, today, named=name_ids)
     if ev.unread:
         result["unread"] = ev.unread
     if found["kind"] == "none":
@@ -901,8 +905,8 @@ async def _closest(client: ShopifyClient, result: dict[str, Any], evidence: dict
     result["verdict"] = found["kind"]
     if found.get("question"):
         result["question"] = found["question"]
-    key = "one_name_differs" if found.get("name_differs") else found["kind"]
-    result["instruction"] = match.INSTRUCTIONS[key]
+    key = "one_name_differs" if found.get("name_differs") else "check_someone_else" if found.get("someone_else") else found["kind"]
+    result["instruction"] = match.INSTRUCTIONS[key].replace("{said}", str(evidence.get("name") or ""))
 
 
 def _cached_candidates(evidence: dict[str, str]) -> list[Any]:

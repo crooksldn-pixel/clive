@@ -337,18 +337,31 @@ def _clear(s: Scored, ev: Evidence) -> bool:
     return True
 
 
-def verdict(ranked: list[Scored], ev: Evidence, today: date) -> dict[str, Any]:
-    """What to show and what to ask. See the module's comment for the rules."""
+def _digits_of(ref: Any) -> str:
+    return str(ref or "").rsplit("/", 1)[-1]
+
+
+def verdict(ranked: list[Scored], ev: Evidence, today: date, *, named: Any = ()) -> dict[str, Any]:
+    """What to show and what to ask. See the module's comment for the rules.
+
+    `named`: the customers the name he said IS (Shopify's ids, as the strict search found them).
+    When the name is a real customer's and the order that fits best is somebody else's, it is a
+    question, never the answer: "Alicia" and Ellis Moore's black cap is "Is it Ellis Moore's…?"."""
     if not ranked or not _plausible(ranked[0]):
         return {"kind": "none", "rows": []}
     top = ranked[0]
     second = ranked[1] if len(ranked) > 1 else None
     lead = top.points - (second.points if second else 0.0)
-    if _clear(top, ev) and lead >= MARGIN:
+    theirs = {_digits_of(n) for n in named if n}
+    someone_else = bool(theirs) and _digits_of(top.candidate.customer_id) not in theirs
+    if _clear(top, ev) and lead >= MARGIN and not someone_else:
         out = {"kind": "one", "rows": [row(top, ev, today)]}
         if ev.name and top.fit("name") == "no":
             out["name_differs"] = True
         return out
+    if someone_else and (_clear(top, ev) or lead >= MARGIN):
+        return {"kind": "check", "rows": [row(top, ev, today)], "question": f"Is it {_who_when(top, today)}?",
+                "someone_else": True}
     close = [s for s in ranked[:MAX_SHOWN] if _plausible(s) and top.points - s.points < MARGIN]
     if len(close) <= 1:
         return {"kind": "check", "rows": [row(top, ev, today)], "question": f"Is it {_who_when(top, today)}?"}
@@ -418,5 +431,7 @@ INSTRUCTIONS = {
     "one_name_differs": ("Everything but the name fits one order. Say whose order it is, that the name is not the one "
                          "he said, and ask him to confirm before doing anything with it."),
     "check": "One order might be it, but the facts do not prove it. Read `why` and ask if it is the one.",
+    "check_someone_else": ("The name he said is a real customer's ({said}), but the order that fits the rest is "
+                           "somebody else's. Say whose it is and ask `question`; do nothing with it until he says."),
     "several": "Several orders fit about as well. Ask `question`, in one short sentence; do not choose.",
 }
