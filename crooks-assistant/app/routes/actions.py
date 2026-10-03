@@ -757,6 +757,9 @@ async def decline(request: Request, proposal_id: str, session_id: str = Form(def
         return _refuse(404, "unknown", "No such proposal for this session.")
     if proposal.undo_of is not None:
         return _refuse(409, "an_undo", "That is an offer to undo a change, not a change waiting for you.")
+    if proposal.batch_id:
+        # As arm refuses it: one of a set is said no to with its set (/batches/{id}/decline).
+        return _refuse(409, "batch_member", "That change is one of a set; say not now to the set.")
     withdrawn = runtime.actions.revoke_ids([proposal_id], DECLINED_BY_OWNER) == 1
     timeline.emit("action_declined", session_id=session_id, proposal_id=proposal_id,
                   turn_id=proposal.turn_id or None, ok=withdrawn, status=proposal.status.value)

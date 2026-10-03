@@ -180,3 +180,21 @@ async def test_not_now_withdraws_a_bulk_change_with_every_member_and_applies_non
     assert late.json().get("status") != "done" and batch_client.store.mutations == []
     again = await batch_client.post(f"/batches/{batch_id}/decline", data={"session_id": "s1"}, headers=PROXIED)
     assert again.status_code == 409 and again.json()["code"] == "not_waiting"
+
+
+async def test_one_of_a_set_is_not_said_no_to_on_its_own(batch_client):
+    """Review of the design pass (3 Oct): a member of a batch is armed and applied only by its
+    batch's gesture, and is withdrawn only with its batch, as /arm refuses it."""
+    runtime = batch_client.runtime
+    session = runtime.sessions.get_or_create("s1")
+    session.epoch = max(session.epoch, 1)
+    ws = orders_set(session, batch_client.store, clock=None)
+    calls: list = []
+    text = await dispatch("batch_order_tags_add", {"set_id": ws.set_id, "tags": ["hold"]}, session=session, timeout_s=10, calls=calls)
+    assert text.startswith("PROPOSED BATCH")
+    batch = runtime.batches.state(calls[-1].proposal_id, "s1")
+    member = batch.eligible[0].proposal_id
+    answer = await batch_client.post(f"/actions/{member}/decline", data={"session_id": "s1"}, headers=PROXIED)
+    assert answer.status_code == 409 and answer.json()["code"] == "batch_member"
+    assert runtime.actions.find(member).status is ActionStatus.PENDING
+    assert batch.status.value == "PENDING", "the set still waits for him, whole"
