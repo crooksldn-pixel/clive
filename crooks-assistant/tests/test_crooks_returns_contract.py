@@ -16,8 +16,10 @@ What it proves, through CLIVE's own tools and action engine:
     that key it is replayed: never a second label, never a second Shopify return;
   - a refusal comes back in words, and an error the service records is said as the service said it.
 
-Skipped, saying why, where the service's code is not in this repository's history (a shallow
-clone): the acceptance workflow checks out with full history, so it runs there.
+The service's code is taken at one pinned commit (tests/returns_service.py SERVICE_SHA, the one
+deployed), never the branch's moving tip. Skipped, saying why, where that commit is not in this
+repository's history (a shallow clone): the acceptance workflow checks out with full history, so
+it runs there.
 """
 
 from __future__ import annotations
@@ -78,6 +80,20 @@ def world(service_code, tmp_path, monkeypatch):
     yield types.SimpleNamespace(svc=svc, shop=shop, parcel2go=parcel2go, engine=engine, s=s, keys=held)
     rc.configure(base_url=rc.DEFAULT_BASE_URL)
     rc.forget()
+
+
+def test_the_service_code_is_the_pinned_commit_not_the_branch_tip(service_code):
+    """What these tests prove is about the service George deployed (tests/returns_service.py
+    SERVICE_SHA), not whatever its branch says today."""
+    import subprocess
+
+    if not service_code.sha:
+        pytest.skip("CROOKS_RETURNS_SRC names the service's code; it is whatever that checkout is")
+    assert service_code.sha == returns_service.SERVICE_SHA and len(service_code.sha) == 40
+    for path in ("returns/api.py", "returns/service.py"):
+        pinned = subprocess.run(["git", "-C", str(returns_service.ROOT), "show", f"{returns_service.SERVICE_SHA}:crooks-returns/{path}"],
+                                capture_output=True, check=True).stdout
+        assert (service_code.src / path).read_bytes() == pinned, path
 
 
 def _ask_for_a_return(world, resolution="store_credit", courier="evri"):
