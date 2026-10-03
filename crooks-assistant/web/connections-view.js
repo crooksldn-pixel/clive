@@ -414,7 +414,9 @@
     const node = el('article', 'conn');
     if (NAME.test(str(c.name))) {
       node.dataset.name = c.name;
-      node.id = 'conn-' + c.name;
+      // The row's id is the connection's own name, as it always was: Instagram's sign-in comes back
+      // to /connections#instagram (app/routes/connections.py).
+      node.id = c.name;
     }
     node.dataset.state = { connected: 'connected', needs_attention: 'needs_attention', not_connected: 'not_connected' }[c.state] || 'unknown';
     if (c.group === 'working') {

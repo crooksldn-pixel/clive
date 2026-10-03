@@ -253,6 +253,8 @@ test('nothing from the server is written into a secret box or read as markup', (
   assert.equal(keyBoxes(row)[0].value, undefined, 'a secret field never shows a value, even one sent');
   assert.ok(!row.allText().includes(SECRET));
   assert.ok(row.allText().includes(HOSTILE), 'shown as text');
+  // Instagram's sign-in comes back to /connections#instagram: the row answers to that name.
+  assert.equal(View.row(INSTAGRAM, ctx()).id, 'instagram');
   // A name that is not one of ours is never put into an attribute.
   const odd = View.row(connection({ name: '"><x' }), ctx());
   assert.equal(odd.dataset.name, undefined);

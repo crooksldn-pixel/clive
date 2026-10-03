@@ -233,6 +233,27 @@ async function checking(browser) {
   await context.close();
 }
 
+async function cameBack(browser) {
+  // Where Instagram's sign-in comes back to (app/routes/connections.py): /connections?done=signed_in#instagram.
+  const size = SIZES[0];
+  const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, deviceScaleFactor: size.dpr,
+    isMobile: true, hasTouch: true, extraHTTPHeaders: HEADERS, reducedMotion: 'reduce' });
+  const page = await context.newPage();
+  await page.goto(`${BASE}/connections?done=signed_in#instagram`, { waitUntil: 'networkidle' });
+  await page.waitForSelector('[data-ready="true"]', { timeout: 15000 });
+  await page.waitForTimeout(200);
+  const seen = await page.evaluate(() => {
+    const row = document.getElementById('instagram');
+    const box = row ? row.getBoundingClientRect() : null;
+    return { row: Boolean(row && row.classList.contains('conn')), top: box ? Math.round(box.top) : null,
+      height: window.innerHeight, notice: document.querySelector('#notice').textContent };
+  });
+  check('back from Instagram: the page goes to the Instagram row and says it is connected',
+    seen.row && seen.top !== null && seen.top >= 0 && seen.top < seen.height / 2 && seen.notice === 'Instagram is connected.',
+    JSON.stringify(seen));
+  await context.close();
+}
+
 async function stillness(browser) {
   const { context, page } = await open(browser, SIZES[0], { reducedMotion: 'reduce' });
   const moving = await page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running'
@@ -305,6 +326,7 @@ async function oneStep(browser) {
     await checking(browser);
     for (const size of SIZES) await judge(browser, size);
     await stillness(browser);
+    await cameBack(browser);
     await oneStep(browser);
   } catch (error) {
     check('the run finished', false, error && error.stack ? error.stack : error);

@@ -553,14 +553,26 @@
     draw({ fresh });
   }
 
-  async function checkAll() {
+  // The connection the address names (#instagram, where Instagram's sign-in comes back to): the
+  // rows are drawn after the page loads, so the browser cannot go there itself.
+  function named() {
+    const name = decodeURIComponent(window.location.hash.slice(1));
+    return NAME.test(name) && current.connections.some((c) => c.name === name) ? name : '';
+  }
+
+  async function checkAll({ first = false } = {}) {
     checking = due();
     draw();
     const data = await call('/connections/check', {});
     checking = new Set();
     checkedAt = Date.now();
     if (data.ok) take(data);
-    draw();
+    const name = first ? named() : '';
+    draw({ fresh: name });
+    if (name) {
+      const row = document.getElementById(name);
+      if (row) row.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    }
     $('#page').dataset.ready = 'true';
   }
 
@@ -575,7 +587,7 @@
       return;
     }
     take(data);
-    await checkAll();
+    await checkAll({ first: true });
   }
 
   function fromAddress() {
