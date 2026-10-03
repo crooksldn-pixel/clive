@@ -91,6 +91,7 @@ query CrooksCheckoutDraft($id: ID!) {
       edges { node { title variantTitle quantity variant { id } discountedTotalSet { shopMoney { amount currencyCode } } } }
     }
   }
+  shop { myshopifyDomain primaryDomain { host } }
 }
 """
 
@@ -174,11 +175,16 @@ async def _resolve(item: Any) -> dict[str, Any]:
 
 
 async def _read_draft(draft_id: str) -> dict[str, Any]:
+    """The draft as Shopify holds it, with the shop's own domains as Shopify names them
+    (`_shop_hosts`, which a checkout link must be on)."""
     payload = await _c().graphql(DRAFT_QUERY, {"id": draft_id})
-    node = (payload.get("data") or {}).get("draftOrder")
+    data = payload.get("data") or {}
+    node = data.get("draftOrder")
     if not isinstance(node, dict) or node.get("id") != draft_id:
         raise ToolError("Shopify did not give the draft back, so there is no link to send.")
-    return node
+    shop = data.get("shop") if isinstance(data.get("shop"), dict) else {}
+    hosts = [shop.get("myshopifyDomain"), (shop.get("primaryDomain") or {}).get("host")]
+    return {**node, "_shop_hosts": [str(h).lower() for h in hosts if h]}
 
 
 def _lines_of(node: dict[str, Any]) -> list[tuple[str, int]]:
@@ -197,16 +203,17 @@ def draft_fingerprint(node: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
-def _link_ok(url: str) -> bool:
-    """The shop's own link: https, on the shop's myshopify domain or a domain the store links to."""
+def _link_ok(url: str, shop_hosts: list[str]) -> bool:
+    """The shop's own link: https, on exactly the shop's myshopify domain or its primary domain
+    as Shopify names them. Not the hosts an email may otherwise link to (`gmail_link_hosts`,
+    which include the carriers, for tracking): a checkout link is only ever the shop's."""
     parsed = urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname:
         return False
-    host = parsed.hostname.lower()
     settings = gmail_writes._settings()
-    allowed = {h.strip().lower() for h in str(getattr(settings, "gmail_link_hosts", "") or "").split(",") if h.strip()}
-    allowed |= {str(getattr(settings, "shopify_shop_domain", "") or "").lower(), str(getattr(_c(), "shop_domain", "") or "").lower()}
-    return any(host == a or host.endswith("." + a) for a in allowed if a)
+    allowed = {*shop_hosts, str(getattr(settings, "shopify_shop_domain", "") or "").lower(),
+               str(getattr(_c(), "shop_domain", "") or "").lower()}
+    return parsed.hostname.lower() in {a for a in allowed if a}
 
 
 async def _the_draft(customer: dict[str, str], lines: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]]:
@@ -410,7 +417,7 @@ async def shopify_checkout_link_send(customer_id: str, items: list, message: str
         raise DraftLeft("The draft is not open any more, so its link cannot be sent.", draft_name=draft_name)
     if not link:
         raise DraftLeft("Shopify holds no payment link for the draft, so there is nothing to send.", draft_name=draft_name)
-    if not _link_ok(link):
+    if not _link_ok(link, list(node.get("_shop_hosts") or [])):
         raise DraftLeft(f"The link Shopify gave is not on the shop's own domain ({urlparse(link).hostname}), so it is not sent.",
                         draft_name=draft_name)
     total_amount, currency = _money(node.get("totalPriceSet"))

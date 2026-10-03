@@ -232,3 +232,14 @@ async def test_a_price_in_his_words_is_refused_the_price_is_shopifys(world, word
 async def test_numbers_that_are_not_money_are_his_words(world):
     body = await _prepare(world, {**TEE, "message": "Hi Mia, the M fits a 38 chest; we post within 2 days."})
     assert cards(body, "confirmation")
+
+
+@pytest.mark.parametrize("url", ["https://royalmail.com/pay/abc", "https://www.evri.com/x", "https://pay.crooksldn.com/x"])
+async def test_only_the_shops_own_domain_carries_a_checkout_link_never_a_carriers(world, url):
+    """The hosts an email may LINK to include the carriers, for tracking; a checkout link is
+    the shop's — its myshopify domain or its primary domain, as Shopify names them."""
+    world.store.twist = {"invoiceUrl": url}
+    await _prepare(world)
+    told = next(c for c in world.model.calls if c.name == "shopify_checkout_link_send")
+    assert not told.ok and "not on the shop's own domain" in told.error
+    assert _sends(world) == []

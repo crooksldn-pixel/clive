@@ -304,7 +304,8 @@ class CustomersShop(ShopifyClient):
                 "product": {"id": v["product"], "title": PRODUCTS[v["product"]]["title"], "status": PRODUCTS[v["product"]]["status"]}}}}
         if "CrooksCheckoutDraft" in query or "CrooksDraftPaymentLink" in query:
             draft = self.drafts.get(str(variables.get("id") or ""))
-            return {"data": {"draftOrder": copy.deepcopy(draft) if draft else None}}
+            return {"data": {"draftOrder": copy.deepcopy(draft) if draft else None,
+                             "shop": {"myshopifyDomain": "crooks-test.myshopify.com", "primaryDomain": {"host": INVOICE_HOST}}}}
         raise AssertionError(f"the customers shop has no answer for {query[:60]!r}")
 
     async def mutate(self, name: str, variables: dict) -> dict:
