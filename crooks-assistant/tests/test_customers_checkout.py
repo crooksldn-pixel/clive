@@ -218,3 +218,17 @@ async def test_postage_on_the_draft_is_its_own_line_and_the_total_says_it_is_in(
     facts = {f["label"]: f["value"] for f in card["facts"]}
     assert "Convict T-Shirt — Black / M: £30.00\n\nPostage: £4.95\n\nTotal: £34.95, with postage" in card["body"]
     assert facts["Total"] == "£34.95, with postage" and facts["Postage"] == "£4.95"
+
+
+@pytest.mark.parametrize("words", ["It's £25 for the tee.", "Thirty quid all in.", "That's 30 pounds with postage.",
+                                   "Only 2,500p!", "Price is 30 GBP.", "Thirty euros"])
+async def test_a_price_in_his_words_is_refused_the_price_is_shopifys(world, words):
+    await _prepare(world, {**TEE, "message": f"Hi Mia. {words}"})
+    told = next(c for c in world.model.calls if c.name == "shopify_checkout_link_send")
+    assert not told.ok and "Leave prices out" in told.error
+    assert world.store.mutations == [] and _sends(world) == []
+
+
+async def test_numbers_that_are_not_money_are_his_words(world):
+    body = await _prepare(world, {**TEE, "message": "Hi Mia, the M fits a 38 chest; we post within 2 days."})
+    assert cards(body, "confirmation")

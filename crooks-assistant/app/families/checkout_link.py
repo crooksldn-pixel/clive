@@ -267,6 +267,11 @@ def _shown(amount: float | None, currency: str) -> str:
     return f"{symbol}{amount:,.2f}" if symbol else f"{amount:,.2f} {currency}"
 
 
+# Money in his words: a currency sign or code, or a money word. The email's prices are Shopify's,
+# printed from the draft; a figure in the message could only contradict them.
+_MONEY_WORDS = re.compile(r"[£$€]|\b(?:gbp|usd|eur|quid|pounds?|pence|euros?|dollars?)\b|\d\s*p\b", re.I)
+
+
 def _clean_message(message: Any) -> str:
     """His words, as the model wrote them: plain, short, and with no link — the link is the
     shop's, and CLIVE puts it in."""
@@ -278,6 +283,8 @@ def _clean_message(message: Any) -> str:
         raise ToolError("The message must be plain text.")
     if re.search(r"https?://|www\.", text, re.I):
         raise ToolError("Leave the link out of the message; CLIVE adds the shop's own link.")
+    if _MONEY_WORDS.search(text):
+        raise ToolError("Leave prices out of the message; the email adds Shopify's own price for each item and the total.")
     if len(text) > MAX_MESSAGE_CHARS:
         raise ToolError(f"The message is longer than {MAX_MESSAGE_CHARS} characters; shorten it.")
     return text
