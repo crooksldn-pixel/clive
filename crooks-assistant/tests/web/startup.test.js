@@ -74,7 +74,9 @@ function page({ contexts, dots, engine }) {
     els[id] = new El(id === 'startup-dots' || id === 'startup-bloom' || id === 'startup-fx' ? 'canvas' : 'div', p);
   }
   els.system.dataset.phase = 'connecting';
+  const heard = {};   // what the start-up listens for on the document (design pass, 3 Oct)
   const document = {
+    addEventListener: (type, fn) => { heard[type] = fn; },
     getElementById: (id) => els[id] || null,
     querySelector: () => ({ getAttribute: () => 'build-1' }),
     createElement: (tag) => new El(tag, p),
@@ -118,7 +120,22 @@ function page({ contexts, dots, engine }) {
     now = until;
   };
   const frame = () => { const list = frames.splice(0); list.forEach((fn) => fn(now)); };
-  return { run, advance, frame, root: els.startup, sandbox };
+  // A finger put down on `target` (something with `closest`), as the browser hands it to the
+  // document on the way down; says whether the start-up stopped it there.
+  const down = (target) => {
+    const e = { target, isTrusted: true, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} };
+    if (heard.pointerdown) heard.pointerdown(e);
+    return e;
+  };
+  down.raw = (e) => { if (heard.pointerdown) heard.pointerdown(e); return e; };
+  // Any other event the document is handed on its way down (a pointerup, a click).
+  const hear = (type, extra) => {
+    const e = Object.assign({ isTrusted: true, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} }, extra);
+    if (heard[type]) heard[type](e);
+    return e;
+  };
+  const clock = (ms) => { now += ms; };
+  return { run, advance, frame, root: els.startup, sandbox, els, down, hear, clock };
 }
 
 const gone = (root) => root.classList.contains('is-gone');
@@ -177,10 +194,105 @@ test('nothing throws but CLIVE never answers: the overlay still goes by itself',
 // 2 October (the owner: the gear did nothing for several seconds after a full start-up): once CLIVE
 // is there, a tap ends the start-up at once; before that, a tap still only hurries the animation.
 test('a tap once CLIVE is online ends the start-up at once', () => {
-  const at = STARTUP.indexOf("root.addEventListener('pointerdown'");
+  // Design pass (3 Oct): the handler hears the tap on the document now (the layer takes no
+  // touches); the rule it is held to here is the same.
+  const at = STARTUP.indexOf('function onDown(e)');
   assert.notEqual(at, -1);
-  const handler = STARTUP.slice(at, STARTUP.indexOf('\n  });', at));
-  const online = handler.indexOf('if (ready()) { finish(); return; }');
+  const handler = STARTUP.slice(at, STARTUP.indexOf('\n  }\n', at));
+  const online = handler.indexOf('if (ready()) { finish();');
   const hurry = handler.indexOf('E.simulate(T0 + 5.15)');
   assert.ok(online !== -1 && hurry !== -1 && online < hurry, 'online is asked first');
+});
+
+// Design pass (3 Oct): a tap during the start-up is not spent on it. Before CLIVE is there it
+// only hurries the animation and reaches nothing; once CLIVE is there it ends the start-up, and
+// a tap on the dock or the gear goes on to what was pressed. Nothing else is reached unseen.
+function control(selector) {
+  return { closest: (sel) => (sel.split(',').map((x) => x.trim()).includes(selector) ? { selector } : null) };
+}
+function running() {
+  const simulated = [];
+  const engine = () => ({ time: () => 0, destroy() {}, at() {}, boot() {}, quick() {}, setHome() {}, handoff() {}, simulate: (t) => simulated.push(t) });
+  const pg = page({ contexts: goodContext, engine });
+  pg.run();
+  pg.frame(); pg.frame();
+  return { pg, simulated };
+}
+
+test('before CLIVE answers, a tap on the dock only hurries the start-up and reaches nothing', () => {
+  const { pg, simulated } = running();
+  const tap = pg.down(control('.dock-btn'));
+  assert.equal(tap.stopped, true, 'the app beneath never hears it');
+  assert.deepEqual(simulated, [5.15], 'the animation skipped ahead');
+  assert.ok(!gone(pg.root), 'and the start-up is still up, waiting for CLIVE');
+});
+
+test('once CLIVE is there, a tap on the dock or the gear ends the start-up and goes through', () => {
+  for (const selector of ['.dock-btn', '#settings-btn']) {
+    const { pg } = running();
+    pg.els.system.dataset.phase = 'online';
+    const tap = pg.down(control(selector));
+    assert.equal(tap.stopped, false, `${selector} hears the tap`);
+    assert.ok(gone(pg.root), 'the start-up stepped aside at once');
+  }
+});
+
+test('an event a script dispatches on an element is not a finger, and passes as it always did', () => {
+  const { pg } = running();
+  const heard = pg.sandbox.document;
+  assert.ok(heard);
+  const scripted = { target: control('.action-surface'), isTrusted: false, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} };
+  pg.down.raw(scripted);
+  assert.equal(scripted.stopped, false);
+  assert.ok(!gone(pg.root), 'and it does not end the start-up');
+});
+
+test('once CLIVE is there, a tap anywhere else ends the start-up and reaches nothing', () => {
+  const { pg } = running();
+  pg.els.system.dataset.phase = 'online';
+  const tap = pg.down(control('.action-surface'));
+  assert.equal(tap.stopped, true, 'a control on a card is never pressed through the start-up');
+  assert.ok(gone(pg.root));
+  const later = page({ contexts: goodContext, engine: () => ({ time: () => 0, destroy() {}, at() {}, boot() {}, quick() {}, setHome() {}, handoff() {}, simulate() {} }) });
+  later.run();
+  later.frame(); later.frame();
+  later.els.system.dataset.phase = 'online';
+  assert.equal(later.down({}).stopped, true, 'nor is a tap on nothing in particular');
+});
+
+// Review of the design pass (3 Oct): a stopped tap used to stop every pointerup and click for
+// 900 ms after it, so Orders tapped 0.4 s later opened nothing and the app beneath was left
+// thinking a finger was still down. Only the stopped tap's own click is swallowed now.
+test('a stopped tap swallows its own click and nothing else', () => {
+  const { pg } = running();
+  const tap = pg.down.raw({ target: control('.dock-btn'), pointerId: 7, isTrusted: true, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} });
+  assert.equal(tap.stopped, true, 'the tap itself only hurried the start-up');
+  assert.equal(pg.hear('pointerup', { pointerId: 7 }).stopped, false, 'its pointerup goes on to the app');
+  assert.equal(pg.hear('click', { pointerId: 7 }).stopped, true, 'its click is the one thing swallowed');
+  assert.equal(pg.hear('click', { pointerId: 7 }).stopped, false, 'and only once');
+});
+
+test('a second tap 0.4 s later is a new pointer, and its click goes through', () => {
+  const { pg } = running();
+  pg.down.raw({ target: {}, pointerId: 3, isTrusted: true, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} });
+  pg.clock(400);
+  // The first finger's click never came (it slid); the second finger's does.
+  assert.equal(pg.hear('click', { pointerId: 4 }).stopped, false, 'Orders, tapped again, opens Orders');
+  assert.equal(pg.hear('pointerup', { pointerId: 4 }).stopped, false);
+});
+
+test('a stopped tap whose click never comes holds nothing back for long', () => {
+  const { pg } = running();
+  pg.down.raw({ target: {}, pointerId: 1, isTrusted: true, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} });
+  pg.clock(1000);
+  assert.equal(pg.hear('click', { pointerId: 1 }).stopped, false, 'a mouse click a second later is a new click');
+  // On a browser that puts no pointer id on a click, the click that follows is the tap's.
+  const { pg: old } = running();
+  old.down.raw({ target: {}, isTrusted: true, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} });
+  assert.equal(old.hear('click', {}).stopped, true);
+  assert.equal(old.hear('click', {}).stopped, false, 'and only that one');
+  // A click from the keyboard (pointer id -1) is never a finger's.
+  const { pg: keys } = running();
+  keys.down.raw({ target: {}, pointerId: 2, isTrusted: true, stopped: false, stopPropagation() { this.stopped = true; }, preventDefault() {} });
+  assert.equal(keys.hear('click', { pointerId: -1 }).stopped, false);
 });

@@ -283,12 +283,16 @@ class ActionEngine:
         self._finish(proposal, ActionStatus.EXPIRED, "expired", reason="the offer was let go")
         return True
 
-    def revoke_ids(self, proposal_ids: list[str], reason: str) -> int:
-        """Withdraw these proposals, if still waiting, whatever epoch they were staged in."""
+    def revoke_ids(self, proposal_ids: list[str], reason: str, *, caller: str = "") -> int:
+        """Withdraw these proposals, if still waiting, whatever epoch they were staged in.
+        `caller` is the login of whoever withdrew them by hand ("Not now"), kept on the ledger's
+        line the way a commit keeps who applied a change; a withdrawal by the Mac names nobody."""
         count = 0
         for pid in proposal_ids:
             proposal = self.find(pid)
             if proposal is not None and proposal.status is ActionStatus.PENDING:
+                if caller:
+                    proposal.caller = caller
                 self._finish(proposal, ActionStatus.REVOKED, "revoked", reason=reason)
                 count += 1
         return count

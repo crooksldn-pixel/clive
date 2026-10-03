@@ -95,10 +95,13 @@
     }
   }
 
+  // Design pass (3 Oct): a warm colour only for what needs him. "Unfulfilled" on a list of what
+  // is to go out, a payment pending or authorised, a fulfilment scheduled or under way are an
+  // order's ordinary states, drawn in the quiet grey; on hold and part-paid still need him.
   const STATUS_TONE = {
     fulfilled: 'ok', paid: 'ok', success: 'ok', delivered: 'ok', active: 'ok',
-    unfulfilled: 'warn', 'partially fulfilled': 'warn', pending: 'warn', authorized: 'warn',
-    'partially paid': 'warn', 'in progress': 'warn', 'on hold': 'warn', scheduled: 'warn',
+    unfulfilled: 'quiet', 'partially fulfilled': 'quiet', pending: 'quiet', authorized: 'quiet',
+    'partially paid': 'warn', 'in progress': 'quiet', 'on hold': 'warn', scheduled: 'quiet',
     refunded: 'bad', 'partially refunded': 'bad', voided: 'bad', cancelled: 'bad', failure: 'bad',
     error: 'bad', restocked: 'bad',
   };
@@ -111,6 +114,17 @@
   }
 
   function kicker(label) { return h('p', { class: 'card-kicker', text: label }); }
+
+  // Design pass (3 Oct): the tone of one of an order's attention lines. The level is the tone,
+  // except that "Customer emailed: <subject>" is a note about the order, not a warning. The lines
+  // that name something to check before shipping ("Customer emailed — mentions an address" and
+  // the rest, app/context/attention.py) keep the warm colour.
+  function attnTone(a) {
+    if (a.level === 'red') return 'bad';
+    if (a.level === 'green') return 'ok';
+    if (text(a.kind) === 'email' && /^customer emailed:/i.test(text(a.title))) return 'calm';
+    return 'warn';
+  }
 
   // Two letters from a name, for the avatar disc that makes a person read as a person.
   function initials(name) {
@@ -411,7 +425,7 @@
     return text(o.fulfillment).toLowerCase() === 'fulfilled' ? 'shipped' : 'to-ship';
   }
 
-  function orderRow(o) {
+  function orderRow(o, showState) {
     const ref = text(o.order_id);
     return h('li', {
       class: ref ? 'row tappable' : 'row', role: ref ? 'button' : null, tabindex: ref ? '0' : null,
@@ -424,7 +438,7 @@
     }, [
       h('span', { class: 'row-main' }, [h('strong', { text: text(o.order_number, '—') }), ' ', text(o.customer_name)]),
       h('span', { class: 'row-sub', text: formatDate(o.placed_at) }),
-      h('span', { class: 'row-side' }, [h('span', { class: 'amount', text: text(o.total) }), badge(o.fulfillment)]),
+      h('span', { class: 'row-side' }, [h('span', { class: 'amount', text: text(o.total) }), showState === false ? null : badge(o.fulfillment)]),
       ref ? h('span', { class: 'row-go', 'aria-hidden': 'true', text: '\u203a' }) : null,
     ]);
   }
@@ -919,7 +933,7 @@
       head,
       orderTimeline(d),
       attention.length ? h('ul', { class: 'attn-strip' }, attention.map((a) => h('li', {
-        class: `attn-line ${a.level === 'red' ? 'bad' : a.level === 'green' ? 'ok' : 'warn'}`,
+        class: `attn-line ${attnTone(a)}`,
       }, [h('span', { class: 'attn-dot', 'aria-hidden': 'true' }), h('span', { text: text(a.title) })]))) : null,
       d.cancelled_at ? h('p', { class: 'card-note bad', text: `Cancelled ${formatDate(d.cancelled_at)}${d.cancel_reason ? ' · ' + text(d.cancel_reason) : ''}` }) : null,
       // The order is the record a staged chip on its rail acts on (round 11, W1-01): without
@@ -1033,21 +1047,41 @@
   // (§8, D-12). Nothing is removed — every row is in the DOM and reachable.
   const ROWS_BEFORE_FOLD = 5;
 
-  function renderOrderList(d, opts) {
+  // Design pass (3 Oct): an order list's summary, one line, each fact once. Three tiles said
+  // "3 orders · £195.00 · 3 to ship" under a title that already says "To go out", and the strip
+  // under the card said the count and the value again. Now:
+  //   - every row in one state, and the list is the whole of it: the line says the state in
+  //     place of "orders" ("3 to ship · £195.00"), unless the title says it already ("To go out");
+  //   - the rows differ: "3 orders · £195.00 · 2 to ship";
+  //   - a list that is not the whole of what there is never claims a state for the rest.
+  // `badges` is false only where the line or the title has said every row's state.
+  const SHARED_STATE = { 'to-ship': 'to ship', shipped: 'shipped', cancelled: 'cancelled' };
+  const TITLE_SAYS = { 'to-ship': /\b(to go out|to ship|unfulfilled)\b/i, shipped: /\b(shipped|fulfilled)\b/i, cancelled: /\bcancell?ed\b/i };
+  function orderListSum(d) {
     const orders = list(d.orders, 10);
     const count = num(d.count);
     const whole = !d.truncated && count !== null ? count === orders.length : false;
-    // The summary: what this list IS, before any row of it. A count, the money when the Mac
-    // sent one, and how many are still to go out — which is the question an order list gets
-    // asked, and is counted only when the list is the whole of what there is.
-    const toShip = whole ? orders.filter((o) => orderState(o) === 'to-ship').length : null;
-    const stats = [
-      [count === null ? String(orders.length) : String(count), count === 1 ? 'Order' : 'Orders'],
-      text(d.value) ? [text(d.value), 'Value'] : null,
-      toShip === null ? null : [String(toShip), 'To ship'],
-    ].filter(Boolean);
+    const total = count === null ? orders.length : count;
+    const states = Array.from(new Set(orders.map(orderState)));
+    const shared = orders.length && states.length === 1 ? states[0] : '';
+    const titled = Boolean(shared) && TITLE_SAYS[shared].test(text(d.title));
+    const stated = Boolean(shared) && whole && !titled;
+    const toShip = whole && !shared ? orders.filter((o) => orderState(o) === 'to-ship').length : null;
+    const sum = [
+      stated ? `${total} ${SHARED_STATE[shared]}` : `${total} order${total === 1 ? '' : 's'}`,
+      text(d.value) || null,
+      toShip === null ? null : `${toShip} to ship`,
+    ].filter(Boolean).join(' \u00b7 ');
+    // The finer word on a row ("partially fulfilled") is kept wherever rows differ in it.
+    const alike = new Set(orders.map((o) => `${orderState(o)}|${text(o.fulfillment).toLowerCase()}`)).size <= 1;
+    return { sum, badges: !(alike && (stated || titled)) };
+  }
 
-    const rows = orders.map(orderRow);
+  function renderOrderList(d, opts) {
+    const orders = list(d.orders, 10);
+    const count = num(d.count);
+    const { sum, badges } = orderListSum(d);
+    const rows = orders.map((o) => orderRow(o, badges));
     const listEl = h('ul', { class: 'rows tight' }, rows);
     const position = h('p', { class: 'list-pos' });
     let filter = 'all';
@@ -1107,9 +1141,9 @@
       h('div', { class: 'card-head' }, [h('div', {}, [
         kicker('Orders'),
         h('h2', { class: 'card-title', text: text(d.title, 'Orders') }),
+        orders.length ? h('p', { class: 'list-sum', text: sum }) : null,   // design pass: one line, not three tiles
         position,
       ])]),
-      stats.length ? h('div', { class: `stats${stats.length === 3 ? ' three' : ''}` }, stats.map(([v, k]) => h('div', { class: 'stat' }, [h('div', { class: 'stat-v', text: v }), h('div', { class: 'stat-k', text: k })]))) : null,
       emptyNote(d),
       chips,
       orders.length ? listEl : null,
@@ -1326,7 +1360,7 @@
           h('span', { class: 'row-sub', text: text(t.snippet) }),
           h('span', { class: 'row-side' }, [
             h('span', { class: 'card-meta', text: formatDate(t.date) }),
-            t.needs_reply === true ? badge('Needs reply', 'warn') : null,
+            t.needs_reply === true ? badge('Needs reply', 'quiet') : null,   // design pass: an inbox's ordinary state
             mixed && t.known_customer ? badge('Customer', 'quiet ok') : null,
             t.likely_bulk ? badge('Bulk', 'quiet') : null,
           ]),
@@ -1454,7 +1488,7 @@
         ]),
         h('div', { class: 'head-side' }, [
           h('div', { class: 'badges' }, [
-            waiting ? badge('Needs a reply', 'warn') : (text(d.latest_direction) === 'outbound' ? badge('Replied', 'quiet ok') : null),
+            waiting ? badge('Needs a reply', 'quiet') : (text(d.latest_direction) === 'outbound' ? badge('Replied', 'quiet ok') : null),
           ]),
         ]),
       ]),
@@ -1534,7 +1568,7 @@
     // here — sending is a gesture on the confirmation card, answered by the Mac.
     const sent = text(d.state) === 'sent';
     return card('email_draft', [
-      h('div', { class: 'card-head' }, [h('div', {}, [kicker(sent ? 'Sent' : 'Draft · saved in Gmail'), h('h2', { class: 'card-title', text: text(d.subject, '(no subject)') }), h('p', { class: 'card-sub', text: d.to ? `To ${text(d.to)}` : '' })]), h('div', { class: 'badges' }, [badge(sent ? 'Sent' : 'Draft', sent ? 'ok' : 'warn')])]),
+      h('div', { class: 'card-head' }, [h('div', {}, [kicker(sent ? 'Sent' : 'Draft · saved in Gmail'), h('h2', { class: 'card-title', text: text(d.subject, '(no subject)') }), h('p', { class: 'card-sub', text: d.to ? `To ${text(d.to)}` : '' })]), h('div', { class: 'badges' }, [badge(sent ? 'Sent' : 'Draft', sent ? 'ok' : 'quiet')])]),
       h('p', { class: 'msg-body', text: text(d.body) }),
       sent ? null : h('p', { class: 'future', text: 'Nothing has been sent. Say "send it" to send this draft, or send it from Gmail.' }),
     ], opts);
@@ -1547,7 +1581,7 @@
       h('ul', { class: 'rows' }, items.map((a) => h('li', { class: 'row' }, [
         h('span', { class: 'row-main', text: text(a.title, '—') }),
         h('span', { class: 'row-sub', text: text(a.detail) }),
-        h('span', { class: 'row-side' }, [badge(text(a.kind), a.level === 'red' ? 'bad' : a.level === 'green' ? 'ok' : 'warn')]),
+        h('span', { class: 'row-side' }, [badge(text(a.kind), attnTone(a) === 'calm' ? 'quiet' : attnTone(a))]),   // design pass
       ]))),
     ], opts);
     if (d.for) node.dataset.for = text(d.for);
@@ -1598,9 +1632,12 @@
     const surface = buildSurface(kind, label, text(interaction.target), live ? 'arming' : (blocked ? 'unavailable' : (supported ? status : 'unsupported')), live);
     const facts = list(d.facts, 8).filter((f) => text(f.value));
     const footer = text(interaction.footer, 'nothing happens until you tap');
+    const decline = declineButton(live, opts);   // design pass (3 Oct): "Not now"
     const node = card('confirmation', [
       h('div', { class: 'card-head' }, [
-        h('div', { class: `mark ${risk === 'red' ? 'bad' : 'warn'}` }, h('span', { text: '!' })),
+        // Design pass: a proposed change is not an error. The red tier keeps its "!"; an ordinary
+        // change carries a grey pencil (web/design.css).
+        risk === 'red' ? h('div', { class: 'mark bad' }, h('span', { text: '!' })) : h('div', { class: 'mark quiet' }, PENCIL()),
         h('div', {}, [
           kicker(blocked ? 'Prepared · cannot apply from here' : (risk === 'red' ? 'Proposed · needs care' : 'Proposed')),
           h('h2', { class: 'card-title', text: text(d.title, 'Confirm') }),
@@ -1618,13 +1655,51 @@
       // The reason a gesture would be refused is the one line the owner must read: body
       // size, not the 11 px caption.
       blocked ? h('p', { class: 'card-sub action-why', text: text(blocked.reason) }) : null,
-      h('p', { class: 'action-meta', text: live ? (num(d.ttl_s) !== null ? `Waits ${Math.round(d.ttl_s)} s · ${footer}` : capitalise(footer)) : '' }),
+      actionFoot(h('p', { class: 'action-meta', text: live ? (num(d.ttl_s) !== null ? `Waits ${Math.round(d.ttl_s)} s · ${footer}` : capitalise(footer)) : '' }), decline),
     ], Object.assign({ className: `tier-${risk} kind-${kind}` }, opts));
     node.dataset.proposal = text(d.proposal_id);
     node.dataset.ref = text(d.entity_ref);
     if (live) wireGesture(node, surface, kind, text(d.proposal_id), armedAfter, opts, num(d.ttl_s), (left) => `Waits ${left} s · ${footer}`);
+    wireDecline(decline, node, surface, text(d.proposal_id), opts);
     return node;
   }
+
+  // ---- design pass (3 Oct): "Not now" on every card that waits for his approval.
+  // It withdraws the proposal through the Mac (opts.onDecline → POST /actions/{id}/decline, or
+  // /batches/{id}/decline): the same withdrawal a new instruction makes, recorded as his. It
+  // applies nothing and does not touch the gesture beside it — the surface, its dead time, its
+  // hold and the Mac's checks are exactly as they were. It answers only while the surface is
+  // still waiting for a hand, and the stylesheet takes it away once the gesture has begun.
+  const WAITING_FOR_A_HAND = ['arming', 'armed', 'holding', 'held'];
+  function declineButton(live, opts) {
+    if (!live || !opts || typeof opts.onDecline !== 'function') return null;
+    return h('button', { class: 'action-decline', type: 'button', text: 'Not now' });
+  }
+  function actionFoot(meta, decline) {
+    return decline ? h('div', { class: 'action-foot' }, [meta, decline]) : meta;
+  }
+  function wireDecline(decline, node, surface, id, opts) {
+    if (!decline || !id) return;
+    decline.addEventListener('click', () => {
+      if (decline.disabled || WAITING_FOR_A_HAND.indexOf(surface.dataset.state) === -1) return;
+      if (typeof opts.blocked === 'function' && opts.blocked()) return;
+      decline.disabled = true;
+      opts.onDecline(id, node, decline);
+    });
+  }
+  // A pencil, for a change proposed: drawn as a stroke path, like CHECK.
+  function PENCIL() {
+    const d = doc();
+    if (!d || !d.createElementNS) return h('span', { text: '' });
+    const svg = d.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    const path = d.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4');
+    svg.appendChild(path);
+    return svg;
+  }
+  // ---- design pass · end
 
   function capitalise(s) { const t = text(s); return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; }
 
@@ -2286,6 +2361,7 @@
     const facts = list(d.facts, 8).filter((f) => text(f.value));
     const footer = text(interaction.footer, 'nothing happens until you hold the card');
     const preview = d.preview && typeof d.preview === 'object' ? d.preview : null;
+    const decline = declineButton(live, opts);   // design pass (3 Oct): "Not now"
     const node = card('batch_action', [
       h('div', { class: 'card-head' }, [
         h('div', { class: `mark ${risk === 'red' ? 'bad' : 'warn'}` }, h('span', { text: String(eligible) })),
@@ -2326,11 +2402,12 @@
       ]) : null,
       surface,
       blocked ? h('p', { class: 'card-sub action-why', text: text(blocked.reason) }) : null,
-      h('p', { class: 'action-meta', text: live ? (num(d.ttl_s) !== null ? `Waits ${Math.round(d.ttl_s)} s · ${footer}` : capitalise(footer)) : '' }),
+      actionFoot(h('p', { class: 'action-meta', text: live ? (num(d.ttl_s) !== null ? `Waits ${Math.round(d.ttl_s)} s · ${footer}` : capitalise(footer)) : '' }), decline),   // design pass
     ], Object.assign({ className: `tier-${risk} kind-${kind} batch` }, opts));
     node.dataset.proposal = text(d.batch_id);
     node.dataset.set = text(scope.set_id);
     if (live) wireGesture(node, surface, kind, text(d.batch_id), armedAfter, opts, num(d.ttl_s), (left) => `Waits ${left} s · ${footer}`);
+    wireDecline(decline, node, surface, text(d.batch_id), opts);   // design pass
     return node;
   }
 
@@ -2742,7 +2819,7 @@
           h('h2', { class: 'card-title', text: text(d.about, reply ? 'A reply' : 'An email') }),
           h('p', { class: 'card-meta', text: meta.join(' · ') }),
         ]),
-        h('div', { class: 'badges' }, [badge(reply ? 'Reply' : 'New', 'warn')]),
+        h('div', { class: 'badges' }, [badge(reply ? 'Reply' : 'New', 'quiet')]),
       ]),
       recipient,
       line,
@@ -3054,7 +3131,7 @@
       h('span', { class: 'row-sub', text: [text(row.from), text(row.snippet)].filter(Boolean).join(' · ') }),
       h('span', { class: 'row-side' }, [
         h('span', { class: 'card-meta', text: text(row.when) }),
-        row.needs_reply === true ? badge('Needs reply', 'warn') : null,
+        row.needs_reply === true ? badge('Needs reply', 'quiet') : null,
       ]),
     ]);
   }
@@ -3141,23 +3218,27 @@
     const tap = r.tap === true && Boolean(text(r.ref)) && Boolean(text(r.kind));
     const lines = list(r.lines, 4);
     const tone = ['red', 'amber', 'good'].indexOf(text(r.tone)) === -1 ? '' : text(r.tone);
+    // Design pass (3 Oct): a row that needs him says so with a dot before its label, red or warm,
+    // and its reason may run to two lines. The badge is a person's name on the attention list,
+    // and a name is not a warning: it is grey unless the tone is a good one.
+    const mark = tone === 'red' || tone === 'amber' ? h('span', { class: `row-dot${tone === 'red' ? ' bad' : ''}`, 'aria-hidden': 'true' }) : null;
     return h('li', {
       // The list vocabulary the tablet already has — `.row`, `.row-main`, `.row-sub`,
       // `.row-side`, `.row-go`, `.hist-lines` — so a compact summary row looks and presses
       // exactly like a row on an order list, and this component needs no styling of its own.
-      class: `row${tap ? ' tappable' : ''}`,
+      class: `row${tap ? ' tappable' : ''}${mark ? ' is-reason' : ''}`,
       role: tap ? 'button' : null,
       tabindex: tap ? '0' : null,
       data: tap ? { ref: text(r.ref), kind: text(r.kind) } : null,
     }, [
-      h('span', { class: 'row-main' }, [h('strong', { text: text(r.label, '—') })]),
+      h('span', { class: 'row-main' }, [mark, h('strong', { text: text(r.label, '—') })]),
       text(r.sub) ? h('span', { class: 'row-sub', text: text(r.sub) }) : null,
       lines.length ? h('ul', { class: 'hist-lines' }, lines.map((l) => h('li', {
         class: `hist-line${tone === 'red' ? ' warn' : ''}`,
         text: text(l.label) ? `${text(l.label)}: ${text(l.value, '—')}` : text(l.value, '—'),
       }))) : null,
       h('span', { class: 'row-side' }, [
-        text(r.badge) ? badge(r.badge, tone === 'red' ? 'bad' : tone === 'amber' ? 'warn' : tone === 'good' ? 'ok' : 'quiet') : null,
+        text(r.badge) ? badge(r.badge, tone === 'good' ? 'ok' : 'quiet') : null,
       ]),
       tap ? h('span', { class: 'row-go', 'aria-hidden': 'true', text: '\u203a' }) : null,
     ]);
@@ -3350,10 +3431,11 @@
   // is the one that knows what the answer was about; the tablet decides how that looks. The
   // card itself is untouched and complete: this is disclosure, not truncation, and the header
   // says what is inside so nothing is hidden from the reader.
-  function folded(node, label) {
+  function folded(node, label, sum) {
     const wrap = h('article', { class: 'card card-folded', data: { type: 'folded', of: node.dataset ? node.dataset.type || '' : '' } });
     const btn = h('button', { class: 'fold-head', type: 'button', 'aria-expanded': 'false' }, [
-      h('span', { class: 'fold-label', text: label || 'More' }),
+      // Design pass (3 Oct): what is inside, counted, so a folded card is never a word and a plus.
+      h('span', { class: 'fold-label' }, [h('span', { text: label || 'More' }), sum ? h('span', { class: 'fold-sum', text: sum }) : null]),
       h('span', { class: 'fold-mark', text: '+', 'aria-hidden': 'true' }),
     ]);
     const body = h('div', { class: 'fold-body', hidden: true }, [node]);
@@ -3376,6 +3458,49 @@
     const title = item.data && typeof item.data.title === 'string' ? text(item.data.title) : '';
     return title || FOLD_WORDS[item.type] || 'More';
   }
+
+  // ---- design pass (3 Oct): each fact once.
+  //
+  // What a folded list holds, in a few words: "3 orders · £177.00", "4 threads".
+  function foldSum(item) {
+    const d = item.data || {};
+    const n = num(d.count);
+    if (n === null) return '';
+    if (item.type === 'order_list') return orderListSum(d).sum;
+    if (item.type === 'email_list') return `${n} thread${n === 1 ? '' : 's'}`;
+    return '';
+  }
+  // A working set made by listing — not narrowed, not cross-referenced, not capped — with the
+  // same name and count as a list drawn in the same answer, and no figure that list does not
+  // show, says the list again ("THIS LIST 3 orders · £195.00" under "To go out · 3 orders ·
+  // £195.00"). It is not drawn; the list carries the set's id instead, so the set chip still
+  // finds its way back to it (web/app.js setChip). Index of the set → index of the list.
+  const SET_LISTS = { orders: 'order_list', emails: 'email_list', customers: 'customer_list' };
+  function restatedSets(items) {
+    const out = new Map();
+    items.forEach((ws, i) => {
+      if (!ws || ws.type !== 'working_set' || !ws.data || typeof ws.data !== 'object') return;
+      const d = ws.data;
+      if ((text(d.step) && text(d.step) !== 'query') || text(d.parent_label) || d.truncated === true || !text(d.set_id)) return;
+      const j = items.findIndex((it) => it && it.type === SET_LISTS[text(d.kind)] && it.data && typeof it.data === 'object'
+        && it.data.secondary !== true && text(it.data.title) === text(d.label) && num(it.data.count) !== null && num(it.data.count) === num(d.count));
+      if (j === -1) return;
+      const shown = [text(items[j].data.value), String(num(d.count))].filter(Boolean);
+      if (list(d.lines, 3).some((l) => shown.indexOf(text(l.value)) === -1)) return;
+      out.set(i, j);
+    });
+    return out;
+  }
+  function setIdFor(restated, items, index) {
+    for (const [ws, j] of restated) if (j === index) return text(items[ws].data.set_id);
+    return '';
+  }
+  function listHoldsSet(host, item) {
+    const set = text(item.data && item.data.set_id);
+    return Boolean(set) && Array.prototype.slice.call(host.children || [])
+      .some((n) => n && n.dataset && n.dataset.set === set && n.dataset.type !== 'working_set');
+  }
+  // ---- design pass · end
 
   // ------------------------------------------------------------------ render identity (§25)
   //
@@ -3487,6 +3612,8 @@
       }
       const item = patch.item;
       if (!isValid(item)) continue;
+      // Design pass (3 Oct): a working set the list on the glass already stands for is not added.
+      if (item.type === 'working_set' && !existing && listHoldsSet(host, item)) continue;
       if (op === 'visual' && existing) {
         // Rule 5, the cheap half: the words are the same, so the DOM stays and one attribute
         // moves. This is where "folded", "still reading" and "which tab" land.
@@ -3661,13 +3788,19 @@
       const id = renderIdOf(node);
       if (id && !onGlass.has(id)) onGlass.set(id, node);
     }
-    for (const item of items) {
+    const batch = items.slice(0, 16);
+    const restated = restatedSets(batch);   // design pass (3 Oct): never drawn, so never on the glass
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (restated.has(i)) continue;
       if (item && item.kept === true && isValid(item) && !onGlass.has(surfaceId(item))) return null;
     }
     const out = { nodes: [], skipped: [], stack: null, errors: [], hasContext: true, kept: 0, redrawn: 0, added: 0, removed: 0, first: null };
-    for (const item of items.slice(0, 16)) {
+    for (let index = 0; index < batch.length; index++) {
+      const item = batch[index];
       if (!isValid(item)) { out.skipped.push(item && typeof item.type === 'string' ? item.type : 'invalid'); continue; }
       if (item.type === 'context_stack') { out.stack = list(item.data.entries, 6); continue; }
+      if (restated.has(index)) continue;   // design pass
       if (item.type === 'error') out.errors.push(item.data);
       const id = surfaceId(item);
       const there = onGlass.get(id);
@@ -3680,7 +3813,9 @@
       }
       let node = renderItem(item, opts);
       if (!node) { out.skipped.push(item.type); continue; }
-      if (item.data && item.data.secondary === true) node = folded(node, foldLabel(item));
+      const set = setIdFor(restated, batch, index);   // design pass
+      if (set) node.dataset.set = set;
+      if (item.data && item.data.secondary === true) node = folded(node, foldLabel(item), foldSum(item));
       if (there) {
         // In the old node's place: swapped now, so the reordering below finds it there.
         node.dataset.patched = '1';
@@ -3785,13 +3920,18 @@
     const out = { nodes: [], skipped: [], stack: null, errors: [], hasContext: false };
     const moved = [];
     if (!Array.isArray(items)) return out;
-    for (const item of items.slice(0, 16)) {   // more than the vocabulary is long is a bug upstream
-      if (!isValid(item)) { out.skipped.push(item && typeof item.type === 'string' ? item.type : 'invalid'); continue; }
-      if (item.type === 'context_stack') { out.stack = list(item.data.entries, 6); continue; }
+    const batch = items.slice(0, 16);   // more than the vocabulary is long is a bug upstream
+    const restated = restatedSets(batch);   // design pass (3 Oct)
+    batch.forEach((item, index) => {
+      if (!isValid(item)) { out.skipped.push(item && typeof item.type === 'string' ? item.type : 'invalid'); return; }
+      if (item.type === 'context_stack') { out.stack = list(item.data.entries, 6); return; }
+      if (restated.has(index)) return;   // design pass: the list beside it says it already
       if (item.type === 'error') out.errors.push(item.data);
       let node = renderItem(item, opts);
-      if (!node) { out.skipped.push(item.type); continue; }
-      if (item.data && item.data.secondary === true) node = folded(node, foldLabel(item));
+      if (!node) { out.skipped.push(item.type); return; }
+      const set = setIdFor(restated, batch, index);
+      if (set) node.dataset.set = set;
+      if (item.data && item.data.secondary === true) node = folded(node, foldLabel(item), foldSum(item));
       out.nodes.push(node);
       if (CONTEXT_TYPES.indexOf(item.type) !== -1) out.hasContext = true;
       // A proven archive comes with the thread it archived, so the owner lands back on the
@@ -3799,7 +3939,7 @@
       // card is drawn FIRST, so at the moment it settles the deck that thread does not exist
       // yet — it is settled here instead, once every card in this answer has been built.
       if (item.type === 'success' && (item.data.archived || item.data.restored)) moved.push(item.data);
-    }
+    });
     for (const fact of moved) for (const node of out.nodes) settleThread(node, fact);
     return out;
   }

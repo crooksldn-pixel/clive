@@ -727,6 +727,62 @@ async def dismiss(request: Request, proposal_id: str, session_id: str = Form(def
     return {"proposal_id": proposal.proposal_id, "status": proposal.status.value.lower(), "dismissed": dismissed}
 
 
+#: What a "Not now" is recorded as on the proposal it withdraws (the ledger's REVOKED reason),
+#: by whoever said it; their login is the ledger line's caller (design pass review, 3 Oct).
+DECLINED_BY_OWNER = "the owner said not now"
+DECLINED_BY_STAFF = "a member of the team said not now"
+
+
+def _who_declined(request: Request) -> tuple[str, str]:
+    """(login, reason) for a "Not now": the team member's login when the door made this a staff
+    request; otherwise the owner's, as Tailscale stamped it, or "local" as a commit says it."""
+    member = staff_caller()
+    if member:
+        return member, DECLINED_BY_STAFF
+    route, _why = proxy_state(request)
+    login = request.headers.get("tailscale-user-login", "").strip().lower()
+    return (login if route == TAILSCALE and login else "local"), DECLINED_BY_OWNER
+
+
+@router.post("/{proposal_id}/decline", response_model=None)
+async def decline(request: Request, proposal_id: str, session_id: str = Form(default="")) -> JSONResponse | dict:
+    """"Not now" on a card waiting for the owner's approval (design pass, 3 Oct).
+
+    The card used to offer only the gesture that applies the change, so his "no" looked the same
+    as walking away from it (DEC-056). This withdraws the proposal through the engine's own
+    withdrawal (`revoke_ids`), the one a new instruction makes, with his reason on it. It applies
+    nothing and arms nothing. It is refused for an undo offer (that is let go by `dismiss`) and
+    for a proposal that is no longer waiting — one a gesture has started applying is applied or
+    refused by the commit, never withdrawn from under it.
+    """
+    runtime = request.app.state.runtime
+    session_id = session_id.strip()
+    if not session_id:
+        return _refuse(400, "wrong_session", "The session is missing.")
+    try:
+        owner_session = runtime.sessions.peek(session_id)
+    except KeyError:
+        owner_session = None
+    if owner_session is not None and not session_matches(owner_session, request):
+        return _refuse(403, "wrong_session", "That conversation belongs to another login.")
+    proposal = runtime.actions.state(proposal_id, session_id)
+    if proposal is None:
+        return _refuse(404, "unknown", "No such proposal for this session.")
+    if proposal.undo_of is not None:
+        return _refuse(409, "an_undo", "That is an offer to undo a change, not a change waiting for you.")
+    if proposal.batch_id:
+        # As arm refuses it: one of a set is said no to with its set (/batches/{id}/decline).
+        return _refuse(409, "batch_member", "That change is one of a set; say not now to the set.")
+    who, reason = _who_declined(request)
+    withdrawn = runtime.actions.revoke_ids([proposal_id], reason, caller=who) == 1
+    timeline.emit("action_declined", session_id=session_id, proposal_id=proposal_id,
+                  turn_id=proposal.turn_id or None, ok=withdrawn, status=proposal.status.value)
+    if not withdrawn:
+        return _refuse(409, "not_waiting", "It is no longer waiting for you, so there is nothing to withdraw.")
+    log.info("proposal %s withdrawn: %s", proposal_id, reason)
+    return {"proposal_id": proposal.proposal_id, "status": proposal.status.value.lower(), "withdrawn": True}
+
+
 @router.get("/{proposal_id}", response_model=None)
 async def state(request: Request, proposal_id: str, session_id: str = "") -> JSONResponse | dict:
     """Where a proposal stands, for a device that lost the connection mid-tap: it asks what

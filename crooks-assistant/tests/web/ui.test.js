@@ -116,7 +116,8 @@ test('an order is composed by entity: number and status, then items, money, ship
   assert.equal(node.dataset.type, 'order');
   assert.equal(node.querySelector('.card-title').textContent, '#1930');
   const badges = node.querySelectorAll('.badges')[0].querySelectorAll('.badge').map((b) => [b.textContent, b.className]);
-  assert.deepEqual(badges, [['unfulfilled', 'badge warn'], ['paid', 'badge ok']]);
+  // Design pass (3 Oct): "unfulfilled" is an order's ordinary state, drawn in the quiet grey.
+  assert.deepEqual(badges, [['unfulfilled', 'badge quiet'], ['paid', 'badge ok']]);
   // Five tabs, one open. The same facts as before, one screenful at a time: the September
   // session drew these cards 7,524 px tall against 655 px of screen.
   assert.deepEqual(node.querySelectorAll('.tab').map((t) => t.textContent),
@@ -1856,7 +1857,11 @@ test('the attention summary tones its rows and keeps its rows rows', () => {
   const rows = node.querySelectorAll('.row');
   assert.equal(rows.length, 2);
   assert.ok(String(rows[0].querySelectorAll('.hist-line')[0].className).includes('warn'), 'the urgent row is not marked');
-  assert.ok(String(rows[1].querySelectorAll('.badge')[0].className).includes('warn'), 'the amber row is not marked');
+  // Design pass (3 Oct): the amber row is marked by its dot; the badge is the customer's name, and
+  // a name is not a warning.
+  assert.ok(rows[1].querySelectorAll('.row-dot').length === 1 && !String(rows[1].querySelectorAll('.row-dot')[0].className).includes('bad'), 'the amber row is not marked');
+  assert.ok(String(rows[0].querySelectorAll('.row-dot')[0].className).includes('bad'), 'the urgent row is marked red');
+  assert.ok(!String(rows[1].querySelectorAll('.badge')[0].className).includes('warn'), 'the name is not drawn as a warning');
   assert.equal(tapTargets(node).length, 2);
   assert.ok(!textOf(node).includes('gid://'));
 });

@@ -16,7 +16,9 @@
  *   2. Inbox → Thread → Customer → Order → Back
  *   3. Customer → Inbox → Compose → Cancel
  *   4. Split → select left → open order → switch right → open inbox → switch left → Back
- *      → switch right
+ *      → switch right — RETIRED but for its first hop (the Orders icon under a finger): George
+ *      retired user-facing Split on 20 September 2026 (DEC-050), and DEC-050 with DEC-037/038
+ *      says Split-specific UI and tests are migration evidence, not permanent requirements.
  *
  * Every hop is taken by finding the control the owner would find — a row that names a record,
  * a tab, a chip in the trail, Back — and pressing it for 95 ms, the median of the live
@@ -126,18 +128,15 @@ const PATHS = [
     ],
   },
   {
+    // Retired under DEC-050 (Split retired by George, 20 Sep 2026; DEC-037/038: Split-specific UI
+    // and tests are migration evidence, not permanent requirements). The eight Split hops are gone,
+    // with the whole-path check they made: Split, the left half, an order in it, the right half,
+    // the Inbox icon in it, the left half again, Back in it, the right half again. The first hop is
+    // not Split's — it is a finger on the Orders icon at the Tab A's own size — and it stays.
     id: '4-split-two-halves-independent',
-    name: 'Split → select left → open order → switch right → open inbox → switch left → Back → switch right',
+    name: 'Orders (the Split hops of this path are retired: DEC-050)',
     steps: [
       { do: 'dock', area: 'orders', expect: { any_type: ['order_list'] } },
-      { do: 'split', expect: { branches: 2 } },
-      { do: 'half', which: 0, expect: { any_type: ['order_list'] } },
-      { do: 'open', kind: 'order', remember: 'left_order', expect: { any_type: ['order'], ref_is: 'left_order' } },
-      { do: 'half', which: 1, expect: { none_of: ['order'] } },
-      { do: 'dock', area: 'email', expect: { any_type: ['email_list'] } },
-      { do: 'half', which: 0, expect: { any_type: ['order'], ref_is: 'left_order' } },
-      { do: 'back', expect: { any_type: ['order_list'] } },
-      { do: 'half', which: 1, expect: { any_type: ['email_list'] } },
     ],
   },
 ];

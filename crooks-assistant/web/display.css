@@ -437,3 +437,20 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 @keyframes cs-veil{to{opacity:.3}}
 .is-weak .cs-pane.is-revealing{animation-name:cs-resolve-lite}
 @keyframes cs-resolve-lite{0%{-webkit-mask-position:0 100%;mask-position:0 100%}100%{-webkit-mask-position:0 0;mask-position:0 0}}
+
+/* ---- design pass (3 Oct): rows at their own height ---------------------------------------
+   An objective's "Doing now" was a tall box holding one sentence, each "Next" row was ~250 px,
+   and beside another pane each packing row was ~360 px: one line stretched to fill the screen
+   reads as a template (night/audit/DESIGN.md §13). Panels and rows now take the height of what
+   they say, top-aligned, and the rest of the screen stays dark. They still shrink, and never
+   grow past their room, when there is more than fits. */
+.cs-cols.is-goal{align-items:start}
+.cs-cols.is-goal > *{max-height:100%}
+.cs-panel.is-now{flex:0 1 auto}
+.cs-next{flex:0 1 auto}
+.cs-step{flex:0 1 auto;padding:22px 24px}
+.cs-two .cs-step,.cs-portrait .cs-step{padding:14px 16px}
+.cs-tasks{grid-auto-rows:minmax(0,max-content);align-content:start}
+.cs-task{padding:26px 32px}
+.cs-tasks.is-three .cs-task{padding:20px 22px}
+.cs-two .cs-task,.cs-portrait .cs-task{padding:16px 18px}

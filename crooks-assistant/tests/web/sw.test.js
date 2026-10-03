@@ -146,6 +146,8 @@ const SHELL = ['/', '/static/style.css', '/static/app.js', '/static/ui.js', '/st
   '/static/customers.js', '/static/customers.css',
   // CROOKS Returns: the returns card, an order's returns, the home's row (web/returns.js).
   '/static/returns.js', '/static/returns.css',
+  // The design pass of 3 Oct (web/design.css).
+  '/static/design.css',
   '/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png', '/static/icon-maskable-192.png', '/static/icon-maskable-512.png'];
 
 async function installed() {

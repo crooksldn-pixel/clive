@@ -378,9 +378,26 @@ def _home(ctx: Ctx) -> Outcome:
     return Outcome(answer="", changed={"recipe": recipe, "area": area, "home": True})
 
 
+def _home_screen(ctx: Ctx) -> Outcome:
+    """The page's Home chip: the home, not a landing (design pass, 3 Oct, and its review).
+
+    The chip used to post `navigation.home` and draw the orders landing. It now goes to the
+    home, which the page draws by itself, and posts this so the Mac's copy of the screen goes
+    with it, as "close that" takes it (`close_screen`): put away, still on `shown_before` for
+    "pull that back up", the trail and the cursor untouched. Without it a reload of the page
+    redrew the order that had been up before Home. Reads nothing and draws nothing.
+    """
+    from app.families import _workspace as workspaces
+
+    workspaces.put_away(ctx.branch)
+    ctx.branch.cleared("", "")
+    return Outcome(answer="", changed={"home": True, "cleared": True})
+
+
 register(Command("navigation.back", "The workspace you came from", _back))
 register(Command("navigation.forward", "The workspace you came back from", _forward))
 register(Command("navigation.home", "This half's landing workspace", _home))
+register(Command("screen.home", "The home: this half's screen put away", _home_screen))
 
 
 # --------------------------------------------------------------------------- the cursor
