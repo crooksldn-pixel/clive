@@ -74,10 +74,14 @@ async def _probe_reads(_runtime: Any) -> dict[str, str]:
 
 
 async def _probe_actions(_runtime: Any) -> dict[str, str]:
-    """No write key is DISCONNECTED. With one, the operation's own state stands (changes off is
-    READ_ONLY, as for every other write), so this says nothing."""
-    if not client.write_key():
-        return {"state": "DISCONNECTED", "detail": NO_KEYS if not client.read_key() else "no CROOKS Returns write key stored"}
+    """Both keys are needed (an action is staged from a read and the service's preview, which carry
+    the read key, and sent with the write key); either missing is DISCONNECTED. With both, the
+    operation's own state stands (changes off is READ_ONLY, as for every other write)."""
+    read, write = client.read_key(), client.write_key()
+    if not read and not write:
+        return {"state": "DISCONNECTED", "detail": NO_KEYS}
+    if not read or not write:
+        return {"state": "DISCONNECTED", "detail": f"no CROOKS Returns {'read' if not read else 'write'} key stored"}
     return {}
 
 

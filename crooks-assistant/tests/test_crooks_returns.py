@@ -115,10 +115,20 @@ async def test_reads_carry_the_read_key_in_the_header_and_never_in_an_address(st
     assert READ not in call["url"] and WRITE not in str(stub.calls)
 
 
-async def test_with_only_the_write_key_stored_reads_carry_it(stub, keys):
+async def test_the_write_key_never_reads_so_with_only_it_returns_are_not_connected(stub, keys):
+    """The service lets a write key read, but the key that can act is sent with nothing but an
+    action the owner approved: not a read, not a preview."""
     keys.pop(rc.READ_KEY)
-    await rc.get_return(RID)
-    assert stub.calls[-1]["headers"]["authorization"] == f"Bearer {WRITE}"
+    for asking in (rc.get_return(RID), rc.list_returns(open_only=True), rc.preview(RID, "note", {"text": "rang her"})):
+        with pytest.raises(rc.ReturnsUnavailable) as caught:
+            await asking
+        assert caught.value.kind == "no_key"
+    assert stub.calls == [] and rc.read_key() == ""
+    from app.capabilities import families
+
+    table = await families.states(None)
+    assert (table["returns_reads"]["state"], table["returns_actions"]["state"]) == ("DISCONNECTED", "DISCONNECTED")
+    assert table["returns_actions"]["detail"] == "no CROOKS Returns read key stored", "an action is staged from a read"
 
 
 async def test_with_no_key_returns_are_not_connected_and_nothing_is_asked(stub, keys):
@@ -546,22 +556,32 @@ async def test_the_card_asks_for_both_keys_tests_them_and_then_asks_for_nothing(
     saved = await save(connected, "returns", {rc.READ_KEY: f"RETURNS_CLIVE_READ_KEYS={READ},older", rc.WRITE_KEY: WRITE})
     assert saved.status_code == 200, saved.text
     asked = [(c["method"], c["path"], c["headers"].get("authorization", "")) for c in connected.returns.calls]
-    assert asked == [("GET", "/health", ""), ("GET", "/api/v1/returns", f"Bearer {READ}"), ("GET", "/api/v1/returns", f"Bearer {WRITE}")]
+    assert asked == [("GET", "/health", ""), ("GET", "/api/v1/returns", f"Bearer {READ}")], "the write key is never sent to read"
     assert keychain.get_optional(rc.READ_KEY) == READ, "a line pasted as grep printed it is its value"
     card = await _card(connected)
     assert (card["state"], card["group"], card["needs"]) == ("connected", "working", [])
     assert READ not in str(card) and WRITE not in str(card)
 
 
-async def test_a_refused_write_key_is_asked_for_alone(connected):
+async def test_a_refused_key_is_asked_for_alone(connected):
     await register(connected)
     assert (await save(connected, "returns", {rc.READ_KEY: READ, rc.WRITE_KEY: WRITE})).status_code == 200
-    connected.returns.read_keys = {READ}
+    # The read key, by the Connections test.
+    connected.returns.read_keys = {WRITE}
     tested = await connected.post("/connections/returns/test", json={}, headers=HEADERS)
     assert tested.status_code == 200
     card = await _card(connected)
+    assert (card["state"], card["fix"], card["needs"]) == ("needs_attention", "key", [rc.READ_KEY])
+    assert card["detail"].startswith("The read key was refused by CROOKS Returns.")
+    # The write key, which no test reads with, by the first action the owner approved.
+    connected.returns.read_keys = {READ, WRITE}
+    assert (await connected.post("/connections/returns/test", json={}, headers=HEADERS)).status_code == 200
+    connected.returns.write_keys = set()
+    with pytest.raises(rc.ReturnsUnavailable):
+        await rc.execute(RID, "note", {"text": "rang her"}, idempotency_key="clive-note-0a1b")
+    card = await _card(connected)
     assert (card["state"], card["fix"], card["needs"]) == ("needs_attention", "key", [rc.WRITE_KEY])
-    assert card["detail"].startswith("The write key was refused by CROOKS Returns.")
+    assert card["detail"].startswith("CROOKS Returns refused CLIVE's write key")
 
 
 async def test_a_service_with_no_keys_for_clive_is_put_right_there_and_nothing_is_stored(connected):

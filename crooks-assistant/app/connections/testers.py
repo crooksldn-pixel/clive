@@ -222,20 +222,20 @@ async def _returns(values: dict[str, str], settings: Any) -> Outcome:
             return Outcome(False, "CROOKS Returns has no keys for CLIVE yet: set RETURNS_CLIVE_READ_KEYS and "
                                   "RETURNS_CLIVE_WRITE_KEYS in /opt/clive/crooks-returns/.env and restart it.",
                            fix="service")
-        refused: list[str] = []
-        for key in (crooks_returns.READ_KEY, crooks_returns.WRITE_KEY):
-            answer = await client.get(f"{base}/api/v1/returns", params={"limit": "1"}, headers={
-                "Authorization": f"Bearer {values[key]}", "Accept": "application/json"})
-            if answer.status_code in (401, 403):
-                refused.append(key)
-            elif answer.status_code != 200:
-                return Outcome(False, crooks_returns.refusal(answer).args[0], fix="retry")
-    if refused:
-        which = "Both keys were" if len(refused) == 2 else (
-            "The read key was" if refused[0] == crooks_returns.READ_KEY else "The write key was")
-        return Outcome(False, f"{which} refused by CROOKS Returns. Paste them again from grep CLIVE "
-                              "/opt/clive/crooks-returns/.env on the server.", fix="key", refused=tuple(refused))
-    return Outcome(True, "CROOKS Returns accepted both keys.", who=host)
+        # The read key only. The write key is never sent to read (the service would allow it, but
+        # the key that can act travels only with an action the owner approved), so it is proven on
+        # his first approved action, and a refusal there asks for it alone (crooks_returns.py
+        # `_note_refused_key`).
+        answer = await client.get(f"{base}/api/v1/returns", params={"limit": "1"}, headers={
+            "Authorization": f"Bearer {values[crooks_returns.READ_KEY]}", "Accept": "application/json"})
+        if answer.status_code in (401, 403):
+            return Outcome(False, "The read key was refused by CROOKS Returns. Paste it again from grep CLIVE "
+                                  "/opt/clive/crooks-returns/.env on the server.", fix="key",
+                           refused=(crooks_returns.READ_KEY,))
+        if answer.status_code != 200:
+            return Outcome(False, crooks_returns.refusal(answer).args[0], fix="retry")
+    return Outcome(True, "CROOKS Returns accepted the read key. The write key is checked the first time you approve "
+                         "an action.", who=host)
 
 
 TESTERS = {

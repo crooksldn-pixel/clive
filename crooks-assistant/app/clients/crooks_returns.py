@@ -111,8 +111,10 @@ def _stored(name: str) -> str:
 
 
 def read_key() -> str:
-    """The key reads carry: the read key, or the write key when only that is stored."""
-    return _stored(READ_KEY) or _stored(WRITE_KEY)
+    """The key reads (and previews, which change nothing) carry. Only the read key: the service
+    would let the write key read too, but the key that can act is sent with nothing but an action
+    the owner approved, so with only that stored, returns read as not connected."""
+    return _stored(READ_KEY)
 
 
 def write_key() -> str:
@@ -236,10 +238,9 @@ async def _read(path: str, params: dict[str, Any] | None = None, *, timeout_s: f
     key = read_key()
     if not key:
         raise ReturnsUnavailable(f"Returns are {NOT_CONNECTED}.", kind="no_key")
-    key_name = READ_KEY if _stored(READ_KEY) else WRITE_KEY
-    response = await _send("GET", f"/api/v1{path}", key=key, key_name=key_name, params=params, timeout_s=timeout_s)
+    response = await _send("GET", f"/api/v1{path}", key=key, key_name=READ_KEY, params=params, timeout_s=timeout_s)
     if response.status_code != 200:
-        problem = refusal(response, key_name=key_name)
+        problem = refusal(response, key_name=READ_KEY)
         log.info("returns: a read was refused (%s, %s)", problem.kind, response.status_code)
         _note_refused_key(problem)
         raise problem
@@ -306,11 +307,10 @@ async def preview(value: Any, action: str, params: dict[str, Any]) -> dict[str, 
     key = read_key()
     if not key:
         raise ReturnsUnavailable(f"Returns are {NOT_CONNECTED}.", kind="no_key")
-    key_name = READ_KEY if _stored(READ_KEY) else WRITE_KEY
     response = await _send("POST", f"/api/v1/returns/{return_id(value)}/actions/{action}/preview", key=key,
-                           key_name=key_name, body={"params": dict(params)}, timeout_s=PREVIEW_TIMEOUT_S)
+                           key_name=READ_KEY, body={"params": dict(params)}, timeout_s=PREVIEW_TIMEOUT_S)
     if response.status_code != 200:
-        problem = refusal(response, key_name=key_name)
+        problem = refusal(response, key_name=READ_KEY)
         _note_refused_key(problem)
         raise problem
     return _json(response)
