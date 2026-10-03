@@ -20,6 +20,7 @@ Through the real app and its door, as tests/test_team.py does.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -29,9 +30,11 @@ from app.people.store import people
 from app.providers.base import TurnResult
 from app.tools import authority, registry
 from app.tools.dispatch import dispatch
+from app.work import hooks
 from app.work import store as work_store
 from app.work import tools as work_tools
 from app.work.store import work
+from tests.test_actions import ORDER
 from tests.test_actions_routes import (  # noqa: F401 - `client` is a fixture
     PROXIED,
     FakeProvider,
@@ -241,3 +244,30 @@ async def test_the_new_steps_are_behind_the_door_like_every_other(team, path):  
     stranger = {"Tailscale-User-Login": "nobody@example.com", "X-Forwarded-For": "100.64.0.99"}
     assert (await team.post(path, json={}, headers=stranger)).status_code == 403
     assert (await team.post(path, json={}, headers=AS_MIA)).status_code == 403              # waiting for his passkey
+
+
+# ------------------------------------------------------------------ the review of 0a0e95fb (3 October)
+
+def fulfilled(proposal_id="prop_fulfil0001"):
+    """What the commit route hands the work list once a member's fulfilment card has been made."""
+    return SimpleNamespace(operation="fulfillment_create", status=SimpleNamespace(value="VERIFIED"), caller=MIA,
+                           entity_ref=ORDER, entity_label="#1930", proposal_id=proposal_id)
+
+
+async def test_packed_in_one_tap_then_fulfilled_by_a_card_reads_finished_and_undo_cannot_reopen_it(team):  # noqa: F811
+    """The blocker: Today's Packed packs and finishes at once, so when the fulfilment card landed the
+    hook found the job already done and skipped it. The order sat as "packed, waiting for tracking"
+    and Undo could reopen a job whose fulfilment stands in Shopify."""
+    let_mia_in()
+    item_id = await claim_pack_finish(team)
+    hooks.after_commit(fulfilled())
+    item = work.get(item_id)
+    assert item.evidence["fulfilled"] is True and item.evidence["proposal_id"] == "prop_fulfil0001"
+    board = (await team.get("/today/state", headers=AS_MIA)).json()["work"]
+    assert [r for r in board["in_hand"] if r["ref"] == ORDER_REF] == []                     # not "packed, waiting"
+    refused = await team.post("/today/undo", json={"item_id": item_id, "steps": ["done", "packed", "claimed"]},
+                              headers=AS_MIA)
+    assert refused.status_code == 409 and "card" in refused.json()["detail"]
+    assert work.get(item_id).status == "done"
+    hooks.after_commit(fulfilled("prop_fulfil0002"))                                         # a second change: kept as the first
+    assert work.get(item_id).evidence["proposal_id"] == "prop_fulfil0001"

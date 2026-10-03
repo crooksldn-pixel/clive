@@ -511,6 +511,19 @@ class WorkStore:
             if event.get("detail"):
                 item.evidence = {k: v for k, v in item.evidence.items() if k != "note"}
 
+    def stamp(self, item_id: str, evidence: dict[str, Any]) -> WorkItem | None:
+        """A card's change landed for a job already finished on the list (packed and done with one
+        tap, then fulfilled): the change is written onto the job, under the lock, so it reads as
+        finished rather than packed and waiting, and Undo leaves it be (take_back refuses a job a
+        card closed). Only a done job with no change of its own on it; None for anything else."""
+        with self._lock:
+            item = self.get(item_id)
+            if item is None or item.status != "done" or item.evidence.get("proposal_id"):
+                return None
+            item.evidence = {**item.evidence, **evidence}
+            self._save(item)
+            return item
+
     def last_steps(self, who: str) -> dict[str, Any] | None:
         """`who`'s latest steps that Undo can still take back, on whichever job they were: what the
         screen offers to undo after CLIVE took a step for them in words. None when there are none."""
