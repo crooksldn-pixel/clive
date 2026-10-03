@@ -244,7 +244,11 @@ def on(timeline: Any) -> bool:
 
 class Recent:
     """The last turns of each conversation with their words, in memory: never written down.
-    Bounded by turns per conversation, conversations, and age."""
+
+    Bounded by turns per conversation, by conversations, and by age — the age at every add as
+    well as every read, so words are not held past it because nobody asked. The owner's
+    conversations and the team's are held apart, each with its own room: a busy morning of the
+    team's turns never pushes his words out."""
 
     PER_CONVERSATION = 40
     CONVERSATIONS = 12
@@ -252,34 +256,45 @@ class Recent:
 
     def __init__(self, clock=time.time) -> None:
         self.clock = clock
-        self._by: OrderedDict[str, deque] = OrderedDict()
+        self._owner: OrderedDict[str, deque] = OrderedDict()
+        self._team: OrderedDict[str, deque] = OrderedDict()
         self._lock = threading.Lock()
 
-    def add(self, session_id: str, entry: dict[str, Any]) -> None:
+    def add(self, session_id: str, entry: dict[str, Any], *, team: bool = False) -> None:
+        at = float(entry.get("at") or self.clock())
         with self._lock:
-            turns = self._by.pop(session_id, None) or deque(maxlen=self.PER_CONVERSATION)
+            held = self._team if team else self._owner
+            turns = held.pop(session_id, None) or deque(maxlen=self.PER_CONVERSATION)
             turns.append(entry)
-            self._by[session_id] = turns
-            while len(self._by) > self.CONVERSATIONS:
-                self._by.popitem(last=False)
+            held[session_id] = turns
+            while len(held) > self.CONVERSATIONS:
+                held.popitem(last=False)
+            for book in (self._owner, self._team):
+                self._age_out(book, at)
+
+    def _age_out(self, book: OrderedDict[str, deque], at: float) -> None:
+        """Every turn past the age, gone, and every conversation left with none."""
+        for session_id in list(book):
+            turns = book[session_id]
+            while turns and at - float(turns[0].get("at") or 0.0) > self.MAX_AGE_S:
+                turns.popleft()
+            if not turns:
+                del book[session_id]
 
     def turns(self, session_id: str, *, now: float | None = None) -> list[dict[str, Any]]:
         at = float(now if now is not None else self.clock())
         with self._lock:
-            held = list(self._by.get(session_id) or ())
+            held = list(self._owner.get(session_id) or self._team.get(session_id) or ())
         return [t for t in held if at - float(t.get("at") or 0.0) <= self.MAX_AGE_S]
 
     def last(self, session_id: str) -> dict[str, Any] | None:
         turns = self.turns(session_id)
         return turns[-1] if turns else None
 
-    def find(self, turn_id: str) -> dict[str, Any] | None:
+    def held(self) -> dict[str, int]:
+        """How many conversations each side holds, for a test to read."""
         with self._lock:
-            for turns in self._by.values():
-                for entry in turns:
-                    if entry.get("turn_id") == turn_id:
-                        return entry
-        return None
+            return {"owner": len(self._owner), "team": len(self._team)}
 
 
 # ------------------------------------------------------------------ what a card IS, in words
@@ -667,7 +682,15 @@ def _after_turn(record: InteractionRecord, *, session_id, turn_id, question, tra
         "question": used, "heard": heard if transcript else "", "answer": str(answer or "")[:600],
         "cards": [card_words(item) for item in cards[:MAX_CARDS]], "sources": drawn_by[:MAX_CARDS],
         "screen": screen_state, "why": why, "speech": speech, "expect": expect, "tools": tools, "ms": ms,
-    })
+    }, team=_a_team_members())
+
+
+def _a_team_members() -> bool:
+    """Whether this turn is a team member's (app/tools/authority.py), held apart in `Recent`."""
+    from app.tools import authority
+
+    held = authority.current()
+    return held is not None and held.kind == authority.STAFF
 
 
 def _tool_shape(call: Any) -> dict[str, Any]:

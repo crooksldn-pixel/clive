@@ -682,3 +682,17 @@ def test_a_card_number_typed_without_spaces_never_reaches_the_record(tmp_path):
                             error_kind=None, abandoned=False, timings={"total": 900.0})
     text = on_disk(record)
     assert bare not in text and "[card]" in text
+
+
+def test_the_words_held_in_memory_age_out_as_they_are_added_and_the_team_never_pushes_the_owners_out():
+    clock = Clock(1_000_000.0)
+    recent = interactions.Recent(clock=clock)
+    recent.add("owner-tablet", {"turn_id": "turn_o1", "at": clock.now, "question": "show me order 1938"})
+    for i in range(30):
+        clock.now += 1
+        recent.add(f"team-{i}", {"turn_id": f"turn_t{i}", "at": clock.now, "question": "anything to pack"}, team=True)
+    assert recent.last("owner-tablet")["turn_id"] == "turn_o1", "thirty of the team's conversations did not push his out"
+    assert recent.held() == {"owner": 1, "team": interactions.Recent.CONVERSATIONS}
+    clock.now += interactions.Recent.MAX_AGE_S + 5
+    recent.add("owner-phone", {"turn_id": "turn_o2", "at": clock.now, "question": "and now"})
+    assert recent.held() == {"owner": 1, "team": 0}, "aged out when something was added, not only when read"
