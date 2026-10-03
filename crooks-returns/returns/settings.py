@@ -83,6 +83,27 @@ class Settings(BaseSettings):
     # Settings -> Notifications so they carry the CROOKS look.
     shopify_notify_customer: bool = True
 
+    # --- return labels ---
+    # Who books return labels: "parcel2go", "clickdrop", or "none" (staff add tracking by hand).
+    label_provider: str = "clickdrop"
+    # The parcel a return is booked as: a folded tee or hoodie in a mailer.
+    parcel_weight_grams: int = 600
+    parcel_cm: str = "35x25x8"
+    # Contact on the label's delivery side (our returns address). Couriers may ask for both.
+    returns_contact_email: str = ""
+    returns_contact_phone: str = ""
+
+    # --- Parcel2Go (PrePay) ---
+    # https://sandbox.parcel2go.com for testing; credentials are separate per environment.
+    p2g_base_url: str = "https://www.parcel2go.com"
+    p2g_client_id: str = ""
+    p2g_client_secret: str = ""
+    # Couriers to offer, best first, matched against Parcel2Go's courier slugs. Only services
+    # the customer can use without a printer (a QR code at the shop) are booked.
+    p2g_couriers: str = "inpost,evri,royal-mail"
+    # Signs Parcel2Go's tracking webhooks (set the same secret on the API credential).
+    p2g_webhook_secret: str = ""
+
     # --- Royal Mail Click & Drop ---
     clickdrop_api_key: str = ""
     clickdrop_base_url: str = "https://api.parcel.royalmail.com/api/v1"
@@ -114,6 +135,13 @@ class Settings(BaseSettings):
 
     def pilot_orders(self) -> set[str]:
         return parse_order_numbers(self.pilot_order_numbers)
+
+    def parcel_size(self) -> tuple[float, float, float]:
+        parts = [float(x) for x in self.parcel_cm.lower().replace(" ", "").split("x")]
+        return (parts + [10.0, 10.0, 10.0])[:3]  # type: ignore[return-value]
+
+    def p2g_courier_list(self) -> list[str]:
+        return [c.strip().lower() for c in self.p2g_couriers.split(",") if c.strip()]
 
     def excluded_tags(self) -> set[str]:
         return {t.strip().casefold() for t in self.non_returnable_tags.split(",") if t.strip()}

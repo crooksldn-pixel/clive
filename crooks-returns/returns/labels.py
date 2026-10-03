@@ -22,7 +22,12 @@ from returns.settings import Settings
 
 
 class LabelError(RuntimeError):
-    """No label was made. The message says why, for staff and CLIVE."""
+    """No label was made. The message says why, for staff and CLIVE. `ref` is set when a label
+    was already paid for, so a retry fetches that one instead of buying another."""
+
+    def __init__(self, message: str, ref: str | None = None) -> None:
+        super().__init__(message)
+        self.ref = ref
 
 
 @dataclass
@@ -31,6 +36,12 @@ class Label:
     pdf: bytes | None
     ref: str
     carrier: str = "Royal Mail"
+    # A code the customer shows at the drop-off shop instead of printing anything.
+    qr_png: bytes | None = None
+    tracking_url: str | None = None
+    price_pence: int | None = None
+    service: str | None = None
+    service_name: str | None = None
 
 
 def tracking_url(number: str) -> str:
