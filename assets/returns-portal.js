@@ -315,7 +315,7 @@
       var steps = ['Requested', 'Approved', selfShip ? 'You post it' : 'Label sent', 'On its way back', 'Arrived with us', finish];
       return '<ol class="rd-timeline">' + steps.map(function (s, i) {
         var mark = i < at ? ' data-done' : i === at ? ' data-now' : '';
-        return '<li' + mark + '><span class="rd-dot">' + (i < at ? '<span style="color:#0a0a0a">' + TICK + '</span>' : '') + '</span><span>' + esc(s) + '</span></li>';
+        return '<li' + mark + '><span class="rd-dot">' + (i < at ? '<span style="color:#0b0a0e">' + TICK + '</span>' : '') + '</span><span>' + esc(s) + '</span></li>';
       }).join('') + '</ol>';
     }
 
@@ -330,7 +330,7 @@
         extra +=
           '<div class="rd-qr"><img src="' + esc(drop.qr_url) + '" alt="Drop-off code" width="132" height="132">' +
           '<div><p class="rd-qr__say">Show this at any ' + esc(drop.courier || 'drop-off') + ' shop</p>' +
-          '<p class="rd-sub" style="margin:6px 0 0;color:rgb(10 10 10 / 0.7)">No printing, no box label. They scan it and print the label for you.</p>' +
+          '<p class="rd-sub" style="margin:6px 0 0;color:rgb(11 10 14 / 0.7)">No printing, no box label. They scan it and print the label for you.</p>' +
           (drop.code ? '<p class="rd-qr__code">' + esc(drop.code) + '</p>' : '') + '</div></div>';
       }
       if (drop && drop.shops && drop.shops.length) {

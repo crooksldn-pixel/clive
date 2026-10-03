@@ -6,7 +6,7 @@
         "kicker": "CROOKS LDN / Returns desk",
         "heading": "Returns & exchanges",
         "endpoint": "/apps/returns/api",
-        "accent": "#FFD400",
+        "accent": "#A77AC7",
         "policy_title": "Returns policy"
       }
     }

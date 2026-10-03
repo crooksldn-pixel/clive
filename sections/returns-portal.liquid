@@ -4,7 +4,7 @@
   Shopify), so it lives on crooksldn.com in the theme's own look rather than in an iframe.
   Logic lives in assets/returns-portal.js; the server decides every offer and every price.
 
-  Look: the site's ink scheme (as the hero and footer use it) with caution yellow, Archivo
+  Look: the site's purple-black scheme (--crk-* palette) with lavender and deep purple, Archivo
   Narrow capitals, the CRX mono face and square edges. Motion: screens rise in, choices pop,
   the bottom bar shimmers while it works.
 
@@ -15,7 +15,9 @@
 
 <section
   class="returns-desk"
-  style="--rd-accent: {{ section.settings.accent }};"
+  {%- comment -%} The old caution-yellow default is ignored: the page follows the site's purple. {%- endcomment -%}
+  {%- assign rd_accent = section.settings.accent | downcase -%}
+  {%- if rd_accent != blank and rd_accent != '#ffd400' %} style="--rd-accent: {{ rd_accent }};"{% endif %}
   aria-labelledby="returns-desk-title-{{ section.id }}"
 >
   <div class="rd-ground" aria-hidden="true"><span class="rd-light rd-light--a"></span><span class="rd-light rd-light--b"></span></div>
@@ -57,15 +59,18 @@
 
 {% stylesheet %}
   .returns-desk {
-    --rd-ink: #0a0a0a;
-    --rd-bone: #f4f1ea;
-    --rd-accent: #ffd400;
-    --rd-text: #f4f1ea;
-    --rd-muted: rgb(244 241 234 / 0.62);
-    --rd-faint: rgb(244 241 234 / 0.38);
-    --rd-line: rgb(244 241 234 / 0.12);
-    --rd-cell: rgb(244 241 234 / 0.055);
-    --rd-cell-hi: rgb(244 241 234 / 0.1);
+    /* The site's own palette (crooksldn.com --crk-*): purple-black ground, lavender accent,
+       deep purple buttons, warm paper text. */
+    --rd-ink: #0b0a0e;
+    --rd-bone: #ddd7c9;
+    --rd-accent: #a77ac7;
+    --rd-purple: #542578;
+    --rd-text: #ddd7c9;
+    --rd-muted: rgb(221 215 201 / 0.62);
+    --rd-faint: rgb(221 215 201 / 0.38);
+    --rd-line: rgb(167 122 199 / 0.2);
+    --rd-cell: rgb(221 215 201 / 0.045);
+    --rd-cell-hi: rgb(167 122 199 / 0.1);
     --rd-display: var(--font-heading--family, 'Archivo Narrow'), 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif;
     --rd-body: var(--font-body--family, 'Archivo Narrow'), 'Helvetica Neue', Arial, sans-serif;
     --rd-mono: var(--font-crx-mono, ui-monospace, 'SFMono-Regular', Menlo, monospace);
@@ -88,12 +93,12 @@
     box-sizing: border-box;
   }
 
-  /* Ground: ink, one slow caution-yellow light and one bone light for the glass to catch */
+  /* Ground: purple-black, one slow lavender light and one deep purple light for the glass to catch */
   .rd-ground {
     position: absolute;
     inset: 0;
     z-index: -1;
-    background: radial-gradient(120% 70% at 50% 0%, #17171a 0%, var(--rd-ink) 62%);
+    background: radial-gradient(120% 70% at 50% 0%, #1a1326 0%, var(--rd-ink) 62%);
     pointer-events: none;
   }
 
@@ -118,8 +123,8 @@
     height: 380px;
     bottom: 10%;
     left: -200px;
-    background: var(--rd-bone);
-    opacity: 0.07;
+    background: var(--rd-purple);
+    opacity: 0.35;
     animation-duration: 58s;
   }
 
@@ -303,10 +308,10 @@
   .rd-glass {
     position: relative;
     isolation: isolate;
-    background: linear-gradient(180deg, rgb(244 241 234 / 0.12), rgb(244 241 234 / 0.035));
+    background: linear-gradient(180deg, rgb(221 215 201 / 0.12), rgb(221 215 201 / 0.035));
     -webkit-backdrop-filter: blur(18px) saturate(160%);
     backdrop-filter: blur(18px) saturate(160%);
-    box-shadow: inset 0 1px 0 rgb(244 241 234 / 0.2), 0 14px 34px -14px rgb(0 0 0 / 0.7);
+    box-shadow: inset 0 1px 0 rgb(221 215 201 / 0.2), 0 14px 34px -14px rgb(0 0 0 / 0.7);
   }
 
   .rd-glass::before {
@@ -314,7 +319,7 @@
     position: absolute;
     inset: 0;
     padding: 1px;
-    background: linear-gradient(140deg, rgb(244 241 234 / 0.5), rgb(244 241 234 / 0.08) 32%, rgb(244 241 234 / 0) 58%, rgb(244 241 234 / 0.2));
+    background: linear-gradient(140deg, rgb(221 215 201 / 0.5), rgb(221 215 201 / 0.08) 32%, rgb(221 215 201 / 0) 58%, rgb(221 215 201 / 0.2));
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
@@ -417,7 +422,7 @@
   .rd-error {
     margin: 0;
     padding: 12px 14px;
-    background: rgb(255 212 0 / 0.1);
+    background: rgb(167 122 199 / 0.1);
     box-shadow: inset 3px 0 0 var(--rd-accent);
     color: var(--rd-bone);
     animation: rd-rise 420ms var(--rd-spring) both;
@@ -467,7 +472,7 @@
     width: 64px;
     aspect-ratio: 4 / 5;
     object-fit: cover;
-    background: linear-gradient(160deg, rgb(244 241 234 / 0.14), rgb(244 241 234 / 0.04));
+    background: linear-gradient(160deg, rgb(221 215 201 / 0.14), rgb(221 215 201 / 0.04));
     display: grid;
     place-items: center;
     font-family: var(--rd-mono);
@@ -622,8 +627,8 @@
 
   .rd-deal[data-on] {
     border-color: var(--rd-accent);
-    background: linear-gradient(180deg, rgb(255 212 0 / 0.1), rgb(255 212 0 / 0.02));
-    box-shadow: 0 0 0 1px var(--rd-accent), 0 18px 48px -18px rgb(255 212 0 / 0.45);
+    background: linear-gradient(180deg, rgb(167 122 199 / 0.1), rgb(167 122 199 / 0.02));
+    box-shadow: 0 0 0 1px var(--rd-accent), 0 18px 48px -18px rgb(167 122 199 / 0.45);
   }
 
   .rd-deal__top {
@@ -732,7 +737,7 @@
     display: grid;
     gap: 10px;
     padding: 14px;
-    background: rgb(244 241 234 / 0.04);
+    background: rgb(221 215 201 / 0.04);
     box-shadow: inset 0 0 0 1px var(--rd-line);
     min-width: 0;
   }
@@ -833,15 +838,15 @@
   }
 
   .rd-table td[data-new] {
-    background: rgb(255 212 0 / 0.08);
+    background: rgb(167 122 199 / 0.08);
   }
 
   .rd-table tr[data-mine] > * {
-    background: rgb(244 241 234 / 0.08);
+    background: rgb(221 215 201 / 0.08);
   }
 
   .rd-table tr[data-new] > * {
-    background: rgb(255 212 0 / 0.14);
+    background: rgb(167 122 199 / 0.14);
   }
 
   /* The refund: a plain row under the deals */
@@ -929,7 +934,7 @@
   }
 
   .rd-seg button[aria-pressed='true'] small {
-    color: rgb(10 10 10 / 0.6);
+    color: rgb(11 10 14 / 0.6);
   }
 
   /* Receipt */
@@ -959,7 +964,7 @@
     justify-content: space-between;
     gap: 12px;
     padding-bottom: 14px;
-    border-bottom: 1px dashed rgb(10 10 10 / 0.35);
+    border-bottom: 1px dashed rgb(11 10 14 / 0.35);
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
@@ -973,13 +978,13 @@
     justify-content: space-between;
     gap: 16px;
     padding-block: 10px;
-    border-bottom: 1px dashed rgb(10 10 10 / 0.2);
+    border-bottom: 1px dashed rgb(11 10 14 / 0.2);
   }
 
   .rd-receipt dt {
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: rgb(10 10 10 / 0.6);
+    color: rgb(11 10 14 / 0.6);
   }
 
   .rd-receipt dd {
@@ -1177,7 +1182,7 @@
     position: absolute;
     inset: 0 -100vw;
     z-index: -1;
-    background: linear-gradient(180deg, rgb(10 10 10 / 0), rgb(10 10 10 / 0.86) 38%, rgb(10 10 10 / 0.96));
+    background: linear-gradient(180deg, rgb(11 10 14 / 0), rgb(11 10 14 / 0.86) 38%, rgb(11 10 14 / 0.96));
     pointer-events: none;
   }
 
@@ -1191,21 +1196,21 @@
     width: 100%;
     min-height: 58px;
     padding: 0 22px;
-    border: 0;
-    background: var(--rd-accent);
-    color: var(--rd-ink) !important;
+    border: 1px solid var(--rd-accent);
+    background: var(--rd-purple);
+    color: var(--rd-bone) !important;
     font-size: 0.86rem;
     font-weight: 700;
     text-decoration: none;
-    box-shadow: 0 12px 34px -12px rgb(255 212 0 / 0.55);
+    box-shadow: 0 12px 34px -12px rgb(167 122 199 / 0.55);
   }
 
   .rd-cta:hover {
-    background: var(--rd-bone);
+    background: #6a2f97;
   }
 
   .rd-cta[disabled] {
-    background: rgb(244 241 234 / 0.14);
+    background: rgb(221 215 201 / 0.14);
     color: var(--rd-faint) !important;
     box-shadow: none;
     cursor: not-allowed;
@@ -1234,6 +1239,8 @@
 
   .rd-cta--bone {
     background: var(--rd-bone);
+    border-color: var(--rd-bone);
+    color: var(--rd-ink) !important;
     box-shadow: none;
   }
 
@@ -1349,7 +1356,7 @@
   }
 
   .rd-drop[aria-pressed='true'] .rd-drop__shop {
-    color: rgb(10 10 10 / 0.68);
+    color: rgb(11 10 14 / 0.68);
   }
 
   /* The QR code to show at the shop */
@@ -1457,7 +1464,7 @@
       "type": "color",
       "id": "accent",
       "label": "Accent",
-      "default": "#FFD400"
+      "default": "#A77AC7"
     },
     {
       "type": "text",
