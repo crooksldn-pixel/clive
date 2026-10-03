@@ -138,8 +138,12 @@ def _redact_order(order: dict[str, Any], names: _Names) -> dict[str, Any]:
         {**f, "number": mask_tracking(f.get("number")), "url": None} for f in out.get("fulfillments") or [] if isinstance(f, dict)
     ]
     out["events"] = [{**e, "message": names.scrub(e.get("message"))} for e in out.get("events") or [] if isinstance(e, dict)]
+    from app.customers.payments import CARD_ONLY
+
     for key in ("refunds",):
-        out[key] = [{**r, "note": names.scrub(r.get("note")) if r.get("note") else r.get("note")} for r in out.get(key) or [] if isinstance(r, dict)]
+        # customers: a refund's card brand and last four are the order card's alone, never evidence.
+        out[key] = [{**{k: v for k, v in r.items() if k not in CARD_ONLY}, "note": names.scrub(r.get("note")) if r.get("note") else r.get("note")}
+                    for r in out.get(key) or [] if isinstance(r, dict)]
     history = out.get("history") if isinstance(out.get("history"), dict) else None
     if history:
         out["history"] = {k: v for k, v in history.items() if k in ("orders", "spent", "since", "open_orders", "customer_id")}

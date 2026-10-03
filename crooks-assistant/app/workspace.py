@@ -382,8 +382,8 @@ def _customer_workspace(plan: Plan, person: entities.Entity, graph: entities.Ent
             error_note="The inbox could not be read.",
         ),
         "activity": _rows_section(
-            "activity", _activity_rows(orders, threads),
-            read=bool(orders or threads), failed=False, pending=False,
+            "activity", _activity_rows(orders, threads, person.get("timeline")),
+            read=bool(orders or threads or person.get("timeline")), failed=False, pending=False,
             empty_note="Nothing recorded yet.",
             unread_note="Nothing recorded yet.",
             error_note="",
@@ -802,8 +802,15 @@ def _shipment_row(shipment: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _activity_rows(orders: list[entities.Entity], threads: list[entities.Entity]) -> list[dict[str, Any]]:
-    """A plain chronology of what is known, newest first. Derived, never read for."""
+def _activity_rows(orders: list[entities.Entity], threads: list[entities.Entity],
+                   timeline: Any = None) -> list[dict[str, Any]]:
+    """A plain chronology of what is known, newest first. Derived, never read for. When the
+    customer's own timeline was read (app/customers/history.py) it IS that chronology — with
+    shipping, refunds, email both ways and what CLIVE recorded — and is used as it is."""
+    if isinstance(timeline, dict) and isinstance(timeline.get("rows"), list) and timeline["rows"]:
+        return [{"what": _text(r.get("what"), MAX_VALUE_CHARS), "when": _text(r.get("when"), 40),
+                 "detail": _text(r.get("detail"), MAX_VALUE_CHARS)}
+                for r in timeline["rows"] if isinstance(r, dict)][:MAX_ROWS]
     rows: list[tuple[str, dict[str, Any]]] = []
     for order in orders:
         stamp = str(order.get("placed_at") or "")

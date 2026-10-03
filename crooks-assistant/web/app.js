@@ -307,6 +307,8 @@ const DETAIL_WORDS = {
   shopify_order_fulfil: ['Fulfilling', 'the order', true], shopify_refund_create: ['Refunding', 'the order', true],
   shopify_order_shipping_address_set: ['Changing', 'the delivery address', true],
   shopify_fulfillment_tracking_set: ['Adding', 'the tracking number', true],
+  // Customers (app/families/checkout_link.py): the draft and the email it prepares, held for him.
+  shopify_checkout_link_send: ['Preparing', 'the checkout link', true],
   shopify_inventory_adjust: ['Changing', 'the stock count', true], shopify_store_credit_add: ['Adding', 'store credit', true],
   shopify_discount_create: ['Creating', 'the discount', true],
   // Reading the inbox

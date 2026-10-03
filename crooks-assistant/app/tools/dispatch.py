@@ -344,6 +344,11 @@ async def _stage(
         if calls is not None:
             calls.append(trace.call(ToolCall(name=name, args=args, ok=False, error=str(exc))))
         trace.finish("unprepared", error=str(exc), ms=_elapsed(started))
+        # customers (checkout links): a refusal that came after something was made in the shop
+        # names it (`left`), and is never followed by "Nothing was changed".
+        left = str(getattr(exc, "left", "") or "")
+        if left:
+            return f"ERROR: {exc} Say that this could not be prepared, and that {left} is left in Shopify."
         return f"ERROR: {exc} Say that this could not be prepared. Nothing was changed."
     except Exception as exc:  # noqa: BLE001
         log.exception("tool=%s raised while preparing", name)
