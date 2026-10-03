@@ -60,3 +60,17 @@ def test_the_page_loads_the_shared_parts_it_reuses_and_nothing_of_the_owners_app
     scripts = re.findall(r'<script src="/static/([^"?]+)', page)
     assert scripts == ["orb.js", "objective-touch.js", "today-say.js", "today-voice.js", "today.js", "today-owner.js"]
     assert 'id="ask-text"' in page and 'id="mic"' in page                 # the ask bar, on every screen
+
+
+def test_where_the_teams_spoken_words_go_is_said_truly_and_george_is_told():
+    """The review of 3 October: "the recording never leaves the phone" was not true. The phone's own
+    speech service (Google's on Chrome and Android, Apple's on Safari) hears the audio; CLIVE's Mac
+    does not. The doc and the voice file say so, and George's People screen says it in one line."""
+    doc = (ROOT / "docs" / "TEAM.md").read_text(encoding="utf-8")
+    voice = (WEB / "today-voice.js").read_text(encoding="utf-8")
+    owner = (WEB / "today-owner.js").read_text(encoding="utf-8")
+    for text in (doc, voice):
+        assert "never leaves the phone" not in text and "Nothing is\n * recorded" not in text
+        assert "Google" in text and "Apple" in text and "speech service" in text
+    assert "their phone's speech service hears them (Google's on Android, \" +\n    \"Apple's on an iPhone)" in owner
+    assert "box.append(el('p', 'hint', SPEECH_NOTE));" in owner

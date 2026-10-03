@@ -9,8 +9,13 @@
  *
  * So the team's hold uses the recogniser the phone already has (the Web Speech API: Chrome on
  * Android, Safari on an iPhone): the same gesture as his, the same live words under the finger,
- * and what reaches CLIVE is the sentence, sent exactly as if it had been typed. Nothing is
- * recorded, nothing is uploaded to the Mac, and nothing here touches the owner's voice path.
+ * and what reaches CLIVE is the sentence, sent exactly as if it had been typed.
+ *
+ * Where the sound goes: the phone's own speech service hears it and turns it into words. That is
+ * Google's on Chrome and Android, and Apple's on Safari and the iPhone, as with the keyboard's
+ * dictation; this page does not choose or see it. CLIVE's Mac never receives the audio, this file
+ * keeps no recording, and nothing here touches the owner's voice path. The review of 3 October
+ * corrected an earlier claim that the sound stayed on the phone; George is told on his People screen.
  *
  *   create({ onWords(text, final), onEnd(text), onState(state), onFail(reason) })
  *     .supported      whether this phone has a recogniser at all

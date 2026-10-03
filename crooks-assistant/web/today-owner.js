@@ -22,6 +22,9 @@
   const $ = (selector, root) => (root || document).querySelector(selector);
   const PARTS = [['team', 'Team'], ['hand', 'Hand out'], ['people', 'People']];
   const WHEN = [['now', 'Today'], ['tomorrow', 'Tomorrow'], ['daily', 'Every day'], ['weekdays', 'Weekdays']];
+  // When the team hold to speak, their phone's speech service (Google's or Apple's) hears them.
+  const SPEECH_NOTE = "When the team speak to CLIVE, their phone's speech service hears them (Google's on Android, " +
+    "Apple's on an iPhone) and only the words reach CLIVE. Your Mac never gets the audio.";
   let part = 'team';
   let open = '';                 // the person whose day is unfolded
   const draft = { who: '', when: 'now', count: false };
@@ -330,6 +333,8 @@
     const box = $('#owner-people');
     box.textContent = '';
     box.append(el('h2', 'part', 'The team'));
+    // Where the team's spoken words go, said once, plainly (the review of 3 October).
+    box.append(el('p', 'hint', SPEECH_NOTE));
     const group = el('div', 'group');
     const team = (state.people || []).filter((p) => p.kind === 'staff');
     if (!team.length) group.append(el('p', 'quiet', 'Nobody yet. Add them below.'));

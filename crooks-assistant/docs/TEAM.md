@@ -37,7 +37,7 @@ Rebuilt on 3 October, after George said the old screen was "a screen of buttons,
   - anything else goes to their own CLIVE, whose answer comes back on the page, with any change as a card they confirm.
 - **Undo for six seconds** after every step, in the bar at the foot of the screen. It takes back exactly the steps just taken (`/today/undo`). Steps CLIVE took for them in words can be undone the same way.
 
-Speaking uses the phone's own speech recognition (Chrome on Android, Safari on an iPhone). Only the words reach CLIVE, exactly as if they had been typed. The recording never leaves the phone, and the owner's voice allowance is never used: the Mac still refuses a team member's recording, as it did before. On a phone without speech recognition, the button says so and they type.
+Speaking uses the phone's own speech recognition (Chrome on Android, Safari on an iPhone). The phone's speech service hears what they say and turns it into words: that is Google's on Chrome and Android, and Apple's on Safari and the iPhone, as with the keyboard's own dictation. CLIVE's Mac never gets the audio: only the words reach CLIVE, exactly as if they had been typed. The owner's voice allowance is never used, and the Mac still refuses a team member's recording, as it did before. On a phone without speech recognition, the button says so and they type. The People screen says this in one line, so George knows.
 
 ## What they can change, and how
 
