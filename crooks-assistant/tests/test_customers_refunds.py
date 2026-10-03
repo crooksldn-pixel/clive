@@ -140,3 +140,23 @@ def test_a_refund_part_of_which_went_back_says_what_did_and_what_did_not():
     assert said["landed_card"].startswith("Refund: £30.00 to Visa ending 4242 succeeded on Fri 2 Oct at 14:02; ")
     assert said["means"] == ("Part of it has gone back: £30.00 succeeded. £15.00 has not gone back: the provider refused it "
                              "(the card was declined).")
+
+
+async def test_a_refund_through_clive_drops_what_was_held_of_the_customers_story(world):
+    """Her story was read a moment ago and is held (for Back, for a tap). A refund on her order
+    through CLIVE makes it out of date, so it is never handed out again: the next look reads it."""
+    from app.memory import ENTITY
+    from app.memory import current as memory
+    from app.reads import dedupe
+    from tests.customers_world import ALICIA
+
+    await say(world, "show me Alicia Grant's history", ("shopify_find_customer", {"query": "Alicia Grant"}),
+              ("shopify_customer_history", {"customer_id": ALICIA}))
+    assert memory().get(ENTITY, f"customer:{ALICIA}") is not None
+    found = await say(world, "refund ten pounds on 2201", ("shopify_find_order", {"query": "2201"}),
+                      ("shopify_refund_create", lambda calls: {"order_id": calls[0].result["orders"][0]["order_id"], "amount": "10.00"}))
+    (card,) = [i["data"] for i in found["ui"] if i["type"] == "confirmation"]
+    done = await hold(world, card["proposal_id"])
+    assert done["status"] == "verified", done
+    assert memory().get(ENTITY, f"customer:{ALICIA}") is None
+    assert not [k for k in dedupe.current()._recent if ALICIA in k]
