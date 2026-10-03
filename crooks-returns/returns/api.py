@@ -13,7 +13,6 @@ import base64
 import hashlib
 import hmac
 import re
-from collections import Counter
 from datetime import datetime
 from typing import Any
 
@@ -212,25 +211,7 @@ def build_routers(svc: ReturnsService) -> list[APIRouter]:
 
     @api.get("/stats", dependencies=[Depends(reader)])
     def stats(since: datetime | None = None) -> dict[str, Any]:
-        rows = svc.store.search(since=since, limit=100_000)
-        live = [r for r in rows if r.status.value not in ("declined", "cancelled")]
-        value = sum(r.money.items_pence for r in live)
-        kept = sum(r.money.items_pence for r in live if r.resolution != Resolution.refund)
-        return {
-            "returns": len(rows),
-            "by_status": Counter(r.status.value for r in rows),
-            "by_resolution": Counter(r.resolution.value for r in live),
-            "by_reason": Counter(ln.reason.value for r in live for ln in r.lines),
-            "by_sku": Counter(ln.sku or ln.title for r in live for ln in r.lines).most_common(20),
-            "size_swaps": Counter(
-                ln.exchange_direction for r in live for ln in r.lines if ln.exchange_direction
-            ),
-            "value_returned": gbp(value),
-            "value_kept": gbp(kept),
-            "kept_share": round(kept / value, 3) if value else None,
-            "bonus_given": gbp(sum(r.money.bonus_pence for r in live)),
-            "label_fees_recovered": gbp(sum(r.money.fee_pence for r in live)),
-        }
+        return svc.stats(since)
 
     @api.post("/returns/{return_id}/actions/{action}/preview", dependencies=[Depends(reader)])
     def preview(return_id: str, action: str, body: ActionBody) -> dict[str, Any]:

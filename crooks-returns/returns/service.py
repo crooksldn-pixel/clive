@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import json
 import logging
+from collections import Counter
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
@@ -36,7 +37,7 @@ from returns.models import (
     gbp,
     to_amount,
 )
-from returns.settings import Settings
+from returns.settings import Settings, parse_order_numbers
 from returns.shopify import ShopifyError, ShopifyPort
 from returns.store import Store, new_id, now
 
@@ -116,7 +117,7 @@ class ReturnsService:
         digits = verify.normalise_order_number(order_number)
         if not digits or not (proof or "").strip():
             raise ActionError(verify.NOT_FOUND, 404)
-        pilot = self.s.pilot_orders()
+        pilot = self.pilot_orders()
         if pilot and digits not in pilot:
             raise ActionError("Online returns are not open yet. Please contact us.", 403)
         if self.by_order.blocked(digits) or self.by_ip.blocked(ip):
@@ -128,6 +129,18 @@ class ReturnsService:
             raise ActionError(verify.NOT_FOUND, 404)
         order = matches[0]
         return verify.session_for(order.id, self.s.session_secret, self.s.session_ttl_s), order
+
+    def pilot_orders(self) -> set[str]:
+        """Order numbers allowed to use the portal while testing; empty means open to all.
+        Set from the admin screen once, after which it overrides RETURNS_PILOT_ORDER_NUMBERS."""
+        saved = self.store.get_option("pilot_order_numbers")
+        return self.s.pilot_orders() if saved is None else parse_order_numbers(saved)
+
+    def set_pilot_orders(self, numbers: str, actor: str) -> set[str]:
+        pilot = parse_order_numbers(numbers)
+        self.store.set_option("pilot_order_numbers", ",".join(sorted(pilot)))
+        log.info("pilot set to %s by %s", ",".join(sorted(pilot)) or "everyone", actor)
+        return pilot
 
     def order_for_session(self, session: str) -> Order:
         order_id = verify.order_from_session(session, self.s.session_secret)
@@ -848,6 +861,100 @@ class ReturnsService:
             self.store.save(ret)
         self.notifier.send("return.synced", ret)
         return ret
+
+    # ===================================================================== reporting
+
+    def stats(self, since: datetime | None = None) -> dict[str, Any]:
+        rows = self.store.search(since=since, limit=100_000)
+        live = [r for r in rows if r.status.value not in ("declined", "cancelled")]
+        value = sum(r.money.items_pence for r in live)
+        kept = sum(r.money.items_pence for r in live if r.resolution != Resolution.refund)
+        return {
+            "returns": len(rows),
+            "by_status": Counter(r.status.value for r in rows),
+            "by_resolution": Counter(r.resolution.value for r in live),
+            "by_reason": Counter(ln.reason.value for r in live for ln in r.lines),
+            "by_sku": Counter(ln.sku or ln.title for r in live for ln in r.lines).most_common(20),
+            "size_swaps": Counter(
+                ln.exchange_direction for r in live for ln in r.lines if ln.exchange_direction
+            ),
+            "value_returned": gbp(value),
+            "value_kept": gbp(kept),
+            "kept_share": round(kept / value, 3) if value else None,
+            "bonus_given": gbp(sum(r.money.bonus_pence for r in live)),
+            "label_fees_recovered": gbp(sum(r.money.fee_pence for r in live)),
+        }
+
+    # ===================================================================== setup check
+
+    def checks(self) -> list[dict[str, str]]:
+        """Read-only: is everything connected and set the way the returns need it?
+        state is ok, fix (something to sort before going live) or note."""
+        from returns.shopify import REQUIRED_SCOPES
+
+        s, out = self.s, []
+
+        def say(group: str, ok: bool | None, text: str) -> None:
+            out.append(
+                {
+                    "group": group,
+                    "state": {True: "ok", False: "fix", None: "note"}[ok],
+                    "text": text,
+                }
+            )
+
+        try:
+            scopes = set(self.shopify.app_scopes())
+            missing = [x for x in REQUIRED_SCOPES if x not in scopes]
+            say(
+                "Shopify",
+                not missing,
+                "App permissions" + (f": missing {', '.join(missing)}" if missing else ""),
+            )
+            found = len(self.shopify.reason_ids())
+            say("Shopify", found == 6, f"Return reasons matched: {found} of 6")
+        except ShopifyError as exc:
+            say("Shopify", False, f"Cannot reach the store: {exc}")
+        pilot = sorted(self.pilot_orders(), key=int)
+        say(
+            "Settings",
+            None,
+            "Testing: only orders " + ", ".join(pilot) if pilot else "Open to every order",
+        )
+        say(
+            "Settings",
+            bool(s.restock_location_id),
+            "Restock location "
+            + ("set" if s.restock_location_id else "not set: returned stock is not restocked"),
+        )
+        say(
+            "Settings",
+            bool(s.returns_address_line1 and s.returns_address_postcode),
+            "Returns address "
+            + (", ".join(self._return_address()) if s.returns_address_line1 else "not set"),
+        )
+        labels_ok, why = self.labels.available()
+        say(
+            "Settings",
+            True if labels_ok else None,
+            "Click & Drop labels " + ("connected" if labels_ok else f"off ({why})"),
+        )
+        say(
+            "Settings",
+            None,
+            "Label price "
+            + (
+                gbp(s.return_label_cost_pence)
+                if s.return_label_cost_pence is not None
+                else "not set: change-of-mind refunds are self-ship only"
+            ),
+        )
+        say(
+            "Settings",
+            bool(s.keys("read")),
+            "CLIVE keys " + ("set" if s.keys("read") else "not set"),
+        )
+        return out
 
     # ===================================================================== views
 

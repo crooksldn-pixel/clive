@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="shopify-api-key" content="{{CLIENT_ID}}">
+<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+<title>CROOKS Returns</title>
+<style>
+  :root {
+    --bg: #f1f1f1; --card: #fff; --ink: #303030; --ink-2: #616161; --ink-3: #8a8a8a;
+    --line: #e3e3e3; --line-2: #ebebeb; --hover: #f7f7f7;
+    --yellow: #ffd400; --yellow-bg: #fff4c2; --yellow-ink: #5e4200;
+    --red-bg: #fee9e8; --red-ink: #8e1f0b; --red: #c70a24;
+    --green-bg: #cdfee1; --green-ink: #0c5132;
+    --blue-bg: #e0f0ff; --blue-ink: #00527c;
+    --grey-bg: #ebebeb; --grey-ink: #4a4a4a;
+    --radius: 12px;
+    --shadow: 0 1px 0 rgba(26,26,26,.07), 0 0 0 1px rgba(26,26,26,.07);
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased; }
+  a { color: #005bd3; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button, input, textarea, select { font: inherit; color: inherit; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
+
+  /* header */
+  .top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
+  .brand h1 { font-size: 20px; line-height: 1.2; margin: 0; font-weight: 700; letter-spacing: -.01em; }
+  .tag { font: 600 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase;
+    background: #0a0a0a; color: var(--yellow); padding: 5px 7px; border-radius: 6px; }
+  .nav { display: flex; gap: 4px; background: var(--card); padding: 3px; border-radius: 10px; box-shadow: var(--shadow); }
+  .nav a { padding: 6px 12px; border-radius: 8px; color: var(--ink-2); font-weight: 550; }
+  .nav a:hover { background: var(--hover); text-decoration: none; }
+  .nav a[aria-current="page"] { background: #0a0a0a; color: #fff; }
+  .who { color: var(--ink-3); font-size: 12px; }
+
+  /* cards */
+  .card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .card + .card { margin-top: 12px; }
+  .stats > .card { margin-top: 0; }
+  .card-pad { padding: 16px; }
+  .card h2 { font-size: 13px; font-weight: 650; margin: 0 0 10px; }
+  .muted { color: var(--ink-2); }
+  .faint { color: var(--ink-3); }
+  .mono { font-family: var(--mono); }
+
+  /* banners */
+  .banner { border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; display: flex; gap: 10px; align-items: flex-start; }
+  .banner b { display: block; margin-bottom: 2px; }
+  .banner.warn { background: var(--yellow-bg); color: var(--yellow-ink); }
+  .banner.bad { background: var(--red-bg); color: var(--red-ink); }
+  .banner.good { background: var(--green-bg); color: var(--green-ink); }
+  .banner.info { background: var(--blue-bg); color: var(--blue-ink); }
+  .banner .grow { flex: 1; }
+
+  /* stats */
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .stat { padding: 14px 16px; }
+  .stat .k { font-size: 12px; color: var(--ink-2); }
+  .stat .v { font-size: 22px; font-weight: 700; margin-top: 2px; letter-spacing: -.01em; }
+  .stat .s { font-size: 12px; color: var(--ink-3); }
+  .stat.hot { background: #0a0a0a; color: #fff; }
+  .stat.hot .k, .stat.hot .s { color: #bdbdbd; }
+  .stat.hot .v { color: var(--yellow); }
+
+  /* tabs + search */
+  .bar { display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .tabs { display: flex; gap: 2px; flex-wrap: wrap; }
+  .tabs button { border: 0; background: none; padding: 6px 10px; border-radius: 8px; cursor: pointer; color: var(--ink-2); font-weight: 550; }
+  .tabs button:hover { background: var(--hover); }
+  .tabs button[aria-selected="true"] { background: var(--grey-bg); color: var(--ink); }
+  .tabs .n { font-weight: 500; color: var(--ink-3); margin-left: 4px; }
+  .search { margin-left: auto; position: relative; min-width: 220px; flex: 0 1 280px; }
+  .search input { width: 100%; padding: 6px 10px 6px 30px; border: 1px solid #8a8a8a66; border-radius: 8px; background: #fff; }
+  .search svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--ink-3); }
+  input:focus, textarea:focus, select:focus { outline: 2px solid #005bd3; outline-offset: 1px; }
+
+  /* list */
+  .rows { list-style: none; margin: 0; padding: 0; }
+  .row { display: grid; grid-template-columns: 120px 1.1fr 2fr 1fr 150px 80px; gap: 12px; align-items: center;
+    padding: 10px 16px; border-bottom: 1px solid var(--line-2); cursor: pointer; }
+  .row:last-child { border-bottom: 0; border-radius: 0 0 var(--radius) var(--radius); }
+  .row:hover { background: var(--hover); }
+  .row.head { cursor: default; background: #f7f7f7; color: var(--ink-2); font-size: 12px; font-weight: 550; padding-top: 8px; padding-bottom: 8px; }
+  .row.head:hover { background: #f7f7f7; }
+  .order { font-weight: 650; }
+  .cell-sub { color: var(--ink-3); font-size: 12px; }
+  .clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .empty { padding: 40px 16px; text-align: center; color: var(--ink-2); }
+  .empty b { display: block; color: var(--ink); font-size: 14px; margin-bottom: 4px; }
+
+  /* badges */
+  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 8px; font-size: 12px; font-weight: 550; background: var(--grey-bg); color: var(--grey-ink); white-space: nowrap; }
+  .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .7; }
+  .badge.plain::before { display: none; }
+  .badge.attn { background: var(--yellow); color: #0a0a0a; }
+  .badge.warn { background: var(--yellow-bg); color: var(--yellow-ink); }
+  .badge.info { background: var(--blue-bg); color: var(--blue-ink); }
+  .badge.good { background: var(--green-bg); color: var(--green-ink); }
+  .badge.bad { background: var(--red-bg); color: var(--red-ink); }
+  .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .outcome { font-weight: 550; }
+  .outcome.exchange { color: #0a6e3a; }
+  .outcome.store_credit { color: #5b3fd1; }
+
+  /* detail */
+  .crumbs { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .back { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; background: var(--card); box-shadow: var(--shadow); color: var(--ink); }
+  .back:hover { background: var(--hover); text-decoration: none; }
+  .crumbs h1 { font-size: 20px; margin: 0; font-weight: 700; }
+  .crumbs .spacer { flex: 1; }
+  .grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+  .next { border-left: 4px solid var(--yellow); }
+  .next .say { margin: 0 0 12px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn { border: 0; border-radius: 8px; padding: 7px 12px; font-weight: 600; cursor: pointer; background: #fff; box-shadow: inset 0 -1px 0 #b5b5b5, 0 0 0 1px #e3e3e3; }
+  .btn:hover { background: var(--hover); }
+  .btn.primary { background: #0a0a0a; color: #fff; box-shadow: inset 0 -1px 0 #000, 0 1px 0 rgba(0,0,0,.2); }
+  .btn.primary:hover { background: #262626; }
+  .btn.danger { color: var(--red); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.small { padding: 4px 10px; font-weight: 550; }
+  .line { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line-2); }
+  .line:first-of-type { border-top: 0; padding-top: 2px; }
+  .line .qty { font: 600 12px/1 var(--mono); background: var(--grey-bg); border-radius: 6px; padding: 6px 7px; height: fit-content; }
+  .line .t { font-weight: 600; }
+  .swap { margin-top: 6px; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; background: #0a0a0a; color: #fff; padding: 3px 8px; border-radius: 6px; font-size: 12px; }
+  .swap .to { color: var(--yellow); }
+  .note { margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: #f7f7f7; color: var(--ink-2); font-style: italic; }
+  dl.kv { display: grid; grid-template-columns: auto 1fr; row-gap: 6px; margin: 0; }
+  dl.kv dt { color: var(--ink-2); padding-right: 14px; }
+  dl.kv dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+  dl.kv .total { font-weight: 700; border-top: 1px solid var(--line); padding-top: 6px; }
+  .tl { list-style: none; margin: 0; padding: 0; position: relative; }
+  .tl li { position: relative; padding: 0 0 14px 22px; }
+  .tl li::before { content: ""; position: absolute; left: 5px; top: 6px; bottom: -6px; width: 2px; background: var(--line); }
+  .tl li:last-child::before { display: none; }
+  .tl li::after { content: ""; position: absolute; left: 1px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: #fff; border: 2px solid #b5b5b5; }
+  .tl li.ok::after { border-color: #0c5132; background: #29845a; }
+  .tl li.fail::after { border-color: var(--red); background: var(--red-bg); }
+  .tl .what { font-weight: 600; }
+  .tl .meta { color: var(--ink-3); font-size: 12px; }
+  .tl .det { color: var(--ink-2); font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+  .ok-tick { color: #0c5132; font-weight: 600; }
+
+  /* setup */
+  .checks { list-style: none; margin: 0; padding: 0; }
+  .checks li { display: flex; gap: 10px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--line-2); }
+  .checks li:first-child { border-top: 0; }
+  .checks .grp { font-size: 11px; font-weight: 650; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; padding-top: 12px; border: 0; }
+  .field { display: block; margin-top: 10px; }
+  .field > span { display: block; font-weight: 550; margin-bottom: 4px; }
+  .field input, .field textarea { width: 100%; padding: 7px 10px; border: 1px solid #8a8a8a66; border-radius: 8px; background: #fff; }
+  .field textarea { min-height: 70px; resize: vertical; }
+  .hint { color: var(--ink-3); font-size: 12px; margin-top: 4px; }
+
+  /* modal */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-start; justify-content: center; padding: 60px 16px 16px; z-index: 50; overflow: auto; }
+  .modal { width: 100%; max-width: 520px; background: #fff; border-radius: var(--radius); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  .modal header { display: flex; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .modal header h3 { margin: 0; font-size: 14px; flex: 1; }
+  .modal .x { border: 0; background: none; font-size: 20px; line-height: 1; cursor: pointer; color: var(--ink-2); padding: 2px 6px; border-radius: 6px; }
+  .modal .x:hover { background: var(--hover); }
+  .modal .body { padding: 14px 16px; }
+  .modal footer { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid var(--line); }
+  .opts { display: grid; gap: 8px; }
+  .opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); cursor: pointer; }
+  .opt:hover { background: var(--hover); }
+  .opt input { margin-top: 2px; accent-color: #0a0a0a; }
+  .opt b { display: block; }
+  .opt small { color: var(--ink-2); }
+  .opt.off { opacity: .55; cursor: not-allowed; }
+  .opt:has(input:checked) { border-color: #0a0a0a; box-shadow: 0 0 0 1px #0a0a0a; }
+  .will { margin-top: 14px; background: #f7f7f7; border-radius: 10px; padding: 10px 12px; }
+  .will h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); }
+  .will ul { margin: 0; padding-left: 18px; }
+  .will li + li { margin-top: 4px; }
+  .will.bad { background: var(--red-bg); color: var(--red-ink); }
+
+  .loading { padding: 40px; text-align: center; color: var(--ink-3); }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 860px) {
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid { grid-template-columns: 1fr; }
+    .row { grid-template-columns: 1fr auto; gap: 4px 12px; }
+    .row.head { display: none; }
+    .row > :nth-child(1) { grid-column: 1; }
+    .row > :nth-child(5) { grid-column: 2; grid-row: 1; justify-self: end; }
+    .row > :nth-child(2), .row > :nth-child(3), .row > :nth-child(4) { grid-column: 1 / -1; }
+    .row > :nth-child(6) { display: none; }
+    .search { flex: 1 1 100%; margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="loading"><span class="spin"></span></div></div>
+<div id="modal-root"></div>
+<script>
+(() => {
+  "use strict";
+  const app = document.getElementById("app");
+  const modalRoot = document.getElementById("modal-root");
+  const state = { view: "todo", q: "", overview: null, list: null, current: null, checks: null };
+
+  // ---------------------------------------------------------------- helpers
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const key = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+  const toast = (msg, error) => {
+    if (window.shopify && shopify.toast) shopify.toast.show(msg, { isError: !!error, duration: 4000 });
+  };
+
+  async function token() {
+    if (!window.shopify || !shopify.idToken) return "";
+    try { return await shopify.idToken(); } catch { return ""; }
+  }
+
+  async function api(path, body) {
+    const t = await token();
+    const res = await fetch("/admin/api" + path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { "Content-Type": "application/json", ...(t ? { Authorization: "Bearer " + t } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    let data = {};
+    try { data = await res.json(); } catch { /* not JSON */ }
+    if (!res.ok) {
+      const err = new Error(typeof data.detail === "string" ? data.detail : "Something went wrong (" + res.status + ").");
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  const STATUS = {
+    requested: ["Needs approval", "attn"],
+    awaiting_label: ["Waiting for label", "warn"],
+    awaiting_shipment: ["Customer to post", "info"],
+    in_transit: ["On its way back", "info"],
+    received: ["Arrived", "warn"],
+    completed: ["Done", "good"],
+    declined: ["Declined", ""],
+    cancelled: ["Cancelled", ""],
+  };
+  const ATTENTION = {
+    awaiting_label_overdue: ["Label overdue", "bad"],
+    error: ["Problem", "bad"],
+    needs_decision: ["Needs a decision", "attn"],
+  };
+  const RESOLUTION = { exchange: "Exchange", store_credit: "Store credit", refund: "Refund" };
+  const POSTAGE = {
+    free_label: "Free Royal Mail label", paid_label: "Royal Mail label (fee off refund)", self_ship: "Sending it themselves",
+    label_now: "Label sent", label_later: "Label to follow", no_return: "No need to send back",
+  };
+  const EVENT = {
+    requested: "Customer asked for a return", approved: "Approved", approve_failed: "Approval failed",
+    awaiting_label: "Waiting for a label", shipping_attached: "Label / tracking added to Shopify",
+    shipping_attach_failed: "Couldn't add label to Shopify", no_return: "Approved, nothing to send back",
+    declined: "Declined", in_transit: "Customer posted it", received: "Arrived back",
+    processed: "Done in Shopify", process_failed: "Shopify step failed", bonus_credited: "Bonus credit added",
+    bonus_failed: "Bonus credit failed", completed: "Completed", cancelled: "Cancelled",
+    cancel_failed: "Cancel failed", note: "Note", label_overdue: "Label overdue",
+  };
+  const ACTION = {
+    approve: "Approve", decline: "Decline", label: "Add label", tracking: "Add tracking",
+    receive: "Mark as received", complete: "Complete", cancel: "Cancel return", note: "Add note",
+  };
+
+  const badge = (pair, plain) => pair ? `<span class="badge ${pair[1]}${plain ? " plain" : ""}">${esc(pair[0])}</span>` : "";
+  const statusBadge = (s) => badge(STATUS[s] || [s, ""]);
+  const attnBadges = (list) => (list || []).filter((a) => ATTENTION[a]).map((a) => badge(ATTENTION[a])).join("");
+
+  function ago(iso) {
+    const d = new Date(iso), s = (Date.now() - d) / 1000;
+    if (s < 60) return "just now";
+    if (s < 3600) return Math.floor(s / 60) + "m ago";
+    if (s < 86400) return Math.floor(s / 3600) + "h ago";
+    if (s < 86400 * 7) return Math.floor(s / 86400) + "d ago";
+    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  }
+  const when = (iso) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const gbp = (p) => "£" + (Number(p || 0) / 100).toFixed(2);
+
+  // ---------------------------------------------------------------- routing
+  function route() {
+    const h = location.hash.replace(/^#\/?/, "");
+    if (h === "setup") return showSetup();
+    if (h.startsWith("r/")) return showReturn(decodeURIComponent(h.slice(2)));
+    return showList();
+  }
+  window.addEventListener("hashchange", route);
+
+  function shell(active, inner) {
+    const o = state.overview;
+    const pilot = o && o.pilot.length ? `Only orders ${o.pilot.map(esc).join(", ")} can start a return online` : "";
+    app.innerHTML = `
+      <div class="top">
+        <div class="brand"><span class="tag">Crooks</span><h1>Returns</h1></div>
+        <span class="who">${o ? "Signed in as " + esc(o.me) : ""}</span>
+        <nav class="nav">
+          <a href="#/" ${active === "list" ? 'aria-current="page"' : ""}>Returns</a>
+          <a href="#/setup" ${active === "setup" ? 'aria-current="page"' : ""}>Setup</a>
+        </nav>
+      </div>
+      ${pilot && active !== "setup" ? `<div class="banner info"><div class="grow"><b>Testing mode</b>${pilot}. Customers with other orders are told online returns aren't open yet. <a href="#/setup">Change</a></div></div>` : ""}
+      ${inner}`;
+  }
+
+  function failed(err) {
+    if (err.status === 401) {
+      app.innerHTML = `<div class="card card-pad" style="margin-top:40px"><h2>Open this from Shopify admin</h2>
+        <p class="muted">Go to <b>Apps → CROOKS Returns</b> in your Shopify admin. This page only works inside it, so only your staff can see returns.</p></div>`;
+      return;
+    }
+    shell("", `<div class="banner bad"><div class="grow"><b>Couldn't load</b>${esc(err.message)}</div><button class="btn small" onclick="location.reload()">Try again</button></div>`);
+  }
+
+  async function loadOverview() {
+    state.overview = await api("/overview");
+    return state.overview;
+  }
+
+  // ---------------------------------------------------------------- list
+  async function showList() {
+    try {
+      if (!state.overview) await loadOverview();
+      renderList(true);
+      const [ov, list] = await Promise.all([loadOverview(), api(`/returns?view=${state.view}&q=${encodeURIComponent(state.q)}`)]);
+      state.list = list.returns;
+      renderList(false);
+    } catch (err) { failed(err); }
+  }
+
+  function renderList(loading) {
+    const o = state.overview, st = o.stats, c = o.counts;
+    const share = st.kept_share == null ? "–" : Math.round(st.kept_share * 100) + "%";
+    const tabs = [["todo", "Needs you"], ["open", "Open"], ["done", "Finished"], ["all", "All"]];
+    const empty = {
+      todo: ["Nothing needs you", "New requests, problems and overdue labels show up here."],
+      open: ["No open returns", "Approved returns on their way back show up here."],
+      done: ["Nothing finished yet", ""], all: ["No returns yet", "Requests from the returns page show up here."],
+    }[state.view];
+    const rows = state.list || [];
+    shell("list", `
+      <div class="stats">
+        <div class="card stat ${c.todo ? "hot" : ""}"><div class="k">Needs you</div><div class="v">${c.todo}</div><div class="s">to approve or sort out</div></div>
+        <div class="card stat"><div class="k">Open</div><div class="v">${c.open}</div><div class="s">in progress</div></div>
+        <div class="card stat"><div class="k">Kept as credit or exchange</div><div class="v">${share}</div><div class="s">${esc(st.value_kept)} of ${esc(st.value_returned)}</div></div>
+        <div class="card stat"><div class="k">Credit bonus given</div><div class="v">${esc(st.bonus_given)}</div><div class="s">${st.by_resolution.store_credit || 0} credit · ${st.by_resolution.exchange || 0} swap · ${st.by_resolution.refund || 0} refund</div></div>
+      </div>
+      <div class="card">
+        <div class="bar">
+          <div class="tabs" role="tablist">
+            ${tabs.map(([v, l]) => `<button role="tab" data-view="${v}" aria-selected="${state.view === v && !state.q}">${l}<span class="n">${c[v]}</span></button>`).join("")}
+          </div>
+          <label class="search"><svg viewBox="0 0 20 20" fill="currentColor"><path d="M8 2a6 6 0 1 0 3.6 10.8l4.3 4.3 1.4-1.4-4.3-4.3A6 6 0 0 0 8 2Zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/></svg>
+            <input id="q" type="search" placeholder="Order number, name or email" value="${esc(state.q)}"></label>
+        </div>
+        ${loading && !state.list ? `<div class="loading"><span class="spin"></span></div>` : rows.length ? `
+        <ul class="rows">
+          <li class="row head"><div>Order</div><div>Customer</div><div>Items</div><div>Outcome</div><div>Status</div><div>Asked</div></li>
+          ${rows.map((r) => `
+          <li class="row" data-id="${esc(r.id)}" tabindex="0">
+            <div class="order mono">${esc(r.order_name)}</div>
+            <div class="clip">${esc(r.customer)}</div>
+            <div><div class="clip">${esc(r.items)}</div><div class="cell-sub clip">${esc(r.reasons.join(", "))}</div></div>
+            <div class="outcome ${esc(r.resolution)}">${esc(r.outcome)}</div>
+            <div class="badges">${statusBadge(r.status)}${attnBadges(r.attention)}</div>
+            <div class="faint">${ago(r.created_at)}</div>
+          </li>`).join("")}
+        </ul>` : `<div class="empty"><b>${state.q ? "No matches" : empty[0]}</b>${state.q ? "Try an order number like 2130." : empty[1]}</div>`}
+      </div>`);
+    app.querySelectorAll("[data-view]").forEach((b) => b.onclick = () => { state.view = b.dataset.view; state.q = ""; state.list = null; showList(); });
+    app.querySelectorAll(".row[data-id]").forEach((r) => {
+      const go = () => { location.hash = "#/r/" + encodeURIComponent(r.dataset.id); };
+      r.onclick = go; r.onkeydown = (e) => { if (e.key === "Enter") go(); };
+    });
+    const q = app.querySelector("#q");
+    let timer;
+    q.oninput = () => { clearTimeout(timer); timer = setTimeout(() => { state.q = q.value; showList().then(() => { const n = app.querySelector("#q"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 300); };
+  }
+
+  // ---------------------------------------------------------------- one return
+  async function showReturn(id) {
+    try {
+      if (!state.overview) await loadOverview();
+      if (!state.current || state.current.id !== id) shell("list", `<div class="loading"><span class="spin"></span></div>`);
+      state.current = await api("/returns/" + encodeURIComponent(id));
+      renderReturn();
+    } catch (err) { failed(err); }
+  }
+
+  function moneyRows(r) {
+    const m = r.money, out = [];
+    out.push(["Items returned", gbp(m.items_pence)]);
+    if (r.resolution === "store_credit") {
+      out.push(["Bonus", "+ " + gbp(m.bonus_pence)]);
+      out.push(["Store credit", gbp(m.credit_pence), true]);
+    } else if (r.resolution === "refund") {
+      if (m.shipping_refund_pence) out.push(["Delivery refunded", "+ " + gbp(m.shipping_refund_pence)]);
+      if (m.fee_pence) out.push(["Return label", "− " + gbp(m.fee_pence)]);
+      out.push(["Refund", gbp(m.refund_pence), true]);
+    } else {
+      out.push(["Customer pays", "£0.00", true]);
+    }
+    return out.map(([k, v, t]) => `<dt class="${t ? "total" : ""}">${k}</dt><dd class="${t ? "total" : ""}">${v}</dd>`).join("");
+  }
+
+  function eventDetail(e) {
+    const d = e.detail || {};
+    const bits = [];
+    for (const [k, v] of Object.entries(d)) {
+      if (v == null || v === "" || typeof v === "object") continue;
+      if (typeof v === "string" && v.startsWith("gid://")) continue;
+      if (k === "summary" || k === "at" || k === "by") continue;
+      bits.push(`${k.replace(/_/g, " ")}: ${v}`);
+    }
+    return bits.join(" · ");
+  }
+
+  function renderReturn() {
+    const r = state.current, row = r.row;
+    const p = r.postage;
+    const primary = r.actions[0];
+    const nextSay = {
+      requested: "Check the request, then approve it or decline it.",
+      awaiting_label: "Approved. It needs a label (buy one, or add a tracking number you made yourself).",
+      awaiting_shipment: "Approved. Waiting for the customer to post it. Mark it received when it lands.",
+      in_transit: "On its way back. Mark it received when it lands.",
+      received: "Arrived but not as expected. Decide, then complete it.",
+    }[r.status];
+    const tracking = p.tracking ? (p.tracking_url ? `<a href="${esc(p.tracking_url)}" target="_blank" rel="noopener">${esc(p.tracking)}</a>` : esc(p.tracking)) : "–";
+    shell("list", `
+      <div class="crumbs">
+        <a class="back" href="#/" aria-label="Back to returns">←</a>
+        <h1 class="mono">${esc(r.order_name)}</h1>
+        <div class="badges">${statusBadge(r.status)}${attnBadges(r.attention)}</div>
+        <span class="spacer"></span>
+        <a class="btn small" href="${esc(r.links.order)}" target="_top">Open order in Shopify</a>
+      </div>
+      ${r.last_error ? `<div class="banner bad"><div class="grow"><b>Something didn't go through</b>${esc(r.last_error)}</div></div>` : ""}
+      <div class="grid">
+        <div>
+          ${nextSay ? `<div class="card card-pad next">
+            <h2>Next step</h2>
+            <p class="say muted">${esc(nextSay)}</p>
+            <div class="actions">
+              ${r.actions.filter((a) => a !== "note").map((a) => `<button class="btn ${a === primary ? "primary" : ""} ${a === "decline" || a === "cancel" ? "danger" : ""}" data-act="${a}">${ACTION[a]}</button>`).join("")}
+              <button class="btn" data-act="note">${ACTION.note}</button>
+            </div>
+          </div>` : `<div class="card card-pad"><div class="actions" style="justify-content:space-between;align-items:center"><span class="muted">${r.status === "completed" ? "All done. Nothing more to do." : "Closed."}</span><button class="btn small" data-act="note">${ACTION.note}</button></div></div>`}
+          <div class="card card-pad">
+            <h2>Items</h2>
+            ${r.lines.map((l) => `
+              <div class="line">
+                <span class="qty">${l.quantity}×</span>
+                <div>
+                  <div class="t">${esc(l.title)}</div>
+                  <div class="muted">${esc(l.variant_title || "")}${l.sku ? ` · <span class="mono">${esc(l.sku)}</span>` : ""} · ${gbp(l.unit_paid_pence)} paid</div>
+                  <div style="margin-top:6px">${badge([l.reason_label, ""], true)}</div>
+                  ${l.exchange_variant_title ? `<div class="swap">Swap <span>${esc(l.variant_title || "")}</span> → <span class="to">${esc(l.exchange_variant_title)}</span></div>` : ""}
+                  ${l.note ? `<div class="note">“${esc(l.note)}”</div>` : ""}
+                </div>
+              </div>`).join("")}
+          </div>
+          <div class="card card-pad">
+            <h2>Timeline</h2>
+            <ul class="tl">
+              ${r.timeline.slice().reverse().map((e) => `
+                <li class="${e.verified ? "ok" : /failed|overdue/.test(e.type) ? "fail" : ""}">
+                  <div class="what">${esc(EVENT[e.type] || e.type)}${e.verified ? ` <span class="ok-tick">· confirmed in Shopify</span>` : ""}</div>
+                  <div class="meta">${when(e.at)} · ${esc(e.actor)}</div>
+                  ${eventDetail(e) ? `<div class="det">${esc(eventDetail(e))}</div>` : ""}
+                </li>`).join("")}
+            </ul>
+          </div>
+        </div>
+        <div>
+          <div class="card card-pad">
+            <h2>${esc(RESOLUTION[r.resolution])}</h2>
+            <dl class="kv">${moneyRows(r)}</dl>
+          </div>
+          <div class="card card-pad">
+            <h2>Postage</h2>
+            <dl class="kv">
+              <dt>Customer chose</dt><dd>${esc(POSTAGE[p.chosen] || p.chosen)}</dd>
+              <dt>Approved as</dt><dd>${esc(p.mode ? POSTAGE[p.mode] || p.mode : "–")}</dd>
+              <dt>Tracking</dt><dd>${tracking}</dd>
+              ${r.label_url ? `<dt>Label</dt><dd><a href="${esc(r.label_url)}" target="_blank" rel="noopener">Download PDF</a></dd>` : ""}
+              ${p.label_due_at && r.status === "awaiting_label" ? `<dt>Label due</dt><dd>${when(p.label_due_at)}</dd>` : ""}
+            </dl>
+          </div>
+          <div class="card card-pad">
+            <h2>Customer</h2>
+            <div>${esc(r.customer_name || "Guest")}</div>
+            ${r.customer_email ? `<div><a href="mailto:${esc(r.customer_email)}">${esc(r.customer_email)}</a></div>` : ""}
+            ${r.links.customer ? `<div style="margin-top:6px"><a href="${esc(r.links.customer)}" target="_top">View in Shopify</a></div>` : ""}
+            <div class="hint" style="margin-top:10px">They see: “${esc(r.customer_message)}”</div>
+          </div>
+          <div class="card card-pad">
+            <h2>Record</h2>
+            <dl class="kv">
+              <dt>Asked</dt><dd>${when(r.created_at)}</dd>
+              <dt>Shopify return</dt><dd>${esc(r.shopify.return_name || "Not yet")}</dd>
+              <dt>Money / exchange</dt><dd>${r.shopify.processed ? "Done" : "Not yet"}</dd>
+              <dt>Case</dt><dd class="mono">${esc(r.id)}</dd>
+            </dl>
+          </div>
+        </div>
+      </div>`);
+    app.querySelectorAll("[data-act]").forEach((b) => b.onclick = () => openAction(b.dataset.act));
+  }
+
+  // ---------------------------------------------------------------- actions
+  function form(action, r) {
+    if (action === "approve") {
+      const labelsOk = r.labels.automatic;
+      const modes = [
+        ["label_now", "Email a Royal Mail label now", labelsOk ? "Bought in Click & Drop and emailed to the customer." : "Not available: " + (r.labels.why_not || "Click & Drop isn't connected."), !labelsOk],
+        ["self_ship", "Customer posts it themselves", "They're shown our returns address and can add their tracking."],
+        ["label_later", "Approve now, label later", "Waits as ‘waiting for label’ until you add one."],
+        ["no_return", "Keep it, nothing to send back", "Not worth the postage. The outcome happens straight away."],
+      ];
+      return `<div class="opts">${modes.map(([v, t, s, off]) => `
+        <label class="opt ${off ? "off" : ""}"><input type="radio" name="postage_mode" value="${v}" ${off ? "disabled" : ""} ${v === r.default_postage_mode ? "checked" : ""}>
+          <span><b>${t}</b><small>${esc(s)}</small></span></label>`).join("")}</div>`;
+    }
+    if (action === "receive") {
+      const opts = [
+        ["ok", "As expected", "Process it now: " + ({ exchange: "release the swap to ship.", store_credit: "add the store credit.", refund: "send the refund." })[r.resolution]],
+        ["damaged", "Damaged", "Hold it for a decision."],
+        ["worn", "Worn or used", "Hold it for a decision."],
+        ["missing", "Something's missing", "Hold it for a decision."],
+      ];
+      return `<div class="opts">${opts.map(([v, t, s], i) => `
+        <label class="opt"><input type="radio" name="condition" value="${v}" ${i === 0 ? "checked" : ""}>
+          <span><b>${t}</b><small>${esc(s)}</small></span></label>`).join("")}</div>`;
+    }
+    if (action === "label") {
+      return `<label class="field"><span>Tracking number</span><input name="tracking" autocomplete="off" placeholder="e.g. TT123456789GB">
+        <div class="hint">${r.labels.automatic ? "Leave empty to buy a Click & Drop label instead." : "From a label you made yourself. Click & Drop isn't connected yet."}</div></label>`;
+    }
+    if (action === "tracking") return `<label class="field"><span>Tracking number</span><input name="number" autocomplete="off" placeholder="e.g. TT123456789GB"></label>`;
+    if (action === "decline") return `<label class="field"><span>Reason</span><textarea name="reason" placeholder="Shown on the record, e.g. outside the 14 days"></textarea></label>`;
+    if (action === "cancel") return `<label class="field"><span>Reason (optional)</span><textarea name="reason"></textarea></label>`;
+    if (action === "note") return `<label class="field"><span>Note</span><textarea name="text" placeholder="Only staff and CLIVE see this"></textarea></label>`;
+    return "";
+  }
+
+  function readParams(root) {
+    const params = {};
+    root.querySelectorAll("input, textarea").forEach((el) => {
+      if (el.type === "radio") { if (el.checked) params[el.name] = el.value; }
+      else if (el.value.trim()) params[el.name] = el.value.trim();
+    });
+    return params;
+  }
+
+  const REQUIRED = { decline: "reason", tracking: "number", note: "text" };
+
+  function openAction(action) {
+    const r = state.current;
+    const idem = key();
+    let preview = null, seq = 0, busy = false;
+    modalRoot.innerHTML = `
+      <div class="scrim" role="dialog" aria-modal="true">
+        <div class="modal">
+          <header><h3>${ACTION[action]} · <span class="mono">${esc(r.order_name)}</span></h3><button class="x" aria-label="Close">×</button></header>
+          <div class="body">${form(action, r)}<div class="will" id="will"><span class="spin"></span></div></div>
+          <footer><button class="btn" data-close>Cancel</button><button class="btn primary" id="go" disabled>${ACTION[action]}</button></footer>
+        </div>
+      </div>`;
+    const scrim = modalRoot.querySelector(".scrim");
+    const will = modalRoot.querySelector("#will");
+    const go = modalRoot.querySelector("#go");
+    const close = () => { if (!busy) modalRoot.innerHTML = ""; };
+    modalRoot.querySelector(".x").onclick = close;
+    modalRoot.querySelector("[data-close]").onclick = close;
+    scrim.onclick = (e) => { if (e.target === scrim) close(); };
+    document.addEventListener("keydown", function onKey(e) {
+      if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); }
+    });
+
+    const needLabelNumber = action === "label" && !r.labels.automatic;
+    async function check() {
+      const params = readParams(scrim);
+      const need = REQUIRED[action] || (needLabelNumber ? "tracking" : null);
+      if (need && !params[need]) {
+        will.className = "will"; will.innerHTML = `<span class="faint">Fill in the ${need === "text" ? "note" : need === "number" || need === "tracking" ? "tracking number" : need} first.</span>`;
+        go.disabled = true; return;
+      }
+      const mine = ++seq;
+      will.className = "will"; will.innerHTML = `<span class="spin"></span>`; go.disabled = true;
+      try {
+        const pv = await api(`/returns/${encodeURIComponent(r.id)}/${action}/preview`, { params });
+        if (mine !== seq) return;
+        preview = { params };
+        will.innerHTML = `<h4>This will</h4><ul>${pv.will.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>`;
+        go.disabled = false;
+      } catch (err) {
+        if (mine !== seq) return;
+        will.className = "will bad"; will.innerHTML = esc(err.message);
+      }
+    }
+    let t;
+    scrim.querySelectorAll("input, textarea").forEach((el) => {
+      el.addEventListener(el.type === "radio" ? "change" : "input", () => { clearTimeout(t); t = setTimeout(check, el.type === "radio" ? 0 : 350); });
+    });
+    check();
+    const first = scrim.querySelector("textarea, input:not([type=radio])");
+    if (first) first.focus();
+
+    go.onclick = async () => {
+      if (!preview || busy) return;
+      busy = true; go.disabled = true; go.innerHTML = `<span class="spin"></span>`;
+      try {
+        const out = await api(`/returns/${encodeURIComponent(r.id)}/${action}`, { params: preview.params, idempotency_key: idem });
+        busy = false; modalRoot.innerHTML = "";
+        state.current = out.return;
+        state.overview = null;
+        loadOverview().then(renderReturn).catch(() => {});
+        renderReturn();
+        if (out.error) toast("Done, but there's a problem: see the red box", true);
+        else toast(out.verified ? `${ACTION[action]}: confirmed in Shopify` : `${ACTION[action]}: done`);
+      } catch (err) {
+        busy = false;
+        will.className = "will bad"; will.innerHTML = esc(err.message);
+        go.innerHTML = ACTION[action]; go.disabled = false;
+      }
+    };
+  }
+
+  // A confirm box of our own: the browser's may be blocked inside Shopify admin.
+  function ask(text, yes) {
+    return new Promise((resolve) => {
+      modalRoot.innerHTML = `
+        <div class="scrim" role="dialog" aria-modal="true"><div class="modal">
+          <header><h3>Are you sure?</h3></header>
+          <div class="body">${esc(text)}</div>
+          <footer><button class="btn" data-no>Cancel</button><button class="btn primary" data-yes>${esc(yes)}</button></footer>
+        </div></div>`;
+      const done = (v) => { modalRoot.innerHTML = ""; resolve(v); };
+      modalRoot.querySelector("[data-no]").onclick = () => done(false);
+      modalRoot.querySelector("[data-yes]").onclick = () => done(true);
+    });
+  }
+
+  // ---------------------------------------------------------------- setup
+  async function showSetup() {
+    try {
+      if (!state.overview) await loadOverview();
+      shell("setup", `<div class="loading"><span class="spin"></span></div>`);
+      const [ov, checks] = await Promise.all([loadOverview(), api("/checks")]);
+      state.checks = checks.checks;
+      renderSetup();
+    } catch (err) { failed(err); }
+  }
+
+  function renderSetup() {
+    const o = state.overview, checks = state.checks;
+    const fixes = checks.filter((c) => c.state === "fix").length;
+    let group = null;
+    const icon = { ok: ["Ready", "good"], fix: ["Fix", "bad"], note: ["Note", ""] };
+    shell("setup", `
+      <div class="grid">
+        <div>
+          <div class="card card-pad">
+            <h2>Health check</h2>
+            ${fixes ? `<div class="banner warn"><div class="grow"><b>${fixes} thing${fixes > 1 ? "s" : ""} to fix</b>Sort these before opening returns to everyone.</div></div>` : `<div class="banner good"><div class="grow"><b>Ready</b>Everything the returns need is connected.</div></div>`}
+            <ul class="checks">
+              ${checks.map((c) => {
+                const head = c.group !== group ? `<li class="grp">${esc(c.group)}</li>` : "";
+                group = c.group;
+                return head + `<li>${badge(icon[c.state], true)}<span>${esc(c.text)}</span></li>`;
+              }).join("")}
+            </ul>
+          </div>
+        </div>
+        <div>
+          <div class="card card-pad">
+            <h2>Who can use the returns page</h2>
+            <p class="muted" style="margin:0">${o.pilot.length ? "Testing: only the orders below can start a return online." : "<b>Open to everyone.</b> Any customer can start a return online."}</p>
+            <label class="field"><span>Test order numbers</span><input id="pilot" value="${esc(o.pilot.join(", "))}" placeholder="e.g. 2129, 2130">
+              <div class="hint">Separate with commas. Empty means open to everyone.</div></label>
+            <div class="actions" style="margin-top:12px">
+              <button class="btn primary" id="save-pilot">Save</button>
+              ${o.pilot.length ? `<button class="btn" id="open-all">Open to everyone</button>` : ""}
+            </div>
+          </div>
+          <div class="card card-pad">
+            <h2>Labels</h2>
+            <p class="muted" style="margin:0">${o.labels.automatic ? "Click & Drop is connected: approving with a label buys and emails it." : esc(o.labels.why_not || "Click & Drop is not connected.") + " Approve returns as ‘customer posts it themselves’ until it is."}</p>
+          </div>
+        </div>
+      </div>`);
+    const save = async (value, confirmText) => {
+      if (confirmText && !(await ask(confirmText, "Open to everyone"))) return;
+      try {
+        const out = await api("/pilot", { orders: value });
+        state.overview.pilot = out.pilot;
+        state.checks = (await api("/checks")).checks;
+        renderSetup();
+        toast(out.pilot.length ? "Testing with orders " + out.pilot.join(", ") : "Returns page is open to everyone");
+      } catch (err) { toast(err.message, true); }
+    };
+    app.querySelector("#save-pilot").onclick = () => {
+      const v = app.querySelector("#pilot").value;
+      save(v, v.replace(/[\s,]/g, "") ? null : "Any customer will be able to start a return online, as long as the returns page is on the live theme.");
+    };
+    const all = app.querySelector("#open-all");
+    if (all) all.onclick = () => save("", "Any customer will be able to start a return online, as long as the returns page is on the live theme.");
+  }
+
+  route();
+})();
+</script>
+</body>
+</html>

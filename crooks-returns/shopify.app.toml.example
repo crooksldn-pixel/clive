@@ -6,8 +6,9 @@
 
 name = "CROOKS Returns"
 client_id = "<CLIENT ID FROM THE DEV DASHBOARD>"
-application_url = "https://<RETURNS HOST>/health"
-embedded = false
+# The staff screen: Shopify admin -> Apps -> CROOKS Returns opens this inside the admin.
+application_url = "https://<RETURNS HOST>/admin"
+embedded = true
 
 # Required by the CLI. The service authenticates with client credentials and never sends
 # anyone through this redirect.

@@ -251,6 +251,9 @@ class FakeShopify:
         self.returns[return_id]["status"] = "CANCELED"
         return "CANCELED"
 
+    def staff_member(self, id_token: str) -> str | None:
+        return "Sam Staff"
+
     def called(self, name: str) -> list[Any]:
         return [args for n, args in self.calls if n == name]
 

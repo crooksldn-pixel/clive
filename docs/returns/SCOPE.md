@@ -227,7 +227,7 @@ cards for returns exist.
 | When an exchange ships | When the return arrives back. | the `receive` action |
 | Sale items | Same as full price. The 14-day right covers sale items, so there is no separate rule. Only products tagged `non-returnable` (sealed hygiene goods, personalised items) are limited to faulty returns. | `RETURNS_NON_RETURNABLE_TAGS` |
 | Royal Mail account | Online Business Account (to confirm with the first live label). | `RETURNS_CLICKDROP_*` |
-| Staff work | Both: the Shopify admin (returns are native Shopify returns, and changes made there sync back) and CLIVE (the API). | `/webhooks/shopify`, `/api/v1` |
+| Staff work | Both: the Shopify admin (returns are native Shopify returns, and changes made there sync back, plus the app's own staff screen under Apps) and CLIVE (the API). | `/admin`, `/webhooks/shopify`, `/api/v1` |
 
 ## Built (first version, 2026-10-03)
 
@@ -237,6 +237,8 @@ cards for returns exist.
 - Theme: `sections/returns-portal.liquid`, `assets/returns-portal.js` and
   `templates/page.returns.json`. Driven end to end in a browser at phone and desktop widths
   against the fake store.
-- Not done yet: deployment, the Shopify app and app proxy, Click & Drop credentials, a staff
-  screen beyond the Shopify admin and CLIVE, an exchange for a different product, and keep-it
+- Staff screen: `/admin`, embedded in Shopify admin under Apps -> CROOKS Returns. Lists
+  returns, shows each one, runs every action with its preview, the health check and the test
+  order list. Checks Shopify's session token on every call.
+- Not done yet: Click & Drop credentials, an exchange for a different product, and keep-it
   offers. The setup steps are in `crooks-returns/README.md`.

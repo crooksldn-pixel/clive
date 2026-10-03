@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS idempotency (
   at TEXT NOT NULL,
   response TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS options (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS files (
   id TEXT PRIMARY KEY,
   return_id TEXT NOT NULL,
@@ -82,6 +87,19 @@ class Store:
                 ),
             )
         return ret
+
+    # Settings staff change from the admin screen; these win over the .env value once set.
+    def get_option(self, key: str) -> str | None:
+        row = self._db.execute("SELECT value FROM options WHERE key=?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def set_option(self, key: str, value: str) -> None:
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO options (key, value, at) VALUES (?,?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, at=excluded.at",
+                (key, value, now().isoformat()),
+            )
 
     def get(self, return_id: str) -> Return | None:
         row = self._db.execute("SELECT doc FROM returns WHERE id=?", (return_id,)).fetchone()

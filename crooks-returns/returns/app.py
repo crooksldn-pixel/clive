@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
+from returns.admin import build_admin_router
 from returns.api import build_routers
 from returns.labels import ClickAndDrop
 from returns.service import ReturnsService
@@ -78,6 +79,7 @@ def create_app(settings: Settings | None = None, service: ReturnsService | None 
 
     for router in build_routers(service):
         app.include_router(router)
+    app.include_router(build_admin_router(service))
     app.state.service = service
     return app
 

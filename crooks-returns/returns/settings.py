@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     lookup_ip_limit: int = 300
     # Local development only: accept portal calls that did not come through the app proxy.
     dev_skip_proxy_signature: bool = False
+    # Local development only: open the admin screen without a Shopify admin session.
+    dev_skip_admin_auth: bool = False
     # Pilot mode: when set, only these order numbers (comma-separated digits) can use the portal.
     # Lets the service run against the real store, on the Staging theme, before launch.
     pilot_order_numbers: str = ""
@@ -111,9 +113,7 @@ class Settings(BaseSettings):
         return sorted(bands)
 
     def pilot_orders(self) -> set[str]:
-        return {
-            "".join(c for c in p if c.isdigit()) for p in self.pilot_order_numbers.split(",")
-        } - {""}
+        return parse_order_numbers(self.pilot_order_numbers)
 
     def excluded_tags(self) -> set[str]:
         return {t.strip().casefold() for t in self.non_returnable_tags.split(",") if t.strip()}
@@ -123,6 +123,11 @@ class Settings(BaseSettings):
         found = {k.strip() for k in raw.split(",") if k.strip()}
         # A write key can always read.
         return found | (self.keys("write") if kind == "read" else set())
+
+
+def parse_order_numbers(raw: str) -> set[str]:
+    """ "2129, #2130 CROOKS-2131" -> {"2129", "2130", "2131"}."""
+    return {"".join(c for c in p if c.isdigit()) for p in raw.replace(" ", ",").split(",")} - {""}
 
 
 @lru_cache

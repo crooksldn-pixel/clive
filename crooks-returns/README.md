@@ -33,6 +33,24 @@ Every action has a `preview` that states exactly what will happen, in pounds, an
 that needs an idempotency key, records who did it, then reads Shopify back and marks the
 step `verified`.
 
+## Staff screen (in Shopify admin)
+
+Shopify admin -> **Apps -> CROOKS Returns** opens `/admin` inside the admin
+(`application_url` in `shopify.app.toml`, `embedded = true`). It shows:
+
+- **Needs you / Open / Finished / All**: every return, with search by order number, name or
+  email.
+- **One return**: the items, reasons and notes, the swap, the money, postage, the customer and
+  the timeline. The buttons for the next step (approve, decline, add label or tracking, mark
+  as received, complete, cancel, note) each show "This will..." before anything happens.
+- **Setup**: the same health check as `returns-ctl check`, and the test order list (which
+  overrides `RETURNS_PILOT_ORDER_NUMBERS` once saved there).
+
+The page checks the Shopify admin session token (signed with the app secret, for this app and
+this shop) on every call, so only staff Shopify lets into the app can see or act. The
+timeline signs each action with the staff member's name. `returns-ctl` still works the same
+on the server.
+
 ## CLIVE API
 
 All calls take `Authorization: Bearer <key>`. A read key can see and preview; a write key can

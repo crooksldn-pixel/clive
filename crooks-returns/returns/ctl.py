@@ -1,5 +1,5 @@
-"""Staff tool for the server, until there is a staff screen: the same actions CLIVE uses,
-from the command line. Run inside the container:
+"""Staff tool for the server: the same actions as the admin screen and CLIVE, from the command
+line. Run inside the container:
 
     docker compose exec returns returns-ctl check
     docker compose exec returns returns-ctl list
@@ -20,8 +20,7 @@ import sys
 from returns.app import build_service
 from returns.models import Return
 from returns.service import ActionError, ReturnsService
-from returns.settings import Settings, get_settings
-from returns.shopify import REQUIRED_SCOPES, ShopifyError
+from returns.settings import get_settings
 
 ACTIONS = {
     "approve": "approve RETURN_ID [label_now|self_ship|label_later|no_return]",
@@ -56,52 +55,16 @@ def params_for(action: str, extra: list[str]) -> dict:
     return {}
 
 
-def check(svc: ReturnsService, s: Settings) -> int:
+def check(svc: ReturnsService) -> int:
     """Read-only: is everything connected and set the way the returns need it?"""
-    problems = 0
-
-    def say(ok: bool | None, text: str) -> None:
-        nonlocal problems
-        mark = {True: "OK  ", False: "FIX ", None: "NOTE"}[ok]
-        problems += ok is False
-        print(f"  {mark} {text}")
-
-    print("Shopify")
-    try:
-        scopes = set(svc.shopify.app_scopes())
-        missing = [x for x in REQUIRED_SCOPES if x not in scopes]
-        say(not missing, "app permissions" + (f": missing {', '.join(missing)}" if missing else ""))
-        found = len(svc.shopify.reason_ids())
-        say(found == 6, f"return reasons matched: {found} of 6")
-    except ShopifyError as exc:
-        say(False, f"cannot reach the store: {exc}")
-    print("Settings")
-    pilot = sorted(s.pilot_orders())
-    say(None, "pilot: only orders " + ", ".join(pilot) if pilot else "open to every order")
-    say(
-        bool(s.restock_location_id),
-        "restock location " + (s.restock_location_id or "not set: returned stock is not restocked"),
-    )
-    say(
-        bool(s.returns_address_line1 and s.returns_address_postcode),
-        "returns address "
-        + (", ".join(svc._return_address()) if s.returns_address_line1 else "not set"),
-    )
-    labels_ok, why = svc.labels.available()
-    say(
-        None if not labels_ok else True,
-        "Click & Drop labels " + ("connected" if labels_ok else f"off ({why})"),
-    )
-    say(
-        None,
-        "label price "
-        + (
-            f"£{s.return_label_cost_pence / 100:.2f}"
-            if s.return_label_cost_pence is not None
-            else "not set: change-of-mind refunds are self-ship only"
-        ),
-    )
-    say(bool(s.keys("read")), "CLIVE keys " + ("set" if s.keys("read") else "not set"))
+    group = None
+    results = svc.checks()
+    for c in results:
+        if c["group"] != group:
+            group = c["group"]
+            print(group)
+        print(f"  {c['state'].upper():<4} {c['text']}")
+    problems = sum(c["state"] == "fix" for c in results)
     print("\n" + ("Ready." if not problems else f"{problems} thing(s) to fix."))
     return 1 if problems else 0
 
@@ -117,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
     svc = build_service(settings)
     if ns.command == "check":
-        return check(svc, settings)
+        return check(svc)
 
     if ns.command == "list":
         rows = svc.store.search(open_only=not ns.all, limit=200)

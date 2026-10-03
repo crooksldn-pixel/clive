@@ -313,4 +313,4 @@ def test_check_command_reports_ready(svc, monkeypatch, capsys):
     monkeypatch.setattr(ctl, "get_settings", lambda: svc.s)
     assert ctl.main(["check"]) == 0
     out = capsys.readouterr().out
-    assert "Ready." in out and "app permissions" in out
+    assert "Ready." in out and "App permissions" in out

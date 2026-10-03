@@ -24,6 +24,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["returns*"]
 
+[tool.setuptools.package-data]
+returns = ["static/*"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

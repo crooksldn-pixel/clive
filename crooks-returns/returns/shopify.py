@@ -70,6 +70,7 @@ class ShopifyPort(Protocol):
     def read_return(self, return_id: str) -> dict[str, Any]: ...
     def exchange_holds(self, order_id: str, line_item_ids: list[str]) -> list[str]: ...
     def cancel_return(self, return_id: str) -> str: ...
+    def staff_member(self, id_token: str) -> str | None: ...
 
 
 # ------------------------------------------------------------------------------- documents
@@ -477,6 +478,27 @@ class GraphQLShopify:
             body = r.json()
             self._token = (body["access_token"], time.time() + int(body.get("expires_in", 3600)))
             return self._token[0]
+
+    def staff_member(self, id_token: str) -> str | None:
+        """The name of the staff member behind an admin session token, by exchanging it for an
+        online token (which carries the user). Used only to sign the timeline; None if refused."""
+        try:
+            r = self._http.post(
+                f"https://{self.s.shop_domain}/admin/oauth/access_token",
+                json={
+                    "client_id": self.s.shopify_client_id,
+                    "client_secret": self.s.shopify_client_secret,
+                    "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                    "subject_token": id_token,
+                    "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
+                    "requested_token_type": "urn:shopify:params:oauth:token-type:online-access-token",
+                },
+            )
+            user = r.json().get("associated_user") or {} if r.status_code == 200 else {}
+        except (httpx.HTTPError, ValueError):
+            return None
+        name = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x)
+        return name or user.get("email") or None
 
     def _call(self, document: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
         for attempt in range(4):
