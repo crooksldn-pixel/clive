@@ -71,6 +71,7 @@ async function open(browser, size, extra = {}) {
 // What the screen shows, read off the glass: each row's group, state and what it offers.
 function survey(page) {
   return page.evaluate(() => {
+    const groupOf = (r) => { const g = r.closest('section.group'); return g && g.id.indexOf('group-') === 0 ? g.id.slice(6) : ''; };
     const visible = (el) => {
       if (!el) return false;
       const box = el.getBoundingClientRect();
@@ -80,14 +81,14 @@ function survey(page) {
     const rows = [...document.querySelectorAll('.conn')].map((row) => ({
       name: row.dataset.name,
       state: row.dataset.state,
-      group: row.closest('[data-group]') ? row.closest('[data-group]').dataset.group : '',
+      group: groupOf(row),
       keys: [...row.querySelectorAll('input.key-input')].filter(visible).length,
       anyInputs: row.querySelectorAll('input.key-input').length,
       status: (row.querySelector('.conn-status') || {}).textContent || '',
       line: (row.querySelector('.conn-line') || {}).textContent || '',
       action: [...row.querySelectorAll('.conn-act')].filter(visible).map((b) => b.textContent.trim()),
     }));
-    const groups = [...document.querySelectorAll('[data-group]')].map((g) => g.dataset.group);
+    const groups = [...document.querySelectorAll('section.group[id^="group-"]')].map((g) => g.id.slice(6));
     const details = [...document.querySelectorAll('details')].map((d) => d.open);
     return { rows, groups, details };
   });
@@ -262,12 +263,13 @@ async function oneStep(browser) {
   await page.waitForSelector('[data-ready="true"]', { timeout: 15000 });
   await page.fill('.conn[data-name="github"] input.key-input', FLOW.github);
   await page.click('.conn[data-name="github"] .key-save');
-  const moved = await page.waitForSelector('[data-group="working"] .conn[data-name="github"]', { timeout: 20000 })
+  const moved = await page.waitForSelector('#group-working .conn[data-name="github"]', { timeout: 20000 })
     .then(() => true).catch(() => false);
   const after = await page.evaluate(() => {
+    const groupOf = (r) => { const g = r.closest('section.group'); return g && g.id.indexOf('group-') === 0 ? g.id.slice(6) : ''; };
     const row = document.querySelector('.conn[data-name="github"]');
     return {
-      group: row && row.closest('[data-group]') ? row.closest('[data-group]').dataset.group : '',
+      group: row ? groupOf(row) : '',
       keys: row ? row.querySelectorAll('input.key-input').length : -1,
       status: row ? (row.querySelector('.conn-status') || {}).textContent : '',
       notice: document.querySelector('#notice').textContent,

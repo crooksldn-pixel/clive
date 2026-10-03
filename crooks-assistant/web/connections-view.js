@@ -431,10 +431,11 @@
     for (const [key, title] of GROUPS) {
       const members = rows.filter((c) => c.group === key);
       if (!members.length) continue;
+      // Known by its id (a fixed word of this file's), so a copy of the screen carries no new data- name.
       const section = el('section', 'group');
-      section.dataset.group = key;
+      section.id = 'group-' + key;
       const heading = el('h2', 'group-title', title);
-      heading.id = 'group-' + key;
+      heading.id = 'group-' + key + '-title';
       section.setAttribute('aria-labelledby', heading.id);
       const list = el('div', 'cells');
       for (const c of members) add(list, row(c, ctx));

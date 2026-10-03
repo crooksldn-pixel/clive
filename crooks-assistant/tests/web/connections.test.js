@@ -91,7 +91,7 @@ const buttonCalled = (node, words) => all(node, 'button').find((b) => b.textCont
 
 test('rows are grouped by what he has to do: needs you, then working, then not connected', () => {
   const sections = View.groups(STATE, ctx());
-  assert.deepEqual(sections.map((s) => s.dataset.group), ['attention', 'working', 'add']);
+  assert.deepEqual(sections.map((s) => s.id), ['group-attention', 'group-working', 'group-add']);
   assert.deepEqual(sections.map((s) => one(s, 'h2').textContent), ['Needs you', 'Working', 'Not connected']);
   assert.deepEqual(all(sections[0], 'article').map((r) => r.dataset.name), ['instagram', 'github']);
   assert.deepEqual(all(sections[1], 'article').map((r) => r.dataset.name), ['shopify', 'elevenlabs']);
