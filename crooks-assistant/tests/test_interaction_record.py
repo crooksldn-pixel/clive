@@ -667,3 +667,18 @@ def test_only_a_hash_or_the_word_order_makes_a_number_an_order():
     assert friction.named_orders("refund #1938") == ["1938"]
     assert friction.named_orders("what about orders 1938 and 1940") == ["1938", "1940"]
     assert friction.named_orders("order number 2001, and order no. 2002") == ["2001", "2002"]
+
+
+def test_a_card_number_typed_without_spaces_never_reaches_the_record(tmp_path):
+    from app.logging.turnlog import redact_text
+
+    bare = "4111111111111111"
+    assert redact_text(f"card {bare} please") == "card [card] please"
+    for kept in ("gid://shopify/Order/4111111111111111", "thread 18f2a9c0b1d2e3f4", "id 1234567890123456", "20260907-225520.webm"):
+        assert redact_text(kept) == kept, kept
+    record = record_in(tmp_path, words=True)
+    interactions.after_turn(session_id="s1", turn_id="turn_card", question=f"refund the order paid with {bare}", transcript=None,
+                            answer=f"The card {bare} was refunded.", ui=[], calls=[], screen_state="cleared", carry=[],
+                            error_kind=None, abandoned=False, timings={"total": 900.0})
+    text = on_disk(record)
+    assert bare not in text and "[card]" in text
