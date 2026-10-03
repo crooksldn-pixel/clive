@@ -50,7 +50,7 @@ async def test_orders_shipping_refunds_notes_and_email_both_ways_newest_first(wo
         "Ordered #2150",
     ]
     rows = {r["what"]: r for r in timeline["rows"]}
-    assert rows["Refunded £45.00 on #2201"]["detail"].startswith("Refund of £45.00 to Visa ending 4242 succeeded on ")
+    assert rows["Refunded £45.00 on #2201"]["detail"].startswith("Refund of £45.00 to the card it was paid with succeeded on ")
     assert rows["Note on #2201"]["detail"] == "Asked for a gift receipt"
     assert rows["Emailed us: Gift receipt for my hoodie order"]["ref_kind"] == "email_thread"
     assert rows["Ordered #2201"]["ref"] == "gid://shopify/Order/2201"
@@ -235,4 +235,4 @@ async def test_the_customer_workspace_activity_is_the_same_story(world):
     assert person is not None and person.get("timeline")
     rows = workspace._activity_rows([], [], person.get("timeline"))
     assert rows[0] == {"what": "Refunded £45.00 on #2201", "when": rows[0]["when"],
-                       "detail": rows[0]["detail"]} and rows[0]["detail"].startswith("Refund of £45.00 to Visa")
+                       "detail": rows[0]["detail"]} and rows[0]["detail"].startswith("Refund of £45.00 to the card it was paid with")

@@ -87,7 +87,7 @@ test("a customer's story is its own tab on their card, newest first", () => {
   const card = UI.render([{ type: 'customer', data: {
     customer_id: 'gid://shopify/Customer/9201', name: 'Alicia Grant', email: 'alicia.grant@example.com', orders: 2, spent: '£95.00',
     timeline: { rows: [
-      { when: 'Thu 1 Oct', kind: 'refund', what: 'Refunded £45.00 on #2201', detail: 'Refund of £45.00 to Visa ending 4242 succeeded on Thu 1 Oct at 14:02.', ref: ORDER, ref_kind: 'order', source: 'Shopify' },
+      { when: 'Thu 1 Oct', kind: 'refund', what: 'Refunded £45.00 on #2201', detail: 'Refund of £45.00 to the card it was paid with succeeded on Thu 1 Oct at 14:02.', ref: ORDER, ref_kind: 'order', source: 'Shopify' },
       { when: 'Sat 26 Sep', kind: 'email_in', what: 'Emailed us: Gift receipt', detail: '', ref: '19a0c0ffee000001', ref_kind: 'email_thread', source: 'Gmail' },
       { when: 'Fri 25 Sep', kind: 'objective', what: 'Objective: Make it right with Alicia Grant', detail: '', ref: '', ref_kind: '', source: 'CLIVE' },
     ], count: 3, truncated: false, sources: [{ name: 'Gmail', said: '1 thread' }] },

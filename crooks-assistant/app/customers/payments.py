@@ -10,6 +10,12 @@ them plainly:
     "Refund of £45.00 to Visa ending 4242 is pending at the payment provider."
     "Refund of £45.00 to Visa ending 4242 failed: the card was declined."
 
+The card's brand and its last four digits are for the order card on the glass and nowhere else:
+`landed_card` carries them, and the order card is the one thing that reads it. Everything else —
+`landed`, `means`, `to`, which the model reads and which can therefore reach a log — says "the
+card it was paid with" instead (app/context/order.py `model_view` and app/support/redact.py
+drop `CARD_ONLY`).
+
 Nothing is inferred past what Shopify reports. What it means for the customer is the provider's
 answer, and — only for a refund that succeeded — the line the shop itself publishes about how
 long a refund takes to land (kb/returns-policy.md), quoted as it is and named as the shop's
@@ -44,6 +50,10 @@ REASONS = {
     "UNSUPPORTED_FEATURE": "the payment provider does not support it", "CONFIG_ERROR": "the payment provider is not set up for it",
 }
 _SYMBOLS = {"GBP": "£", "USD": "$", "EUR": "€"}
+# A card, said without its brand or its digits.
+CARD_SAID = "the card it was paid with"
+# The keys that carry a card's brand and last four: the order card's alone.
+CARD_ONLY = ("landed_card", "paid_to_card")
 # The shop's own line about when an approved refund lands (kb/returns-policy.md).
 POLICY_FILE = "returns-policy.md"
 POLICY_PHRASE = "An approved refund lands"
@@ -83,15 +93,23 @@ def _transactions(refund: dict[str, Any]) -> list[dict[str, Any]]:
     return [t for t in raw or [] if isinstance(t, dict)]
 
 
-def paid_to(transaction: dict[str, Any]) -> str:
-    """Where the money went back: "Visa ending 4242", or the gateway's own name."""
+def card_of(transaction: dict[str, Any]) -> str:
+    """The card the money went back to, for the order card only: "Visa ending 4242"; "" when
+    Shopify gave no card."""
     details = transaction.get("paymentDetails") or {}
     company = str(details.get("company") or "").strip()
     digits = re.sub(r"\D", "", str(details.get("number") or ""))[-4:]
     if company and digits:
         return f"{company} ending {digits}"
-    if company:
-        return company
+    return company
+
+
+def paid_to(transaction: dict[str, Any], *, card: bool = False) -> str:
+    """Where the money went back: the gateway's own name, or a card — "the card it was paid
+    with", or with `card` (the order card's own words) "Visa ending 4242"."""
+    held = card_of(transaction)
+    if held:
+        return held if card else CARD_SAID
     gateway = str(transaction.get("formattedGateway") or transaction.get("gateway") or "").strip()
     return gateway.replace("_", " ") if gateway else ""
 
@@ -102,10 +120,11 @@ def refund_state(refund: dict[str, Any], *, tz: ZoneInfo = SHOP_TZ, policy: str 
     moves = [t for t in _transactions(refund) if str(t.get("kind") or "REFUND").upper() in ("REFUND", "VOID")]
     if not moves:
         stamp = refund.get("createdAt")
+        landed = (f"Refund of {money(total, currency)} recorded on {when_words(stamp, tz)}; Shopify shows no payment "
+                  "sent back for it.")
         return {
             "state": "recorded", "amount": money(total, currency), "to": "", "processed_at": stamp, "error": "",
-            "landed": (f"Refund of {money(total, currency)} recorded on {when_words(stamp, tz)}; Shopify shows no payment "
-                       "sent back for it."),
+            "landed": landed, "landed_card": landed, "paid_to_card": "",
             "means": "Shopify shows no money moving for this refund, so nothing is on its way back to the customer from it.",
         }
     words = [STATES.get(str(t.get("status") or "").upper(), "unknown") for t in moves]
@@ -115,18 +134,23 @@ def refund_state(refund: dict[str, Any], *, tz: ZoneInfo = SHOP_TZ, policy: str 
     amount = round(sum(summed), 2) if summed else total
     currency = next((c for a, c in amounts if a is not None), currency)
     to = ", ".join(dict.fromkeys(p for p in (paid_to(t) for t in moves) if p))
+    to_card = ", ".join(dict.fromkeys(p for p in (paid_to(t, card=True) for t in moves) if p))
     latest = max((str(t.get("processedAt") or t.get("createdAt") or "") for t in moves), default="")
     failed = next((t for t in moves if STATES.get(str(t.get("status") or "").upper()) == "failed"), None)
     code = str((failed or {}).get("errorCode") or "").upper()
     reason = REASONS.get(code) or (code.replace("_", " ").lower() if code else "Shopify gives no reason")
-    head = f"Refund of {money(amount, currency)}" + (f" to {to}" if to else "")
     at = when_words(latest, tz)
-    landed = {
-        "succeeded": f"{head} succeeded" + (f" on {at}" if at else "") + ".",
-        "pending": f"{head} is pending at the payment provider" + (f" (since {at})" if at else "") + ".",
-        "failed": f"{head} failed: {reason}.",
-        "unknown": f"{head}: Shopify reports its state as unknown.",
-    }[state]
+
+    def said(where: str) -> str:
+        head = f"Refund of {money(amount, currency)}" + (f" to {where}" if where else "")
+        return {
+            "succeeded": f"{head} succeeded" + (f" on {at}" if at else "") + ".",
+            "pending": f"{head} is pending at the payment provider" + (f" (since {at})" if at else "") + ".",
+            "failed": f"{head} failed: {reason}.",
+            "unknown": f"{head}: Shopify reports its state as unknown.",
+        }[state]
+
+    landed = said(to)
     means = {
         "succeeded": (f"Shopify shows the payment provider accepted it back to {to or 'the original payment'}"
                       + (f" on {at}" if at else "") + "." + (f" The shop's policy: {policy}" if policy else "")),
@@ -135,7 +159,9 @@ def refund_state(refund: dict[str, Any], *, tz: ZoneInfo = SHOP_TZ, policy: str 
         "unknown": "Shopify does not know yet whether the money went back.",
     }[state]
     return {"state": state, "amount": money(amount, currency), "to": to, "processed_at": latest or None,
-            "error": reason if state == "failed" else "", "landed": landed, "means": means}
+            "error": reason if state == "failed" else "", "landed": landed, "means": means,
+            # The order card's own: the same sentence with the card's brand and last four.
+            "landed_card": said(to_card), "paid_to_card": to_card}
 
 
 _policy_cache: dict[str, tuple[float, str]] = {}

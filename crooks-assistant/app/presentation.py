@@ -760,8 +760,9 @@ def _order(o: dict[str, Any], *, detail: bool = False) -> dict[str, Any]:
             } if money else None,
             "refunds": [
                 {"created_at": _text(r.get("created_at")), "amount": _money_text(r.get("amount")), "note": _text(r.get("note")),
-                 # Whether the money has gone back, as the payment provider answered Shopify.
-                 "state": _text(r.get("state"), 12), "landed": _text(r.get("landed"), 200)}
+                 # Whether the money has gone back, as the payment provider answered Shopify — with
+                 # the card's brand and last four, which only this card is given (payments.CARD_ONLY).
+                 "state": _text(r.get("state"), 12), "landed": _text(r.get("landed_card") or r.get("landed"), 200)}
                 for r in _list(o.get("refunds"), 6)
             ],
             "history": _history(o.get("history")),

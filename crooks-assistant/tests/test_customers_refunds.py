@@ -11,6 +11,8 @@ gone back. Every sentence here is built from what the fixture's Shopify reported
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app.customers import payments
@@ -32,21 +34,24 @@ async def test_a_refund_that_succeeded_says_to_which_card_and_when(world):
     body, told = await _detail(world, 2201)
     (refund,) = told["refunds"]
     assert refund["state"] == "succeeded"
-    assert refund["landed"].startswith("Refund of £45.00 to Visa ending 4242 succeeded on ")
+    # The model's sentence names the card it went back to without its brand or its digits; the
+    # card on the glass names it in full (`landed_card`, which the model never reads).
+    assert refund["landed"].startswith("Refund of £45.00 to the card it was paid with succeeded on ")
     assert refund["landed"].endswith(" at 14:02.")
+    assert refund["landed_card"].startswith("Refund of £45.00 to Visa ending 4242 succeeded on ")
     # What it means for her: what Shopify reported, and the shop's own published line, as it is.
-    assert refund["means"].startswith("Shopify shows the payment provider accepted it back to Visa ending 4242 on ")
+    assert refund["means"].startswith("Shopify shows the payment provider accepted it back to the card it was paid with on ")
     assert refund["means"].endswith(f"The shop's policy: {POLICY}")
-    # On the card, under the money: the same sentence.
+    # On the card, under the money: the full sentence.
     (order,) = cards(body, "order")
-    assert order["refunds"][0]["landed"] == refund["landed"] and order["refunds"][0]["state"] == "succeeded"
+    assert order["refunds"][0]["landed"] == refund["landed_card"] and order["refunds"][0]["state"] == "succeeded"
 
 
 async def test_a_refund_still_with_the_provider_is_pending_and_says_so(world):
     _body, told = await _detail(world, 2202)
     (refund,) = told["refunds"]
     assert refund["state"] == "pending"
-    assert refund["landed"].startswith("Refund of £20.00 to Visa ending 4242 is pending at the payment provider (since ")
+    assert refund["landed"].startswith("Refund of £20.00 to the card it was paid with is pending at the payment provider (since ")
     assert "has not confirmed the money went back" in refund["means"]
 
 
@@ -54,7 +59,8 @@ async def test_a_refund_the_provider_refused_says_why(world):
     _body, told = await _detail(world, 2190)
     (refund,) = told["refunds"]
     assert refund["state"] == "failed"
-    assert refund["landed"] == "Refund of £65.00 to Visa ending 4242 failed: the card was declined."
+    assert refund["landed"] == "Refund of £65.00 to the card it was paid with failed: the card was declined."
+    assert refund["landed_card"] == "Refund of £65.00 to Visa ending 4242 failed: the card was declined."
     assert refund["means"] == "The money has not gone back: the provider refused it (the card was declined)."
 
 
@@ -94,4 +100,24 @@ async def test_after_a_refund_through_clive_it_can_say_whether_it_landed(world):
     shopify_tools.hydrator().forget("gid://shopify/Order/2203")
     _body, told = await _detail(world, 2203)
     assert told["refunds"][-1]["state"] == "succeeded"
-    assert told["refunds"][-1]["landed"].startswith("Refund of £10.00 to Visa ending 4242 succeeded on ")
+    assert told["refunds"][-1]["landed"].startswith("Refund of £10.00 to the card it was paid with succeeded on ")
+
+
+@pytest.mark.usefixtures("owner_asking")
+async def test_the_card_brand_and_last_four_are_on_the_card_and_nowhere_else(world):
+    """What the model reads, and the support evidence written about the order, never carry the
+    card's brand or its last four digits; the order card on the glass does."""
+    from app.context.order import model_view
+    from app.session.models import Session
+    from app.support import redact
+    from app.tools.dispatch import dispatch
+
+    body, told = await _detail(world, 2201)
+    (order,) = cards(body, "order")
+    assert "Visa ending 4242" in order["refunds"][0]["landed"]
+    session = Session(session_id="direct")
+    session.issue("gid://shopify/Order/2201")
+    text = await dispatch("shopify_order_detail", {"order_id": "gid://shopify/Order/2201"}, session=session, timeout_s=5, calls=[])
+    assert "Refund of £45.00 to the card it was paid with succeeded" in text
+    for seen in (text, json.dumps(model_view(told)), json.dumps(redact._redact_order(told, redact._Names()))):
+        assert "4242" not in seen and "Visa" not in seen

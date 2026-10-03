@@ -348,7 +348,9 @@ def _refund(r: dict[str, Any]) -> dict[str, Any]:
 
         state = payments.refund_state(r, policy=payments.policy_line())
         out.update({"state": state["state"], "landed": state["landed"], "paid_to": state["to"] or None,
-                    "processed_at": state["processed_at"], "means": state["means"]})
+                    "processed_at": state["processed_at"], "means": state["means"],
+                    # For the order card alone (payments.CARD_ONLY): `model_view` drops them.
+                    "landed_card": state["landed_card"], "paid_to_card": state["paid_to_card"] or None})
     return out
 
 
@@ -536,7 +538,12 @@ def model_view(order: dict[str, Any]) -> dict[str, Any]:
     out["fulfillments"] = [
         {k: v for k, v in f.items() if k not in ("fulfillment_id", "url")} for f in order.get("fulfillments") or [] if isinstance(f, dict)
     ]
-    out["refunds"] = [{k: v for k, v in r.items() if k != "refund_id"} for r in order.get("refunds") or [] if isinstance(r, dict)]
+    # A refund's id is never spoken, and the card it went back to is the order card's alone
+    # (app/customers/payments.py CARD_ONLY): the model reads "the card it was paid with".
+    from app.customers.payments import CARD_ONLY
+
+    out["refunds"] = [{k: v for k, v in r.items() if k != "refund_id" and k not in CARD_ONLY}
+                      for r in order.get("refunds") or [] if isinstance(r, dict)]
     for part, words in _PENDING_WORDS.items():
         if part in (order.get("pending") or []):
             out[part] = words
