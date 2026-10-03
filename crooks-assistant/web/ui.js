@@ -1044,28 +1044,41 @@
   // (§8, D-12). Nothing is removed — every row is in the DOM and reachable.
   const ROWS_BEFORE_FOLD = 5;
 
-  function renderOrderList(d, opts) {
+  // Design pass (3 Oct): an order list's summary, one line, each fact once. Three tiles said
+  // "3 orders · £195.00 · 3 to ship" under a title that already says "To go out", and the strip
+  // under the card said the count and the value again. Now:
+  //   - every row in one state, and the list is the whole of it: the line says the state in
+  //     place of "orders" ("3 to ship · £195.00"), unless the title says it already ("To go out");
+  //   - the rows differ: "3 orders · £195.00 · 2 to ship";
+  //   - a list that is not the whole of what there is never claims a state for the rest.
+  // `badges` is false only where the line or the title has said every row's state.
+  const SHARED_STATE = { 'to-ship': 'to ship', shipped: 'shipped', cancelled: 'cancelled' };
+  const TITLE_SAYS = { 'to-ship': /\b(to go out|to ship|unfulfilled)\b/i, shipped: /\b(shipped|fulfilled)\b/i, cancelled: /\bcancell?ed\b/i };
+  function orderListSum(d) {
     const orders = list(d.orders, 10);
     const count = num(d.count);
     const whole = !d.truncated && count !== null ? count === orders.length : false;
-    // The summary: what this list IS, before any row of it. A count, the money when the Mac
-    // sent one, and how many are still to go out — which is the question an order list gets
-    // asked, and is counted only when the list is the whole of what there is.
-    const toShip = whole ? orders.filter((o) => orderState(o) === 'to-ship').length : null;
-    // Design pass (3 Oct): each fact once. Three tiles said "3 orders · £195.00 · 3 to ship"
-    // under a title that already says "To go out", and the strip under the card said the count
-    // and the value again. One line now, and "to ship" only where it is not every order.
     const total = count === null ? orders.length : count;
+    const states = Array.from(new Set(orders.map(orderState)));
+    const shared = orders.length && states.length === 1 ? states[0] : '';
+    const titled = Boolean(shared) && TITLE_SAYS[shared].test(text(d.title));
+    const stated = Boolean(shared) && whole && !titled;
+    const toShip = whole && !shared ? orders.filter((o) => orderState(o) === 'to-ship').length : null;
     const sum = [
-      `${total} order${total === 1 ? '' : 's'}`,
+      stated ? `${total} ${SHARED_STATE[shared]}` : `${total} order${total === 1 ? '' : 's'}`,
       text(d.value) || null,
-      toShip === null || toShip === total ? null : `${toShip} to ship`,
+      toShip === null ? null : `${toShip} to ship`,
     ].filter(Boolean).join(' \u00b7 ');
+    // The finer word on a row ("partially fulfilled") is kept wherever rows differ in it.
+    const alike = new Set(orders.map((o) => `${orderState(o)}|${text(o.fulfillment).toLowerCase()}`)).size <= 1;
+    return { sum, badges: !(alike && (stated || titled)) };
+  }
 
-    // A state every row shares is the list's own meaning, and a badge saying it on every row
-    // carries nothing: the badge is drawn only where the rows differ.
-    const mixed = new Set(orders.map((o) => text(o.fulfillment).toLowerCase())).size > 1;
-    const rows = orders.map((o) => orderRow(o, mixed));
+  function renderOrderList(d, opts) {
+    const orders = list(d.orders, 10);
+    const count = num(d.count);
+    const { sum, badges } = orderListSum(d);
+    const rows = orders.map((o) => orderRow(o, badges));
     const listEl = h('ul', { class: 'rows tight' }, rows);
     const position = h('p', { class: 'list-pos' });
     let filter = 'all';
@@ -3427,7 +3440,7 @@
     const d = item.data || {};
     const n = num(d.count);
     if (n === null) return '';
-    if (item.type === 'order_list') return [`${n} order${n === 1 ? '' : 's'}`, text(d.value)].filter(Boolean).join(' \u00b7 ');
+    if (item.type === 'order_list') return orderListSum(d).sum;
     if (item.type === 'email_list') return `${n} thread${n === 1 ? '' : 's'}`;
     return '';
   }

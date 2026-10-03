@@ -5,7 +5,7 @@
  *   the Mac the proposal's id and nothing else, only while the surface still waits for a hand —
  *   and the gesture beside it is untouched: "Not now" commits nothing and arms nothing;
  * - the orders list says its count and value once, in one line, and a state every row shares is
- *   not repeated as a badge on every row;
+ *   said once, in that line ("3 to ship"), unless the title says it, not as a badge on every row;
  * - a working set that only restates the list beside it is not drawn, and the list carries its id
  *   so the set chip still finds the list; a set that adds something is still drawn;
  * - a folded card's header says what is inside it;
@@ -143,6 +143,32 @@ test('the orders list says its count and value once, in one line, and no state e
   assert.equal(mixed.querySelector('.list-sum').textContent, '3 orders · £195.00 · 2 to ship', 'and the line says how many are still to go');
 });
 
+// Review of the design pass (3 Oct): with the badges gone, "Today" with three unfulfilled orders
+// said only "3 orders · £195.00", and nothing on the card said they were still to go out.
+test('a state every row shares is said once, in the line, unless the title says it', () => {
+  const rowBadges = (n) => n.querySelectorAll('.row').map((r) => r.querySelectorAll('.badge').length).reduce((a, b) => a + b, 0);
+  const today = UI.renderItem({ type: 'order_list', data: { title: 'Today', orders: ORDERS, count: 3, value: '£195.00' } });
+  assert.equal(today.querySelector('.list-sum').textContent, '3 to ship · £195.00');
+  assert.equal(rowBadges(today), 0, 'and not again on every row');
+  const one = UI.renderItem({ type: 'order_list', data: { title: 'Today', orders: ORDERS.slice(0, 1), count: 1, value: '£83.00' } });
+  assert.equal(one.querySelector('.list-sum').textContent, '1 to ship · £83.00');
+  const sent = UI.renderItem({ type: 'order_list', data: { title: 'Last week', count: 3, value: '£195.00',
+    orders: ORDERS.map((o) => Object.assign({}, o, { fulfillment: 'fulfilled' })) } });
+  assert.equal(sent.querySelector('.list-sum').textContent, '3 shipped · £195.00');
+  const unfulfilled = UI.renderItem({ type: 'order_list', data: { title: 'Unfulfilled', orders: ORDERS, count: 3, value: '£195.00' } });
+  assert.equal(unfulfilled.querySelector('.list-sum').textContent, '3 orders · £195.00', 'a title that says it already');
+  assert.equal(rowBadges(unfulfilled), 0);
+  // Ten of forty shown: the line claims nothing for the thirty it has not seen, so each row says its own.
+  const part = UI.renderItem({ type: 'order_list', data: { title: 'This month', orders: ORDERS, count: 40, value: '£2,600.00', truncated: true } });
+  assert.equal(part.querySelector('.list-sum').textContent, '40 orders · £2,600.00');
+  assert.equal(rowBadges(part), 3);
+  // Rows that agree on "to ship" but not on the word for it keep their words.
+  const finer = UI.renderItem({ type: 'order_list', data: { title: 'Today', count: 3, value: '£195.00',
+    orders: ORDERS.map((o, i) => Object.assign({}, o, { fulfillment: i ? 'unfulfilled' : 'partially fulfilled' })) } });
+  assert.equal(finer.querySelector('.list-sum').textContent, '3 to ship · £195.00');
+  assert.equal(rowBadges(finer), 3);
+});
+
 test('a working set that only restates the list beside it is not drawn, and the list carries its id', () => {
   const list = { type: 'order_list', data: { title: 'To go out', orders: ORDERS, count: 3, value: '£195.00' } };
   const set = { type: 'working_set', data: { set_id: 'set_e07962e1ba6c', kind: 'orders', count: 3, label: 'To go out', parent_label: '', step: 'query', sample: [], truncated: false, lines: [{ label: 'Value', value: '£195.00' }] } };
@@ -178,7 +204,7 @@ test('a folded card says what is inside it', () => {
     { type: 'order_list', data: { title: 'Today', orders: ORDERS, count: 3, value: '£177.00', secondary: true } },
     { type: 'email_list', data: { title: 'Email', count: 4, threads: [], secondary: true } },
   ]);
-  assert.equal(out.nodes[1].querySelector('.fold-sum').textContent, '3 orders · £177.00');
+  assert.equal(out.nodes[1].querySelector('.fold-sum').textContent, '3 to ship · £177.00', 'the same line as the list itself');
   assert.equal(out.nodes[2].querySelector('.fold-sum').textContent, '4 threads');
   assert.match(out.nodes[1].querySelector('.fold-head').allText(), /Today/);
 });
