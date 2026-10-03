@@ -660,3 +660,10 @@ def test_the_pages_free_text_is_kept_by_its_shape_in_the_record_and_as_before_in
     test.stop()
     tab = next(e for e in read_events(test.sessions.timeline_path(started)) if e["kind"] == "tablet_tab")
     assert tab["label"] == "Items 2"
+
+
+def test_only_a_hash_or_the_word_order_makes_a_number_an_order():
+    assert friction.named_orders("send it to 1940 Acacia Avenue by 2026, the card ending 4242") == []
+    assert friction.named_orders("refund #1938") == ["1938"]
+    assert friction.named_orders("what about orders 1938 and 1940") == ["1938", "1940"]
+    assert friction.named_orders("order number 2001, and order no. 2002") == ["2001", "2002"]

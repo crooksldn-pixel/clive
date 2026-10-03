@@ -171,7 +171,10 @@ EXPECT: tuple[tuple[str, re.Pattern], ...] = (
         r"|\bwhy\s+(?:are|aren'?t|is|isn'?t|did|didn'?t|do|don'?t)\s+(?:you|it|clive)\b[^.?!]{0,25}\bshow"
         r"|\blook\s+at\s+(?:our|the|this)\s+interaction\b|\bwhat\s+(?:are|were)\s+you\s+showing\b", re.I)),
 )
-_ORDER_NUMBER = re.compile(r"(?:#|\border\s+(?:number\s+)?)\s*(\d{3,7})\b|\b(\d{4})\b", re.I)
+# An order number only in the two forms that say it is one: "#1940" and "order 1940" (or "order
+# number 1940", "orders 1938 and 1940"). A bare four digits is as often a house number, a year or
+# the last four of a card, and none of those is an id the record may hold.
+_ORDER_NUMBER = re.compile(r"(?:#\s*|\borders?\s+(?:number\s+|no\.?\s*)?)(\d{3,7})\b(?:\s+and\s+(\d{3,7})\b)?", re.I)
 
 
 def expectations(question: str) -> list[str]:
@@ -183,9 +186,9 @@ def named_orders(question: str) -> list[str]:
     """The order numbers the words name. An order number is an id, which the record may hold."""
     out: list[str] = []
     for match in _ORDER_NUMBER.finditer(question or ""):
-        number = match.group(1) or match.group(2)
-        if number and number not in out:
-            out.append(number)
+        for number in match.groups():
+            if number and number not in out:
+                out.append(number)
     return out[:6]
 
 
