@@ -25,9 +25,11 @@ services:
     restart: unless-stopped
     depends_on:
       - returns
+    # Only the public address: Tailscale already listens on 443 on the tailnet address, and
+    # Linux will not let a second program take 443 on every address while it does.
     ports:
-      - "80:80"
-      - "443:443"
+      - "${RETURNS_BIND_IP:-0.0.0.0}:80:80"
+      - "${RETURNS_BIND_IP:-0.0.0.0}:443:443"
     environment:
       RETURNS_DOMAIN: ${RETURNS_DOMAIN}
     volumes:
