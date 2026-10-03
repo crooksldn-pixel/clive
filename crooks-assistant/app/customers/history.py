@@ -142,20 +142,26 @@ def _email_rows(threads: list[dict[str, Any]], *, email: str, numbers: list[str]
         sender = str(thread.get("from_email") or "").strip().lower()
         subject = _clip(thread.get("subject") or "(no subject)", 80)
         text = f"{thread.get('subject', '')} {thread.get('snippet', '')}"
-        named = [n for n in numbers if n and re.search(rf"(?<!\d){re.escape(n)}(?!\d)", text)]
+        named = [n for n in numbers if n and _names_order(text, n)]
         if email and sender == email:
             what, kind = f"Emailed us: {subject}", "email_in"
         elif ours and sender == ours:
             what, kind = f"We emailed them: {subject}", "email_out"
         elif named:
             what, kind = f"{_clip(thread.get('from') or sender, 40)} wrote about #{named[0]}: {subject}", "email_about"
-        elif email:
-            what, kind = f"Email naming them: {subject}", "email_about"
         else:
+            # Neither from them, from us, nor about one of their orders as an order is written:
+            # whatever the search found it by, it is not theirs to show.
             continue
         out.append(_row(thread.get("date"), kind, what, _clip(thread.get("snippet"), 140), ref=str(thread.get("thread_id") or ""),
                         ref_kind="email_thread", source="Gmail"))
     return out
+
+
+def _names_order(text: str, digits: str) -> bool:
+    """The words name order `digits` as an order is written — "#2201", "# 2201", "CROOKS-2201" —
+    and not as a bare number, which is as often an invoice, a street or a phone number."""
+    return re.search(rf"(?:#\s?|\bCROOKS-){re.escape(digits)}(?!\d)", text, re.I) is not None
 
 
 # --------------------------------------------------------------------------- CLIVE's records
@@ -283,7 +289,8 @@ def _objective_rows(name: str, email: str, numbers: dict[str, str], *, owner: bo
         everything = held.all()
     except Exception:  # noqa: BLE001
         return [], "unavailable"
-    searches = [s for s in (name, email, *(f"#{d}" for d in numbers.values()), *numbers.values()) if s and len(s) >= 3]
+    searches = [s for s in (name, email, *(f"#{d}" for d in numbers.values()), *(f"CROOKS-{d}" for d in numbers.values()))
+                if s and len(s) >= 3]
     out = []
     for objective in everything:
         if not any(objective.mentions(s) for s in searches):

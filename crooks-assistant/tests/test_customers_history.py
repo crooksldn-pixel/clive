@@ -170,6 +170,26 @@ def test_the_owners_screens_are_his_own_too(monkeypatch):
     assert "Packed #2150" in _whats(owner)
 
 
+def test_an_order_number_counts_only_as_an_order_is_written_and_unrelated_threads_are_left_out():
+    """"#2201" or "CROOKS-2201" names her order; a bare 2201 (an invoice, a street) does not, and a
+    thread that is neither from her, from us, nor about her order is not hers to show."""
+    threads = [
+        {"thread_id": "a1", "from": "Royal Mail", "from_email": "noreply@royalmail.example", "subject": "Parcel CROOKS-2201",
+         "snippet": "", "date": "Tue, 29 Sep 2026 08:00:00 +0100"},
+        {"thread_id": "a2", "from": "Printer", "from_email": "jobs@printer.example", "subject": "Your order #2201 is late",
+         "snippet": "", "date": "Tue, 29 Sep 2026 09:00:00 +0100"},
+        {"thread_id": "a3", "from": "Accounts", "from_email": "accounts@supplier.example", "subject": "Invoice 2201",
+         "snippet": "Payment due", "date": "Tue, 29 Sep 2026 10:00:00 +0100"},
+        {"thread_id": "a4", "from": "Someone", "from_email": "someone@example.net", "subject": "Hello",
+         "snippet": "Hi", "date": "Tue, 29 Sep 2026 11:00:00 +0100"},
+    ]
+    story = {"recent": [{"order_id": "gid://shopify/Order/2201", "order_number": "CROOKS-2201", "placed_at": "2026-09-20T10:00:00Z"}],
+             "orders": 1, "email": "alicia.grant@example.com"}
+    told = history.timeline(story, threads, owner=True, ours="studio@crooks.example", today=datetime.now(UTC).date())
+    mail = [r["ref"] for r in told["rows"] if r["source"] == "Gmail"]
+    assert sorted(mail) == ["a1", "a2"]
+
+
 def test_an_inbox_that_was_not_read_says_so_rather_than_looking_empty():
     told = history.timeline({"recent": [], "orders": 0, "email": "a@example.com"}, None, owner=True,
                             today=datetime.now(UTC).date())
