@@ -66,7 +66,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `objective_show` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
 | `people_list` | AMBER | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `person_note` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
-| `return_action` | AMBER | yes | yes | yes | — | write | prepared from a fresh read, held as return_action, swipe_commit | a predicate over the re-read | the change's own card | returns | — |
+| `return_action` | AMBER | yes | yes | yes | — | write | prepared from a fresh read, held as return_action, swipe_commit | a predicate over the re-read, after settling | the change's own card | returns | — |
 | `return_find` | AMBER | yes | yes | yes | none needed | read | — | — | presentation.py | returns | — |
 | `returns_open` | AMBER | yes | yes | yes | none needed | read | — | — | presentation.py | returns | — |
 | `returns_stats` | AMBER | yes | yes | yes | none needed | read | — | — | presentation.py | returns | — |
