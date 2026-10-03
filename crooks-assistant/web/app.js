@@ -2434,6 +2434,8 @@ function renderTurn(data) {
   // Round 9, the screens remote: CLIVE's screen_remote card (his answer when the owner asks for a
   // remote) opens the remote for its screen over the app (web/remote.js). The card is drawn as usual.
   if (window.CliveRemote) window.CliveRemote.fromTurn(data.ui);
+  // The Builds screen (web/builds.js): a turn in which CLIVE read the build queue for him opens it.
+  if (window.CliveBuilds) window.CliveBuilds.fromTurn(data);
   if (ui.skipped.length) console.warn('[crooks] skipped ui items:', ui.skipped.join(', '));
   el.errline.textContent = '';
   lastErrorTitle = '';

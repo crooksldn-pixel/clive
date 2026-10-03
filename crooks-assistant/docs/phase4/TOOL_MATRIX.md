@@ -123,7 +123,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `commerce_query` | recipe:landing_orders, family:analytics | test_analytics_tools.py, test_council_fixes.py, test_followups_reads.py, test_n_plus_one.py, test_needs_reply_inbox.py, test_query_engine_p3.py, test_r11_families.py, test_r13_timeline_names.py, test_read_budget.py, test_working_sets.py | landing_orders, next_previous |
 | `commerce_summary` | family:summary_surfaces | test_followups_reads.py, test_n_plus_one.py, test_summaries.py | — |
 | `email_query` | recipe:landing_inbox, family:email_reads | test_council_fixes.py, test_followups_reads.py, test_graph.py, test_n_plus_one.py, test_needs_reply_inbox.py, test_r11_families.py, test_working_sets.py | graph_thread_to_order, landing_inbox, needs_reply |
-| `engineering_status` | family:engineering | test_build_from_clive.py, test_capability_gaps.py, test_engineering_bridge.py, test_engineering_bridge_bounds.py, test_r11_engineering_off.py | — |
+| `engineering_status` | family:engineering | test_build_from_clive.py, test_builds.py, test_capability_gaps.py, test_engineering_bridge.py, test_engineering_bridge_bounds.py, test_r11_engineering_off.py | — |
 | `gmail_compose_fill` | family:email_compose | test_compose.py, test_r13_compose_edit.py | — |
 | `gmail_compose_open` | family:email_compose | test_compose.py, test_compose_provenance.py | compose_dictated, compose_open, compose_send_instead, compose_send_spoken, compose_stage |
 | `gmail_draft_new` | command:a tapped control, family:email_compose | test_compose_provenance.py, test_gmail_writes.py | compose_send_instead, compose_send_spoken, compose_stage |

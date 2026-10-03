@@ -9,18 +9,25 @@ application's: the tailnet allow-list middleware in app/main.py has already refu
 who is not one of the owner's logins. Nothing here reaches a store, an inbox or the outside world,
 with one read-only exception: /objectives/builds and /objectives/gaps read the engineering loop's
 published status and compare built candidates with the trunk (each at most once a minute).
+
+The Builds screen (app/builds/) reads the same, plus each request's own file for its title, and
+records one thing: George's answer to a build that waits on him, as an owner judgment in the
+judgment ledger beside the objectives (POST /objectives/builds/decide). That answer is CLIVE's own
+record; nothing is filed, sent or lifted by it. GET /objectives/builds/decisions reads it back.
 """
 
 from __future__ import annotations
 
 import asyncio
+import re
+import uuid
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.objectives.store import ObjectiveError, store
-from app.routes.actions import require_principal
+from app.routes.actions import principal_check, require_principal
 
 # The owner's records: every route here is his alone (app/routes/actions.py principal_check).
 router = APIRouter(prefix="/objectives", dependencies=[Depends(require_principal)])
@@ -67,6 +74,15 @@ class TargetBody(BaseModel):
     # Bounded in words by the store (1 to 100,000), not here, so a target past it is refused as
     # every other touch is: a 400 that says why.
     target: int
+
+
+class DecideBody(BaseModel):
+    # Which build, and the question exactly as the screen drew it: an answer binds to what he saw.
+    build: str = Field(min_length=1, max_length=80)
+    proposal_id: str = Field(min_length=1, max_length=300)
+    fingerprint: str = Field(min_length=64, max_length=64)
+    answer: str = Field(min_length=1, max_length=20)
+    session_id: str = Field(default="", max_length=100)
 
 
 class UndoBody(BaseModel):
@@ -138,6 +154,54 @@ async def builds() -> dict:
     recent = {o.id: [str(e.get("request_id") or "") for e in o.engineering[-3:]] for o in live}
     rows = await build_progress([rid for ids in recent.values() for rid in ids])
     return {"builds": {oid: [rows[rid] for rid in ids if rid in rows] for oid, ids in recent.items()}}
+
+
+@router.get("/builds/board")
+async def builds_board(brief: int = 0) -> dict:
+    """Every build of CLIVE itself in plain words, grouped for the Builds screen (app/builds/board.py);
+    with `brief`, only the counts and the line the home's Builds row says."""
+    from app.builds import read
+
+    payload = await read.current()
+    return read.brief(payload) if brief else payload
+
+
+_SESSION = re.compile(r"^[A-Za-z0-9_.:-]{1,100}$")
+
+
+@router.post("/builds/decide", response_model=None)
+async def builds_decide(request: Request, body: DecideBody) -> dict | JSONResponse:
+    """George answers the question a build puts to him. Recorded only when the question is still the
+    one he was shown; a build that moved on answers 409 with the question as it stands now."""
+    from app.builds import decisions, read
+
+    question = await read.question(body.build)
+    if question is None:
+        return JSONResponse(status_code=409, content={"code": "no_question",
+                                                      "detail": "This build isn't waiting on your answer any more."})
+    if (question["proposal_id"], question["fingerprint"]) != (body.proposal_id, body.fingerprint):
+        return JSONResponse(status_code=409, content={
+            "code": "moved_on", "detail": "This build moved on since you saw it, so nothing was recorded. "
+                                          "Here is the question as it stands now.", "question": question})
+    who, _why = principal_check(request)
+    session = body.session_id if _SESSION.fullmatch(body.session_id or "") else f"builds-{uuid.uuid4().hex[:12]}"
+    try:
+        record, added = decisions.decide(decisions.ledger(), question, body.answer, principal=who, session_id=session)
+    except decisions.DecisionError as exc:
+        return JSONResponse(status_code=400, content={"code": "refused", "detail": str(exc)})
+    return {"recorded": added, "chosen": decisions.chosen(record), "board": await read.current()}
+
+
+@router.get("/builds/decisions", response_model=None)
+async def builds_decisions() -> dict | JSONResponse:
+    """Every answer George gave on a build, in the judgment ledger's own line form, for the
+    Director and the loop to read back."""
+    from app.builds import decisions
+
+    try:
+        return decisions.ledger().read_back()
+    except decisions.DecisionError as exc:
+        return JSONResponse(status_code=409, content={"code": "unreadable", "detail": str(exc)})
 
 
 @router.get("/gaps")

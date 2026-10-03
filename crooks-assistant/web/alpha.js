@@ -160,6 +160,7 @@
   // What CLIVE cannot do yet (GET /objectives/gaps): each gap, how often it came up and what
   // became of it. Drawn when it arrives; the home does not wait for it.
   let gaps = { gaps: [], summary: {} };
+  let lastNeeds = 0;   // what the last read said needs him, for a redraw when the Builds counts land
   async function refresh() {
     let needsYou = 0;
     try {
@@ -174,6 +175,10 @@
       renderHome(0, String(err.message || err));
       return;
     }
+    // The Builds screen's counts for its row (web/builds.js): asked for beside the rest and never
+    // waited for; the home is drawn again when they land, with what it last drew from.
+    lastNeeds = needsYou;
+    if (window.CliveBuilds) window.CliveBuilds.brief().then((brief) => { if (brief) renderHome(lastNeeds); });
     try {
       gaps = await api('/objectives/gaps');
       if (objectives.some((o) => o.kind === 'build' && (o.engineering || []).length)) {
@@ -235,8 +240,18 @@
     // A check-in the owner asked for that has lapsed needs him as much as a question does.
     const needs = objectives.filter((o) => !beingBuilt(o) && (o.attention === 'needs_you' || o.attention === 'blocked' || o.attention === 'check_in'));
     const moving = objectives.filter((o) => needs.indexOf(o) < 0 && o.attention !== 'dropped');
-    const summary = needs.length
-      ? `${needs.length === 1 ? 'One thing needs' : `${needs.length} things need`} you.${moving.length ? ' The rest is in motion.' : ''}`
+    // ---- the Builds screen (web/builds.js): builds that wait on his answer are one more thing that
+    // needs him, and the screen has its row among the tools. Drawn from its counts as last read.
+    const buildsBrief = window.CliveBuilds ? window.CliveBuilds.briefNow() : null;
+    const buildsWaiting = buildsBrief && buildsBrief.counts ? Number(buildsBrief.counts.needs_you) || 0 : 0;
+    // The row in Needs you carries the blue tile of something to answer; the tools row the steel of a build.
+    const buildsRow = (title, sub, tile) => h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'builds', onclick: () => window.CliveBuilds.open() },
+      h('span', { class: tile }, icon(ICON.build, 18)), rowMain(title, sub), icon(ICON.chev, 16));
+    const needsCount = needs.length + (buildsWaiting ? 1 : 0);
+    const COUNT_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
+    // ---- the Builds screen · end
+    const summary = needsCount
+      ? `${needsCount === 1 ? 'One thing needs' : `${needsCount} things need`} you.${moving.length ? ' The rest is in motion.' : ''}`
       : (moving.length ? 'Nothing needs you. The rest is in motion.' : 'Nothing needs you right now.');
 
     const row = (o) => {
@@ -279,16 +294,20 @@
         // Objectives by touch (B): the next six weeks without a gesture (web/distances.js).
         window.CliveDistances ? window.CliveDistances.homeControl() : null),
       problem ? h('p', { class: 'alpha-blocked', text: `Objectives could not be read: ${problem}` }) : null,
-      needs.length ? h('h2', { class: 'alpha-h2', text: 'Needs you' }) : null,
-      needs.length ? h('div', { class: 'alpha-group' }, ...needs.map(row)) : null,
+      needsCount ? h('h2', { class: 'alpha-h2', text: 'Needs you' }) : null,
+      needsCount ? h('div', { class: 'alpha-group' }, ...needs.map(row),
+        buildsWaiting ? buildsRow(buildsWaiting === 1 ? 'A build waits on your answer' : `${COUNT_WORDS[buildsWaiting] || buildsWaiting} builds wait on your answer`,
+          'Open Builds to decide', 'alpha-tile') : null) : null,
       moving.length ? h('h2', { class: 'alpha-h2', text: 'In motion' }) : null,
       moving.length ? h('div', { class: 'alpha-group' }, ...moving.map(row)) : null,
-      !objectives.length && !problem ? h('p', { class: 'alpha-muted', text: 'Nothing ongoing. Tell CLIVE about something you want handled, and it stays here.' }) : null,
+      !objectives.length && !problem && !buildsWaiting ? h('p', { class: 'alpha-muted', text: 'Nothing ongoing. Tell CLIVE about something you want handled, and it stays here.' }) : null,
       openGaps().length ? h('h2', { class: 'alpha-h2', text: 'CLIVE can’t do yet' }) : null,
       openGaps().length ? h('div', { class: 'alpha-group' }, ...openGaps().map((g) =>
         h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'gap', onclick: () => openGap(g) },
           h('span', { class: 'alpha-tile is-quiet' }, icon(ICON.plug, 18)), rowMain(g.title || g.label, gapLine(g)), icon(ICON.chev, 16)))) : null,
       h('div', { class: 'alpha-group alpha-tools' },
+        window.CliveBuilds ? buildsRow('Builds', !buildsBrief ? 'What is being built, and why'
+          : buildsBrief.connected ? buildsBrief.summary : 'Not connected to the build loop', 'alpha-tile is-build') : null,
         h('button', { class: 'alpha-row', type: 'button', 'data-alpha': 'support', onclick: openSupport },
           h('span', { class: 'alpha-tile is-quiet' }, icon(ICON.search, 18)),
           rowMain('Investigate a customer enquiry', 'Paste their message. Read-only.'), icon(ICON.chev, 16)),

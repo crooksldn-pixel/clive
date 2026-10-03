@@ -158,6 +158,7 @@ async def engineering_status(areas: bool = False) -> dict:
         raise ToolError(str(exc)) from None
     _remember(status)
     out = project(status, head, branch=inbox.inbox_branch)
+    _with_owner_decisions(out["requests"], _items(status.data if status.published else {}))
     out["host"] = inbox.host
     if isinstance(trunk, InboxHead) and trunk.sha:
         out["base"] = {"ref": TRUNK_REF, "sha": trunk.sha}
@@ -168,6 +169,45 @@ async def engineering_status(areas: bool = False) -> dict:
             f"(for example {APP_DIR}/tests/test_<topic>.py). With none named, one is added for it."
         )
     return out
+
+
+def _with_owner_decisions(rows: list[dict], items: list[dict]) -> None:
+    """George's answer on a build that waited on him (the Builds screen, app/builds/decisions.py),
+    put on the request it is about, so whoever reads the build reads his answer with it. Read from
+    the judgment ledger; nothing is put on a row when there is none or it cannot be read. The loop
+    cannot read the ledger, so an answer that asks for something to be done says that nothing has
+    acted on it: whoever files builds is the one to act."""
+    try:
+        from app.builds import decisions
+        from app.builds.board import _iso, family_key
+
+        records = list(decisions.ledger().effective().values())
+    except Exception:  # noqa: BLE001 - the status is said whole without them
+        log.info("owner decisions unreadable for engineering_status", exc_info=True)
+        return
+    latest: dict[str, Any] = {}
+    for record in records:
+        rid = decisions.request_of(record)
+        if rid and (rid not in latest or record.decided_at > latest[rid].decided_at):
+            latest[rid] = record
+    # A try filed after his answer, in the same build (the loop's -2, -3 ... convention), is what acting on it is.
+    filed: dict[str, list[tuple[str, str]]] = {}
+    for item in items:
+        rid = str(item.get("request_id") or "")
+        filed.setdefault(family_key(rid), []).append((_iso(item.get("recorded_at")), rid))
+    for row in rows:
+        rid = row.get("request_id", "")
+        said = decisions.chosen(latest.get(rid))
+        if not said:
+            continue
+        row["owner_decision"] = {"answer": said["label"], "means": said["then"], "decided_at": said["decided_at"],
+                                 "needs_acting_on": said["acts"]}
+        if said["acts"]:
+            after = sorted(r for at, r in filed.get(family_key(rid), []) if r != rid and at > said["decided_at"])
+            row["owner_decision"]["acted_on"] = (
+                f"Yes: {_words(after[-1], 80)} was filed after it." if after else
+                "No: the build loop cannot read the owner's answers, so nothing has acted on it yet. "
+                "Filing the new try is what acts on it.")
 
 
 def _not_connected(result: NotConnected) -> dict:
@@ -929,7 +969,8 @@ _progress_cache: dict[str, Any] = {}
 
 def _remember(status: LoopStatus) -> None:
     rows = _rows(status)
-    _progress_cache.update(at=time.monotonic(), rows=rows)
+    # `status` is the loop's published status itself, for the owner's Builds screen (app/builds/read.py).
+    _progress_cache.update(at=time.monotonic(), rows=rows, status=status)
     record = _gaps()
     if record is not None:
         record.progressed(rows)
@@ -940,22 +981,38 @@ def _rows(status: LoopStatus) -> dict[str, dict]:
     return {str(item.get("request_id")): progress(item) for item in _items(data) if item.get("request_id")}
 
 
+async def _fresh() -> str:
+    """The loop's status read again if the last read is a minute old: "" when it is in hand, else
+    why it is not (GitHub not connected, or not answering)."""
+    fresh = _progress_cache.get("at") is not None and time.monotonic() - _progress_cache["at"] < PROGRESS_TTL_S
+    if fresh:
+        return ""
+    try:
+        status = await _client().status()
+    except GitHubError as exc:
+        log.info("engineering status unreadable for build progress", exc_info=True)
+        return str(exc)
+    if isinstance(status, NotConnected):
+        return status.reason
+    _remember(status)
+    return ""
+
+
+async def loop_status() -> tuple[LoopStatus | None, str]:
+    """The loop's published status, read at most once a minute, and why not when it cannot be read.
+    The last status read stays in hand while GitHub is away, with what stopped a fresh read."""
+    problem = await _fresh()
+    return _progress_cache.get("status"), problem
+
+
 async def build_progress(request_ids: list[str]) -> dict[str, dict]:
     """Where each named request is, from the loop's status read at most once a minute. A request
     the loop has not picked up yet is queued; with GitHub unreachable, nothing is said."""
     wanted = [r for r in dict.fromkeys(request_ids) if isinstance(r, str) and r]
     if not wanted:
         return {}
-    fresh = _progress_cache.get("at") is not None and time.monotonic() - _progress_cache["at"] < PROGRESS_TTL_S
-    if not fresh:
-        try:
-            status = await _client().status()
-        except GitHubError:
-            log.info("engineering status unreadable for build progress", exc_info=True)
-            return {}
-        if isinstance(status, NotConnected):
-            return {}
-        _remember(status)
+    if await _fresh():
+        return {}
     rows = _progress_cache.get("rows") or {}
     out = {}
     for rid in wanted:

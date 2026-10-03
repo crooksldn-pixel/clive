@@ -72,6 +72,9 @@ const SHELL = [
   '/static/horizon.js',
   '/static/horizon.css',
   '/static/distances.js',
+  // The Builds screen: every build in plain words, and the decisions it needs (web/builds.js).
+  '/static/builds.js',
+  '/static/builds.css',
   '/manifest.webmanifest',
   '/static/icon-192.png',
   '/static/icon-512.png',

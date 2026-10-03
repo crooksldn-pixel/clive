@@ -1,0 +1,205 @@
+{
+ "status_commit": "0d843ad747d4f42c2cbe95d0a2b939a6cfa3fce6",
+ "inbox_commit": "d14d0b519c62b6a6fe392125dce3ae607d749deb",
+ "trunk": "d74c99c34f8ddde6936e2f3c46975fb6efe22672",
+ "running": "66d3e05d7c66b80bd2eb72bf17d8c5439c924869",
+ "running_from": "reports/deploy-66d3e05d.md on claude/deploy-66d3e05d-record (deployed 2 Oct 2026)",
+ "commits": {
+  "039b2599ac207cde3040d15d1cd88d9938d789e7": {
+   "trunk": true,
+   "running": true
+  },
+  "069a9ce808aaf9322629bc2e804c4fc2c990b82b": {
+   "trunk": true,
+   "running": true
+  },
+  "0862b6dfe73f4f1ab8cbd4e3e5cbeaee12129f05": {
+   "trunk": true,
+   "running": true
+  },
+  "0b1200cd419ecf6bc6e37789125553b000fea3fb": {
+   "trunk": true,
+   "running": true
+  },
+  "11ccf62363c220d7a3b8599f39a3ad0846758302": {
+   "trunk": true,
+   "running": true
+  },
+  "2738f2543a9650b469c6dc637a43fb68f5c6acb9": {
+   "trunk": false,
+   "running": false
+  },
+  "2af02bc88ca07ce3ef8733e9b43c38a7e6eb9b79": {
+   "trunk": true,
+   "running": true
+  },
+  "31bdd8bfc5f64e86d19667e389ccf07fa8a65533": {
+   "trunk": true,
+   "running": true
+  },
+  "3e03a30067a7f352ae1056c81329493f9b1ffee5": {
+   "trunk": false,
+   "running": false
+  },
+  "4bbdd7267f5b0d5a65f3bad0dab500ceb2a111d1": {
+   "trunk": true,
+   "running": true
+  },
+  "527c44ad12eed998b0862b46f2c0938d5d1f1279": {
+   "trunk": true,
+   "running": true
+  },
+  "595d3a3053a09c045972976b4caf210ccb1a287c": {
+   "trunk": true,
+   "running": true
+  },
+  "5a6f705e221175824c6b0daeaeb27e285b066d50": {
+   "trunk": true,
+   "running": true
+  },
+  "5d1e490ab0ce4a1fec917e529e12db7cb5f9915e": {
+   "trunk": true,
+   "running": true
+  },
+  "6024668334fc7a880f3da5532fe4a5b0a8c68664": {
+   "trunk": true,
+   "running": true
+  },
+  "6136d3230a9af4af5e5cc2f0bdea60c21085c2dc": {
+   "trunk": true,
+   "running": true
+  },
+  "671b5c92980a99bc68f6bed23e740214684cff83": {
+   "trunk": true,
+   "running": true
+  },
+  "6afed7d2d45e5b1d28099f6396b49d438d17e934": {
+   "trunk": false,
+   "running": false
+  },
+  "6e12eab7ed831288c4be6032207f1d6e49fe32af": {
+   "trunk": true,
+   "running": true
+  },
+  "6e5b677fa69bcea08b254b8c42c6efc4524c0250": {
+   "trunk": true,
+   "running": true
+  },
+  "72055abf76544b0531e64e7becfa64330733c1a8": {
+   "trunk": true,
+   "running": true
+  },
+  "7628bfdf1234cd96348cd6804e2ba6bdb1f6d0ac": {
+   "trunk": true,
+   "running": true
+  },
+  "782dca9f4eaa151c02a1579b7b8c8b740d539f22": {
+   "trunk": true,
+   "running": true
+  },
+  "786f92eed26d07ade008c445a8174f17eb0e3c96": {
+   "trunk": false,
+   "running": false
+  },
+  "79d7f4be55fef32385fa399bc01b155ec2cbe55a": {
+   "trunk": true,
+   "running": true
+  },
+  "7dc51d208442c41c24838f54cf1839769a52e5c8": {
+   "trunk": true,
+   "running": true
+  },
+  "7f69618e46797ea928c6db2a5caa52133a754a16": {
+   "trunk": true,
+   "running": true
+  },
+  "85bf244d23394f0ceb89f830f215ef89bf4de4cd": {
+   "trunk": true,
+   "running": true
+  },
+  "8ad7477da0266bb3695b0114992ba95108b9fe6c": {
+   "trunk": true,
+   "running": true
+  },
+  "93a19e9295cb66affe518f3399c4f48fcd09ca19": {
+   "trunk": false,
+   "running": false
+  },
+  "952e32b8e1e72f15c976ac21e112d3d295f9905c": {
+   "trunk": false,
+   "running": false
+  },
+  "9ac2de2f61221fef85eca63bc64a81b7b7711e9f": {
+   "trunk": true,
+   "running": true
+  },
+  "9dba9e74d3408ae02d3bc5ac8639a9cd20f52283": {
+   "trunk": false,
+   "running": false
+  },
+  "a62e71efdae689dae993319bb53dbe0dd0f1647c": {
+   "trunk": true,
+   "running": true
+  },
+  "a7f593c407cfa60be30468486fe22753a17a940e": {
+   "trunk": true,
+   "running": true
+  },
+  "ab1fde9c8392fc084caef32f0fead1a6bd5819a3": {
+   "trunk": true,
+   "running": true
+  },
+  "ada67e5084eeda628c9b251549df5a5d3b420059": {
+   "trunk": true,
+   "running": true
+  },
+  "af0416763633e52800e6378ffd8226881279a0fc": {
+   "trunk": true,
+   "running": true
+  },
+  "b69a23c7dc9186ce95e274a9440bd838838cbddb": {
+   "trunk": true,
+   "running": true
+  },
+  "b80be86342e237b29ed9aadf02e989054d59376e": {
+   "trunk": true,
+   "running": true
+  },
+  "bb5ee94cdce6eae43f5e58ae759ac513a9227406": {
+   "trunk": true,
+   "running": true
+  },
+  "caa81ee797ae0cdd52ed43bed75d86c828651667": {
+   "trunk": false,
+   "running": false
+  },
+  "d39d02df07076dee1b8fbcf499536e45b23e19a3": {
+   "trunk": true,
+   "running": true
+  },
+  "e7d0e06356b4c8e487a839a9be3d4cfe10dafd5f": {
+   "trunk": false,
+   "running": false
+  },
+  "ec7c33f9e0f636f077087a5d45fd6ecd819fe643": {
+   "trunk": true,
+   "running": true
+  },
+  "ec9105ac39782eb77e2d4a4a00d1ba69739b3ff6": {
+   "trunk": false,
+   "running": false
+  },
+  "ef630cbaefbf9b5f7a16467c5339c3d4865c2902": {
+   "trunk": true,
+   "running": true
+  },
+  "f89ad36c5b1b79e1e5deb945488605d2c4694d09": {
+   "trunk": true,
+   "running": true
+  },
+  "fe07bb77bcd31f878f625ac2f7e42bad54e7c3d2": {
+   "trunk": true,
+   "running": true
+  }
+ }
+}
