@@ -7,8 +7,7 @@
         "heading": "Returns & exchanges",
         "endpoint": "/apps/returns/api",
         "accent": "#FFD400",
-        "policy_title": "Returns policy",
-        "color_scheme": "scheme-1"
+        "policy_title": "Returns policy"
       }
     }
   },
