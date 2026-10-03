@@ -230,8 +230,9 @@ async def test_a_day_only_near_what_he_said_is_never_called_a_match_for_it(world
 
 
 async def test_a_day_he_says_that_is_not_a_day_is_said_back(world):
-    await say(world, "Alysa's grey hoodie, whenever", ("shopify_find_order", {"name": "Alysa", "item": "grey hoodie", "when": "whenever it was"}))
+    body = await say(world, "Alysa's grey hoodie, whenever", ("shopify_find_order", {"name": "Alysa", "item": "grey hoodie", "when": "whenever it was"}))
     assert result(world, "shopify_find_order")["unread"] == ["when ('whenever it was')"]
+    assert "I could not read when ('whenever it was')" in cards(body, "order_match")[0]["note"]
 
 
 # --------------------------------------------------------------------------- one tap
@@ -255,6 +256,19 @@ async def test_words_that_are_not_a_day_are_not_held_against_the_order(world):
               ("shopify_find_order", {"name": "Alicia", "item": "grey hoodie", "when": "whenever it was"}))
     told = result(world, "shopify_find_order")
     assert [o["order_number"] for o in told["orders"]] == ["CROOKS-2201"]
+
+
+async def test_words_that_could_not_be_read_are_said_even_when_the_order_is_found(world):
+    """Not dropped quietly: the day and the amount he gave that could not be read are said back
+    beside the order that was found without them."""
+    await say(world, "Alicia's grey hoodie, whenever it was, a fair bit",
+              ("shopify_find_order", {"name": "Alicia", "item": "grey hoodie", "when": "whenever it was", "amount": "a fair bit"}))
+    told = result(world, "shopify_find_order")
+    assert [o["order_number"] for o in told["orders"]] == ["CROOKS-2201"]
+    assert told["unread"] == ["when ('whenever it was')", "amount ('a fair bit')"]
+    assert told["unread_note"] == ("I could not read when ('whenever it was') or amount ('a fair bit'), "
+                                   "so they were not used to find the order.")
+    assert "unread_note" in told["instruction"]
 
 
 async def test_a_tap_on_a_name_that_sounds_like_it_opens_their_story(world):

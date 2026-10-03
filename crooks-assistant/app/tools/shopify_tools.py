@@ -824,7 +824,34 @@ async def _find_by_evidence(evidence: dict[str, str], limit: int) -> dict[str, A
             await _closest(client, result, evidence, list(nodes.values()), clauses, name_ids)
         except Exception as exc:  # noqa: BLE001 — the strict answer stands without the second look
             log.warning("closest orders unavailable: %s", type(exc).__name__)
+    _say_unread(result, evidence)
     return result
+
+
+def _unread(evidence: dict[str, str]) -> list[str]:
+    """What he gave that this build could not read — a day that is not a day, an amount that is
+    not one number — in the words app/customers/match.py says them back in."""
+    from app.customers.match import amount_of
+
+    out = []
+    said_when = " ".join(str(evidence.get("when") or "").split())
+    if said_when and _when_window(evidence) is None:
+        out.append(f"when ({said_when!r})")
+    said_amount = " ".join(str(evidence.get("amount") or "").split())
+    if said_amount and amount_of(said_amount) is None:
+        out.append(f"amount ({said_amount!r})")
+    return out
+
+
+def _say_unread(result: dict[str, Any], evidence: dict[str, str]) -> None:
+    """Never dropped quietly: what could not be read is said beside whatever was found."""
+    unread = _unread(evidence)
+    if not unread:
+        return
+    result["unread"] = unread
+    joined = unread[0] if len(unread) == 1 else ", ".join(unread[:-1]) + f" or {unread[-1]}"
+    result["unread_note"] = f"I could not read {joined}, so {'it was' if len(unread) == 1 else 'they were'} not used to find the order."
+    result["instruction"] = " ".join(p for p in (str(result.get("instruction") or ""), "Say `unread_note` too, in a few words.") if p)
 
 
 # ----------------------------------------------- orders, when a fact was misheard

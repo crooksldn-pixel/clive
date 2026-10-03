@@ -993,7 +993,8 @@ def _order_match(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "title": {"one": "Best match", "several": "Which one?", "check": "Is it this one?"}.get(verdict, "Closest orders"),
         "verdict": verdict, "question": _text(result.get("question"), MAX_TEXT_CHARS),
-        "note": _text(result.get("note"), MAX_TEXT_CHARS) if verdict != "one" else "",
+        "note": " ".join(p for p in (_text(result.get("note"), MAX_TEXT_CHARS) if verdict != "one" else "",
+                                     _text(result.get("unread_note"), MAX_TEXT_CHARS)) if p),
         "asked": {k: _text(v, 80) for k, v in (result.get("asked") or {}).items() if isinstance(v, str)} if isinstance(result.get("asked"), dict) else {},
         "rows": rows,
     }
