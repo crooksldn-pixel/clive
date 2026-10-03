@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#07070a">
+<meta name="theme-color" content="#060607">
 <meta name="referrer" content="no-referrer">
 <title>CLIVE · Connections</title>
 <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
@@ -12,90 +12,50 @@
 <link rel="stylesheet" href="/static/connections.css?b=__BUILD__">
 </head>
 <body>
-<main class="page">
+<main class="page" id="page" data-ready="false">
   <header class="top">
-    <a class="back" href="/">← CLIVE</a>
+    <a class="back" href="/"><span class="back-chev" aria-hidden="true"></span>CLIVE</a>
     <h1>Connections</h1>
-    <p class="lede">The keys and sign-ins CLIVE works with. Every change asks for your passkey, and a saved key is never shown again.</p>
+    <p id="summary" class="summary" aria-live="polite">Loading…</p>
   </header>
 
   <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
 
-  <section id="passkey" class="panel" aria-labelledby="passkey-title">
-    <h2 id="passkey-title">Your passkey</h2>
-    <p id="passkey-lede" class="muted">Loading…</p>
-    <ul id="passkey-list" class="passkeys"></ul>
-    <div class="actions">
-      <button id="passkey-add" class="btn primary" type="button" hidden>Set up a passkey on this device</button>
+  <section id="first-passkey" class="group" aria-labelledby="first-passkey-title" hidden>
+    <div class="cells">
+      <div class="conn-like">
+        <div class="conn-head">
+          <span class="dot is-warn" aria-hidden="true"></span>
+          <div class="conn-main">
+            <h2 id="first-passkey-title" class="conn-name">Set up your passkey</h2>
+            <p class="conn-line">Every change here asks for Face ID, your fingerprint or your device PIN. Set it up once, on your own phone.</p>
+          </div>
+        </div>
+        <div class="conn-fix">
+          <div class="key-actions"><button id="first-passkey-add" class="btn primary" type="button">Set up a passkey on this device</button></div>
+        </div>
+      </div>
     </div>
   </section>
 
-  <section id="cards" class="cards" aria-label="Connections"></section>
+  <div id="groups" class="groups" aria-busy="true"></div>
 
-  <section id="changes" class="panel" aria-labelledby="changes-title">
-    <h2 id="changes-title">Recent changes</h2>
-    <p class="muted">Every change, newest first. If you see one you did not make, remove that passkey and disconnect what it touched.</p>
-    <ol id="change-list" class="changes"></ol>
+  <aside class="side">
+  <section id="passkeys" class="group" aria-labelledby="passkeys-title" hidden>
+    <h2 id="passkeys-title" class="group-title">Passkeys</h2>
+    <div id="passkey-list"></div>
+    <p class="group-foot">Each change on this screen asks one of these. Keep them on devices only you unlock.</p>
   </section>
+
+  <details id="changes" class="group record">
+    <summary class="record-summary"><span class="group-title">Recent changes</span><span class="chev"></span></summary>
+    <p class="group-foot">Every change, newest first. If you see one you didn't make, remove that passkey and disconnect what it touched.</p>
+    <div id="change-list"></div>
+  </details>
+  </aside>
 </main>
 
-<template id="voice-template">
-  <section class="voice" aria-label="The voice">
-    <h3>The voice</h3>
-    <p class="muted small">Which voice CLIVE speaks in, and how it sounds. Changing it takes effect on the next
-      answer — nothing restarts. A slider left where it starts asks ElevenLabs for the voice's own default.</p>
-    <div class="voice-row">
-      <label>Voice <select class="voice-pick"></select></label>
-      <button class="btn small voice-list" type="button">Refresh the list</button>
-    </div>
-    <div class="voice-row">
-      <label>Model <select class="voice-model"></select></label>
-    </div>
-    <div class="sliders"></div>
-    <label class="voice-row"><input class="voice-boost" type="checkbox"> Speaker boost</label>
-    <div class="actions">
-      <button class="btn voice-preview" type="button">Preview</button>
-      <button class="btn primary voice-save" type="button">Save the voice</button>
-    </div>
-  </section>
-</template>
-
-<template id="slider-template">
-  <div class="slider">
-    <div class="slider-head">
-      <label class="slider-label"></label>
-      <span class="slider-value small muted"></span>
-    </div>
-    <input type="range">
-    <p class="slider-hint muted small"></p>
-  </div>
-</template>
-
-<template id="card-template">
-  <article class="card">
-    <div class="card-head">
-      <h2 class="card-title"></h2>
-      <span class="pill"></span>
-    </div>
-    <p class="card-what muted"></p>
-    <p class="card-detail"></p>
-    <p class="card-note muted small"></p>
-    <div class="signin" hidden>
-      <button class="btn primary signin-go" type="button"></button>
-      <p class="muted small signin-help">Once, in the Meta app (Instagram → API setup with Instagram login → Business login settings → OAuth redirect URIs), add this address exactly:</p>
-      <div class="copy-row"><code class="redirect"></code><button class="btn small copy" type="button">Copy</button></div>
-    </div>
-    <form class="fields" autocomplete="off" novalidate></form>
-    <div class="extra"></div>
-    <div class="actions">
-      <button class="btn primary save" type="button">Save</button>
-      <button class="btn test" type="button">Test</button>
-      <button class="btn danger disconnect" type="button">Disconnect</button>
-    </div>
-    <p class="result small" aria-live="polite"></p>
-  </article>
-</template>
-
+<script src="/static/connections-view.js?b=__BUILD__" defer></script>
 <script src="/static/connections.js?b=__BUILD__" defer></script>
 </body>
 </html>
