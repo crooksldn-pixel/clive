@@ -295,24 +295,29 @@ async def _check_one(runtime: Any, connection: catalog.Connection) -> None:
 
 async def check_all(runtime: Any, *, every_s: float = CHECK_EVERY_S) -> list[str]:
     """Ask every connected service again, as the Test button does, so the screen shows what is
-    true now: each at most once in `every_s`, however many devices open the screen. Read-only and
-    spending nothing (testers.py says what each asks). Returns the names asked."""
+    true now: each at most once in `every_s`, however many devices open the screen at once.
+    Read-only and spending nothing (testers.py says what each asks). Returns the names asked.
+
+    What is due is claimed before anything waits: a second screen opening meanwhile finds it taken
+    rather than choosing it too (the review of 889f3284: five at once asked ElevenLabs five times)."""
     tests = ledger.last_tests()
-    due: list[catalog.Connection] = []
+    claimed: list[catalog.Connection] = []
     for connection in catalog.CONNECTIONS:
         if connection.name not in CHECKS or connection.name in _CHECKING:
             continue
         age = _age_s(tests.get(connection.name))
         if age is not None and 0 <= age < every_s:
             continue
-        if await asyncio.to_thread(_present, connection):
-            due.append(connection)
-    names = [c.name for c in due]
-    _CHECKING.update(names)
+        claimed.append(connection)
+    _CHECKING.update(c.name for c in claimed)
+    names: list[str] = []
+    results: list[Any] = []
     try:
+        due = [c for c in claimed if await asyncio.to_thread(_present, c)]
+        names = [c.name for c in due]
         results = await asyncio.gather(*(_check_one(runtime, c) for c in due), return_exceptions=True)
     finally:
-        _CHECKING.difference_update(names)
+        _CHECKING.difference_update(c.name for c in claimed)
     for name, result in zip(names, results, strict=True):
         if isinstance(result, BaseException):
             log.warning("connections: the check of %s did not finish (%s)", name, type(result).__name__)
@@ -433,11 +438,15 @@ async def test(runtime: Any, name: str) -> testers.Outcome:
     if not await asyncio.to_thread(_present, connection):
         return testers.Outcome(False, "Not connected.")
     runtime_check = CHECKS.get(name)
-    if runtime_check is not None:
-        outcome = await runtime_check(runtime)
-    else:
-        current = await asyncio.to_thread(_current, connection)
-        outcome = await testers.run(name, current, getattr(runtime, "settings", None))
+    try:
+        if runtime_check is not None:
+            outcome = await runtime_check(runtime)
+        else:
+            current = await asyncio.to_thread(_current, connection)
+            outcome = await testers.run(name, current, getattr(runtime, "settings", None))
+    except Exception as exc:  # noqa: BLE001 - a check that broke is a failed check, and it was made
+        log.warning("connections: the test of %s broke (%s)", name, type(exc).__name__)
+        outcome = testers.Outcome(False, "CLIVE couldn't finish checking this. Check again in a minute.", fix="retry")
     if outcome.checked:
         ledger.tested(name, outcome.as_dict())
     return outcome

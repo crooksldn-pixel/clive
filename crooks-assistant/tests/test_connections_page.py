@@ -180,6 +180,42 @@ async def test_opening_the_screen_asks_each_connected_service_at_most_once_a_min
     assert not others, f"only connected services are asked: {others}"
 
 
+async def test_screens_opened_at_once_ask_each_service_once(world):  # noqa: F811 - the fixture imported above
+    """The review of 889f3284: five screens opening together asked ElevenLabs five times, because a
+    check claimed what it would ask only after a wait in which the others chose the same."""
+    import asyncio
+
+    await register(world)
+    await save(world, "elevenlabs", {"elevenlabs_api_key": KEY})
+    _rewind("elevenlabs", 61)
+    asked = len(calls_to(world, "api.elevenlabs.io"))
+    answers = await asyncio.gather(*(world.post("/connections/check", json={}, headers=HEADERS) for _ in range(5)))
+    assert all(a.status_code == 200 for a in answers)
+    assert len(calls_to(world, "api.elevenlabs.io")) == asked + 1
+
+
+async def test_a_check_that_breaks_is_recorded_and_not_asked_again_within_the_minute(world, monkeypatch):  # noqa: F811
+    """A tester that fails in a way it does not name still counts as asked: the row says to check
+    again, and opening the screen again within the minute does not ask again."""
+    await register(world)
+    await save(world, "elevenlabs", {"elevenlabs_api_key": KEY})
+    _rewind("elevenlabs", 61)
+    broke: list[int] = []
+
+    async def breaks(values, settings):
+        broke.append(1)
+        raise RuntimeError("an answer nobody expected")
+
+    monkeypatch.setitem(testers.TESTERS, "elevenlabs", breaks)
+    shown, _ = await cards(world, "/connections/check")
+    assert broke == [1]
+    voice = shown["elevenlabs"]
+    assert (voice["group"], voice["fix"], voice["needs"]) == ("attention", "retry", [])
+    assert "an answer nobody expected" not in json.dumps(voice), "said in our words"
+    await cards(world, "/connections/check")
+    assert broke == [1], "asked again within the minute"
+
+
 async def test_the_check_is_the_owners_changes_nothing_and_never_answers_with_a_secret(world):  # noqa: F811 - the fixture imported above
     stranger = {"Tailscale-User-Login": "other@example.com", "X-Forwarded-For": "100.64.0.3"}
     assert (await world.post("/connections/check", json={}, headers=stranger)).status_code == 403
