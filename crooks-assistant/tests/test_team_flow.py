@@ -307,3 +307,22 @@ async def test_undoing_the_owners_give_back_hands_the_job_back_to_who_had_it(tea
     await team.post("/today/release", json={"item_id": item_id}, headers=AS_MIA)
     await team.post("/today/undo", json={"item_id": item_id, "steps": ["released"]}, headers=AS_MIA)
     assert work.get(item_id).claimed_by == "mia"
+
+
+async def test_a_member_cannot_flood_georges_list(team):  # noqa: F811
+    """A script made three hundred jobs for George through /today/flag. Ten waiting on him from one
+    person is the most; the eleventh is refused in words, by the page's route and by CLIVE's tool."""
+    let_mia_in()
+    cap = 10                                                     # app/work/store.py MAX_OPEN_FLAGS
+    for n in range(cap):
+        made = await team.post("/today/flag", json={"title": f"Refund asked for #{2100 + n}"}, headers=AS_MIA)
+        assert made.status_code == 200, n
+    over = await team.post("/today/flag", json={"title": "Refund asked for #2199"}, headers=AS_MIA)
+    assert over.status_code == 409 and "George" in over.json()["detail"] and "in person" in over.json()["detail"]
+    work_tools.bind(team.runtime)
+    with authority.acting_as(authority.for_staff("mia", MIA)), pytest.raises(Exception, match="in person"):
+        await work_tools.work_note(action="flag", title="One more")
+    assert len([i for i in work.items() if i.assignee == "owner"]) == cap == work_store.MAX_OPEN_FLAGS
+    first = next(i for i in work.items() if i.title == "Refund asked for #2100")
+    await team.post("/today/done", json={"item_id": first.item_id}, headers=PROXIED)          # George clears one
+    assert (await team.post("/today/flag", json={"title": "Refund asked for #2199"}, headers=AS_MIA)).status_code == 200

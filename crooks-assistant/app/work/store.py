@@ -51,6 +51,9 @@ VIA_CLIVE = "clive"
 # back here: it has its own undo, on its card.
 TAKE_BACK = ("claimed", "released", "packed", "counted", "done")
 UNDO_WINDOW_S = 120
+# How many things one member of the team may have waiting on the owner at once (/today/flag and
+# work_note flag alike): enough for a busy day, never a list a script can flood (the review of 3 October).
+MAX_OPEN_FLAGS = 10
 
 
 class WorkError(ValueError):
@@ -374,8 +377,16 @@ class WorkStore:
         if not _clip(title, 160):
             raise WorkError("say what the owner needs to do")
         with self._lock:
+            if by != "owner" and len(self._open_flags(by)) >= MAX_OPEN_FLAGS:
+                raise WorkError(f"you have already asked George for {MAX_OPEN_FLAGS} things he has not done yet; "
+                                "tell him in person, or wait until he has cleared some")
             return self._new(title=title, source="assigned", ref=ref, details=details, assignee="owner", by=by, via=via,
                              what="flagged")
+
+    def _open_flags(self, by: str) -> list[WorkItem]:
+        """What this person has asked the owner for that is still waiting on him."""
+        return [i for i in self.items() if i.created_by == by and i.assignee == "owner" and i.status in ("open", "claimed")
+                and i.events and i.events[0].get("what") == "flagged"]
 
     def claim(self, item_id: str, *, who: str, owner: bool = False) -> WorkItem:
         with self._lock:
