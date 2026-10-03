@@ -153,6 +153,9 @@ details[open] > .more-body{animation:reveal 260ms var(--spring) both}
 .slider-hint{font-size:13px;line-height:1.35;color:var(--ink-3)}
 .voice-switch{display:flex;align-items:center;gap:10px;min-height:44px;margin-top:8px;font-size:15px}
 .voice-switch input{width:20px;height:20px;accent-color:rgb(var(--acc))}
+/* An untouched slider with no value of the voice's own reported: where it sits is not a value. */
+.slider.is-own input[type="range"]{opacity:.45}
+.voice-switch-own{color:var(--ink-3);font-size:13px}
 
 /* ------------------------------------------------------------------ passkeys and the record */
 .cell{position:relative;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:60px;padding:8px 8px 8px 16px}

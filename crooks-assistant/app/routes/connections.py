@@ -378,6 +378,24 @@ async def connections_voice_list(request: Request) -> JSONResponse:
     return _answer({"voices": found})
 
 
+@router.get("/connections/voice/voices/{voice_id}")
+@_guarded
+async def connections_voice_one(request: Request, voice_id: str) -> JSONResponse:
+    """One voice's own settings, as ElevenLabs reports them, so a slider the owner has not moved can
+    show the voice's real value. Only what ElevenLabs reported: a setting it does not report is
+    absent, and the screen says "the voice's own setting" with no number (app/speech/voice_prefs.py)."""
+    from app.speech import voice_prefs
+
+    _who(request)
+    if not voice_prefs.VOICE_ID.fullmatch(voice_id or ""):
+        raise _Refused(404, "unknown_voice", "There is no such voice.")
+    found, why = await _voice_client(request).voice_details(voice_id)
+    if found is None:
+        raise _Refused(502, "voice_unavailable", why or "ElevenLabs could not be asked just now.")
+    return _answer({"voice_id": voice_id, "voice_name": found["name"],
+                    "own": voice_prefs.voice_settings(voice_prefs.clean(found["settings"]))})
+
+
 @router.post("/connections/voice")
 @_guarded
 async def connections_voice_save(request: Request) -> JSONResponse:

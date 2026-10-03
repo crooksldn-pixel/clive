@@ -33,7 +33,7 @@ from experience.browser import _stop, available
 from tests import connections_world
 
 # Every check the script makes must be made: a run that stopped early is not a pass.
-EXPECTED_CHECKS = 61
+EXPECTED_CHECKS = 63
 
 
 async def test_the_connections_screen_in_a_real_browser(tmp_path):
@@ -64,3 +64,7 @@ async def test_the_connections_screen_in_a_real_browser(tmp_path):
     github = [c for c in asked if c.url.host == "api.github.com"]
     assert len(github) == 1 and github[0].headers["authorization"] == f"Bearer {connections_world.NEW_GITHUB}"
     assert not [h for h in hosts if not h.endswith(".myshopify.com") and h != "api.github.com"], hosts
+    # The voice's own client only ever asked ElevenLabs what a voice is (its name and its own
+    # settings): free, and never a sentence synthesised on the owner's credit.
+    assert world.voice.calls, "the voice panel asked for the voice's own settings"
+    assert all(c.method == "GET" and c.url.path.startswith("/v1/voices/") for c in world.voice.calls)

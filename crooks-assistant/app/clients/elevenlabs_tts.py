@@ -575,6 +575,35 @@ class VoiceClient:
         found.sort(key=lambda v: v["name"].lower())
         return found, ""
 
+    async def voice_details(self, voice_id: str) -> tuple[dict[str, Any] | None, str]:
+        """One voice as ElevenLabs describes it (GET /voices/{id}): ({"voice_id", "name",
+        "settings"}, "") or (None, why). Free, no synthesis. `settings` is what ElevenLabs reports
+        as the voice's own, as it reported it, and empty when it reports none: nothing is filled
+        in here. The caller has checked the id's shape; the key never leaves this method."""
+        if not self.enabled:
+            return None, "ElevenLabs speech is switched off in settings"
+        try:
+            key = self._api_key()
+        except VoiceUnavailable as exc:
+            return None, self._scrub(str(exc))
+        try:
+            response = await self._client().get(
+                f"{self.base_url}/voices/{voice_id}", headers={"xi-api-key": key}, timeout=10.0,
+            )
+        except httpx.HTTPError as exc:
+            return None, f"ElevenLabs could not be reached ({type(exc).__name__})"
+        if response.status_code != 200:
+            return None, str(self._http_failure(response.status_code, response.text[:400]))
+        try:
+            body = response.json()
+        except ValueError:
+            return None, "ElevenLabs answered something unreadable"
+        name = " ".join(str((body or {}).get("name") or "").split())[:60] if isinstance(body, dict) else ""
+        if not name:
+            return None, "ElevenLabs did not say what that voice is called"
+        settings = body.get("settings")
+        return {"voice_id": voice_id, "name": name, "settings": settings if isinstance(settings, dict) else {}}, ""
+
     async def say_once(self, text: str, *, voice_id: str = "", model: str = "",
                        voice_settings: dict[str, Any] | None = None) -> bytes:
         """One sentence in settings that are not this client's, for a preview. Nothing here changes

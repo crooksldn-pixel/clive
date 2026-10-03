@@ -11,7 +11,7 @@ The owner's decision of 1 October 2026, given in the review session:
 The screen is grouped by what you have to do, not by how each connection is built (redesigned 2 October 2026):
 
 - **Needs you**: anything broken, running out or failing its test, each with the one thing that puts it right: a box for the key the service refused, *Sign in again* for an Instagram sign-in that is running out, or *Check again* when the service only did not answer.
-- **Working**: one quiet row each, saying what it lets CLIVE do and "Connected · checked 2 min ago". No key box. Tap the row for its details: what it unlocks (the capability families' own names and states), what stops without it, the account, where the key is kept, the last check, and *Check now*, *Replace key* and *Disconnect*. ElevenLabs' details hold the voice: the picker, the sliders, Preview and Save.
+- **Working**: one quiet row each, saying what it lets CLIVE do and "Connected · checked 2 min ago". No key box. Tap the row for its details: what it unlocks (the capability families' own names and states), what stops without it, the account, where the key is kept, the last check, and *Check now*, *Replace key* and *Disconnect*. ElevenLabs' details hold the voice: the picker, the sliders, Preview and Save (web/connections-voice.js). A slider or the speaker boost is saved only once he moves it; one never touched is not sent, so ElevenLabs keeps the voice's own setting, and the slider shows that value only when ElevenLabs reports it (GET /connections/voice/voices/{id}), otherwise "the voice's own setting" with no number.
 - **Not connected**: what you could add. Its key box appears only when you tap *Connect*. Gmail says it connects at the server for now.
 - **Passkeys** and **Recent changes** come last.
 

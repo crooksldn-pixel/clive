@@ -102,6 +102,24 @@ class Services:
         return httpx.Response(404, json={"error": "not part of the connections world"})
 
 
+class VoiceService:
+    """ElevenLabs as the voice's own client meets it (GET /voices/{id}). Derek, the voice in use,
+    reports two of his own settings and not the rest, so the screen shows both kinds of untouched
+    slider. Kept apart from the key tests above, so what those asked is still counted on its own."""
+
+    VOICES = {"Q0Et7LOU7VpeoeCRQAVS": {"name": "Derek", "settings": {"stability": 0.5, "similarity_boost": 0.75}}}
+
+    def __init__(self) -> None:
+        self.calls: list[httpx.Request] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.calls.append(request)
+        voice_id = request.url.path.rsplit("/", 1)[-1]
+        if request.url.path.startswith("/v1/voices/") and voice_id in self.VOICES:
+            return httpx.Response(200, json={"voice_id": voice_id, **self.VOICES[voice_id]})
+        return httpx.Response(404, json={"detail": {"status": "not part of the connections world"}})
+
+
 class World:
     """The patches made, so they can be put back."""
 
@@ -109,6 +127,7 @@ class World:
         self._undo: list[tuple[Any, str, Any]] = []
         self._env: dict[str, str | None] = {}
         self.services = Services()
+        self.voice = VoiceService()
         self.device: Authenticator | None = None
 
     def patch(self, owner: Any, name: str, value: Any) -> None:
@@ -198,6 +217,7 @@ async def furnish(runtime: Any, scratch: Path, world: World, origin: str = ORIGI
     transport = httpx.MockTransport(world.services)
     world.patch(testers, "http_client", lambda: httpx.AsyncClient(transport=transport))
     world.patch(instagram_client, "http_client", lambda: httpx.AsyncClient(transport=transport))
+    world.patch(runtime.voice, "_http", httpx.AsyncClient(transport=httpx.MockTransport(world.voice)))
     instagram_client.configure(state_path=scratch / "instagram.json")
     now = time.time()
     # Renewed six weeks ago and not since: the sign-in runs out in three days.

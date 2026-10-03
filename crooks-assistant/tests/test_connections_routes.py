@@ -52,12 +52,18 @@ class Services:
     def __init__(self) -> None:
         self.calls: list[httpx.Request] = []
         self.elevenlabs = 200
+        # The account's voices, as ElevenLabs answers GET /voices/{id}: a name and its own settings.
+        self.voices: dict[str, dict] = {}
         self.instagram_token = 200
         self.granted = "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments"
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.calls.append(request)
         host, path = request.url.host, request.url.path
+        if host == "api.elevenlabs.io" and path.startswith("/v1/voices/"):
+            found = self.voices.get(path.rsplit("/", 1)[-1])
+            return (httpx.Response(200, json={"voice_id": path.rsplit("/", 1)[-1], **found}) if found
+                    else httpx.Response(404, json={"detail": {"status": "voice_not_found"}}))
         if host == "api.elevenlabs.io":
             return httpx.Response(self.elevenlabs, json={"detail": {"status": "invalid_api_key"}}
                                   if self.elevenlabs == 401 else [{"model_id": "scribe_v1"}])
@@ -106,6 +112,14 @@ async def world(client, tmp_path, monkeypatch):  # noqa: F811 - fixtures importe
     vault.bind()
     passkeys.reset()
     sign_in.reset()
+
+
+def speaking(http):
+    """The runtime's voice, with a key and ElevenLabs answered by the stand-in services."""
+    voice = http.runtime.voice
+    voice.enabled, voice._key, voice.base_url = True, KEY, "https://api.elevenlabs.io/v1"
+    voice._http = httpx.AsyncClient(transport=httpx.MockTransport(http.services))
+    return voice
 
 
 async def register(http, device=None, *, approval=None):
@@ -499,3 +513,28 @@ async def test_the_voice_change_is_kept_and_read_back_after_a_restart(world):
     # What a restart would read: the record itself, not the client that was changed in memory.
     assert voice_prefs.read() == wanted
 
+
+async def test_a_voices_own_settings_are_what_elevenlabs_reports_and_nothing_is_made_up(world):
+    """The post-deploy review of 3 October: an untouched slider said "(the voice's own)" beside a
+    number nobody had reported. The screen now asks ElevenLabs for the voice's own settings and is
+    told only those it reports; a voice that reports none gets none."""
+    await register(world)
+    speaking(world)
+    world.services.voices = {
+        "9375G6zswFk7v9bKTVQF": {"name": "Vikram", "settings": {"stability": 0.71, "use_speaker_boost": True,
+                                                                "latency": 3}},
+        "Q0Et7LOU7VpeoeCRQAVS": {"name": "Derek", "settings": None},
+    }
+    stranger = {"Tailscale-User-Login": "other@example.com", "X-Forwarded-For": "100.64.0.3"}
+    assert (await world.get("/connections/voice/voices/9375G6zswFk7v9bKTVQF", headers=stranger)).status_code == 403
+    shown = await world.get("/connections/voice/voices/9375G6zswFk7v9bKTVQF", headers=HEADERS)
+    assert shown.status_code == 200, shown.text
+    assert shown.json()["own"] == {"stability": 0.71, "use_speaker_boost": True}
+    assert shown.json()["voice_name"] == "Vikram" and KEY not in shown.text
+    bare = await world.get("/connections/voice/voices/Q0Et7LOU7VpeoeCRQAVS", headers=HEADERS)
+    assert bare.status_code == 200 and bare.json()["own"] == {}
+    asked = [c for c in world.services.calls if c.url.path.startswith("/v1/voices/")]
+    assert [c.headers["xi-api-key"] for c in asked] == [KEY, KEY]
+    assert (await world.get("/connections/voice/voices/not-a-voice", headers=HEADERS)).status_code == 404
+    gone = await world.get("/connections/voice/voices/" + "Z" * 20, headers=HEADERS)
+    assert gone.status_code == 502 and gone.json()["code"] == "voice_unavailable"
