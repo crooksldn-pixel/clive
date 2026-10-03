@@ -192,6 +192,27 @@ query ReturnsExchangeHolds($id: ID!) {
 }
 """
 
+Q_APP_SCOPES = """
+query ReturnsAppScopes {
+  currentAppInstallation { accessScopes { handle } }
+}
+"""
+
+# What the service needs; `returns-ctl check` compares the installed app against this.
+REQUIRED_SCOPES = (
+    "read_orders",
+    "read_customers",
+    "read_products",
+    "read_returns",
+    "write_returns",
+    "read_merchant_managed_fulfillment_orders",
+    "read_assigned_fulfillment_orders",
+    "read_third_party_fulfillment_orders",
+    "read_store_credit_accounts",
+    "read_store_credit_account_transactions",
+    "write_store_credit_account_transactions",
+)
+
 M_RETURN_PROCESS = """
 mutation ReturnsReturnProcess($input: ReturnProcessInput!, $key: String!) {
   returnProcess(input: $input) @idempotent(key: $key) {
@@ -544,6 +565,10 @@ class GraphQLShopify:
         if not node:
             raise ShopifyError("Shopify has no such return.")
         return node
+
+    def app_scopes(self) -> list[str]:
+        installation = self._call(Q_APP_SCOPES)["currentAppInstallation"]
+        return [s["handle"] for s in installation["accessScopes"]]
 
     def exchange_holds(self, order_id: str, line_item_ids: list[str]) -> list[str]:
         """Hold reasons on the fulfilment orders carrying these exchange items (empty: free)."""

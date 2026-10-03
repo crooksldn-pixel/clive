@@ -230,3 +230,87 @@ def test_a_held_swap_is_not_reported_as_confirmed(svc, shop):
     assert out["status"] == "completed" and not out["verified"]
     assert "AWAITING_PAYMENT" in out["error"]
     assert "error" in svc.staff(svc.store.get(ret.id))["attention"]
+
+
+def test_unshipped_order_explains_itself(svc, shop):
+    o = shop.orders["gid://shopify/Order/1939"]
+    o.lines, o.fulfilled_at, o.delivered_at = [], None, None
+    view = svc.portal_order(order(svc))
+    assert "hasn't been sent yet" in view["notice"]
+
+
+def test_declined_item_can_be_requested_again(svc):
+    first = submit(svc, Resolution.refund, Postage.self_ship, reason=Reason.changed_mind)
+    act(svc, first, "decline", reason="Worn")
+    again = submit(svc, Resolution.store_credit, Postage.free_label, reason=Reason.changed_mind)
+    assert again.status == Status.requested
+
+
+def test_cancel_after_approval_cancels_in_shopify(svc, shop):
+    ret = submit(svc, Resolution.refund, Postage.self_ship, reason=Reason.changed_mind)
+    act(svc, ret, "approve")
+    assert act(svc, ret, "cancel")["status"] == "cancelled"
+    assert shop.called("returnCancel")
+
+
+def test_refund_spreads_over_two_payments(svc, shop, monkeypatch):
+    from returns.models import OrderMoney, Transaction
+
+    monkeypatch.setattr(
+        shop,
+        "order_money",
+        lambda oid: OrderMoney(
+            shipping_pence=395,
+            transactions=[
+                Transaction(id="t-gift", kind="SALE", status="SUCCESS", amount_pence=1000),
+                Transaction(id="t-card", kind="SALE", status="SUCCESS", amount_pence=2000),
+                Transaction(id="t-fail", kind="SALE", status="FAILURE", amount_pence=9999),
+            ],
+        ),
+    )
+    ret = submit(svc, Resolution.refund, Postage.self_ship, reason=Reason.changed_mind)
+    act(svc, ret, "approve")
+    act(svc, ret, "receive")
+    parts = shop.called("returnProcess")[0]["input"]["financialTransfer"]["issueRefund"]
+    assert [
+        (t["parentId"], t["transactionAmount"]["amount"]) for t in parts["orderTransactions"]
+    ] == [("t-card", "20.00"), ("t-gift", "5.00")]
+
+
+def test_refund_bigger_than_payments_is_stopped_not_sent(svc, shop, monkeypatch):
+    from returns.models import OrderMoney, Transaction
+
+    monkeypatch.setattr(
+        shop,
+        "order_money",
+        lambda oid: OrderMoney(
+            shipping_pence=0,
+            transactions=[Transaction(id="t", kind="SALE", status="SUCCESS", amount_pence=100)],
+        ),
+    )
+    ret = submit(svc, Resolution.refund, Postage.self_ship, reason=Reason.changed_mind)
+    act(svc, ret, "approve")
+    out = act(svc, ret, "receive")
+    assert out["status"] == "received" and "do not cover" in out["error"]
+    assert shop.called("returnProcess") == []
+
+
+def test_customer_cannot_touch_another_orders_return(svc, shop):
+    ret = submit(svc, Resolution.refund, Postage.self_ship, reason=Reason.changed_mind)
+    act(svc, ret, "approve")
+    other = shop.orders["gid://shopify/Order/1800"]
+    with pytest.raises(ActionError):
+        svc.customer_tracking(other, ret.id, "AB123456789GB")
+
+
+def test_check_command_reports_ready(svc, monkeypatch, capsys):
+    from returns import ctl
+
+    svc.s.restock_location_id = "gid://shopify/Location/1"
+    svc.s.returns_address_line1, svc.s.returns_address_postcode = "1 Yard", "E2 7AA"
+    monkeypatch.setattr(svc.shopify, "reason_ids", lambda: {str(i): str(i) for i in range(6)})
+    monkeypatch.setattr(ctl, "build_service", lambda settings: svc)
+    monkeypatch.setattr(ctl, "get_settings", lambda: svc.s)
+    assert ctl.main(["check"]) == 0
+    out = capsys.readouterr().out
+    assert "Ready." in out and "app permissions" in out

@@ -238,6 +238,11 @@ class FakeShopify:
     def read_return(self, return_id: str) -> dict[str, Any]:
         return self.returns[return_id]
 
+    def app_scopes(self) -> list[str]:
+        from returns.shopify import REQUIRED_SCOPES
+
+        return list(REQUIRED_SCOPES)
+
     def exchange_holds(self, order_id: str, line_item_ids: list[str]) -> list[str]:
         return list(self.holds)
 

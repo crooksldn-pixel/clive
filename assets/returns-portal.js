@@ -293,7 +293,7 @@
       this.frame('nothing', null, {
         kicker: this.caseKicker(),
         title: 'Nothing to send back yet',
-        sub: 'There is nothing on this order we can take back online right now.',
+        sub: esc(this.state.order.notice || 'There is nothing on this order we can take back online right now.'),
         body: reasons ? '<ul class="rd-lines rd-cell" style="padding:16px 18px">' + reasons + '</ul>' : '',
         dock:
           '<a class="rd-cta rd-cta--bone rd-press" href="' + esc(this.contact) + '">Contact us</a>' +

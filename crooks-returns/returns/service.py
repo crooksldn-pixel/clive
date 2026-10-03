@@ -170,8 +170,17 @@ class ReturnsService:
                     "size_chart": line.size_chart,
                 }
             )
+        notice = None
+        if not order.lines:
+            notice = (
+                "This order hasn't been sent yet, so there's nothing to return. "
+                "If you need to change or cancel it, contact us."
+                if order.fulfilled_at is None
+                else "Everything on this order has already been returned."
+            )
         return {
             "order": order.name,
+            "notice": notice,
             "lines": lines,
             "reasons": policy.reason_list(),
             "returns": [self.public(r) for r in self.store.for_order(order.id)],
