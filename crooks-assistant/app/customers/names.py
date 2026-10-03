@@ -118,7 +118,7 @@ def spelt(word: str) -> str:
     # "y" inside a word is a vowel ("Alysa"); at the front, before a vowel, it is a consonant.
     w = w[0] + w[1:].replace("y", "i") if len(w) > 1 else w
     # A final "e" after two consonants is silent ("Clarke", "Anne"). After one consonant that
-    # follows a vowel it changes that vowel ("Jake" is not "Jack", "Mike" is not "Mick"), so it stays.
+    # follows a vowel it changes that vowel ("Jake" is not "Jack", "Dane" is not "Dan"), so it stays.
     if len(w) > 3 and w.endswith("e") and w[-2] not in _VOWELS and w[-3] not in _VOWELS:
         w = w[:-1]
     return re.sub(r"(.)\1+", r"\1", w)
