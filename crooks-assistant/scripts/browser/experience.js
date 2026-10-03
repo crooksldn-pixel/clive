@@ -316,7 +316,10 @@ async function main() {
       const e = document.querySelector(sel);
       if (!e) return null;
       const b = e.getBoundingClientRect();
-      return { x: Math.round(b.x), w: Math.round(b.width), hidden: Boolean(e.hidden), disabled: Boolean(e.disabled) };
+      // `drawn`: on the glass at all. A control hidden by a stylesheet keeps its `hidden` false,
+      // so a check that read only the attribute passed over a control nobody could see.
+      const drawn = b.width > 0 && b.height > 0 && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden';
+      return { x: Math.round(b.x), w: Math.round(b.width), hidden: Boolean(e.hidden), disabled: Boolean(e.disabled), drawn };
     };
     const card = document.querySelector('#cards .card');
     return {
@@ -334,9 +337,13 @@ async function main() {
 
   await say("show me today's orders");
   const atList = await walkState();
-  check('a list offers Next, and keeps a slot for Back rather than a gap',
-    Boolean(atList.next && !atList.next.hidden && !atList.next.disabled)
-    && Boolean(atList.back && !atList.back.hidden && atList.back.disabled),
+  // Design pass (3 Oct), and its review: Back is drawn only when there is somewhere to go back
+  // to (GENERATIVE_UI_V1 §4 removed the permanent strip, and its greyed slot with it). This check
+  // read "keeps a slot for Back rather than a gap", and passed on the `hidden` attribute while the
+  // stylesheet hid the slot; it now holds the rule as it is.
+  check('a list offers Next, and no Back: there is nothing behind a list just opened',
+    Boolean(atList.next && atList.next.drawn && !atList.next.disabled)
+    && Boolean(atList.back && !atList.back.drawn),
     JSON.stringify(atList).slice(0, 200));
   // The list's own step back sits beside its own step on, and starts greyed: the set is at
   // its first member. Back is the trail's, and there is nothing behind a list just opened.
@@ -402,8 +409,10 @@ async function main() {
     out.type === 'order_list' && out.rows > 0 && out.mode === 'context',
     `types=${out.types.join(',')} rows=${out.rows} answer="${out.answer}"`);
   check('and the dock lights the place that list belongs to', out.area === 'orders', `area=${out.area}`);
-  check('at the list, Back is spent and says so in its slot',
-    Boolean(out.back && !out.back.hidden && out.back.disabled && out.back.x === atList.back.x),
+  // Design pass (3 Oct), and its review: this read "Back is spent and says so in its slot" and
+  // passed on the `hidden` attribute while the stylesheet hid the slot. Back spent is Back gone.
+  check('at the list, Back is gone: the trail goes back no further',
+    Boolean(out.back && out.back.disabled && !out.back.drawn),
     JSON.stringify(out.back));
   await shot('05-list-walk');
 
