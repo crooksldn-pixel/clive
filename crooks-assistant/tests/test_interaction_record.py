@@ -723,3 +723,26 @@ async def test_a_busy_day_is_said_as_cut_short_and_the_reading_is_off_the_loop(t
     assert where == [False], "the friction is found in a worker thread, not on the event loop"
     whole = await _review(Session(session_id="tab1"), minutes=1)
     assert "cut_short" not in whole["record"], "a window the look reads whole is not said to be cut"
+
+
+async def test_a_build_request_never_carries_a_customer(monkeypatch):
+    from app.engineering_bridge.github import EngineeringInbox
+    from app.tools import engineering_tools
+    from tests.test_build_from_clive import CHECK_PYTHON, HEAD, HOST, REPO, FakeGitHub
+    from tests.test_build_from_clive import TOKEN as GITHUB
+
+    fake = FakeGitHub()
+    monkeypatch.setattr(engineering_tools, "_inbox", EngineeringInbox(REPO, token_source=lambda: GITHUB, transport=fake.transport(), host=HOST))
+    monkeypatch.setattr(engineering_tools, "_check_python", CHECK_PYTHON)
+    timeline_module.note_names([NAME])
+    prepared = await engineering_tools.submit_engineering_request(
+        inbox_id=HEAD, title="Bulk archive from the list",
+        requested_outcome=f"When I archived spam for {NAME} (zoe.quill@example.com, 07700 900123) the button did nothing.",
+        allowed_paths=["app/tools/batch_tools.py"])
+    content = prepared.execution["content"]
+    assert "Zoe" not in content and "zoe.quill@example.com" not in content and "07700 900123" not in content
+    assert "[name]" in content and "[email]" in content and "the button did nothing" in content
+    plain = await engineering_tools.submit_engineering_request(
+        inbox_id=HEAD, title="Bulk archive", requested_outcome="Archive a whole list in one hold.", allowed_paths=["app/tools/batch_tools.py"],
+        request_id="bulk-archive-plain")
+    assert "Archive a whole list in one hold." in plain.execution["content"], "nothing to take out: as he said it"
