@@ -7,7 +7,7 @@ import contextlib
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -15,7 +15,7 @@ from returns.api import build_routers
 from returns.labels import ClickAndDrop
 from returns.service import ReturnsService
 from returns.settings import Settings, get_settings
-from returns.shopify import GraphQLShopify
+from returns.shopify import GraphQLShopify, ShopifyError
 from returns.store import Store
 
 
@@ -64,6 +64,18 @@ def create_app(settings: Settings | None = None, service: ReturnsService | None 
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
     )
+
+    @app.exception_handler(ShopifyError)
+    async def shopify_down(request: Request, exc: ShopifyError) -> UTF8JSONResponse:
+        # The customer gets a plain message; the reason goes to the log for staff.
+        logging.getLogger("returns.shopify").error(
+            "%s %s: %s", request.method, request.url.path, exc
+        )
+        return UTF8JSONResponse(
+            {"detail": "Our store system didn't answer just now. Please try again in a minute."},
+            status_code=503,
+        )
+
     for router in build_routers(service):
         app.include_router(router)
     app.state.service = service

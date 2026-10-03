@@ -91,12 +91,15 @@ Q_FIND_ORDERS = (
 
 Q_ORDER = "query ReturnsOrder($id: ID!) {\n  order(id: $id) {" + ORDER_FIELDS + "}\n}"
 
+# Shopify caps one query at a cost of 1000. Asking for every product's variants inside the
+# returnable items cost 1367 on the live store, so the items and their products are fetched
+# separately: the items first, then up to PRODUCTS_PER_QUERY products per query.
 Q_RETURNABLE = """
 query ReturnsReturnable($orderId: ID!) {
-  returnableFulfillments(orderId: $orderId, first: 20) {
+  returnableFulfillments(orderId: $orderId, first: 10) {
     nodes {
       id
-      returnableFulfillmentLineItems(first: 100) {
+      returnableFulfillmentLineItems(first: 50) {
         nodes {
           quantity
           fulfillmentLineItem {
@@ -105,21 +108,27 @@ query ReturnsReturnable($orderId: ID!) {
               id title variantTitle sku quantity
               image { url }
               discountedUnitPriceAfterAllDiscountsSet { shopMoney { amount } }
-              variant {
-                id price
-                selectedOptions { name value }
-                product {
-                  id tags
-                  options { name optionValues { name } }
-                  measurements: metafield(namespace: "crooks", key: "measurements") { value }
-                  variants(first: 100) {
-                    nodes { id title sku price availableForSale inventoryQuantity selectedOptions { name value } }
-                  }
-                }
-              }
+              variant { id price selectedOptions { name value } product { id } }
             }
           }
         }
+      }
+    }
+  }
+}
+"""
+
+PRODUCTS_PER_QUERY = 10
+
+Q_PRODUCTS = """
+query ReturnsProducts($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    ... on Product {
+      id tags
+      options { name optionValues { name } }
+      measurements: metafield(namespace: "crooks", key: "measurements") { value }
+      variants(first: 100) {
+        nodes { id title sku price availableForSale inventoryQuantity selectedOptions { name value } }
       }
     }
   }
@@ -460,7 +469,22 @@ class GraphQLShopify:
     # ------------------------------------------------------------------------ reads
 
     def _returnable(self, order_id: str) -> list[dict[str, Any]]:
-        return self._call(Q_RETURNABLE, {"orderId": order_id})["returnableFulfillments"]["nodes"]
+        nodes = self._call(Q_RETURNABLE, {"orderId": order_id})["returnableFulfillments"]["nodes"]
+        variants = [
+            item["fulfillmentLineItem"]["lineItem"].get("variant")
+            for rf in nodes
+            for item in rf["returnableFulfillmentLineItems"]["nodes"]
+        ]
+        ids = sorted({v["product"]["id"] for v in variants if v and v.get("product")})
+        products: dict[str, dict[str, Any]] = {}
+        for i in range(0, len(ids), PRODUCTS_PER_QUERY):
+            found = self._call(Q_PRODUCTS, {"ids": ids[i : i + PRODUCTS_PER_QUERY]})["nodes"]
+            products.update({p["id"]: p for p in found if p})
+        # Put each product's details where parse_order reads them: on the line's variant.
+        for v in variants:
+            if v and v.get("product"):
+                v["product"] = products.get(v["product"]["id"], v["product"])
+        return nodes
 
     def find_orders(self, digits: str) -> list[Order]:
         nodes = self._call(Q_FIND_ORDERS, {"query": f"name:#{digits}"})["orders"]["nodes"]

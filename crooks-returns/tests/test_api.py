@@ -117,3 +117,111 @@ def test_staff_tool_lists_and_acts(svc, monkeypatch, capsys):
     assert ctl.main(["receive", ret.id, "--yes"]) == 0
     assert "-> completed" in capsys.readouterr().out
     assert ctl.main(["decline", ret.id, "--yes"]) == 1
+
+
+def test_shopify_failure_reads_as_a_plain_message(svc, monkeypatch):
+    from returns.shopify import ShopifyError
+
+    def down(digits):
+        raise ShopifyError("Query cost is 1367, which exceeds the single query max cost limit")
+
+    monkeypatch.setattr(svc.shopify, "find_orders", down)
+    r = client(svc).post("/proxy/api/lookup", json={"order": "1939", "proof": "E1 6AN"})
+    assert r.status_code == 503
+    assert "try again" in r.json()["detail"]
+
+
+def test_returnable_items_and_products_are_fetched_separately():
+    from returns.settings import Settings
+    from returns.shopify import PRODUCTS_PER_QUERY, Q_PRODUCTS, GraphQLShopify, parse_order
+
+    item = {
+        "quantity": 1,
+        "fulfillmentLineItem": {
+            "id": "fli1",
+            "lineItem": {
+                "id": "li1",
+                "title": "CROOKS EXPRESS TEE",
+                "variantTitle": "Black / S",
+                "sku": None,
+                "quantity": 1,
+                "image": None,
+                "discountedUnitPriceAfterAllDiscountsSet": {"shopMoney": {"amount": "25.0"}},
+                "variant": {
+                    "id": "v-S",
+                    "price": "25.00",
+                    "selectedOptions": [
+                        {"name": "Colour", "value": "Black"},
+                        {"name": "Size", "value": "S"},
+                    ],
+                    "product": {"id": "p1"},
+                },
+            },
+        },
+    }
+    product = {
+        "id": "p1",
+        "tags": ["tee"],
+        "options": [
+            {"name": "Colour", "optionValues": [{"name": "Black"}]},
+            {"name": "Size", "optionValues": [{"name": "S"}, {"name": "M"}]},
+        ],
+        "measurements": {
+            "value": '[{"size":"S","chest":"105.4cm"},{"size":"M","chest":"110.5cm"}]'
+        },
+        "variants": {
+            "nodes": [
+                {
+                    "id": "v-S",
+                    "title": "Black / S",
+                    "sku": None,
+                    "price": "25.00",
+                    "availableForSale": True,
+                    "inventoryQuantity": 13,
+                    "selectedOptions": [
+                        {"name": "Colour", "value": "Black"},
+                        {"name": "Size", "value": "S"},
+                    ],
+                },
+                {
+                    "id": "v-M",
+                    "title": "Black / M",
+                    "sku": None,
+                    "price": "25.00",
+                    "availableForSale": True,
+                    "inventoryQuantity": -2,
+                    "selectedOptions": [
+                        {"name": "Colour", "value": "Black"},
+                        {"name": "Size", "value": "M"},
+                    ],
+                },
+            ]
+        },
+    }
+    calls = []
+
+    def fake_call(document, variables=None):
+        calls.append(document)
+        if document == Q_PRODUCTS:
+            assert len(variables["ids"]) <= PRODUCTS_PER_QUERY
+            return {"nodes": [product]}
+        return {
+            "returnableFulfillments": {
+                "nodes": [{"id": "rf1", "returnableFulfillmentLineItems": {"nodes": [item]}}]
+            }
+        }
+
+    shop = GraphQLShopify(Settings())
+    shop._call = fake_call
+    returnable = shop._returnable("gid://shopify/Order/1")
+    assert len(calls) == 2
+    node = {
+        "id": "o1",
+        "name": "CROOKS-2129",
+        "createdAt": "2026-10-03T15:22:05Z",
+        "fulfillments": [],
+    }
+    line = parse_order(node, returnable).lines[0]
+    assert line.size == "S" and line.sizes == ["S", "M"]
+    assert line.size_chart[1]["chest"] == "110.5cm"
+    assert [v.available for v in line.siblings] == [True, False]  # oversold M is not offered
