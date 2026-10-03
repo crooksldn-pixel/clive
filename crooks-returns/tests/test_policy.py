@@ -77,7 +77,7 @@ def test_size_swap_first_then_credit_then_refund(orders, settings):
         Resolution.refund,
     ]
     sizes = [v.title for v in q.options[0].exchange_choices[TEE]]
-    assert sizes == ["S", "L"]  # not the size they have, not the out-of-stock XL
+    assert sizes == ["L"]  # bigger only; not M (theirs), not the out-of-stock XL
 
 
 def test_exchange_and_credit_postage_is_free(orders, settings):
@@ -142,3 +142,56 @@ def test_quantity_and_ownership_checked(orders, settings):
         policy.quote(
             recent, [sel("gid://shopify/FulfillmentLineItem/999", Reason.too_big)], TODAY, settings
         )
+
+
+def test_too_big_offers_only_smaller_sizes(orders, settings):
+    recent, _, _ = orders
+    q = policy.quote(recent, [sel(JEANS, Reason.too_big)], TODAY, settings)
+    assert [v.title for v in option(q, Resolution.exchange).exchange_choices[JEANS]] == ["30"]
+
+
+def test_too_small_in_the_biggest_size_offers_no_swap(orders, settings):
+    recent, _, _ = orders
+    recent.lines[1].variant_id = "gid://shopify/ProductVariant/jeans-34"
+    recent.lines[1].options = {"Size": "34"}
+    q = policy.quote(recent, [sel(JEANS, Reason.too_small)], TODAY, settings)
+    assert Resolution.exchange not in [o.resolution for o in q.options]
+
+
+def test_size_swap_keeps_colour_and_goes_nearest_first(orders, settings):
+    from returns.models import Variant
+
+    recent, _, _ = orders
+    line = recent.lines[0]
+    line.sizes = ["XS", "S", "M", "L", "XL"]
+    line.options = {"Colour": "Black", "Size": "S"}
+    line.siblings = [
+        Variant(
+            id=f"v-{c}-{s}",
+            title=f"{c} / {s}",
+            price_pence=2500,
+            available=True,
+            options={"Colour": c, "Size": s},
+        )
+        for c in ("White", "Black")
+        for s in line.sizes
+    ]
+    line.variant_id = "v-Black-S"
+    q = policy.quote(recent, [sel(TEE, Reason.too_small)], TODAY, settings)
+    titles = [v.title for v in option(q, Resolution.exchange).exchange_choices[TEE]]
+    assert titles == ["Black / M", "Black / L", "Black / XL"]
+    q = policy.quote(recent, [sel(TEE, Reason.changed_mind)], TODAY, settings)
+    assert len(option(q, Resolution.exchange).exchange_choices[TEE]) == 9  # any other variant
+
+
+def test_size_chart_parsing():
+    from returns.shopify import parse_size_chart, size_option_of
+
+    rows = parse_size_chart('[{"size":"M","chest":"110.5cm"},{"bad":1},"x"]')
+    assert rows == [{"size": "M", "chest": "110.5cm"}]
+    assert parse_size_chart("not json") == [] and parse_size_chart(None) == []
+    opts = [
+        {"name": "Colour", "optionValues": [{"name": "Black"}]},
+        {"name": "Size", "optionValues": [{"name": "S"}, {"name": "M"}]},
+    ]
+    assert size_option_of(opts) == ("Size", ["S", "M"])

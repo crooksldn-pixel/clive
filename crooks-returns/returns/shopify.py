@@ -5,6 +5,7 @@ Shopify admin, in Shopify's reports and to CLIVE's own Shopify reads."""
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -105,9 +106,14 @@ query ReturnsReturnable($orderId: ID!) {
               discountedUnitPriceAfterAllDiscountsSet { shopMoney { amount } }
               variant {
                 id price
+                selectedOptions { name value }
                 product {
                   id tags
-                  variants(first: 100) { nodes { id title sku price availableForSale inventoryQuantity } }
+                  options { name optionValues { name } }
+                  measurements: metafield(namespace: "crooks", key: "measurements") { value }
+                  variants(first: 100) {
+                    nodes { id title sku price availableForSale inventoryQuantity selectedOptions { name value } }
+                  }
                 }
               }
             }
@@ -212,6 +218,35 @@ def _dt(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
 
 
+def _options(variant: dict[str, Any]) -> dict[str, str]:
+    return {o["name"]: o["value"] for o in variant.get("selectedOptions") or []}
+
+
+def size_option_of(options: list[dict[str, Any]]) -> tuple[str | None, list[str]]:
+    """The product's size option and its values in the shop's own order (smallest first, as
+    the product page lists them). None when the product has no option called size."""
+    for option in options:
+        if "size" in option["name"].casefold():
+            return option["name"], [v["name"] for v in option.get("optionValues") or []]
+    return None, []
+
+
+def parse_size_chart(raw: str | None) -> list[dict[str, str]]:
+    """crooks.measurements: a JSON list of rows, each with a "size" and its measurements.
+    Anything else (missing, malformed) is no chart rather than an error."""
+    try:
+        rows = json.loads(raw) if raw else []
+    except ValueError:
+        return []
+    if not isinstance(rows, list):
+        return []
+    return [
+        {str(k): str(v) for k, v in row.items()}
+        for row in rows
+        if isinstance(row, dict) and row.get("size")
+    ]
+
+
 def parse_order(node: dict[str, Any], returnable: list[dict[str, Any]]) -> Order:
     customer = node.get("customer") or {}
     ship = node.get("shippingAddress") or {}
@@ -235,9 +270,11 @@ def parse_order(node: dict[str, Any], returnable: list[dict[str, Any]]) -> Order
                     # Untracked stock reads as None: trust availableForSale alone then.
                     available=bool(v.get("availableForSale"))
                     and (v.get("inventoryQuantity") is None or v["inventoryQuantity"] > 0),
+                    options=_options(v),
                 )
                 for v in (product.get("variants") or {}).get("nodes", [])
             ]
+            size_option, sizes = size_option_of(product.get("options") or [])
             price = li["discountedUnitPriceAfterAllDiscountsSet"]["shopMoney"]["amount"]
             lines.append(
                 OrderLine(
@@ -257,6 +294,10 @@ def parse_order(node: dict[str, Any], returnable: list[dict[str, Any]]) -> Order
                     returnable_qty=item["quantity"],
                     unit_paid_pence=to_pence(price),
                     siblings=siblings,
+                    options=_options(variant),
+                    size_option=size_option,
+                    sizes=sizes,
+                    size_chart=parse_size_chart((product.get("measurements") or {}).get("value")),
                 )
             )
     name = " ".join(x for x in (customer.get("firstName"), customer.get("lastName")) if x)

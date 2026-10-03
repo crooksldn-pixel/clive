@@ -98,6 +98,8 @@ class Variant(BaseModel):
     sku: str | None = None
     price_pence: int
     available: bool
+    # Option name -> value, e.g. {"Colour": "Black", "Size": "M"}.
+    options: dict[str, str] = Field(default_factory=dict)
 
 
 class OrderLine(BaseModel):
@@ -115,6 +117,17 @@ class OrderLine(BaseModel):
     returnable_qty: int
     unit_paid_pence: int
     siblings: list[Variant] = Field(default_factory=list)
+    # The variant's own options, the product's size option and its sizes smallest first.
+    options: dict[str, str] = Field(default_factory=dict)
+    size_option: str | None = None
+    sizes: list[str] = Field(default_factory=list)
+    # The product's size chart (crooks.measurements): one row per size, e.g.
+    # {"size": "M", "chest": "110.5cm", "length": "72.4cm"}.
+    size_chart: list[dict[str, str]] = Field(default_factory=list)
+
+    @property
+    def size(self) -> str | None:
+        return self.options.get(self.size_option) if self.size_option else None
 
 
 class Order(BaseModel):

@@ -26,6 +26,7 @@ def _sizes(product: str, sizes: list[str], price: int, out_of_stock: set[str] = 
             sku=f"{product.upper()}-{s}",
             price_pence=price,
             available=s not in out_of_stock,
+            options={"Size": s},
         )
         for s in sizes
     ]
@@ -71,6 +72,9 @@ def sample_orders(now: datetime | None = None) -> list[Order]:
                 returnable_qty=1,
                 unit_paid_pence=2500,
                 siblings=tee,
+                options={"Size": "M"},
+                size_option="Size",
+                sizes=["S", "M", "L", "XL"],
             ),
             OrderLine(
                 fulfillment_line_item_id="gid://shopify/FulfillmentLineItem/2",
@@ -85,6 +89,9 @@ def sample_orders(now: datetime | None = None) -> list[Order]:
                 returnable_qty=1,
                 unit_paid_pence=6000,
                 siblings=jeans,
+                options={"Size": "32"},
+                size_option="Size",
+                sizes=["30", "32", "34"],
             ),
         ],
     )

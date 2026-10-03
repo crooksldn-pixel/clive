@@ -142,9 +142,25 @@ def credit_bonus(items_pence: int, settings: Settings) -> int:
     return bonus
 
 
+def size_rank(line: OrderLine, variant_id: str) -> int | None:
+    """Where a variant sits in the product's sizes, smallest first. Uses the size option when
+    the product has one, otherwise the order the variants are listed in."""
+    found = next((v for v in line.siblings if v.id == variant_id), None)
+    if found is None:
+        return None
+    if line.size_option and line.sizes:
+        value = found.options.get(line.size_option)
+        return line.sizes.index(value) if value in line.sizes else None
+    return line.siblings.index(found)
+
+
 def exchange_variants(line: OrderLine, reason: Reason) -> list[Variant]:
-    """Sizes or colours of the same product, in stock and at the same price, so an exchange
-    never has a difference to pay or refund. A faulty item may also be swapped like-for-like."""
+    """What an item may be swapped for: the same product, in stock, at the same price, so an
+    exchange never has a difference to pay or refund.
+
+    Too small offers only bigger sizes and too big only smaller ones, in the same colour (or
+    other options), nearest size first. A faulty item may also be swapped like-for-like.
+    """
     out = []
     for v in line.siblings:
         if not v.available:
@@ -154,16 +170,34 @@ def exchange_variants(line: OrderLine, reason: Reason) -> list[Variant]:
         if v.id == line.variant_id and reason not in SELLER_FAULT:
             continue
         out.append(v)
-    return out
+    if reason not in FIT or line.variant_id is None:
+        return out
+    mine = size_rank(line, line.variant_id)
+    if mine is None:
+        return out
+    keep = {k: val for k, val in line.options.items() if k != line.size_option}
+    ranked = []
+    for v in out:
+        rank = size_rank(line, v.id)
+        if rank is None:
+            continue
+        if line.size_option and any(v.options.get(k) != val for k, val in keep.items()):
+            continue
+        if (reason == Reason.too_small and rank > mine) or (
+            reason == Reason.too_big and rank < mine
+        ):
+            ranked.append((abs(rank - mine), v))
+    return [v for _, v in sorted(ranked, key=lambda pair: pair[0])]
 
 
 def exchange_direction(line: OrderLine, to_variant_id: str) -> str:
-    ids = [v.id for v in line.siblings]
     if to_variant_id == line.variant_id:
         return "same"
-    if line.variant_id in ids and to_variant_id in ids:
-        return "size_up" if ids.index(to_variant_id) > ids.index(line.variant_id) else "size_down"
-    return "other"
+    mine = size_rank(line, line.variant_id) if line.variant_id else None
+    theirs = size_rank(line, to_variant_id)
+    if mine is None or theirs is None or mine == theirs:
+        return "other"
+    return "size_up" if theirs > mine else "size_down"
 
 
 def build_lines(
