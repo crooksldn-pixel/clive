@@ -17,7 +17,7 @@ from typing import Any, Protocol
 
 import httpx
 
-from returns.models import Return, to_amount
+from returns.models import Return, declared_value_pence, to_amount
 from returns.settings import Settings
 
 
@@ -76,7 +76,7 @@ class ClickAndDrop:
         """The customer is the recipient: a Tracked Returns label carries their address and
         comes back to the return address held on the Click & Drop account."""
         name = " ".join(x for x in (address.get("firstName"), address.get("lastName")) if x)
-        value = sum(line.unit_paid_pence * line.quantity for line in ret.lines)
+        value = declared_value_pence(ret.lines)
         return {
             "items": [
                 {

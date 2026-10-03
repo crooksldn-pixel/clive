@@ -187,6 +187,8 @@ class ReturnLine(BaseModel):
     reason: Reason
     note: str = ""
     unit_paid_pence: int
+    # The item's shop price, for declaring the parcel's value when less (or nothing) was paid.
+    unit_price_pence: int | None = None
     # Exchange only: what this line becomes.
     exchange_variant_id: str | None = None
     exchange_variant_title: str | None = None
@@ -194,6 +196,13 @@ class ReturnLine(BaseModel):
     # The new variant's list price, so the swap can be priced at what the customer paid.
     exchange_price_pence: int | None = None
     exchange_direction: str | None = None  # size_up, size_down, same, other
+
+
+def declared_value_pence(lines: list[ReturnLine]) -> int:
+    """What a returned parcel is worth to us: the shop price where more than was paid, never
+    nothing (couriers refuse a parcel worth £0)."""
+    value = sum(max(ln.unit_paid_pence, ln.unit_price_pence or 0) * ln.quantity for ln in lines)
+    return max(value, 100)
 
 
 class Money(BaseModel):

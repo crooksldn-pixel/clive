@@ -232,6 +232,7 @@ def build_lines(
                 reason=sel.reason,
                 note=sel.note.strip(),
                 unit_paid_pence=line.unit_paid_pence,
+                unit_price_pence=line.variant_price_pence or None,
             )
         )
     return out

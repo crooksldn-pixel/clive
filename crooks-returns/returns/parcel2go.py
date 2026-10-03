@@ -29,7 +29,7 @@ from typing import Any
 import httpx
 
 from returns.labels import Label, LabelError
-from returns.models import Return, to_amount, to_pence
+from returns.models import Return, declared_value_pence, to_amount, to_pence
 from returns.settings import Settings
 
 log = logging.getLogger("returns.parcel2go")
@@ -314,7 +314,7 @@ class Parcel2Go:
                 "The courier needs a phone number for the customer and the order has none. "
                 "Set RETURNS_RETURNS_CONTACT_PHONE so ours is used, or add tracking by hand."
             )
-        value = sum(line.unit_paid_pence * line.quantity for line in ret.lines)
+        value = declared_value_pence(ret.lines)
         option = self._pick(ret.postage.service, collection["Postcode"], value)
         parcel = {k: v for k, v in self._parcel(value).items() if k != "Value"}
         order = {

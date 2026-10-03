@@ -321,3 +321,13 @@ def test_courier_tracking_moves_the_return(psvc):
     after = psvc.staff(psvc.store.get(ret.id))
     assert after["attention"] == ["delivered_unchecked"]
     assert [e["type"] for e in after["timeline"]][-2:] == ["in_transit", "delivered_to_us"]
+
+
+def test_a_free_item_is_declared_at_its_shop_price(psvc, shop, p2g_server):
+    # Couriers refuse a parcel worth £0 (Parcel2Go: "Please enter a value for your parcel").
+    shop.orders["gid://shopify/Order/1939"].lines[0].unit_paid_pence = 0
+    order = psvc.shopify.get_order("gid://shopify/Order/1939")
+    sel = [Selection(fulfillment_line_item_id=TEE, quantity=1, reason=Reason.faulty)]
+    ret = psvc.submit(order, sel, Resolution.refund, Postage.free_label, {}, "evri")
+    psvc.execute(ret.id, "approve", {"postage_mode": "label_now"}, "staff", "k1")
+    assert p2g_server.orders[0]["Items"][0]["Parcels"][0]["EstimatedValue"] == 25.0

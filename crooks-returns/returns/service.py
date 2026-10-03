@@ -34,6 +34,7 @@ from returns.models import (
     Return,
     Selection,
     Status,
+    declared_value_pence,
     gbp,
     to_amount,
 )
@@ -510,7 +511,7 @@ class ReturnsService:
             return f"Buy a return label in {name} and email it to the customer."
         order = self.shopify.get_order(ret.order_id)
         address = (order.shipping_address if order else None) or {}
-        value = sum(ln.unit_paid_pence * ln.quantity for ln in ret.lines)
+        value = declared_value_pence(ret.lines)
         try:
             options = options_for(address.get("zip") or "", value, with_shops=False)
         except LabelError as exc:
