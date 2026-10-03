@@ -3323,7 +3323,9 @@ async function declineAction(proposalId, node, button) {
     return;
   }
   if (button) button.disabled = false;
-  notifyControl(String((payload && payload.detail) || 'The server did not answer, so it is still waiting.'), button,
+  // No answer is not "no": the decline may have reached CLIVE and its reply been lost, so the
+  // page does not claim the change is still waiting (review of the design pass, 3 Oct).
+  notifyControl(String((payload && payload.detail) || "Couldn't reach CLIVE \u2014 it may still be waiting."), button,
     { tone: 'warn', code: codeOf(payload && payload.code, 'not_withdrawn') });
 }
 // ---- design pass · end

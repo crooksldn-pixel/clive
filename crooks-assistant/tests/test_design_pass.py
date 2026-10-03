@@ -92,3 +92,12 @@ def test_the_page_posts_it_on_home():
     body = app_js[app_js.index("async function goHome()"):app_js.index("\n}\n", app_js.index("async function goHome()"))]
     assert "semanticCommand('screen.home')" in body
     assert "navigation.home" not in body, "the orders landing stays the Orders icon's"
+
+
+def test_not_now_with_no_answer_does_not_claim_the_change_is_waiting():
+    """Review of the design pass (3 Oct): a "Not now" that gets no answer may have withdrawn the
+    change and lost the reply, so the page says it may still be waiting, not that it is."""
+    app_js = (WEB / "app.js").read_text(encoding="utf-8")
+    body = app_js[app_js.index("async function declineAction("):app_js.index("\n}\n", app_js.index("async function declineAction("))]
+    assert "\"Couldn't reach CLIVE \\u2014 it may still be waiting.\"" in body
+    assert "so it is still waiting" not in body
