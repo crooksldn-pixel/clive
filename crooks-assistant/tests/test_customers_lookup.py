@@ -141,6 +141,22 @@ async def test_an_amount_and_a_day_with_a_misheard_name(world):
     assert cards(told_body, "order_match")
 
 
+async def test_an_amount_is_held_to_what_was_paid_not_what_is_left_after_a_refund(world):
+    """Alicia paid £70 for #2201 and £45 went back: "the £70 one" is that order."""
+    await say(world, "Alicia Grant's seventy pound order", ("shopify_find_order", {"name": "Alicia Grant", "amount": "£70"}))
+    told = result(world, "shopify_find_order")
+    assert [o["order_number"] for o in told["orders"]] == ["CROOKS-2201"]
+
+
+def test_an_order_the_cache_holds_with_a_refund_has_no_paid_amount_to_hold():
+    """The read layer keeps what is left after refunds, not what was paid; such an order's amount
+    is unknown to the scoring rather than wrong."""
+    row = {"order_id": "gid://shopify/Order/1", "order_number": "#1", "created_at": "2026-09-30T10:00:00Z",
+           "total": 25.0, "refunded": 45.0, "currency": "GBP", "items": []}
+    assert match.from_cache_row(row).paid is None
+    assert match.from_cache_row({**row, "refunded": 0.0}).paid == 25.0
+
+
 async def test_part_of_an_email_and_a_day_find_the_order(world):
     await say(world, "the alicia.g one from last week", ("shopify_find_order", {"email": "alicia.g", "when": "last week"}))
     told = result(world, "shopify_find_order")

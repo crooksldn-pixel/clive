@@ -67,6 +67,9 @@ class Candidate:
     address: dict[str, Any] = field(default_factory=dict)
     total: float | None = None
     currency: str = "GBP"
+    # What was paid: the total before any refund, which is what an amount he says is held to.
+    # None when the read does not know it (the cache keeps only what is left after a refund).
+    paid: float | None = None
     items: list[dict[str, Any]] = field(default_factory=list)
     fulfillment: str = ""
     payment: str = ""
@@ -90,6 +93,7 @@ def from_node(node: dict[str, Any]) -> Candidate:
     customer = node.get("customer") or {}
     address = node.get("shippingAddress") or {}
     money = ((node.get("currentTotalPriceSet") or {}).get("shopMoney") or {})
+    paid = ((node.get("totalPriceSet") or {}).get("shopMoney") or {})
     stamp = node.get("processedAt") or node.get("createdAt") or ""
     return Candidate(
         order_id=str(node.get("id") or ""), number=str(node.get("name") or ""), placed_at=str(stamp),
@@ -99,7 +103,7 @@ def from_node(node: dict[str, Any]) -> Candidate:
         order_email=str(node.get("email") or "").lower(),
         parcel_name=" ".join(str(address.get(k) or "") for k in ("firstName", "lastName")).strip(),
         address={k: address.get(k) for k in ("address1", "address2", "city", "zip")},
-        total=_float(money.get("amount")), currency=str(money.get("currencyCode") or "GBP"),
+        total=_float(money.get("amount")), currency=str(money.get("currencyCode") or "GBP"), paid=_float(paid.get("amount")),
         items=st._evidence_lines(node), fulfillment=str(node.get("displayFulfillmentStatus") or ""),
         payment=str(node.get("displayFinancialStatus") or ""), cancelled=bool(node.get("cancelledAt")),
         has_zip=bool(str(address.get("zip") or "").strip()),
@@ -110,12 +114,14 @@ def from_cache_row(row: dict[str, Any]) -> Candidate:
     """An order as the read layer's cache holds it (app/analytics/cache.py `shape_order`): the
     town but not the street or the postcode, and no name on the parcel."""
     customer = row.get("customer") or {}
+    total = _float(row.get("total"))
     return Candidate(
         order_id=str(row.get("order_id") or ""), number=str(row.get("order_number") or ""),
         placed_at=str(row.get("created_at") or ""), day=when.shop_day(row.get("created_at")),
         customer_id=str(customer.get("customer_id") or ""), customer_name=str(customer.get("name") or ""),
         customer_email=str(customer.get("email") or "").lower(), address={"city": row.get("city") or ""},
-        total=_float(row.get("total")), currency=str(row.get("currency") or "GBP"),
+        total=total, currency=str(row.get("currency") or "GBP"),
+        paid=total if not _float(row.get("refunded")) else None,
         items=[{"title": str(i.get("product") or ""), "variant": str(i.get("variant") or ""), "sku": str(i.get("sku") or ""),
                 "quantity": i.get("quantity"), "variant_id": str(i.get("variant_id") or "")}
                for i in row.get("items") or [] if isinstance(i, dict)],
@@ -239,12 +245,12 @@ def _when_fact(c: Candidate, ev: Evidence, today: date) -> dict[str, Any]:
 
 
 def _amount_fact(c: Candidate, ev: Evidence) -> dict[str, Any]:
-    if c.total is None or ev.amount is None:
+    if c.paid is None or ev.amount is None:
         return _fact("unknown", 0.0, 0.0, "")
-    gap = abs(c.total - ev.amount)
+    gap = abs(c.paid - ev.amount)
     share = 1.0 if gap <= max(0.5, ev.amount * 0.01) else 0.7 if gap <= ev.amount * 0.05 else 0.3 if gap <= ev.amount * 0.15 else 0.0
     fit = "yes" if share >= 1.0 else "partly" if share > 0 else "no"
-    shown = f"£{c.total:,.2f}" if c.currency == "GBP" else f"{c.total:,.2f} {c.currency}"
+    shown = f"£{c.paid:,.2f} paid" if c.currency == "GBP" else f"{c.paid:,.2f} {c.currency} paid"
     return _fact(fit, WEIGHTS["amount"] * share, WEIGHTS["amount"], shown if fit == "yes" else f"{shown}, not {ev.amount_said}")
 
 

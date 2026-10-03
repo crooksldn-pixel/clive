@@ -419,6 +419,7 @@ query CrooksOrderEvidence($q: String, $n: Int!) {
       displayFulfillmentStatus
       displayFinancialStatus
       currentTotalPriceSet { shopMoney { amount currencyCode } }
+      totalPriceSet { shopMoney { amount currencyCode } }
       customer { id displayName defaultEmailAddress { emailAddress } }
       shippingAddress { firstName lastName address1 address2 city zip countryCodeV2 }
       lineItems(first: 10) { edges { node { title variantTitle sku quantity variant { id } } } }
@@ -615,7 +616,8 @@ def _check_evidence(node: dict[str, Any], evidence: dict[str, str]) -> dict[str,
         from app.customers.match import amount_of
 
         said = amount_of(evidence["amount"])
-        total = ((node.get("currentTotalPriceSet") or {}).get("shopMoney") or {}).get("amount")
+        # What was paid — the order's total before any refund — which is what he remembers.
+        total = ((node.get("totalPriceSet") or node.get("currentTotalPriceSet") or {}).get("shopMoney") or {}).get("amount")
         if said is not None:
             try:
                 held["amount"] = abs(float(total) - said) <= max(0.5, said * 0.01)
