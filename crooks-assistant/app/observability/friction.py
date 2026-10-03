@@ -366,6 +366,9 @@ def _tap_finding(key: str, run: list[dict[str, Any]]) -> Finding:
     refused = sum(1 for e in run if _refused(e))
     seconds = _ts(run[-1]) - _ts(run[0])
     label = control.split("/")[0] or kind.removeprefix("tablet_")
+    if kind == "tablet_tab":
+        # A tab's label is the page's own words, kept by its shape: it is named by its card.
+        label = f"a tab on the {str(run[0].get('name') or 'card').replace('_', ' ')} card"
     what = (f"{label} was tapped {len(run)} times in {seconds:.1f} s"
             + (f"; {refused} of them were refused or did nothing" if refused else ""))
     return Finding("REPEATED_TAP", _ts(run[0]), what, _easier_for_taps(label, len(run), refused),

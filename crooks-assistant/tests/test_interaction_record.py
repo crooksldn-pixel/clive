@@ -635,3 +635,28 @@ async def test_recording_is_said_only_to_the_owner_and_never_turns_the_teams_tel
     assert turn_module._writing_id(client.runtime.timeline) is None, "a team member's page is never told"
     beat = (await client.post("/pad/heartbeat", headers=PROXIED, json={"app_version": "0.4.2", "device_model": "SM-T290"})).json()
     assert beat["recording"] is True
+
+
+def test_the_pages_free_text_is_kept_by_its_shape_in_the_record_and_as_before_in_a_test(tmp_path):
+    record = record_in(tmp_path)
+    record.emit("tablet_tab", source="tablet", session_id="s1", label=f"{NAME}'s orders", detail="gid://x/1", name="customer")
+    record.emit("tablet_render", source="tablet", session_id="s1", cards=[{
+        "type": "order", "actions": [{"id": "refund", "enabled": False, "reason": f"Already refunded to {NAME}"}],
+        "surface": {"kind": "hold", "state": "unavailable", "reason": "Ships to 14 Ravensbourne Road"}}])
+    record.emit("tablet_exception", source="tablet", session_id="s1", message=f"TypeError at {NAME}", file="/static/ui.js")
+    record.flush()
+    events = {e["kind"]: e for e in read_events(record.sessions.timeline_path(record.active_id)) if e["kind"].startswith("tablet_")}
+    assert events["tablet_tab"]["label"].startswith("<") and events["tablet_tab"]["detail"].startswith("<")
+    assert events["tablet_tab"]["name"] == "customer", "the card's type is vocabulary and stays"
+    card = events["tablet_render"]["cards"][0]
+    assert card["actions"][0]["reason"].startswith("<") and card["surface"]["reason"].startswith("<")
+    assert card["actions"][0]["id"] == "refund" and card["surface"]["state"] == "unavailable"
+    assert events["tablet_exception"]["message"].startswith("<") and events["tablet_exception"]["file"] == "/static/ui.js"
+    assert "Quill" not in on_disk(record) and "Ravensbourne" not in on_disk(record)
+    # A test session he started by name keeps the page's words, as it always has.
+    test = Timeline(TestSessions(tmp_path / "tests"))
+    started = test.start("walkthrough")
+    test.emit("tablet_tab", source="tablet", label="Items 2", name="order")
+    test.stop()
+    tab = next(e for e in read_events(test.sessions.timeline_path(started)) if e["kind"] == "tablet_tab")
+    assert tab["label"] == "Items 2"

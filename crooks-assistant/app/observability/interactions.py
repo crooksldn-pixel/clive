@@ -125,6 +125,10 @@ class InteractionRecord(Timeline):
             return self._write(kind, source=source, ts=ts, **fields)
         return super().emit(kind, source=source, ts=ts, **fields)
 
+    def _write(self, kind: str, *, source: str = "mac", ts: float | None = None, **fields: Any) -> dict[str, Any] | None:
+        # The page's own free text, by its shape here whatever the words switch says (PAGE_TEXT).
+        return super()._write(kind, source=source, ts=ts, **page_text_by_shape(kind, fields))
+
     @property
     def bounds(self) -> dict[str, Any]:
         days: InteractionDays = self.sessions  # type: ignore[assignment]
@@ -144,6 +148,44 @@ class InteractionRecord(Timeline):
             out.extend(e for e in _tail_events(path) if since <= float(e.get("ts") or 0.0) <= at + 1.0)
         out.sort(key=lambda e: (float(e.get("ts") or 0.0), int(e.get("seq") or 0)))
         return out
+
+
+# Free text the page sends about itself, written by its shape (a length and a digest) in this
+# record however the words switch is set, not only scrubbed: a tab's label and its card's ref,
+# the reason under a control that is off, the reason on an unavailable surface, an exception's
+# message. Each is the page's own words, and any of them can quote a record or what was typed.
+# A test session keeps them as it always has (the report reads them there).
+PAGE_TEXT: dict[str, tuple[str, ...]] = {
+    "tablet_tab": ("label", "detail"),
+    "tablet_exception": ("message",),
+}
+
+
+def page_text_by_shape(kind: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """`fields` with the page's free text written by its shape (PAGE_TEXT, and in a render each
+    card's controls' and surface's reasons). A copy where anything changes; the rest as given."""
+    from app.tools.dispatch import _spoken_shape
+
+    def shaped(value: Any) -> Any:
+        return _spoken_shape(value) if isinstance(value, str) and value else value
+
+    keys = PAGE_TEXT.get(kind, ())
+    out = {k: (shaped(v) if k in keys else v) for k, v in fields.items()}
+    if kind == "tablet_render" and isinstance(out.get("cards"), list):
+        out["cards"] = [_card_reasons_by_shape(card, shaped) for card in out["cards"]]
+    return out
+
+
+def _card_reasons_by_shape(card: Any, shaped: Any) -> Any:
+    if not isinstance(card, dict):
+        return card
+    out = dict(card)
+    if isinstance(out.get("actions"), list):
+        out["actions"] = [{**a, "reason": shaped(a["reason"])} if isinstance(a, dict) and a.get("reason") else a
+                          for a in out["actions"]]
+    if isinstance(out.get("surface"), dict) and out["surface"].get("reason"):
+        out["surface"] = {**out["surface"], "reason": shaped(out["surface"]["reason"])}
+    return out
 
 
 def _tail_events(path: Path, limit: int = TAIL_BYTES) -> list[dict[str, Any]]:
