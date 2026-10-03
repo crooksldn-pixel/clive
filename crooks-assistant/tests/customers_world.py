@@ -233,7 +233,7 @@ class CustomersShop(ShopifyClient):
 
         def brief(node: dict[str, Any]) -> dict[str, Any]:
             return {k: node[k] for k in ("id", "name", "createdAt", "processedAt", "cancelledAt", "displayFulfillmentStatus",
-                                         "displayFinancialStatus", "returnStatus", "note", "currentTotalPriceSet")} | {
+                                         "displayFinancialStatus", "returnStatus", "note", "currentTotalPriceSet", "totalPriceSet")} | {
                 "lineItems": {"edges": [{"node": {"title": e["node"]["title"], "quantity": e["node"]["quantity"],
                                                   "variantTitle": e["node"]["variantTitle"]}} for e in node["lineItems"]["edges"]]},
                 "fulfillments": [{"createdAt": f["createdAt"], "displayStatus": f["displayStatus"], "trackingInfo": [{"company": "Royal Mail"}]}

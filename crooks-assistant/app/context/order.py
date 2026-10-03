@@ -183,6 +183,7 @@ query CrooksCustomerOrders($id: ID!, $n: Int!) {
         returnStatus
         note
         currentTotalPriceSet { shopMoney { amount currencyCode } }
+        totalPriceSet { shopMoney { amount currencyCode } }
         lineItems(first: 5) { edges { node { title quantity variantTitle } } }
         fulfillments(first: 3) { createdAt displayStatus trackingInfo(first: 1) { company } }
         refunds(first: 3) {
@@ -447,6 +448,9 @@ def _story(o: dict[str, Any]) -> dict[str, Any]:
     returned, noted — for the customer's timeline (app/customers/history.py). Only the keys
     Shopify answered: a read from before these were asked for adds nothing."""
     out: dict[str, Any] = {}
+    if o.get("totalPriceSet"):
+        # What was paid, before any refund — what "Ordered" says in the story.
+        out["paid"] = money(o.get("totalPriceSet"))
     if "fulfillments" in o:
         out["shipped"] = [
             {"at": f.get("createdAt"), "status": f.get("displayStatus"),

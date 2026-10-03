@@ -63,6 +63,15 @@ async def test_orders_shipping_refunds_notes_and_email_both_ways_newest_first(wo
     assert {"name": "Gmail", "said": "3 threads"} in customer["timeline"]["sources"]
 
 
+async def test_an_order_in_the_story_says_what_was_paid_not_what_is_left_after_a_refund(world):
+    """Alicia paid £70 for #2201 and £45 went back: "Ordered #2201" says £70.00, and the refund
+    row says the £45.00."""
+    _body, told = await _story(world)
+    rows = {r["what"]: r for r in told["timeline"]["rows"]}
+    assert rows["Ordered #2201"]["detail"].startswith("£70.00 · ")
+    assert "Refunded £45.00 on #2201" in rows
+
+
 async def test_the_story_costs_no_shopify_read_the_customer_card_did_not_already_make(world):
     await _story(world)
     shopify = [q.split("(")[0].split()[-1] for q, _ in world.store.queries if "Scopes" not in q]

@@ -104,7 +104,8 @@ def _order_rows(history: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(order, dict):
             continue
         number, ref = _number(order.get("order_number")), str(order.get("order_id") or "")
-        bits = [order.get("total"), order.get("items_brief")]
+        # What was paid for it (before any refund, which is its own row), else what Shopify gave.
+        bits = [order.get("paid") or order.get("total"), order.get("items_brief")]
         if order.get("return_status"):
             bits.append(f"return {str(order['return_status']).replace('_', ' ').lower()}")
         out.append(_row(order.get("placed_at"), "ordered", f"Ordered {number}", " · ".join(_money(b) for b in bits if b),
