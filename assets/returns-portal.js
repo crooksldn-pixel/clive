@@ -267,7 +267,7 @@
         body:
           '<div class="rd-fieldset rd-cell" data-shake>' +
           '<div class="rd-field"><label class="rd-label" for="rd-order">Order number</label>' +
-          '<input class="rd-input" id="rd-order" name="order" inputmode="numeric" autocomplete="off" placeholder="#1939" required value="' + esc(order) + '"></div>' +
+          '<input class="rd-input" id="rd-order" name="order" autocapitalize="characters" autocomplete="off" placeholder="CROOKS-1234" required value="' + esc(order) + '"></div>' +
           '<div class="rd-field"><label class="rd-label" for="rd-proof">Email, postcode or phone</label>' +
           '<input class="rd-input" id="rd-proof" name="proof" autocomplete="email" placeholder="you@example.com" required value="' + esc(proof) + '"></div></div>',
         dock: '<button class="rd-cta rd-press" type="submit">Find my order</button>',
@@ -645,7 +645,7 @@
       var data = new FormData(form);
       if (form.dataset.form === 'find') {
         var order = String(data.get('order') || '').trim();
-        this.busy(button, 'Finding ' + (order.charAt(0) === '#' ? order : '#' + order), async function () {
+        this.busy(button, 'Finding ' + (/^\d/.test(order) ? '#' + order : order.toUpperCase()), async function () {
           var found = await self.post('/lookup', { order: data.get('order'), proof: data.get('proof') });
           self.state.session = found.session;
           self.state.order = found;
