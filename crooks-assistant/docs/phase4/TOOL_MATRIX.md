@@ -185,7 +185,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `submit_engineering_request` | family:engineering | test_build_from_clive.py, test_capability_gaps.py, test_engineering_bridge.py, test_r11_engineering_off.py | — |
 | `track_parcel` | family:parcel_tracking | test_ship24.py | — |
 | `work_list` | family:work | test_work.py, test_work_review_fixes.py | — |
-| `work_note` | family:work | test_work.py, test_work_review_fixes.py | — |
+| `work_note` | family:work | test_team_flow.py, test_work.py, test_work_review_fixes.py | — |
 
 ## What this matrix cannot vouch for
 
