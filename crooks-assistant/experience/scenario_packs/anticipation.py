@@ -190,7 +190,25 @@ async def returns_are_not_available_yet(h: Harness) -> Result:
     shopify = [s.name for s in registry.all_specs() if ("return" in s.name or "exchange" in s.name)
                and s.write is not None and (s.write.mutation in REVIEWED_MUTATIONS or not s.write.mutation.startswith("returns:"))]
     r.checks.append(check("no Shopify return mutation is registered at all", not shopify, f"{shopify}"))
+    # And by what is sent, not by what it is called: no reviewed Shopify document touches a return
+    # (returnCreate, returnProcess, returnCancel…) or the parcel coming back.
+    touching = shopify_return_documents()
+    r.checks.append(check("no reviewed Shopify mutation document touches a return", not touching, f"{touching}"))
     return r
+
+
+# The words a Shopify mutation about a return, or the parcel coming back, cannot be written without.
+RETURN_WORDS = ("return", "reversedelivery", "reversefulfillment")
+
+
+def shopify_return_documents() -> list[str]:
+    """The reviewed Shopify mutations (app/clients/shopify.py) whose document names a return, a
+    reverse delivery or a reverse fulfilment, in any case. Empty while a return's changes go only
+    through CROOKS Returns."""
+    from app.clients.shopify import REVIEWED_MUTATIONS
+
+    return sorted(name for name, reviewed in REVIEWED_MUTATIONS.items()
+                  if any(word in reviewed.document.lower() for word in RETURN_WORDS))
 
 
 SCENARIOS = (

@@ -530,6 +530,33 @@ def test_the_write_is_declared_completely_and_nothing_reaches_the_portal_or_shop
         assert "returnCreate" not in source and "returnProcess" not in source and "sqlite" not in source.lower()
 
 
+async def test_the_golden_scenario_fails_if_any_reviewed_shopify_document_touches_a_return(monkeypatch):
+    """experience/scenario_packs/anticipation.py `returns_are_not_available_yet` holds the line by
+    what is sent: a reviewed document naming a return or a reverse delivery fails it, whatever the
+    tool around it is called."""
+    from types import SimpleNamespace
+
+    from app.capabilities import families
+    from app.clients import shopify
+    from experience.scenario_packs import anticipation
+
+    async def family_states():
+        return await families.states(None)
+
+    harness = SimpleNamespace(runtime=SimpleNamespace(family_states=family_states))
+    held = {c.what: c.ok for c in (await anticipation.returns_are_not_available_yet(harness)).checks}
+    assert held.get("no reviewed Shopify mutation document touches a return") is True, held
+    for document in ("mutation X($input: ReturnInput!) { returnCreate(returnInput: $input) { return { id } } }",
+                     "mutation Y($id: ID!) { reverseDeliveryCreateWithShipping(reverseFulfillmentOrderId: $id) { x } }",
+                     "mutation Z($id: ID!) { reverseFulfillmentOrderDispose(dispositionInputs: []) { x } }"):
+        tampered = {**shopify.REVIEWED_MUTATIONS, "order_tags_add": shopify.ReviewedMutation(
+            name="order_tags_add", document=document, variables={"id": str}, scope="write_returns")}
+        monkeypatch.setattr(shopify, "REVIEWED_MUTATIONS", tampered)
+        result = await anticipation.returns_are_not_available_yet(harness)
+        failed = [c.what for c in result.checks if not c.ok]
+        assert "no reviewed Shopify mutation document touches a return" in failed, (document, failed)
+
+
 # ------------------------------------------------------------------ the order card and the story
 
 
