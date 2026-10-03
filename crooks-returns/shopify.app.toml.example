@@ -1,0 +1,26 @@
+# Shopify app configuration for CROOKS Returns. Copy to shopify.app.toml, fill in the two
+# placeholders, then from this folder run:
+#   npx @shopify/cli app config link     (pick or create the "CROOKS Returns" app)
+#   npx @shopify/cli app deploy          (applies scopes, the app proxy and the webhooks)
+# Then install the app on the store from the Dev Dashboard.
+
+name = "CROOKS Returns"
+client_id = "<CLIENT ID FROM THE DEV DASHBOARD>"
+application_url = "https://<RETURNS HOST>/health"
+embedded = false
+
+[access_scopes]
+scopes = "read_orders,read_customers,read_products,read_returns,write_returns,read_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,read_third_party_fulfillment_orders,read_store_credit_accounts,read_store_credit_account_transactions,write_store_credit_account_transactions"
+
+# crooksldn.com/apps/returns/* is forwarded, signed, to https://<RETURNS HOST>/proxy/*
+[app_proxy]
+url = "https://<RETURNS HOST>/proxy"
+subpath = "returns"
+prefix = "apps"
+
+[webhooks]
+api_version = "2026-10"
+
+  [[webhooks.subscriptions]]
+  topics = ["returns/close", "returns/cancel", "returns/decline"]
+  uri = "https://<RETURNS HOST>/webhooks/shopify"

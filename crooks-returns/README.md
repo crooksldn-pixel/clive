@@ -107,6 +107,9 @@ API docs are served at `/api/docs`.
    `read_store_credit_accounts`, `read_store_credit_account_transactions`,
    `write_store_credit_account_transactions`. Every query and mutation here was validated
    against the Admin API 2026-10 schema.
+   `shopify.app.toml.example` holds all of this (scopes, app proxy, webhooks): fill in the
+   client id and host, then `npx @shopify/cli app config link` and `npx @shopify/cli app deploy`
+   apply steps 1 to 3 in one go.
 2. **App proxy.** Subpath prefix `apps`, subpath `returns`, proxy URL
    `https://<this service>/proxy`. The theme then calls `/apps/returns/api/*` on crooksldn.com.
 3. **Webhooks.** `returns/close`, `returns/cancel` and `returns/decline` to
@@ -114,8 +117,11 @@ API docs are served at `/api/docs`.
 4. **Click & Drop.** API key from Click & Drop -> Settings -> Integrations, and the Tracked
    Returns service code for the account. Labels through the API need a Royal Mail Online
    Business Account. The first live label is the test of both.
-5. **Hosting.** Any small always-on host behind HTTPS. One process, one SQLite file; back the
-   file up. Run `POST /api/v1/tick` every 15 minutes.
+5. **Hosting.** Any small always-on host behind HTTPS that builds the `Dockerfile` (Railway,
+   Render, Fly.io) with a persistent volume mounted at `/data`, or the CLIVE Linux server
+   behind a public HTTPS tunnel. Set the `RETURNS_*` values from `.env.example` as the host's
+   environment variables. One process, one SQLite file; back the file up. Run
+   `POST /api/v1/tick` every 15 minutes.
 6. **Theme.** Create a page with the handle `returns` and the template `page.returns`, then
    link it from the footer and the shipping emails. `?order=1939&proof=name@example.com`
    prefills the lookup.
