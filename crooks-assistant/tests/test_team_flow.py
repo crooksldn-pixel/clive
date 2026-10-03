@@ -271,3 +271,20 @@ async def test_packed_in_one_tap_then_fulfilled_by_a_card_reads_finished_and_und
     assert work.get(item_id).status == "done"
     hooks.after_commit(fulfilled("prop_fulfil0002"))                                         # a second change: kept as the first
     assert work.get(item_id).evidence["proposal_id"] == "prop_fulfil0001"
+
+
+async def test_undo_takes_back_only_steps_that_are_all_still_recent(team):  # noqa: F811
+    """The window held only the newest step: a claim from long ago was undone along with a packing
+    step a second old."""
+    let_mia_in()
+    claimed = await team.post("/today/claim", json={"ref": ORDER_REF}, headers=AS_MIA)
+    item_id = claimed.json()["job"]["item_id"]
+    item = work.get(item_id)
+    item.events[-1]["at"] = (datetime.now(UTC) - timedelta(seconds=work_store.UNDO_WINDOW_S + 60)).isoformat(timespec="seconds")
+    work._save(item)
+    await team.post("/today/packed", json={"item_id": item_id}, headers=AS_MIA)
+    stale = await team.post("/today/undo", json={"item_id": item_id, "steps": ["packed", "claimed"]}, headers=AS_MIA)
+    assert stale.status_code == 409 and "too long ago" in stale.json()["detail"]
+    assert work.get(item_id).status == "claimed" and work.get(item_id).evidence.get("packed")
+    fresh = await team.post("/today/undo", json={"item_id": item_id, "steps": ["packed"]}, headers=AS_MIA)
+    assert fresh.status_code == 200 and not work.get(item_id).evidence.get("packed")

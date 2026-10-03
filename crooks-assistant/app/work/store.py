@@ -470,7 +470,7 @@ class WorkStore:
     def take_back(self, item_id: str, *, who: str, steps: list[str]) -> tuple[WorkItem, list[str]]:
         """Put a job back as it was before `who`'s latest steps on it. `steps` names them, newest
         first, as the screen saw them made ("done", "packed", "claimed"): they must be the job's last
-        steps, every one theirs, every one in TAKE_BACK, the newest within UNDO_WINDOW_S, and the job
+        steps, every one theirs, every one in TAKE_BACK, every one within UNDO_WINDOW_S, and the job
         not closed by a card's change. Anything else is refused in words and nothing changes."""
         wanted = [str(s) for s in steps or []][:5]
         with self._lock:
@@ -480,7 +480,9 @@ class WorkStore:
                 raise WorkError("that job has moved on since, so there is nothing to undo")
             if any(e.get("who") != who or e.get("what") not in TAKE_BACK for e in trail):
                 raise WorkError("only your own last steps can be undone")
-            if not _recent(trail[0].get("at")):
+            # Every step taken back must be recent, not only the newest: a claim from this morning is
+            # not undone because a packing step on top of it is a second old (the review of 3 October).
+            if not all(_recent(e.get("at")) for e in trail):
                 raise WorkError("that was too long ago to undo; ask CLIVE to put it right")
             if item.evidence.get("proposal_id"):
                 raise WorkError("a change made through a card closed that job; its own card can undo it")
