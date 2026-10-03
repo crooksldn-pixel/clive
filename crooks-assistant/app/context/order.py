@@ -654,30 +654,31 @@ class Hydrator:
         self._trace("customer", customer_id, "", started, landed_history=history is not None)
         if history is None:
             raise ToolError(f"No customer with id {customer_id}.")
-        email, threads = await self._customer_email(history)
-        # `_threads` is every thread the one read found — to them, from them, about their orders —
-        # for the customer's timeline (app/customers/history.py); `email_threads` stays what it
-        # always was, the threads FROM them.
+        # Two inbox reads side by side. `email_threads` is what it always was — the search for
+        # threads FROM them — so their own email is never crowded out of the card and the model by
+        # others about their orders; `_threads` is the wide one the customer's story is made from
+        # (app/customers/history.py), and only that.
+        email, threads = await asyncio.gather(self._email(history.get("email"), digits=""), self._customer_threads(history))
         return {**history, "email_threads": email, "_threads": threads}
 
-    async def _customer_email(self, history: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        """One inbox read for a customer: anything from them, anything naming their address, and
-        anything naming one of their recent orders — over a year rather than an order's sixty days."""
+    async def _customer_threads(self, history: dict[str, Any]) -> list[dict[str, Any]]:
+        """For the customer's story: anything from them, anything naming their address, and
+        anything naming one of their recent orders as an order is written ("#2201", "CROOKS-2201")
+        — over a year rather than an order's sixty days. Empty when the inbox cannot say."""
         if self._threads_for is None:
-            return {"available": False, "reason": "Gmail is not configured on this backend.", "threads": []}, []
+            return []
         address = str(history.get("email") or "").strip().lower()
         numbers = [order_digits(r.get("order_number")) for r in history.get("recent") or [] if isinstance(r, dict)]
         terms = ([address] if address else []) + [t for d in numbers if d for t in (f"CROOKS-{d}", f"#{d}")]
         try:
             found = await self._threads_for(sender=address, terms=terms[:CUSTOMER_EMAIL_TERMS],
                                             days=CUSTOMER_EMAIL_DAYS, limit=CUSTOMER_EMAIL_LIMIT)
-        except Exception as exc:  # noqa: BLE001 — the customer stands without their email
-            log.warning("customer email unavailable: %s", type(exc).__name__)
-            return {"available": False, "reason": "unavailable", "threads": []}, []
+        except Exception as exc:  # noqa: BLE001 — the story stands without the inbox
+            log.warning("customer story email unavailable: %s", type(exc).__name__)
+            return []
         if not found.get("available"):
-            return {"available": False, "reason": str(found.get("reason") or "")[:160], "threads": []}, []
-        threads = [t for t in found.get("threads") or [] if isinstance(t, dict)]
-        return {"available": True, "threads": correlate_threads(threads, customer_email=address, digits="")}, threads
+            return []
+        return [t for t in found.get("threads") or [] if isinstance(t, dict)]
 
     def forget(self, order_id: str) -> None:
         """The order has just been changed: whatever was held of it is no longer it — here,

@@ -63,19 +63,42 @@ async def test_orders_shipping_refunds_notes_and_email_both_ways_newest_first(wo
     assert {"name": "Gmail", "said": "3 threads"} in customer["timeline"]["sources"]
 
 
-async def test_the_story_costs_no_read_the_customer_card_did_not_already_make(world):
+async def test_the_story_costs_no_shopify_read_the_customer_card_did_not_already_make(world):
     await _story(world)
     shopify = [q.split("(")[0].split()[-1] for q, _ in world.store.queries if "Scopes" not in q]
     assert shopify == ["FindCustomers", "CrooksCustomerOrders"]
-    (inbox,) = world.inbox.calls
-    assert inbox["sender"] == "alicia.grant@example.com"
-    assert inbox["terms"] == ["alicia.grant@example.com", "CROOKS-2201", "#2201", "CROOKS-2150", "#2150"]
-    assert inbox["days"] == 365
+    # Two inbox reads: the one the customer card always made — from them, exactly as before —
+    # and the wide one the story is made from, which never stands in for the first.
+    sender_only, wide = sorted(world.inbox.calls, key=lambda c: len(c["terms"]))
+    assert sender_only == {"sender": "alicia.grant@example.com", "terms": [], "days": 60, "limit": 3}
+    assert wide["sender"] == "alicia.grant@example.com"
+    assert wide["terms"] == ["alicia.grant@example.com", "CROOKS-2201", "#2201", "CROOKS-2150", "#2150"]
+    assert wide["days"] == 365
 
 
 async def test_the_threads_from_them_are_still_what_the_email_tab_shows(world):
     _body, told = await _story(world)
     assert [t["thread_id"] for t in told["email_threads"]["threads"]] == ["19a0c0ffee000001"]
+
+
+async def test_her_own_email_stays_when_couriers_have_written_more_since(world):
+    """Ten newer couriers' threads naming her order fill the wide search; her own email is read
+    by the search that only looks for her, so it is still on her card and still the model's."""
+    from datetime import time as clock
+    from datetime import timedelta
+
+    from tests.customers_world import LONDON, TODAY
+
+    stamp = datetime.combine(TODAY - timedelta(days=1), clock(9, 0), LONDON).strftime("%a, %d %b %Y %H:%M:%S %z")
+    couriers = [{"thread_id": f"19a0c0ffee0001{n:02d}", "message_id": f"c{n}", "from": "Royal Mail",
+                 "from_email": "noreply@royalmail.example", "subject": f"Tracking update {n} for CROOKS-2201",
+                 "date": stamp, "snippet": "Your parcel is on its way", "likely_bulk": False, "authenticated": True}
+                for n in range(10)]
+    world.inbox.held[:0] = couriers
+    body, told = await _story(world)
+    assert [t["thread_id"] for t in told["email_threads"]["threads"]] == ["19a0c0ffee000001"]
+    card = [c for c in cards(body, "customer") if c.get("timeline")][-1]
+    assert "Gift receipt for my hoodie order" in str(card)
 
 
 async def test_what_clive_recorded_about_them_is_in_their_story(world, monkeypatch, tmp_path):

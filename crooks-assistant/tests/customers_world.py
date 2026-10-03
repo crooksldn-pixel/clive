@@ -393,6 +393,7 @@ def inbox(store: list[dict[str, Any]] | None = None):
         return {"available": True, "threads": out[:limit]}
 
     threads_for.calls = calls
+    threads_for.held = held
     return threads_for
 
 
