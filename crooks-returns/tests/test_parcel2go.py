@@ -204,7 +204,7 @@ def test_customer_picks_a_drop_off_and_approval_books_it(psvc, p2g_server):
     assert ret.postage.service == "evri" and ret.postage.shops[0]["name"] == "Tesco Express"
 
     plan = psvc.preview(ret.id, "approve", {"postage_mode": "label_now"})["will"]
-    assert any("Book Evri (Myhermes Parcelshop) for £2.39" in w and "£50.00" in w for w in plan)
+    assert any("Book Evri (Evri Parcelshop) for £2.39" in w and "£50.00" in w for w in plan)
     assert not p2g_server.orders  # a preview buys nothing
 
     out = psvc.execute(ret.id, "approve", {"postage_mode": "label_now"}, "staff", "k1")

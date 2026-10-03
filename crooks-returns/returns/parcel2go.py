@@ -226,7 +226,8 @@ class Parcel2Go:
                 courier=want,
                 courier_name=NAMES.get(want) or svc.get("CourierName") or want.title(),
                 service=svc["Slug"],
-                service_name=svc.get("Name") or svc["Slug"],
+                # Parcel2Go still says "myHermes" for Evri.
+                service_name=re.sub(r"(?i)my\s*hermes", "Evri", svc.get("Name") or svc["Slug"]),
                 price_pence=to_pence(q.get("TotalPrice") or 0) + extra,
                 price_ex_vat_pence=to_pence(q.get("TotalPriceExVat") or 0)
                 + (to_pence(extras["PrintInStore"].get("Price") or 0) if in_store else 0),
