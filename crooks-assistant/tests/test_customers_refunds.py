@@ -121,3 +121,22 @@ async def test_the_card_brand_and_last_four_are_on_the_card_and_nowhere_else(wor
     assert "Refund of £45.00 to the card it was paid with succeeded" in text
     for seen in (text, json.dumps(model_view(told)), json.dumps(redact._redact_order(told, redact._Names()))):
         assert "4242" not in seen and "Visa" not in seen
+
+
+def _move(status: str, amount: str, at: str, code: str | None = None) -> dict:
+    return {"node": {"kind": "REFUND", "status": status, "gateway": "shopify_payments", "formattedGateway": "Shopify Payments",
+                     "processedAt": at, "errorCode": code, "amountSet": {"shopMoney": {"amount": amount, "currencyCode": "GBP"}},
+                     "paymentDetails": {"company": "Visa", "number": "•••• 4242"}}}
+
+
+def test_a_refund_part_of_which_went_back_says_what_did_and_what_did_not():
+    refund = {"createdAt": "2026-10-02T13:00:00Z", "totalRefundedSet": {"shopMoney": {"amount": "45.00", "currencyCode": "GBP"}},
+              "transactions": {"edges": [_move("SUCCESS", "30.00", "2026-10-02T13:02:00Z"),
+                                         _move("FAILURE", "15.00", "2026-10-02T13:03:00Z", "CARD_DECLINED")]}}
+    said = payments.refund_state(refund)
+    assert said["state"] == "partly" and said["succeeded"] == "£30.00"
+    assert said["landed"] == ("Refund: £30.00 to the card it was paid with succeeded on Fri 2 Oct at 14:02; "
+                              "£15.00 to the card it was paid with failed: the card was declined.")
+    assert said["landed_card"].startswith("Refund: £30.00 to Visa ending 4242 succeeded on Fri 2 Oct at 14:02; ")
+    assert said["means"] == ("Part of it has gone back: £30.00 succeeded. £15.00 has not gone back: the provider refused it "
+                             "(the card was declined).")

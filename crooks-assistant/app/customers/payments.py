@@ -35,7 +35,8 @@ log = logging.getLogger("crooks.customers.payments")
 
 SHOP_TZ = ZoneInfo("Europe/London")
 
-# Shopify's OrderTransactionStatus, as one of four words.
+# Shopify's OrderTransactionStatus, as one of four words. A refund with transactions in more than
+# one of them, one of which succeeded, is "partly": each part is said for what it is (`_partly`).
 STATES = {
     "SUCCESS": "succeeded", "PENDING": "pending", "AWAITING_RESPONSE": "pending",
     "FAILURE": "failed", "ERROR": "failed", "UNKNOWN": "unknown",
@@ -128,6 +129,8 @@ def refund_state(refund: dict[str, Any], *, tz: ZoneInfo = SHOP_TZ, policy: str 
             "means": "Shopify shows no money moving for this refund, so nothing is on its way back to the customer from it.",
         }
     words = [STATES.get(str(t.get("status") or "").upper(), "unknown") for t in moves]
+    if "succeeded" in words and len(set(words)) > 1:
+        return _partly(moves, words, total, currency, tz, policy)
     state = "failed" if "failed" in words else "pending" if "pending" in words else "unknown" if "unknown" in words else "succeeded"
     amounts = [_amount(t.get("amountSet")) for t in moves]
     summed = [a for a, _c in amounts if a is not None]
@@ -136,9 +139,7 @@ def refund_state(refund: dict[str, Any], *, tz: ZoneInfo = SHOP_TZ, policy: str 
     to = ", ".join(dict.fromkeys(p for p in (paid_to(t) for t in moves) if p))
     to_card = ", ".join(dict.fromkeys(p for p in (paid_to(t, card=True) for t in moves) if p))
     latest = max((str(t.get("processedAt") or t.get("createdAt") or "") for t in moves), default="")
-    failed = next((t for t in moves if STATES.get(str(t.get("status") or "").upper()) == "failed"), None)
-    code = str((failed or {}).get("errorCode") or "").upper()
-    reason = REASONS.get(code) or (code.replace("_", " ").lower() if code else "Shopify gives no reason")
+    reason = _reason(moves)
     at = when_words(latest, tz)
 
     def said(where: str) -> str:
@@ -162,6 +163,56 @@ def refund_state(refund: dict[str, Any], *, tz: ZoneInfo = SHOP_TZ, policy: str 
             "error": reason if state == "failed" else "", "landed": landed, "means": means,
             # The order card's own: the same sentence with the card's brand and last four.
             "landed_card": said(to_card), "paid_to_card": to_card}
+
+
+def _reason(moves: list[dict[str, Any]]) -> str:
+    failed = next((t for t in moves if STATES.get(str(t.get("status") or "").upper()) == "failed"), None)
+    code = str((failed or {}).get("errorCode") or "").upper()
+    return REASONS.get(code) or (code.replace("_", " ").lower() if code else "Shopify gives no reason")
+
+
+def _partly(moves: list[dict[str, Any]], words: list[str], total: float | None, currency: str, tz: ZoneInfo,
+            policy: str) -> dict[str, Any]:
+    """A refund part of which went back and part of which did not: each part said for what it is,
+    what succeeded first — never the whole called failed, nor the whole called landed."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for move, word in zip(moves, words, strict=True):
+        groups.setdefault(word, []).append(move)
+    reason = _reason(moves)
+
+    def summed(group: list[dict[str, Any]]) -> tuple[float | None, str]:
+        amounts = [_amount(t.get("amountSet")) for t in group]
+        values = [a for a, _c in amounts if a is not None]
+        return (round(sum(values), 2) if values else None), next((c for a, c in amounts if a is not None), currency)
+
+    def part(word: str, group: list[dict[str, Any]], card: bool) -> str:
+        amount, cur = summed(group)
+        where = ", ".join(dict.fromkeys(p for p in (paid_to(t, card=card) for t in group) if p))
+        head = money(amount, cur) + (f" to {where}" if where else "")
+        at = when_words(max((str(t.get("processedAt") or t.get("createdAt") or "") for t in group), default=""), tz)
+        return {"succeeded": f"{head} succeeded" + (f" on {at}" if at else ""),
+                "pending": f"{head} is pending at the payment provider",
+                "failed": f"{head} failed: {reason}",
+                "unknown": f"{head}: Shopify reports its state as unknown"}[word]
+
+    order = [w for w in ("succeeded", "pending", "failed", "unknown") if w in groups]
+    landed = "Refund: " + "; ".join(part(w, groups[w], False) for w in order) + "."
+    landed_card = "Refund: " + "; ".join(part(w, groups[w], True) for w in order) + "."
+    went, cur = summed(groups["succeeded"])
+    means = [f"Part of it has gone back: {money(went, cur)} succeeded."]
+    if "failed" in groups:
+        means.append(f"{money(*summed(groups['failed']))} has not gone back: the provider refused it ({reason}).")
+    if "pending" in groups:
+        means.append(f"{money(*summed(groups['pending']))} is still with the payment provider.")
+    if "unknown" in groups:
+        means.append(f"Shopify does not know yet whether {money(*summed(groups['unknown']))} went back.")
+    if policy:
+        means.append(f"The shop's policy: {policy}")
+    latest = max((str(t.get("processedAt") or t.get("createdAt") or "") for t in moves), default="")
+    return {"state": "partly", "amount": money(total, currency), "succeeded": money(went, cur),
+            "to": ", ".join(dict.fromkeys(p for p in (paid_to(t) for t in moves) if p)), "processed_at": latest or None,
+            "error": reason if "failed" in groups else "", "landed": landed, "means": " ".join(means),
+            "landed_card": landed_card, "paid_to_card": ", ".join(dict.fromkeys(p for p in (paid_to(t, card=True) for t in moves) if p))}
 
 
 _policy_cache: dict[str, tuple[float, str]] = {}

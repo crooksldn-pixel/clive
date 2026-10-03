@@ -130,7 +130,7 @@
 
   // ------------------------------------------------------------------ a refund landing
 
-  const STATE_CLASS = { succeeded: 'is-fit', pending: 'is-wait', failed: 'is-miss', unknown: 'is-wait', recorded: 'is-wait' };
+  const STATE_CLASS = { succeeded: 'is-fit', partly: 'is-wait', pending: 'is-wait', failed: 'is-miss', unknown: 'is-wait', recorded: 'is-wait' };
 
   function refunds(rows) {
     const landed = list(rows, 6).filter((r) => text(r.landed));
