@@ -131,6 +131,16 @@ async def test_the_write_key_never_reads_so_with_only_it_returns_are_not_connect
     assert table["returns_actions"]["detail"] == "no CROOKS Returns read key stored", "an action is staged from a read"
 
 
+@pytest.mark.parametrize("given", ["http://returns.crooksldn.com", "HTTP://returns.example.com/", "returns.example.com",
+                                   "ftp://returns.example.com", "https://", ""])
+async def test_the_service_is_only_ever_reached_over_https(stub, given):
+    """Every request carries a key, so an address that is not https:// is never used."""
+    assert rc.clean_base(given) == rc.DEFAULT_BASE_URL
+    rc.configure(base_url=given)
+    assert rc.base_url() == rc.DEFAULT_BASE_URL
+    assert rc.clean_base("https://returns.example.com/") == "https://returns.example.com"
+
+
 async def test_with_no_key_returns_are_not_connected_and_nothing_is_asked(stub, keys):
     keys.clear()
     with pytest.raises(rc.ReturnsUnavailable) as caught:

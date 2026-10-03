@@ -95,8 +95,14 @@ def configure(*, base_url: str) -> None:
 
 
 def clean_base(value: Any) -> str:
+    """The address to reach the service at: https only, since every request carries a key. Anything
+    else (plain http, no scheme) is not used, and the service's own address is, with a warning."""
     text = str(value or "").strip().rstrip("/")
-    return text if text.startswith(("https://", "http://")) else DEFAULT_BASE_URL
+    if text.lower().startswith("https://") and len(text) > len("https://"):
+        return text
+    if text and text != DEFAULT_BASE_URL:
+        log.warning("returns: CROOKS_RETURNS_BASE_URL is not an https:// address, so %s is used", DEFAULT_BASE_URL)
+    return DEFAULT_BASE_URL
 
 
 def base_url() -> str:
