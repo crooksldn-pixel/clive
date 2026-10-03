@@ -191,6 +191,17 @@ async function phoneStaff(browser) {
   await shot(page, 'phone-staff-george-clive');
   await page.click('.talk-back');
 
+  // "Cancel that" is never a silent undo: the page asks which they meant, and changes nothing yet.
+  const beforeCancel = JSON.stringify((await state(page)).work);
+  await say(page, 'cancel that');
+  await page.waitForFunction(() => (document.querySelector('#now .now-big') || {}).textContent === 'Cancel what?', null, { timeout: 8000 }).catch(() => {});
+  const choices = await page.$$eval('#now .choice', (n) => n.map((x) => x.textContent));
+  check('“cancel that” asks: their last step, or an order for George', choices[0] === 'Undo my last step' && /Ask George to cancel/.test(choices[1] || '')
+    && JSON.stringify((await state(page)).work) === beforeCancel, choices.join(' | '));
+  await shot(page, 'phone-staff-cancel-which');
+  await page.click('#now .link:has-text("Neither")');
+  await sleep(300);
+
   // Every job, one tap away.
   const all = await rowFor(page, 'Every job');
   if (all) await all.click();
@@ -205,6 +216,7 @@ async function phoneStaff(browser) {
 
 async function owner(browser) {
   const { context, page, errors } = await open(browser, PHONE, null);
+  page.on('dialog', (dialog) => dialog.accept());
   const waiting = await page.$$eval('#owner-team .flag .row-big', (n) => n.map((x) => x.textContent));
   check("George sees what the team asked of him, in their words", waiting.some((t) => /refund 2109/.test(t)) && waiting.some((t) => /Refund asked for/.test(t)),
     waiting.join(' | '));
@@ -213,18 +225,69 @@ async function owner(browser) {
   await page.click('#owner-team .person .row:has-text("Mia")');
   await sleep(300);
   check("tapping a name shows that person's day, step by step", (await page.$$('#owner-team .record.inset li')).length >= 3);
+
+  // An order someone packed: Fulfil starts the sentence for his CLIVE, with the order in it.
+  await page.click('#owner-team .flag:has-text("#2106") .pill:has-text("Fulfil")');
+  check('an order in other hands, packed, has its Fulfil', (await page.inputValue('#ask-text')) === 'Fulfil order #2106 with tracking number ',
+    await page.inputValue('#ask-text'));
+  await page.fill('#ask-text', '');
+
+  // A job someone has taken: George can still cancel it.
+  const held = await page.$$eval('#owner-team .inset-group .row-big', (n) => n.map((x) => x.textContent));
+  await page.click('#owner-team .inset-group .flag:has-text("Count the hoodies") .pill:has-text("Cancel")');
+  await page.waitForFunction(() => /Cancelled/.test((document.querySelector('.ot-bar-text') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
+  const cancelled = await state(page);
+  check('a job someone has taken can be cancelled by George', held.some((t) => /Count the hoodies/.test(t))
+    && !cancelled.work.team.some((j) => /Count the hoodies/.test(j.title)) && cancelled.record.some((e) => e.what === 'cancelled'),
+    held.join(' | '));
+  await shot(page, 'phone-owner-team-held', true);
+
+  // His own Work: he takes an order and packs it, as the team do.
   await page.click('#segments .segment:nth-child(2)');
+  await sleep(300);
+  const order = await rowFor(page, '#2109');
+  if (order) await order.click();
+  await page.waitForFunction(() => (document.querySelector('#now .go') || {}).textContent === 'Take it', null, { timeout: 8000 }).catch(() => {});
+  await page.click('#now .go');
+  await page.waitForFunction(() => (document.querySelector('#now .go') || {}).textContent === 'Packed', null, { timeout: 8000 }).catch(() => {});
+  await page.click('#now .go');
+  await page.waitForFunction(() => /Packed #2109/.test((document.querySelector('.ot-bar-text') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
+  const packedByHim = (await state(page)).work.done.find((j) => /#2109/.test(j.title));
+  check('George takes and packs an order from Today himself', Boolean(packedByHim && packedByHim.done_by === 'owner' && packedByHim.evidence.packed),
+    await barText(page));
+  await shot(page, 'phone-owner-work');
+
+  await page.click('#segments .segment:nth-child(3)');
   await page.fill('#hand-what', 'Steam the AW samples');
   await page.click('#owner-hand .chip:has-text("Kit")');
   await page.click('#owner-hand .go');
   await page.waitForFunction(() => /Handed to Kit/.test((document.querySelector('.ot-bar-text') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
   const handed = await state(page);
   check('handing out a job is one line and a name', handed.work.team.some((j) => j.title === 'Steam the AW samples' && j.assignee === 'kit'), await barText(page));
+
+  // One day a week, and a day further off than tomorrow, as the old form allowed.
+  await page.fill('#hand-what', 'Wipe down the packing table');
+  await page.click('#owner-hand .chip:has-text("Every week")');
+  await page.click('#owner-hand .chip:has-text("Wed")');
+  await page.click('#owner-hand .go');
+  await page.waitForFunction(() => /every Wed/.test((document.querySelector('.ot-bar-text') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
+  check('a routine can be one day a week', (await state(page)).routines.some((r) => r.title === 'Wipe down the packing table' && r.cadence === 'wed'),
+    await barText(page));
+  await page.fill('#hand-what', 'Order more mailer bags');
+  await page.click('#owner-hand .chip:has-text("On a day")');
+  const later = await page.evaluate(() => { const d = new Date(Date.now() + 9 * 864e5); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+  await page.fill('#hand-day', later);
+  await page.dispatchEvent('#hand-day', 'change');
+  await page.click('#owner-hand .go');
+  await page.waitForFunction(() => /mailer bags/.test((document.querySelector('.ot-bar-text') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
+  const dated = (await state(page)).record.find((e) => e.what === 'created' && e.detail === 'Order more mailer bags');
+  check('a job can be for a day further off than tomorrow', Boolean(dated) && /for \w{3} \d{1,2} \w{3}/.test(await barText(page)), await barText(page));
   await shot(page, 'phone-owner-hand', true);
-  await page.click('#segments .segment:nth-child(3)');
+  await page.click('#segments .segment:nth-child(4)');
   await sleep(200);
   await shot(page, 'phone-owner-people', true);
   check('people say plainly who can use CLIVE', /Can use CLIVE/.test(await text(page, '#owner-people')));
+  check("and where the team's spoken words go", /speech service hears them/.test(await text(page, '#owner-people .hint')));
   check('no page errors on the owner side', errors.length === 0, errors.join(' | '));
   await context.close();
 }

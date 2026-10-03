@@ -23,7 +23,7 @@ TEAM_FILES = ("today.js", "today-say.js", "today-voice.js")
 
 
 @needs_node
-@pytest.mark.parametrize("name", ["today-say.test.js", "today-voice.test.js"])
+@pytest.mark.parametrize("name", ["today-say.test.js", "today-voice.test.js", "today-owner.test.js"])
 def test_the_team_pages_parts_under_node(name):
     done = subprocess.run([NODE, "--test", str(ROOT / "tests" / "web" / name)], cwd=ROOT, capture_output=True, text=True,
                           timeout=120)

@@ -20,14 +20,23 @@
   'use strict';
 
   const $ = (selector, root) => (root || document).querySelector(selector);
-  const PARTS = [['team', 'Team'], ['hand', 'Hand out'], ['people', 'People']];
-  const WHEN = [['now', 'Today'], ['tomorrow', 'Tomorrow'], ['daily', 'Every day'], ['weekdays', 'Weekdays']];
+  // Work is his own jobs and the pool, in the team's own view (web/today.js): he takes, packs and
+  // finishes from Today as he could before (the review of 3 October).
+  const PARTS = [['team', 'Team'], ['work', 'Work'], ['hand', 'Hand out'], ['people', 'People']];
+  // When a job is for: today, tomorrow, a day he picks, or a routine every day, on weekdays, or one
+  // day a week (app/work/store.py CADENCES), as the old hand-out form allowed.
+  const WHEN = [['now', 'Today'], ['tomorrow', 'Tomorrow'], ['date', 'On a day'], ['daily', 'Every day'],
+    ['weekdays', 'Weekdays'], ['weekly', 'Every week']];
+  const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const DAY_NAMES = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
+  const WEEKDAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
   // When the team hold to speak, their phone's speech service (Google's or Apple's) hears them.
   const SPEECH_NOTE = "When the team speak to CLIVE, their phone's speech service hears them (Google's on Android, " +
     "Apple's on an iPhone) and only the words reach CLIVE. Your Mac never gets the audio.";
   let part = 'team';
   let open = '';                 // the person whose day is unfolded
-  const draft = { who: '', when: 'now', count: false };
+  const draft = { who: '', when: 'now', count: false, day: '', weekday: 'mon' };
 
   const C = () => window.CliveToday;
   const el = (...args) => C().element(...args);
@@ -80,10 +89,14 @@
   }
 
   function show() {
-    for (const [name] of PARTS) $('#owner-' + name).hidden = name !== part;
+    for (const [name] of PARTS) if (name !== 'work') $('#owner-' + name).hidden = name !== part;
     for (const node of document.querySelectorAll('#segments .segment')) {
       node.setAttribute('aria-pressed', String(node.textContent === (PARTS.find(([n]) => n === part) || [])[1]));
     }
+    C().showWork(part === 'work');
+    const state = C().state();
+    if (part === 'work') C().line(C().guidanceNow(), 'READY');
+    else if (state) C().line(summary(state), 'READY');
   }
 
   function staff(state) {
@@ -127,6 +140,13 @@
       for (const job of mine) group.append(forYou(job));
       box.append(group);
     }
+    const packed = (state.work.in_hand || []).filter((r) => r.status === 'packed');
+    if (packed.length) {
+      box.append(el('h2', 'part', 'Packed, waiting for tracking'));
+      const waiting = el('div', 'group');
+      for (const row of packed) waiting.append(packedRow(row));
+      box.append(waiting);
+    }
     box.append(el('h2', 'part', 'The team now'));
     const group = el('div', 'group');
     const people = staff(state);
@@ -169,6 +189,33 @@
     return item;
   }
 
+  // An order someone packed: George fulfils it with its tracking number through his CLIVE, as a card.
+  function packedRow(row) {
+    const card = C().cardOf(row, 'waiting');
+    const head = C().heading(card);
+    const item = el('div', 'flag');
+    const words = el('div', 'flag-words');
+    words.append(el('span', 'row-big', head.big), el('span', 'row-small',
+      [head.small, row.done_by_name ? `packed by ${row.done_by_name}` : ''].filter(Boolean).join('. ')));
+    item.append(words, C().button('Fulfil', () => C().prefill(`Fulfil order ${card.order || head.big} with tracking number `), 'pill'));
+    return item;
+  }
+
+  // A job in someone's hands: George may cancel it, as he could on the old board.
+  function heldRow(job) {
+    const head = C().heading(C().cardOf(job, 'team'));
+    const item = el('div', 'flag');
+    const words = el('div', 'flag-words');
+    words.append(el('span', 'row-big', head.big), el('span', 'row-small', ['In hand', head.small].filter(Boolean).join('. ')));
+    item.append(words, C().button('Cancel', async () => {
+      if (!window.confirm(`Cancel “${head.big}”? It comes off ${job.claimed_by_name || 'their'} list.`)) return;
+      const done = await C().call('/today/cancel', { item_id: job.item_id });
+      if (!done.ok) C().bar().say(C().sentence(done.detail), 'error'); else C().bar().say(`Cancelled: ${head.big}.`);
+      C().load();
+    }, 'pill quiet-pill'));
+    return item;
+  }
+
   function personRow(state, person) {
     const wrap = el('div', 'person');
     const head = el('button', 'row');
@@ -185,6 +232,12 @@
     head.addEventListener('click', () => { open = open === person.person_id ? '' : person.person_id; drawTeam(state); });
     wrap.append(head);
     if (open === person.person_id) {
+      const hands = holding(state, person.person_id).filter((j) => j.item_id);
+      if (hands.length) {
+        const held = el('div', 'inset-group');
+        for (const job of hands) held.append(heldRow(job));
+        wrap.append(held);
+      }
       const steps = told(state.record).filter((e) => e.who === person.person_id);
       const list = el('ol', 'record inset');
       for (const entry of steps) {
@@ -240,6 +293,18 @@
     form.append(label('What needs doing', 'hand-what'), what, label('Anything they need to know (if anything)', 'hand-details'), details,
       el('p', 'label', 'Who'), chips([['', 'Anyone'], ...people], draft.who, (v) => { draft.who = v; redraw(); }),
       el('p', 'label', 'When'), chips(WHEN, draft.when, (v) => { draft.when = v; redraw(); }));
+    if (draft.when === 'date') {
+      const day = el('input', 'field');
+      day.type = 'date';
+      day.id = 'hand-day';
+      day.min = isoDay(new Date());
+      day.value = draft.day;
+      day.addEventListener('change', () => { draft.day = day.value; });
+      form.append(label('Which day', 'hand-day'), day);
+    }
+    if (draft.when === 'weekly') {
+      form.append(el('p', 'label', 'Which day each week'), chips(WEEKDAYS, draft.weekday, (v) => { draft.weekday = v; redraw(); }));
+    }
     const count = C().button(draft.count ? 'A stock count: they put in the numbers' : 'A stock count?', () => { draft.count = !draft.count; redraw(); }, 'chip wide');
     count.setAttribute('aria-pressed', String(draft.count));
     const go = el('button', 'go', 'Hand it out');
@@ -249,14 +314,14 @@
     box.append(el('h2', 'part', 'Hand out a job'), form);
 
     const routines = (state.routines || []);
-    box.append(el('h2', 'part', 'Every day, by itself'));
+    box.append(el('h2', 'part', 'Repeating jobs'));
     const group = el('div', 'group');
-    if (!routines.length) group.append(el('p', 'quiet', 'No routines yet. Pick Every day or Weekdays above to make one.'));
+    if (!routines.length) group.append(el('p', 'quiet', 'None yet. Pick Every day, Weekdays or Every week above to make one.'));
     for (const routine of routines) {
       const item = el('div', 'flag');
       const words = el('div', 'flag-words');
       words.append(el('span', 'row-big', routine.title), el('span', 'row-small', [
-        ({ daily: 'Every day', weekdays: 'Weekdays' }[routine.cadence] || 'Every ' + routine.cadence),
+        ({ daily: 'Every day', weekdays: 'Weekdays' }[routine.cadence] || 'Every ' + (DAY_NAMES[routine.cadence] || routine.cadence)),
         routine.assignee_name || 'whoever is free', routine.created_via === C().VIA_CLIVE ? 'via CLIVE' : ''].filter(Boolean).join(', ')));
       item.append(words, C().button('Stop', async () => {
         if (!window.confirm(`Stop “${routine.title}”? It won't come back tomorrow.`)) return;
@@ -277,7 +342,7 @@
         const item = el('div', 'flag');
         const words = el('div', 'flag-words');
         words.append(el('span', 'row-big', job.title), el('span', 'row-small', [job.assignee_name ? 'For ' + job.assignee_name : 'For anyone',
-          job.routine_id ? 'today’s, from the routine' : '', ...C().jobNotes(job)].filter(Boolean).join('. ')));
+          job.routine_id ? 'Today’s, from the repeating job' : '', ...C().jobNotes(job)].filter(Boolean).join('. ')));
         item.append(words, C().button('Cancel', async () => {
           if (!window.confirm(`Cancel “${job.title}”?`)) return;
           const done = await C().call('/today/cancel', { item_id: job.item_id });
@@ -290,22 +355,42 @@
     }
   }
 
-  async function handOut(title, details) {
-    if (!title) { C().bar().say('Say what needs doing first.', 'error'); return; }
-    const kind = draft.count ? 'stock_count' : 'job';
-    let path = '/today/assign';
-    const body = { title, details, to: draft.who, kind };
-    if (draft.when === 'daily' || draft.when === 'weekdays') {
-      path = '/today/routine';
-      body.cadence = draft.when;
-    } else if (draft.when === 'tomorrow') {
-      const day = new Date(Date.now() + 864e5);
-      body.due = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+  function isoDay(date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+
+  /* The route and body for what George handed out: a job (now, tomorrow, or on a day he picked, as
+   * `due`) or a routine (every day, weekdays, or one weekday: `cadence`). Pure, so it is tested under
+   * Node (tests/web/today-owner.test.js). Returns { path, body, said } or { error }. */
+  function handOutBody(d, title, details, now) {
+    if (!title) return { error: 'Say what needs doing first.' };
+    const body = { title, details: details || '', to: d.who || '', kind: d.count ? 'stock_count' : 'job' };
+    const names = Object.fromEntries(WEEKDAYS);
+    if (d.when === 'daily' || d.when === 'weekdays' || d.when === 'weekly') {
+      const cadence = d.when === 'weekly' ? d.weekday : d.when;
+      if (!names[cadence] && cadence !== 'daily' && cadence !== 'weekdays') return { error: 'Pick the day of the week.' };
+      return { path: '/today/routine', body: { ...body, cadence },
+        said: d.when === 'daily' ? 'every day' : d.when === 'weekdays' ? 'on weekdays' : `every ${names[cadence]}` };
     }
-    const done = await C().call(path, body);
+    const today = now || new Date();
+    if (d.when === 'tomorrow') return { path: '/today/assign', body: { ...body, due: isoDay(new Date(today.getTime() + 864e5)) }, said: 'for tomorrow' };
+    if (d.when === 'date') {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d.day || '')) return { error: 'Pick the day it is for.' };
+      if (d.day < isoDay(today)) return { error: 'That day has gone. Pick today or later.' };
+      const at = new Date(`${d.day}T12:00:00`);
+      const shown = `${SHORT_DAYS[at.getDay()]} ${at.getDate()} ${SHORT_MONTHS[at.getMonth()]}`;   // "Fri 16 Oct", the same on every phone
+      return { path: '/today/assign', body: { ...body, due: d.day }, said: `for ${shown}` };
+    }
+    return { path: '/today/assign', body, said: 'for today' };
+  }
+
+  async function handOut(title, details) {
+    const plan = handOutBody(draft, title, details);
+    if (plan.error) { C().bar().say(plan.error, 'error'); return; }
+    const done = await C().call(plan.path, plan.body);
     if (!done.ok) { C().bar().say(C().sentence(done.detail), 'error'); return; }
     const who = draft.who ? (staff(C().state()).find((p) => p.person_id === draft.who) || {}).name : 'anyone';
-    C().bar().say(path === '/today/routine' ? `Set: “${title}”, ${draft.when === 'daily' ? 'every day' : 'weekdays'}.` : `Handed to ${who}: “${title}”.`);
+    C().bar().say(plan.path === '/today/routine' ? `Set: “${title}”, ${plan.said}.` : `Handed to ${who}: “${title}”, ${plan.said}.`);
     draft.count = false;
     $('#hand-what').value = '';
     await C().load();
@@ -410,14 +495,15 @@
   // ------------------------------------------------------------ drawn by web/today.js
 
   function draw(state) {
-    $('#owner').hidden = $('#talk').hidden === false;
+    const talking = $('#talk').hidden === false;
+    $('#owner').hidden = talking;
+    $('#segments').hidden = talking;
     segments();
     drawTeam(state);
     drawHand(state);
     drawPeople(state);
     show();
-    C().line(summary(state), 'READY');
   }
 
-  window.CliveTodayOwner = { draw };
+  window.CliveTodayOwner = { draw, handOutBody };
 }());

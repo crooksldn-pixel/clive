@@ -60,14 +60,16 @@ They also never reach your conversations, your objectives, your screens and TVs,
 
 ## What you see
 
-Your side of Today has three parts.
+Your side of Today has four parts.
 
 - **Team**:
   - **Waiting for you**: what the team asked you to do (a refund, a discount), in their words, with who asked and when. Tap *Done* when it is sorted.
-  - **The team now**: each person with what they have in hand and what they finished today. Tap a name for their day, step by step.
+  - **Packed, waiting for tracking**: orders someone has packed. *Fulfil* starts the sentence for your CLIVE with the order in it; you add the tracking number and confirm the card.
+  - **The team now**: each person with what they have in hand and what they finished today. Tap a name for their day, step by step, and to cancel a job they have taken.
   - **Today, step by step**: every step, by whom. That covers who took and packed an order, who fulfilled it, who replied to an email, and who counted what. A change made through a card closes the job it was for, in the name of whoever confirmed it.
-- **Hand out**: one line for what needs doing, then who (anyone, or a name) and when (today, tomorrow, every day, weekdays). One switch makes it a stock count. Below are the routines, which you can stop, and the jobs not started yet, which you can cancel.
-- **People**: the team and whether each person can use CLIVE. Let someone in, or take their access away, with your passkey. You can add someone with their name, the email they sign in to Tailscale with, and what they do. The people CLIVE can suggest are listed too.
+- **Work**: your own jobs and everything up for grabs, in the team's own view. You can take an order and pack it, finish a job, or say "packed 2109" in the ask bar.
+- **Hand out**: one line for what needs doing, then who (anyone, or a name) and when. The choices are today, tomorrow, a day you pick, every day, weekdays, or one day each week. One switch makes it a stock count. Below are the repeating jobs, which you can stop, and the jobs not started yet, which you can cancel.
+- **People**: the team and whether each person can use CLIVE. Let someone in, or take their access away, with your passkey. You can add someone with their name, the email they sign in to Tailscale with, and what they do. The people CLIVE can suggest are listed too, and one line says where the team's spoken words go.
 
 ## What is recorded about them
 

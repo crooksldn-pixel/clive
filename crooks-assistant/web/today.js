@@ -63,6 +63,7 @@
   let focusKey = '';             // the job they chose to look at, if not the first
   let view = 'work';             // work | list | talk
   let picking = null;            // { step, jobs } while the page asks which one
+  let ownerWork = false;         // George on his own Work part: the same job-in-hand view as the team
   let bar = null;
   let orb = null;
   let voice = null;
@@ -563,7 +564,7 @@
   }
 
   function draw() {
-    if (!state || state.me.owner) return;
+    if (!state || (state.me.owner && !ownerWork)) return;
     const b = board();
     const card = focused(b);
     if (focusKey && !card) focusKey = '';
@@ -614,9 +615,14 @@
   async function handle(text) {
     const said = String(text || '').trim();
     if (!said || !state) return;
-    if (state.me.owner) { await askClive(said); return; }
     const b = board();
     const read = SAY.read(said, { mine: b.mine, grabs: b.grabs });
+    // George's own: a step on the list ("packed 2109") is taken here as his tap would be; anything
+    // else, his things included, is for his own CLIVE, which can do them.
+    if (state.me.owner && !(ownerWork && ['claim', 'packed', 'done', 'release', 'undo', 'pick'].includes(read.do))) {
+      await askClive(said);
+      return;
+    }
     if (read.do === 'claim' && read.job.mine && read.job.claimed) { show(read.job); bar.say(`${heading(read.job).big} is already yours.`); return; }
     if (['claim', 'packed', 'done', 'release'].includes(read.do)) {
       if (read.do === 'done' && read.job.kind === 'stock_count' && !read.job.counts.length) {
@@ -760,13 +766,24 @@
     const back = document.querySelector('.talk-back');
     if (back) back.remove();
     $('#talk-log').textContent = '';
-    setView(state && state.me.owner ? 'owner' : 'work');
-    if (state && state.me.owner) { $('#talk').hidden = true; $('#owner').hidden = false; }
+    const owner = Boolean(state && state.me.owner);
+    setView(owner && !ownerWork ? 'owner' : 'work');
+    if (owner) { $('#talk').hidden = true; $('#owner').hidden = false; $('#segments').hidden = false; $('#work').hidden = !ownerWork; }
+  }
+
+  // George's Work part (web/today-owner.js): his own jobs in hand, and the pool, in the team's view.
+  function showWork(on) {
+    ownerWork = Boolean(on);
+    picking = null;
+    if (ownerWork) { setView('work'); return; }
+    view = 'work';
+    $('#work').hidden = true;
+    $('#list').hidden = true;
   }
 
   async function askClive(text) {
     busy = true;
-    if (state && state.me.owner) $('#owner').hidden = true;
+    if (state && state.me.owner) { $('#owner').hidden = true; $('#segments').hidden = true; }
     setView('talk');
     youSaid(text);
     const waiting = cliveSaid('On it…', 'waiting');
@@ -888,9 +905,10 @@
     document.body.classList.toggle('is-owner', state.me.owner);
     $('#home').hidden = !state.me.owner;
     if (state.me.owner) {
-      $('#work').hidden = true;
       if (view !== 'talk') $('#owner').hidden = false;
       if (window.CliveTodayOwner && was !== JSON.stringify([state.work, state.record, state.people])) window.CliveTodayOwner.draw(state);
+      $('#work').hidden = !(ownerWork && view === 'work');
+      if (ownerWork && view === 'work') draw();
       return true;
     }
     if (view === 'work') $('#work').hidden = false;
@@ -923,5 +941,6 @@
   window.CliveToday = {
     call, post, element, button, when, sentence, recordLine, jobNotes, heading, cardOf, load, line,
     ask: askClive, handle, offerUndo, bar: () => bar, state: () => state, RECORD_WORDS, VIA_CLIVE,
+    prefill, showWork, guidanceNow: () => (state ? guidance(focused(board())) : ''),
   };
 }());

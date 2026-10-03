@@ -26,7 +26,7 @@ from experience.browser import CHROMIUM, ROOT, _free_port, _stop, available, ser
 
 SCRIPT = ROOT / "scripts" / "browser" / "team.js"
 # Every check the script makes must be made: a run that stopped early is not a pass.
-EXPECTED_CHECKS = 26
+EXPECTED_CHECKS = 33
 
 
 def _harness():
