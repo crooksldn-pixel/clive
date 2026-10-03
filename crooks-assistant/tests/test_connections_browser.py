@@ -13,7 +13,13 @@ authenticator holding the owner's passkey), after which GitHub is Working.
 Opening the screen asks each connected service again: the stand-ins count it here.
 
 Set CONNECTIONS_SHOTS to a folder to keep the screenshots. Skipped, loudly, when node,
-playwright-core or Chromium are missing, never quietly passed.
+playwright-core or Chromium are missing, never quietly passed. Like every browser check here
+(experience/browser.py `available`), it finds playwright-core through Node's own lookup, so on a
+machine where it is installed outside the repository NODE_PATH must name that folder, as the
+builders' machines do; the overnight machine's is /home/claude/night/node_modules:
+
+    NODE_PATH=/home/claude/night/node_modules CONNECTIONS_SHOTS=<folder> \
+        python -m pytest tests/test_connections_browser.py
 """
 
 from __future__ import annotations
@@ -33,7 +39,7 @@ EXPECTED_CHECKS = 61
 async def test_the_connections_screen_in_a_real_browser(tmp_path):
     ok, why = available()
     if not ok:
-        pytest.skip(f"browser checks need a browser: {why}")
+        pytest.skip(f"browser checks need a browser: {why} (playwright-core is found through NODE_PATH)")
     server, task, port, world = await connections_world.serve(tmp_path)
     try:
         before = {c.url.host for c in world.services.calls}

@@ -19,7 +19,7 @@ approval runs end to end: the browser saves a new GitHub token with it, which Gi
 here too) accepts. Nothing reaches the network or a Keychain. Used by
 tests/test_connections_browser.py, and by hand for the screenshots:
 
-    python -m tests.connections_world <shots folder> <prefix>
+    NODE_PATH=<the node_modules holding playwright-core> python -m tests.connections_world <shots folder> <prefix>
 """
 
 from __future__ import annotations
