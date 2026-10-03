@@ -39,10 +39,10 @@ async def test_the_card_is_the_email_with_shopifys_price_and_link_and_nothing_is
     assert card["title"] == "Send a checkout link"
     assert facts["To"] == "Mia Jones <mia.jones@example.com>"
     assert facts["Items"] == "Convict T-Shirt Black / M · £30.00"
-    assert facts["Total"] == "£30.00"
+    assert facts["Total"] == "£30.00, before any postage"
     assert facts["Link"] == draft["invoiceUrl"] and facts["Link"].startswith(f"https://{INVOICE_HOST}/")
     assert facts["Draft"].startswith(f"{draft['name']} in Shopify — a draft, not an order")
-    assert card["body"] == (f"{TEE['message']}\n\nConvict T-Shirt — Black / M: £30.00\n\nTotal: £30.00\n\n"
+    assert card["body"] == (f"{TEE['message']}\n\nConvict T-Shirt — Black / M: £30.00\n\nTotal: £30.00, before any postage\n\n"
                             f"Pay here: {draft['invoiceUrl']}\n\nCROOKS")
     # His hold, not a tap: a message to a customer cannot be unsent.
     assert card["interaction"]["kind"] == "hold_to_arm" and card["risk"] == "red"
@@ -123,7 +123,7 @@ async def test_a_variant_from_a_search_this_conversation_made_is_taken(world):
     await say(world, "black tee in medium?", ("shopify_variant_search", {"product": "black tee", "size": "M"}))
     body = await _prepare(world, {**TEE, "items": [{"variant_id": vid(7202), "quantity": 2}]})
     facts = {f["label"]: f["value"] for f in cards(body, "confirmation")[0]["facts"]}
-    assert facts["Items"] == "Convict T-Shirt Black / M ×2 · £60.00" and facts["Total"] == "£60.00"
+    assert facts["Items"] == "Convict T-Shirt Black / M ×2 · £60.00" and facts["Total"] == "£60.00, before any postage"
 
 
 async def test_a_link_in_his_words_is_refused_the_shops_link_is_the_only_one(world):
@@ -208,3 +208,13 @@ async def test_a_new_size_says_the_draft_for_the_old_one_is_left_in_admin(world)
     facts = {f["label"]: f["value"] for f in cards(body, "confirmation")[-1]["facts"]}
     assert len(world.store.drafts) == 2
     assert facts["Earlier"] == f"{first['name']}, made for the earlier items, is left in Admin"
+
+
+async def test_postage_on_the_draft_is_its_own_line_and_the_total_says_it_is_in(world):
+    world.store.twist = {"totalShippingPriceSet": {"shopMoney": {"amount": "4.95", "currencyCode": "GBP"}},
+                         "totalPriceSet": {"shopMoney": {"amount": "34.95", "currencyCode": "GBP"}}}
+    body = await _prepare(world)
+    (card,) = cards(body, "confirmation")
+    facts = {f["label"]: f["value"] for f in card["facts"]}
+    assert "Convict T-Shirt — Black / M: £30.00\n\nPostage: £4.95\n\nTotal: £34.95, with postage" in card["body"]
+    assert facts["Total"] == "£34.95, with postage" and facts["Postage"] == "£4.95"

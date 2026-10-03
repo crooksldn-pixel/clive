@@ -293,11 +293,21 @@ def _priced_lines(node: dict[str, Any]) -> list[dict[str, str]]:
     return out
 
 
-def _body(message: str, lines: list[dict[str, str]], total: str, link: str) -> str:
+def _totals(total: str, postage: str) -> tuple[str, str]:
+    """(the postage line, the total's words), as the draft has them: postage on the draft is its
+    own line and the total says it is in; no postage on the draft and the total says it is
+    before any — which is all the draft can promise about what checkout adds."""
+    if postage:
+        return f"Postage: {postage}", f"{total}, with postage"
+    return "", f"{total}, before any postage"
+
+
+def _body(message: str, lines: list[dict[str, str]], total: str, postage: str, link: str) -> str:
     listed = "\n".join(f"{line['title']}{' — ' + line['variant'] if line['variant'] else ''}"
                        f"{' × ' + line['quantity'] if line['quantity'] != '1' else ''}: {line['price']}" for line in lines)
     signature = str(getattr(gmail_writes._settings(), "gmail_signature", "") or "").strip()
-    parts = [message, listed, f"Total: {total}", f"Pay here: {link}"] + ([signature] if signature else [])
+    postage_line, total_words = _totals(total, postage)
+    parts = [message, listed, postage_line, f"Total: {total_words}", f"Pay here: {link}"] + ([signature] if signature else [])
     return "\n\n".join(p for p in parts if p)
 
 
@@ -322,7 +332,7 @@ def _present(proposal) -> dict:
     facts = [
         {"label": "To", "value": str(s.get("to_line") or "")},
         {"label": "Items", "value": str(s.get("items_line") or "")},
-        {"label": "Total", "value": str(s.get("total") or ""), "tone": "bad"},
+        {"label": "Total", "value": str(s.get("total_line") or s.get("total") or ""), "tone": "bad"},
         {"label": "Postage", "value": str(s.get("postage") or "")},
         {"label": "Link", "value": str(s.get("link") or "")},
         {"label": "Draft", "value": str(s.get("draft_line") or "")},
@@ -401,8 +411,9 @@ async def shopify_checkout_link_send(customer_id: str, items: list, message: str
         raise DraftLeft("Shopify did not price the draft, so no link is offered.", draft_name=draft_name)
     total = _shown(total_amount, currency)
     postage_amount, _ = _money(node.get("totalShippingPriceSet"))
+    postage = _shown(postage_amount, currency) if postage_amount else ""
     priced = _priced_lines(node)
-    body = _body(text, priced, total, link)
+    body = _body(text, priced, total, postage, link)
     if len(body) > gmail_writes.MAX_BODY_CHARS:
         raise DraftLeft("The email would be too long; shorten the message.", draft_name=draft_name)
     client = gmail_writes._g()
@@ -432,8 +443,8 @@ async def shopify_checkout_link_send(customer_id: str, items: list, message: str
         summary={
             "title": "Send a checkout link", "sending": True, "spoken_to": customer["first"] or customer["name"],
             "to_line": f"{customer['name']} <{customer['email']}>" if customer["name"] else customer["email"],
-            "subject": subject, "body": body, "items_line": items_line, "total": total,
-            "postage": _shown(postage_amount, currency) if postage_amount else "none on the draft",
+            "subject": subject, "body": body, "items_line": items_line, "total": total, "total_line": _totals(total, postage)[1],
+            "postage": postage or "none on the draft",
             "link": link, "draft_line": f"{draft_name} in Shopify — a draft, not an order; nobody is charged until they pay",
             "left_line": f"{_joined(earlier)}, made for the earlier items, {'is' if len(earlier) == 1 else 'are'} left in Admin" if earlier else "",
             "from_line": sender, "read_back": f"send {customer['first'] or customer['name']} a checkout link for {items_line}, {total} in all",
