@@ -195,6 +195,18 @@ def money_moving(action: str, params: dict[str, Any]) -> bool:
     return action == "complete"
 
 
+def emails_customer(action: str, params: dict[str, Any]) -> bool:
+    """The changes after which Shopify emails the customer, because CROOKS Returns asks it to
+    (`notifyCustomer`, its SHOPIFY_NOTIFY_CUSTOMER, on by default): a label attached to the Shopify
+    return, bought or given with its tracking, and a return processed (refunded, credited or
+    swapped). Like every other write that emails a customer, they take the owner's hold."""
+    if action == "approve":
+        return params.get("postage_mode") in ("label_now", "no_return")
+    if action == "receive":
+        return params.get("condition") == "ok"
+    return action in ("label", "complete")
+
+
 def _short(value: Any, limit: int, what: str) -> str:
     text = " ".join(str(value or "").split())
     if len(text) > limit:
@@ -333,7 +345,8 @@ def verify(before: dict, observed: dict, execution: dict) -> tuple[bool, str]:
 
 
 def _risk(prepared: Prepared) -> str:
-    return "RED" if prepared.summary.get("money_moving") else ""
+    """RED, so the owner's hold, for a change that moves money or that has Shopify email the customer."""
+    return "RED" if prepared.summary.get("money_moving") or prepared.summary.get("emails_customer") else ""
 
 
 def _money_facts(held: dict[str, Any]) -> list[dict[str, str]]:
@@ -354,9 +367,12 @@ def _present(proposal) -> dict:
         title = f"{title} · {MODE_WORDS.get(str(s.get('mode')), s.get('mode'))}"
     facts = [{"label": "Customer", "value": str(s.get("customer") or "")},
              {"label": "Now", "value": str(s.get("status_words") or "")}]
-    facts += _money_facts(s.get("money") if isinstance(s.get("money"), dict) else {})
+    # What the hold is for comes before the amounts, so the card's eight facts never lose it.
     if s.get("money_moving"):
         facts.append({"label": "Moves money", "value": "yes: hold the card, then tap", "tone": "bad"})
+    if s.get("emails_customer"):
+        facts.append({"label": "Customer emailed", "value": "yes (by Shopify)"})
+    facts += _money_facts(s.get("money") if isinstance(s.get("money"), dict) else {})
     will = [str(w) for w in s.get("will") or []]
     summary = str(s.get("return_summary") or "")
     return {
@@ -437,6 +453,7 @@ async def return_action(return_id: str, action: str, postage_mode: str = "", con
     held = said.get("money") if isinstance(said.get("money"), dict) else {}
     status = str(ret.get("status") or "")
     moving = money_moving(action, params)
+    emails = emails_customer(action, params)
     number = views.order_number(ret)
     customer = " ".join(str(ret.get("customer_name") or "").split())[:60]
     read_back = f"{TITLES[action].lower()} on order {number.lstrip('#')}"
@@ -453,10 +470,11 @@ async def return_action(return_id: str, action: str, postage_mode: str = "", con
         summary={
             "action": action, "mode": params.get("postage_mode", ""), "will": will,
             "money": {k: v for k, v in held.items() if client.pence(v) is not None},
-            "money_moving": moving, "status_words": views.STATUS_WORDS.get(status, status), "customer": customer,
+            "money_moving": moving, "emails_customer": emails,
+            "status_words": views.STATUS_WORDS.get(status, status), "customer": customer,
             "return_summary": " ".join(str(ret.get("summary") or "").split())[:240], "read_back": read_back,
             "pii": [customer] if customer else [],
-            "ledger": {"action": action, "money_moving": moving,
+            "ledger": {"action": action, "money_moving": moving, "notify": emails,
                        **{k: v for k, v in held.items() if client.pence(v) and k in ("refund_pence", "credit_pence")}},
         },
     )

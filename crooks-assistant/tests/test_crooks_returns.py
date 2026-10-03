@@ -342,7 +342,7 @@ async def test_the_card_is_the_services_preview_exactly_and_nothing_is_sent(stub
     ("requested", {"action": "approve", "postage_mode": "self_ship"}, "swipe_commit"),
     ("requested", {"action": "approve", "postage_mode": "label_later"}, "swipe_commit"),
     ("awaiting_label", {"action": "label"}, "hold_to_arm"),
-    ("awaiting_label", {"action": "label", "tracking": "RM123456789GB"}, "swipe_commit"),
+    ("awaiting_label", {"action": "label", "tracking": "RM123456789GB"}, "hold_to_arm"),   # Shopify emails her
     ("in_transit", {"action": "receive"}, "hold_to_arm"),
     ("in_transit", {"action": "receive", "condition": "ok"}, "hold_to_arm"),
     ("in_transit", {"action": "receive", "condition": "damaged"}, "swipe_commit"),
@@ -359,6 +359,26 @@ async def test_moving_money_is_always_the_hold_and_the_rest_the_owners_swipe(stu
     assert text.startswith("PROPOSED"), text
     assert proposal.interaction == gesture_kind and proposal.risk == ("RED" if gesture_kind == "hold_to_arm" else "AMBER")
     assert not stub.requests("POST", f"/actions/{args['action']}"), "staging never executes"
+
+
+@pytest.mark.parametrize("status, args, emailed", [
+    ("awaiting_label", {"action": "label", "tracking": "RM123456789GB"}, True),
+    ("awaiting_label", {"action": "label"}, True),
+    ("requested", {"action": "approve", "postage_mode": "label_now"}, True),
+    ("requested", {"action": "approve", "postage_mode": "self_ship"}, False),
+    ("in_transit", {"action": "receive", "condition": "damaged"}, False),
+    ("in_transit", {"action": "note", "text": "rang her"}, False),
+])
+@pytest.mark.usefixtures("owner_asking")
+async def test_a_change_after_which_shopify_emails_the_customer_says_so_and_takes_the_hold(stub, engine, session, status, args, emailed):
+    """Attaching her own tracking moves no money, but CROOKS Returns has Shopify email her about it:
+    like every write that emails a customer, the card says so and it is the owner's hold."""
+    stub.returns[RID]["status"] = status
+    _, proposal = await stage(session, **args)
+    facts = registry.get("return_action").write.present(proposal)["facts"]
+    assert ({"label": "Customer emailed", "value": "yes (by Shopify)"} in facts) is emailed
+    assert (proposal.interaction == "hold_to_arm") is (emailed or returns_tools.money_moving(args["action"], dict(proposal.execution)["params"]))
+    assert proposal.summary["ledger"]["notify"] is emailed
 
 
 @pytest.mark.usefixtures("owner_asking")
