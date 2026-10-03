@@ -1,0 +1,18 @@
+{
+  "sections": {
+    "returns": {
+      "type": "returns-portal",
+      "settings": {
+        "kicker": "CROOKS LDN / Returns desk",
+        "heading": "Returns & exchanges",
+        "endpoint": "/apps/returns/api",
+        "accent": "#FFD400",
+        "policy_title": "Returns policy",
+        "color_scheme": "scheme-1"
+      }
+    }
+  },
+  "order": [
+    "returns"
+  ]
+}

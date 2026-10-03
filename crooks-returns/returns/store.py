@@ -1,0 +1,175 @@
+"""Persistence: one SQLite file. A return is stored whole as JSON with its indexed fields beside
+it; every change appends to its timeline, and idempotency keys remember the answer to an
+action so a retried request never repeats a refund."""
+
+from __future__ import annotations
+
+import json
+import secrets
+import sqlite3
+import threading
+from datetime import UTC, datetime
+
+from returns.models import OPEN_STATUSES, Return, Status
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS returns (
+  id TEXT PRIMARY KEY,
+  order_id TEXT NOT NULL,
+  order_name TEXT NOT NULL,
+  status TEXT NOT NULL,
+  shopify_return_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  doc TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS returns_order ON returns(order_id);
+CREATE INDEX IF NOT EXISTS returns_status ON returns(status, updated_at);
+CREATE INDEX IF NOT EXISTS returns_shopify ON returns(shopify_return_id);
+CREATE TABLE IF NOT EXISTS idempotency (
+  key TEXT PRIMARY KEY,
+  at TEXT NOT NULL,
+  response TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS files (
+  id TEXT PRIMARY KEY,
+  return_id TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  at TEXT NOT NULL,
+  body BLOB NOT NULL
+);
+"""
+
+
+def now() -> datetime:
+    return datetime.now(UTC)
+
+
+def new_id(prefix: str) -> str:
+    return f"{prefix}_{secrets.token_hex(5)}"
+
+
+class Store:
+    def __init__(self, path: str) -> None:
+        self._db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
+        self._db.execute("PRAGMA journal_mode=WAL")
+        self._db.executescript(SCHEMA)
+        self._lock = threading.RLock()
+
+    # One writer at a time: an action reads, decides and writes under this lock.
+    @property
+    def lock(self) -> threading.RLock:
+        return self._lock
+
+    def save(self, ret: Return) -> Return:
+        ret.updated_at = now()
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO returns (id, order_id, order_name, status, shopify_return_id, "
+                "created_at, updated_at, doc) VALUES (?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(id) DO UPDATE SET status=excluded.status, "
+                "shopify_return_id=excluded.shopify_return_id, updated_at=excluded.updated_at, "
+                "doc=excluded.doc",
+                (
+                    ret.id,
+                    ret.order_id,
+                    ret.order_name,
+                    ret.status.value,
+                    ret.shopify.return_id,
+                    ret.created_at.isoformat(),
+                    ret.updated_at.isoformat(),
+                    ret.model_dump_json(),
+                ),
+            )
+        return ret
+
+    def get(self, return_id: str) -> Return | None:
+        row = self._db.execute("SELECT doc FROM returns WHERE id=?", (return_id,)).fetchone()
+        return Return.model_validate_json(row[0]) if row else None
+
+    def by_shopify_id(self, shopify_return_id: str) -> Return | None:
+        row = self._db.execute(
+            "SELECT doc FROM returns WHERE shopify_return_id=?", (shopify_return_id,)
+        ).fetchone()
+        return Return.model_validate_json(row[0]) if row else None
+
+    def for_order(self, order_id: str) -> list[Return]:
+        rows = self._db.execute(
+            "SELECT doc FROM returns WHERE order_id=? ORDER BY created_at", (order_id,)
+        ).fetchall()
+        return [Return.model_validate_json(r[0]) for r in rows]
+
+    def for_order_name(self, order_name: str) -> list[Return]:
+        rows = self._db.execute(
+            "SELECT doc FROM returns WHERE order_name=? ORDER BY created_at", (order_name,)
+        ).fetchall()
+        return [Return.model_validate_json(r[0]) for r in rows]
+
+    def search(
+        self,
+        status: list[str] | None = None,
+        since: datetime | None = None,
+        open_only: bool = False,
+        limit: int = 100,
+    ) -> list[Return]:
+        sql, args = "SELECT doc FROM returns WHERE 1=1", []
+        if open_only:
+            status = [s.value for s in OPEN_STATUSES]
+        if status:
+            sql += f" AND status IN ({','.join('?' * len(status))})"
+            args += status
+        if since:
+            sql += " AND updated_at >= ?"
+            args.append(since.isoformat())
+        sql += " ORDER BY updated_at DESC LIMIT ?"
+        args.append(limit)
+        return [Return.model_validate_json(r[0]) for r in self._db.execute(sql, args).fetchall()]
+
+    def open_reserved_qty(self, fulfillment_line_item_id: str) -> int:
+        """Quantity of a line already in a return that is still in flight, so a customer cannot
+        request the same item twice before Shopify knows about the first request."""
+        total = 0
+        for ret in self.search(open_only=True, limit=10_000):
+            if ret.shopify.return_id:
+                continue  # Shopify's returnable quantity already accounts for it.
+            for line in ret.lines:
+                if line.fulfillment_line_item_id == fulfillment_line_item_id:
+                    total += line.quantity
+        return total
+
+    # ---------------------------------------------------------------------- idempotency
+
+    def remembered(self, key: str) -> dict | None:
+        row = self._db.execute("SELECT response FROM idempotency WHERE key=?", (key,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def remember(self, key: str, response: dict) -> None:
+        with self._lock:
+            self._db.execute(
+                "INSERT OR IGNORE INTO idempotency (key, at, response) VALUES (?,?,?)",
+                (key, now().isoformat(), json.dumps(response, default=str)),
+            )
+
+    # ---------------------------------------------------------------------------- files
+
+    def put_file(self, return_id: str, content_type: str, body: bytes) -> str:
+        file_id = new_id("file")
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO files (id, return_id, content_type, at, body) VALUES (?,?,?,?,?)",
+                (file_id, return_id, content_type, now().isoformat(), body),
+            )
+        return file_id
+
+    def get_file(self, file_id: str) -> tuple[str, bytes] | None:
+        row = self._db.execute(
+            "SELECT content_type, body FROM files WHERE id=?", (file_id,)
+        ).fetchone()
+        return (row[0], bytes(row[1])) if row else None
+
+
+def is_open(ret: Return) -> bool:
+    return ret.status in OPEN_STATUSES
+
+
+__all__ = ["Store", "new_id", "now", "is_open", "Status"]

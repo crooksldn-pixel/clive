@@ -1,0 +1,626 @@
+{%- comment -%}
+  CROOKS Returns desk: the customer returns and exchanges portal.
+  Talks to the crooks-returns service through the Shopify app proxy (same domain, signed by
+  Shopify), so it lives on crooksldn.com in the theme's own look rather than in an iframe.
+  Logic lives in assets/returns-portal.js; the server decides every offer and every price.
+
+  Deep links: /pages/returns?order=1939&proof=name@example.com prefills the lookup.
+{%- endcomment -%}
+
+<script src="{{ 'returns-portal.js' | asset_url }}" defer></script>
+
+<section
+  class="returns-desk color-{{ section.settings.color_scheme }}"
+  style="--returns-accent: {{ section.settings.accent }};"
+  aria-labelledby="returns-desk-title-{{ section.id }}"
+>
+  <div class="returns-desk__inner">
+    <header class="returns-desk__head">
+      <p class="returns-desk__kicker">{{ section.settings.kicker | escape }}</p>
+      <h1 id="returns-desk-title-{{ section.id }}" class="returns-desk__title">
+        {{- section.settings.heading | escape -}}
+      </h1>
+      {%- if section.settings.intro != blank -%}
+        <div class="returns-desk__intro">{{ section.settings.intro }}</div>
+      {%- endif -%}
+    </header>
+
+    <returns-portal
+      class="returns-desk__app"
+      data-endpoint="{{ section.settings.endpoint | escape }}"
+      data-contact="{{ section.settings.contact_url | default: routes.root_url | escape }}"
+      {%- if customer -%}
+        data-proof="{{ customer.email | escape }}"
+      {%- endif -%}
+    >
+      <noscript>
+        <p class="returns-desk__note">
+          The returns desk needs JavaScript. You can also
+          <a href="{{ section.settings.contact_url | default: routes.root_url }}">contact us</a>.
+        </p>
+      </noscript>
+    </returns-portal>
+
+    {%- if section.settings.policy != blank -%}
+      <details class="returns-desk__policy">
+        <summary>{{ section.settings.policy_title | escape }}</summary>
+        <div class="returns-desk__policy-body">{{ section.settings.policy }}</div>
+      </details>
+    {%- endif -%}
+  </div>
+</section>
+
+{% stylesheet %}
+  .returns-desk {
+    --rd-ink: var(--color-foreground);
+    --rd-paper: var(--color-background);
+    --rd-line: rgb(var(--color-foreground-rgb) / 0.16);
+    --rd-line-strong: rgb(var(--color-foreground-rgb) / 0.5);
+    --rd-muted: rgb(var(--color-foreground-rgb) / 0.62);
+    --rd-mono: var(--font-crx-mono, ui-monospace, monospace);
+    --rd-gap: clamp(20px, 4vw, 40px);
+
+    background: var(--rd-paper);
+    color: var(--rd-ink);
+    padding-block: clamp(40px, 8vw, 96px);
+    padding-inline: var(--page-margin, 16px);
+  }
+
+  .returns-desk__inner {
+    max-width: 760px;
+    margin-inline: auto;
+  }
+
+  .returns-desk *,
+  .returns-desk *::before,
+  .returns-desk *::after {
+    box-sizing: border-box;
+  }
+
+  .returns-desk__kicker,
+  .rd-meta,
+  .rd-step__count,
+  .rd-badge,
+  .rd-price,
+  .rd-stamp {
+    font-family: var(--rd-mono);
+    font-feature-settings: 'tnum' 1;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .returns-desk__kicker {
+    margin: 0 0 12px;
+    font-size: 0.75rem;
+    color: var(--rd-muted);
+  }
+
+  .returns-desk__title {
+    margin: 0;
+    font-size: clamp(2.4rem, 8vw, 4.5rem);
+    line-height: 0.92;
+    text-transform: uppercase;
+  }
+
+  .returns-desk__intro {
+    margin-top: 16px;
+    max-width: 52ch;
+    color: var(--rd-muted);
+  }
+
+  .returns-desk__app {
+    display: block;
+    margin-top: var(--rd-gap);
+  }
+
+  /* Steps */
+  .rd-step {
+    border-top: 1px solid var(--rd-ink);
+    padding-top: 18px;
+    animation: rd-in 0.28s ease both;
+  }
+
+  .rd-step[data-still] {
+    animation: none;
+  }
+
+  .rd-case a {
+    color: inherit;
+    text-underline-offset: 3px;
+  }
+
+  .rd-step__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .rd-step__title {
+    margin: 0;
+    font-size: clamp(1.4rem, 4vw, 2rem);
+    text-transform: uppercase;
+  }
+
+  .rd-step__count {
+    font-size: 0.75rem;
+    color: var(--rd-muted);
+    white-space: nowrap;
+  }
+
+  .rd-progress {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    margin-bottom: 28px;
+  }
+
+  .rd-progress span {
+    height: 2px;
+    background: var(--rd-line);
+  }
+
+  .rd-progress span[data-done] {
+    background: var(--rd-ink);
+  }
+
+  .rd-progress span[data-current] {
+    background: var(--returns-accent);
+  }
+
+  /* Fields */
+  .rd-fields {
+    display: grid;
+    gap: 18px;
+  }
+
+  @media screen and (min-width: 750px) {
+    .rd-fields--two {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  .rd-field label,
+  .rd-legend {
+    display: block;
+    margin-bottom: 8px;
+    font-family: var(--rd-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .rd-input,
+  .rd-select,
+  .rd-textarea {
+    width: 100%;
+    min-height: 52px;
+    padding: 14px 16px;
+    border: 1px solid var(--rd-line-strong);
+    border-radius: 0;
+    background: transparent;
+    color: var(--rd-ink);
+    font: inherit;
+    font-size: 1rem;
+  }
+
+  .rd-textarea {
+    min-height: 96px;
+    resize: vertical;
+  }
+
+  .rd-input:focus-visible,
+  .rd-select:focus-visible,
+  .rd-textarea:focus-visible,
+  .rd-choice:focus-within,
+  .rd-chip:focus-visible,
+  .rd-button:focus-visible {
+    outline: 2px solid var(--rd-ink);
+    outline-offset: 2px;
+  }
+
+  .rd-hint {
+    margin: 8px 0 0;
+    font-size: 0.85rem;
+    color: var(--rd-muted);
+  }
+
+  /* Buttons: ink, flashing caution yellow, like the rest of the site */
+  .rd-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 20px;
+    margin-top: 32px;
+  }
+
+  .rd-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 54px;
+    padding: 0 28px;
+    border: 1px solid var(--rd-ink);
+    border-radius: 0;
+    background: var(--rd-ink);
+    color: var(--rd-paper);
+    font-family: var(--rd-mono);
+    font-size: 0.82rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .rd-button:hover {
+    background: var(--returns-accent);
+    border-color: var(--returns-accent);
+    color: #0a0a0a;
+  }
+
+  .rd-button[disabled] {
+    opacity: 0.45;
+    cursor: progress;
+  }
+
+  .rd-link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--rd-ink);
+    font-family: var(--rd-mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    cursor: pointer;
+  }
+
+  /* Items */
+  .rd-items {
+    display: grid;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .rd-item {
+    display: grid;
+    grid-template-columns: 72px 1fr;
+    gap: 16px;
+    padding-block: 18px;
+    border-bottom: 1px solid var(--rd-line);
+  }
+
+  .rd-item[data-disabled] {
+    opacity: 0.55;
+  }
+
+  .rd-item__img {
+    width: 72px;
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+    background: rgb(var(--color-foreground-rgb) / 0.06);
+  }
+
+  .rd-item__top {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .rd-item__title {
+    margin: 0;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .rd-meta {
+    font-size: 0.72rem;
+    color: var(--rd-muted);
+  }
+
+  .rd-price {
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+
+  .rd-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+    cursor: pointer;
+  }
+
+  .rd-check input,
+  .rd-choice input {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    accent-color: var(--rd-ink);
+  }
+
+  .rd-item__detail {
+    display: grid;
+    gap: 14px;
+    margin-top: 14px;
+  }
+
+  /* Options */
+  .rd-options {
+    display: grid;
+    gap: 12px;
+  }
+
+  .rd-choice {
+    position: relative;
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    gap: 14px;
+    padding: 20px;
+    border: 1px solid var(--rd-line-strong);
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .rd-choice:hover {
+    border-color: var(--rd-ink);
+  }
+
+  .rd-choice:has(input:checked) {
+    border-color: var(--rd-ink);
+    box-shadow: 6px 6px 0 var(--returns-accent);
+  }
+
+  .rd-choice__headline {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  .rd-choice__detail {
+    margin: 6px 0 0;
+    color: var(--rd-muted);
+  }
+
+  .rd-badge {
+    position: absolute;
+    top: -10px;
+    right: 16px;
+    padding: 3px 8px;
+    background: var(--returns-accent);
+    color: #0a0a0a;
+    font-size: 0.66rem;
+  }
+
+  .rd-subhead {
+    margin: 36px 0 14px;
+    font-family: var(--rd-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .rd-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .rd-chip {
+    min-width: 52px;
+    min-height: 44px;
+    padding: 0 14px;
+    border: 1px solid var(--rd-line-strong);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--rd-ink);
+    font-family: var(--rd-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+  }
+
+  .rd-chip[aria-pressed='true'] {
+    background: var(--rd-ink);
+    border-color: var(--rd-ink);
+    color: var(--rd-paper);
+  }
+
+  /* Summary / docket */
+  .rd-docket {
+    margin: 0;
+    border-top: 1px solid var(--rd-line);
+  }
+
+  .rd-docket div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding-block: 12px;
+    border-bottom: 1px solid var(--rd-line);
+  }
+
+  .rd-docket dt {
+    font-family: var(--rd-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--rd-muted);
+  }
+
+  .rd-docket dd {
+    margin: 0;
+    text-align: right;
+  }
+
+  .rd-docket .rd-total dd {
+    font-family: var(--rd-mono);
+    font-size: 1.2rem;
+  }
+
+  /* Status cards */
+  .rd-case {
+    position: relative;
+    padding: 24px;
+    border: 1px solid var(--rd-ink);
+    margin-bottom: 16px;
+  }
+
+  .rd-stamp {
+    display: inline-block;
+    margin-bottom: 14px;
+    padding: 4px 10px;
+    border: 1.5px solid var(--rd-ink);
+    font-size: 0.7rem;
+    transform: rotate(-1.5deg);
+  }
+
+  .rd-case[data-status='completed'] .rd-stamp,
+  .rd-case[data-status='awaiting_shipment'] .rd-stamp {
+    background: var(--returns-accent);
+    border-color: var(--returns-accent);
+    color: #0a0a0a;
+  }
+
+  .rd-case__message {
+    margin: 0 0 16px;
+    font-size: 1.1rem;
+  }
+
+  .rd-address {
+    margin: 12px 0 0;
+    font-family: var(--rd-mono);
+    font-size: 0.85rem;
+    line-height: 1.6;
+    white-space: pre-line;
+  }
+
+  .rd-error {
+    margin: 0 0 18px;
+    padding: 12px 14px;
+    border-left: 3px solid var(--returns-accent);
+    background: rgb(var(--color-foreground-rgb) / 0.05);
+  }
+
+  .rd-error:empty {
+    display: none;
+  }
+
+  .returns-desk__policy {
+    margin-top: calc(var(--rd-gap) * 1.5);
+    border-top: 1px solid var(--rd-line);
+    padding-top: 16px;
+  }
+
+  .returns-desk__policy summary {
+    font-family: var(--rd-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .returns-desk__policy-body {
+    margin-top: 12px;
+    color: var(--rd-muted);
+  }
+
+  @keyframes rd-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rd-step {
+      animation: none;
+    }
+    .rd-button,
+    .rd-choice {
+      transition: none;
+    }
+  }
+{% endstylesheet %}
+
+{% schema %}
+{
+  "name": "Returns desk",
+  "tag": "div",
+  "class": "returns-desk-section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "kicker",
+      "label": "Kicker",
+      "default": "CROOKS LDN / Returns desk"
+    },
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "default": "Returns & exchanges"
+    },
+    {
+      "type": "richtext",
+      "id": "intro",
+      "label": "Intro",
+      "default": "<p>Wrong size? Swap it free. Changed your mind? Get store credit with a bonus, or a refund. You have 14 days from delivery.</p>"
+    },
+    {
+      "type": "text",
+      "id": "endpoint",
+      "label": "Returns service path",
+      "info": "The app proxy path. Leave as /apps/returns/api unless the app proxy changes.",
+      "default": "/apps/returns/api"
+    },
+    {
+      "type": "url",
+      "id": "contact_url",
+      "label": "Contact page"
+    },
+    {
+      "type": "color",
+      "id": "accent",
+      "label": "Accent",
+      "default": "#FFD400"
+    },
+    {
+      "type": "text",
+      "id": "policy_title",
+      "label": "Policy heading",
+      "default": "Returns policy"
+    },
+    {
+      "type": "richtext",
+      "id": "policy",
+      "label": "Policy summary",
+      "default": "<p>Return unworn items with tags within 14 days of delivery. Exchanges and store credit come with free return postage. Refunds for a change of mind can use your own postage or a Royal Mail label at cost, taken off your refund. Faulty or wrong items are always free to return.</p>"
+    },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "Color scheme",
+      "default": "scheme-1"
+    }
+  ],
+  "presets": [
+    {
+      "name": "Returns desk",
+      "category": "Storefront"
+    }
+  ]
+}
+{% endschema %}

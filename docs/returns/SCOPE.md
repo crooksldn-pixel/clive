@@ -1,4 +1,4 @@
-# CROOKS Returns: scope (draft, 2026-10-03)
+# CROOKS Returns: scope (2026-10-03)
 
 This replaces AfterShip Returns with a returns and exchanges system that CROOKS owns: a
 customer portal on crooksldn.com, a small backend service, Shopify's own Returns API as the
@@ -216,12 +216,27 @@ cards for returns exist.
 - Fit insight fed back to product pages; flags for frequent returners; instant exchanges for
   trusted customers.
 
-## Open questions for the owner
+## Decisions (owner, 2026-10-03)
 
-1. Return window: 14, 28 or 30 days from delivery?
-2. Postage fee for changed-my-mind refunds: amount, or free?
-3. Credit bonus: amount?
-4. When an exchange is sent: on approval, first scan, or on receipt?
-5. Sale items: refundable, or credit and exchange only?
-6. Royal Mail account type: OBA or pay-as-you-go?
-7. Does staff work happen in the Shopify admin, through CLIVE, or both?
+| Question | Decision | Where it lives |
+| --- | --- | --- |
+| Return window | 14 days from delivery (UK law). Faulty, wrong or misdescribed items: 30 days. | `RETURNS_WINDOW_DAYS`, `RETURNS_FAULT_WINDOW_DAYS` |
+| Change-of-mind postage | The customer sends it themselves, or uses a Royal Mail label at Click & Drop cost with no premium, taken off the refund. | `RETURNS_RETURN_LABEL_COST_PENCE` |
+| Keeping the value | Store credit and exchanges get free return postage. | `policy.quote` |
+| Credit bonus | £25 tee credits £30; £60 item credits £70. Built as bands: +£5 under £40, +£10 from £40. **The £40 boundary needs confirming.** | `RETURNS_CREDIT_BONUS_BANDS` |
+| When an exchange ships | When the return arrives back. | the `receive` action |
+| Sale items | Same as full price. The 14-day right covers sale items, so there is no separate rule. Only products tagged `non-returnable` (sealed hygiene goods, personalised items) are limited to faulty returns. | `RETURNS_NON_RETURNABLE_TAGS` |
+| Royal Mail account | Online Business Account (to confirm with the first live label). | `RETURNS_CLICKDROP_*` |
+| Staff work | Both: the Shopify admin (returns are native Shopify returns, and changes made there sync back) and CLIVE (the API). | `/webhooks/shopify`, `/api/v1` |
+
+## Built (first version, 2026-10-03)
+
+- `crooks-returns/`: the service (rules, verification, workflow, Shopify, Click & Drop, CLIVE
+  API, webhooks), 39 offline tests. Every Shopify document was validated against the Admin
+  2026-10 schema.
+- Theme: `sections/returns-portal.liquid`, `assets/returns-portal.js` and
+  `templates/page.returns.json`. Driven end to end in a browser at phone and desktop widths
+  against the fake store.
+- Not done yet: deployment, the Shopify app and app proxy, Click & Drop credentials, a staff
+  screen beyond the Shopify admin and CLIVE, an exchange for a different product, and keep-it
+  offers. The setup steps are in `crooks-returns/README.md`.
