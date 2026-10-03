@@ -1291,6 +1291,130 @@
       transition: none !important;
     }
   }
+  /* Drop-off choice (Parcel2Go): which courier, and the nearest shops */
+  .rd-drops {
+    display: grid;
+    gap: 8px;
+  }
+
+  .rd-drop {
+    display: grid;
+    gap: 4px;
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--rd-line);
+    background: var(--rd-cell);
+    color: var(--rd-text);
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .rd-drop:hover {
+    background: var(--rd-cell-hi);
+  }
+
+  .rd-drop[aria-pressed='true'] {
+    background: var(--rd-bone);
+    color: var(--rd-ink);
+    border-color: var(--rd-bone);
+  }
+
+  .rd-drop__top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--rd-display);
+    font-weight: 700;
+    font-size: 1.05rem;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+  }
+
+  .rd-drop__tag {
+    font-family: var(--rd-mono);
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 3px 6px;
+    background: var(--rd-accent);
+    color: var(--rd-ink);
+  }
+
+  .rd-drop__shop {
+    font-size: 0.85rem;
+    color: var(--rd-muted);
+  }
+
+  .rd-drop[aria-pressed='true'] .rd-drop__shop {
+    color: rgb(10 10 10 / 0.68);
+  }
+
+  /* The QR code to show at the shop */
+  .rd-qr {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 16px;
+    align-items: center;
+    padding: 14px;
+    background: var(--rd-bone);
+    color: var(--rd-ink);
+  }
+
+  .rd-qr img {
+    display: block;
+    width: 132px;
+    height: 132px;
+    image-rendering: pixelated;
+    background: #fff;
+  }
+
+  .rd-qr__say {
+    margin: 0;
+    font-family: var(--rd-display);
+    font-weight: 700;
+    font-size: 1.15rem;
+    line-height: 1.15;
+    text-transform: uppercase;
+  }
+
+  .rd-qr__code {
+    margin: 6px 0 0;
+    font-family: var(--rd-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    word-break: break-all;
+  }
+
+  .rd-shops {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 8px;
+  }
+
+  .rd-shops li {
+    display: grid;
+    gap: 2px;
+    font-size: 0.85rem;
+    color: var(--rd-muted);
+  }
+
+  .rd-shops b {
+    color: var(--rd-bone);
+    font-weight: 600;
+  }
+
+  @media (max-width: 380px) {
+    .rd-qr {
+      grid-template-columns: 1fr;
+      justify-items: center;
+      text-align: center;
+    }
+  }
 {% endstylesheet %}
 
 {% schema %}

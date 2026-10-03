@@ -42,6 +42,8 @@ class Label:
     price_pence: int | None = None
     service: str | None = None
     service_name: str | None = None
+    # The text of the in-store code, if the courier gave one (shown under the QR).
+    drop_off_code: str | None = None
 
 
 def tracking_url(number: str) -> str:
@@ -54,6 +56,8 @@ class LabelPort(Protocol):
 
 
 class ClickAndDrop:
+    name = "Click & Drop"
+
     def __init__(self, settings: Settings) -> None:
         self.s = settings
         self._http = httpx.Client(timeout=30, base_url=settings.clickdrop_base_url)
@@ -145,6 +149,8 @@ class ClickAndDrop:
 
 class NoLabels:
     """Labels switched off: every approval that needs one waits on staff or CLIVE."""
+
+    name = "No labels"
 
     def available(self) -> tuple[bool, str]:
         return False, "Automatic labels are not set up."

@@ -35,6 +35,14 @@ from returns.settings import Settings
 log = logging.getLogger("returns.parcel2go")
 
 ISO3 = {"GB": "GBR", "IE": "IRL", "JE": "JEY", "GG": "GGY", "IM": "IMN"}
+# Our courier names -> Parcel2Go courier slugs (Evri still trades as "myhermes" there).
+COURIERS = {
+    "evri": ("evri", "myhermes"),
+    "inpost": ("inpost",),
+    "royal-mail": ("royal-mail", "royalmail"),
+    "collectplus": ("collectplus",),
+}
+NAMES = {"evri": "Evri", "inpost": "InPost", "royal-mail": "Royal Mail", "collectplus": "Collect+"}
 # Shop and locker services, which the customer walks to. Collection services need them in.
 DROP_OFF = {"Shop", "Locker"}
 
@@ -58,9 +66,10 @@ class DropOption:
     service_name: str
     price_pence: int  # what CROOKS pays, inc VAT
     price_ex_vat_pence: int
-    printer: bool
+    printer: bool  # the customer has to print a label
     locker: bool
     drop_off_code: str | None
+    print_in_store: bool = False  # book with Parcel2Go's in-store QR code
     shops: list[DropShop] = field(default_factory=list)
 
 
@@ -71,6 +80,8 @@ def split_property(line1: str) -> tuple[str, str]:
 
 
 class Parcel2Go:
+    name = "Parcel2Go"
+
     def __init__(self, settings: Settings, http: httpx.Client | None = None) -> None:
         self.s = settings
         self.base = settings.p2g_base_url.rstrip("/")
@@ -145,8 +156,7 @@ class Parcel2Go:
             "CountryIsoCode": ISO3.get(s.returns_address_country.upper(), "GBR"),
         }
 
-    @staticmethod
-    def customer_address(ret: Return, address: dict[str, Any]) -> dict[str, Any]:
+    def customer_address(self, ret: Return, address: dict[str, Any]) -> dict[str, Any]:
         country = (address.get("countryCodeV2") or "GB").upper()
         if country != "GB":
             raise LabelError("Return labels are UK only. Ask the customer to post it themselves.")
@@ -159,7 +169,8 @@ class Parcel2Go:
         return {
             "ContactName": name or ret.customer_name or "Customer",
             "Email": ret.customer_email or None,
-            "Phone": address.get("phone") or None,
+            # Parcel2Go insists on a sender phone; ours if the customer gave none.
+            "Phone": address.get("phone") or self.s.returns_contact_phone or None,
             "Property": prop,
             "Street": street or prop,
             "Town": address.get("city") or "",
@@ -197,22 +208,30 @@ class Parcel2Go:
         for q in self.quotes(postcode, value_pence):
             svc = q.get("Service") or {}
             courier = (svc.get("CourierSlug") or "").lower()
-            want = next((c for c in self.s.p2g_courier_list() if c in courier), None)
+            want = next(
+                (c for c in self.s.p2g_courier_list() if courier in COURIERS.get(c, (c,))), None
+            )
             if (
                 not want
                 or svc.get("CollectionType") not in DROP_OFF
-                or svc.get("IsPrinterRequired")
                 or svc.get("DeliveryType") not in (None, "Door")
+                or not self._fits(svc)
             ):
                 continue
+            extras = {e.get("Type"): e for e in q.get("AvailableExtras") or []}
+            in_store = "PrintInStore" in extras
+            printer = bool(svc.get("IsPrinterRequired")) and not in_store
+            extra = to_pence(extras["PrintInStore"].get("Total") or 0) if in_store else 0
             option = DropOption(
                 courier=want,
-                courier_name=svc.get("CourierName") or want.title(),
+                courier_name=NAMES.get(want) or svc.get("CourierName") or want.title(),
                 service=svc["Slug"],
                 service_name=svc.get("Name") or svc["Slug"],
-                price_pence=to_pence(q.get("TotalPrice") or 0),
-                price_ex_vat_pence=to_pence(q.get("TotalPriceExVat") or 0),
-                printer=bool(svc.get("IsPrinterRequired")),
+                price_pence=to_pence(q.get("TotalPrice") or 0) + extra,
+                price_ex_vat_pence=to_pence(q.get("TotalPriceExVat") or 0)
+                + (to_pence(extras["PrintInStore"].get("Price") or 0) if in_store else 0),
+                printer=printer,
+                print_in_store=in_store,
                 locker=svc.get("CollectionType") == "Locker",
                 drop_off_code=svc.get("DropOffProviderCode"),
             )
@@ -223,11 +242,25 @@ class Parcel2Go:
                 best.price_pence,
             ):
                 found[want] = option
-        ordered = [found[c] for c in self.s.p2g_courier_list() if c in found]
+        prefs = self.s.p2g_courier_list()
+        # No printer first; otherwise in the order CROOKS prefers.
+        ordered = sorted(found.values(), key=lambda o: (o.printer, prefs.index(o.courier)))
         if with_shops:
             for option in ordered:
                 option.shops = self.drop_shops(option.drop_off_code, postcode)[:3]
         return ordered
+
+    def _fits(self, svc: dict[str, Any]) -> bool:
+        """Our parcel inside the service's limits (Parcel2Go gives sizes in metres)."""
+        weight = self.s.parcel_weight_grams / 1000
+        if svc.get("MaxWeight") and weight > float(svc["MaxWeight"]):
+            return False
+        limits = sorted(
+            float(svc[k]) * 100 for k in ("MaxLength", "MaxWidth", "MaxHeight") if svc.get(k)
+        )
+        if len(limits) < 3:
+            return True
+        return all(a <= b for a, b in zip(sorted(self.s.parcel_size()), limits, strict=True))
 
     def drop_shops(self, code: str | None, postcode: str) -> list[DropShop]:
         if not code or not postcode:
@@ -241,16 +274,21 @@ class Parcel2Go:
         except LabelError as exc:
             log.warning("drop shops for %s near %s: %s", code, postcode, exc)
             return []
-        shops = []
+        shops, seen = [], set()
         for s in (body or {}).get("Results") or []:
             distance = s.get("Distance")
+            key = ((s.get("Name") or "").strip().lower(), (s.get("Postcode") or "").upper())
+            if key in seen:
+                continue
+            seen.add(key)
+            hours = re.sub(r"<br\s*/?>", "; ", s.get("ConcatenatedTimes") or "")
             shops.append(
                 DropShop(
                     name=s.get("Name") or "",
                     address=", ".join(x for x in (s.get("Address1"), s.get("Address2")) if x),
                     postcode=s.get("Postcode") or "",
                     distance_m=int(distance) if distance is not None else None,
-                    hours=s.get("ConcatenatedTimes") or "",
+                    hours="" if not hours.strip(" :;") else hours.strip(),
                 )
             )
         return sorted(shops, key=lambda x: x.distance_m if x.distance_m is not None else 1e9)
@@ -271,6 +309,11 @@ class Parcel2Go:
             # Already paid for on an earlier try: fetch that label, never buy a second.
             return self._documents(ret.postage.label_ref, ret.postage.service)
         collection = self.customer_address(ret, address)
+        if not collection["Phone"]:
+            raise LabelError(
+                "The courier needs a phone number for the customer and the order has none. "
+                "Set RETURNS_RETURNS_CONTACT_PHONE so ours is used, or add tracking by hand."
+            )
         value = sum(line.unit_paid_pence * line.quantity for line in ret.lines)
         option = self._pick(ret.postage.service, collection["Postcode"], value)
         parcel = {k: v for k, v in self._parcel(value).items() if k != "Value"}
@@ -282,6 +325,7 @@ class Parcel2Go:
                     "OriginCountry": "GBR",
                     "Service": option.service,
                     "Reference": f"{ret.order_name} {ret.id}"[:50],
+                    "Upsells": [{"Type": "PrintInStore"}] if option.print_in_store else [],
                     "CollectionAddress": collection,
                     "Parcels": [
                         {
@@ -343,14 +387,21 @@ class Parcel2Go:
         trying again fetches the same label."""
         _, order_id, line_id, order_hash = ref.split(":", 3)
         links = _links(paid)
-        if not links:
-            try:
-                got = self._call("GET", "/orders", params={"orderId": order_id, "hash": order_hash})
-                links = _links(got)
-            except LabelError:
-                links = {}
+        # The order itself carries the in-store code, per parcel.
+        code, code_format = None, None
+        try:
+            got = self._call("GET", "/orders", params={"orderId": order_id, "hash": order_hash})
+        except LabelError:
+            got = None
+        if isinstance(got, dict):
+            links = {**_links(got), **links}
+            for item in got.get("Items") or []:
+                for parcel in item.get("Parcels") or []:
+                    links = {**_links(parcel), **links}
+                    code = code or parcel.get("PrintInStoreBarcode")
+                    code_format = code_format or parcel.get("PrintInStoreBarcodeFormat")
         pdf = self._fetch(links.get("labels-a4") or links.get("labels-4x6"))
-        qr = self._fetch(links.get("barcode-printinstore"))
+        qr = self._fetch(links.get("barcode-printinstore")) or qr_png(code, code_format)
         if pdf is None:
             try:
                 got = self._call(
@@ -394,6 +445,7 @@ class Parcel2Go:
             tracking_url=links.get("tracking-page")
             or (f"{self.base}/tracking/{line_id}" if line_id else None),
             service=service,
+            drop_off_code=code,
         )
 
     def _fetch(self, url: str | None) -> bytes | None:
@@ -404,6 +456,20 @@ class Parcel2Go:
         except httpx.HTTPError:
             return None
         return r.content if r.status_code == 200 and r.content else None
+
+
+def qr_png(code: str | None, code_format: str | None = None) -> bytes | None:
+    """Draw the in-store code as a QR image when Parcel2Go gives the code but no picture.
+    A linear barcode format is left to the PDF label, which carries it."""
+    if not code or (code_format and "qr" not in code_format.lower()):
+        return None
+    import io
+
+    import segno
+
+    out = io.BytesIO()
+    segno.make(code, error="m").save(out, kind="png", scale=10, border=3)
+    return out.getvalue()
 
 
 def _links(body: Any) -> dict[str, str]:

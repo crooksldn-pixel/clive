@@ -215,6 +215,17 @@ class PostageState(BaseModel):
     label_file_id: str | None = None
     label_ref: str | None = None
     label_due_at: datetime | None = None
+    # Parcel2Go: the service the customer picked (or that was booked), its drop-off network,
+    # what the label cost us, and the QR code they show at the shop.
+    service: str | None = None
+    service_name: str | None = None
+    drop_off_code: str | None = None
+    label_price_pence: int | None = None
+    qr_file_id: str | None = None
+    drop_off_text: str | None = None  # the in-store code as text, under the QR
+    courier_stage: str | None = None  # last tracking stage from the courier, e.g. Delivered
+    # The nearest drop-off points the customer was shown when they chose.
+    shops: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ShopifyRefs(BaseModel):

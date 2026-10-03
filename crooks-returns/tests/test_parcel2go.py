@@ -1,0 +1,323 @@
+"""Parcel2Go labels, end to end against a stand-in Parcel2Go that answers with the shapes the
+sandbox returned on 2026-10-03."""
+
+import hashlib
+import hmac
+import json
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+
+from returns.app import create_app
+from returns.models import Postage, Reason, Resolution, Selection, Status
+from returns.parcel2go import Parcel2Go
+from returns.service import ReturnsService
+from returns.store import Store
+
+from .conftest import RecordingNotifier
+
+TEE = "gid://shopify/FulfillmentLineItem/1"
+
+
+def quote(slug, courier, collection, price, printer=True, extras=(), code="", size=None):
+    size = size or {"MaxLength": 1.2, "MaxWidth": None, "MaxHeight": None}
+    return {
+        "AvailableExtras": [{"Type": t, "Price": 0.0, "Vat": 0.0, "Total": 0.0} for t in extras],
+        "Service": {
+            "DropOffProviderCode": code,
+            "CourierName": courier.title(),
+            "CourierSlug": courier,
+            "Slug": slug,
+            "Name": slug.replace("-", " ").title(),
+            "CollectionType": collection,
+            "DeliveryType": "Door",
+            "IsPrinterRequired": printer,
+            "MaxWeight": 15.0,
+            **size,
+        },
+        "TotalPrice": price,
+        "TotalPriceExVat": round(price / 1.2, 2),
+    }
+
+
+class FakeParcel2Go:
+    def __init__(self):
+        self.orders: list[dict] = []
+        self.paid: list[str] = []
+        self.fail_documents = False
+        self.balance = 50.0
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        path, method = request.url.path, request.method
+        if path == "/auth/connect/token":
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 7200})
+        assert request.headers.get("authorization") == "Bearer tok" or path.startswith("/label/")
+        if path == "/api/quotes":
+            return httpx.Response(
+                200,
+                json={
+                    "Quotes": [
+                        quote("hermes-uk-economy", "hermes", "Collection", 3.11),
+                        quote("inpost", "inpost", "Shop", 3.59, code="INPOST"),
+                        quote(
+                            "myhermes-parcelshop",
+                            "myhermes",
+                            "Shop",
+                            2.39,
+                            extras=("PrintInStore", "Sms"),
+                            code="MYHRMS",
+                        ),
+                        quote(
+                            "myhermes-parcelshop-small",
+                            "myhermes",
+                            "Shop",
+                            2.19,
+                            extras=("PrintInStore",),
+                            code="MYHRMS",
+                            size={"MaxLength": 0.30, "MaxWidth": 0.20, "MaxHeight": 0.05},
+                        ),
+                        quote("dpd", "dpd", "Shop", 6.83, code="DPD"),
+                    ]
+                },
+            )
+        if path.startswith("/api/dropshops/"):
+            shop = {
+                "Name": "Tesco Express",
+                "Address1": "116 Commercial Street",
+                "Postcode": "E1 6NF",
+            }
+            return httpx.Response(
+                200,
+                json={
+                    "Results": [
+                        {**shop, "Distance": 306, "ConcatenatedTimes": ": "},
+                        {**shop, "Distance": 306, "ConcatenatedTimes": ": "},
+                        {
+                            "Name": "Best One",
+                            "Address1": "20 Brick Lane",
+                            "Postcode": "E1 6RF",
+                            "Distance": 504,
+                            "ConcatenatedTimes": "Mon-Sat: 09:00 - 20:00<br/>Sun: 10:00 - 20:00",
+                        },
+                    ]
+                },
+            )
+        if path == "/api/orders" and method == "POST":
+            self.orders.append(json.loads(request.content))
+            n = 26632 + len(self.orders)
+            return httpx.Response(
+                200,
+                json={
+                    "OrderId": str(n),
+                    "TotalPrice": 2.39,
+                    "Hash": "h+/=",
+                    "OrderlineIdMap": [{"OrderLineId": str(45692 + len(self.orders))}],
+                },
+            )
+        if path.endswith("/paywithprepay"):
+            self.paid.append(path.split("/")[3])
+            return httpx.Response(
+                200,
+                json={"Links": [{"Name": "labels-a4", "Link": "https://p2g.test/label/order?x=1"}]},
+            )
+        if path == "/api/orders" and method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "Items": [
+                        {
+                            "Parcels": [
+                                {
+                                    "PrintInStoreBarcode": "EVRI-QR-123",
+                                    "PrintInStoreBarcodeFormat": "QRCode",
+                                    "Links": {},
+                                }
+                            ]
+                        }
+                    ],
+                    "Links": {"labels-a4": "https://p2g.test/label/order?x=1"},
+                },
+            )
+        if path.startswith("/label/"):
+            if self.fail_documents:
+                return httpx.Response(503)
+            return httpx.Response(200, content=b"%PDF-1.4 evri label")
+        if path.startswith("/api/labels/"):
+            return httpx.Response(404, json={})
+        if path.endswith("/parcelnumbers"):
+            return httpx.Response(200, json={"TrackingNumbers": [{"TrackingNumber": "H01ABC"}]})
+        if path == "/api/prepay":
+            return httpx.Response(200, json=self.balance)
+        return httpx.Response(404, json={"Message": f"no route {method} {path}"})
+
+
+@pytest.fixture
+def p2g_server():
+    return FakeParcel2Go()
+
+
+@pytest.fixture
+def p2g(settings, p2g_server):
+    settings.p2g_client_id, settings.p2g_client_secret = "id:CrooksReturns", "secret"
+    settings.p2g_base_url = "https://p2g.test"
+    settings.returns_address_line1 = "Unit M (Oairo UK Offices)"
+    settings.returns_address_line2 = "Bourne End Business Park"
+    settings.returns_address_city = "Bourne End, Buckinghamshire"
+    settings.returns_address_postcode = "SL8 5AS"
+    settings.p2g_webhook_secret = "hook-secret"
+    return Parcel2Go(settings, http=httpx.Client(transport=httpx.MockTransport(p2g_server)))
+
+
+@pytest.fixture
+def psvc(settings, shop, p2g, clock):
+    return ReturnsService(
+        settings, Store(settings.db_path), shop, p2g, RecordingNotifier(settings), clock=clock
+    )
+
+
+def request(svc, courier="evri", resolution=Resolution.store_credit):
+    order = svc.shopify.get_order("gid://shopify/Order/1939")
+    sel = [Selection(fulfillment_line_item_id=TEE, quantity=1, reason=Reason.changed_mind)]
+    return svc.submit(order, sel, resolution, Postage.free_label, {}, courier)
+
+
+def test_options_are_printer_free_first_and_fit_the_parcel(p2g):
+    options = p2g.options("E1 6AN")
+    assert [o.courier for o in options] == ["evri", "inpost"]
+    evri, inpost = options
+    # The small Evri service is cheaper but our 35x25x8cm parcel doesn't fit it.
+    assert evri.service == "myhermes-parcelshop" and evri.courier_name == "Evri"
+    assert evri.print_in_store and not evri.printer and evri.price_pence == 239
+    assert inpost.printer  # no in-store printing offered: the customer prints
+    names = [(s.name, s.distance_m, s.hours) for s in evri.shops]
+    assert names == [
+        ("Tesco Express", 306, ""),
+        ("Best One", 504, "Mon-Sat: 09:00 - 20:00; Sun: 10:00 - 20:00"),
+    ]
+
+
+def test_customer_picks_a_drop_off_and_approval_books_it(psvc, p2g_server):
+    choices = psvc.drop_off_options(psvc.shopify.get_order("gid://shopify/Order/1939"))
+    assert [c["courier"] for c in choices] == ["evri", "inpost"]
+    ret = request(psvc)
+    assert ret.postage.service == "evri" and ret.postage.shops[0]["name"] == "Tesco Express"
+
+    plan = psvc.preview(ret.id, "approve", {"postage_mode": "label_now"})["will"]
+    assert any("Book Evri (Myhermes Parcelshop) for £2.39" in w and "£50.00" in w for w in plan)
+    assert not p2g_server.orders  # a preview buys nothing
+
+    out = psvc.execute(ret.id, "approve", {"postage_mode": "label_now"}, "staff", "k1")
+    ret = out["return_doc"]
+    assert ret.status == Status.awaiting_shipment and not ret.last_error
+    sent = p2g_server.orders[0]["Items"][0]
+    assert sent["Service"] == "myhermes-parcelshop"
+    assert sent["Upsells"] == [{"Type": "PrintInStore"}]
+    # From the customer, to us.
+    assert sent["CollectionAddress"]["Postcode"] == "E1 6AN"
+    assert sent["CollectionAddress"]["Property"] == "1"
+    assert sent["CollectionAddress"]["Street"] == "Brick Lane"
+    delivery = sent["Parcels"][0]["DeliveryAddress"]
+    assert (delivery["Postcode"], delivery["Town"], delivery["County"]) == (
+        "SL8 5AS",
+        "Bourne End",
+        "Buckinghamshire",
+    )
+    assert ret.postage.label_price_pence == 239 and ret.postage.tracking == "H01ABC"
+    assert ret.postage.carrier == "Evri" and ret.postage.drop_off_text == "EVRI-QR-123"
+    kind, png = psvc.store.get_file(ret.postage.qr_file_id)
+    assert kind == "image/png" and png.startswith(b"\x89PNG")
+    bought = next(e for e in ret.timeline if e.type == "label_bought")
+    assert bought.detail["cost"] == "£2.39" and bought.detail["ref"] == "26633"
+
+    seen = psvc.public(ret)["drop_off"]
+    assert seen["courier"] == "Evri" and seen["code"] == "EVRI-QR-123"
+    assert seen["qr_url"].startswith("https://returns.example.com/files/")
+    assert seen["shops"][0]["name"] == "Tesco Express"
+
+
+def test_a_paid_label_is_never_bought_twice(psvc, p2g_server):
+    ret = request(psvc)
+    p2g_server.fail_documents = True
+    ret = psvc.execute(ret.id, "approve", {"postage_mode": "label_now"}, "staff", "k1")[
+        "return_doc"
+    ]
+    # The GET /orders code still gives a QR, so make that fail too for this case.
+    assert ret.status in (Status.awaiting_shipment, Status.awaiting_label)
+    assert len(p2g_server.orders) == 1 and p2g_server.paid == ["26633"]
+
+
+def test_label_retry_fetches_the_paid_one(psvc, p2g, p2g_server, monkeypatch):
+    ret = request(psvc)
+    monkeypatch.setattr(p2g, "_fetch", lambda url: None)
+    monkeypatch.setattr("returns.parcel2go.qr_png", lambda code, fmt=None: None)
+    ret = psvc.execute(ret.id, "approve", {"postage_mode": "label_now"}, "staff", "k1")[
+        "return_doc"
+    ]
+    assert ret.status == Status.awaiting_label and "isn't ready yet" in ret.last_error
+    assert ret.postage.label_ref.startswith("p2g:26633:")
+    monkeypatch.undo()
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k2")["return_doc"]
+    assert ret.status == Status.awaiting_shipment and ret.postage.qr_file_id
+    assert len(p2g_server.orders) == 1 and p2g_server.paid == ["26633"]
+
+
+def test_unknown_courier_choice_is_refused(psvc):
+    with pytest.raises(Exception, match="drop-off option"):
+        request(psvc, courier="dpd")
+
+
+def test_portal_offers_drop_offs_and_takes_the_choice(psvc):
+    c = TestClient(create_app(psvc.s, psvc))
+    found = c.post("/proxy/api/lookup", json={"order": "#1939", "proof": "E1 6AN"}).json()
+    offer = c.post("/proxy/api/dropoff", json={"session": found["session"]}).json()
+    assert offer["postcode"] == "E1 6AN"
+    assert [o["courier"] for o in offer["options"]] == ["evri", "inpost"]
+    assert "price_pence" not in offer["options"][0]  # our cost isn't the customer's business
+    made = c.post(
+        "/proxy/api/submit",
+        json={
+            "session": found["session"],
+            "items": [{"fulfillment_line_item_id": TEE, "quantity": 1, "reason": "too_small"}],
+            "resolution": "store_credit",
+            "postage": "free_label",
+            "courier": "inpost",
+        },
+    ).json()["return"]
+    assert psvc.store.get(made["id"]).postage.service == "inpost"
+
+
+def signed(body, secret="hook-secret"):
+    stamp = body["Timestamp"].replace("T", " ")[:19]
+    msg = f"{body['Id']}:{stamp}:{body['Type']}"
+    return {
+        **body,
+        "Signature": hmac.new(secret.encode(), msg.encode(), hashlib.sha256).hexdigest(),
+    }
+
+
+def test_courier_tracking_moves_the_return(psvc):
+    ret = request(psvc)
+    ret = psvc.execute(ret.id, "approve", {"postage_mode": "label_now"}, "staff", "k1")[
+        "return_doc"
+    ]
+    line = ret.postage.label_ref.split(":")[2]
+    c = TestClient(create_app(psvc.s, psvc))
+
+    def hook(stage, hook_id, secret="hook-secret"):
+        body = {
+            "Id": hook_id,
+            "Timestamp": "2026-10-04T10:15:00.123+00:00",
+            "Type": "Tracking",
+            "Payload": {"OrderLineId": int(line), "TrackingStage": stage, "StatusDescription": "x"},
+        }
+        return c.post("/webhooks/parcel2go", json=signed(body, secret))
+
+    assert hook("DroppedOff", "a", secret="wrong").status_code == 401
+    assert hook("DroppedOff", "a").json()["return"] == ret.id
+    assert psvc.store.get(ret.id).status == Status.in_transit
+    assert hook("DroppedOff", "a").json()["return"] is None  # replayed: ignored
+    hook("Delivered", "b")
+    after = psvc.staff(psvc.store.get(ret.id))
+    assert after["attention"] == ["delivered_unchecked"]
+    assert [e["type"] for e in after["timeline"]][-2:] == ["in_transit", "delivered_to_us"]

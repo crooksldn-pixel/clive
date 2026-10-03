@@ -256,7 +256,7 @@ def quote(order: Order, selections: list[Selection], today: date, settings: Sett
         return [
             PostageOption(
                 choice=Postage.free_label,
-                label="Free Royal Mail return label",
+                label="Free return label",
                 fee_pence=0,
                 total_pence=total,
             ),
@@ -328,7 +328,7 @@ def quote(order: Order, selections: list[Selection], today: date, settings: Sett
                 0,
                 PostageOption(
                     choice=Postage.paid_label,
-                    label=f"Royal Mail return label, {gbp(fee)} taken off your refund",
+                    label=f"Our return label, {gbp(fee)} taken off your refund",
                     fee_pence=fee,
                     total_pence=total - fee,
                 ),

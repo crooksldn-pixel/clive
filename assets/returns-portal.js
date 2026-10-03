@@ -31,6 +31,12 @@
     var n = parseFloat(String(money || '').replace(/[^0-9.\-]/g, ''));
     return isNaN(n) ? 0 : Math.round(n * 100);
   }
+  // Shop distances, the way UK customers think of them.
+  function miles(metres) {
+    var mi = metres / 1609.34;
+    return mi < 0.1 ? 'under 0.1 mi' : mi.toFixed(1) + ' mi';
+  }
+
   function gbp(p) {
     return (p < 0 ? '-£' : '£') + (Math.abs(p) / 100).toFixed(2);
   }
@@ -319,8 +325,24 @@
       }).join('');
       var outcome = ret.refund ? 'Refund ' + ret.refund : ret.credit ? ret.credit + ' store credit' : 'Free swap';
       var extra = '';
+      var drop = ret.drop_off;
+      if (drop && drop.qr_url) {
+        extra +=
+          '<div class="rd-qr"><img src="' + esc(drop.qr_url) + '" alt="Drop-off code" width="132" height="132">' +
+          '<div><p class="rd-qr__say">Show this at any ' + esc(drop.courier || 'drop-off') + ' shop</p>' +
+          '<p class="rd-sub" style="margin:6px 0 0;color:rgb(10 10 10 / 0.7)">No printing, no box label. They scan it and print the label for you.</p>' +
+          (drop.code ? '<p class="rd-qr__code">' + esc(drop.code) + '</p>' : '') + '</div></div>';
+      }
+      if (drop && drop.shops && drop.shops.length) {
+        extra += '<div><p class="rd-label" style="margin:0 0 8px">Nearest ' + esc(drop.courier || '') + ' drop-off</p><ul class="rd-shops">' +
+          drop.shops.map(function (sh) {
+            return '<li><b>' + esc(sh.name) + (sh.distance_m != null ? ' · ' + esc(miles(sh.distance_m)) : '') + '</b><span>' + esc([sh.address, sh.postcode].filter(Boolean).join(', ')) + '</span>' +
+              (sh.hours ? '<span>' + esc(sh.hours) + '</span>' : '') + '</li>';
+          }).join('') + '</ul></div>';
+      }
       if (ret.label_url) {
-        extra += '<a class="rd-cta rd-press" href="' + esc(ret.label_url) + '" target="_blank" rel="noopener">Get your return label</a>';
+        extra += '<a class="rd-cta' + (drop && drop.qr_url ? ' rd-cta--bone' : '') + ' rd-press" href="' + esc(ret.label_url) + '" target="_blank" rel="noopener">' +
+          (drop && drop.qr_url ? 'Or print the label yourself' : 'Get your return label') + '</a>';
       }
       if (ret.tracking) {
         extra += '<p class="rd-label">Tracking ' + (ret.tracking_url
@@ -420,18 +442,46 @@
       return (this.state.quote.options || []).find(function (o) { return o.resolution === resolution; });
     }
 
+    // Couriers the customer can drop a free label at, nearest shop first (Parcel2Go).
+    drops() {
+      return (this.state.dropoff && this.state.dropoff.options) || [];
+    }
+
+    labelChosen() {
+      return this.state.postage === 'free_label' || this.state.postage === 'paid_label';
+    }
+
+    courierPicker() {
+      var self = this;
+      var drops = this.drops();
+      if (!drops.length || !this.labelChosen()) return '';
+      var cards = drops.map(function (d) {
+        var shop = d.shops && d.shops[0];
+        var near = shop
+          ? 'Nearest: ' + shop.name + (shop.distance_m != null ? ' · ' + miles(shop.distance_m) : '')
+          : 'Shops near ' + (self.state.dropoff.postcode || 'you');
+        var more = d.shops && d.shops.length > 1 ? ' · ' + (d.shops.length - 1) + ' more nearby' : '';
+        return '<button type="button" class="rd-drop rd-press" data-courier="' + esc(d.courier) + '" aria-pressed="' + (self.state.courier === d.courier) + '">' +
+          '<span class="rd-drop__top"><span>' + esc(d.courier_name) + (d.locker ? ' locker' : '') + '</span>' +
+          '<span class="rd-drop__tag">' + (d.printer ? 'Print label' : 'No printer') + '</span></span>' +
+          '<span class="rd-drop__shop">' + esc(near + more) + '</span></button>';
+      }).join('');
+      return '<div><p class="rd-label" style="margin:0 0 8px">Where you will drop it</p><div class="rd-drops">' + cards + '</div></div>';
+    }
+
     postageSeg(option) {
       var self = this;
-      if (option.postage.length < 2) return '';
+      if (option.postage.length < 2) return this.courierPicker();
       var top = Math.max.apply(null, option.postage.map(function (p) { return pence(p.total); }));
+      var shopDrop = this.drops().length > 0;
       var buttons = option.postage.map(function (p) {
         var small = p.choice === 'paid_label' ? '−' + gbp(top - pence(p.total))
-          : p.choice === 'free_label' ? 'Royal Mail, on us'
+          : p.choice === 'free_label' ? (shopDrop ? 'Drop at a shop, on us' : 'Label on us')
           : 'Your own way';
         var name = p.choice === 'paid_label' ? 'Our label' : p.choice === 'free_label' ? 'Free label' : "I'll post it";
         return '<button type="button" class="rd-press" data-post="' + esc(p.choice) + '" aria-pressed="' + (self.state.postage === p.choice) + '" aria-label="' + esc(p.label) + '">' + esc(name) + '<small>' + esc(small) + '</small></button>';
       }).join('');
-      return '<div><p class="rd-label" style="margin:0 0 8px">Getting it back to us</p><div class="rd-seg rd-cell">' + buttons + '</div></div>';
+      return '<div><p class="rd-label" style="margin:0 0 8px">Getting it back to us</p><div class="rd-seg rd-cell">' + buttons + '</div></div>' + this.courierPicker();
     }
 
     renderDeals() {
@@ -480,7 +530,7 @@
         var low = Math.min.apply(null, totals);
         var on = chosen === 'refund';
         var detail = refund.postage.length > 1 && best !== low
-          ? gbp(best) + ' if you post it yourself, or ' + gbp(low) + ' with our Royal Mail label. Back to your card once it arrives.'
+          ? gbp(best) + ' if you post it yourself, or ' + gbp(low) + ' with our return label. Back to your card once it arrives.'
           : gbp(best) + ' back to your card once it arrives' + (refund.postage.some(function (p) { return p.choice === 'free_label'; }) ? ', with a free return label.' : '.');
         var gap = credit ? pence(credit.postage[0].total) - best : 0;
         refundRow =
@@ -493,7 +543,7 @@
       }
 
       var cta = 'Choose a deal';
-      var ready = !!chosen && !!this.state.postage;
+      var ready = !!chosen && !!this.state.postage && (!this.labelChosen() || !this.drops().length || !!this.state.courier);
       var opt = chosen && this.option(chosen);
       if (opt) {
         var post = opt.postage.find(function (p) { return p.choice === self.state.postage; });
@@ -520,6 +570,7 @@
 
     choose(resolution) {
       this.state.resolution = resolution;
+      if (!this.state.courier && this.drops().length) this.state.courier = this.drops()[0].courier;
       var opt = this.option(resolution);
       this.state.postage = opt && opt.postage.length ? opt.postage[0].choice : null;
       // A refund starts on whichever postage gives the customer the most back.
@@ -552,13 +603,15 @@
       }).join('');
       var deal = opt.resolution === 'exchange' ? 'Size swap' : opt.resolution === 'store_credit' ? 'Store credit' : 'Refund to card';
       var total = opt.resolution === 'exchange' ? 'Free' : post.total;
+      var drop = this.labelChosen() && this.drops().find(function (d) { return d.courier === self.state.courier; });
+      var postage = post.label + (drop ? ' · drop at ' + drop.courier_name + (drop.printer ? '' : ', no printer') : '');
       this.frame('confirm', 3, {
         kicker: this.caseKicker(),
         title: 'Looks right?',
         sub: 'Unworn, unwashed, tags on. We will email you at every step.',
         body:
           '<div class="rd-receipt"><div class="rd-receipt__head"><span>Case file</span><span>' + esc(this.state.order.order) + '</span></div>' +
-          '<dl>' + rows + '<div><dt>Deal</dt><dd>' + esc(deal) + '</dd></div><div><dt>Postage</dt><dd>' + esc(post.label) + '</dd></div></dl>' +
+          '<dl>' + rows + '<div><dt>Deal</dt><dd>' + esc(deal) + '</dd></div><div><dt>Postage</dt><dd>' + esc(postage) + '</dd></div></dl>' +
           '<div class="rd-receipt__total"><span>' + (opt.resolution === 'exchange' ? 'Cost' : 'You get') + '</span><strong>' + esc(total) + '</strong></div></div>',
         dock:
           '<button class="rd-cta rd-press" type="button" data-go="submit">Confirm return</button>' +
@@ -573,7 +626,9 @@
         title: "We've got it",
         sub: this.state.postage === 'self_ship'
           ? 'We will email you as soon as it is approved.'
-          : 'We will email you as soon as it is approved, with your Royal Mail label.',
+          : this.state.courier && this.drops().length
+            ? 'Once it is approved your drop-off code shows here and in your email. No printing.'
+            : 'We will email you as soon as it is approved, with your return label.',
         body: this.caseCard(ret),
         dock: '<button class="rd-cta rd-cta--bone rd-press" type="button" data-go="status">Back to my order</button>',
       });
@@ -678,6 +733,12 @@
         this.renderDeals();
         return this.refocus('[data-variant="' + CSS.escape(swap.dataset.variant) + '"]');
       }
+      var courier = t.closest('[data-courier]');
+      if (courier) {
+        this.state.courier = courier.dataset.courier;
+        this.renderDeals();
+        return this.refocus('[data-courier="' + CSS.escape(courier.dataset.courier) + '"]');
+      }
       var post = t.closest('[data-post]');
       if (post) {
         this.state.postage = post.dataset.post;
@@ -696,7 +757,12 @@
         this.renderDeals();
       } else if (where === 'quote') {
         this.busy(go, 'Working out your options', async function () {
-          self.state.quote = await self.post('/quote', { session: self.state.session, items: self.selections() });
+          var both = await Promise.all([
+            self.post('/quote', { session: self.state.session, items: self.selections() }),
+            self.state.dropoff ? Promise.resolve(self.state.dropoff) : self.post('/dropoff', { session: self.state.session }).catch(function () { return null; }),
+          ]);
+          self.state.quote = both[0];
+          self.state.dropoff = both[1];
           self.state.exchange = {};
           self.choose(self.state.quote.options[0].resolution);
           self.renderDeals();
@@ -712,6 +778,7 @@
             resolution: opt.resolution,
             postage: self.state.postage,
             exchange: opt.resolution === 'exchange' ? self.state.exchange : {},
+            courier: self.labelChosen() && self.drops().length ? self.state.courier : null,
           });
           self.state.selected = {};
           self.state.exchange = {};

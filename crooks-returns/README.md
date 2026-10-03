@@ -33,6 +33,28 @@ Every action has a `preview` that states exactly what will happen, in pounds, an
 that needs an idempotency key, records who did it, then reads Shopify back and marks the
 step `verified`.
 
+## Return labels (Parcel2Go)
+
+With `RETURNS_LABEL_PROVIDER=parcel2go` a free return is booked through Parcel2Go and paid
+from the CROOKS PrePay balance:
+
+1. On the returns page the customer picks where they'll drop it (Evri, InPost...), with their
+   nearest shops. Only services that fit a 35x25x8cm, 600g parcel are offered, printer-free
+   first (Evri's in-store QR code).
+2. Approving with "Book a return label now" shows the live price and the PrePay balance, then
+   books it from the customer's address to the returns address and pays.
+3. The customer's case shows the QR code to scan at the shop, the nearest shops and the label
+   PDF; Shopify's return email carries the label.
+4. Parcel2Go's tracking webhook moves the return to "on its way back" at drop-off and flags it
+   "arrived: check it" on delivery.
+
+There is no cancel in the Parcel2Go API: a label the customer never uses is refunded by asking
+Parcel2Go (My Account), so labels are only bought when staff approve. A label that was paid but
+whose documents didn't arrive is fetched again on retry, never bought twice.
+
+`returns-ctl labels SL8 5AS` shows the options, prices and PrePay balance for a postcode
+without buying anything.
+
 ## Staff screen (in Shopify admin)
 
 Shopify admin -> **Apps -> CROOKS Returns** opens `/admin` inside the admin

@@ -2,6 +2,7 @@
 line. Run inside the container:
 
     docker compose exec returns returns-ctl check
+    docker compose exec returns returns-ctl labels E1 6AN    (label prices near a postcode)
     docker compose exec returns returns-ctl list
     docker compose exec returns returns-ctl show ret_1a2b3c4d5e
     docker compose exec returns returns-ctl approve ret_1a2b3c4d5e self_ship
@@ -69,9 +70,42 @@ def check(svc: ReturnsService) -> int:
     return 1 if problems else 0
 
 
+def labels(svc: ReturnsService, postcode: str) -> int:
+    """Read-only: what a free return label would be from this postcode. Buys nothing."""
+    ok, why = svc.labels.available()
+    name = getattr(svc.labels, "name", "Labels")
+    print(f"{name}: " + ("connected" if ok else f"off ({why})"))
+    if not ok:
+        return 1
+    balance = getattr(svc.labels, "balance_pence", lambda: None)()
+    if balance is not None:
+        print(f"PrePay balance: £{balance / 100:.2f}")
+    options_for = getattr(svc.labels, "options", None)
+    if not options_for or not postcode:
+        print("Give a postcode to see the drop-off options, e.g. returns-ctl labels E1 6AN")
+        return 0
+    try:
+        found = options_for(postcode)
+    except Exception as exc:  # noqa: BLE001 - show the reason, whatever it is
+        print(f"Quote failed: {exc}")
+        return 1
+    if not found:
+        print(f"No drop-off service near {postcode}.")
+        return 1
+    for o in found:
+        how = "prints a label" if o.printer else "no printer, QR code"
+        print(f"  {o.courier_name:<10} {o.service_name:<28} £{o.price_pence / 100:.2f}  ({how})")
+        for shop in o.shops:
+            far = f"{shop.distance_m / 1609.34:.1f} mi" if shop.distance_m is not None else ""
+            print(f"      {far:>7}  {shop.name}, {shop.postcode}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="returns-ctl", description="CROOKS Returns staff tool")
-    parser.add_argument("command", help="check, list, show, or an action: " + ", ".join(ACTIONS))
+    parser.add_argument(
+        "command", help="check, list, show, labels POSTCODE, or an action: " + ", ".join(ACTIONS)
+    )
     parser.add_argument("args", nargs="*")
     parser.add_argument("--all", action="store_true", help="list: include finished returns")
     parser.add_argument("--yes", action="store_true", help="act without asking")
@@ -81,6 +115,9 @@ def main(argv: list[str] | None = None) -> int:
     svc = build_service(settings)
     if ns.command == "check":
         return check(svc)
+
+    if ns.command == "labels":
+        return labels(svc, " ".join(ns.args))
 
     if ns.command == "list":
         rows = svc.store.search(open_only=not ns.all, limit=200)

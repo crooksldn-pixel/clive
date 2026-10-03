@@ -61,6 +61,9 @@ CUSTOMER_STATUS = {
     Status.cancelled: "Cancelled.",
 }
 
+# How couriers are named to customers (Parcel2Go still calls Evri "MyHermes").
+COURIER_NAMES = {"evri": "Evri", "inpost": "InPost", "royal-mail": "Royal Mail"}
+
 ACTIONS = ("approve", "decline", "label", "tracking", "receive", "complete", "cancel", "note")
 
 
@@ -212,7 +215,15 @@ class ReturnsService:
         resolution: Resolution,
         postage: Postage,
         exchange_to: dict[str, str] | None = None,
+        courier: str | None = None,
     ) -> Return:
+        drop_off = None
+        if courier and postage in (Postage.free_label, Postage.paid_label):
+            drop_off = next(
+                (o for o in self.drop_off_options(order) if o["courier"] == courier), None
+            )
+            if drop_off is None:
+                raise ActionError("That drop-off option isn't available. Choose another.", 422)
         with self.store.lock:
             order = self.available(self.shopify.get_order(order.id) or order)
             q = self.quote(order, selections)
@@ -262,7 +273,12 @@ class ReturnsService:
                 lines=lines,
                 money=money,
                 postage=PostageState(
-                    chosen=postage, paid_by="customer" if chosen.fee_pence else "crooks"
+                    chosen=postage,
+                    paid_by="customer" if chosen.fee_pence else "crooks",
+                    service=drop_off["courier"] if drop_off else None,
+                    service_name=drop_off["name"] if drop_off else None,
+                    carrier=drop_off["courier_name"] if drop_off else None,
+                    shops=drop_off["shops"] if drop_off else [],
                 ),
                 offers_shown=[o.resolution.value for o in q.options],
             )
@@ -273,12 +289,50 @@ class ReturnsService:
                 {
                     "resolution": resolution.value,
                     "postage": postage.value,
+                    "drop_off": ret.postage.service_name,
                     "summary": self.summary(ret),
                 },
             )
             self.store.save(ret)
         self.notifier.send("return.requested", ret)
         return ret
+
+    def drop_off_options(self, order: Order) -> list[dict[str, Any]]:
+        """Where the customer could drop a free label return, with the nearest shops, when
+        labels come from a service that offers a choice (Parcel2Go). Empty otherwise."""
+        options_for = getattr(self.labels, "options", None)
+        address = order.shipping_address or {}
+        postcode = address.get("zip") or order.shipping_zip
+        if not options_for or not postcode or (address.get("countryCodeV2") or "GB") != "GB":
+            return []
+        if not self.labels.available()[0]:
+            return []
+        try:
+            found = options_for(postcode)
+        except LabelError as exc:
+            log.warning("drop-off options for %s: %s", order.name, exc)
+            return []
+        return [
+            {
+                "courier": o.courier,
+                "courier_name": COURIER_NAMES.get(o.courier, o.courier_name),
+                "name": o.service_name,
+                "printer": o.printer,
+                "locker": o.locker,
+                "price_pence": o.price_pence,
+                "shops": [
+                    {
+                        "name": sh.name,
+                        "address": sh.address,
+                        "postcode": sh.postcode,
+                        "distance_m": sh.distance_m,
+                        "hours": sh.hours,
+                    }
+                    for sh in o.shops
+                ],
+            }
+            for o in found
+        ]
 
     def customer_tracking(self, order: Order, return_id: str, number: str) -> Return:
         ret = self._get(return_id)
@@ -287,6 +341,51 @@ class ReturnsService:
         return self.execute(
             return_id, "tracking", {"number": number}, "customer", f"customer-tracking-{number}"
         )["return_doc"]
+
+    def courier_tracking(
+        self, order_line_id: str, stage: str, description: str, event_id: str
+    ) -> Return | None:
+        """A tracking update from Parcel2Go for a label we bought. Dropped off moves the return
+        to in transit; delivered flags it for staff to check and receive."""
+        if event_id and self.store.remembered(f"p2g-webhook:{event_id}") is not None:
+            return None
+        with self.store.lock:
+            ret = next(
+                (
+                    r
+                    for r in self.store.search(open_only=True, limit=5000)
+                    if (r.postage.label_ref or "").startswith("p2g:")
+                    and r.postage.label_ref.split(":")[2] == order_line_id
+                ),
+                None,
+            )
+            if ret is None or ret.postage.courier_stage == stage:
+                return ret
+            ret.postage.courier_stage = stage
+            moving = stage in (
+                "DroppedOff",
+                "Collected",
+                "InTransit",
+                "AtDepot",
+                "DeliveryScheduled",
+            )
+            if stage == "Delivered" or (
+                moving and ret.status in (Status.awaiting_shipment, Status.awaiting_label)
+            ):
+                if ret.status in (Status.awaiting_shipment, Status.awaiting_label):
+                    ret.status = Status.in_transit
+                self._event(
+                    ret,
+                    "delivered_to_us" if stage == "Delivered" else "in_transit",
+                    "Parcel2Go",
+                    {"stage": stage, "courier": description},
+                    verified=True,
+                )
+            self.store.save(ret)
+            if event_id:
+                self.store.remember(f"p2g-webhook:{event_id}", {"return": ret.id})
+        self.notifier.send(f"return.courier.{stage.lower()}", ret)
+        return ret
 
     # ===================================================================== actions
 
@@ -345,7 +444,7 @@ class ReturnsService:
             if mode == PostageMode.label_now:
                 ok, why = self.labels.available()
                 if ok:
-                    will.append("Buy a Royal Mail return label in Click & Drop and email it.")
+                    will.append(self._label_plan(ret))
                     calls.append("reverseDeliveryCreateWithShipping")
                 else:
                     will.append(
@@ -368,7 +467,7 @@ class ReturnsService:
             if params.get("tracking"):
                 will.append(f"Attach tracking {params['tracking']} to the Shopify return.")
             else:
-                will.append("Buy a Royal Mail return label in Click & Drop and email it.")
+                will.append(self._label_plan(ret))
             calls.append("reverseDeliveryCreateWithShipping")
         elif action == "tracking":
             self._require(ret, Status.awaiting_shipment, Status.awaiting_label)
@@ -402,6 +501,37 @@ class ReturnsService:
         else:
             raise ActionError(f"Unknown action {action}.", 404)
         return self._preview_out(ret, action, will, calls)
+
+    def _label_plan(self, ret: Return) -> str:
+        """What buying the label will do, with the real price where the provider quotes."""
+        name = getattr(self.labels, "name", "the label service")
+        options_for = getattr(self.labels, "options", None)
+        if not options_for:
+            return f"Buy a return label in {name} and email it to the customer."
+        order = self.shopify.get_order(ret.order_id)
+        address = (order.shipping_address if order else None) or {}
+        value = sum(ln.unit_paid_pence * ln.quantity for ln in ret.lines)
+        try:
+            options = options_for(address.get("zip") or "", value, with_shops=False)
+        except LabelError as exc:
+            return f"Try to book a label, but {name} answered: {exc}"
+        pick = next((o for o in options if o.courier == ret.postage.service), None)
+        pick = pick or (options[0] if options else None)
+        if pick is None:
+            return (
+                f"{name} has no drop-off service for this address, so it will wait as "
+                "awaiting_label for you to add tracking."
+            )
+        balance = getattr(self.labels, "balance_pence", lambda: None)()
+        low = balance is not None and balance < pick.price_pence
+        return (
+            f"Book {COURIER_NAMES.get(pick.courier, pick.courier_name)} ({pick.service_name}) "
+            f"for {gbp(pick.price_pence)} from {name} PrePay"
+            + (f", balance {gbp(balance)}" if balance is not None else "")
+            + (" - NOT ENOUGH, top up first" if low else "")
+            + ". The customer gets the label by email and "
+            + ("a QR code on the returns page." if not pick.printer else "prints it.")
+        )
 
     def _preview_out(
         self, ret: Return, action: str, will: list[str], calls: list[str]
@@ -528,17 +658,44 @@ class ReturnsService:
 
     def _make_label(self, ret: Return, actor: str) -> None:
         order = self.shopify.get_order(ret.order_id)
+        address = dict((order.shipping_address if order else None) or {})
+        # Couriers want a phone for the sender: the address's, else the order's.
+        address["phone"] = address.get("phone") or (order.phone if order else None)
         try:
-            label = self.labels.create(ret, order.shipping_address if order else {})
+            label = self.labels.create(ret, address)
         except LabelError as exc:
+            if exc.ref:  # paid for, not yet fetched: keep it so a retry never buys twice
+                ret.postage.label_ref = exc.ref
             ret.last_error = str(exc)
             self._await_label(ret, actor, str(exc))
             return
         file_id = self.store.put_file(ret.id, "application/pdf", label.pdf) if label.pdf else None
         ret.postage.carrier, ret.postage.label_ref = label.carrier, label.ref
         ret.postage.tracking = label.tracking
-        ret.postage.tracking_url = tracking_url(label.tracking) if label.tracking else None
+        ret.postage.tracking_url = label.tracking_url or (
+            tracking_url(label.tracking) if label.tracking else None
+        )
         ret.postage.label_file_id = file_id
+        if label.qr_png:
+            ret.postage.qr_file_id = self.store.put_file(ret.id, "image/png", label.qr_png)
+        ret.postage.drop_off_text = label.drop_off_code
+        if label.service:
+            ret.postage.service = label.service
+        ret.postage.service_name = label.service_name or ret.postage.service_name
+        ret.postage.label_price_pence = label.price_pence
+        self._event(
+            ret,
+            "label_bought",
+            actor,
+            {
+                "service": label.service_name or label.carrier,
+                "cost": gbp(label.price_pence) if label.price_pence is not None else None,
+                "ref": label.ref.split(":")[1] if label.ref.startswith("p2g:") else label.ref,
+                "qr_code": bool(label.qr_png),
+            },
+            verified=True,
+        )
+        # Shopify's return email links the label; the QR code is on the returns page.
         self._label_attached(ret, actor, self.label_link(file_id) if file_id else None)
 
     def _label_attached(self, ret: Return, actor: str, label_url: str | None) -> None:
@@ -570,7 +727,10 @@ class ReturnsService:
             actor,
             {
                 "tracking": ret.postage.tracking,
-                "label_ref": ret.postage.label_ref,
+                # Parcel2Go refs carry the order's access hash: show the order number only.
+                "label_ref": (ret.postage.label_ref or "").split(":")[1]
+                if (ret.postage.label_ref or "").startswith("p2g:")
+                else ret.postage.label_ref,
                 "reverse_delivery": ret.shopify.reverse_delivery_id,
             },
             verified=True,
@@ -937,8 +1097,22 @@ class ReturnsService:
         say(
             "Settings",
             True if labels_ok else None,
-            "Click & Drop labels " + ("connected" if labels_ok else f"off ({why})"),
+            f"{getattr(self.labels, 'name', 'Labels')} "
+            + ("connected" if labels_ok else f"off ({why})"),
         )
+        balance_of = getattr(self.labels, "balance_pence", None)
+        if labels_ok and balance_of:
+            balance = balance_of()
+            say(
+                "Settings",
+                None if balance is None else balance >= 1000,
+                "PrePay balance "
+                + (
+                    "unknown (Parcel2Go didn't answer)"
+                    if balance is None
+                    else gbp(balance) + ("" if balance >= 1000 else ": running low, top up")
+                ),
+            )
         say(
             "Settings",
             None,
@@ -981,6 +1155,19 @@ class ReturnsService:
             # How staff approved it, which can differ from what the customer picked.
             "postage_mode": ret.postage.mode.value if ret.postage.mode else None,
             "label_url": label,
+            # A printer-free label: the code to show at the shop and where the shops are.
+            "drop_off": {
+                "courier": ret.postage.carrier,
+                "service": ret.postage.service_name,
+                "qr_url": self.label_link(ret.postage.qr_file_id)
+                if ret.postage.qr_file_id
+                else None,
+                "code": ret.postage.drop_off_text,
+                "shops": ret.postage.shops,
+            }
+            if ret.status == Status.awaiting_shipment
+            and (ret.postage.qr_file_id or ret.postage.shops)
+            else None,
             "tracking": ret.postage.tracking,
             "tracking_url": ret.postage.tracking_url,
             "needs_tracking": ret.status == Status.awaiting_shipment
@@ -1031,6 +1218,11 @@ class ReturnsService:
                 else []
             ),
             *(["needs_approval"] if ret.status == Status.requested else []),
+            *(
+                ["delivered_unchecked"]
+                if ret.status == Status.in_transit and ret.postage.courier_stage == "Delivered"
+                else []
+            ),
         ]
         doc["label_url"] = (
             self.label_link(ret.postage.label_file_id) if ret.postage.label_file_id else None

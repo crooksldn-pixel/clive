@@ -13,7 +13,7 @@ from starlette.concurrency import run_in_threadpool
 
 from returns.admin import build_admin_router
 from returns.api import build_routers
-from returns.labels import ClickAndDrop
+from returns.labels import ClickAndDrop, NoLabels
 from returns.service import ReturnsService
 from returns.settings import Settings, get_settings
 from returns.shopify import GraphQLShopify, ShopifyError
@@ -25,13 +25,27 @@ class UTF8JSONResponse(JSONResponse):
     media_type = "application/json; charset=utf-8"
 
 
+def label_provider(settings: Settings):
+    if settings.label_provider == "parcel2go":
+        from returns.parcel2go import Parcel2Go
+
+        return Parcel2Go(settings)
+    if settings.label_provider == "none":
+        return NoLabels()
+    return ClickAndDrop(settings)
+
+
 def build_service(settings: Settings) -> ReturnsService:
     if settings.shopify_backend == "fake":
         from returns.fake import FakeLabels, FakeShopify
 
-        shopify, labels = FakeShopify(), FakeLabels()
+        shopify = FakeShopify()
+        # Fake store, real Parcel2Go sandbox: lets the whole flow run without Shopify.
+        labels = (
+            label_provider(settings) if settings.label_provider == "parcel2go" else FakeLabels()
+        )
     else:
-        shopify, labels = GraphQLShopify(settings), ClickAndDrop(settings)
+        shopify, labels = GraphQLShopify(settings), label_provider(settings)
     return ReturnsService(settings, Store(settings.db_path), shopify, labels)
 
 

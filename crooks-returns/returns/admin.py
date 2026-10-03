@@ -133,6 +133,16 @@ def detail(svc: ReturnsService, ret: Return) -> dict[str, Any]:
     for line, out in zip(ret.lines, doc["lines"], strict=True):
         out["reason_label"] = REASON_LABELS[line.reason]
     labels_ok, labels_why = svc.labels.available()
+    p = ret.postage
+    doc["label"] = {
+        "service": p.service_name,
+        "courier": p.carrier,
+        "cost": gbp(p.label_price_pence) if p.label_price_pence is not None else None,
+        "qr_url": svc.label_link(p.qr_file_id) if p.qr_file_id else None,
+        "ref": p.label_ref.split(":")[1] if (p.label_ref or "").startswith("p2g:") else p.label_ref,
+        "courier_stage": p.courier_stage,
+        "shops": p.shops,
+    }
     return {
         **doc,
         "row": row(svc, ret),
@@ -144,7 +154,11 @@ def detail(svc: ReturnsService, ret: Return) -> dict[str, Any]:
             if numeric_id(ret.customer_id)
             else None,
         },
-        "labels": {"automatic": labels_ok, "why_not": labels_why or None},
+        "labels": {
+            "automatic": labels_ok,
+            "why_not": labels_why or None,
+            "name": getattr(svc.labels, "name", "Labels"),
+        },
         "default_postage_mode": (
             svc._mode(ret, {}).value
             if labels_ok or svc._mode(ret, {}) != PostageMode.label_now
@@ -242,7 +256,11 @@ def build_admin_router(svc: ReturnsService) -> APIRouter:
             "counts": {v: sum(f(r, attention[r.id]) for r in rows) for v, f in VIEWS.items()},
             "stats": svc.stats(),
             "pilot": sorted(svc.pilot_orders(), key=int),
-            "labels": {"automatic": labels_ok, "why_not": labels_why or None},
+            "labels": {
+                "automatic": labels_ok,
+                "why_not": labels_why or None,
+                "name": getattr(svc.labels, "name", "Labels"),
+            },
             "shop": s.shop_domain,
         }
 

@@ -43,6 +43,17 @@ def webhook_ok(body: bytes, header: str, secret: str) -> bool:
     return bool(header) and hmac.compare_digest(want, header)
 
 
+def parcel2go_signature_ok(data: dict[str, Any], secret: str) -> bool:
+    """Parcel2Go signs Id:Timestamp:Type, the timestamp as "yyyy-MM-dd HH:mm:ss" in the time
+    it was sent with, HMAC-SHA256 in lowercase hex."""
+    if not secret:
+        return False
+    stamp = str(data.get("Timestamp") or "").replace("T", " ")[:19]
+    message = f"{data.get('Id')}:{stamp}:{data.get('Type')}"
+    want = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(want, str(data.get("Signature") or "").lower())
+
+
 def fail(exc: ActionError) -> HTTPException:
     return HTTPException(status_code=exc.status, detail=str(exc))
 
@@ -67,6 +78,8 @@ class SubmitBody(QuoteBody):
     resolution: Resolution
     postage: Postage
     exchange: dict[str, str] = Field(default_factory=dict)
+    # Which drop-off network the customer chose for a free label, e.g. "evri".
+    courier: str | None = Field(default=None, max_length=40)
 
 
 class TrackingBody(SessionBody):
@@ -146,11 +159,26 @@ def build_routers(svc: ReturnsService) -> list[APIRouter]:
             ],
         }
 
+    @portal.post("/dropoff")
+    def dropoff(body: SessionBody) -> dict[str, Any]:
+        """Where the customer can drop off a free label return: couriers and nearest shops."""
+        try:
+            order = svc.order_for_session(body.session)
+        except ActionError as exc:
+            raise fail(exc) from exc
+        options = svc.drop_off_options(order)
+        return {
+            "postcode": (order.shipping_address or {}).get("zip") or order.shipping_zip,
+            "options": [{k: v for k, v in o.items() if k != "price_pence"} for o in options],
+        }
+
     @portal.post("/submit")
     def submit(body: SubmitBody) -> dict[str, Any]:
         try:
             order = svc.order_for_session(body.session)
-            ret = svc.submit(order, body.items, body.resolution, body.postage, body.exchange)
+            ret = svc.submit(
+                order, body.items, body.resolution, body.postage, body.exchange, body.courier
+            )
         except ActionError as exc:
             raise fail(exc) from exc
         return {"return": svc.public(ret)}
@@ -250,7 +278,10 @@ def build_routers(svc: ReturnsService) -> list[APIRouter]:
             body,
             media_type=content_type,
             headers={
-                "Content-Disposition": f'inline; filename="crooks-return-label-{file_id}.pdf"'
+                "Content-Disposition": (
+                    f'inline; filename="crooks-return-{file_id}.'
+                    f'{"png" if content_type == "image/png" else "pdf"}"'
+                )
             },
         )
 
@@ -266,6 +297,22 @@ def build_routers(svc: ReturnsService) -> list[APIRouter]:
         rid = data.get("admin_graphql_api_id") or ""
         if topic.startswith("returns/") and rid:
             ret = svc.shopify_changed(rid, topic)
+            return {"ok": True, "return": ret.id if ret else None}
+        return {"ok": True}
+
+    @misc.post("/webhooks/parcel2go")
+    async def parcel2go_webhook(request: Request) -> dict[str, Any]:
+        data = await request.json()
+        if not parcel2go_signature_ok(data, settings.p2g_webhook_secret):
+            raise HTTPException(401, "Bad signature.")
+        payload = data.get("Payload") or {}
+        if data.get("Type") == "Tracking" and payload.get("OrderLineId"):
+            ret = svc.courier_tracking(
+                str(payload["OrderLineId"]),
+                str(payload.get("TrackingStage") or ""),
+                str(payload.get("StatusDescription") or ""),
+                str(data.get("Id") or ""),
+            )
             return {"ok": True, "return": ret.id if ret else None}
         return {"ok": True}
 

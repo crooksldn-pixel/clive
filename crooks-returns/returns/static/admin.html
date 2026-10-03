@@ -225,7 +225,7 @@
 
   async function api(path, body) {
     const t = await token();
-    const res = await fetch("/admin/api" + path, {
+    const res = await fetch(location.pathname.replace(/\/$/, "") + "/api" + path, {
       method: body === undefined ? "GET" : "POST",
       headers: { "Content-Type": "application/json", ...(t ? { Authorization: "Bearer " + t } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -254,10 +254,11 @@
     awaiting_label_overdue: ["Label overdue", "bad"],
     error: ["Problem", "bad"],
     needs_decision: ["Needs a decision", "attn"],
+    delivered_unchecked: ["Arrived: check it", "attn"],
   };
   const RESOLUTION = { exchange: "Exchange", store_credit: "Store credit", refund: "Refund" };
   const POSTAGE = {
-    free_label: "Free Royal Mail label", paid_label: "Royal Mail label (fee off refund)", self_ship: "Sending it themselves",
+    free_label: "Free return label", paid_label: "Our label (fee off refund)", self_ship: "Sending it themselves",
     label_now: "Label sent", label_later: "Label to follow", no_return: "No need to send back",
   };
   const EVENT = {
@@ -268,6 +269,7 @@
     processed: "Done in Shopify", process_failed: "Shopify step failed", bonus_credited: "Bonus credit added",
     bonus_failed: "Bonus credit failed", completed: "Completed", cancelled: "Cancelled",
     cancel_failed: "Cancel failed", note: "Note", label_overdue: "Label overdue",
+    label_bought: "Label bought", delivered_to_us: "Courier delivered it to us",
   };
   const ACTION = {
     approve: "Approve", decline: "Decline", label: "Add label", tracking: "Add tracking",
@@ -434,7 +436,9 @@
       requested: "Check the request, then approve it or decline it.",
       awaiting_label: "Approved. It needs a label (buy one, or add a tracking number you made yourself).",
       awaiting_shipment: "Approved. Waiting for the customer to post it. Mark it received when it lands.",
-      in_transit: "On its way back. Mark it received when it lands.",
+      in_transit: r.postage.courier_stage === "Delivered"
+        ? "The courier says it was delivered to us. Check it over, then mark it received."
+        : "On its way back. Mark it received when it lands.",
       received: "Arrived but not as expected. Decide, then complete it.",
     }[r.status];
     const tracking = p.tracking ? (p.tracking_url ? `<a href="${esc(p.tracking_url)}" target="_blank" rel="noopener">${esc(p.tracking)}</a>` : esc(p.tracking)) : "–";
@@ -476,7 +480,7 @@
             <ul class="tl">
               ${r.timeline.slice().reverse().map((e) => `
                 <li class="${e.verified ? "ok" : /failed|overdue/.test(e.type) ? "fail" : ""}">
-                  <div class="what">${esc(EVENT[e.type] || e.type)}${e.verified ? ` <span class="ok-tick">· confirmed in Shopify</span>` : ""}</div>
+                  <div class="what">${esc(EVENT[e.type] || e.type)}${e.verified ? ` <span class="ok-tick">· confirmed ${e.type === "label_bought" || e.actor === "Parcel2Go" ? "by Parcel2Go" : "in Shopify"}</span>` : ""}</div>
                   <div class="meta">${when(e.at)} · ${esc(e.actor)}</div>
                   ${eventDetail(e) ? `<div class="det">${esc(eventDetail(e))}</div>` : ""}
                 </li>`).join("")}
@@ -491,10 +495,14 @@
           <div class="card card-pad">
             <h2>Postage</h2>
             <dl class="kv">
-              <dt>Customer chose</dt><dd>${esc(POSTAGE[p.chosen] || p.chosen)}</dd>
+              <dt>Customer chose</dt><dd>${esc(POSTAGE[p.chosen] || p.chosen)}${r.label.courier && !r.label.cost ? " · " + esc(r.label.courier) : ""}</dd>
               <dt>Approved as</dt><dd>${esc(p.mode ? POSTAGE[p.mode] || p.mode : "–")}</dd>
               <dt>Tracking</dt><dd>${tracking}</dd>
+              ${r.label.cost ? `<dt>Label</dt><dd>${esc(r.label.service || r.label.courier || "")} · ${esc(r.label.cost)}</dd>` : ""}
+              ${r.label.ref && r.label.cost ? `<dt>Parcel2Go order</dt><dd class="mono">${esc(r.label.ref)}</dd>` : ""}
+              ${r.label.courier_stage ? `<dt>Courier says</dt><dd>${esc(r.label.courier_stage)}</dd>` : ""}
               ${r.label_url ? `<dt>Label</dt><dd><a href="${esc(r.label_url)}" target="_blank" rel="noopener">Download PDF</a></dd>` : ""}
+              ${r.label.qr_url ? `<dt>Drop-off code</dt><dd><a href="${esc(r.label.qr_url)}" target="_blank" rel="noopener">QR code</a></dd>` : ""}
               ${p.label_due_at && r.status === "awaiting_label" ? `<dt>Label due</dt><dd>${when(p.label_due_at)}</dd>` : ""}
             </dl>
           </div>
@@ -524,7 +532,7 @@
     if (action === "approve") {
       const labelsOk = r.labels.automatic;
       const modes = [
-        ["label_now", "Email a Royal Mail label now", labelsOk ? "Bought in Click & Drop and emailed to the customer." : "Not available: " + (r.labels.why_not || "Click & Drop isn't connected."), !labelsOk],
+        ["label_now", "Book a return label now", labelsOk ? "Bought through " + r.labels.name + (r.label.service ? " (" + r.label.courier + ", as the customer chose)" : "") + ". The price is below." : "Not available: " + (r.labels.why_not || "labels aren't connected."), !labelsOk],
         ["self_ship", "Customer posts it themselves", "They're shown our returns address and can add their tracking."],
         ["label_later", "Approve now, label later", "Waits as ‘waiting for label’ until you add one."],
         ["no_return", "Keep it, nothing to send back", "Not worth the postage. The outcome happens straight away."],
@@ -546,7 +554,7 @@
     }
     if (action === "label") {
       return `<label class="field"><span>Tracking number</span><input name="tracking" autocomplete="off" placeholder="e.g. TT123456789GB">
-        <div class="hint">${r.labels.automatic ? "Leave empty to buy a Click & Drop label instead." : "From a label you made yourself. Click & Drop isn't connected yet."}</div></label>`;
+        <div class="hint">${r.labels.automatic ? "Leave empty to buy a " + esc(r.labels.name) + " label instead." : "From a label you made yourself. Automatic labels aren't connected yet."}</div></label>`;
     }
     if (action === "tracking") return `<label class="field"><span>Tracking number</span><input name="number" autocomplete="off" placeholder="e.g. TT123456789GB"></label>`;
     if (action === "decline") return `<label class="field"><span>Reason</span><textarea name="reason" placeholder="Shown on the record, e.g. outside the 14 days"></textarea></label>`;
@@ -697,7 +705,7 @@
           </div>
           <div class="card card-pad">
             <h2>Labels</h2>
-            <p class="muted" style="margin:0">${o.labels.automatic ? "Click & Drop is connected: approving with a label buys and emails it." : esc(o.labels.why_not || "Click & Drop is not connected.") + " Approve returns as ‘customer posts it themselves’ until it is."}</p>
+            <p class="muted" style="margin:0">${o.labels.automatic ? esc(o.labels.name) + " is connected: approving with a label books it, paid from PrePay, and the customer gets a QR code to show at the shop." : esc(o.labels.why_not || "Labels are not connected.") + " Approve returns as ‘customer posts it themselves’ until it is."}</p>
           </div>
         </div>
       </div>`);

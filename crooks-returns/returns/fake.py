@@ -259,6 +259,8 @@ class FakeShopify:
 
 
 class FakeLabels:
+    name = "Test labels"
+
     def __init__(self, ok: bool = True) -> None:
         self.ok = ok
         self.made: list[str] = []
