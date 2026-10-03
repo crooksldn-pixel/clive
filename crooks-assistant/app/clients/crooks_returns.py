@@ -366,43 +366,70 @@ class OpenReturns:
     """The open returns, kept for a minute. Asked for only when something needs them (the home's
     Needs you row, the returns_open tool), so nothing is polled while nobody is using CLIVE. The
     first read is whole; after it, `?since=` the newest change seen asks only for what changed,
-    and a return that is no longer open leaves. Read whole again every ten minutes regardless."""
+    and a return that is no longer open leaves. Read whole again every ten minutes regardless.
+
+    One read at a time (the callers that arrive while it is out wait for it and share its answer),
+    and a read that failed is kept for the minute as an answer would be: the service is asked at
+    most once a minute whatever it said, and a home drawn ten times while it is down asks once."""
 
     clock: Any = time.time
     rows: dict[str, dict[str, Any]] = field(default_factory=dict)
     read_at: float = 0.0
     whole_at: float = 0.0
     watermark: str = ""
+    failed: ReturnsUnavailable | None = None
+    failed_at: float = 0.0
     _lock: asyncio.Lock | None = None
 
     def forget(self) -> None:
         self.rows, self.read_at, self.whole_at, self.watermark = {}, 0.0, 0.0, ""
+        self.failed, self.failed_at = None, 0.0
+
+    def _held(self, max_age_s: float) -> tuple[list[dict[str, Any]], float] | None:
+        """What the last read left, while it is under a minute old: its rows, or its failure raised
+        again (a copy, so each caller's traceback is its own)."""
+        now = self.clock()
+        if self.failed is not None and now - self.failed_at < max_age_s:
+            f = self.failed
+            raise ReturnsUnavailable(str(f), kind=f.kind, status=f.status, key=f.key)
+        if self.read_at and now - self.read_at < max_age_s:
+            return self._sorted(), self.read_at
+        return None
 
     async def get(self, *, max_age_s: float = OPEN_CACHE_S) -> tuple[list[dict[str, Any]], float]:
-        if self.read_at and self.clock() - self.read_at < max_age_s:
-            return self._sorted(), self.read_at
+        held = self._held(max_age_s)
+        if held is not None:
+            return held
         if self._lock is None:
             self._lock = asyncio.Lock()
         async with self._lock:
-            if self.read_at and self.clock() - self.read_at < max_age_s:
-                return self._sorted(), self.read_at
+            held = self._held(max_age_s)
+            if held is not None:
+                return held
             now = self.clock()
-            if not self.whole_at or now - self.whole_at >= FULL_READ_EVERY_S or not self.watermark:
-                found = await list_returns(open_only=True, limit=MAX_LIST)
-                self.rows = {str(r.get("id")): r for r in found if r.get("id")}
-                self.whole_at = now
-                self.watermark = max((str(r.get("updated_at") or "") for r in found), default="") or self.watermark
-            else:
-                changed = await list_returns(since=self.watermark, limit=MAX_LIST)
-                for row in changed:
-                    rid = str(row.get("id") or "")
-                    if not rid:
-                        continue
-                    if str(row.get("status") or "") in OPEN_STATUSES:
-                        self.rows[rid] = row
-                    else:
-                        self.rows.pop(rid, None)
-                    self.watermark = max(self.watermark, str(row.get("updated_at") or ""))
+            try:
+                if not self.whole_at or now - self.whole_at >= FULL_READ_EVERY_S or not self.watermark:
+                    found = await list_returns(open_only=True, limit=MAX_LIST)
+                    self.rows = {str(r.get("id")): r for r in found if r.get("id")}
+                    self.whole_at = now
+                    self.watermark = max((str(r.get("updated_at") or "") for r in found), default="") or self.watermark
+                else:
+                    changed = await list_returns(since=self.watermark, limit=MAX_LIST)
+                    for row in changed:
+                        rid = str(row.get("id") or "")
+                        if not rid:
+                            continue
+                        if str(row.get("status") or "") in OPEN_STATUSES:
+                            self.rows[rid] = row
+                        else:
+                            self.rows.pop(rid, None)
+                        self.watermark = max(self.watermark, str(row.get("updated_at") or ""))
+            except ReturnsUnavailable as exc:
+                # No key is not an answer from the service (nothing was asked): never kept.
+                if exc.kind != "no_key":
+                    self.failed, self.failed_at = exc, now
+                raise
+            self.failed, self.failed_at = None, 0.0
             self.read_at = now
             return self._sorted(), self.read_at
 

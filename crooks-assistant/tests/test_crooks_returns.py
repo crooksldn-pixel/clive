@@ -209,6 +209,27 @@ async def test_the_open_returns_are_asked_once_a_minute_and_then_by_what_changed
     assert stub.calls[-1]["query"].get("open") == "true", "read whole again every ten minutes"
 
 
+async def test_a_failed_read_is_kept_for_the_minute_and_shared_with_whoever_waited_for_it(stub):
+    """Whatever the service said, it is asked at most once a minute: a home drawn three times at
+    once while the service is down asks once, and so does the next draw within the minute."""
+    import asyncio
+
+    clock = [1000.0]
+    held = rc.OpenReturns(clock=lambda: clock[0])
+    stub.fail["/api/v1/returns"] = 503
+    said = await asyncio.gather(*(held.get() for _ in range(3)), return_exceptions=True)
+    assert all(isinstance(s, rc.ReturnsUnavailable) and s.kind == "trouble" for s in said), said
+    assert len(stub.calls) == 1, "the two that waited share the first one's answer"
+    clock[0] += 30
+    with pytest.raises(rc.ReturnsUnavailable) as again:
+        await held.get()
+    assert str(again.value) == str(said[0]) and len(stub.calls) == 1, "and so does the next ask within the minute"
+    clock[0] += 31
+    stub.fail.clear()
+    rows, _ = await held.get()
+    assert [r["id"] for r in rows] == [RID] and len(stub.calls) == 2, "after the minute it is asked again"
+
+
 async def test_an_action_with_no_answer_is_asked_once_more_with_the_same_key(stub, monkeypatch):
     seen: list[dict] = []
     real = stub.transport()
