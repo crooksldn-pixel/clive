@@ -387,6 +387,9 @@ async def test_a_change_after_which_shopify_emails_the_customer_says_so_and_take
     _, proposal = await stage(session, **args)
     facts = registry.get("return_action").write.present(proposal)["facts"]
     assert ({"label": "Customer emailed", "value": "yes (by Shopify)"} in facts) is emailed
+    # A label bought now is priced by the preview and bought at Parcel2Go's price then: the card says so.
+    buys = args["action"] == "label" and "tracking" not in args or args.get("postage_mode") == "label_now"
+    assert ({"label": "Label price", "value": "quoted again by Parcel2Go when bought, so it can differ"} in facts) is buys
     assert (proposal.interaction == "hold_to_arm") is (emailed or returns_tools.money_moving(args["action"], dict(proposal.execution)["params"]))
     assert proposal.summary["ledger"]["notify"] is emailed
 

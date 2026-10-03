@@ -207,6 +207,15 @@ def emails_customer(action: str, params: dict[str, Any]) -> bool:
     return action in ("label", "complete")
 
 
+def buys_label(action: str, params: dict[str, Any]) -> bool:
+    """The changes that buy a Parcel2Go label. Its price on the card is the preview's quote; the
+    service asks Parcel2Go again when it buys, and CROOKS Returns takes no ceiling to hold it to
+    (docs/product-memory/DECISIONS.md DEC-061, follow-up), so the card says the price can move."""
+    if action == "approve":
+        return params.get("postage_mode") == "label_now"
+    return action == "label" and not params.get("tracking")
+
+
 def _short(value: Any, limit: int, what: str) -> str:
     text = " ".join(str(value or "").split())
     if len(text) > limit:
@@ -372,6 +381,8 @@ def _present(proposal) -> dict:
         facts.append({"label": "Moves money", "value": "yes: hold the card, then tap", "tone": "bad"})
     if s.get("emails_customer"):
         facts.append({"label": "Customer emailed", "value": "yes (by Shopify)"})
+    if s.get("buys_label"):
+        facts.append({"label": "Label price", "value": "quoted again by Parcel2Go when bought, so it can differ"})
     facts += _money_facts(s.get("money") if isinstance(s.get("money"), dict) else {})
     will = [str(w) for w in s.get("will") or []]
     summary = str(s.get("return_summary") or "")
@@ -470,7 +481,7 @@ async def return_action(return_id: str, action: str, postage_mode: str = "", con
         summary={
             "action": action, "mode": params.get("postage_mode", ""), "will": will,
             "money": {k: v for k, v in held.items() if client.pence(v) is not None},
-            "money_moving": moving, "emails_customer": emails,
+            "money_moving": moving, "emails_customer": emails, "buys_label": buys_label(action, params),
             "status_words": views.STATUS_WORDS.get(status, status), "customer": customer,
             "return_summary": " ".join(str(ret.get("summary") or "").split())[:240], "read_back": read_back,
             "pii": [customer] if customer else [],
