@@ -470,6 +470,8 @@ async def test_the_voice_is_the_owners_and_only_with_a_passkey_for_those_very_se
     await register(world)
     speaking(world)
     world.services.voices = {"9375G6zswFk7v9bKTVQF": {"name": "Vikram", "settings": {}}}
+    vault.store("elevenlabs_api_key", KEY)                 # a key is stored: the answer must hold none of it
+    assert linux_store.read("elevenlabs_api_key") == KEY
     stranger = {"Tailscale-User-Login": "other@example.com", "X-Forwarded-For": "100.64.0.3"}
     assert (await world.get("/connections/voice", headers=stranger)).status_code == 403
     assert (await world.get("/connections/voice")).status_code == 403        # the server itself
@@ -480,7 +482,8 @@ async def test_the_voice_is_the_owners_and_only_with_a_passkey_for_those_very_se
     assert body["voice"]["voice_name"] == world.runtime.settings.tts_voice_name
     assert body["chosen"] is False and "eleven_flash_v2_5" in body["models"]
     assert body["sliders"]["speed"] == {"min": 0.7, "max": 1.2}
-    assert "key" not in shown.text.lower() or "api_key" not in shown.text
+    # Never the key: neither its name nor the value stored.
+    assert "api_key" not in shown.text and KEY not in shown.text
 
     wanted = {"voice_id": "9375G6zswFk7v9bKTVQF", "voice_name": "Vikram", "style": 0.4}
     text, digest = sealed(wanted)
