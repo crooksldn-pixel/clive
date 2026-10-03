@@ -75,6 +75,12 @@ def sample_orders(now: datetime | None = None) -> list[Order]:
                 options={"Size": "M"},
                 size_option="Size",
                 sizes=["S", "M", "L", "XL"],
+                size_chart=[
+                    {"size": "S", "chest": "105.4cm", "length": "69.8cm", "shoulder": "52.1cm"},
+                    {"size": "M", "chest": "110.5cm", "length": "72.4cm", "shoulder": "54.6cm"},
+                    {"size": "L", "chest": "115.6cm", "length": "74.9cm", "shoulder": "57.1cm"},
+                    {"size": "XL", "chest": "119.4cm", "length": "76.2cm", "shoulder": "59.7cm"},
+                ],
             ),
             OrderLine(
                 fulfillment_line_item_id="gid://shopify/FulfillmentLineItem/2",
@@ -92,6 +98,11 @@ def sample_orders(now: datetime | None = None) -> list[Order]:
                 options={"Size": "32"},
                 size_option="Size",
                 sizes=["30", "32", "34"],
+                size_chart=[
+                    {"size": "30", "waist": "76.2cm", "inseam": "78.7cm", "leg opening": "45.7cm"},
+                    {"size": "32", "waist": "81.3cm", "inseam": "80.0cm", "leg opening": "48.3cm"},
+                    {"size": "34", "waist": "86.4cm", "inseam": "81.3cm", "leg opening": "50.8cm"},
+                ],
             ),
         ],
     )

@@ -727,6 +727,123 @@
     border-top: 1px solid var(--rd-line);
   }
 
+  /* Size chart */
+  .rd-chart {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    background: rgb(244 241 234 / 0.04);
+    box-shadow: inset 0 0 0 1px var(--rd-line);
+    min-width: 0;
+  }
+
+  .rd-chart summary {
+    cursor: pointer;
+    font-family: var(--rd-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--rd-bone);
+  }
+
+  .rd-chart details[open] summary,
+  details.rd-chart[open] summary {
+    margin-bottom: 10px;
+  }
+
+  .rd-chart__scroll {
+    overflow-x: auto;
+    min-width: 0;
+  }
+
+  .rd-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--rd-mono);
+    font-size: 0.78rem;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  .rd-table th,
+  .rd-table td {
+    padding: 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--rd-line);
+    white-space: nowrap;
+    color: var(--rd-bone);
+    font-weight: 400;
+  }
+
+  .rd-table thead th {
+    font-size: 0.64rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--rd-muted);
+  }
+
+  .rd-table small {
+    font-size: 0.6rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--rd-muted);
+  }
+
+  .rd-table tbody th {
+    color: var(--rd-muted);
+  }
+
+  .rd-table .rd-up {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.68rem;
+    text-transform: none;
+    color: var(--rd-accent);
+  }
+
+  .rd-chart__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .rd-units {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    margin-left: auto;
+    box-shadow: inset 0 0 0 1px var(--rd-line);
+  }
+
+  .rd-units button {
+    min-width: 44px;
+    min-height: 34px;
+    padding: 0 10px;
+    border: 0;
+    background: transparent;
+    font-family: var(--rd-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    color: var(--rd-muted);
+  }
+
+  .rd-units button[aria-pressed='true'] {
+    background: var(--rd-bone);
+    color: var(--rd-ink);
+  }
+
+  .rd-table td[data-new] {
+    background: rgb(255 212 0 / 0.08);
+  }
+
+  .rd-table tr[data-mine] > * {
+    background: rgb(244 241 234 / 0.08);
+  }
+
+  .rd-table tr[data-new] > * {
+    background: rgb(255 212 0 / 0.14);
+  }
+
   /* The refund: a plain row under the deals */
   .rd-refund {
     display: grid;

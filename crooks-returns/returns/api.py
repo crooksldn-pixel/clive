@@ -118,9 +118,16 @@ def build_routers(svc: ReturnsService) -> list[APIRouter]:
     @portal.post("/quote")
     def quote(body: QuoteBody) -> dict[str, Any]:
         try:
-            q = svc.quote(svc.order_for_session(body.session), body.items)
+            order = svc.order_for_session(body.session)
+            q = svc.quote(order, body.items)
         except ActionError as exc:
             raise fail(exc) from exc
+        size_of = {line.fulfillment_line_item_id: line.size_option for line in order.lines}
+
+        def choice(fli: str, v: Any) -> dict[str, Any]:
+            size = v.options.get(size_of.get(fli) or "")
+            return {"id": v.id, "title": v.title, "size": size}
+
         return {
             "items_total": gbp(q.items_pence),
             "options": [
@@ -133,8 +140,7 @@ def build_routers(svc: ReturnsService) -> list[APIRouter]:
                         for p in o.postage
                     ],
                     "exchange_choices": {
-                        fli: [{"id": v.id, "title": v.title} for v in vs]
-                        for fli, vs in o.exchange_choices.items()
+                        fli: [choice(fli, v) for v in vs] for fli, vs in o.exchange_choices.items()
                     },
                 }
                 for o in q.options

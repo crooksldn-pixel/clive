@@ -165,6 +165,9 @@ class ReturnsService:
                     "message": check.message,
                     "reasons": [r.value for r in check.allowed_reasons],
                     "window_ends": check.window_ends.isoformat() if check.window_ends else None,
+                    # The size they have and the product's size chart (crooks.measurements).
+                    "size": line.size,
+                    "size_chart": line.size_chart,
                 }
             )
         return {

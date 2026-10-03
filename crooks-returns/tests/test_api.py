@@ -22,6 +22,11 @@ def test_portal_to_clive_round_trip(svc):
     items = [{"fulfillment_line_item_id": TEE, "quantity": 1, "reason": "too_small"}]
     quote = c.post("/proxy/api/quote", json={"session": session, "items": items}).json()
     assert [o["resolution"] for o in quote["options"]] == ["exchange", "store_credit", "refund"]
+    assert found["lines"][0]["size"] == "M"
+    assert found["lines"][0]["size_chart"][1]["chest"] == "110.5cm"
+    assert quote["options"][0]["exchange_choices"][TEE] == [
+        {"id": "gid://shopify/ProductVariant/tee-L", "title": "L", "size": "L"}
+    ]
     made = c.post(
         "/proxy/api/submit",
         json={

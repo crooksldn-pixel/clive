@@ -51,6 +51,81 @@
     return String(title || '').split(/\s+/).map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
   }
 
+  /* Size charts come from the product's measurements (crooks.measurements): one row per size.
+     They are written in cm; the customer can switch to inches, and the page remembers it. */
+  var UNIT_KEY = 'crooks_returns_unit';
+  var unit = (function () {
+    try {
+      return localStorage.getItem(UNIT_KEY) === 'in' ? 'in' : 'cm';
+    } catch (e) {
+      return 'cm';
+    }
+  })();
+  var CM = /^\s*(-?\d+(?:\.\d+)?)\s*cm\s*$/i;
+  function show(value) {
+    var m = CM.exec(value || '');
+    if (!m || unit === 'cm') return value || '';
+    return Math.round((parseFloat(m[1]) / 2.54) * 10) / 10 + 'in';
+  }
+  function hasCm(chart) {
+    return (chart || []).some(function (r) {
+      return Object.keys(r).some(function (k) { return k !== 'size' && CM.test(r[k]); });
+    });
+  }
+  function unitToggle(chart) {
+    if (!hasCm(chart)) return '';
+    return '<span class="rd-units" role="group" aria-label="Units">' + ['cm', 'in'].map(function (u) {
+      return '<button type="button" class="rd-press" data-unit="' + u + '" aria-pressed="' + (unit === u) + '">' + u + '</button>';
+    }).join('') + '</span>';
+  }
+  function sameSize(a, b) {
+    return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  }
+  function chartRow(chart, size) {
+    return (chart || []).find(function (r) { return sameSize(r.size, size); });
+  }
+  function chartKeys(chart) {
+    return Object.keys((chart || [])[0] || {}).filter(function (k) { return k !== 'size'; });
+  }
+  function nice(key) {
+    return key.charAt(0).toUpperCase() + key.slice(1);
+  }
+  function change(from, to) {
+    var a = /^\s*(-?\d+(?:\.\d+)?)\s*([a-z]*)\s*$/i.exec(from || '');
+    var b = /^\s*(-?\d+(?:\.\d+)?)\s*([a-z]*)\s*$/i.exec(to || '');
+    if (!a || !b || a[2] !== b[2]) return '';
+    var d = Math.round((parseFloat(b[1]) - parseFloat(a[1])) * 10) / 10;
+    return (d > 0 ? '+' : d < 0 ? '−' : '±') + Math.abs(d) + a[2];
+  }
+  // The whole chart, with the customer's size (and the one they are moving to) marked.
+  function fullChart(chart, mine, next) {
+    var keys = chartKeys(chart);
+    var head = '<tr><th scope="col">Size</th>' + keys.map(function (k) { return '<th scope="col">' + esc(nice(k)) + '</th>'; }).join('') + '</tr>';
+    var rows = chart.map(function (r) {
+      var mark = sameSize(r.size, next) ? ' data-new' : sameSize(r.size, mine) ? ' data-mine' : '';
+      var tag = sameSize(r.size, next) ? ' <small>new</small>' : sameSize(r.size, mine) ? ' <small>yours</small>' : '';
+      return '<tr' + mark + '><th scope="row">' + esc(r.size) + tag + '</th>' + keys.map(function (k) { return '<td>' + esc(show(r[k])) + '</td>'; }).join('') + '</tr>';
+    }).join('');
+    return '<div class="rd-chart__scroll"><table class="rd-table"><thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div>';
+  }
+  // Their size against the size they picked, measurement by measurement.
+  function compareChart(chart, mine, next, key) {
+    var a = chartRow(chart, mine);
+    var b = chartRow(chart, next);
+    if (!a || !b) return '';
+    var rows = chartKeys(chart).map(function (k) {
+      var diff = change(show(a[k]), show(b[k]));
+      return '<tr><th scope="row">' + esc(nice(k)) + '</th><td>' + esc(show(a[k])) + '</td><td data-new>' + esc(show(b[k])) +
+        (diff ? '<small class="rd-up">' + esc(diff) + '</small>' : '') + '</td></tr>';
+    }).join('');
+    return (
+      '<div class="rd-chart"><div class="rd-chart__head"><p class="rd-label" style="margin:0">Size chart · ' + esc(a.size) + ' → ' + esc(b.size) + '</p>' + unitToggle(chart) + '</div>' +
+      '<div class="rd-chart__scroll"><table class="rd-table"><thead><tr><th scope="col"></th><th scope="col">' + esc(a.size) + ' <small>yours</small></th>' +
+      '<th scope="col">' + esc(b.size) + ' <small>new</small></th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<details data-chart="' + esc(key) + '"><summary>Full size chart</summary>' + fullChart(chart, mine, next) + '</details></div>'
+    );
+  }
+
   class ReturnsPortal extends HTMLElement {
     connectedCallback() {
       this.endpoint = (this.dataset.endpoint || '/apps/returns/api').replace(/\/$/, '');
@@ -295,7 +370,12 @@
           var qty = line.returnable_qty > 1
             ? '<div class="rd-stepper" aria-label="How many"><button type="button" data-qty="-1" data-line="' + esc(line.id) + '" aria-label="One fewer">−</button><span>' + sel.quantity + '</span><button type="button" data-qty="1" data-line="' + esc(line.id) + '" aria-label="One more">+</button></div>'
             : '';
-          var hint = FIT_REASONS.indexOf(sel.reason) > -1 ? '<p class="rd-gap">Good news: size swaps are free.</p>' : '';
+          var fit = FIT_REASONS.indexOf(sel.reason) > -1;
+          var hint = fit ? '<p class="rd-gap">Good news: size swaps are free.</p>' : '';
+          if (fit && chartRow(line.size_chart, line.size)) {
+            hint += '<details class="rd-chart" data-chart="items:' + esc(line.id) + '"><summary>' + esc(line.title) + ' size chart</summary>' +
+              '<div class="rd-chart__head">' + unitToggle(line.size_chart) + '</div>' + fullChart(line.size_chart, line.size, null) + '</details>';
+          }
           var note = NOTE_REASONS.indexOf(sel.reason) > -1
             ? '<div class="rd-cell rd-field"><label class="rd-label" for="rd-n-' + esc(line.id) + '">Tell us what happened</label>' +
               '<textarea class="rd-textarea" id="rd-n-' + esc(line.id) + '" maxlength="300" data-note="' + esc(line.id) + '">' + esc(sel.note || '') + '</textarea></div>'
@@ -375,7 +455,9 @@
               var chips = o.exchange_choices[fli].map(function (v) {
                 return '<button type="button" class="rd-chip rd-press" data-swap="' + esc(fli) + '" data-variant="' + esc(v.id) + '" aria-pressed="' + (self.state.exchange[fli] === v.id) + '">' + esc(v.title) + '</button>';
               }).join('');
-              return '<p class="rd-label" style="margin:0">Swap ' + esc(line ? line.title + ' / ' + line.variant : '') + ' for</p><div class="rd-chips">' + chips + '</div>';
+              var picked = o.exchange_choices[fli].find(function (v) { return v.id === self.state.exchange[fli]; });
+              var chart = line && picked ? compareChart(line.size_chart, line.size, picked.size, 'deal:' + fli) : '';
+              return '<p class="rd-label" style="margin:0">Swap ' + esc(line ? line.title + ' / ' + line.variant : '') + ' for</p><div class="rd-chips">' + chips + '</div>' + chart;
             }).join('') + '</div>';
           }
         } else {
@@ -528,6 +610,16 @@
       if (t.dataset.note && this.state.selected[t.dataset.note]) this.state.selected[t.dataset.note].note = t.value;
     }
 
+    // Re-render the current screen without closing any size chart the customer has open.
+    rerender() {
+      var open = Array.prototype.map.call(this.querySelectorAll('details[data-chart][open]'), function (d) { return d.dataset.chart; });
+      if (this.view === 'items') this.renderItems();
+      else if (this.view === 'deals') this.renderDeals();
+      this.querySelectorAll('details[data-chart]').forEach(function (d) {
+        if (open.indexOf(d.dataset.chart) > -1) d.open = true;
+      });
+    }
+
     refocus(selector) {
       var el = this.querySelector(selector);
       if (el) el.focus({ preventScroll: true });
@@ -536,6 +628,15 @@
     onClick(event) {
       var t = event.target;
       var self = this;
+      var units = t.closest('[data-unit]');
+      if (units) {
+        unit = units.dataset.unit;
+        try {
+          localStorage.setItem(UNIT_KEY, unit);
+        } catch (e) {}
+        this.rerender();
+        return this.refocus('[data-unit="' + unit + '"]');
+      }
       var pick = t.closest('[data-pick]');
       if (pick) {
         var id = pick.dataset.pick;
