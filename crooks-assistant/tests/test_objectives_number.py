@@ -69,10 +69,18 @@ def order(n: int, when: datetime, *items: tuple[str, int], cancelled: bool = Fal
 
 
 def sales(first: date, per_day: list[int], product: str = "Loopback Hoodie", colour: str = "Grey") -> list[dict]:
-    """per_day[i] hoodies on first + i, at midday London, one order each, with noise that must not count."""
+    """per_day[i] hoodies on first + i, at midday London, one order each, with noise that must not count.
+
+    Today's sales are made before now: at midday only once midday has passed. The count reads up to
+    now, so before noon a sale placed at noon today was still in the future and went uncounted, and
+    the suite failed every morning (136 counted, not 138)."""
     rows, n = [], 1000
+    now = datetime.now(LONDON)
     for i, sold in enumerate(per_day):
-        noon = datetime.combine(first + timedelta(days=i), datetime.min.time(), tzinfo=LONDON) + timedelta(hours=12)
+        midnight = datetime.combine(first + timedelta(days=i), datetime.min.time(), tzinfo=LONDON)
+        noon = midnight + timedelta(hours=12)
+        if noon > now:
+            noon = max(midnight, now - timedelta(minutes=1))
         if sold:
             rows.append(order(n, noon, (product, sold), colour=colour))
         rows.append(order(n + 1, noon, ("Cell Block Tee", 3)))                      # another product
