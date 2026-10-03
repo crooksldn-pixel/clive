@@ -94,9 +94,18 @@ query CrooksCheckoutDraft($id: ID!) {
 }
 """
 
-# (customer id, lines) -> (draft id, when made). This process's own memory: a restart forgets
-# it, and then one more draft is made, tagged like the first.
-_made: dict[tuple[str, tuple[tuple[str, int], ...]], tuple[str, float]] = {}
+# (customer id, lines) -> (draft id, when made, its name). This process's own memory: a restart
+# forgets it, and then one more draft is made, tagged like the first.
+_made: dict[tuple[str, tuple[tuple[str, int], ...]], tuple[str, float, str]] = {}
+
+
+class DraftLeft(ToolError):
+    """A check failed after Shopify made (or held) the draft: it is in Admin, and the refusal says
+    so — the model is never told "Nothing was changed" (app/tools/dispatch.py reads `left`)."""
+
+    def __init__(self, message: str, *, draft_name: str) -> None:
+        self.left = f"draft {draft_name}".strip()
+        super().__init__(f"{message} Draft {draft_name} is left in Admin, tagged {TAGS[1]!r}; delete it there if it is not wanted.")
 
 register_family(CapabilityFamily(
     key="checkout_link", label="Sending a checkout link", area="customers",
@@ -200,16 +209,24 @@ def _link_ok(url: str) -> bool:
     return any(host == a or host.endswith("." + a) for a in allowed if a)
 
 
-async def _the_draft(customer: dict[str, str], lines: list[dict[str, Any]]) -> dict[str, Any]:
+async def _the_draft(customer: dict[str, str], lines: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]]:
     """A draft for exactly these lines for this customer: the one this process made a moment ago
-    if it is still open and unchanged, otherwise a new one. Read back either way."""
+    if it is still open and unchanged, otherwise a new one. Read back either way.
+
+    Also the drafts made a moment ago for this customer for OTHER items (another size): this
+    project may make a draft but not change or delete one (app/clients/shopify.py
+    REVIEWED_MUTATIONS has no draftOrderUpdate), so the earlier one stays in Admin, and the card
+    says so by name."""
     key = (customer["id"], tuple(sorted((line["variant_id"], line["quantity"]) for line in lines)))
+    now = time.time()
+    earlier = [name or draft_id for (who, items), (draft_id, at, name) in _made.items()
+               if who == customer["id"] and items != key[1] and now - at < REUSE_S]
     held = _made.get(key)
-    if held and time.time() - held[1] < REUSE_S:
+    if held and now - held[1] < REUSE_S:
         try:
             node = await _read_draft(held[0])
             if str(node.get("status") or "").upper() == "OPEN" and not (node.get("order") or {}).get("id") and _lines_of(node) == sorted(key[1]):
-                return node
+                return node, earlier
         except (ToolError, ShopifyError) as exc:
             log.info("the draft made for this link could not be re-read: %s", type(exc).__name__)
     draft_input = {"customerId": customer["id"], "email": customer["email"], "tags": list(TAGS),
@@ -218,13 +235,21 @@ async def _the_draft(customer: dict[str, str], lines: list[dict[str, Any]]) -> d
     made = ((payload.get("data") or {}).get("draftOrderCreate") or {}).get("draftOrder") or {}
     if not made.get("id"):
         raise ShopifyError("Shopify did not make the draft, so there is no price and no link.")
-    _made[key] = (str(made["id"]), time.time())
+    _made[key] = (str(made["id"]), now, str(made.get("name") or ""))
     while len(_made) > MAX_REMEMBERED:
         _made.pop(next(iter(_made)))
-    return await _read_draft(str(made["id"]))
+    try:
+        return await _read_draft(str(made["id"])), earlier
+    except (ToolError, ShopifyError) as exc:
+        raise DraftLeft(f"Shopify made the draft but did not give it back ({type(exc).__name__}), so no link is offered.",
+                        draft_name=str(made.get("name") or made["id"])) from exc
 
 
 # --------------------------------------------------------------------------- the email
+
+
+def _joined(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + f" and {names[-1]}"
 
 
 def _money(node: Any) -> tuple[float | None, str]:
@@ -301,8 +326,10 @@ def _present(proposal) -> dict:
         {"label": "Postage", "value": str(s.get("postage") or "")},
         {"label": "Link", "value": str(s.get("link") or "")},
         {"label": "Draft", "value": str(s.get("draft_line") or "")},
+        {"label": "Earlier", "value": str(s.get("left_line") or "")},
         {"label": "From", "value": str(s.get("from_line") or "")},
     ]
+    facts = [f for f in facts if f["label"] != "Earlier" or f["value"]]
     return {
         "title": "Send a checkout link", "summary": "", "body": str(s.get("body") or ""), "facts": facts,
         "detail": "Sends the email now. It cannot be unsent; the draft stays in Shopify until it is paid or deleted.",
@@ -354,29 +381,36 @@ async def shopify_checkout_link_send(customer_id: str, items: list, message: str
     # customer is someone else ("following up on order 2205", Mia's) are refused here.
     await gmail_writes._new_email_held_to_the_orders_it_names(f"{SUBJECT}\n{text}", customer)
     lines = [await _resolve(item) for item in items]
-    node = await _the_draft(customer, lines)
+    node, earlier = await _the_draft(customer, lines)
+    draft_name = str(node.get("name") or node.get("id") or "")
     link = str(node.get("invoiceUrl") or "").strip()
+    # From here on the draft exists in Admin: every refusal names it (`DraftLeft`).
     if str((node.get("customer") or {}).get("id") or "") != customer["id"]:
-        raise ToolError(f"Shopify's draft {node.get('name') or ''} is not for {customer['name']}, so no link is offered.")
+        raise DraftLeft(f"Shopify's draft is not for {customer['name']}, so no link is offered.", draft_name=draft_name)
     if _lines_of(node) != sorted((line["variant_id"], line["quantity"]) for line in lines):
-        raise ToolError(f"Shopify's draft {node.get('name') or ''} does not carry exactly those items, so no link is offered.")
+        raise DraftLeft("Shopify's draft does not carry exactly those items, so no link is offered.", draft_name=draft_name)
     if str(node.get("status") or "").upper() != "OPEN" or (node.get("order") or {}).get("id"):
-        raise ToolError(f"Draft {node.get('name') or ''} is not open any more, so its link cannot be sent.")
+        raise DraftLeft("The draft is not open any more, so its link cannot be sent.", draft_name=draft_name)
     if not link:
-        raise ToolError(f"Shopify holds no payment link for draft {node.get('name') or ''}, so there is nothing to send.")
+        raise DraftLeft("Shopify holds no payment link for the draft, so there is nothing to send.", draft_name=draft_name)
     if not _link_ok(link):
-        raise ToolError(f"The link Shopify gave is not on the shop's own domain ({urlparse(link).hostname}), so it is not sent.")
+        raise DraftLeft(f"The link Shopify gave is not on the shop's own domain ({urlparse(link).hostname}), so it is not sent.",
+                        draft_name=draft_name)
     total_amount, currency = _money(node.get("totalPriceSet"))
     if total_amount is None:
-        raise ToolError("Shopify did not price the draft, so no link is offered.")
+        raise DraftLeft("Shopify did not price the draft, so no link is offered.", draft_name=draft_name)
     total = _shown(total_amount, currency)
     postage_amount, _ = _money(node.get("totalShippingPriceSet"))
     priced = _priced_lines(node)
     body = _body(text, priced, total, link)
     if len(body) > gmail_writes.MAX_BODY_CHARS:
-        raise ToolError("The email would be too long; shorten the message.")
+        raise DraftLeft("The email would be too long; shorten the message.", draft_name=draft_name)
     client = gmail_writes._g()
-    sender = await asyncio.to_thread(client.address)
+    try:
+        sender = await asyncio.to_thread(client.address)
+    except Exception as exc:
+        raise DraftLeft(f"Gmail did not say which address it sends from ({type(exc).__name__}), so nothing is offered.",
+                        draft_name=draft_name) from exc
     token = gmail_writes.new_token(sender)
     subject = gmail_writes.clean_subject(SUBJECT)
     raw = gmail_writes.build_raw(sender=sender, sender_name=str(getattr(gmail_writes._settings(), "gmail_from_name", "") or ""),
@@ -385,7 +419,6 @@ async def shopify_checkout_link_send(customer_id: str, items: list, message: str
     before["draft"] = draft_fingerprint(node)
     items_line = "; ".join(f"{line['title']}{' ' + line['variant'] if line['variant'] else ''}"
                            f"{' ×' + line['quantity'] if line['quantity'] != '1' else ''} · {line['price']}" for line in priced)
-    draft_name = str(node.get("name") or "")
     # `draft_id` is a GMAIL draft to the shared send path (empty: this is a fresh message); the
     # Shopify draft the link belongs to is `checkout_draft_id`, which `_observe` re-reads.
     execution = {"thread_id": "", "token": token, "raw": raw, "draft_id": "", "to": customer["email"], "to_name": customer["name"],
@@ -402,6 +435,7 @@ async def shopify_checkout_link_send(customer_id: str, items: list, message: str
             "subject": subject, "body": body, "items_line": items_line, "total": total,
             "postage": _shown(postage_amount, currency) if postage_amount else "none on the draft",
             "link": link, "draft_line": f"{draft_name} in Shopify — a draft, not an order; nobody is charged until they pay",
+            "left_line": f"{_joined(earlier)}, made for the earlier items, {'is' if len(earlier) == 1 else 'are'} left in Admin" if earlier else "",
             "from_line": sender, "read_back": f"send {customer['first'] or customer['name']} a checkout link for {items_line}, {total} in all",
             "pii": [v for v in (customer["email"], customer["name"]) if v],
             "ledger": {"kind": "checkout_link", "lines": len(priced), "chars": len(body), "to_checked": True},

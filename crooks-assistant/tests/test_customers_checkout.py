@@ -182,3 +182,29 @@ async def test_words_naming_another_customers_order_are_refused_before_any_draft
     told = next(c for c in world.model.calls if c.name == "shopify_checkout_link_send")
     assert not told.ok and "names order 2205" in told.error and "not the customer on that order" in told.error
     assert world.store.mutations == [] and world.store.drafts == {} and _sends(world) == []
+
+
+@pytest.mark.usefixtures("owner_asking")
+async def test_a_draft_made_before_a_later_check_failed_is_named_not_nothing_changed(world):
+    """The draft is made, then Shopify's link fails the check: the draft is in Admin, and the
+    model is told so — never "Nothing was changed"."""
+    from app.session.models import Session
+    from app.tools.dispatch import dispatch
+
+    world.store.twist = {"invoiceUrl": "https://evil.example/pay"}
+    session = Session(session_id="direct")
+    session.issue(MIA)
+    text = await dispatch("shopify_checkout_link_send", dict(TEE), session=session, timeout_s=5, calls=[])
+    (draft,) = world.store.drafts.values()
+    assert "Nothing was changed" not in text, text
+    assert f"Draft {draft['name']} is left in Admin" in text and "not on the shop's own domain" in text
+    assert _sends(world) == []
+
+
+async def test_a_new_size_says_the_draft_for_the_old_one_is_left_in_admin(world):
+    await _prepare(world)
+    first = next(iter(world.store.drafts.values()))
+    body = await _prepare(world, {**TEE, "items": [{"item": "black tee", "size": "S"}]})
+    facts = {f["label"]: f["value"] for f in cards(body, "confirmation")[-1]["facts"]}
+    assert len(world.store.drafts) == 2
+    assert facts["Earlier"] == f"{first['name']}, made for the earlier items, is left in Admin"
