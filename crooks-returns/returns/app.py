@@ -8,6 +8,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from returns.api import build_routers
@@ -16,6 +17,11 @@ from returns.service import ReturnsService
 from returns.settings import Settings, get_settings
 from returns.shopify import GraphQLShopify
 from returns.store import Store
+
+
+class UTF8JSONResponse(JSONResponse):
+    # Say UTF-8 outright, so a browser opening /health shows £ rather than Â£.
+    media_type = "application/json; charset=utf-8"
 
 
 def create_app(settings: Settings | None = None, service: ReturnsService | None = None) -> FastAPI:
@@ -49,6 +55,7 @@ def create_app(settings: Settings | None = None, service: ReturnsService | None 
 
     app = FastAPI(
         lifespan=lifespan,
+        default_response_class=UTF8JSONResponse,
         title="CROOKS Returns",
         version="0.1.0",
         docs_url="/api/docs",
