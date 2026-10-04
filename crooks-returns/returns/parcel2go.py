@@ -310,8 +310,8 @@ class Parcel2Go:
         if not ok:
             raise LabelError(why)
         if ret.postage.label_ref and ret.postage.label_ref.startswith("p2g:"):
-            # Already paid for on an earlier try: fetch that label, never buy a second.
-            return self._documents(ret.postage.label_ref, ret.postage.service)
+            # An order exists from an earlier try: settle that one, never create a second.
+            return self._settle(ret.postage.label_ref, ret.postage.service)
         collection = self.customer_address(ret, address)
         if not collection["Phone"]:
             raise LabelError(
@@ -356,24 +356,56 @@ class Parcel2Go:
         lines = made.get("OrderlineIdMap") or [{}]
         line_id = str(lines[0].get("OrderLineId") or "")
         ref = f"p2g:{order_id}:{line_id}:{order_hash}"
+        # From here on every failure carries `ref`, so a retry settles this order and never
+        # creates (or pays for) another one.
+        paid = self._pay(ref)
+        label = self._documents(ref, option.service, paid)
+        label.price_pence = to_pence(made.get("TotalPrice") or 0)
+        label.service_name = option.service_name
+        label.carrier = option.courier_name
+        return label
+
+    def _pay(self, ref: str) -> Any:
+        """Pay for an order exactly once. Parcel2Go charges again if a paid order is paid
+        again (seen in the sandbox, 2026-10-04), so this is only called for an order that
+        was just created or that Parcel2Go has just confirmed is unpaid."""
+        _, order_id, _, order_hash = ref.split(":", 3)
         try:
             paid = self._call(
                 "POST", f"/orders/{order_id}/paywithprepay", params={"hash": order_hash}
             )
         except LabelError as exc:
             raise LabelError(
-                f"Parcel2Go order {order_id} was created but not paid: {exc}. Top up PrePay "
-                "and try the label again."
+                f"Parcel2Go order {order_id}: payment not confirmed ({exc}). Try the label "
+                "again: it checks whether the order was paid before doing anything.",
+                ref=ref,
             ) from exc
         if isinstance(paid, dict) and paid.get("Errors"):
             raise LabelError(
                 f"Parcel2Go order {order_id} was not paid: "
                 + "; ".join(e.get("Description") or e.get("Name") or "" for e in paid["Errors"])
+                + ". Top up PrePay if needed, then try the label again.",
+                ref=ref,
             )
-        label = self._documents(ref, option.service, paid)
-        label.price_pence = to_pence(made.get("TotalPrice") or 0)
-        label.service_name = option.service_name
-        label.carrier = option.courier_name
+        return paid
+
+    def _settle(self, ref: str, service: str | None) -> Label:
+        """Finish an order from an earlier attempt: read whether it was paid, pay only if
+        Parcel2Go says it wasn't, then fetch its label."""
+        _, order_id, _, order_hash = ref.split(":", 3)
+        try:
+            got = self._call("GET", "/orders", params={"orderId": order_id, "hash": order_hash})
+        except LabelError as exc:
+            raise LabelError(
+                f"Couldn't check Parcel2Go order {order_id} ({exc}). Nothing was bought; try "
+                "again shortly.",
+                ref=ref,
+            ) from exc
+        paid = None
+        if not (got or {}).get("PaidDate"):
+            paid = self._pay(ref)
+        label = self._documents(ref, service, paid)
+        label.price_pence = to_pence((got or {}).get("TotalPrice") or 0) or None
         return label
 
     def _pick(self, wanted: str | None, postcode: str, value: int) -> DropOption:

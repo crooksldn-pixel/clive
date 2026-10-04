@@ -47,6 +47,9 @@ class FakeParcel2Go:
         self.paid: list[str] = []
         self.fail_documents = False
         self.balance = 50.0
+        # Like the real API: paying an already-paid order charges again.
+        self.lose_pay_response = False
+        self.refuse_pay = False
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
@@ -116,15 +119,24 @@ class FakeParcel2Go:
                 },
             )
         if path.endswith("/paywithprepay"):
+            if self.refuse_pay:
+                return httpx.Response(
+                    400, json={"Errors": [{"Name": "Balance", "Description": "Not enough"}]}
+                )
             self.paid.append(path.split("/")[3])
+            if self.lose_pay_response:  # charged, but the reply never arrives
+                raise httpx.ReadTimeout("connection lost", request=request)
             return httpx.Response(
                 200,
                 json={"Links": [{"Name": "labels-a4", "Link": "https://p2g.test/label/order?x=1"}]},
             )
         if path == "/api/orders" and method == "GET":
+            oid = request.url.params.get("orderId")
             return httpx.Response(
                 200,
                 json={
+                    "PaidDate": "2026-10-04T10:00:00" if oid in self.paid else None,
+                    "TotalPrice": 2.39,
                     "Items": [
                         {
                             "Parcels": [
@@ -331,3 +343,32 @@ def test_a_free_item_is_declared_at_its_shop_price(psvc, shop, p2g_server):
     ret = psvc.submit(order, sel, Resolution.refund, Postage.free_label, {}, "evri")
     psvc.execute(ret.id, "approve", {"postage_mode": "label_now"}, "staff", "k1")
     assert p2g_server.orders[0]["Items"][0]["Parcels"][0]["EstimatedValue"] == 25.0
+
+
+def test_a_lost_payment_reply_never_buys_a_second_label(psvc, p2g_server):
+    # The dangerous case: Parcel2Go takes the money, the reply is lost.
+    ret = request(psvc)
+    p2g_server.lose_pay_response = True
+    ret = psvc.execute(ret.id, "approve", {"postage_mode": "label_now"}, "staff", "k1")[
+        "return_doc"
+    ]
+    assert ret.status == Status.awaiting_label and "payment not confirmed" in ret.last_error
+    assert ret.postage.label_ref.startswith("p2g:26633:")
+    p2g_server.lose_pay_response = False
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k2")["return_doc"]
+    # Parcel2Go said it was paid, so it was not paid again and no new order was made.
+    assert ret.status == Status.awaiting_shipment
+    assert p2g_server.paid == ["26633"] and len(p2g_server.orders) == 1
+
+
+def test_a_refused_payment_is_paid_once_after_topping_up(psvc, p2g_server):
+    ret = request(psvc)
+    p2g_server.refuse_pay = True
+    ret = psvc.execute(ret.id, "approve", {"postage_mode": "label_now"}, "staff", "k1")[
+        "return_doc"
+    ]
+    assert ret.status == Status.awaiting_label and "Not enough" in ret.last_error
+    p2g_server.refuse_pay = False
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k2")["return_doc"]
+    assert ret.status == Status.awaiting_shipment
+    assert p2g_server.paid == ["26633"] and len(p2g_server.orders) == 1
