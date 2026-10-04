@@ -19,15 +19,28 @@ EU = frozenset(
 )
 IOSS_LIMIT_EUR_MINOR = 15000
 
+# EU countries whose territories by postcode sit outside the EU VAT area: the Canary Islands
+# (35, 38), Ceuta (51) and Melilla (52). Parcels there clear customs like any non-EU import,
+# and IOSS doesn't apply.
+OUTSIDE_EU_VAT = {"ES": ("35", "38", "51", "52")}
+
+
+def in_eu_vat_area(country: str, postcode: str = "") -> bool:
+    country = (country or "").upper()
+    if country not in EU:
+        return False
+    pc = (postcode or "").strip().replace(" ", "")
+    return not any(pc.startswith(p) for p in OUTSIDE_EU_VAT.get(country, ()))
+
 
 def terms(
     policy: DutiesPolicy,
     destination: str,
     goods_value: Money,
     value_in_eur_minor: int | None = None,
+    postcode: str = "",
 ) -> DutiesTerms:
-    dest = destination.upper()
-    in_eu = dest in EU
+    in_eu = in_eu_vat_area(destination, postcode)
     if policy.ioss_number and in_eu:
         if value_in_eur_minor is not None and value_in_eur_minor <= IOSS_LIMIT_EUR_MINOR:
             return DutiesTerms(

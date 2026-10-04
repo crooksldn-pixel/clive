@@ -3,6 +3,7 @@
 **Status (2026-10-05):**
 - **Stage 1 built:** domain, state machine and the pay-once purchase protocol.
 - **Stage 2 built:** Shopify discovery, readiness, remembered answers, packages, duties and fulfilment with read-back.
+- **Stage 3 built:** the Parcel2Go provider, run end to end against the Parcel2Go sandbox.
 - Nothing is deployed.
 
 ## Owner decisions (2026-10-05)
@@ -337,9 +338,27 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
 2. **Stage 2 — Shopify adapter + readiness + knowledge. ✅ Built (46 tests in total).**
    - `shopify.py` (discover FOs, read customs, `fulfillmentCreate` with read-first, `inventoryItemUpdate`), `readiness.py` (questions), `knowledge.py`, `packages.py`, fake Shopify.
    - Tests: missing HS/origin/weight, order edited after quote, cancellation, partial FO.
-3. **Stage 3 — Parcel2Go provider.**
-   - `providers/parcel2go.py`: quotes → normalised quotes, verify, create, pay-once, settle, documents, tracking.
-   - A sandbox script runs the 2-tee-to-Germany order end to end.
+3. **Stage 3 — Parcel2Go provider. ✅ Built (90 tests in total).**
+   - `providers/parcel2go.py`: quotes → normalised quotes, verify, create, pay-once, documents, tracking.
+   - Every failure is sorted into refused / unavailable / uncertain, the three kinds the purchase protocol acts on. A lost reply to a POST is *uncertain*; a failed GET never is.
+   - `scripts/sandbox_run.py` runs the 2-tee-to-Germany order end to end against the sandbox (the order is simulated in Shopify):
+     - questions asked once, then ready;
+     - preview, then buy, charged once;
+     - label and invoices stored;
+     - fulfilled and verified;
+     - the same key replays;
+     - the second identical order needs no questions and uses the learned package.
+   - **Found in the sandbox and fixed:**
+     - **Priced regions.** Without the region code, Parcel2Go quotes Tenerife as mainland Spain (£7.49 instead of £26.39) and Palermo as mainland Italy. Its `PostcodeRegex` is only a format check (`^.*$` for Madeira and Northern Ireland). CLIVE works the region out from the postcode (`REGIONS` covers the Canaries by island, Ceuta, Melilla, Madeira, the Azores, Sicily, Sardinia, NI, Isle of Man and the Highlands). It refuses rather than quoting the mainland if Parcel2Go stops listing a region. Madeira now quotes £15.99, and verify agrees.
+     - **Country of origin.** The customs invoice printed "Madeira" for Portugal, because region rows share the ISO code. CLIVE now uses the main row, with clean names ("United Kingdom", "Spain").
+     - **Address lines.** Parcel2Go requires a house number/name *and* a street. A single Shopify line is split the way it was written ("Torstrasse 12" → 12 / Torstrasse), never doubled.
+     - **Duties wording.** The Canaries, Ceuta and Melilla are outside the EU VAT area, so they get the non-EU wording and never IOSS.
+     - **Refusals at verify.** These now report Parcel2Go's reason (422) instead of "try again in a minute".
+   - **Open (needs live, or a later stage):**
+     - **Canaries recipient ID.** Parcel2Go requires the recipient's DNI/NIE. This will become an *address* question; the request field is still to be confirmed.
+     - **4×6 output.** The sandbox returns 5-page A4 PDFs for every label format. The first live label will show the real 4×6 output and whether the invoices are separate.
+     - **Courier tracking numbers.** The sandbox gives none, so CLIVE uses `P2G{line}`. Live numbers may arrive after purchase, which needs a later `fulfillmentTrackingInfoUpdate`.
+     - **Void.** Parcel2Go has no void endpoint, so voids are manual.
 4. **Stage 4 — rates + recommendation.**
    - `rates.py`: recommended / cheapest / fastest, carrier reliability table, parcel limits.
 5. **Stage 5 — API + webhooks + reconcile + notifier + `shipping-ctl`**, mirroring Returns.

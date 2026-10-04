@@ -271,3 +271,13 @@ def test_reconcile_is_harmless_when_nothing_is_open(purchases, store, provider, 
     clock.advance(hours=1)
     assert purchases.reconcile_all() == 0
     assert len(provider.charges) == 1 and timedelta(0) == timedelta(0)
+
+
+def test_a_refusal_at_verify_is_reported_as_the_providers_reason(purchases, store, provider):
+    # e.g. the Canaries: "Receivers (DNI) Number is required". Retrying won't help.
+    make_shipment(store, provider)
+    provider.refuse_verify = "Receivers (DNI) Number is required"
+    with pytest.raises(ActionError) as e:
+        purchases.preview(SHOP, "shp_1")
+    assert e.value.status == 422 and "DNI" in str(e.value) and "try again" not in str(e.value)
+    assert provider.charges == [] and "create_order" not in provider.calls

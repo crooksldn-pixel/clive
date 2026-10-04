@@ -172,7 +172,9 @@ class ShippingService:
         value = Money(
             minor=sum(ln.unit_value.minor * ln.quantity for ln in s.lines), currency=s.currency
         )
-        s.duties = duties.terms(cfg.duties, s.destination.country, value)
+        s.duties = duties.terms(
+            cfg.duties, s.destination.country, value, postcode=s.destination.postcode
+        )
         s.questions = readiness.questions(self.store, shop, s.lines, s.package is not None)
         if s.questions:
             s.quote = None
@@ -211,7 +213,7 @@ class ShippingService:
             S.ready,
             "ready",
             detail={
-                "service": f"{choice.carrier} {choice.service_name}",
+                "service": choice.title,
                 "price": str(choice.amount),
             },
         )

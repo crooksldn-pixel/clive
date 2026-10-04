@@ -45,6 +45,7 @@ class FakeProvider:
     documents_down: int = 0  # documents fail this many times
     read_down: int = 0  # read_order fails this many times
     readback_lags: int = 0  # read_order says unpaid this many times even if paid
+    refuse_verify: str | None = None  # verify refuses with this reason (stays set)
     _ids: itertools.count = field(default_factory=lambda: itertools.count(91234))
 
     def quotes(self, shipment: Shipment) -> list[Quote]:
@@ -64,6 +65,8 @@ class FakeProvider:
 
     def verify(self, shipment: Shipment, quote: Quote) -> int:
         self.calls.append("verify")
+        if self.refuse_verify:
+            raise ProviderRefused(self.refuse_verify)
         return self.price_minor
 
     def create_order(self, shipment: Shipment, quote: Quote, reference: str) -> ProviderOrder:

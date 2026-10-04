@@ -212,6 +212,31 @@ def test_ioss_is_a_setting_not_a_guess(svc, shopify, store):
     assert us.ioss_number is None
 
 
+def test_canary_islands_are_described_as_outside_the_eu_vat_area(svc, shopify):
+    from shipping import duties
+    from shipping.models import DutiesPolicy
+    from shipping.money import Money
+
+    snap = fo(2171, [tee_line()], country="ES")
+    snap.destination = snap.destination.model_copy(
+        update={"postcode": "38001", "city": "Santa Cruz de Tenerife"}
+    )
+    shopify.add(snap)
+    svc.sync(SHOP)
+    d = only(svc).duties
+    assert "import duties and taxes" in d.summary and "VAT" not in d.summary
+    assert duties.in_eu_vat_area("ES", "28013") and not duties.in_eu_vat_area("ES", "35 001")
+    assert not duties.in_eu_vat_area("GB", "SW1A 1AA")
+    ioss = duties.terms(
+        DutiesPolicy(ioss_number="IM2760000000"),
+        "ES",
+        Money(minor=7400),
+        value_in_eur_minor=8600,
+        postcode="38001",
+    )
+    assert ioss.ioss_number is None  # IOSS can't cover the Canaries
+
+
 def test_order_cancelled_before_purchase_drops_out(svc, shopify):
     snap = shopify.add(fo(2145, [tee_line()]))
     svc.sync(SHOP)

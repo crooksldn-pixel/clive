@@ -95,6 +95,13 @@ class Purchases:
     def _exact_price(self, s: Shipment) -> int:
         try:
             return self.provider.verify(s, s.quote)
+        except ProviderRefused as exc:
+            raise ActionError(
+                f"{self.provider.name} won't take this parcel as it stands: {exc}. Nothing was "
+                "bought.",
+                422,
+                "provider_refused",
+            ) from exc
         except ProviderError as exc:
             raise ActionError(
                 f"Couldn't get the exact price from {self.provider.name} ({exc}). Nothing was "
@@ -125,7 +132,7 @@ class Purchases:
         value = sum((ln.unit_value.minor * ln.quantity for ln in s.lines), 0)
         return {
             "will": [
-                f"Buy {q.carrier} {q.service_name} for {q.amount} from {self.provider.name}",
+                f"Buy {q.title} for {q.amount} from {self.provider.name}",
                 f"Parcel {p.length_mm // 10}×{p.width_mm // 10}×{p.height_mm // 10} cm, "
                 f"{p.total_weight_g / 1000:.2f} kg",
                 f"Customs: {sum(ln.quantity for ln in s.lines)} items, value "
@@ -203,7 +210,7 @@ class Purchases:
                 detail={
                     "operation": op.id,
                     "amount": str(op.amount),
-                    "service": f"{s.quote.carrier} {s.quote.service_name}",
+                    "service": s.quote.title,
                 },
             )
             self.store.save(s)

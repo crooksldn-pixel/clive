@@ -150,6 +150,9 @@ class ShopConfig(BaseModel):
     label_format: str = "4x6"  # 100x150 mm thermal by default; "a4" for desk printers
     notify_customer: bool = True  # Shopify's shipping email with tracking
     duties: DutiesPolicy = Field(default_factory=DutiesPolicy)
+    # Optional exporter details, sent with customs data when present. Never invented.
+    eori_number: str | None = None
+    vat_number: str | None = None
     packages: list[PackagePreset] = Field(default_factory=list)
     default_package_id: str | None = None
 
@@ -163,7 +166,15 @@ class Quote(BaseModel):
     est_days_min: int | None = None
     est_days_max: int | None = None
     printer_required: bool = True
+    ship_date: str | None = None  # the provider's own collection/drop-off date for this price
     generated_at: datetime
+
+    @property
+    def title(self) -> str:
+        """ "Evri International Parcelshop", not "Evri Evri International Parcelshop"."""
+        if self.service_name.lower().startswith(self.carrier.lower()):
+            return self.service_name
+        return f"{self.carrier} {self.service_name}"
 
 
 class Label(BaseModel):
