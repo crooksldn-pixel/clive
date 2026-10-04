@@ -83,6 +83,9 @@ class CustomsLine(BaseModel):
     fulfillment_order_line_item_id: str
     variant_id: str | None = None
     inventory_item_id: str | None = None
+    product_id: str | None = None
+    product_type: str = ""
+    variant_title: str = ""
     sku: str | None = None
     title: str
     customs_description: str = ""
@@ -109,6 +112,46 @@ class PackagePlan(BaseModel):
     @property
     def total_weight_g(self) -> int:
         return self.empty_weight_g + self.items_weight_g
+
+
+class PackagePreset(BaseModel):
+    """A real package the merchant entered once (never invented)."""
+
+    id: str
+    name: str
+    length_mm: int
+    width_mm: int
+    height_mm: int
+    empty_weight_g: int
+    created_by: str = ""
+
+
+class DutiesPolicy(BaseModel):
+    """Who pays import charges. A merchant setting, not a constant: DAP today, IOSS/DDP later
+    without changing the shipment model."""
+
+    mode: str = "DAP"  # DAP: the recipient pays any import VAT/duty/fees on arrival. DDP: prepaid.
+    ioss_number: str | None = None  # EU Import One-Stop Shop number, when the merchant has one
+
+
+class DutiesTerms(BaseModel):
+    """What applies to this shipment, in words a merchant (and customer) can rely on."""
+
+    incoterm: str  # DAP | DDP
+    ioss_number: str | None = None  # sent to the carrier only when it applies
+    recipient_may_pay: bool
+    summary: str  # one honest sentence for the preview
+
+
+class ShopConfig(BaseModel):
+    shop: str
+    origin: Address | None = None  # from the Shopify location; confirmed in Setup
+    origin_location_id: str | None = None
+    label_format: str = "4x6"  # 100x150 mm thermal by default; "a4" for desk printers
+    notify_customer: bool = True  # Shopify's shipping email with tracking
+    duties: DutiesPolicy = Field(default_factory=DutiesPolicy)
+    packages: list[PackagePreset] = Field(default_factory=list)
+    default_package_id: str | None = None
 
 
 class Quote(BaseModel):
@@ -146,7 +189,7 @@ class Event(BaseModel):
 class Question(BaseModel):
     """One thing only a person can answer, asked once and remembered."""
 
-    kind: str  # hs_code | origin_country | weight | address | package | restricted
+    kind: str  # customs | origin | weight | package | no_rates | address
     subject: str  # e.g. the inventory item id or "address"
     text: str
     suggestion: str | None = None
@@ -167,6 +210,10 @@ class Shipment(BaseModel):
     quote: Quote | None = None
     label: Label | None = None
     questions: list[Question] = Field(default_factory=list)
+    duties: DutiesTerms | None = None
+    # Things a person should know that don't block anything (e.g. "order edited after the
+    # label was bought").
+    alerts: list[str] = Field(default_factory=list)
     last_error: str | None = None
     created_at: datetime
     updated_at: datetime

@@ -16,6 +16,17 @@ The design, Phase 0 findings and stage plan are in [`docs/shipping/DESIGN.md`](.
 - `providers/fake.py`: behaves like Parcel2Go, including charging again on re-pay.
 - `purchase.py`: preview → authorise → execute → reconcile, pay-once.
 
+**Stage 2:**
+- `shopify.py`: validated Admin GraphQL documents, a client-credentials client and fulfillment-order
+  snapshots.
+- `readiness.py`: facts come from Shopify first, then what you confirmed; only what's missing
+  becomes a question, once per product.
+- `packages.py`: real presets you entered once; the package each mix of products went in is learned.
+- `duties.py`: honest DAP wording; IOSS/DDP is a per-shop setting.
+- `service.py`: sync, prepare, answer (written back to Shopify), choose a package, preview, buy,
+  and fulfil with read-first/read-back (never a duplicate fulfillment).
+- `fake_shopify.py`.
+
 ```
 cd clive-shipping
 pip install -e '.[dev]'

@@ -1,0 +1,497 @@
+"""The shipping workflow for one shop: discover → prepare → (answer) → preview → buy → fulfil.
+
+Purchases (purchase.py) owns the money boundary. This module owns everything around it:
+reading Shopify, deciding readiness, remembering answers (and writing them back to Shopify),
+choosing the package, describing duties honestly, and making Shopify reflect the label.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Callable
+from datetime import datetime
+from typing import Any
+
+from shipping import duties, packages, rates, readiness
+from shipping.models import Event, PackagePlan, Question, Shipment
+from shipping.models import ShipmentStatus as S
+from shipping.money import Money
+from shipping.providers.base import ProviderError, ShippingProvider
+from shipping.purchase import ActionError, Purchases
+from shipping.shopify import FoSnapshot, ShopifyError, ShopifyPort, ShopifyRefused
+from shipping.states import move
+from shipping.store import Store, new_id, now
+
+# Shopify-known tracking company names make the number clickable in admin and emails.
+TRACKING_COMPANY = {
+    "dpd": "DPD UK",
+    "evri": "Evri",
+    "myhermes": "Evri",
+    "hermes": "Evri",
+    "ups": "UPS",
+    "parcelforce": "Parcelforce",
+    "royal mail": "Royal Mail",
+    "dhl": "DHL Express",
+    "fedex": "FedEx",
+    "usps": "USPS",
+    "asendia": "Asendia USA",
+    "inpost": "InPost",
+}
+
+PRE_PURCHASE = (S.discovered, S.needs_attention, S.ready)
+
+
+def tracking_company(carrier: str) -> str:
+    key = carrier.lower()
+    return next((v for k, v in TRACKING_COMPANY.items() if k in key), carrier)
+
+
+class ShippingService:
+    def __init__(
+        self,
+        store: Store,
+        shopify: ShopifyPort,
+        provider: ShippingProvider,
+        purchases: Purchases | None = None,
+        clock: Callable[[], datetime] = now,
+    ) -> None:
+        self.store = store
+        self.shopify = shopify
+        self.provider = provider
+        self.clock = clock
+        self.purchases = purchases or Purchases(store, provider, clock=clock)
+
+    # ------------------------------------------------------------------ helpers
+
+    def _get(self, shop: str, sid: str) -> Shipment:
+        s = self.store.get(shop, sid)
+        if s is None:
+            raise ActionError("Shipment not found.", 404)
+        return s
+
+    def _event(
+        self, s: Shipment, kind: str, actor: str, detail: dict | None = None, verified: bool = False
+    ) -> None:
+        s.timeline.append(
+            Event(at=self.clock(), type=kind, actor=actor, detail=detail or {}, verified=verified)
+        )
+
+    def _to(
+        self,
+        s: Shipment,
+        status: S,
+        event: str,
+        actor: str = "system",
+        detail: dict | None = None,
+        verified: bool = False,
+    ) -> None:
+        if s.status != status:
+            move(
+                s,
+                status,
+                at=self.clock(),
+                actor=actor,
+                event=event,
+                detail=detail,
+                verified=verified,
+            )
+
+    def _alert(self, s: Shipment, text: str) -> None:
+        if text not in s.alerts:
+            s.alerts.append(text)
+            self._event(s, "alert", "system", {"text": text})
+
+    # ------------------------------------------------------------------ discovery
+
+    def sync(self, shop: str) -> dict[str, int]:
+        """Find open international fulfillment orders; refresh what we already know."""
+        cfg = self.store.config(shop)
+        seen, made = set(), 0
+        for snap in self.shopify.open_fulfillment_orders():
+            if not snap.lines or not snap.destination.country:
+                continue
+            origin_country = (cfg.origin.country if cfg.origin else "") or snap.origin.country
+            if snap.destination.country == origin_country:
+                continue  # domestic: Shopify's own flow handles it
+            if cfg.origin is None:
+                cfg.origin, cfg.origin_location_id = snap.origin, snap.origin_location_id
+                self.store.save_config(cfg)
+            seen.add(snap.id)
+            s = self._by_fo(shop, snap.id)
+            if s is None:
+                at = self.clock()
+                s = Shipment(
+                    id=new_id("shp"),
+                    shop=shop,
+                    order_id=snap.order_id,
+                    order_name=snap.order_name,
+                    fulfillment_order_id=snap.id,
+                    destination=snap.destination,
+                    status=S.discovered,
+                    currency=snap.currency,
+                    created_at=at,
+                    updated_at=at,
+                )
+                self._event(s, "discovered", "system", {"order": snap.order_name})
+                self.store.save(s)
+                made += 1
+            self.prepare(shop, s.id, snap)
+        for s in self.store.shipments(shop, [x.value for x in PRE_PURCHASE]):
+            if s.fulfillment_order_id not in seen:
+                self.prepare(shop, s.id)  # re-reads it: closed or cancelled shipments drop out
+        return {"open": len(seen), "new": made}
+
+    def _by_fo(self, shop: str, fo_id: str) -> Shipment | None:
+        return next(
+            (s for s in self.store.shipments(shop) if s.fulfillment_order_id == fo_id), None
+        )
+
+    # ------------------------------------------------------------------ prepare
+
+    def prepare(self, shop: str, sid: str, snap: FoSnapshot | None = None) -> Shipment:
+        s = self._get(shop, sid)
+        if snap is None:
+            snap = self.shopify.fulfillment_order(s.fulfillment_order_id)
+        if s.money_may_have_moved:
+            self._watch_after_purchase(s, snap)
+            return self.store.save(s)
+        if snap is None or not snap.open:
+            why = "cancelled" if snap is not None and snap.order_cancelled else "closed in Shopify"
+            if s.status in PRE_PURCHASE:
+                self._to(s, S.cancelled, "order_closed", detail={"why": why})
+                s.questions, s.quote = [], None
+            return self.store.save(s)
+
+        cfg = self.store.config(shop)
+        items = self.shopify.item_facts(
+            [ln.inventory_item_id for ln in snap.lines if ln.inventory_item_id]
+        )
+        s.order_name, s.destination, s.currency = snap.order_name, snap.destination, snap.currency
+        s.lines = readiness.resolve_lines(self.store, shop, snap, items)
+        s.package = packages.plan(self.store, cfg, s.lines, s.package)
+        value = Money(
+            minor=sum(ln.unit_value.minor * ln.quantity for ln in s.lines), currency=s.currency
+        )
+        s.duties = duties.terms(cfg.duties, s.destination.country, value)
+        s.questions = readiness.questions(self.store, shop, s.lines, s.package is not None)
+        if s.questions:
+            s.quote = None
+            self._to(
+                s,
+                S.needs_attention,
+                "needs_attention",
+                detail={"questions": [q.kind for q in s.questions]},
+            )
+            return self.store.save(s)
+        try:
+            options = self.provider.quotes(s)
+        except ProviderError as exc:
+            options, why = [], str(exc)
+        else:
+            why = ""
+        choice = rates.recommend(options)
+        if choice is None:
+            s.quote = None
+            s.questions = [
+                Question(
+                    kind="no_rates",
+                    subject="rates",
+                    text=(
+                        f"No courier offered a price for this parcel to {s.destination.country}. "
+                        + (f"({why}) " if why else "")
+                        + "Check the package and weight, or try again shortly."
+                    ),
+                )
+            ]
+            self._to(s, S.needs_attention, "no_rates", detail={"why": why})
+            return self.store.save(s)
+        s.quote = choice
+        self._to(
+            s,
+            S.ready,
+            "ready",
+            detail={
+                "service": f"{choice.carrier} {choice.service_name}",
+                "price": str(choice.amount),
+            },
+        )
+        return self.store.save(s)
+
+    def _watch_after_purchase(self, s: Shipment, snap: FoSnapshot | None) -> None:
+        """After money moved we never rewrite the shipment; we only tell a person if the order
+        no longer matches the label."""
+        if snap is None or snap.order_cancelled:
+            self._alert(
+                s,
+                "The order was cancelled after the label was bought. If the parcel "
+                "won't be sent, cancel the label at Parcel2Go for a refund.",
+            )
+            return
+        if (
+            snap.status in ("CLOSED",)
+            and s.label
+            and s.label.tracking_number in (snap.tracking_numbers or [])
+        ):
+            return
+        bought = sorted((ln.fulfillment_order_line_item_id, ln.quantity) for ln in s.lines)
+        now_ = sorted((ln.id, ln.quantity) for ln in snap.lines)
+        if now_ and now_ != bought and s.status == S.label_purchased:
+            self._alert(
+                s,
+                "The order changed after the label was bought. Check the parcel "
+                "still matches before sending it.",
+            )
+
+    # ------------------------------------------------------------------ answers
+
+    def answer(
+        self, shop: str, sid: str, kind: str, subject: str, value: dict[str, Any], actor: str
+    ) -> Shipment:
+        s = self._get(shop, sid)
+        if s.status not in PRE_PURCHASE:
+            raise ActionError("This order is past the point of changing its details.")
+        if kind == "package":
+            cfg = self.store.config(shop)
+            try:
+                packages.add(
+                    cfg,
+                    name=str(value.get("name", "")),
+                    length_cm=float(value.get("length_cm", 0)),
+                    width_cm=float(value.get("width_cm", 0)),
+                    height_cm=float(value.get("height_cm", 0)),
+                    empty_weight_g=int(value.get("empty_weight_g", 0)),
+                    actor=actor,
+                )
+            except (TypeError, ValueError) as exc:
+                raise ActionError(str(exc), 422) from exc
+            self.store.save_config(cfg)
+            self._event(s, "package_added", actor, {"name": cfg.packages[-1].name})
+            self.store.save(s)
+            return self.prepare(shop, sid)
+        line = next((ln for ln in s.lines if (ln.product_id or ln.title) == subject), None)
+        if line is None:
+            raise ActionError("That product isn't on this order.", 422)
+        if kind == "customs":
+            hs = re.sub(r"\D", "", str(value.get("hs_code", "")))
+            desc = str(value.get("description", "")).strip()
+            if not 6 <= len(hs) <= 10:
+                raise ActionError("An HS code has 6 to 10 digits, e.g. 6109.10.", 422)
+            if not 3 <= len(desc) <= 100:
+                raise ActionError("Describe it in a few words, e.g. 'Men's cotton T-shirt'.", 422)
+            written = self._write_product(s, line, actor, hs_code=hs)
+            self._remember(shop, "product", subject, "hs_code", hs, actor, line.title, written)
+            self._remember(
+                shop, "product", subject, "customs_description", desc, actor, line.title, True
+            )
+            if line.product_type:
+                self._remember(
+                    shop,
+                    "product",
+                    subject,
+                    "product_type",
+                    line.product_type,
+                    actor,
+                    line.title,
+                    True,
+                )
+        elif kind == "origin":
+            code = str(value.get("country", "")).strip().upper()
+            if not re.fullmatch(r"[A-Z]{2}", code) or code == "ZZ":
+                raise ActionError("Choose the country it was made in.", 422)
+            written = self._write_product(s, line, actor, origin_country=code)
+            self._remember(
+                shop, "product", subject, "origin_country", code, actor, line.title, written
+            )
+        elif kind == "weight":
+            try:
+                grams = int(value.get("grams", 0))
+            except (TypeError, ValueError):
+                grams = 0
+            if not 1 <= grams <= 30000:
+                raise ActionError("Give the weight in grams, e.g. 220.", 422)
+            items = self._product_items(line)
+            records = self.shopify.item_facts(items)
+            missing = [i for i in items if not (records.get(i) and records[i].weight_g)]
+            written = self._write_items(s, missing, actor, weight_g=grams)
+            for item in missing:
+                self._remember(
+                    shop, "item", item, "weight_g", str(grams), actor, line.title, written
+                )
+        else:
+            raise ActionError(f"Unknown question {kind}.", 422)
+        self._event(s, "answered", actor, {"question": kind, "product": line.title})
+        self.store.save(s)
+        return self.prepare(shop, sid)
+
+    def _product_items(self, line) -> list[str]:
+        items = self.shopify.product_items(line.product_id) if line.product_id else []
+        return items or [line.inventory_item_id]
+
+    def _write_product(self, s: Shipment, line, actor: str, **fields) -> bool:
+        return self._write_items(s, self._product_items(line), actor, **fields)
+
+    def _write_items(self, s: Shipment, items: list[str], actor: str, **fields) -> bool:
+        """Write confirmed facts to Shopify (the record). If Shopify refuses, the answer is
+        still kept here and used, so the merchant is not asked again."""
+        try:
+            for item in items:
+                self.shopify.update_item(item, **fields)
+        except ShopifyError as exc:
+            self._alert(
+                s,
+                f"Saved in CLIVE, but Shopify didn't store it ({exc}). It's still "
+                "used for shipping.",
+            )
+            return False
+        return True
+
+    def _remember(self, shop, scope, subject, fact, value, actor, label, written) -> None:
+        self.store.put_fact(
+            shop,
+            scope,
+            subject,
+            fact,
+            value,
+            source="merchant",
+            actor=actor,
+            label=label,
+            shopify_written=written,
+        )
+
+    # ------------------------------------------------------------------ package choice
+
+    def choose_package(self, shop: str, sid: str, preset_id: str, actor: str) -> Shipment:
+        s = self._get(shop, sid)
+        if s.status not in PRE_PURCHASE:
+            raise ActionError("This order is past the point of changing its package.")
+        cfg = self.store.config(shop)
+        chosen = packages.preset(cfg, preset_id)
+        if chosen is None:
+            raise ActionError("That package doesn't exist.", 422)
+        s.package = PackagePlan(
+            preset_id=chosen.id,
+            name=chosen.name,
+            length_mm=chosen.length_mm,
+            width_mm=chosen.width_mm,
+            height_mm=chosen.height_mm,
+            empty_weight_g=chosen.empty_weight_g,
+            items_weight_g=packages.items_weight_g(s.lines) or 0,
+            source="merchant",
+        )
+        self._event(s, "package_chosen", actor, {"package": chosen.name})
+        self.store.save(s)
+        return self.prepare(shop, sid)
+
+    # ------------------------------------------------------------------ buying
+
+    def preview(self, shop: str, sid: str) -> dict[str, Any]:
+        out = self.purchases.preview(shop, sid)
+        s = self._get(shop, sid)
+        cfg = self.store.config(shop)
+        if s.duties:
+            out["will"].append(f"Customs terms {s.duties.incoterm}: {s.duties.summary}")
+        out["will"].append(
+            f"Mark {s.order_name} fulfilled in Shopify with the tracking number"
+            + (" and email the customer" if cfg.notify_customer else "")
+        )
+        out["duties"] = s.duties.model_dump() if s.duties else None
+        return out
+
+    def buy(self, shop: str, sid: str, basis: str, actor: str, key: str) -> dict[str, Any]:
+        out = self.purchases.buy(shop, sid, basis, actor, key)
+        s = self._get(shop, sid)
+        if s.status == S.label_purchased:
+            if s.package and s.package.preset_id and not out.get("replayed"):
+                self.store.record_package_choice(
+                    shop, packages.signature(s.lines), s.package.preset_id
+                )
+            if s.label and s.label.tracking_number:
+                self.fulfil(shop, sid, actor)
+        out["shipment"] = self._get(shop, sid)
+        out["status"] = out["shipment"].status.value
+        out["error"] = out["shipment"].last_error
+        return out
+
+    # ------------------------------------------------------------------ fulfilment
+
+    def fulfil(self, shop: str, sid: str, actor: str) -> Shipment:
+        """Make Shopify show the label. Safe to repeat: it reads Shopify first, so a retry
+        after a lost reply never creates a second fulfillment."""
+        s = self._get(shop, sid)
+        if s.status == S.fulfilled:
+            return s
+        if s.status not in (S.label_purchased, S.fulfillment_failed):
+            raise ActionError("There's no bought label to fulfil this order with yet.")
+        if not (s.label and s.label.tracking_number):
+            raise ActionError("Waiting for the tracking number from the provider.")
+        number = s.label.tracking_number
+        if self._fulfilled_in_shopify(s, number):
+            return self._fulfilled(s, actor, "Already in Shopify")
+        cfg = self.store.config(shop)
+        try:
+            self.shopify.create_fulfillment(
+                s.fulfillment_order_id,
+                [(ln.fulfillment_order_line_item_id, ln.quantity) for ln in s.lines],
+                tracking_company(s.label.carrier),
+                number,
+                s.label.tracking_url,
+                cfg.notify_customer,
+            )
+        except ShopifyRefused as exc:
+            return self._fulfil_failed(s, actor, f"Shopify didn't mark it fulfilled: {exc}.")
+        except ShopifyError:
+            pass  # may have happened: the read-back decides
+        if self._fulfilled_in_shopify(s, number):
+            return self._fulfilled(s, actor, "Created and read back")
+        return self._fulfil_failed(s, actor, "Shopify didn't confirm the fulfillment yet.")
+
+    def _fulfilled_in_shopify(self, s: Shipment, number: str) -> bool:
+        try:
+            snap = self.shopify.fulfillment_order(s.fulfillment_order_id)
+        except ShopifyError:
+            return False
+        return bool(snap and number in snap.tracking_numbers)
+
+    def _fulfilled(self, s: Shipment, actor: str, how: str) -> Shipment:
+        s.last_error = None
+        self._to(
+            s,
+            S.fulfilled,
+            "fulfilled",
+            actor,
+            {"tracking": s.label.tracking_number, "how": how},
+            verified=True,
+        )
+        return self.store.save(s)
+
+    def _fulfil_failed(self, s: Shipment, actor: str, why: str) -> Shipment:
+        s.last_error = (
+            f"The label is bought (no need to buy again). {why} It will be retried; "
+            "you can also mark it fulfilled in Shopify with the tracking number."
+        )
+        if s.status != S.fulfillment_failed:
+            move(
+                s,
+                S.fulfillment_failed,
+                at=self.clock(),
+                actor=actor,
+                event="fulfillment_failed",
+                detail={"why": why},
+            )
+        else:
+            self._event(s, "fulfillment_retry_failed", actor, {"why": why})
+        return self.store.save(s)
+
+    # ------------------------------------------------------------------ the sweep
+
+    def tick(self, shop: str) -> dict[str, int]:
+        """Reconcile purchases, retry fulfilments, refresh open orders. Webhooks only hurry
+        this up; correctness never depends on them."""
+        reconciled = self.purchases.reconcile_all()
+        retried = 0
+        for s in self.store.shipments(shop, [S.label_purchased.value, S.fulfillment_failed.value]):
+            if s.label and s.label.tracking_number:
+                self.fulfil(shop, s.id, "system")
+                retried += 1
+        found = self.sync(shop)
+        return {"reconciled": reconciled, "fulfil_retried": retried, **found}

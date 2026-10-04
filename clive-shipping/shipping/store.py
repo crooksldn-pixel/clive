@@ -14,7 +14,7 @@ import sqlite3
 import threading
 from datetime import UTC, datetime
 
-from shipping.models import OPEN_OP_STATES, ProviderOp, Shipment
+from shipping.models import OPEN_OP_STATES, ProviderOp, Shipment, ShopConfig
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS shipments (
@@ -42,6 +42,35 @@ CREATE TABLE IF NOT EXISTS provider_ops (
 CREATE UNIQUE INDEX IF NOT EXISTS ops_key ON provider_ops(shop, idempotency_key);
 -- At most one buy in flight per shipment, whatever happens above this layer.
 CREATE UNIQUE INDEX IF NOT EXISTS ops_one_open ON provider_ops(shop, shipment_id) WHERE open = 1;
+CREATE TABLE IF NOT EXISTS shops (
+  shop TEXT PRIMARY KEY,
+  doc TEXT NOT NULL
+);
+-- What the merchant confirmed, once. scope: product (HS code, origin, description: the same for
+-- every size) or item (weight, per inventory item). Shopify stays the record; these remember
+-- who confirmed what, and keep the answer if Shopify refused to store it.
+CREATE TABLE IF NOT EXISTS facts (
+  shop TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  fact TEXT NOT NULL,
+  value TEXT NOT NULL,
+  source TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  at TEXT NOT NULL,
+  label TEXT NOT NULL DEFAULT '',
+  shopify_written INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (shop, scope, subject, fact)
+);
+-- Which package a confirmed shipment of these items went in (learned on purchase).
+CREATE TABLE IF NOT EXISTS package_choices (
+  shop TEXT NOT NULL,
+  signature TEXT NOT NULL,
+  preset_id TEXT NOT NULL,
+  uses INTEGER NOT NULL,
+  at TEXT NOT NULL,
+  PRIMARY KEY (shop, signature)
+);
 CREATE TABLE IF NOT EXISTS artifacts (
   shop TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -167,6 +196,89 @@ class Store:
     def open_ops(self) -> list[ProviderOp]:
         rows = self._db.execute("SELECT doc FROM provider_ops WHERE open=1").fetchall()
         return [ProviderOp.model_validate_json(r[0]) for r in rows]
+
+    # ---------------------------------------------------------------- shop settings
+
+    def config(self, shop: str) -> ShopConfig:
+        row = self._db.execute("SELECT doc FROM shops WHERE shop=?", (shop,)).fetchone()
+        return ShopConfig.model_validate_json(row[0]) if row else ShopConfig(shop=shop)
+
+    def save_config(self, cfg: ShopConfig) -> None:
+        with self.lock:
+            self._db.execute(
+                "INSERT INTO shops (shop, doc) VALUES (?,?) ON CONFLICT(shop) DO UPDATE SET "
+                "doc=excluded.doc",
+                (cfg.shop, cfg.model_dump_json()),
+            )
+
+    # ---------------------------------------------------------------- knowledge
+
+    def put_fact(
+        self,
+        shop: str,
+        scope: str,
+        subject: str,
+        fact: str,
+        value: str,
+        *,
+        source: str,
+        actor: str,
+        label: str = "",
+        shopify_written: bool = False,
+    ) -> None:
+        with self.lock:
+            self._db.execute(
+                "INSERT INTO facts (shop, scope, subject, fact, value, source, actor, at, label, "
+                "shopify_written) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(shop, scope, subject, "
+                "fact) DO UPDATE SET value=excluded.value, source=excluded.source, "
+                "actor=excluded.actor, at=excluded.at, label=excluded.label, "
+                "shopify_written=excluded.shopify_written",
+                (
+                    shop,
+                    scope,
+                    subject,
+                    fact,
+                    value,
+                    source,
+                    actor,
+                    now().isoformat(),
+                    label,
+                    int(shopify_written),
+                ),
+            )
+
+    def fact(self, shop: str, scope: str, subject: str, fact: str) -> str | None:
+        row = self._db.execute(
+            "SELECT value FROM facts WHERE shop=? AND scope=? AND subject=? AND fact=?",
+            (shop, scope, subject, fact),
+        ).fetchone()
+        return row[0] if row else None
+
+    def facts(self, shop: str, scope: str, fact: str) -> list[tuple[str, str, str]]:
+        """(subject, value, label) for every confirmed `fact` in this shop."""
+        rows = self._db.execute(
+            "SELECT subject, value, label FROM facts WHERE shop=? AND scope=? AND fact=? "
+            "ORDER BY at DESC",
+            (shop, scope, fact),
+        ).fetchall()
+        return [(r[0], r[1], r[2]) for r in rows]
+
+    def record_package_choice(self, shop: str, signature: str, preset_id: str) -> None:
+        with self.lock:
+            self._db.execute(
+                "INSERT INTO package_choices (shop, signature, preset_id, uses, at) VALUES "
+                "(?,?,?,1,?) ON CONFLICT(shop, signature) DO UPDATE SET "
+                "uses = CASE WHEN preset_id = excluded.preset_id THEN uses + 1 ELSE 1 END, "
+                "preset_id=excluded.preset_id, at=excluded.at",
+                (shop, signature, preset_id, now().isoformat()),
+            )
+
+    def package_choice(self, shop: str, signature: str) -> str | None:
+        row = self._db.execute(
+            "SELECT preset_id FROM package_choices WHERE shop=? AND signature=?",
+            (shop, signature),
+        ).fetchone()
+        return row[0] if row else None
 
     # ---------------------------------------------------------------- artifacts
 

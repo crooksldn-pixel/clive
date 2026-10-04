@@ -1,6 +1,19 @@
 # CLIVE Shipping: design and Phase 0 findings
 
-**Status:** design (2026-10-04). Stage 1 (domain, state machine and purchase protocol) follows this document. Nothing is deployed.
+**Status (2026-10-05):**
+- **Stage 1 built:** domain, state machine and the pay-once purchase protocol.
+- **Stage 2 built:** Shopify discovery, readiness, remembered answers, packages, duties and fulfilment with read-back.
+- Nothing is deployed.
+
+## Owner decisions (2026-10-05)
+
+| Topic | Decision | Where it lives |
+| --- | --- | --- |
+| Duties | No IOSS today. Ship DAP: the customer may pay import VAT, duty and fees on arrival, and CLIVE says exactly that and never claims prepaid. IOSS/DDP is a per-shop setting for later, not a constant. | `DutiesPolicy` in `ShopConfig`; `duties.terms()` |
+| Packaging | Never invented. The first real package is entered once, when the first shipment needs it, and remembered. Multiple presets are supported; the package used for a mix of products is learned on purchase; inference comes later. | `PackagePreset`, `packages.plan()`, `package_choices` |
+| Country of origin | Never inferred or bulk-filled. Asked once per product when a real shipment needs it and Shopify has none. Saved to every size's InventoryItem in Shopify (the record) and remembered here with who and when. Not asked again unless Shopify's value changes. | `readiness`, `facts`, `inventoryItemUpdate` |
+| Printer | JADENS roll-fed thermal on a Windows laptop via PrintNode. Prefer 4×6 in (~100×150 mm) labels. Printing comes later, but the label is stored once as an artifact (`label_4x6` first). Reprint renders that stored file and has no path to a purchase. | `Label.artifacts`, `Purchases.reprint()` |
+| Setup | Progressive: nothing catalogue-wide up front. A fact is asked only when a real shipment needs it. | readiness questions |
 
 **Thesis:** international orders ship like domestic ones. CLIVE absorbs the complexity; the merchant sees one decision, "Buy label — £X?", and the occasional single question it can't answer itself.
 
@@ -318,10 +331,10 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
 
 ## H. Implementation sequence (small reviewable stages)
 
-1. **Stage 1 — domain core, no network.**
+1. **Stage 1 — domain core, no network. ✅ Built.**
    - `clive-shipping/shipping/{money,models,states,basis,store,ledger,providers/base,providers/fake,purchase}.py`
    - Tests: the state machine, the ledger invariants, and the lost-reply, refused, double-click, stale-basis and replay cases.
-2. **Stage 2 — Shopify adapter + readiness + knowledge.**
+2. **Stage 2 — Shopify adapter + readiness + knowledge. ✅ Built (46 tests in total).**
    - `shopify.py` (discover FOs, read customs, `fulfillmentCreate` with read-first, `inventoryItemUpdate`), `readiness.py` (questions), `knowledge.py`, `packages.py`, fake Shopify.
    - Tests: missing HS/origin/weight, order edited after quote, cancellation, partial FO.
 3. **Stage 3 — Parcel2Go provider.**
