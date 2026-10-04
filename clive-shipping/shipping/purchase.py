@@ -144,7 +144,14 @@ class Purchases:
                 update={"amount": Money(minor=exact, currency=was.currency)}
             )
             self._event(s, "price_updated", "system", {"was": str(was), "now": str(s.quote.amount)})
-            self.store.save(s)
+            try:
+                self.store.save(s)
+            except Conflict as exc:
+                raise ActionError(
+                    "This order changed while the price was being checked. Look at it again.",
+                    409,
+                    "stale",
+                ) from exc
         q, p = s.quote, s.package
         value = sum((ln.unit_value.minor * ln.quantity for ln in s.lines), 0)
         return {

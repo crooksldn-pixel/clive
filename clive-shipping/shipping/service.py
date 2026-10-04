@@ -164,8 +164,11 @@ class ShippingService:
         if snap is None:
             snap = self.shopify.fulfillment_order(s.fulfillment_order_id)
         if s.money_may_have_moved:
+            alerts = len(s.alerts)
             self._watch_after_purchase(s, snap)
-            return self.store.save(s)
+            # Only an alert is ever added after money moved; don't rewrite it otherwise (a
+            # needless save here races the purchase's own saves).
+            return self.store.save(s) if len(s.alerts) != alerts else s
         if snap is None or not snap.open:
             why = "cancelled" if snap is not None and snap.order_cancelled else "closed in Shopify"
             if s.status in PRE_PURCHASE:
@@ -278,12 +281,13 @@ class ShippingService:
             except (TypeError, ValueError) as exc:
                 raise ActionError(str(exc), 422) from exc
             self.store.save_config(cfg)
-            self._event(s, "package_added", actor, {"name": cfg.packages[-1].name})
-            self.store.save(s)
-            return self.prepare(shop, sid)
+            name = cfg.packages[-1].name
+            self._commit(s, lambda x: self._event(x, "package_added", actor, {"name": name}))
+            return self._prepare_after_answer(shop, sid)
         line = next((ln for ln in s.lines if (ln.product_id or ln.title) == subject), None)
         if line is None:
             raise ActionError("That product isn't on this order.", 422)
+        before_alerts = list(s.alerts)
         if kind == "customs":
             hs = re.sub(r"\D", "", str(value.get("hs_code", "")))
             desc = str(value.get("description", "")).strip()
@@ -332,9 +336,33 @@ class ShippingService:
                 )
         else:
             raise ActionError(f"Unknown question {kind}.", 422)
-        self._event(s, "answered", actor, {"question": kind, "product": line.title})
-        self.store.save(s)
-        return self.prepare(shop, sid)
+        new_alerts = [a for a in s.alerts if a not in before_alerts]
+
+        def record(x: Shipment) -> None:
+            for text in new_alerts:
+                self._alert(x, text)
+            self._event(x, "answered", actor, {"question": kind, "product": line.title})
+
+        self._commit(s, record)
+        return self._prepare_after_answer(shop, sid)
+
+    def _commit(self, s: Shipment, apply: Callable[[Shipment], None]) -> Shipment:
+        """Save what this request did to the shipment. If something else saved it meanwhile
+        (a sync, a timer), re-apply our part to the fresh copy instead of losing it. `apply`
+        must be safe to run twice (alerts are de-duplicated)."""
+        apply(s)
+        try:
+            return self.store.save(s)
+        except Conflict:
+            fresh = self._get(s.shop, s.id)
+            apply(fresh)
+            return self.store.save(fresh)
+
+    def _prepare_after_answer(self, shop: str, sid: str) -> Shipment:
+        try:
+            return self.prepare(shop, sid)
+        except Conflict:
+            return self._get(shop, sid)  # the answer is saved; the next sync re-prepares
 
     def _product_items(self, line) -> list[str]:
         items = self.shopify.product_items(line.product_id) if line.product_id else []
@@ -419,7 +447,12 @@ class ShippingService:
                     shop, packages.signature(s.lines), s.package.preset_id
                 )
             if s.label and s.label.tracking_number:
-                self.fulfil(shop, sid, actor)
+                try:
+                    self.fulfil(shop, sid, actor)
+                except Conflict:
+                    # The label is bought; something else saved the shipment meanwhile. The
+                    # timer's fulfilment retry finishes it (it reads Shopify first).
+                    log.info("fulfilment of %s raced another save; left to the timer", sid)
         out["shipment"] = self._get(shop, sid)
         out["status"] = out["shipment"].status.value
         out["error"] = out["shipment"].last_error

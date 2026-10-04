@@ -52,7 +52,7 @@ def test_same_key_replays_and_never_buys_twice(purchases, store, provider):
     assert provider.calls.count("create_order") == 1 and len(provider.charges) == 1
 
 
-def test_double_click_with_a_new_key_cannot_buy_again(purchases, store, provider):
+def test_a_second_click_after_buying_cannot_buy_again(purchases, store, provider):
     make_shipment(store, provider)
     b = purchases.preview(SHOP, "shp_1")["basis"]
     purchases.buy(SHOP, "shp_1", b, "george", "k1")
