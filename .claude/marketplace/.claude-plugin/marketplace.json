@@ -1,0 +1,11 @@
+{
+  "name": "crooks-dev",
+  "owner": { "name": "CROOKS LDN" },
+  "plugins": [
+    {
+      "name": "crooks-dev",
+      "source": "./crooks-dev",
+      "description": "Context7 docs and on-demand engineering discipline skills for the CROOKS Shopify sister apps."
+    }
+  ]
+}

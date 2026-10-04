@@ -1,0 +1,6 @@
+{
+  "name": "crooks-dev",
+  "version": "1.0.0",
+  "description": "CROOKS sister apps: current library docs (Context7, anonymous) and on-demand engineering discipline skills (debugging, TDD, verification, receiving review).",
+  "author": { "name": "CROOKS LDN" }
+}

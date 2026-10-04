@@ -1,0 +1,10 @@
+{
+  "include": ["crooks-returns", "clive-shipping"],
+  "exclude": ["**/node_modules", "**/__pycache__", "**/.venv", "**/build"],
+  "executionEnvironments": [
+    { "root": "crooks-returns", "pythonVersion": "3.11" },
+    { "root": "clive-shipping", "pythonVersion": "3.11" }
+  ],
+  "typeCheckingMode": "standard",
+  "reportMissingTypeStubs": false
+}
