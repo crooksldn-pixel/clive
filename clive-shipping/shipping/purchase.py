@@ -20,6 +20,7 @@ Rules this module guarantees (each one has a test):
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
@@ -37,6 +38,8 @@ from shipping.providers.base import (
 )
 from shipping.states import move
 from shipping.store import OpenOperationExists, Store, new_id, now
+
+log = logging.getLogger("shipping.purchase")
 
 
 class ActionError(Exception):
@@ -192,6 +195,7 @@ class Purchases:
                 basis=basis_token,
                 actor=actor,
                 amount=s.quote.amount,
+                quote=s.quote,
                 state=OpState.authorised,
                 created_at=at,
                 updated_at=at,
@@ -239,8 +243,16 @@ class Purchases:
         while True:
             s = self._get(op.shop, op.shipment_id)
             if op.state == OpState.authorised:
+                quote = op.quote or s.quote
+                if quote is None or basis(s) != op.basis:
+                    self._fail(
+                        op,
+                        "This order changed after the label was authorised, so nothing was "
+                        "ordered or paid. Check it and buy again.",
+                    )
+                    return
                 try:
-                    order = self.provider.create_order(s, s.quote, op.id)
+                    order = self.provider.create_order(s, quote, op.id)
                 except ProviderUncertain as exc:
                     # An unpaid order may exist; we don't know its ref, so it can never be paid.
                     self._fail(
@@ -252,6 +264,15 @@ class Purchases:
                 except (ProviderRefused, ProviderUnavailable) as exc:
                     self._fail(
                         op, f"{self.provider.name} refused the order: {exc}. Nothing was paid."
+                    )
+                    return
+                except Exception as exc:  # an unreadable reply, or a fault in the adapter
+                    # An order may exist, but without its reference it can never be paid.
+                    log.exception("create_order for %s", op.id)
+                    self._fail(
+                        op,
+                        f"{self.provider.name} gave an answer CLIVE couldn't read "
+                        f"({type(exc).__name__}). Nothing was paid; you can try again.",
                     )
                     return
                 op.provider_ref = order.ref
@@ -266,11 +287,15 @@ class Purchases:
                     )
                     return
             elif op.state == OpState.order_created:
+                ref = op.provider_ref
+                if not ref:  # can't happen by construction; never pay an unknown order
+                    self._fail(op, "The provider order has no reference. Nothing was paid.")
+                    return
                 # Saved before the call: from here a crash reads as "may have been charged".
                 op.state, op.pay_sent_at = OpState.pay_sent, self.clock()
                 self.store.save_op(op)
                 try:
-                    self.provider.pay(op.provider_ref)
+                    self.provider.pay(ref)
                 except (ProviderRefused, ProviderUnavailable) as exc:
                     self._fail(
                         op,
@@ -280,6 +305,11 @@ class Purchases:
                     return
                 except ProviderUncertain as exc:
                     self._uncertain(op, str(exc))
+                    self.reconcile(op)
+                    return
+                except Exception as exc:  # the request went out; the answer is unusable
+                    log.exception("pay for %s", op.id)
+                    self._uncertain(op, f"unreadable payment reply ({type(exc).__name__})")
                     self.reconcile(op)
                     return
                 op.state = OpState.paid
@@ -312,11 +342,13 @@ class Purchases:
         with self.store.lock:
             s = self._get(op.shop, op.shipment_id)
             if s.status in (S.purchasing, S.reconciliation_required):
+                # What was authorised and paid for, not whatever quote the shipment holds now.
+                bought = op.quote or s.quote
                 s.label = Label(
                     provider=self.provider.name,
                     provider_ref=op.provider_ref or "",
-                    carrier=s.quote.carrier,
-                    service_name=s.quote.service_name,
+                    carrier=bought.carrier if bought else self.provider.name,
+                    service_name=bought.service_name if bought else "",
                     amount=op.amount,
                     purchased_at=self.clock(),
                 )
@@ -334,8 +366,12 @@ class Purchases:
 
     def _fetch_documents(self, op: ProviderOp) -> None:
         try:
+            if not op.provider_ref:
+                raise ProviderUnavailable("no provider reference to fetch from")
             docs = self.provider.documents(op.provider_ref)
-        except ProviderError as exc:
+        except Exception as exc:  # documents never move money: always just "try again later"
+            if not isinstance(exc, ProviderError):
+                log.exception("documents for %s", op.id)
             with self.store.lock:
                 s = self._get(op.shop, op.shipment_id)
                 s.last_error = (
@@ -384,9 +420,15 @@ class Purchases:
         if op.state in (OpState.pay_unknown, OpState.pay_sent):
             if op.state == OpState.pay_sent:  # a crash after sending: treat as unknown
                 self._uncertain(op, "Interrupted after the payment was sent.")
+            if not op.provider_ref:
+                log.error("operation %s is unknown but has no provider reference", op.id)
+                return  # stays unknown and visible; never paid again
             try:
                 seen = self.provider.read_order(op.provider_ref)
             except ProviderError:
+                return  # still unknown; the next sweep tries again
+            except Exception:
+                log.exception("read_order for %s", op.id)
                 return  # still unknown; the next sweep tries again
             if seen.paid:
                 op.state = OpState.paid
@@ -432,7 +474,10 @@ class Purchases:
     def reconcile_all(self) -> int:
         ops = self.store.open_ops()
         for op in ops:
-            self.reconcile(op)
+            try:
+                self.reconcile(op)
+            except Exception:  # one broken operation must not leave the others unchecked
+                log.exception("reconcile %s", op.id)
         return len(ops)
 
     # ------------------------------------------------------------------ reprint

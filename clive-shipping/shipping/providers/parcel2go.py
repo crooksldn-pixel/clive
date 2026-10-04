@@ -25,7 +25,7 @@ from typing import Any
 
 import httpx
 
-from shipping.models import Address, Quote, Shipment, ShopConfig
+from shipping.models import Address, PackagePlan, Quote, Shipment, ShopConfig
 from shipping.money import Money, to_minor
 from shipping.providers.base import (
     Documents,
@@ -312,8 +312,14 @@ class Parcel2Go:
         }
 
     @staticmethod
-    def _parcel(s: Shipment) -> dict[str, Any]:
-        p = s.package
+    def _package(s: Shipment) -> PackagePlan:
+        if s.package is None:
+            raise ProviderRefused("No package is chosen for this shipment yet.", code="package")
+        return s.package
+
+    @classmethod
+    def _parcel(cls, s: Shipment) -> dict[str, Any]:
+        p = cls._package(s)
         return {
             "Weight": round(p.total_weight_g / 1000, 2),
             "Length": p.length_mm / 10,
@@ -376,9 +382,10 @@ class Parcel2Go:
             )
         return out
 
-    @staticmethod
-    def _fits(s: Shipment, svc: dict[str, Any]) -> bool:
-        weight = s.package.total_weight_g / 1000
+    @classmethod
+    def _fits(cls, s: Shipment, svc: dict[str, Any]) -> bool:
+        p = cls._package(s)
+        weight = p.total_weight_g / 1000
         if svc.get("MaxWeight") and weight > float(svc["MaxWeight"]):
             return False
         limits = sorted(
@@ -386,7 +393,7 @@ class Parcel2Go:
         )
         if len(limits) < 3:
             return True
-        dims = sorted([s.package.length_mm / 10, s.package.width_mm / 10, s.package.height_mm / 10])
+        dims = sorted([p.length_mm / 10, p.width_mm / 10, p.height_mm / 10])
         return all(a <= b for a, b in zip(dims, limits, strict=True))
 
     # ------------------------------------------------------------------ the order

@@ -7,6 +7,7 @@ choosing the package, describing duties honestly, and making Shopify reflect the
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable
 from datetime import datetime
@@ -20,7 +21,9 @@ from shipping.providers.base import ProviderError, ShippingProvider
 from shipping.purchase import ActionError, Purchases
 from shipping.shopify import FoSnapshot, ShopifyError, ShopifyPort, ShopifyRefused
 from shipping.states import move
-from shipping.store import Store, new_id, now
+from shipping.store import Conflict, Store, new_id, now
+
+log = logging.getLogger("shipping.service")
 
 # Shopify-known tracking company names make the number clickable in admin and emails.
 TRACKING_COMPANY = {
@@ -135,10 +138,10 @@ class ShippingService:
                 self._event(s, "discovered", "system", {"order": snap.order_name})
                 self.store.save(s)
                 made += 1
-            self.prepare(shop, s.id, snap)
+            self._refresh(shop, s.id, snap)
         for s in self.store.shipments(shop, [x.value for x in PRE_PURCHASE]):
             if s.fulfillment_order_id not in seen:
-                self.prepare(shop, s.id)  # re-reads it: closed or cancelled shipments drop out
+                self._refresh(shop, s.id)  # re-reads it: closed or cancelled shipments drop out
         return {"open": len(seen), "new": made}
 
     def _by_fo(self, shop: str, fo_id: str) -> Shipment | None:
@@ -147,6 +150,14 @@ class ShippingService:
         )
 
     # ------------------------------------------------------------------ prepare
+
+    def _refresh(self, shop: str, sid: str, snap: FoSnapshot | None = None) -> None:
+        """prepare() for the background sync: if someone changed the shipment meanwhile (a
+        purchase, an answer), their change stands and the next sync picks it up."""
+        try:
+            self.prepare(shop, sid, snap)
+        except Conflict:
+            log.info("shipment %s changed during refresh; left for the next sync", sid)
 
     def prepare(self, shop: str, sid: str, snap: FoSnapshot | None = None) -> Shipment:
         s = self._get(shop, sid)
@@ -493,7 +504,10 @@ class ShippingService:
         retried = 0
         for s in self.store.shipments(shop, [S.label_purchased.value, S.fulfillment_failed.value]):
             if s.label and s.label.tracking_number:
-                self.fulfil(shop, s.id, "system")
+                try:
+                    self.fulfil(shop, s.id, "system")
+                except Conflict:
+                    continue  # changed meanwhile; the next tick retries
                 retried += 1
         found = self.sync(shop)
         return {"reconciled": reconciled, "fulfil_retried": retried, **found}

@@ -229,6 +229,8 @@ class Shipment(BaseModel):
     created_at: datetime
     updated_at: datetime
     timeline: list[Event] = Field(default_factory=list)
+    # Bumped on every save; a save from an older copy is refused (Store.save).
+    version: int = 0
 
     @property
     def money_may_have_moved(self) -> bool:
@@ -249,6 +251,9 @@ class ProviderOp(BaseModel):
     amount: Money
     state: OpState
     provider_ref: str | None = None
+    # The service and price exactly as authorised. The order is placed and the label recorded
+    # from this, never from whatever quote the shipment holds later.
+    quote: Quote | None = None
     unpaid_reads: list[datetime] = Field(default_factory=list)
     pay_sent_at: datetime | None = None
     last_error: str | None = None

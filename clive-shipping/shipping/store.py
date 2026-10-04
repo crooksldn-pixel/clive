@@ -93,6 +93,10 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(6)}"
 
 
+class Conflict(RuntimeError):
+    """The shipment changed since it was read; saving this copy would overwrite that change."""
+
+
 class OpenOperationExists(RuntimeError):
     """Another buy for this shipment is already in flight or being checked."""
 
@@ -107,12 +111,31 @@ class Store:
     # ---------------------------------------------------------------- shipments
 
     def save(self, s: Shipment) -> Shipment:
-        s.updated_at = now()
+        """Write the shipment if nobody saved it since this copy was read; else Conflict.
+
+        Without this, a slow reader (a refresh waiting on the provider for quotes) could save
+        its old copy over a purchase made meanwhile: a paid shipment back to "ready" with no
+        label, and the next click would buy again."""
         with self.lock:
+            read_as = s.version
+            s.version, s.updated_at = read_as + 1, now()
+            doc = s.model_dump_json()
+            changed = self._db.execute(
+                "UPDATE shipments SET status=?, updated_at=?, doc=? WHERE shop=? AND id=? "
+                "AND COALESCE(json_extract(doc, '$.version'), 0)=?",
+                (s.status.value, s.updated_at.isoformat(), doc, s.shop, s.id, read_as),
+            ).rowcount
+            if changed:
+                return s
+            exists = self._db.execute(
+                "SELECT 1 FROM shipments WHERE shop=? AND id=?", (s.shop, s.id)
+            ).fetchone()
+            if exists:
+                s.version = read_as
+                raise Conflict(f"Shipment {s.id} changed since it was read.")
             self._db.execute(
                 "INSERT INTO shipments (shop, id, order_id, fulfillment_order_id, status, "
-                "updated_at, doc) VALUES (?,?,?,?,?,?,?) ON CONFLICT(shop, id) DO UPDATE SET "
-                "status=excluded.status, updated_at=excluded.updated_at, doc=excluded.doc",
+                "updated_at, doc) VALUES (?,?,?,?,?,?,?)",
                 (
                     s.shop,
                     s.id,
@@ -120,7 +143,7 @@ class Store:
                     s.fulfillment_order_id,
                     s.status.value,
                     s.updated_at.isoformat(),
-                    s.model_dump_json(),
+                    doc,
                 ),
             )
         return s

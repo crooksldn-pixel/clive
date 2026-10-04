@@ -183,16 +183,20 @@ def test_documents_late_are_fetched_without_paying_again(purchases, store, provi
     assert provider.calls.count("pay") == 1
 
 
+class ProcessKilled(BaseException):
+    """The process dying mid-call: not an error the code could catch and handle."""
+
+
 def test_crash_after_sending_payment_is_reconciled(purchases, store, provider, monkeypatch):
     make_shipment(store, provider)
     real_pay = provider.pay
 
     def pay_then_die(ref):
         real_pay(ref)
-        raise RuntimeError("process killed")
+        raise ProcessKilled
 
     monkeypatch.setattr(provider, "pay", pay_then_die)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ProcessKilled):
         buy(purchases)
     op = store.ops_for(SHOP, "shp_1")[0]
     assert op.state == OpState.pay_sent  # saved before the call
@@ -207,9 +211,9 @@ def test_crash_before_paying_gives_the_decision_back(
 ):
     make_shipment(store, provider)
     monkeypatch.setattr(
-        provider, "create_order", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("killed"))
+        provider, "create_order", lambda *a, **k: (_ for _ in ()).throw(ProcessKilled())
     )
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ProcessKilled):
         buy(purchases)
     purchases.reconcile_all()
     assert store.get(SHOP, "shp_1").status == S.purchasing  # too soon to decide
