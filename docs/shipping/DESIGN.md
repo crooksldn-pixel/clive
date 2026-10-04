@@ -359,6 +359,25 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
      - **4×6 output.** The sandbox returns 5-page A4 PDFs for every label format. The first live label will show the real 4×6 output and whether the invoices are separate.
      - **Courier tracking numbers.** The sandbox gives none, so CLIVE uses `P2G{line}`. Live numbers may arrive after purchase, which needs a later `fulfillmentTrackingInfoUpdate`.
      - **Void.** Parcel2Go has no void endpoint, so voids are manual.
+   - **Verified in the sandbox on 2026-10-05: countries and customs paperwork.** Eight paid sandbox orders were booked from SL8 5AS: four to Berlin and four to New York. Every artifact was saved and measured.
+     - **Country of origin:** `OriginCountry` takes a name. Swagger: "e.g. United Kingdom. This is not an ISO-3166 code." Parcel2Go prints the value verbatim: `PRT` appears on the commercial invoice as "PRT", and `Portugal` as "Portugal". CLIVE keeps ISO-2 internally and the adapter sends Parcel2Go's name.
+     - **A true 4×6 label exists.** `GET /labels/{orderId}?detailLevel=Labels&labelMedia=Label4X6&labelFormat=PDF` returns 1 page of 100×150 mm (PNG: 787×1181 px, 200 dpi).
+       - The order's `labels-4x6` link is *not* that: it mixes A4 advice and invoice pages with one 4×6 page.
+       - `labels-a4-4x6` is all A4.
+       - `label-a4-21` answers "OrderLine contains no labels".
+       - The `invoice` link is Parcel2Go's own purchase invoice for the order, not a customs document.
+       - `/invoices/{ref}` returns 500 in the sandbox.
+     - **Paperless is per service.** `RequiresCommercialInvoice` is true for every international quote, so it can't be used to tell them apart. The reliable signals are `detailLevel=AdditionalDocuments` (404 when nothing is to be printed, otherwise N A4 pages, one per invoice copy) and the "Label Advice" page:
+
+       | Service (sandbox) | Customs | Physically required |
+       | --- | --- | --- |
+       | DPD Classic (DE), DPD Pickup Air Classic (US) | Electronic: "Any required commercial invoices will be handled by us electronically" | 4×6 label only |
+       | Landmark drop-off (US), OCS/UPS drop shop (US) | Electronic (same wording) | 4×6 label only |
+       | Evri International ParcelShop (DE) | Paper | 4×6 label plus **3** A4 commercial invoices, in an envelope marked "Customs Documents" attached outside |
+       | UPS Access Point (DE, US) | Paper | 4×6 label plus **4** A4 commercial invoices, same envelope |
+
+     - **Each commercial invoice is one A4 page.** Terms printed are "DDU", including on the DPD service tagged `DDP`. DDP is an extra (`DeliveredDutyPaid`), not the tag.
+     - **Consequence for the design:** documents are modelled separately (shipping label, commercial invoice, customs declaration, other), each with media type, page size, copies, must-print, attach-to-parcel and electronic. Electronic-customs services feel domestic: one 4×6 label goes to the JADENS. Paper services surface exactly one extra line, e.g. "Commercial invoice: print 3 copies (A4)". The paperwork requirement should also feed the rate recommendation in Stage 4. The sandbox is a stand-in, so the first live label will confirm all of this.
 4. **Stage 4 — rates + recommendation.**
    - `rates.py`: recommended / cheapest / fastest, carrier reliability table, parcel limits.
 5. **Stage 5 — API + webhooks + reconcile + notifier + `shipping-ctl`**, mirroring Returns.
