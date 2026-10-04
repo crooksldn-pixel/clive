@@ -3,7 +3,9 @@
 **Status (2026-10-05):**
 - **Stage 1 built:** domain, state machine and the pay-once purchase protocol.
 - **Stage 2 built:** Shopify discovery, readiness, remembered answers, packages, duties and fulfilment with read-back.
-- **Stage 3 built:** the Parcel2Go provider, run end to end against the Parcel2Go sandbox.
+- **Stage 3 built and proven (2026-10-05):** the Parcel2Go sandbox adapter, with documents
+  modelled separately, the genuine 4×6 label, evidence-based customs, and every failure case
+  proven in tests and against the sandbox. No live credential, no live spending.
 - Nothing is deployed.
 
 ## Owner decisions (2026-10-05)
@@ -378,6 +380,62 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
 
      - **Each commercial invoice is one A4 page.** Terms printed are "DDU", including on the DPD service tagged `DDP`. DDP is an extra (`DeliveredDutyPaid`), not the tag.
      - **Consequence for the design:** documents are modelled separately (shipping label, commercial invoice, customs declaration, other), each with media type, page size, copies, must-print, attach-to-parcel and electronic. Electronic-customs services feel domestic: one 4×6 label goes to the JADENS. Paper services surface exactly one extra line, e.g. "Commercial invoice: print 3 copies (A4)". The paperwork requirement should also feed the rate recommendation in Stage 4. The sandbox is a stand-in, so the first live label will confirm all of this.
+   - **Stage 3 completion (2026-10-05), in five commits:**
+
+     1. *Admin API 2026-10.* Shipping pins `API_VERSION = "2026-10"`. All seven GraphQL documents
+        validate against the 2026-10 schema (`scripts/validate_graphql.py`, Shopify AI Toolkit),
+        and a test keeps the list complete.
+     2. *Purchase-path fixes (from the type review), each with a test that fails without it:*
+        - **Shipment saves are compare-and-set.** Before this, a refresh waiting on quotes could
+          save its old copy over a purchase made meanwhile; reproduced as 2 charges.
+        - **The order is placed from the quote authorised on the operation,** and only if the
+          shipment still matches the authorised fingerprint.
+        - **The label is recorded from that authorised quote.**
+        - **Unexpected exceptions are contained:** after create, the operation fails with
+          nothing paid; after pay, it becomes UNKNOWN and is read back; one broken operation no
+          longer stops reconciliation of the others.
+     3. *Documents.* `shipping_label`, `commercial_invoice`, `customs_declaration` and
+        `other_documents`, each with media type, page size, pages, copies, must-print,
+        attach-to-parcel and electronic. Each label has a customs mode (`electronic`, `paper`,
+        `not_required` or `unknown`). The rest follows the sandbox evidence:
+        - **The label is the genuine 4×6** (`/labels?detailLevel=Labels&labelMedia=Label4X6`).
+        - **Paperless needs two views to agree:** additional documents 404, and `All` holding
+          only the label and invoice. Any gap or disagreement is `unknown`, never paperless.
+        - **The print plan** reads "Shipping label — 4×6 thermal / Customs — filed
+          electronically" or "Commercial invoice — print 3 copies (A4)".
+     4. *Countries and bad answers:*
+        - Internal `Country` (ISO-2, ISO-3, name, Parcel2Go region); Parcel2Go's spellings only
+          at the adapter.
+        - The country list is cached for 7 days, with a stale copy used if Parcel2Go is down.
+        - Unreadable JSON is uncertain for writes and unavailable for reads.
+        - A missing or zero price is an error and is never paid (adapter and protocol).
+        - A read-back without `PaidDate` is not counted as unpaid.
+     5. *Sandbox proof* (`scripts/sandbox_proof.py`), run 2026-10-05. Orders 26682 (unpaid),
+        26683 (DPD, reply lost), 26684 (Evri), 26685 (UPS); PrePay £9854.90 → £9813.57
+        (= £11.93 + £6.60 + £22.80, each charged once). Labels measured 100×150 mm; the invoice
+        files were 3 and 4 A4 pages, every page a commercial invoice.
+
+   - **Parcel2Go endpoints used:**
+     - `POST /auth/connect/token`
+     - `GET /countries`
+     - `POST /quotes`
+     - `POST /orders/verify`
+     - `POST /orders`
+     - `POST /orders/{id}/paywithprepay?hash=`
+     - `GET /orders?orderId&hash`
+     - `GET /labels/{orderId}`, detail levels `Labels` / `AdditionalDocuments` /
+       `CommercialInvoice` / `All`, PDF
+     - `POST /orders/{id}/parcelnumbers`
+     - `GET /prepay`
+   - **Needs the first live label to confirm:**
+     - that live services classify as in the sandbox (and DPD, Evri and UPS stay as observed);
+     - live courier tracking numbers and when they appear (the sandbox gives none, so CLIVE
+       uses `P2G{line}`);
+     - that the real Label4X6 prints correctly on the JADENS through PrintNode;
+     - whether `AdditionalDocuments` is ever briefly 404 right after payment on live (if so,
+       the `All` cross-check makes it `unknown` and CLIVE retries, never paperless);
+     - the Canaries DNI field, for Stage 4.
+
 4. **Stage 4 — rates + recommendation.**
    - `rates.py`: recommended / cheapest / fastest, carrier reliability table, parcel limits.
 5. **Stage 5 — API + webhooks + reconcile + notifier + `shipping-ctl`**, mirroring Returns.
