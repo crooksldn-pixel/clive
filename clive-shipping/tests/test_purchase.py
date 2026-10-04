@@ -1,7 +1,5 @@
 """The money boundary. Each test names the real-world situation it protects against."""
 
-from datetime import timedelta
-
 import pytest
 
 from shipping.models import CustomsMode, DocumentKind, OpState, ProviderOp
@@ -279,9 +277,11 @@ def test_shops_never_see_each_other(purchases, store, provider):
 def test_reconcile_is_harmless_when_nothing_is_open(purchases, store, provider, clock):
     make_shipment(store, provider)
     buy(purchases)
+    clock.advance(minutes=3)
+    assert purchases.reconcile_all() == 1  # the one confirming look at paperless customs
     clock.advance(hours=1)
-    assert purchases.reconcile_all() == 0
-    assert len(provider.charges) == 1 and timedelta(0) == timedelta(0)
+    assert purchases.reconcile_all() == 0  # then nothing is open
+    assert len(provider.charges) == 1
 
 
 def test_a_refusal_at_verify_is_reported_as_the_providers_reason(purchases, store, provider):

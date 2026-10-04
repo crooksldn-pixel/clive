@@ -105,6 +105,10 @@ def quote(
             "MaxLength": 1.2,
         },
         "TotalPrice": price,
+        # True on every international quote in the sandbox, paperless services included: CLIVE
+        # must not key paperless on it.
+        "RequiresCommercialInvoice": True,
+        "RequiresCustoms": True,
         "Collection": f"{collection}T00:00:00",
         "EstimatedDeliveryDate": f"{est}T00:00:00",
     }
@@ -119,6 +123,8 @@ class FakeP2G:
         # detailLevel -> override answer: an httpx.Response, or "garbage" for a non-PDF body
         self.labels_override: dict[str, object] = {}
         self.all_extra_pages = 0  # extra pages the "All" view reports beyond the truth
+        self.copies: dict[str, int] = dict(PAPER_COPIES)  # per-service, changeable mid-test
+        self.invoice_pages = 1  # pages in one commercial invoice
         # endpoint -> fault, used once: an httpx.Response, "garbage" (200 with an HTML body),
         # or a function(request) -> Response. Endpoints: countries quotes verify create read.
         self.faults: dict[str, object] = {}
@@ -131,7 +137,15 @@ class FakeP2G:
             ("/api/orders/verify", "POST"): "verify",
             ("/api/orders", "POST"): "create",
             ("/api/orders", "GET"): "read",
-        }.get((path, method), "pay" if path.endswith("/paywithprepay") else "")
+            ("/api/prepay", "GET"): "prepay",
+        }.get(
+            (path, method),
+            "pay"
+            if path.endswith("/paywithprepay")
+            else "parcelnumbers"
+            if path.endswith("/parcelnumbers")
+            else "",
+        )
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
@@ -244,23 +258,32 @@ class FakeP2G:
         if isinstance(override, httpx.Response):
             return override
         order = self.orders[oid]
-        copies = next(v for k, v in PAPER_COPIES.items() if order["service"].startswith(k))
+        copies = next(v for k, v in self.copies.items() if order["service"].startswith(k))
         label = LABEL_4X6 if media == "Label4X6" else A4
+        invoice = [A4] * self.invoice_pages
         pages = {
             "Labels": [label],
-            "CommercialInvoice": [A4],
-            "AdditionalDocuments": [A4] * copies,
-            "All": [label, A4] + [A4] * (copies + self.all_extra_pages),
+            "CommercialInvoice": invoice,
+            "AdditionalDocuments": invoice * copies,
+            "All": [label] + invoice + invoice * copies + [A4] * self.all_extra_pages,
         }.get(detail)
-        if not pages and override != "garbage":
+        if not pages and override not in ("garbage", "empty", "objstm", "two_files"):
             return httpx.Response(404, json={"Message": "No documents"})
-        body = b"<html>oops</html>" if override == "garbage" else pdf(*(pages or []))
+        files = [pdf(*(pages or [A4]))]
+        if override == "garbage":
+            files = [b"<html>oops</html>"]
+        elif override == "empty":
+            files = []
+        elif override == "objstm":  # a real PDF whose pages can't be counted without a library
+            files = [b"%PDF-1.5\n1 0 obj << /Type /ObjStm /N 3 >> stream x endstream endobj"]
+        elif override == "two_files":
+            files = files * 2
         return httpx.Response(
             200,
             json={
-                "SuccessfulLabels": 1,
+                "SuccessfulLabels": len(files),
                 "FailedLabels": 0,
-                "Base64EncodedLabels": [base64.b64encode(body).decode()],
+                "Base64EncodedLabels": [base64.b64encode(f).decode() for f in files],
             },
         )
 

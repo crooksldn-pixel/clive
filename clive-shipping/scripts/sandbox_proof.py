@@ -16,8 +16,9 @@ import json
 import os
 import sys
 import tempfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import TypeVar
 
 import httpx
 
@@ -29,8 +30,11 @@ from shipping.models import (  # noqa: E402
     CustomsLine,
     CustomsMode,
     DocumentKind,
+    Label,
     PackagePlan,
     PageSize,
+    ProviderOp,
+    Quote,
     Shipment,
     ShipmentStatus,
     ShopConfig,
@@ -144,6 +148,16 @@ def shipment(sid: str, destination: Address) -> Shipment:
     )
 
 
+T = TypeVar("T")
+
+
+def must(value: T | None, what: str) -> T:
+    """The proof stops if something it needs is missing, rather than comparing None to None."""
+    if value is None:
+        sys.exit(f"FAILED: {what} is missing")
+    return value
+
+
 def check(ok: bool, what: str) -> None:
     print(("   ✓ " if ok else "   ✗ ") + what)
     if not ok:
@@ -172,15 +186,32 @@ def main(out_dir: str) -> None:
         http=http,
         cache=store,
     )
-    purchases = Purchases(store, p2g)
+    # Paperless is confirmed by a second look; here the look may come straight away.
+    purchases = Purchases(store, p2g, confirm_paperless_after=timedelta(0))
+
+    def got(sid: str) -> Shipment:
+        return must(store.get(SHOP, sid), f"shipment {sid}")
+
+    def prepay() -> Money:
+        return must(balance(p2g), "the PrePay balance")
+
+    def label_of(sh: Shipment) -> Label:
+        return must(sh.label, f"the label of {sh.id}")
+
+    def artifact(artifact_id: str) -> bytes:
+        return must(store.get_artifact(SHOP, artifact_id), f"artifact {artifact_id}")[2]
+
+    def op_of(key: str) -> ProviderOp:
+        return must(store.op_by_key(SHOP, key), f"operation {key}")
+
     evidence: dict = {"orders": []}
-    start = balance(p2g)
+    start = prepay()
     print(f"Sandbox PrePay at start: {start}")
 
-    def pick(s: Shipment, slug_prefix: str):
+    def pick(s: Shipment, slug_prefix: str) -> Quote:
         q = next((q for q in p2g.quotes(s) if q.service_code.startswith(slug_prefix)), None)
         check(q is not None, f"{slug_prefix} offered to {s.destination.country}")
-        return q
+        return must(q, f"a {slug_prefix} quote")
 
     # 1, 2: quotes
     print("\n1. Quote Germany")
@@ -203,8 +234,9 @@ def main(out_dir: str) -> None:
 
     # 3: an unpaid order on its own (never paid; costs nothing)
     print("3. Create an unpaid provider order")
-    de.quote = pick(de, "dpd-classic")
-    unpaid = p2g.create_order(de, de.quote, "proof-unpaid")
+    de_quote = pick(de, "dpd-classic")
+    de.quote = de_quote
+    unpaid = p2g.create_order(de, de_quote, "proof-unpaid")
     seen = p2g.read_order(unpaid.ref)
     check(
         not seen.paid,
@@ -220,11 +252,11 @@ def main(out_dir: str) -> None:
 
     # 13 first half and 12: buy with the payment reply lost
     print("5/6/12. Pay once, with the payment reply lost; reconcile by PaidDate")
-    before = balance(p2g)
+    before = prepay()
     wire.lose_reply_to = "paywithprepay"
     result = purchases.buy(SHOP, de.id, pv["basis"], "proof", "proof-de-1")
-    op = store.op_by_key(SHOP, "proof-de-1")
-    after = balance(p2g)
+    op = op_of("proof-de-1")
+    after = prepay()
     check(wire.calls["paywithprepay"] == 1, "pay was called exactly once")
     check(result["charged"] and result["status"] == "label_purchased", "outcome: paid (read back)")
     check(
@@ -234,7 +266,7 @@ def main(out_dir: str) -> None:
         f"PrePay fell by exactly one price: {before} -> {after}",
     )
     evidence["orders"].append(
-        {"case": "DE DPD, reply lost", "order": op.provider_ref.split(":")[1]}
+        {"case": "DE DPD, reply lost", "order": must(op.provider_ref, "ref").split(":")[1]}
     )
 
     print("13. Double click")
@@ -245,38 +277,43 @@ def main(out_dir: str) -> None:
         check(False, "a new key was refused")
     except ActionError as exc:
         check(True, f"a second click with a new key is refused: {exc}")
-    check(wire.calls["paywithprepay"] == 1 and balance(p2g) == after, "still one charge")
+    check(wire.calls["paywithprepay"] == 1 and prepay() == after, "still one charge")
 
     # 7, 8, 9, 11: documents for a paperless service
     print("7/8/9/11. Documents: genuine 4x6, paperless customs, identifiers")
-    s = store.get(SHOP, de.id)
-    label = s.label.document(DocumentKind.shipping_label)
+    s = got(de.id)
+    label = must(label_of(s).document(DocumentKind.shipping_label), "the shipping label")
     check(label.page_size == PageSize.label_4x6 and label.pages == 1, "label is one 4x6 page")
-    check(s.label.customs == CustomsMode.electronic, "DPD: customs filed electronically")
-    plan = print_plan(s.label)
+    check(label_of(s).customs == CustomsMode.electronic, "DPD: customs filed electronically")
+    plan = print_plan(label_of(s))
     check(
         plan.ready and plan.extra_documents == 0,
         f"{plan.summary}: {[ln.text for ln in plan.lines]}",
     )
     check(
-        bool(s.label.tracking_number),
-        f"tracking {s.label.tracking_number}, ids {s.label.provider_ids}",
+        bool(label_of(s).tracking_number),
+        f"tracking {label_of(s).tracking_number}, ids {label_of(s).provider_ids}",
     )
-    for doc in s.label.documents:
+    for doc in label_of(s).documents:
         if doc.artifact_id:
-            (out / f"de-dpd-{doc.kind.value}.pdf").write_bytes(
-                store.get_artifact(SHOP, doc.artifact_id)[2]
-            )
+            (out / f"de-dpd-{doc.kind.value}.pdf").write_bytes(artifact(doc.artifact_id))
+
+    print("9b. Paperless confirmed by a second look at Parcel2Go's documents")
+    purchases.reconcile_all()
+    check(
+        label_of(got(de.id)).customs_confirmed and op_of("proof-de-1").state.value == "done",
+        "confirmed electronic; operation closed",
+    )
 
     # 15: reprint
     print("15. Reprint never reaches Parcel2Go")
     calls = sum(wire.calls.values())
-    money = balance(p2g)
+    money = prepay()
     calls_with_balance = sum(wire.calls.values())
     for _ in range(3):
         purchases.reprint(SHOP, de.id, DocumentKind.shipping_label)
     check(sum(wire.calls.values()) == calls_with_balance, "3 reprints, 0 requests to Parcel2Go")
-    check(balance(p2g) == money, f"balance unchanged ({money}); requests before {calls}")
+    check(prepay() == money, f"balance unchanged ({money}); requests before {calls}")
 
     # 10: paper customs, 3 copies (Evri, DE) and 4 copies (UPS, US)
     for sid, dest, slug, copies in (
@@ -288,11 +325,11 @@ def main(out_dir: str) -> None:
         ps.quote = pick(ps, slug)
         store.save(ps)
         b = purchases.preview(SHOP, sid)["basis"]
-        before = balance(p2g)
+        before = prepay()
         res = purchases.buy(SHOP, sid, b, "proof", f"proof-{sid}")
-        ps = store.get(SHOP, sid)
-        inv = ps.label.document(DocumentKind.commercial_invoice)
-        check(res["charged"] and ps.label.customs == CustomsMode.paper, "customs on paper")
+        ps = got(sid)
+        inv = label_of(ps).document(DocumentKind.commercial_invoice)
+        check(res["charged"] and label_of(ps).customs == CustomsMode.paper, "customs on paper")
         check(
             inv is not None
             and inv.must_print
@@ -301,18 +338,16 @@ def main(out_dir: str) -> None:
             f"commercial invoice: print {inv.copies_required if inv else '?'} copies (A4), attach",
         )
         check(
-            before.minor - balance(p2g).minor == ps.label.amount.minor,  # type: ignore[union-attr]
+            before.minor - prepay().minor == label_of(ps).amount.minor,  # type: ignore[union-attr]
             "charged exactly once",
         )
-        plan = print_plan(ps.label)
+        plan = print_plan(label_of(ps))
         print(f"     {plan.summary}: {[ln.text for ln in plan.lines]}")
-        for doc in ps.label.documents:
+        for doc in label_of(ps).documents:
             if doc.artifact_id:
-                (out / f"{sid}-{doc.kind.value}.pdf").write_bytes(
-                    store.get_artifact(SHOP, doc.artifact_id)[2]
-                )
+                (out / f"{sid}-{doc.kind.value}.pdf").write_bytes(artifact(doc.artifact_id))
         evidence["orders"].append(
-            {"case": f"{dest.country} {slug}", "order": ps.label.provider_ids.get("order")}
+            {"case": f"{dest.country} {slug}", "order": label_of(ps).provider_ids.get("order")}
         )
 
     # 14: stale fingerprint
@@ -321,7 +356,7 @@ def main(out_dir: str) -> None:
     st.quote = pick(st, "landmark")
     store.save(st)
     b = purchases.preview(SHOP, "us3")["basis"]
-    st = store.get(SHOP, "us3")
+    st = got("us3")
     st.destination = st.destination.model_copy(update={"postcode": "10005"})
     store.save(st)
     orders_before = wire.calls["POST /orders"]
@@ -345,7 +380,7 @@ def main(out_dir: str) -> None:
     except ProviderRefused as exc:
         check(True, f"refused at quote: {exc}")
 
-    end = balance(p2g)
+    end = prepay()
     print(f"\nSandbox PrePay: {start} -> {end}")
     print("Requests per endpoint:", dict(sorted(wire.calls.items())))
     evidence.update(

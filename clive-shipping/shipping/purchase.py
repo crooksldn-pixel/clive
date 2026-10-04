@@ -83,6 +83,7 @@ class Purchases:
         # sweep never mistakes a request still in flight for an interrupted one.
         interrupted_after: timedelta = timedelta(minutes=5),
         escalate_after: timedelta = timedelta(hours=1),
+        confirm_paperless_after: timedelta = timedelta(minutes=2),
     ) -> None:
         self.store = store
         self.provider = provider
@@ -90,6 +91,7 @@ class Purchases:
         self.confirm_unpaid_after = confirm_unpaid_after
         self.interrupted_after = interrupted_after
         self.escalate_after = escalate_after
+        self.confirm_paperless_after = confirm_paperless_after
 
     # ------------------------------------------------------------------ helpers
 
@@ -456,9 +458,12 @@ class Purchases:
                 log.error("documents for %s but shipment %s has no label", op.id, s.id)
                 return
             stored = {d.kind: d for d in s.label.documents if d.artifact_id or d.electronic}
+            was = s.label.customs
             for doc in docs.documents:
-                if doc.kind in stored:
+                kept = stored.get(doc.kind)
+                if kept and not (doc.must_print and not kept.must_print):
                     continue  # fetched on an earlier try: keep the first copy
+                # (a printable document replaces a record-only one: paperwork that appeared)
                 artifact = None
                 if doc.body:
                     artifact = self.store.put_artifact(
@@ -476,11 +481,32 @@ class Purchases:
                     electronic=doc.electronic,
                     note=doc.note,
                 )
-            customs = docs.customs if docs.customs != CustomsMode.unknown else s.label.customs
+            customs = docs.customs if docs.customs != CustomsMode.unknown else was
+            now = self.clock()
+            seen_at, confirmed = s.label.customs_seen_at, s.label.customs_confirmed
+            if customs == CustomsMode.electronic:
+                if was != CustomsMode.electronic or seen_at is None:
+                    seen_at, confirmed = now, False  # shown now; confirmed on a later look
+                elif now - seen_at >= self.confirm_paperless_after:
+                    confirmed = True
+            elif customs != CustomsMode.unknown:
+                confirmed = True  # paper (documents in hand) or no customs: positive evidence
+                if was == CustomsMode.electronic and customs == CustomsMode.paper:
+                    invoice = stored.get(DocumentKind.commercial_invoice)
+                    copies = invoice.copies_required if invoice else 0
+                    self._alert(
+                        s,
+                        "Customs paperwork appeared after the label was ready: print "
+                        f"{copies or 'the'} cop{'ies' if copies != 1 else 'y'} of the commercial "
+                        "invoice (A4) and attach them to the parcel in an envelope marked "
+                        '"Customs Documents".',
+                    )
             s.label = s.label.model_copy(
                 update={
                     "documents": list(stored.values()),
                     "customs": customs,
+                    "customs_seen_at": seen_at,
+                    "customs_confirmed": confirmed,
                     "tracking_number": docs.tracking_number or s.label.tracking_number,
                     "tracking_url": docs.tracking_url or s.label.tracking_url,
                     "provider_ids": {**s.label.provider_ids, **docs.provider_ids},
@@ -489,18 +515,20 @@ class Purchases:
             if s.label.complete:
                 if s.status == S.label_purchased:
                     s.last_error = None
-                self._event(
-                    s,
-                    "documents_stored",
-                    "system",
-                    {
-                        "documents": [d.kind.value for d in s.label.documents],
-                        "customs": customs.value,
-                        "tracking": s.label.tracking_number,
-                    },
-                    verified=True,
-                )
-                op.state = OpState.done
+                if not any(e.type == "documents_stored" for e in s.timeline):
+                    self._event(
+                        s,
+                        "documents_stored",
+                        "system",
+                        {
+                            "documents": [d.kind.value for d in s.label.documents],
+                            "customs": customs.value,
+                            "tracking": s.label.tracking_number,
+                        },
+                        verified=True,
+                    )
+                if confirmed:
+                    op.state = OpState.done  # else: open for one more look, never a payment
             else:
                 if s.status == S.label_purchased:
                     s.last_error = (

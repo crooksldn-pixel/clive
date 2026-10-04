@@ -2,17 +2,22 @@
 on, and never in a second charge or a corrupted shipment. Plus countries: ISO inside, Parcel2Go's
 names at the boundary, and a cached list so CLIVE doesn't depend on that endpoint being up."""
 
+import base64
+
 import httpx
 import pytest
 
-from shipping.models import OpState
+from shipping.documents import print_plan
+from shipping.models import CustomsMode, DocumentKind, OpState
 from shipping.models import ShipmentStatus as S
 from shipping.providers.base import ProviderRefused, ProviderUnavailable
+from shipping.providers.parcel2go import balance
 from shipping.purchase import ActionError, Purchases
 
 from .conftest import SHOP, make_shipment
 from .fake_p2g import COUNTRIES
 from .fake_p2g import adapter as fake_adapter
+from .pdfs import A4, pdf
 
 
 @pytest.fixture
@@ -238,3 +243,138 @@ def test_a_2xx_payment_answer_with_errors_is_read_back_not_trusted(
     else:
         assert s.status == S.ready and "weren't charged" in s.last_error
         assert server.charges == []
+
+
+# ------------------------------------------------------------------ customs evidence strength
+
+
+def paid_ref(p2g, store, provider, service="dpd-classic"):
+    s = make_shipment(store, provider)
+    quote = p2g.quotes(s)[0].model_copy(update={"service_code": service})
+    order = p2g.create_order(s, quote, "op_1")
+    p2g.pay(order.ref)
+    return order.ref
+
+
+@pytest.mark.parametrize(
+    ("detail", "answer"),
+    [
+        ("AdditionalDocuments", "empty"),  # a 200 with no documents is not a 404
+        ("AdditionalDocuments", "objstm"),  # a PDF we can't count
+        ("AdditionalDocuments", "two_files"),  # several files: we'd only keep one
+        ("CommercialInvoice", httpx.Response(503)),  # the invoice view failed
+        ("CommercialInvoice", "empty"),
+    ],
+    ids=[
+        "additional-empty",
+        "additional-uncountable",
+        "additional-two-files",
+        "invoice-503",
+        "invoice-empty",
+    ],
+)
+def test_anything_short_of_clear_evidence_is_not_paperless(
+    p2g, store, provider, server, detail, answer
+):
+    ref = paid_ref(p2g, store, provider, "dpd-classic")
+    server.labels_override[detail] = answer
+    assert p2g.documents(ref).customs == CustomsMode.unknown
+
+
+def test_paperless_is_shown_at_once_then_confirmed_by_a_later_look(purchases, ready, server, clock):
+    out = buy(purchases, ready)
+    s = purchases.store.get(SHOP, ready.id)
+    assert out["charged"] and print_plan(s.label).ready  # feels domestic straight away
+    op = purchases.store.op_by_key(SHOP, "k1")
+    assert op.state == OpState.paid and not s.label.customs_confirmed  # one more look to come
+    purchases.reconcile_all()  # too soon to count as a second look
+    assert purchases.store.op_by_key(SHOP, "k1").state == OpState.paid
+    clock.advance(minutes=3)
+    purchases.reconcile_all()
+    s = purchases.store.get(SHOP, ready.id)
+    assert s.label.customs_confirmed and purchases.store.op_by_key(SHOP, "k1").state == OpState.done
+    assert len(server.charges) == 1
+
+
+def test_paperwork_that_appears_after_the_label_switches_to_paper_and_says_so(
+    purchases, ready, server, clock
+):
+    buy(purchases, ready)
+    server.copies["dpd"] = 2  # the carrier generates customs paperwork late
+    clock.advance(minutes=3)
+    purchases.reconcile_all()
+    s = purchases.store.get(SHOP, ready.id)
+    invoice = s.label.document(DocumentKind.commercial_invoice)
+    assert (
+        s.label.customs == CustomsMode.paper and invoice.must_print and invoice.copies_required == 2
+    )
+    assert any("appeared after the label" in a for a in s.alerts)
+    assert print_plan(s.label).lines[-1].text == "Commercial invoice — print 2 copies (A4)"
+    assert len(server.charges) == 1
+
+
+def test_multi_page_invoices_are_counted_as_copies(p2g, store, provider, server):
+    server.invoice_pages = 2  # each invoice is two pages long; 3 copies = 6 pages
+    ref = paid_ref(p2g, store, provider, "myhermes-international-parcelshop")
+    docs = p2g.documents(ref)
+    invoice = docs.find(DocumentKind.commercial_invoice)
+    assert docs.customs == CustomsMode.paper
+    assert invoice.must_print and invoice.pages == 6 and invoice.copies_required == 3
+
+
+def test_pages_that_are_not_whole_invoices_are_printed_as_given(p2g, store, provider, server):
+    # A 2-page invoice but 5 extra pages: not "copies" of it. Print what Parcel2Go returned.
+    server.copies["myhermes"] = 5  # 5 single pages of additional documents
+    server.labels_override["CommercialInvoice"] = httpx.Response(
+        200, json={"Base64EncodedLabels": [base64.b64encode(pdf(A4, A4)).decode()]}
+    )
+    server.all_extra_pages = 1  # "All": label + 2-page invoice + 5 = 8 pages
+    ref = paid_ref(p2g, store, provider, "myhermes-international-parcelshop")
+    docs = p2g.documents(ref)
+    other = docs.find(DocumentKind.other_documents)
+    assert docs.customs == CustomsMode.paper
+    assert other.must_print and other.pages == 5 and other.copies_required == 1
+
+
+def test_when_in_doubt_a_route_needs_customs(p2g, store, provider, server):
+    ref = paid_ref(p2g, store, provider, "myhermes-international-parcelshop")
+    server.faults["read"] = httpx.Response(
+        200,
+        json={"PaidDate": "2026-10-05T10:00:00", "TotalPrice": 10.69},  # no Items
+    )
+    assert p2g.documents(ref).customs != CustomsMode.not_required
+
+
+def test_a_domestic_route_needs_no_customs(p2g, store, provider, server):
+    s = make_shipment(store, provider)
+    s.destination = s.destination.model_copy(
+        update={"country": "GB", "postcode": "E1 6AN", "line1": "1 Brick Lane", "city": "London"}
+    )
+    quote = p2g.quotes(s)[0].model_copy(update={"service_code": "dpd-classic"})
+    order = p2g.create_order(s, quote, "op_1")
+    p2g.pay(order.ref)
+    assert p2g.documents(order.ref).customs == CustomsMode.not_required
+
+
+def test_odd_optional_fields_never_lose_the_label(p2g, store, provider, server):
+    ref = paid_ref(p2g, store, provider)
+    oid = ref.split(":")[1]
+    real = server.__call__
+
+    def odd(request):
+        answer = real(request)
+        body = answer.json()
+        body["Links"] = ["not", "a", "dict"]
+        return httpx.Response(200, json=body)
+
+    server.faults["read"] = odd
+    server.faults["parcelnumbers"] = httpx.Response(200, json={"TrackingNumbers": 7})
+    docs = p2g.documents(ref)
+    assert docs.find(DocumentKind.shipping_label) is not None
+    assert docs.tracking_number == "P2G45800" and oid
+
+
+@pytest.mark.parametrize("answer", [None, {"Balance": 5}, "abc", True])
+def test_balance_is_never_made_up(p2g, server, answer):
+    server.faults["prepay"] = httpx.Response(200, json=answer)
+    assert balance(p2g) is None

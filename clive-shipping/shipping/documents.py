@@ -86,10 +86,14 @@ def customs_mode(e: CustomsEvidence) -> tuple[CustomsMode, int]:
     nothing extra to print; any gap or disagreement is UNKNOWN, never electronic."""
     if not e.route_requires_customs:
         return CustomsMode.not_required, 0
-    if None in (e.additional_pages, e.label_pages, e.all_pages):
+    if (
+        e.additional_pages is None
+        or e.label_pages is None
+        or e.all_pages is None
+        or e.invoice_pages is None
+    ):
         return CustomsMode.unknown, 0
-    invoice = e.invoice_pages or 0
-    extra_in_all = e.all_pages - e.label_pages - invoice  # type: ignore[operator]
+    extra_in_all = e.all_pages - e.label_pages - e.invoice_pages
     if e.additional_pages == 0:
         return (CustomsMode.electronic, 0) if extra_in_all == 0 else (CustomsMode.unknown, 0)
     if extra_in_all != e.additional_pages:

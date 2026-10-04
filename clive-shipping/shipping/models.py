@@ -237,6 +237,10 @@ class Label(BaseModel):
     tracking_number: str | None = None
     tracking_url: str | None = None
     customs: CustomsMode = CustomsMode.unknown
+    # Paperless is shown as soon as it's seen, then confirmed by one more look a little later,
+    # in case a carrier's paperwork is generated after the label.
+    customs_seen_at: datetime | None = None
+    customs_confirmed: bool = False
     documents: list[ShipmentDocument] = Field(default_factory=list)
     purchased_at: datetime
 

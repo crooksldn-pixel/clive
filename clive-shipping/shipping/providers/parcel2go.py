@@ -629,8 +629,8 @@ class Parcel2Go:
         got = self._call("GET", "/orders", params={"orderId": order_id, "hash": order_hash}) or {}
         if not isinstance(got, dict) or not got.get("PaidDate"):
             raise ProviderRefused("The order isn't paid, so it has no label.", code="unpaid")
-        labels = self._labels(order_id, order_hash, "Labels", "Label4X6")
-        label = next((b for b in labels if is_pdf(b)), None)
+        labels = self._labels(order_id, order_hash, "Labels", "Label4X6") or []
+        label = next((b for b in labels if is_pdf(b) and pdf_pages(b)), None)
         if label is None:
             raise ProviderUnavailable("The label isn't ready yet.")
         docs = [
@@ -646,15 +646,19 @@ class Parcel2Go:
         ]
 
         def pages(detail: str) -> tuple[int | None, bytes | None]:
+            """(pages, the PDF). 0 only on Parcel2Go's explicit 404; anything we can't count
+            for certain (an empty 200, a non-PDF, an unreadable PDF, several files) is None."""
             try:
                 found = self._labels(order_id, order_hash, detail, "A4")
             except ProviderError as exc:
                 log.info("%s for order %s: %s", detail, order_id, exc)
                 return None, None
-            pdfs = [b for b in found if is_pdf(b)]
-            if len(pdfs) != len(found):
-                return None, None  # something that isn't a PDF: can't count it
-            return sum(pdf_pages(b) for b in pdfs), (pdfs[0] if pdfs else None)
+            if found is None:
+                return 0, None  # 404: Parcel2Go says there are none
+            if len(found) != 1 or not is_pdf(found[0]) or not pdf_pages(found[0]):
+                log.info("%s for order %s: %d file(s) we can't count", detail, order_id, len(found))
+                return None, None
+            return pdf_pages(found[0]), found[0]
 
         additional, extra_pdf = pages("AdditionalDocuments")
         invoice_pages, invoice_pdf = pages("CommercialInvoice")
@@ -694,7 +698,12 @@ class Parcel2Go:
                     electronic=mode == CustomsMode.electronic,
                 )
             )
-        links = {str(k).lower(): v for k, v in (got.get("Links") or {}).items() if v}
+        raw_links = got.get("Links")
+        links = (
+            {str(k).lower(): v for k, v in raw_links.items() if isinstance(v, str) and v}
+            if isinstance(raw_links, dict)
+            else {}
+        )
         courier = self._courier_tracking(order_id)
         return Documents(
             documents=docs,
@@ -707,8 +716,10 @@ class Parcel2Go:
             | ({"courier_tracking": courier} if courier else {}),
         )
 
-    def _labels(self, order_id: str, order_hash: str, detail: str, media: str) -> list[bytes]:
-        """Documents at one detail level, decoded. [] when Parcel2Go has none (404)."""
+    def _labels(
+        self, order_id: str, order_hash: str, detail: str, media: str
+    ) -> list[bytes] | None:
+        """Documents at one detail level, decoded. None when Parcel2Go has none (404)."""
         try:
             body = self._call(
                 "GET",
@@ -723,7 +734,7 @@ class Parcel2Go:
             )
         except ProviderRefused as exc:
             if exc.code == "404":
-                return []
+                return None
             raise
         if not isinstance(body, dict):
             raise ProviderUnavailable(f"Parcel2Go sent an unexpected {detail} answer.")
@@ -756,13 +767,20 @@ class Parcel2Go:
                 ),
                 None,
             )
-        except (ProviderError, AttributeError) as exc:
+        except (ProviderError, AttributeError, TypeError) as exc:
             log.info("tracking for %s not ready: %s", order_id, exc)
             return None
 
 
 def balance(provider: Parcel2Go) -> Money | None:
+    """The PrePay balance, or None when it can't be read (never a made-up £0)."""
     try:
-        return Money(minor=to_minor(provider._call("GET", "/prepay")))
-    except (ProviderRefused, ProviderUnavailable):
+        raw = provider._call("GET", "/prepay")
+    except ProviderError:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, int | float | str) or raw == "":
+        return None
+    try:
+        return Money(minor=to_minor(raw))
+    except (ArithmeticError, ValueError):
         return None

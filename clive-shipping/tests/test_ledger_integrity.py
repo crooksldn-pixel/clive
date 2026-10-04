@@ -32,7 +32,9 @@ def test_a_crash_after_paying_before_the_label_is_recorded_is_repaired(
     assert store.op_by_key(SHOP, "k1").state == OpState.paid  # money moved, label not recorded
     monkeypatch.undo()
     clock.advance(minutes=1)
-    purchases.reconcile_all()
+    purchases.reconcile_all()  # records the label, sees paperless customs
+    clock.advance(minutes=3)
+    purchases.reconcile_all()  # and confirms it
     after = store.get(SHOP, s.id)
     assert after.status == S.label_purchased and after.label is not None
     assert after.label.complete and store.op_by_key(SHOP, "k1").state == OpState.done
@@ -104,9 +106,13 @@ def test_an_operation_the_timer_gave_up_on_is_never_then_paid(purchases, store, 
     assert after.status == S.ready and "weren't charged" in after.last_error
 
 
-def test_a_stale_copy_of_an_operation_cannot_overwrite_a_newer_one(purchases, store, provider):
+def test_a_stale_copy_of_an_operation_cannot_overwrite_a_newer_one(
+    purchases, store, provider, clock
+):
     s, b = authorise(purchases, store, provider)
     purchases.buy(SHOP, s.id, b, "george", "k1")
+    clock.advance(minutes=3)
+    purchases.reconcile_all()
     old = store.op_by_key(SHOP, "k1").model_copy(update={"state": OpState.pay_sent, "version": 0})
     with pytest.raises(Conflict):
         store.save_op(old)
@@ -179,8 +185,9 @@ def test_two_clicks_that_both_pass_the_price_check_buy_once(purchases, store, pr
     provider.verify = verify_while_another_click_buys
     with pytest.raises(ActionError):
         purchases.buy(SHOP, s.id, b, "george", "k1")
-    assert len(provider.charges) == 1 and store.open_op(SHOP, s.id) is None
+    assert len(provider.charges) == 1
     assert store.op_by_key(SHOP, "k1") is None  # no orphan operation was left behind
+    assert [op.idempotency_key for op in store.ops_for(SHOP, s.id)] == ["k2"]
 
 
 def test_an_unexpected_state_when_recording_a_paid_label_is_made_visible(

@@ -160,9 +160,12 @@ def test_one_broken_operation_does_not_stop_the_others_reconciling(store, provid
 
     provider.read_order = read
     purchases.reconcile_all()  # must not raise
-    states = {op.provider_ref: op.state for op in (store.op_by_key(SHOP, k) for k in ("k1", "k2"))}
-    assert states[bad] == OpState.pay_unknown  # still unknown, still checked next time
-    assert OpState.done in states.values()
+    ops = {k: store.op_by_key(SHOP, k) for k in ("k1", "k2")}
+    broken = next(op for op in ops.values() if op.provider_ref == bad)
+    healthy = next(op for op in ops.values() if op.provider_ref != bad)
+    assert broken.state == OpState.pay_unknown  # still unknown, still checked next time
+    assert healthy.state in (OpState.paid, OpState.done)  # reconciled despite the other
+    assert store.get(SHOP, healthy.shipment_id).label is not None
     assert len(provider.charges) == 2  # one each, never more
 
 
