@@ -23,7 +23,7 @@ import time
 import uuid
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 
@@ -37,6 +37,7 @@ from shipping.documents import (
 )
 from shipping.models import (
     Address,
+    Country,
     CustomsMode,
     DocumentKind,
     PackagePlan,
@@ -58,6 +59,12 @@ from shipping.providers.base import (
 from shipping.store import now
 
 log = logging.getLogger("shipping.parcel2go")
+
+
+class ReferenceCache(Protocol):
+    def reference(self, provider: str, kind: str) -> tuple[Any, datetime] | None: ...
+    def put_reference(self, provider: str, kind: str, data: Any, at: datetime) -> None: ...
+
 
 CARRIERS = {
     "myhermes": "Evri",
@@ -173,6 +180,17 @@ def _errors(r: httpx.Response) -> str:
     return str(body)[:300]
 
 
+def _price(value: Any, what: str, error: type[ProviderError]) -> int:
+    """A price in pence. Missing, malformed or not positive is an error, never 0."""
+    try:
+        minor = to_minor(value) if value not in (None, "") else None
+    except ArithmeticError:
+        minor = None
+    if minor is None or minor <= 0:
+        raise error(f"Parcel2Go's {what} answer had no usable price ({value!r}).")
+    return minor
+
+
 def next_working_day(today: date) -> date:
     d = today + timedelta(days=1)
     while d.weekday() >= 5:
@@ -191,8 +209,11 @@ class Parcel2Go:
         config: Callable[[str], ShopConfig],
         http: httpx.Client | None = None,
         clock: Callable[[], datetime] = now,
+        cache: ReferenceCache | None = None,
+        countries_ttl: timedelta = timedelta(days=7),
     ) -> None:
         self.base = base_url.rstrip("/")
+        self.cache, self.countries_ttl = cache, countries_ttl
         self.client_id, self.client_secret = client_id, client_secret
         self.config = config
         self.clock = clock
@@ -224,8 +245,14 @@ class Parcel2Go:
                 raise ProviderUnavailable(
                     f"Parcel2Go refused the API credentials ({r.status_code})", code="auth"
                 )
-            body = r.json()
-            self._token = (body["access_token"], time.time() + int(body.get("expires_in", 3600)))
+            try:
+                body = r.json()
+                self._token = (
+                    str(body["access_token"]),
+                    time.time() + int(body.get("expires_in", 3600)),
+                )
+            except (ValueError, KeyError, TypeError) as exc:
+                raise ProviderUnavailable("Parcel2Go sent an unreadable token answer.") from exc
             return self._token[0]
 
     def _call(self, method: str, path: str, **kw: Any) -> Any:
@@ -245,7 +272,16 @@ class Parcel2Go:
             raise ProviderUnavailable(f"Parcel2Go is having problems ({r.status_code})")
         if r.status_code >= 400:
             raise ProviderRefused(_errors(r), code=str(r.status_code))
-        return r.json() if r.content else None
+        if not r.content:
+            return None
+        try:
+            return r.json()
+        except ValueError as exc:
+            # The provider did something and answered with garbage. For a write that may
+            # have taken effect, that is "unknown"; for a read it is just "not available".
+            if writes:
+                raise ProviderUncertain(f"Parcel2Go's answer to {path} was unreadable.") from exc
+            raise ProviderUnavailable(f"Parcel2Go's answer to {path} was unreadable.") from exc
 
     @staticmethod
     def _split(ref: str) -> tuple[str, str, str]:
@@ -255,11 +291,45 @@ class Parcel2Go:
     def countries(self) -> list[dict[str, Any]]:
         """Parcel2Go's own country list. One country can have several rows: the main one (no
         Subdivision) and separately priced regions (Madeira, Canaries, Northern Ireland...).
-        Which region a postcode is in comes from REGIONS, not from these rows."""
-        if self._countries is None:
-            rows = self._call("GET", "/countries") or []
-            self._countries = [c for c in rows if c.get("Iso2Code")]
-        return self._countries
+        Which region a postcode is in comes from REGIONS, not from these rows.
+
+        Cached (in memory, and in the store when one is given) for `countries_ttl`; when
+        Parcel2Go can't be reached, a stale copy is used rather than nothing."""
+        if self._countries is not None:
+            return self._countries
+        cached = self.cache.reference(self.name, "countries") if self.cache else None
+        if cached and self.clock() - cached[1] < self.countries_ttl:
+            self._countries = cached[0]
+            return cached[0]
+        try:
+            rows = self._call("GET", "/countries")
+            if not isinstance(rows, list):
+                raise ProviderUnavailable("Parcel2Go sent an unexpected country list.")
+            fresh = [c for c in rows if isinstance(c, dict) and c.get("Iso2Code")]
+            if not fresh:
+                raise ProviderUnavailable("Parcel2Go sent an empty country list.")
+        except ProviderError:
+            if cached:
+                log.warning("Parcel2Go countries unavailable; using the copy from %s", cached[1])
+                self._countries = cached[0]
+                return cached[0]
+            raise
+        if self.cache:
+            self.cache.put_reference(self.name, "countries", fresh, self.clock())
+        self._countries = fresh
+        return fresh
+
+    def place(self, iso2: str, postcode: str = "") -> Country:
+        """A country as CLIVE models it, with Parcel2Go's region code for this postcode."""
+        found = self._main(iso2)
+        if not found:
+            raise ProviderRefused(f"Parcel2Go doesn't deliver to {iso2}.", code="country")
+        return Country(
+            iso2=iso2.upper(),
+            iso3=found["Iso3Code"],
+            name=self._country_name(iso2),
+            subdivision=self._subdivision(iso2, postcode) if postcode else None,
+        )
 
     def _main(self, iso2: str) -> dict[str, Any] | None:
         rows = [c for c in self.countries() if c["Iso2Code"].upper() == (iso2 or "").upper()]
@@ -369,38 +439,58 @@ class Parcel2Go:
             },
             "Parcels": [{**self._parcel(shipment), "Value": self._value(shipment)}],
         }
+        try:
+            answer = self._call("POST", "/quotes", json=body)
+        except ProviderUncertain as exc:  # quoting never spends: a lost answer is just missing
+            raise ProviderUnavailable(str(exc)) from exc
+        if not isinstance(answer, dict):
+            raise ProviderUnavailable("Parcel2Go sent an unexpected quotes answer.")
         out = []
-        for q in (self._call("POST", "/quotes", json=body) or {}).get("Quotes") or []:
-            svc = q.get("Service") or {}
-            if svc.get("DeliveryType") not in (None, "Door") or not self._fits(shipment, svc):
+        for q in answer.get("Quotes") or []:
+            try:
+                quote = self._quote(shipment, q)
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+                ArithmeticError,
+                AttributeError,
+                ProviderError,
+            ) as exc:
+                log.warning("skipping an unreadable Parcel2Go quote: %s", exc)
                 continue
-            slug = (svc.get("CourierSlug") or "").lower()
-            carrier = next(
-                (v for k, v in CARRIERS.items() if k in slug), svc.get("CourierName") or slug
-            )
-            days = None
-            if q.get("EstimatedDeliveryDate") and q.get("Collection"):
-                days = max(
-                    1,
-                    (
-                        date.fromisoformat(q["EstimatedDeliveryDate"][:10])
-                        - date.fromisoformat(q["Collection"][:10])
-                    ).days,
-                )
-            out.append(
-                Quote(
-                    provider=self.name,
-                    carrier=carrier,
-                    service_code=svc["Slug"],
-                    service_name=(svc.get("Name") or svc["Slug"]).replace("myHermes", "Evri"),
-                    amount=Money(minor=to_minor(q.get("TotalPrice"))),
-                    est_days_max=days,
-                    printer_required=bool(svc.get("IsPrinterRequired", True)),
-                    ship_date=(q.get("Collection") or "")[:10] or None,
-                    generated_at=self.clock(),
-                )
-            )
+            if quote is not None:
+                out.append(quote)
         return out
+
+    def _quote(self, shipment: Shipment, q: dict[str, Any]) -> Quote | None:
+        svc = q.get("Service") or {}
+        if svc.get("DeliveryType") not in (None, "Door") or not self._fits(shipment, svc):
+            return None
+        slug = (svc.get("CourierSlug") or "").lower()
+        carrier = next(
+            (v for k, v in CARRIERS.items() if k in slug), svc.get("CourierName") or slug
+        )
+        days = None
+        if q.get("EstimatedDeliveryDate") and q.get("Collection"):
+            days = max(
+                1,
+                (
+                    date.fromisoformat(q["EstimatedDeliveryDate"][:10])
+                    - date.fromisoformat(q["Collection"][:10])
+                ).days,
+            )
+        return Quote(
+            provider=self.name,
+            carrier=carrier,
+            service_code=svc["Slug"],
+            service_name=(svc.get("Name") or svc["Slug"]).replace("myHermes", "Evri"),
+            amount=Money(minor=_price(q.get("TotalPrice"), "quote", ProviderUnavailable)),
+            est_days_max=days,
+            printer_required=bool(svc.get("IsPrinterRequired", True)),
+            ship_date=(q.get("Collection") or "")[:10] or None,
+            generated_at=self.clock(),
+        )
 
     @classmethod
     def _fits(cls, s: Shipment, svc: dict[str, Any]) -> bool:
@@ -470,22 +560,34 @@ class Parcel2Go:
         }
 
     def verify(self, shipment: Shipment, quote: Quote) -> int:
-        body = self._call("POST", "/orders/verify", json=self._order(shipment, quote, "verify"))
-        errors = (body or {}).get("Errors") or []
+        try:
+            body = self._call("POST", "/orders/verify", json=self._order(shipment, quote, "verify"))
+        except ProviderUncertain as exc:  # verify never spends: a lost answer is just missing
+            raise ProviderUnavailable(str(exc)) from exc
+        if not isinstance(body, dict):
+            raise ProviderUnavailable("Parcel2Go sent an unexpected price check answer.")
+        errors = body.get("Errors") or []
         if errors:
-            raise ProviderRefused("; ".join(str(e.get("Error") or e) for e in errors)[:400])
-        return to_minor((body or {}).get("Cost"))
+            raise ProviderRefused(
+                "; ".join(str(e.get("Error") if isinstance(e, dict) else e) for e in errors)[:400]
+            )
+        return _price(body.get("Cost"), "price check", ProviderUnavailable)
 
     def create_order(self, shipment: Shipment, quote: Quote, reference: str) -> ProviderOrder:
-        made = self._call("POST", "/orders", json=self._order(shipment, quote, reference)) or {}
-        order_id, order_hash = str(made.get("OrderId") or ""), made.get("Hash") or ""
-        if not order_id:
-            raise ProviderRefused(f"Parcel2Go created no order: {str(made)[:200]}")
-        line = str(((made.get("OrderlineIdMap") or [{}])[0]).get("OrderLineId") or "")
+        made = self._call("POST", "/orders", json=self._order(shipment, quote, reference))
+        if not isinstance(made, dict):
+            raise ProviderUncertain("Parcel2Go's order answer was unreadable; nothing was paid.")
+        order_id, order_hash = str(made.get("OrderId") or ""), str(made.get("Hash") or "")
+        if not order_id or not order_hash:
+            raise ProviderRefused(f"Parcel2Go created no usable order: {str(made)[:200]}")
+        try:
+            line = str(((made.get("OrderlineIdMap") or [{}])[0]).get("OrderLineId") or "")
+        except (AttributeError, IndexError, TypeError):
+            line = ""
+        # An order whose price we can't read is never paid: the price is the authorisation.
+        amount = _price(made.get("TotalPrice"), "order", ProviderUncertain)
         return ProviderOrder(
-            ref=f"p2g:{order_id}:{line}:{order_hash}",
-            amount_minor=to_minor(made.get("TotalPrice")),
-            currency="GBP",
+            ref=f"p2g:{order_id}:{line}:{order_hash}", amount_minor=amount, currency="GBP"
         )
 
     def pay(self, ref: str) -> None:
@@ -498,10 +600,15 @@ class Parcel2Go:
 
     def read_order(self, ref: str) -> OrderReadback:
         order_id, _, order_hash = self._split(ref)
-        got = self._call("GET", "/orders", params={"orderId": order_id, "hash": order_hash}) or {}
-        return OrderReadback(
-            paid=bool(got.get("PaidDate")), amount_minor=to_minor(got.get("TotalPrice"))
-        )
+        got = self._call("GET", "/orders", params={"orderId": order_id, "hash": order_hash})
+        if not isinstance(got, dict) or "PaidDate" not in got:
+            # Without the field we can't tell paid from unpaid: say nothing rather than "no".
+            raise ProviderUnavailable("Parcel2Go's order answer didn't say whether it was paid.")
+        try:
+            amount = to_minor(got.get("TotalPrice"))
+        except ArithmeticError:
+            amount = None
+        return OrderReadback(paid=bool(got.get("PaidDate")), amount_minor=amount)
 
     def documents(self, ref: str) -> Documents:
         """The paid order's genuine 4x6 label and its customs paperwork, classified.

@@ -9,10 +9,12 @@ buy the same label cannot both get a row.
 from __future__ import annotations
 
 import hashlib
+import json
 import secrets
 import sqlite3
 import threading
 from datetime import UTC, datetime
+from typing import Any
 
 from shipping.models import OPEN_OP_STATES, ProviderOp, Shipment, ShopConfig
 
@@ -70,6 +72,15 @@ CREATE TABLE IF NOT EXISTS package_choices (
   uses INTEGER NOT NULL,
   at TEXT NOT NULL,
   PRIMARY KEY (shop, signature)
+);
+-- Provider reference data (e.g. Parcel2Go's country list), cached so screens and quotes don't
+-- depend on the provider being up. Not per shop: it describes the provider, not a merchant.
+CREATE TABLE IF NOT EXISTS reference (
+  provider TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  doc TEXT NOT NULL,
+  PRIMARY KEY (provider, kind)
 );
 CREATE TABLE IF NOT EXISTS artifacts (
   shop TEXT NOT NULL,
@@ -302,6 +313,23 @@ class Store:
             (shop, signature),
         ).fetchone()
         return row[0] if row else None
+
+    # ---------------------------------------------------------------- reference data
+
+    def put_reference(self, provider: str, kind: str, data: Any, at: datetime) -> None:
+        with self.lock:
+            self._db.execute(
+                "INSERT INTO reference (provider, kind, fetched_at, doc) VALUES (?,?,?,?) "
+                "ON CONFLICT(provider, kind) DO UPDATE SET fetched_at=excluded.fetched_at, "
+                "doc=excluded.doc",
+                (provider, kind, at.isoformat(), json.dumps(data)),
+            )
+
+    def reference(self, provider: str, kind: str) -> tuple[Any, datetime] | None:
+        row = self._db.execute(
+            "SELECT doc, fetched_at FROM reference WHERE provider=? AND kind=?", (provider, kind)
+        ).fetchone()
+        return (json.loads(row[0]), datetime.fromisoformat(row[1])) if row else None
 
     # ---------------------------------------------------------------- artifacts
 

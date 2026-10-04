@@ -175,3 +175,22 @@ def test_parcel2go_says_plainly_when_there_is_no_package(store, provider):
     s.package = None
     with pytest.raises(ProviderRefused, match="package"):
         p2g._parcel(s)
+
+
+def test_an_order_without_a_usable_price_is_never_paid(purchases, store, provider):
+    # Whatever the adapter does, the protocol itself never pays an order priced at 0 or less:
+    # "not more than you agreed" must not be satisfied by a price it couldn't read.
+    from shipping.providers.base import ProviderOrder
+
+    s = make_shipment(store, provider)
+    b = purchases.preview(SHOP, s.id)["basis"]
+    real_create = provider.create_order
+
+    def zero_priced(shipment, quote, reference):
+        made = real_create(shipment, quote, reference)
+        return ProviderOrder(ref=made.ref, amount_minor=0, currency="GBP")
+
+    provider.create_order = zero_priced
+    out = purchases.buy(SHOP, s.id, b, "george", "k1")
+    assert out["operation_state"] == "failed" and "usable price" in out["error"]
+    assert "pay" not in provider.calls and provider.charges == []

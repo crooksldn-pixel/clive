@@ -96,3 +96,24 @@ def make_shipment(
     s.quote = provider.quotes(s)[0]
     store.save(s)
     return s
+
+
+@pytest.fixture
+def server():
+    from .fake_p2g import FakeP2G
+
+    return FakeP2G()
+
+
+@pytest.fixture
+def cfg():
+    from .fake_p2g import shop_config
+
+    return shop_config()
+
+
+@pytest.fixture
+def p2g(server, cfg, clock):
+    from .fake_p2g import adapter
+
+    return adapter(server, cfg, clock)

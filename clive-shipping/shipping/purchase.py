@@ -286,6 +286,13 @@ class Purchases:
                 op.provider_ref = order.ref
                 op.state = OpState.order_created
                 self.store.save_op(op)
+                if order.amount_minor <= 0:
+                    self._fail(
+                        op,
+                        f"{self.provider.name} didn't give the order a usable price, so it was "
+                        "not paid. Check the price again.",
+                    )
+                    return
                 if order.amount_minor > op.amount.minor:
                     self._fail(
                         op,
