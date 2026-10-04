@@ -1,5 +1,5 @@
-"""Shopify Admin GraphQL for Shipping. Every document here was validated against the Admin
-schema (2026-10-04) before it was written down. Shopify is the system of record: fulfillment
+"""Shopify Admin GraphQL for Shipping, Admin API 2026-10 (API_VERSION). Every document here is
+validated against that schema: `python scripts/validate_graphql.py` (Shopify AI Toolkit). Shopify is the system of record: fulfillment
 orders say what ships, InventoryItem holds the customs facts, fulfillments carry tracking.
 
 Same client pattern as crooks-returns (client credentials, retries on throttling), copied
@@ -247,13 +247,27 @@ class ShopifyPort(Protocol):
     ) -> str: ...
 
 
+API_VERSION = "2026-10"
+
+# Every GraphQL document the app sends, for scripts/validate_graphql.py.
+DOCUMENTS = (
+    "Q_OPEN_FOS",
+    "Q_FO",
+    "Q_INVENTORY_ITEMS",
+    "Q_PRODUCT_ITEMS",
+    "M_INVENTORY_ITEM_UPDATE",
+    "M_FULFILLMENT_CREATE",
+    "Q_LOCATIONS",
+)
+
+
 class GraphQLShopify:
     def __init__(
         self,
         shop_domain: str,
         client_id: str,
         client_secret: str,
-        api_version: str = "2026-10",
+        api_version: str = API_VERSION,
         http: httpx.Client | None = None,
     ) -> None:
         self.shop = shop_domain
