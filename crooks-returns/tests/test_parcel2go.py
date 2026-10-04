@@ -499,3 +499,37 @@ def test_ctl_collect_sends_stuck_labels_now(psvc, p2g_server, monkeypatch, capsy
     assert f"Sent    {ret.id}" in capsys.readouterr().out
     assert psvc.store.get(ret.id).status == Status.awaiting_shipment
     assert p2g_server.paid == ["26633"]
+
+
+def no_email(psvc, shop, ret):
+    order = shop.orders["gid://shopify/Order/1939"]
+    order.email = order.customer_email = None
+    ret.customer_email = None
+    psvc.store.save(ret)
+    return ret
+
+
+def test_a_customer_with_no_email_gets_ours_on_the_label(psvc, shop, p2g_server):
+    # CROOKS-2082: "Collection Address: Please enter the email address".
+    psvc.s.returns_contact_email = "returns@crooksldn.com"
+    ret = no_email(psvc, shop, request(psvc))
+    ret = approve(psvc, ret)
+    assert ret.status == Status.awaiting_shipment
+    sent = p2g_server.orders[0]["Items"][0]["CollectionAddress"]
+    assert sent["Email"] == "returns@crooksldn.com"
+
+
+def test_no_email_anywhere_is_said_plainly_before_anything_is_ordered(psvc, shop, p2g_server):
+    psvc.s.returns_contact_email = ""
+    ret = no_email(psvc, shop, request(psvc))
+    ret = approve(psvc, ret)
+    assert ret.status == Status.awaiting_label and "RETURNS_RETURNS_CONTACT_EMAIL" in ret.last_error
+    assert p2g_server.orders == [] and p2g_server.paid == []
+
+
+def test_the_order_email_is_used_when_the_return_has_none(psvc, shop, p2g_server):
+    ret = request(psvc)
+    ret.customer_email = None
+    psvc.store.save(ret)
+    approve(psvc, ret)
+    assert p2g_server.orders[0]["Items"][0]["CollectionAddress"]["Email"] == "customer@example.com"

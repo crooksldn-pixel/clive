@@ -662,6 +662,9 @@ class ReturnsService:
         address = dict((order.shipping_address if order else None) or {})
         # Couriers want a phone for the sender: the address's, else the order's.
         address["phone"] = address.get("phone") or (order.phone if order else None)
+        address["email"] = address.get("email") or (
+            (order.email or order.customer_email) if order else None
+        )
         try:
             label = self.labels.create(ret, address)
         except LabelError as exc:

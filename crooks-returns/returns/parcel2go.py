@@ -180,8 +180,12 @@ class Parcel2Go:
         name = " ".join(x for x in (address.get("firstName"), address.get("lastName")) if x)
         return {
             "ContactName": name or ret.customer_name or "Customer",
-            "Email": ret.customer_email or None,
-            # Parcel2Go insists on a sender phone; ours if the customer gave none.
+            # Parcel2Go insists on a sender email and phone; ours when the customer's isn't
+            # known (an order with no email, or Shopify withholding it from the app).
+            "Email": ret.customer_email
+            or address.get("email")
+            or self.s.returns_contact_email
+            or None,
             "Phone": address.get("phone") or self.s.returns_contact_phone or None,
             "Property": prop,
             "Street": street or prop,
@@ -329,6 +333,11 @@ class Parcel2Go:
             raise LabelError(
                 "The courier needs a phone number for the customer and the order has none. "
                 "Set RETURNS_RETURNS_CONTACT_PHONE so ours is used, or add tracking by hand."
+            )
+        if not collection["Email"]:
+            raise LabelError(
+                "The courier needs an email address for the customer and the order has none. "
+                "Set RETURNS_RETURNS_CONTACT_EMAIL so ours is used, or add tracking by hand."
             )
         value = declared_value_pence(ret.lines)
         option = self._pick(ret.postage.service, collection["Postcode"], value)
