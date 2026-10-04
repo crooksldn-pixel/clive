@@ -14,6 +14,8 @@ Every failure is sorted into exactly one of the purchase protocol's three kinds:
 
 from __future__ import annotations
 
+import base64
+import binascii
 import logging
 import re
 import threading
@@ -25,11 +27,29 @@ from typing import Any
 
 import httpx
 
-from shipping.models import Address, PackagePlan, Quote, Shipment, ShopConfig
+from shipping.documents import (
+    ENVELOPE,
+    CustomsEvidence,
+    customs_mode,
+    is_pdf,
+    page_size,
+    pdf_pages,
+)
+from shipping.models import (
+    Address,
+    CustomsMode,
+    DocumentKind,
+    PackagePlan,
+    Quote,
+    Shipment,
+    ShopConfig,
+)
 from shipping.money import Money, to_minor
 from shipping.providers.base import (
     Documents,
     OrderReadback,
+    ProviderDocument,
+    ProviderError,
     ProviderOrder,
     ProviderRefused,
     ProviderUnavailable,
@@ -484,45 +504,147 @@ class Parcel2Go:
         )
 
     def documents(self, ref: str) -> Documents:
+        """The paid order's genuine 4x6 label and its customs paperwork, classified.
+
+        Endpoints (sandbox-verified 2026-10-05): GET /labels/{orderId} with detailLevel
+        Labels + labelMedia Label4X6 is a single 100x150 mm page (the order's "labels-4x6" link
+        is not: it mixes A4 pages in). AdditionalDocuments is 404 when nothing must be printed,
+        else the invoice copies to attach; CommercialInvoice is one A4 page; All is label +
+        invoice + additional. Paperless needs AdditionalDocuments and All to agree."""
         order_id, line_id, order_hash = self._split(ref)
         got = self._call("GET", "/orders", params={"orderId": order_id, "hash": order_hash}) or {}
-        if not got.get("PaidDate"):
+        if not isinstance(got, dict) or not got.get("PaidDate"):
             raise ProviderRefused("The order isn't paid, so it has no label.")
-        links = {str(k).lower(): v for k, v in (got.get("Links") or {}).items() if v}
-        label_4x6 = self._fetch(links.get("labels-4x6"))
-        label_a4 = self._fetch(links.get("labels-a4"))
-        if not (label_4x6 or label_a4):
+        labels = self._labels(order_id, order_hash, "Labels", "Label4X6")
+        label = next((b for b in labels if is_pdf(b)), None)
+        if label is None:
             raise ProviderUnavailable("The label isn't ready yet.")
-        tracking = None
+        docs = [
+            ProviderDocument(
+                kind=DocumentKind.shipping_label,
+                body=label,
+                page_size=page_size(label),
+                pages=pdf_pages(label),
+                copies_required=1,
+                must_print=True,
+                attach_to_parcel=True,
+            )
+        ]
+
+        def pages(detail: str) -> tuple[int | None, bytes | None]:
+            try:
+                found = self._labels(order_id, order_hash, detail, "A4")
+            except ProviderError as exc:
+                log.info("%s for order %s: %s", detail, order_id, exc)
+                return None, None
+            pdfs = [b for b in found if is_pdf(b)]
+            if len(pdfs) != len(found):
+                return None, None  # something that isn't a PDF: can't count it
+            return sum(pdf_pages(b) for b in pdfs), (pdfs[0] if pdfs else None)
+
+        additional, extra_pdf = pages("AdditionalDocuments")
+        invoice_pages, invoice_pdf = pages("CommercialInvoice")
+        all_pages, _ = pages("All")
+        evidence = CustomsEvidence(
+            route_requires_customs=self._requires_customs(got),
+            additional_pages=additional,
+            invoice_pages=invoice_pages,
+            label_pages=pdf_pages(label) or None,
+            all_pages=all_pages,
+        )
+        mode, copies = customs_mode(evidence)
+        if mode == CustomsMode.paper and extra_pdf is not None:
+            per_copy = invoice_pages or 1
+            invoices = copies % per_copy == 0
+            docs.append(
+                ProviderDocument(
+                    kind=DocumentKind.commercial_invoice
+                    if invoices
+                    else DocumentKind.other_documents,
+                    body=extra_pdf,
+                    page_size=page_size(extra_pdf),
+                    pages=copies,
+                    copies_required=copies // per_copy if invoices else 1,
+                    must_print=True,
+                    attach_to_parcel=True,
+                    note=ENVELOPE,
+                )
+            )
+        elif invoice_pdf is not None and mode != CustomsMode.unknown:
+            docs.append(  # kept for the record; the courier has the data
+                ProviderDocument(
+                    kind=DocumentKind.commercial_invoice,
+                    body=invoice_pdf,
+                    page_size=page_size(invoice_pdf),
+                    pages=invoice_pages or 0,
+                    electronic=mode == CustomsMode.electronic,
+                )
+            )
+        links = {str(k).lower(): v for k, v in (got.get("Links") or {}).items() if v}
+        courier = self._courier_tracking(order_id)
+        return Documents(
+            documents=docs,
+            customs=mode,
+            # Until the courier's number exists (none in the sandbox), Parcel2Go's own.
+            tracking_number=courier or (f"P2G{line_id}" if line_id else None),
+            tracking_url=links.get("tracking-page")
+            or (f"https://www.parcel2go.com/tracking/{line_id}" if line_id else None),
+            provider_ids={"order": order_id, "order_line": line_id}
+            | ({"courier_tracking": courier} if courier else {}),
+        )
+
+    def _labels(self, order_id: str, order_hash: str, detail: str, media: str) -> list[bytes]:
+        """Documents at one detail level, decoded. [] when Parcel2Go has none (404)."""
+        try:
+            body = self._call(
+                "GET",
+                f"/labels/{order_id}",
+                params={
+                    "referenceType": "OrderId",
+                    "detailLevel": detail,
+                    "labelMedia": media,
+                    "labelFormat": "PDF",
+                    "hash": order_hash,
+                },
+            )
+        except ProviderRefused as exc:
+            if exc.code == "404":
+                return []
+            raise
+        if not isinstance(body, dict):
+            raise ProviderUnavailable(f"Parcel2Go sent an unexpected {detail} answer.")
+        out = []
+        for encoded in body.get("Base64EncodedLabels") or []:
+            try:
+                out.append(base64.b64decode(encoded, validate=True))
+            except (binascii.Error, ValueError, TypeError) as exc:
+                raise ProviderUnavailable(f"Parcel2Go sent an unreadable {detail}.") from exc
+        return out
+
+    def _requires_customs(self, order: dict[str, Any]) -> bool:
+        """From the order's delivery country and Parcel2Go's own country list. When in doubt,
+        yes: the cost of that answer is checking paperwork, not a parcel stuck at customs."""
+        try:
+            iso3 = order["Items"][0]["Parcels"][0]["DeliveryAddress"]["CountryIsoCode"]
+        except (KeyError, IndexError, TypeError):
+            return True
+        rows = [c for c in self.countries() if c.get("Iso3Code") == iso3]
+        return any(c.get("RequiresCustoms", True) is not False for c in rows) or not rows
+
+    def _courier_tracking(self, order_id: str) -> str | None:
         try:
             numbers = self._call("POST", f"/orders/{order_id}/parcelnumbers") or {}
-            tracking = next(
+            return next(
                 (
                     t.get("TrackingNumber")
-                    for t in numbers.get("TrackingNumbers") or []
-                    if t.get("TrackingNumber")
+                    for t in (numbers.get("TrackingNumbers") or [])
+                    if isinstance(t, dict) and t.get("TrackingNumber")
                 ),
                 None,
             )
-        except (ProviderRefused, ProviderUnavailable, ProviderUncertain) as exc:
+        except (ProviderError, AttributeError) as exc:
             log.info("tracking for %s not ready: %s", order_id, exc)
-        return Documents(
-            label_4x6=label_4x6,
-            label_a4=label_a4,
-            # Parcel2Go puts the commercial invoices inside the label PDF.
-            tracking_number=tracking or (f"P2G{line_id}" if line_id else None),
-            tracking_url=links.get("tracking-page")
-            or (f"https://www.parcel2go.com/tracking/{line_id}" if line_id else None),
-        )
-
-    def _fetch(self, url: str | None) -> bytes | None:
-        if not url:
             return None
-        try:
-            r = self._http.get(url)
-        except httpx.HTTPError:
-            return None
-        return r.content if r.status_code == 200 and r.content.startswith(b"%PDF") else None
 
 
 def balance(provider: Parcel2Go) -> Money | None:

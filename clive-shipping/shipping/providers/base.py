@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from shipping.models import Quote, Shipment
+from shipping.models import CustomsMode, DocumentKind, PageSize, Quote, Shipment
 
 
 class ProviderError(RuntimeError):
@@ -53,13 +53,34 @@ class OrderReadback:
 
 
 @dataclass
+class ProviderDocument:
+    """A document as the provider returned it, already classified by the adapter."""
+
+    kind: DocumentKind
+    body: bytes | None  # None: nothing to print (e.g. customs filed electronically)
+    media_type: str = "application/pdf"
+    page_size: PageSize = PageSize.other
+    pages: int = 0
+    copies_required: int = 0
+    must_print: bool = False
+    attach_to_parcel: bool = False
+    electronic: bool = False
+    note: str = ""
+
+
+@dataclass
 class Documents:
-    label_4x6: bytes | None = None
-    label_a4: bytes | None = None
-    customs: bytes | None = None  # commercial invoices, when separate from the label PDF
+    """Everything that comes with a paid label. `customs` is UNKNOWN until the adapter has
+    positive evidence either way; it is never guessed as electronic."""
+
+    documents: list[ProviderDocument] = field(default_factory=list)
+    customs: CustomsMode = CustomsMode.unknown
     tracking_number: str | None = None
     tracking_url: str | None = None
-    extra: dict[str, str] = field(default_factory=dict)
+    provider_ids: dict[str, str] = field(default_factory=dict)
+
+    def find(self, kind: DocumentKind) -> ProviderDocument | None:
+        return next((d for d in self.documents if d.kind == kind), None)
 
 
 class ShippingProvider(Protocol):

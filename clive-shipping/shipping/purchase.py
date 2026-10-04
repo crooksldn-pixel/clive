@@ -26,7 +26,15 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from shipping.basis import basis
-from shipping.models import Label, OpState, ProviderOp, Shipment
+from shipping.models import (
+    CustomsMode,
+    DocumentKind,
+    Label,
+    OpState,
+    ProviderOp,
+    Shipment,
+    ShipmentDocument,
+)
 from shipping.models import ShipmentStatus as S
 from shipping.money import Money
 from shipping.providers.base import (
@@ -382,34 +390,60 @@ class Purchases:
             return
         with self.store.lock:
             s = self._get(op.shop, op.shipment_id)
-            arts = dict(s.label.artifacts) if s.label else {}
-            for kind, body in (
-                ("label_4x6", docs.label_4x6),
-                ("label_a4", docs.label_a4),
-                ("customs", docs.customs),
-            ):
-                if body and kind not in arts:
-                    arts[kind] = self.store.put_artifact(
-                        op.shop, s.id, kind, "application/pdf", body
+            if s.label is None:  # not recorded as bought: nothing to attach documents to
+                log.error("documents for %s but shipment %s has no label", op.id, s.id)
+                return
+            stored = {d.kind: d for d in s.label.documents if d.artifact_id or d.electronic}
+            for doc in docs.documents:
+                if doc.kind in stored:
+                    continue  # fetched on an earlier try: keep the first copy
+                artifact = None
+                if doc.body:
+                    artifact = self.store.put_artifact(
+                        op.shop, s.id, doc.kind.value, doc.media_type, doc.body
                     )
-            if s.label:
-                s.label = s.label.model_copy(
-                    update={
-                        "artifacts": arts,
-                        "tracking_number": docs.tracking_number or s.label.tracking_number,
-                        "tracking_url": docs.tracking_url or s.label.tracking_url,
-                    }
+                stored[doc.kind] = ShipmentDocument(
+                    kind=doc.kind,
+                    artifact_id=artifact,
+                    media_type=doc.media_type,
+                    page_size=doc.page_size,
+                    pages=doc.pages,
+                    copies_required=doc.copies_required,
+                    must_print=doc.must_print,
+                    attach_to_parcel=doc.attach_to_parcel,
+                    electronic=doc.electronic,
+                    note=doc.note,
                 )
-            s.last_error = None
-            self._event(
-                s,
-                "documents_stored",
-                "system",
-                {"kinds": sorted(arts), "tracking": docs.tracking_number},
-                verified=True,
+            customs = docs.customs if docs.customs != CustomsMode.unknown else s.label.customs
+            s.label = s.label.model_copy(
+                update={
+                    "documents": list(stored.values()),
+                    "customs": customs,
+                    "tracking_number": docs.tracking_number or s.label.tracking_number,
+                    "tracking_url": docs.tracking_url or s.label.tracking_url,
+                    "provider_ids": {**s.label.provider_ids, **docs.provider_ids},
+                }
             )
+            if s.label.complete:
+                s.last_error = None
+                self._event(
+                    s,
+                    "documents_stored",
+                    "system",
+                    {
+                        "documents": [d.kind.value for d in s.label.documents],
+                        "customs": customs.value,
+                        "tracking": s.label.tracking_number,
+                    },
+                    verified=True,
+                )
+                op.state = OpState.done
+            else:
+                s.last_error = (
+                    "The label is bought. Its customs paperwork isn't confirmed yet; CLIVE "
+                    "keeps checking. Don't buy again."
+                )
             self.store.save(s)
-            op.state = OpState.done
             self.store.save_op(op)
 
     # ------------------------------------------------------------------ reconcile
@@ -482,17 +516,22 @@ class Purchases:
 
     # ------------------------------------------------------------------ reprint
 
-    def reprint(self, shop: str, shipment_id: str, kind: str = "label_4x6") -> tuple[str, bytes]:
-        """The label already bought, again. Never calls the provider; never spends money."""
+    def reprint(
+        self, shop: str, shipment_id: str, kind: DocumentKind = DocumentKind.shipping_label
+    ) -> tuple[str, bytes]:
+        """A document of the label already bought, again. Reads stored artifacts only: there
+        is no path from here to the provider, so it can never buy or pay."""
         s = self._get(shop, shipment_id)
-        if not s.label or not s.label.artifacts:
-            raise ActionError("There's no stored label to print for this order yet.")
-        artifact_id = s.label.artifacts.get(kind) or next(iter(s.label.artifacts.values()))
-        found = self.store.get_artifact(shop, artifact_id)
+        doc = s.label.document(kind) if s.label else None
+        if doc is None or not doc.artifact_id:
+            raise ActionError("There's no stored document of that kind to print yet.")
+        found = self.store.get_artifact(shop, doc.artifact_id)
         if not found:
-            raise ActionError("The stored label is missing.", 404)
-        self._event(s, "reprinted", "system", {"artifact": artifact_id})
-        self.store.save(s)
+            raise ActionError("The stored document is missing.", 404)
+        with self.store.lock:
+            s = self._get(shop, shipment_id)
+            self._event(s, "reprinted", "system", {"document": kind.value})
+            self.store.save(s)
         return found[1], found[2]
 
     # ------------------------------------------------------------------ results

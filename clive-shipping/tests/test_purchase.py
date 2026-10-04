@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 
-from shipping.models import OpState, ProviderOp
+from shipping.models import CustomsMode, DocumentKind, OpState, ProviderOp
 from shipping.models import ShipmentStatus as S
 from shipping.money import Money
 from shipping.purchase import ActionError, Stale
@@ -33,7 +33,11 @@ def test_happy_path_buys_exactly_one_label(purchases, store, provider):
     assert out["status"] == "label_purchased" and out["charged"] and not out["error"]
     s = out["shipment"]
     assert s.label.amount == Money(minor=1069) and s.label.tracking_number
-    assert set(s.label.artifacts) == {"label_4x6", "label_a4"}
+    assert {d.kind for d in s.label.documents} == {
+        DocumentKind.shipping_label,
+        DocumentKind.commercial_invoice,
+    }
+    assert s.label.complete and s.label.customs == CustomsMode.electronic
     assert provider.charges == ["fake:91234"]
     assert [e.type for e in s.timeline][-3:] == [
         "purchase_authorised",
@@ -81,7 +85,7 @@ def test_lost_reply_while_readback_lags_waits_and_blocks_rebuying(purchases, sto
         purchases.buy(SHOP, "shp_1", "b", "george", "k2")
     purchases.reconcile_all()  # the next read shows the charge
     s = store.get(SHOP, "shp_1")
-    assert s.status == S.label_purchased and s.label.artifacts
+    assert s.status == S.label_purchased and s.label.complete
     assert provider.calls.count("pay") == 1 and len(provider.charges) == 1
 
 
@@ -176,10 +180,10 @@ def test_documents_late_are_fetched_without_paying_again(purchases, store, provi
     provider.documents_down = 1
     out = buy(purchases)
     assert out["status"] == "label_purchased" and "don't buy again" in out["error"]
-    assert not out["shipment"].label.artifacts
+    assert not out["shipment"].label.documents
     purchases.reconcile_all()
     s = store.get(SHOP, "shp_1")
-    assert s.label.artifacts and not s.last_error
+    assert s.label.complete and not s.last_error
     assert provider.calls.count("pay") == 1
 
 
@@ -257,7 +261,7 @@ def test_reprint_never_buys(purchases, store, provider):
     calls = list(provider.calls)
     kind, body = purchases.reprint(SHOP, "shp_1")
     kind2, body2 = purchases.reprint(SHOP, "shp_1")
-    assert body == body2 and body.startswith(b"%PDF 4x6")
+    assert body == body2 and body.startswith(b"%PDF-1.4 4x6")
     assert provider.calls == calls and len(provider.charges) == 1
 
 

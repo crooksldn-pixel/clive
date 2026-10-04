@@ -106,9 +106,10 @@ def main(out_dir: str) -> None:
         "| ref",
         s.label.provider_ref.split(":")[1],
     )
-    for kind, art in s.label.artifacts.items():
-        _, _, body = store.get_artifact(SHOP, art)
-        (out / f"{s.order_name}-{kind}.pdf").write_bytes(body)
+    for doc in s.label.documents:
+        if doc.artifact_id:
+            _, _, body = store.get_artifact(SHOP, doc.artifact_id)
+            (out / f"{s.order_name}-{doc.kind.value}.pdf").write_bytes(body)
     print(
         "   Shopify fulfillment:",
         shopify.fulfillments[-1]["company"],

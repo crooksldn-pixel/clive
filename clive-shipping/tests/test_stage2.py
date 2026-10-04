@@ -341,7 +341,7 @@ def test_reprint_after_fulfilment_never_buys(svc, shopify, provider):
     buy(svc, s)
     _, first = svc.purchases.reprint(SHOP, s.id)
     _, again = svc.purchases.reprint(SHOP, s.id)
-    assert first == again and first.startswith(b"%PDF 4x6") and len(provider.charges) == 1
+    assert first == again and first.startswith(b"%PDF-1.4 4x6") and len(provider.charges) == 1
 
 
 def test_origin_location_is_prefilled_from_shopify(svc, shopify, store):

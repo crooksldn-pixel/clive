@@ -8,11 +8,12 @@ from __future__ import annotations
 import itertools
 from dataclasses import dataclass, field
 
-from shipping.models import Quote, Shipment
+from shipping.models import CustomsMode, DocumentKind, PageSize, Quote, Shipment
 from shipping.money import Money
 from shipping.providers.base import (
     Documents,
     OrderReadback,
+    ProviderDocument,
     ProviderOrder,
     ProviderRefused,
     ProviderUnavailable,
@@ -45,6 +46,9 @@ class FakeProvider:
     documents_down: int = 0  # documents fail this many times
     read_down: int = 0  # read_order fails this many times
     readback_lags: int = 0  # read_order says unpaid this many times even if paid
+    # What documents() reports for customs: "electronic", "paper" (3 A4 invoice copies, like
+    # Evri International) or "unknown" (the adapter couldn't establish it yet).
+    customs: str = "electronic"
     refuse_verify: str | None = None  # verify refuses with this reason (stays set)
     _ids: itertools.count = field(default_factory=lambda: itertools.count(91234))
 
@@ -115,11 +119,46 @@ class FakeProvider:
             raise ProviderUnavailable("label not ready")
         if not self.orders[ref].paid:
             raise ProviderRefused("order not paid")
+        docs = [
+            ProviderDocument(
+                kind=DocumentKind.shipping_label,
+                body=b"%PDF-1.4 4x6 " + ref.encode(),
+                page_size=PageSize.label_4x6,
+                pages=1,
+                copies_required=1,
+                must_print=True,
+                attach_to_parcel=True,
+            )
+        ]
+        mode = CustomsMode(self.customs)
+        if mode == CustomsMode.paper:
+            docs.append(
+                ProviderDocument(
+                    kind=DocumentKind.commercial_invoice,
+                    body=b"%PDF-1.4 invoices x3 " + ref.encode(),
+                    page_size=PageSize.a4,
+                    pages=3,
+                    copies_required=3,
+                    must_print=True,
+                    attach_to_parcel=True,
+                )
+            )
+        elif mode == CustomsMode.electronic:
+            docs.append(
+                ProviderDocument(
+                    kind=DocumentKind.commercial_invoice,
+                    body=b"%PDF-1.4 invoice record " + ref.encode(),
+                    page_size=PageSize.a4,
+                    pages=1,
+                    electronic=True,
+                )
+            )
         return Documents(
-            label_4x6=b"%PDF 4x6 " + ref.encode(),
-            label_a4=b"%PDF a4 " + ref.encode(),
+            documents=docs,
+            customs=mode,
             tracking_number=f"H{ref[-5:]}GB",
             tracking_url=f"https://track.example/{ref[-5:]}",
+            provider_ids={"order": ref.split(":")[-1]},
         )
 
     def charges_for(self, ref: str) -> int:

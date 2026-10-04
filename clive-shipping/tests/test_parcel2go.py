@@ -1,34 +1,68 @@
 """The Parcel2Go adapter against a stand-in server shaped like the sandbox's real answers."""
 
+import base64
 import json
 
 import httpx
 import pytest
 
-from shipping.models import Address, DutiesTerms, ShopConfig
+from shipping.documents import print_plan
+from shipping.models import (
+    Address,
+    CustomsMode,
+    DocumentKind,
+    DutiesTerms,
+    PageSize,
+    ShopConfig,
+)
 from shipping.providers.base import ProviderRefused, ProviderUnavailable, ProviderUncertain
 from shipping.providers.parcel2go import Parcel2Go, region, split_address
 from shipping.purchase import Purchases
 
 from .conftest import SHOP, make_shipment
+from .test_documents import A4, LABEL_4X6, pdf
+
+# Paperwork per service, as the sandbox returned it (2026-10-05): copies of the commercial
+# invoice to print, or 0 when customs is handled electronically.
+PAPER_COPIES = {"dpd": 0, "landmark": 0, "upsc-via-ocs": 0, "myhermes": 3, "ups-access": 4}
 
 # Shaped like the sandbox's list: regions come as extra rows of the same country, some before
 # the main row, each recognised by postcode.
 COUNTRIES = [
-    {"Name": "UK - Mainland", "Iso3Code": "GBR", "Iso2Code": "GB", "Subdivision": None},
+    {
+        "Name": "UK - Mainland",
+        "Iso3Code": "GBR",
+        "Iso2Code": "GB",
+        "RequiresCustoms": False,
+        "Subdivision": None,
+    },
     {
         "Name": "Northern Ireland",
         "Iso3Code": "GBR",
         "Iso2Code": "GB",
+        "RequiresCustoms": False,
         "Subdivision": "NIR",
         "PostcodeRegex": "^.*$",  # a format check, not a region test
     },
-    {"Name": "Germany", "Iso3Code": "DEU", "Iso2Code": "DE", "Subdivision": None},
-    {"Name": "Portugal", "Iso3Code": "PRT", "Iso2Code": "PT", "Subdivision": None},
+    {
+        "Name": "Germany",
+        "Iso3Code": "DEU",
+        "Iso2Code": "DE",
+        "RequiresCustoms": True,
+        "Subdivision": None,
+    },
+    {
+        "Name": "Portugal",
+        "Iso3Code": "PRT",
+        "Iso2Code": "PT",
+        "RequiresCustoms": True,
+        "Subdivision": None,
+    },
     {
         "Name": "Madeira",
         "Iso3Code": "PRT",
         "Iso2Code": "PT",
+        "RequiresCustoms": True,
         "Subdivision": "PT-30",
         "PostcodeRegex": "^.*$",
     },
@@ -36,6 +70,7 @@ COUNTRIES = [
         "Name": "Tenerife",
         "Iso3Code": "ESP",
         "Iso2Code": "ES",
+        "RequiresCustoms": True,
         "Subdivision": "ES-TEN",
         "PostcodeRegex": "^[0-9]{5}$",
     },
@@ -43,11 +78,24 @@ COUNTRIES = [
         "Name": "Canary Islands",
         "Iso3Code": "ESP",
         "Iso2Code": "ES",
+        "RequiresCustoms": True,
         "Subdivision": "ES-GC",
         "PostcodeRegex": "^[0-9]{5}$",
     },
-    {"Name": "Spain (Mainland Only)", "Iso3Code": "ESP", "Iso2Code": "ES", "Subdivision": None},
-    {"Name": "USA", "Iso3Code": "USA", "Iso2Code": "US", "Subdivision": None},
+    {
+        "Name": "Spain (Mainland Only)",
+        "Iso3Code": "ESP",
+        "Iso2Code": "ES",
+        "RequiresCustoms": True,
+        "Subdivision": None,
+    },
+    {
+        "Name": "USA",
+        "Iso3Code": "USA",
+        "Iso2Code": "US",
+        "RequiresCustoms": True,
+        "Subdivision": None,
+    },
 ]
 
 
@@ -78,6 +126,9 @@ class FakeP2G:
         self.charges: list[str] = []
         self.bodies: list[dict] = []
         self.pay_fault: str | None = None  # connect | timeout_after_charge | 500 | refuse
+        # detailLevel -> override answer: an httpx.Response, or "garbage" for a non-PDF body
+        self.labels_override: dict[str, object] = {}
+        self.all_extra_pages = 0  # extra pages the "All" view reports beyond the truth
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
@@ -109,7 +160,12 @@ class FakeP2G:
             body = json.loads(request.content)
             self.bodies.append(body)
             oid = str(26700 + len(self.orders))
-            self.orders[oid] = {"paid": False}
+            item = body["Items"][0]
+            self.orders[oid] = {
+                "paid": False,
+                "service": item["Service"],
+                "to": item["Parcels"][0]["DeliveryAddress"]["CountryIsoCode"],
+            }
             return httpx.Response(
                 200,
                 json={
@@ -143,6 +199,14 @@ class FakeP2G:
                 json={
                     "PaidDate": "2026-10-05T10:00:00" if paid else None,
                     "TotalPrice": 10.69,
+                    "Items": [
+                        {
+                            "Id": 45800,
+                            "Parcels": [
+                                {"DeliveryAddress": {"CountryIsoCode": self.orders[oid]["to"]}}
+                            ],
+                        }
+                    ],
                     "Links": {
                         "labels-4x6": "https://p2g.test/label/x?m=1",
                         "labels-a4": "https://p2g.test/label/x?m=0",
@@ -150,6 +214,8 @@ class FakeP2G:
                     },
                 },
             )
+        if path.startswith("/api/labels/"):
+            return self.labels(path.split("/")[3], request.url.params)
         if path.startswith("/label/"):
             return httpx.Response(200, content=b"%PDF-1.4 label " + request.url.query)
         if path.endswith("/parcelnumbers"):
@@ -157,6 +223,32 @@ class FakeP2G:
         if path == "/api/prepay":
             return httpx.Response(200, json=50.0)
         return httpx.Response(404)
+
+    def labels(self, oid: str, params) -> httpx.Response:
+        detail, media = params["detailLevel"], params["labelMedia"]
+        override = self.labels_override.get(detail)
+        if isinstance(override, httpx.Response):
+            return override
+        order = self.orders[oid]
+        copies = next(v for k, v in PAPER_COPIES.items() if order["service"].startswith(k))
+        label = LABEL_4X6 if media == "Label4X6" else A4
+        pages = {
+            "Labels": [label],
+            "CommercialInvoice": [A4],
+            "AdditionalDocuments": [A4] * copies,
+            "All": [label, A4] + [A4] * (copies + self.all_extra_pages),
+        }.get(detail)
+        if not pages and override != "garbage":
+            return httpx.Response(404, json={"Message": "No documents"})
+        body = b"<html>oops</html>" if override == "garbage" else pdf(*pages)
+        return httpx.Response(
+            200,
+            json={
+                "SuccessfulLabels": 1,
+                "FailedLabels": 0,
+                "Base64EncodedLabels": [base64.b64encode(body).decode()],
+            },
+        )
 
 
 @pytest.fixture
@@ -268,16 +360,72 @@ def test_reads_never_count_as_uncertain(p2g, server, monkeypatch):
         p2g.read_order("p2g:1:2:h")
 
 
+def paid_order(p2g, store, provider, service="dpd-classic"):
+    s = make_shipment(store, provider)
+    quote = p2g.quotes(s)[0].model_copy(update={"service_code": service})
+    order = p2g.create_order(s, quote, "op_1")
+    p2g.pay(order.ref)
+    return order
+
+
 def test_documents_need_a_paid_order(p2g, store, provider, server):
     s = make_shipment(store, provider)
     order = p2g.create_order(s, p2g.quotes(s)[0], "op_1")
     with pytest.raises(ProviderRefused):
         p2g.documents(order.ref)
-    p2g.pay(order.ref)
+
+
+def test_the_label_is_the_genuine_4x6_and_ids_are_kept(p2g, store, provider, server):
+    order = paid_order(p2g, store, provider)
     docs = p2g.documents(order.ref)
-    assert docs.label_4x6.startswith(b"%PDF") and docs.label_a4.startswith(b"%PDF")
-    assert docs.tracking_number == "P2G45800"  # sandbox gives no courier number yet
+    label = docs.find(DocumentKind.shipping_label)
+    assert label.page_size == PageSize.label_4x6 and label.pages == 1 and label.must_print
+    assert docs.tracking_number == "P2G45800"  # the sandbox gives no courier number
     assert docs.tracking_url == "https://p2g.test/track/45800"
+    assert docs.provider_ids == {"order": "26700", "order_line": "45800"}
+
+
+def test_paperless_customs_prints_only_the_label(p2g, store, provider, server):
+    docs = p2g.documents(paid_order(p2g, store, provider, "dpd-classic").ref)
+    assert docs.customs == CustomsMode.electronic
+    invoice = docs.find(DocumentKind.commercial_invoice)
+    assert invoice.electronic and not invoice.must_print and invoice.pages == 1
+
+
+@pytest.mark.parametrize(
+    ("service", "copies"), [("myhermes-international-parcelshop", 3), ("ups-access-point", 4)]
+)
+def test_paper_customs_asks_for_the_copies_returned(p2g, store, provider, server, service, copies):
+    docs = p2g.documents(paid_order(p2g, store, provider, service).ref)
+    assert docs.customs == CustomsMode.paper
+    invoice = docs.find(DocumentKind.commercial_invoice)
+    assert invoice.must_print and invoice.attach_to_parcel and invoice.copies_required == copies
+    assert invoice.page_size == PageSize.a4 and "Customs Documents" in invoice.note
+
+
+@pytest.mark.parametrize(
+    "break_it",
+    [
+        lambda server: server.labels_override.update(AdditionalDocuments=httpx.Response(503)),
+        lambda server: setattr(server, "all_extra_pages", 3),  # 404, but "All" has more
+        lambda server: server.labels_override.update(AdditionalDocuments="garbage"),
+        lambda server: server.labels_override.update(All=httpx.Response(500)),
+    ],
+    ids=["additional-503", "views-disagree", "additional-not-a-pdf", "all-500"],
+)
+def test_customs_is_unknown_not_paperless_without_evidence(p2g, store, provider, server, break_it):
+    order = paid_order(p2g, store, provider, "dpd-classic")
+    break_it(server)
+    docs = p2g.documents(order.ref)
+    assert docs.customs == CustomsMode.unknown
+    assert docs.find(DocumentKind.shipping_label) is not None  # the label itself is fine
+
+
+def test_a_label_that_is_not_a_pdf_is_not_ready(p2g, store, provider, server):
+    order = paid_order(p2g, store, provider)
+    server.labels_override["Labels"] = "garbage"
+    with pytest.raises(ProviderUnavailable, match="isn't ready"):
+        p2g.documents(order.ref)
 
 
 def test_lost_reply_through_the_real_adapter_charges_once(p2g, store, provider, server, clock):
@@ -290,7 +438,8 @@ def test_lost_reply_through_the_real_adapter_charges_once(p2g, store, provider, 
     out = purchases.buy(SHOP, s.id, b, "george", "k1")
     assert out["status"] == "label_purchased" and out["charged"]
     assert len(server.charges) == 1  # read back PaidDate, never paid again
-    assert set(out["shipment"].label.artifacts) == {"label_4x6", "label_a4"}
+    plan = print_plan(out["shipment"].label)
+    assert plan.ready and plan.lines[0].text == "Shipping label — 4×6 thermal"
 
 
 @pytest.mark.parametrize(

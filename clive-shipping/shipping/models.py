@@ -177,16 +177,77 @@ class Quote(BaseModel):
         return f"{self.carrier} {self.service_name}"
 
 
+class Country(BaseModel):
+    """A destination as CLIVE knows it: ISO codes and a display name. Providers' own spellings
+    (Parcel2Go wants "Portugal" for origin, "PRT" for addresses, "PT-30" for Madeira) are made
+    from this at the adapter, never stored on shipments."""
+
+    iso2: str
+    iso3: str
+    name: str
+    # The provider's code for a separately priced region the postcode falls in, if any.
+    subdivision: str | None = None
+
+
+class DocumentKind(StrEnum):
+    shipping_label = "shipping_label"
+    commercial_invoice = "commercial_invoice"
+    customs_declaration = "customs_declaration"  # CN22/CN23, when a carrier wants one
+    other_documents = "other_documents"
+
+
+class PageSize(StrEnum):
+    label_4x6 = "4x6"  # 100 x 150 mm: the JADENS thermal roll
+    a4 = "A4"
+    mixed = "mixed"
+    other = "other"
+
+
+class CustomsMode(StrEnum):
+    electronic = "electronic"  # the courier files customs data itself: print the label only
+    paper = "paper"  # paperwork must be printed and attached to the parcel
+    not_required = "not_required"  # no customs on this route
+    unknown = "unknown"  # not established yet: never shown as "electronic"
+
+
+class ShipmentDocument(BaseModel):
+    """One document of a bought label, as stored. What it is and what to do with it, so the
+    screen can say "Shipping label — JADENS" or "Commercial invoice — print 3 copies (A4)"."""
+
+    kind: DocumentKind
+    artifact_id: str | None = None  # None: nothing to print (e.g. customs filed electronically)
+    media_type: str = "application/pdf"
+    page_size: PageSize = PageSize.other
+    pages: int = 0
+    copies_required: int = 0  # 0: keep for the record, don't print
+    must_print: bool = False
+    attach_to_parcel: bool = False
+    electronic: bool = False
+    note: str = ""
+
+
 class Label(BaseModel):
     provider: str
     provider_ref: str  # the provider's order reference (Parcel2Go: p2g:order:line:hash)
+    # Identifiers that are safe to show staff (no access hashes): e.g. order and order line.
+    provider_ids: dict[str, str] = Field(default_factory=dict)
     carrier: str
     service_name: str
     amount: Money
     tracking_number: str | None = None
     tracking_url: str | None = None
-    artifacts: dict[str, str] = Field(default_factory=dict)  # kind -> artifact id
+    customs: CustomsMode = CustomsMode.unknown
+    documents: list[ShipmentDocument] = Field(default_factory=list)
     purchased_at: datetime
+
+    def document(self, kind: DocumentKind) -> ShipmentDocument | None:
+        return next((d for d in self.documents if d.kind == kind), None)
+
+    @property
+    def complete(self) -> bool:
+        """The printable label is stored and the customs paperwork is established."""
+        label = self.document(DocumentKind.shipping_label)
+        return bool(label and label.artifact_id) and self.customs != CustomsMode.unknown
 
 
 class Event(BaseModel):
