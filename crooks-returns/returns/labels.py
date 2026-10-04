@@ -22,12 +22,15 @@ from returns.settings import Settings
 
 
 class LabelError(RuntimeError):
-    """No label was made. The message says why, for staff and CLIVE. `ref` is set when a label
-    was already paid for, so a retry fetches that one instead of buying another."""
+    """No label was made. The message says why, for staff and CLIVE. `ref` is set once an
+    order exists with the provider, so a retry settles that one instead of buying another.
+    `paid` is True when the provider confirmed the label is paid for (only collecting it
+    failed), False when it confirmed it isn't, None when nobody knows yet."""
 
-    def __init__(self, message: str, ref: str | None = None) -> None:
+    def __init__(self, message: str, ref: str | None = None, paid: bool | None = None) -> None:
         super().__init__(message)
         self.ref = ref
+        self.paid = paid
 
 
 @dataclass

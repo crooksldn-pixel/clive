@@ -98,6 +98,8 @@ class Settings(BaseSettings):
     p2g_base_url: str = "https://www.parcel2go.com"
     p2g_client_id: str = ""
     p2g_client_secret: str = ""
+    # After paying, how long to keep asking for the label before leaving it to the timer.
+    p2g_label_wait_s: int = 15
     # Couriers to offer, best first, matched against Parcel2Go's courier slugs. Only services
     # the customer can use without a printer (a QR code at the shop) are booked.
     p2g_couriers: str = "evri,inpost,royal-mail"

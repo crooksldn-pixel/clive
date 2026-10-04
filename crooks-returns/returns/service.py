@@ -21,7 +21,7 @@ from typing import Any
 import httpx
 
 from returns import policy, verify
-from returns.labels import LabelError, LabelPort, tracking_url
+from returns.labels import Label, LabelError, LabelPort, tracking_url
 from returns.models import (
     REASON_LABELS,
     Event,
@@ -665,11 +665,17 @@ class ReturnsService:
         try:
             label = self.labels.create(ret, address)
         except LabelError as exc:
-            if exc.ref:  # paid for, not yet fetched: keep it so a retry never buys twice
+            if exc.ref:  # an order exists: keep it so a retry settles it, never buys twice
                 ret.postage.label_ref = exc.ref
             ret.last_error = str(exc)
+            if exc.paid:
+                self._event(ret, "label_paid_not_collected", actor, {"why": str(exc)})
             self._await_label(ret, actor, str(exc))
             return
+        self._label_ready(ret, actor, label)
+
+    def _label_ready(self, ret: Return, actor: str, label: Label) -> None:
+        """Keep a bought label, then give it to the customer through Shopify."""
         file_id = self.store.put_file(ret.id, "application/pdf", label.pdf) if label.pdf else None
         ret.postage.carrier, ret.postage.label_ref = label.carrier, label.ref
         ret.postage.tracking = label.tracking
@@ -979,8 +985,53 @@ class ReturnsService:
 
     # ===================================================================== upkeep
 
+    def collect_labels(self) -> list[str]:
+        """Finish returns whose label is bought but never reached the customer: the label
+        wasn't released in time, or Shopify didn't take it. Only labels Parcel2Go confirms are
+        paid are collected; nothing is ever paid for here."""
+        collect = getattr(self.labels, "collect", None)
+        done = []
+        for found in self.store.search(status=[Status.awaiting_label.value], limit=1000):
+            if not (found.postage.label_ref or "").startswith("p2g:"):
+                continue
+            with self.store.lock:
+                ret = self._get(found.id)
+                if ret.status != Status.awaiting_label:
+                    continue
+                if ret.postage.label_file_id or ret.postage.qr_file_id:
+                    # Collected before; only handing it to Shopify failed.
+                    label = (
+                        self.label_link(ret.postage.label_file_id)
+                        if ret.postage.label_file_id
+                        else None
+                    )
+                    if self._attach(
+                        ret, "system", label_url=label, notify=self.s.shopify_notify_customer
+                    ):
+                        ret.status = Status.awaiting_shipment
+                elif collect is not None:
+                    try:
+                        label = collect(ret)
+                    except LabelError as exc:
+                        ret.last_error = str(exc)
+                        self.store.save(ret)
+                        continue
+                    self._label_ready(ret, "system", label)
+                else:
+                    continue
+                self.store.save(ret)
+            if ret.status == Status.awaiting_shipment:
+                self.notifier.send("return.label", ret)
+                done.append(ret.id)
+        return done
+
     def tick(self) -> list[str]:
-        """Flag labels that are overdue. Run on a timer (or by CLIVE)."""
+        """Collect bought labels and flag labels that are overdue. Run on a timer (or by
+        CLIVE)."""
+        try:
+            self.collect_labels()
+        except Exception:  # one bad return must not stop the overdue check
+            log.exception("collecting labels")
         flagged = []
         for ret in self.store.search(status=[Status.awaiting_label.value], limit=1000):
             due = ret.postage.label_due_at

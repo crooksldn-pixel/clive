@@ -50,6 +50,11 @@ class FakeParcel2Go:
         # Like the real API: paying an already-paid order charges again.
         self.lose_pay_response = False
         self.refuse_pay = False
+        # Live Parcel2Go can take a while to release a paid label: GET /orders answers with
+        # no links and no in-store code this many times.
+        self.unreleased_reads = 0
+        self.order_reads = 0
+        self.label_answers_html = False
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
@@ -124,6 +129,8 @@ class FakeParcel2Go:
                     400, json={"Errors": [{"Name": "Balance", "Description": "Not enough"}]}
                 )
             self.paid.append(path.split("/")[3])
+            if self.unreleased_reads:  # paid, but no label links yet
+                return httpx.Response(200, json={"Links": []})
             if self.lose_pay_response:  # charged, but the reply never arrives
                 raise httpx.ReadTimeout("connection lost", request=request)
             return httpx.Response(
@@ -132,6 +139,18 @@ class FakeParcel2Go:
             )
         if path == "/api/orders" and method == "GET":
             oid = request.url.params.get("orderId")
+            self.order_reads += 1
+            if self.unreleased_reads:
+                self.unreleased_reads -= 1
+                return httpx.Response(
+                    200,
+                    json={
+                        "PaidDate": "2026-10-04T10:00:00" if oid in self.paid else None,
+                        "TotalPrice": 2.39,
+                        "Items": [{"Parcels": [{"Links": {}}]}],
+                        "Links": {},
+                    },
+                )
             return httpx.Response(
                 200,
                 json={
@@ -154,6 +173,8 @@ class FakeParcel2Go:
         if path.startswith("/label/"):
             if self.fail_documents:
                 return httpx.Response(503)
+            if self.label_answers_html:
+                return httpx.Response(200, content=b"<html>Sign in</html>")
             return httpx.Response(200, content=b"%PDF-1.4 evri label")
         if path.startswith("/api/labels/"):
             return httpx.Response(404, json={})
@@ -178,7 +199,11 @@ def p2g(settings, p2g_server):
     settings.returns_address_city = "Bourne End, Buckinghamshire"
     settings.returns_address_postcode = "SL8 5AS"
     settings.p2g_webhook_secret = "hook-secret"
-    return Parcel2Go(settings, http=httpx.Client(transport=httpx.MockTransport(p2g_server)))
+    return Parcel2Go(
+        settings,
+        http=httpx.Client(transport=httpx.MockTransport(p2g_server)),
+        sleep=lambda seconds: None,
+    )
 
 
 @pytest.fixture
@@ -261,12 +286,12 @@ def test_a_paid_label_is_never_bought_twice(psvc, p2g_server):
 
 def test_label_retry_fetches_the_paid_one(psvc, p2g, p2g_server, monkeypatch):
     ret = request(psvc)
-    monkeypatch.setattr(p2g, "_fetch", lambda url: None)
+    monkeypatch.setattr(p2g, "_fetch", lambda url, kind: None)
     monkeypatch.setattr("returns.parcel2go.qr_png", lambda code, fmt=None: None)
     ret = psvc.execute(ret.id, "approve", {"postage_mode": "label_now"}, "staff", "k1")[
         "return_doc"
     ]
-    assert ret.status == Status.awaiting_label and "isn't ready yet" in ret.last_error
+    assert ret.status == Status.awaiting_label and "hasn't released" in ret.last_error
     assert ret.postage.label_ref.startswith("p2g:26633:")
     monkeypatch.undo()
     ret = psvc.execute(ret.id, "label", {}, "staff", "k2")["return_doc"]
@@ -372,3 +397,105 @@ def test_a_refused_payment_is_paid_once_after_topping_up(psvc, p2g_server):
     ret = psvc.execute(ret.id, "label", {}, "staff", "k2")["return_doc"]
     assert ret.status == Status.awaiting_shipment
     assert p2g_server.paid == ["26633"] and len(p2g_server.orders) == 1
+
+
+def approve(psvc, ret, key="k1"):
+    return psvc.execute(ret.id, "approve", {"postage_mode": "label_now"}, "staff", key)[
+        "return_doc"
+    ]
+
+
+def test_a_label_released_a_few_seconds_late_still_reaches_the_customer(psvc, p2g_server):
+    ret = request(psvc)
+    p2g_server.unreleased_reads = 2  # the first two asks after paying find no label
+    ret = approve(psvc, ret)
+    assert ret.status == Status.awaiting_shipment and not ret.last_error
+    assert p2g_server.paid == ["26633"] and len(p2g_server.orders) == 1
+
+
+def test_a_paid_label_parcel2go_is_slow_to_release_is_collected_by_the_timer(
+    psvc, shop, p2g_server
+):
+    ret = request(psvc)
+    p2g_server.unreleased_reads = 1000  # not released while staff wait
+    ret = approve(psvc, ret)
+    assert ret.status == Status.awaiting_label
+    # Staff are told the truth: it is bought and will be sent, not that it failed.
+    assert "is paid for" in ret.last_error and "automatically" in ret.last_error
+    assert "label_paid_not_collected" in [e.type for e in ret.timeline]
+    assert not any(c[0] == "reverseDeliveryCreateWithShipping" for c in shop.calls)
+
+    p2g_server.unreleased_reads = 0  # Parcel2Go releases it
+    assert psvc.tick() == []  # nothing overdue
+    ret = psvc.store.get(ret.id)
+    assert ret.status == Status.awaiting_shipment and not ret.last_error
+    assert ret.postage.qr_file_id and ret.postage.tracking == "H01ABC"
+    sent = [c for c in shop.calls if c[0] == "reverseDeliveryCreateWithShipping"]
+    assert len(sent) == 1 and sent[0][1]["notify"] and sent[0][1]["label"]
+    # Collected, never paid again, no second order.
+    assert p2g_server.paid == ["26633"] and len(p2g_server.orders) == 1
+    psvc.tick()
+    assert len([c for c in shop.calls if c[0] == "reverseDeliveryCreateWithShipping"]) == 1
+
+
+def test_a_label_shopify_refused_is_handed_over_again_by_the_timer(psvc, shop, p2g_server):
+    ret = request(psvc)
+    shop.fail.add("attach_shipping")
+    ret = approve(psvc, ret)
+    assert ret.status == Status.awaiting_label and ret.postage.label_file_id
+    shop.fail.discard("attach_shipping")
+    psvc.tick()
+    ret = psvc.store.get(ret.id)
+    assert ret.status == Status.awaiting_shipment and ret.shopify.reverse_delivery_id
+    assert p2g_server.paid == ["26633"] and len(p2g_server.orders) == 1
+
+
+def test_the_timer_never_pays(psvc, p2g_server):
+    ret = request(psvc)
+    p2g_server.refuse_pay = True
+    ret = approve(psvc, ret)
+    assert ret.status == Status.awaiting_label
+    p2g_server.refuse_pay = False  # topped up, but only staff decide to pay
+    psvc.tick()
+    ret = psvc.store.get(ret.id)
+    assert ret.status == Status.awaiting_label and "isn't paid" in ret.last_error
+    assert p2g_server.paid == []
+
+
+def test_an_unexpected_answer_after_paying_keeps_the_order(psvc, p2g, p2g_server, monkeypatch):
+    ret = request(psvc)
+
+    def broken(*a, **kw):
+        raise KeyError("Links")
+
+    monkeypatch.setattr(p2g, "_documents", broken)
+    ret = approve(psvc, ret)
+    assert ret.status == Status.awaiting_label and ret.postage.label_ref.startswith("p2g:26633:")
+    monkeypatch.undo()
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k2")["return_doc"]
+    assert ret.status == Status.awaiting_shipment
+    assert p2g_server.paid == ["26633"] and len(p2g_server.orders) == 1
+
+
+def test_a_web_page_is_never_sent_as_the_label(p2g, p2g_server):
+    p2g_server.label_answers_html = True
+    assert p2g._fetch("https://p2g.test/label/order?x=1", "pdf") is None
+    p2g_server.label_answers_html = False
+    assert p2g._fetch("https://p2g.test/label/order?x=1", "pdf").startswith(b"%PDF")
+
+
+def test_ctl_collect_sends_stuck_labels_now(psvc, p2g_server, monkeypatch, capsys):
+    from returns import ctl
+
+    ret = request(psvc)
+    p2g_server.unreleased_reads = 1000
+    approve(psvc, ret)
+    monkeypatch.setattr(ctl, "get_settings", lambda: psvc.s)
+    monkeypatch.setattr(ctl, "build_service", lambda settings: psvc)
+    assert ctl.main(["collect"]) == 0
+    assert "Waiting" in capsys.readouterr().out
+    p2g_server.unreleased_reads = 0
+    assert ctl.main(["collect"]) == 0
+    assert f"Sent    {ret.id}" in capsys.readouterr().out
+    assert psvc.store.get(ret.id).status == Status.awaiting_shipment
+    assert p2g_server.paid == ["26633"]

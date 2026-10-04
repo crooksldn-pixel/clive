@@ -7,6 +7,7 @@ line. Run inside the container:
     docker compose exec returns returns-ctl show ret_1a2b3c4d5e
     docker compose exec returns returns-ctl approve ret_1a2b3c4d5e self_ship
     docker compose exec returns returns-ctl receive ret_1a2b3c4d5e
+    docker compose exec returns returns-ctl collect   (send labels that are bought but stuck)
 
 Every action prints what it will do and asks before doing it (add --yes to skip the question).
 """
@@ -101,10 +102,32 @@ def labels(svc: ReturnsService, postcode: str) -> int:
     return 0
 
 
+def collect(svc: ReturnsService) -> int:
+    """Labels that were bought but never reached the customer: collect them and hand them to
+    Shopify now, instead of waiting for the timer. Never pays for anything."""
+    stuck = [
+        r
+        for r in svc.store.search(status=["awaiting_label"], limit=1000)
+        if (r.postage.label_ref or "").startswith("p2g:")
+    ]
+    if not stuck:
+        print("No bought labels are waiting to be sent.")
+        return 0
+    sent = set(svc.collect_labels())
+    for ret in stuck:
+        now = svc.store.get(ret.id)
+        if ret.id in sent:
+            print(f"Sent    {line(svc, now)}")
+        else:
+            print(f"Waiting {line(svc, now)}\n        {now.last_error}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="returns-ctl", description="CROOKS Returns staff tool")
     parser.add_argument(
-        "command", help="check, list, show, labels POSTCODE, or an action: " + ", ".join(ACTIONS)
+        "command",
+        help="check, list, show, labels POSTCODE, collect, or an action: " + ", ".join(ACTIONS),
     )
     parser.add_argument("args", nargs="*")
     parser.add_argument("--all", action="store_true", help="list: include finished returns")
@@ -118,6 +141,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if ns.command == "labels":
         return labels(svc, " ".join(ns.args))
+
+    if ns.command == "collect":
+        return collect(svc)
 
     if ns.command == "list":
         rows = svc.store.search(open_only=not ns.all, limit=200)

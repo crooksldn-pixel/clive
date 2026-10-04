@@ -22,6 +22,7 @@ import re
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -82,12 +83,18 @@ def split_property(line1: str) -> tuple[str, str]:
 class Parcel2Go:
     name = "Parcel2Go"
 
-    def __init__(self, settings: Settings, http: httpx.Client | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        http: httpx.Client | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
         self.s = settings
         self.base = settings.p2g_base_url.rstrip("/")
         self._http = http or httpx.Client(timeout=30)
         self._token: tuple[str, float] | None = None
         self._lock = threading.Lock()
+        self._sleep = sleep
 
     # ------------------------------------------------------------------ plumbing
 
@@ -136,7 +143,12 @@ class Parcel2Go:
             raise LabelError(f"Parcel2Go could not be reached: {exc}") from exc
         if r.status_code >= 400:
             raise LabelError(f"Parcel2Go answered {r.status_code} to {path}: {_errors(r)}")
-        return r.json() if r.content else None
+        if not r.content:
+            return None
+        try:
+            return r.json()
+        except ValueError as exc:
+            raise LabelError(f"Parcel2Go sent an unreadable answer to {path}.") from exc
 
     # ------------------------------------------------------------------ addresses
 
@@ -356,13 +368,43 @@ class Parcel2Go:
         lines = made.get("OrderlineIdMap") or [{}]
         line_id = str(lines[0].get("OrderLineId") or "")
         ref = f"p2g:{order_id}:{line_id}:{order_hash}"
-        # From here on every failure carries `ref`, so a retry settles this order and never
-        # creates (or pays for) another one.
-        paid = self._pay(ref)
-        label = self._documents(ref, option.service, paid)
+        # From here on every failure, of any kind, carries `ref`, so a retry settles this
+        # order and never creates (or pays for) another one.
+        try:
+            paid = self._pay(ref)
+            label = self._documents(ref, option.service, paid)
+        except LabelError as exc:
+            exc.ref = exc.ref or ref
+            raise
+        except Exception as exc:
+            log.exception("label for %s", ref)
+            raise LabelError(
+                f"Parcel2Go order {order_id}: something went wrong after the order was made "
+                f"({exc}). Try the label again: it checks the order before doing anything.",
+                ref=ref,
+            ) from exc
         label.price_pence = to_pence(made.get("TotalPrice") or 0)
         label.service_name = option.service_name
         label.carrier = option.courier_name
+        return label
+
+    def collect(self, ret: Return) -> Label:
+        """The label for an order Parcel2Go already has, only if it is paid. Never pays, so
+        it is safe to run unattended."""
+        ref = ret.postage.label_ref or ""
+        if not ref.startswith("p2g:"):
+            raise LabelError("No Parcel2Go order to collect a label from.")
+        _, order_id, _, order_hash = ref.split(":", 3)
+        got = self._call("GET", "/orders", params={"orderId": order_id, "hash": order_hash})
+        if not (got or {}).get("PaidDate"):
+            raise LabelError(
+                f"Parcel2Go order {order_id} isn't paid, so it has no label. Try the label "
+                "again to pay for it.",
+                ref=ref,
+                paid=False,
+            )
+        label = self._documents(ref, ret.postage.service)
+        label.price_pence = to_pence((got or {}).get("TotalPrice") or 0) or None
         return label
 
     def _pay(self, ref: str) -> Any:
@@ -386,6 +428,7 @@ class Parcel2Go:
                 + "; ".join(e.get("Description") or e.get("Name") or "" for e in paid["Errors"])
                 + ". Top up PrePay if needed, then try the label again.",
                 ref=ref,
+                paid=False,
             )
         return paid
 
@@ -419,8 +462,20 @@ class Parcel2Go:
         return chosen or options[0]
 
     def _documents(self, ref: str, service: str | None, paid: Any = None) -> Label:
-        """The paid order's label PDF, QR code and tracking. A failure here keeps `ref`, so
-        trying again fetches the same label."""
+        """The paid order's label PDF, QR code and tracking. Parcel2Go can take a few seconds
+        to make the label after payment, so ask again for a little while. A failure keeps
+        `ref` and says the label is paid for, so it is collected later, never bought again."""
+        waited, pause = 0.0, 3.0
+        while True:
+            try:
+                return self._documents_once(ref, service, paid)
+            except LabelError:
+                if waited >= self.s.p2g_label_wait_s:
+                    raise
+            self._sleep(pause)
+            waited += pause
+
+    def _documents_once(self, ref: str, service: str | None, paid: Any = None) -> Label:
         _, order_id, line_id, order_hash = ref.split(":", 3)
         links = _links(paid)
         # The order itself carries the in-store code, per parcel.
@@ -436,8 +491,10 @@ class Parcel2Go:
                     links = {**_links(parcel), **links}
                     code = code or parcel.get("PrintInStoreBarcode")
                     code_format = code_format or parcel.get("PrintInStoreBarcodeFormat")
-        pdf = self._fetch(links.get("labels-a4") or links.get("labels-4x6"))
-        qr = self._fetch(links.get("barcode-printinstore")) or qr_png(code, code_format)
+        pdf = self._fetch(links.get("labels-a4"), "pdf") or self._fetch(
+            links.get("labels-4x6"), "pdf"
+        )
+        qr = self._fetch(links.get("barcode-printinstore"), "image") or qr_png(code, code_format)
         if pdf is None:
             try:
                 got = self._call(
@@ -460,9 +517,11 @@ class Parcel2Go:
                 log.warning("label for %s: %s", ref, exc)
         if pdf is None and qr is None:
             raise LabelError(
-                f"Parcel2Go order {order_id} is paid but its label isn't ready yet. Try the "
-                "label again in a minute.",
+                f"Parcel2Go order {order_id} is paid for, but Parcel2Go hasn't released the "
+                "label yet. It is collected and sent to the customer automatically; nothing "
+                "more will be paid.",
                 ref=ref,
+                paid=True,
             )
         tracking = None
         try:
@@ -484,14 +543,34 @@ class Parcel2Go:
             drop_off_code=code,
         )
 
-    def _fetch(self, url: str | None) -> bytes | None:
+    def _fetch(self, url: str | None, kind: str) -> bytes | None:
+        """A label file, only if it really is one: links can redirect (followed) or answer
+        with a web page, which must never be sent to a customer as their label."""
         if not url:
             return None
+        headers = {}
+        if httpx.URL(url).host == httpx.URL(self.base).host:
+            try:
+                headers["Authorization"] = f"Bearer {self.token()}"
+            except LabelError:
+                pass
         try:
-            r = self._http.get(url)
-        except httpx.HTTPError:
+            r = self._http.get(url, headers=headers, follow_redirects=True)
+        except httpx.HTTPError as exc:
+            log.warning("fetching %s: %s", kind, exc)
             return None
-        return r.content if r.status_code == 200 and r.content else None
+        body = r.content
+        if r.status_code != 200 or not body:
+            log.warning("fetching %s: HTTP %s", kind, r.status_code)
+            return None
+        if kind == "pdf" and not body.startswith(b"%PDF"):
+            log.warning("the label link answered with something that isn't a PDF")
+            return None
+        if kind == "image" and not r.headers.get("content-type", "").startswith("image/"):
+            if not body.startswith(b"\x89PNG"):
+                log.warning("the QR link answered with something that isn't an image")
+                return None
+        return body
 
 
 def qr_png(code: str | None, code_format: str | None = None) -> bytes | None:
