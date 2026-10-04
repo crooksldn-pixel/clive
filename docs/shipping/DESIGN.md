@@ -415,6 +415,26 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
         (= £11.93 + £6.60 + £22.80, each charged once). Labels measured 100×150 mm; the invoice
         files were 3 and 4 A4 pages, every page a commercial invoice.
 
+     6. *Independent review (silent-failure hunter and test-coverage analyst), findings fixed
+        in three commits:*
+        - **Paid but unrecorded labels repaired:** reconcile records a paid label that a crash
+          left unrecorded.
+        - **Atomic transitions:** operation and shipment changes are one transaction.
+        - **Operations are compare-and-set too:** a timer that gave up on an operation can never
+          be followed by its stalled thread paying.
+        - **In-flight payments are left alone** by the timer.
+        - **A 2xx carrying errors is UNKNOWN** and read back; only a 4xx is a definite "no".
+        - **"Unpaid" after a paid reply goes back to the read-back rule.**
+        - **Long silences raise one alert**, never a payment.
+        - **Customs evidence must be clear:** only Parcel2Go's 404 means none; paperless is
+          confirmed by a second look ≥ 2 minutes later, and paperwork appearing late switches to
+          paper with an alert.
+        - **Service saves survive concurrent saves** (buy's fulfilment, answers, preview).
+        - **Mutation checks:** every guard is caught by a test when removed.
+
+        The sandbox proof was re-run after the fixes: orders 26686 (unpaid), 26687 (DPD, reply
+        lost, paperless confirmed), then Evri and UPS; PrePay £9813.57 → £9772.24, again
+        exactly one charge each.
    - **Parcel2Go endpoints used:**
      - `POST /auth/connect/token`
      - `GET /countries`
