@@ -13,6 +13,8 @@ import json
 import secrets
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -118,6 +120,26 @@ class Store:
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(SCHEMA)
         self.lock = threading.RLock()
+        self._depth = 0
+
+    @contextmanager
+    def atomic(self) -> Iterator[None]:
+        """Several writes as one: all of them, or none (a crash rolls back). Re-entrant."""
+        with self.lock:
+            outer = self._depth == 0
+            if outer:
+                self._db.execute("BEGIN IMMEDIATE")
+            self._depth += 1
+            try:
+                yield
+            except BaseException:
+                self._depth -= 1
+                if outer:
+                    self._db.execute("ROLLBACK")
+                raise
+            self._depth -= 1
+            if outer:
+                self._db.execute("COMMIT")
 
     # ---------------------------------------------------------------- shipments
 
@@ -195,18 +217,32 @@ class Store:
             raise OpenOperationExists(str(exc)) from exc
 
     def save_op(self, op: ProviderOp) -> None:
-        op.updated_at = now()
+        """Compare-and-set, like shipments: a copy read before someone else's save (a timer
+        sweep, a stalled request thread) is refused with Conflict instead of overwriting."""
         with self.lock:
-            self._db.execute(
-                "UPDATE provider_ops SET state=?, open=?, doc=? WHERE shop=? AND id=?",
+            read_as = op.version
+            op.version = read_as + 1
+            changed = self._db.execute(
+                "UPDATE provider_ops SET state=?, open=?, doc=? WHERE shop=? AND id=? "
+                "AND COALESCE(json_extract(doc, '$.version'), 0)=?",
                 (
                     op.state.value,
                     1 if op.state in OPEN_OP_STATES else 0,
                     op.model_dump_json(),
                     op.shop,
                     op.id,
+                    read_as,
                 ),
-            )
+            ).rowcount
+            if not changed:
+                op.version = read_as
+                raise Conflict(f"Operation {op.id} changed since it was read.")
+
+    def op(self, shop: str, op_id: str) -> ProviderOp | None:
+        row = self._db.execute(
+            "SELECT doc FROM provider_ops WHERE shop=? AND id=?", (shop, op_id)
+        ).fetchone()
+        return ProviderOp.model_validate_json(row[0]) if row else None
 
     def op_by_key(self, shop: str, key: str) -> ProviderOp | None:
         row = self._db.execute(

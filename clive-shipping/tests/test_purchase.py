@@ -191,7 +191,7 @@ class ProcessKilled(BaseException):
     """The process dying mid-call: not an error the code could catch and handle."""
 
 
-def test_crash_after_sending_payment_is_reconciled(purchases, store, provider, monkeypatch):
+def test_crash_after_sending_payment_is_reconciled(purchases, store, provider, monkeypatch, clock):
     make_shipment(store, provider)
     real_pay = provider.pay
 
@@ -205,6 +205,9 @@ def test_crash_after_sending_payment_is_reconciled(purchases, store, provider, m
     op = store.ops_for(SHOP, "shp_1")[0]
     assert op.state == OpState.pay_sent  # saved before the call
     monkeypatch.undo()
+    purchases.reconcile_all()  # too soon: the payment could still be in flight
+    assert store.get(SHOP, "shp_1").status == S.purchasing
+    clock.advance(minutes=6)
     purchases.reconcile_all()
     assert store.get(SHOP, "shp_1").status == S.label_purchased
     assert len(provider.charges) == 1

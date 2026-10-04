@@ -213,3 +213,28 @@ def test_a_document_failure_after_paying_keeps_the_label_and_retries(purchases, 
     purchases.reconcile_all()
     s = purchases.store.get(SHOP, ready.id)
     assert s.label.complete and not s.last_error and len(server.charges) == 1
+
+
+@pytest.mark.parametrize("charged", [False, True])
+def test_a_2xx_payment_answer_with_errors_is_read_back_not_trusted(
+    purchases, ready, server, clock, charged
+):
+    def pay_answer_with_errors(request):
+        oid = request.url.path.split("/")[3]
+        if charged:
+            server.orders[oid]["paid"] = True
+            server.charges.append(oid)
+        return httpx.Response(200, json={"Errors": [{"Description": "Something went wrong"}]})
+
+    server.faults["pay"] = pay_answer_with_errors
+    out = buy(purchases, ready)
+    assert out["may_have_been_charged"] or out["charged"]
+    for _ in range(2):
+        clock.advance(minutes=3)
+        purchases.reconcile_all()
+    s = purchases.store.get(SHOP, ready.id)
+    if charged:
+        assert s.status == S.label_purchased and s.label.complete and len(server.charges) == 1
+    else:
+        assert s.status == S.ready and "weren't charged" in s.last_error
+        assert server.charges == []

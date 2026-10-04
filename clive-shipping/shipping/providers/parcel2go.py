@@ -593,10 +593,17 @@ class Parcel2Go:
     def pay(self, ref: str) -> None:
         order_id, _, order_hash = self._split(ref)
         paid = self._call("POST", f"/orders/{order_id}/paywithprepay", params={"hash": order_hash})
-        if isinstance(paid, dict) and paid.get("Errors"):
-            raise ProviderRefused(
-                "; ".join(e.get("Description") or e.get("Name") or "" for e in paid["Errors"])
+        # Only a 4xx is a definite "no" (raised by _call). A 2xx is trusted as paid only when it
+        # looks like the success the sandbox returns (an object without Errors). Anything else,
+        # including a 2xx carrying Errors, is UNKNOWN and gets read back: never assumed either way.
+        if not isinstance(paid, dict):
+            raise ProviderUncertain("Parcel2Go's payment answer wasn't recognisable.")
+        if paid.get("Errors"):
+            reasons = "; ".join(
+                str(e.get("Description") or e.get("Name") or e) if isinstance(e, dict) else str(e)
+                for e in paid["Errors"]
             )
+            raise ProviderUncertain(f"Parcel2Go answered the payment with errors: {reasons}")
 
     def read_order(self, ref: str) -> OrderReadback:
         order_id, _, order_hash = self._split(ref)
@@ -621,7 +628,7 @@ class Parcel2Go:
         order_id, line_id, order_hash = self._split(ref)
         got = self._call("GET", "/orders", params={"orderId": order_id, "hash": order_hash}) or {}
         if not isinstance(got, dict) or not got.get("PaidDate"):
-            raise ProviderRefused("The order isn't paid, so it has no label.")
+            raise ProviderRefused("The order isn't paid, so it has no label.", code="unpaid")
         labels = self._labels(order_id, order_hash, "Labels", "Label4X6")
         label = next((b for b in labels if is_pdf(b)), None)
         if label is None:

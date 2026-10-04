@@ -45,7 +45,7 @@ from shipping.providers.base import (
     ShippingProvider,
 )
 from shipping.states import move
-from shipping.store import OpenOperationExists, Store, new_id, now
+from shipping.store import Conflict, OpenOperationExists, Store, new_id, now
 
 log = logging.getLogger("shipping.purchase")
 
@@ -79,13 +79,17 @@ class Purchases:
         provider: ShippingProvider,
         clock: Callable[[], datetime] = now,
         confirm_unpaid_after: timedelta = timedelta(minutes=2),
+        # Must exceed the longest provider call (httpx: 10 s connect + 30 s read), so a
+        # sweep never mistakes a request still in flight for an interrupted one.
         interrupted_after: timedelta = timedelta(minutes=5),
+        escalate_after: timedelta = timedelta(hours=1),
     ) -> None:
         self.store = store
         self.provider = provider
         self.clock = clock
         self.confirm_unpaid_after = confirm_unpaid_after
         self.interrupted_after = interrupted_after
+        self.escalate_after = escalate_after
 
     # ------------------------------------------------------------------ helpers
 
@@ -189,7 +193,7 @@ class Purchases:
                 f"The price changed from {s.quote.amount} to "
                 f"{Money(minor=exact, currency=s.quote.amount.currency)}. Nothing was bought."
             )
-        with self.store.lock:
+        with self.store.atomic():  # the operation and "purchasing" are written together
             s = self._get(shop, shipment_id)
             self._require_ready(s)
             if basis_token != basis(s):
@@ -231,10 +235,22 @@ class Purchases:
 
     # ------------------------------------------------------------------ the protocol
 
+    def _save_op(self, op: ProviderOp) -> None:
+        op.updated_at = self.clock()
+        self.store.save_op(op)  # compare-and-set: Conflict if someone else moved it on
+
+    def _alert(self, s: Shipment, text: str) -> None:
+        """Tell staff once (not on every sweep) about something only a person can settle."""
+        if text not in s.alerts:
+            s.alerts.append(text)
+            self._event(s, "alert", "system", {"text": text})
+
     def _fail(self, op: ProviderOp, why: str, *, state: OpState = OpState.failed) -> None:
-        with self.store.lock:
+        # One transaction: the operation closes and the shipment is freed together, or
+        # neither (a crash in between would otherwise strand the shipment with no open op).
+        with self.store.atomic():
             op.state, op.last_error = state, why
-            self.store.save_op(op)
+            self._save_op(op)
             s = self._get(op.shop, op.shipment_id)
             s.last_error = why
             move(
@@ -248,6 +264,14 @@ class Purchases:
             self.store.save(s)
 
     def _advance(self, op: ProviderOp) -> None:
+        try:
+            self._steps(op)
+        except Conflict:
+            # Someone else (a timer sweep) moved this operation on while we were waiting on the
+            # provider. Their decision stands; in particular we never go on to pay.
+            log.warning("operation %s changed under the buy; leaving it to the ledger", op.id)
+
+    def _steps(self, op: ProviderOp) -> None:
         while True:
             s = self._get(op.shop, op.shipment_id)
             if op.state == OpState.authorised:
@@ -269,23 +293,30 @@ class Purchases:
                         "Nothing was paid; you can try again.",
                     )
                     return
-                except (ProviderRefused, ProviderUnavailable) as exc:
+                except ProviderRefused as exc:
                     self._fail(
                         op, f"{self.provider.name} refused the order: {exc}. Nothing was paid."
                     )
                     return
-                except Exception as exc:  # an unreadable reply, or a fault in the adapter
+                except ProviderUnavailable as exc:
+                    self._fail(
+                        op,
+                        f"{self.provider.name} couldn't be reached ({exc}). Nothing was paid; "
+                        "try again shortly.",
+                    )
+                    return
+                except Exception as exc:  # a fault building the order or reading the reply
                     # An order may exist, but without its reference it can never be paid.
                     log.exception("create_order for %s", op.id)
                     self._fail(
                         op,
-                        f"{self.provider.name} gave an answer CLIVE couldn't read "
-                        f"({type(exc).__name__}). Nothing was paid; you can try again.",
+                        f"CLIVE hit an internal error placing the order ({type(exc).__name__}). "
+                        "Nothing was paid. If it happens again, it needs fixing before retrying.",
                     )
                     return
                 op.provider_ref = order.ref
                 op.state = OpState.order_created
-                self.store.save_op(op)
+                self._save_op(op)
                 if order.amount_minor <= 0:
                     self._fail(
                         op,
@@ -306,9 +337,11 @@ class Purchases:
                 if not ref:  # can't happen by construction; never pay an unknown order
                     self._fail(op, "The provider order has no reference. Nothing was paid.")
                     return
-                # Saved before the call: from here a crash reads as "may have been charged".
+                # Saved (compare-and-set) before the call: if a sweep moved this operation on
+                # meanwhile, this raises Conflict and nothing is paid. From here a crash reads
+                # as "may have been charged".
                 op.state, op.pay_sent_at = OpState.pay_sent, self.clock()
-                self.store.save_op(op)
+                self._save_op(op)
                 try:
                     self.provider.pay(ref)
                 except (ProviderRefused, ProviderUnavailable) as exc:
@@ -328,7 +361,7 @@ class Purchases:
                     self.reconcile(op)
                     return
                 op.state = OpState.paid
-                self.store.save_op(op)
+                self._save_op(op)
                 self._label_bought(op, "Paid; confirmed by the provider's reply.")
             elif op.state == OpState.paid:
                 self._fetch_documents(op)
@@ -337,12 +370,14 @@ class Purchases:
                 return
 
     def _uncertain(self, op: ProviderOp, why: str) -> None:
-        with self.store.lock:
+        with self.store.atomic():
             op.state, op.last_error = OpState.pay_unknown, why
-            self.store.save_op(op)
+            self._save_op(op)
             s = self._get(op.shop, op.shipment_id)
             s.last_error = NOT_READY[S.reconciliation_required]
-            if s.status == S.purchasing:
+            if s.status in (S.purchasing, S.label_purchased):
+                if s.status == S.label_purchased:
+                    s.label = None  # recorded on a reply the provider now contradicts
                 move(
                     s,
                     S.reconciliation_required,
@@ -356,46 +391,66 @@ class Purchases:
     def _label_bought(self, op: ProviderOp, how: str) -> None:
         with self.store.lock:
             s = self._get(op.shop, op.shipment_id)
-            if s.status in (S.purchasing, S.reconciliation_required):
-                # What was authorised and paid for, not whatever quote the shipment holds now.
-                bought = op.quote or s.quote
-                s.label = Label(
-                    provider=self.provider.name,
-                    provider_ref=op.provider_ref or "",
-                    carrier=bought.carrier if bought else self.provider.name,
-                    service_name=bought.service_name if bought else "",
-                    amount=op.amount,
-                    purchased_at=self.clock(),
-                )
-                s.last_error = None
-                move(
+            if s.label is not None:
+                return  # already recorded (e.g. by an earlier sweep)
+            if s.status not in (S.purchasing, S.reconciliation_required):
+                # Paid, but the shipment isn't where a purchase leaves it. Don't guess a
+                # transition; make it impossible to miss.
+                log.error("operation %s paid but shipment %s is %s", op.id, s.id, s.status)
+                self._alert(
                     s,
-                    S.label_purchased,
-                    at=self.clock(),
-                    actor=op.actor,
-                    event="label_purchased",
-                    detail={"operation": op.id, "amount": str(op.amount), "how": how},
-                    verified=True,
+                    f"Paid for: {self.provider.name} took {op.amount} for this order (CLIVE "
+                    f"reference {op.id}), but the order was '{s.status.value}' at the time, so "
+                    "the label wasn't recorded automatically. Check it before buying again.",
                 )
                 self.store.save(s)
+                return
+            # What was authorised and paid for, not whatever quote the shipment holds now.
+            bought = op.quote or s.quote
+            s.label = Label(
+                provider=self.provider.name,
+                provider_ref=op.provider_ref or "",
+                carrier=bought.carrier if bought else self.provider.name,
+                service_name=bought.service_name if bought else "",
+                amount=op.amount,
+                purchased_at=self.clock(),
+            )
+            s.last_error = None
+            move(
+                s,
+                S.label_purchased,
+                at=self.clock(),
+                actor=op.actor,
+                event="label_purchased",
+                detail={"operation": op.id, "amount": str(op.amount), "how": how},
+                verified=True,
+            )
+            self.store.save(s)
+
+    def _overdue(self, op: ProviderOp) -> bool:
+        since = op.pay_sent_at or op.created_at
+        return self.clock() - since >= self.escalate_after
 
     def _fetch_documents(self, op: ProviderOp) -> None:
         try:
             if not op.provider_ref:
                 raise ProviderUnavailable("no provider reference to fetch from")
             docs = self.provider.documents(op.provider_ref)
+        except ProviderRefused as exc:
+            if exc.code == "unpaid":
+                # A 2xx payment reply that the provider now contradicts: not ours to guess.
+                # Back to the read-back rule; never paid again from here.
+                log.error("operation %s: provider says not paid after a paid reply", op.id)
+                self._uncertain(op, f"{self.provider.name} says the order isn't paid")
+                return
+            self._documents_later(op, exc)
+            return
         except Exception as exc:  # documents never move money: always just "try again later"
             if not isinstance(exc, ProviderError):
                 log.exception("documents for %s", op.id)
-            with self.store.lock:
-                s = self._get(op.shop, op.shipment_id)
-                s.last_error = (
-                    f"The label is bought but its documents haven't arrived yet "
-                    f"({exc}). They'll be fetched again shortly; don't buy again."
-                )
-                self.store.save(s)
+            self._documents_later(op, exc)
             return
-        with self.store.lock:
+        with self.store.atomic():
             s = self._get(op.shop, op.shipment_id)
             if s.label is None:  # not recorded as bought: nothing to attach documents to
                 log.error("documents for %s but shipment %s has no label", op.id, s.id)
@@ -432,7 +487,8 @@ class Purchases:
                 }
             )
             if s.label.complete:
-                s.last_error = None
+                if s.status == S.label_purchased:
+                    s.last_error = None
                 self._event(
                     s,
                     "documents_stored",
@@ -446,45 +502,81 @@ class Purchases:
                 )
                 op.state = OpState.done
             else:
+                if s.status == S.label_purchased:
+                    s.last_error = (
+                        "The label is bought. Its customs paperwork isn't confirmed yet; "
+                        "CLIVE keeps checking. Don't buy again."
+                    )
+                if self._overdue(op):
+                    self._alert(
+                        s,
+                        "The customs paperwork for this label still isn't confirmed after an "
+                        f"hour. Check the order (CLIVE reference {op.id}) in "
+                        f"{self.provider.name} and print any customs documents it shows.",
+                    )
+            self.store.save(s)
+            self._save_op(op)
+
+    def _documents_later(self, op: ProviderOp, exc: Exception) -> None:
+        log.warning("documents for %s not available yet: %s", op.id, exc)
+        with self.store.lock:
+            s = self._get(op.shop, op.shipment_id)
+            if s.status == S.label_purchased:
                 s.last_error = (
-                    "The label is bought. Its customs paperwork isn't confirmed yet; CLIVE "
-                    "keeps checking. Don't buy again."
+                    "The label is bought but its documents haven't arrived yet. They'll be "
+                    "fetched again shortly; don't buy again."
+                )
+            if self._overdue(op):
+                self._alert(
+                    s,
+                    f"The label's documents still haven't arrived from {self.provider.name} "
+                    f"after an hour (CLIVE reference {op.id}). The label is paid for: download "
+                    "it from the provider rather than buying again.",
                 )
             self.store.save(s)
-            self.store.save_op(op)
 
     # ------------------------------------------------------------------ reconcile
 
     def reconcile(self, op: ProviderOp) -> None:
-        """Settle an open operation from the provider's own records. Safe to call any time."""
+        """Settle an open operation from the provider's own records. Safe to call any time,
+        from any thread: it works on the latest saved copy and never pays."""
+        fresh = self.store.op(op.shop, op.id)
+        if fresh is None:
+            return
+        try:
+            self._reconcile(fresh)
+        except Conflict:
+            log.info("operation %s moved on during reconcile; next sweep looks again", op.id)
+
+    def _reconcile(self, op: ProviderOp) -> None:
         at = self.clock()
-        if op.state in (OpState.pay_unknown, OpState.pay_sent):
-            if op.state == OpState.pay_sent:  # a crash after sending: treat as unknown
-                self._uncertain(op, "Interrupted after the payment was sent.")
+        if op.state == OpState.pay_sent:
+            if at - (op.pay_sent_at or op.updated_at) < self.interrupted_after:
+                return  # the payment may still be on the wire: its own thread settles it
+            self._uncertain(op, "Interrupted after the payment was sent.")
+        if op.state == OpState.pay_unknown:
             if not op.provider_ref:
                 log.error("operation %s is unknown but has no provider reference", op.id)
                 return  # stays unknown and visible; never paid again
             try:
                 seen = self.provider.read_order(op.provider_ref)
-            except ProviderError:
-                return  # still unknown; the next sweep tries again
-            except Exception:
-                log.exception("read_order for %s", op.id)
+            except Exception as exc:
+                self._read_failed(op, exc)
                 return  # still unknown; the next sweep tries again
             if seen.paid:
                 op.state = OpState.paid
-                self.store.save_op(op)
+                self._save_op(op)
                 self._label_bought(op, "Payment confirmed by reading the order back.")
                 self._fetch_documents(op)
                 return
             op.unpaid_reads.append(at)
-            self.store.save_op(op)
+            self._save_op(op)
             first = op.unpaid_reads[0]
             if len(op.unpaid_reads) >= 2 and at - first >= self.confirm_unpaid_after:
-                with self.store.lock:
+                with self.store.atomic():
                     op.state = OpState.abandoned
                     op.last_error = "Confirmed unpaid twice; this provider order is never paid."
-                    self.store.save_op(op)
+                    self._save_op(op)
                     s = self._get(op.shop, op.shipment_id)
                     s.last_error = (
                         "You weren't charged: the provider confirms the payment "
@@ -501,16 +593,38 @@ class Purchases:
                     )
                     self.store.save(s)
         elif op.state == OpState.paid:
+            # Recorded first if a crash came between the payment and the label.
+            self._label_bought(op, "Paid; recorded on reconcile.")
             self._fetch_documents(op)
         elif op.state in (OpState.authorised, OpState.order_created):
-            # A process died before paying. Nothing was charged; give the decision back.
-            if at - op.created_at >= self.interrupted_after:
+            # Nothing has been paid. Only once its own thread has clearly gone (well past the
+            # longest provider call) is the decision given back.
+            if at - op.updated_at >= self.interrupted_after:
                 self._fail(
                     op,
                     "The purchase was interrupted before payment. You weren't "
                     "charged; buy again when you're ready.",
                     state=OpState.abandoned,
                 )
+
+    def _read_failed(self, op: ProviderOp, exc: Exception) -> None:
+        if isinstance(exc, ProviderError):
+            log.warning("read-back for %s failed: %s", op.id, exc)
+        else:
+            log.exception("read_order for %s", op.id)
+        op.read_failures += 1
+        op.first_read_failure_at = op.first_read_failure_at or self.clock()
+        self._save_op(op)
+        if self.clock() - op.first_read_failure_at >= self.escalate_after:
+            with self.store.lock:
+                s = self._get(op.shop, op.shipment_id)
+                self._alert(
+                    s,
+                    f"CLIVE couldn't confirm the payment with {self.provider.name} for over an "
+                    f"hour. Check the order (CLIVE reference {op.id}) in {self.provider.name} "
+                    "before buying again. CLIVE keeps checking and will never pay twice.",
+                )
+                self.store.save(s)
 
     def reconcile_all(self) -> int:
         ops = self.store.open_ops()

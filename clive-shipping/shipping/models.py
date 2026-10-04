@@ -316,6 +316,11 @@ class ProviderOp(BaseModel):
     # from this, never from whatever quote the shipment holds later.
     quote: Quote | None = None
     unpaid_reads: list[datetime] = Field(default_factory=list)
+    # Read-backs that failed (provider down, unreadable), so a long silence is escalated.
+    read_failures: int = 0
+    first_read_failure_at: datetime | None = None
+    # Bumped on every save; a save from an older copy is refused (Store.save_op).
+    version: int = 0
     pay_sent_at: datetime | None = None
     last_error: str | None = None
     created_at: datetime

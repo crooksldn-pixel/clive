@@ -118,7 +118,7 @@ class FakeProvider:
             self.documents_down -= 1
             raise ProviderUnavailable("label not ready")
         if not self.orders[ref].paid:
-            raise ProviderRefused("order not paid")
+            raise ProviderRefused("order not paid", code="unpaid")
         docs = [
             ProviderDocument(
                 kind=DocumentKind.shipping_label,

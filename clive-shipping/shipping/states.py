@@ -16,7 +16,10 @@ ALLOWED: dict[S, frozenset[S]] = {
     # A buy either fails cleanly (nothing charged), becomes uncertain, or succeeds.
     S.purchasing: frozenset({S.ready, S.reconciliation_required, S.label_purchased}),
     S.reconciliation_required: frozenset({S.label_purchased, S.ready}),
-    S.label_purchased: frozenset({S.fulfilled, S.fulfillment_failed, S.void_requested}),
+    # Back to reconciliation only if the provider later says a "paid" reply wasn't a payment.
+    S.label_purchased: frozenset(
+        {S.fulfilled, S.fulfillment_failed, S.void_requested, S.reconciliation_required}
+    ),
     S.fulfillment_failed: frozenset({S.fulfilled, S.fulfillment_failed, S.void_requested}),
     S.fulfilled: frozenset({S.in_transit, S.delivered, S.void_requested}),
     S.in_transit: frozenset({S.delivered}),

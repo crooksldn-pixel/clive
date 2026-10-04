@@ -131,7 +131,7 @@ class FakeP2G:
             ("/api/orders/verify", "POST"): "verify",
             ("/api/orders", "POST"): "create",
             ("/api/orders", "GET"): "read",
-        }.get((path, method), "")
+        }.get((path, method), "pay" if path.endswith("/paywithprepay") else "")
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
