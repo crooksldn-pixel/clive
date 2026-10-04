@@ -43,6 +43,13 @@ files you touch. In cloud sessions the pyright-lsp plugin doesn't run (Claude Co
 language servers there), so run the CLI; in a local terminal the plugin gives diagnostics after
 edits and an `LSP` tool for definitions and references.
 
+## Project skills
+
+`.claude/skills/`: `shopify-sister-app` (product philosophy), `shopify-native-ui` (embedded
+screens), `transaction-safety` (anything that pays, buys, refunds or can't be undone),
+`provider-integration` (external APIs), `testing-standard` (failure-mode tests, done means
+verified). Use them whenever their description applies; several often do at once.
+
 ## Which tool, when
 
 **Shopify: check, don't remember.** For any Shopify API work that is new to the code, or
@@ -93,5 +100,5 @@ billing, or new money-moving actions.
 `.claude/hooks/session-start.sh` installs both apps (editable, dev extras), pyright, and trusts
 the environment's TLS-inspection CAs in the browser store, so Chromium can load
 `cdn.shopify.com` (App Bridge and Polaris). Plugins are declared in `.claude/settings.json`. The
-`crooks-dev` plugin lives in `.claude/marketplace/`. Tooling decisions and what was rejected are
-in `docs/sister-apps/TOOLING.md`.
+`crooks-dev` plugin lives in `.claude/marketplace/`. Which tool for which situation, and what was
+rejected: `docs/development/CLAUDE_TOOLING.md`.
