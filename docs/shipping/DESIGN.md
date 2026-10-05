@@ -518,6 +518,77 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
      (commercial invoice ×3, A4) and learned for that service; the genuine 4×6 label and the
      invoice printed from the stored files.
 
+   - **Independent review (2026-10-05): code, silent failures, security, test coverage.** Fixed
+     in one commit, each with a test and mutation-checked (removing any guard fails a test):
+     - *Found by the reviews and fixed:* a Setup change (ship-from, EORI, VAT, duties terms)
+       after a preview still bought; an order on hold in Shopify could be bought; the page
+       could say "That didn't work" after a proxy error while the label was bought
+       (bookkeeping after payment can no longer raise, and an unclear reply offers "Check
+       again" with the same key); a fulfilment Shopify accepted but couldn't show yet was
+       reported as "closed without this label"; a fulfilment could be created while the order
+       was unreadable; a refusal wasn't read back; one broken shipment stopped the timer;
+       prints were recorded before a window opened (now opened synchronously, copies shown,
+       skipped labels reported); the fastest note said "more" for a cheaper option; a
+       preview's new price didn't reach the services list; a service change could race a
+       purchase.
+     - *Security:* `iss` host must be the shop; malformed tokens are 401 not 500; the sandbox
+       is the exact host; provider tracking links must be https; documents served only as
+       PDF/PNG/JPEG with CSP sandbox; no raw provider text or order hash in messages; Setup
+       field limits. Judged sound: HS256 pinned, aud/dest/exp/nbf, every API route
+       authenticated, bearer-only (no CSRF), per-shop document lookup, `/dev` routes never in
+       the app, live Parcel2Go never the default, CDN scripts without SRI (Shopify requires
+       App Bridge unpinned).
+     - *Left open, deliberately:*
+       - an order moved to another location in Shopify (`fulfillmentOrderMove`) is reported
+         as closed without the label; the message says what to do, but it isn't detected;
+       - the timer re-quotes ready orders each minute, so if Parcel2Go's quote and exact
+         prices differ, a preview left open over a tick comes back "changed";
+       - staff appear as "Staff {id}" on the timeline (Returns looks names up);
+       - `Purchases.reprint` (Stage 3) still exists beside `printing.py`; both read stored
+         files only;
+       - no `script-src` CSP or rate limit (staff-only, single shop);
+       - Returns has the same missing `iss` check; changing Returns is the owner's call.
+
+   - **Live-readiness gate.** The code is ready for one manually authorised live label. The
+     environment is not yet: it needs the Stage 6 steps below, done by the owner on the
+     server. No live credential is in the repo or this session.
+
+     *Before (owner, on the server):*
+     1. Deploy Shipping beside Returns (compose service, Caddy site block, a persistent
+        volume for the SQLite file, a backup of it).
+     2. Shopify app: client id and secret on the server; scopes for merchant-managed
+        fulfillment orders, orders, inventory items (customs facts) and locations; app URL
+        `/admin`. Open it from Apps in admin and confirm the inbox loads (this is where the
+        session-token checks meet real tokens).
+     3. `SHIPPING_SHOP_DOMAIN`, `SHIPPING_DEV_SKIP_ADMIN_AUTH` unset (false),
+        `SHIPPING_TICK_INTERVAL_S=60`.
+     4. A separate **live** Parcel2Go API credential, set only on the server
+        (`SHIPPING_P2G_BASE_URL=https://www.parcel2go.com`, client id, secret). Keep the PrePay
+        balance small (e.g. £30): it caps what any mistake can spend.
+     5. Setup screen shows "Connected · Live"; confirm ship-from, the real mailer's size and
+        empty weight, EORI/VAT if any, DAP.
+
+     *The label (one, by hand):*
+     6. One real international order (ideally a staff order to a known address in Germany),
+        tees whose customs facts are answered once in the app.
+     7. Read the preview: the service, the price (compare with Parcel2Go's site), the parcel,
+        customs and DAP lines. Click Buy once.
+
+     *Check afterwards:*
+     8. PrePay dropped by exactly the price; Parcel2Go's dashboard shows one order.
+     9. The order in Shopify is fulfilled with the tracking number, and the customer email
+        went (or not, per Setup).
+     10. Customs: paperless confirmed after ~2 minutes, or paper with the copies to print;
+         matches Parcel2Go's label advice.
+     11. The 4×6 label prints on the JADENS from the browser at actual size (no "fit to
+         page"), and scans.
+     12. The courier tracking number: the sandbox gave only `P2G{line}`. If live gives a
+         courier number later, note when; updating Shopify with it is not built yet
+         (`fulfillmentTrackingInfoUpdate`).
+
+     *If anything is wrong:* there is no void API. Cancel the label in Parcel2Go's
+     dashboard, and in Shopify cancel the fulfilment. CLIVE never re-buys on its own.
+
 5. **Stage 5 — API for CLIVE, webhooks, `shipping-ctl`, PrintNode sender**, mirroring Returns.
 6. **Stage 6 — deploy and pilot:**
    - Shopify app toml, compose service, Caddy site block, separate Parcel2Go credential;
