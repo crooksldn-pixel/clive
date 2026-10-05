@@ -103,7 +103,7 @@ def test_requests_keep_to_easyships_own_schema(es, es_server, store, provider):
     assert s.lines[0].sku is None  # many CROOKS lines have no SKU
     es.quotes(s)
     _, body = es_server.bodies[-1]
-    assert "sku" not in body["parcels"][0]["items"][0]
+    assert body["parcels"][0]["items"][0]["sku"] == "shopify-variant-11"  # never null
     assert body["origin_address"]["state"] == "" and body["destination_address"]["state"] is None
     assert spec_errors("rates", body) == []
     s.lines[0].sku = "TEE-BLK-M"
@@ -122,16 +122,36 @@ def test_the_fake_refuses_what_easyship_refuses(es, es_server, store, provider):
     assert any("state" in e for e in spec_errors("rates", body))
 
 
-def test_missing_contact_details_refuse_before_anything_reaches_easyship(
-    es, es_server, store, provider
+def test_a_customer_without_phone_or_email_is_booked_with_the_store_contact(
+    es, es_server, store, provider, cfg
 ):
+    """Shopify doesn't require a phone; Easyship does. The shop's stands in, booking only."""
     s = make_shipment(store, provider)
     s.destination = GG.model_copy(update={"phone": "", "email": ""})
-    s.quote = next(q for q in es.quotes(s) if q.tracked)  # quoting doesn't need them
+    s.quote = next(q for q in es.quotes(s) if q.tracked)
+    assert es.missing_contacts(s) == []
+    assert es.verify(s, s.quote) == 324
+    es.create_order(s, s.quote, "op-1")
+    name, body = es_server.bodies[-1]
+    assert name == "create" and spec_errors("create", body) == []
+    to = body["destination_address"]
+    assert to["contact_phone"] == cfg.origin.phone and to["contact_email"] == cfg.origin.email
+    assert to["contact_name"] == "Test Recipient"
+    assert s.destination.phone == "" and s.destination.email == ""  # never written back
+    assert es_server.charges == []
+
+
+def test_only_a_missing_store_contact_stops_easyship_before_anything_is_sent(
+    es, es_server, store, provider, cfg
+):
+    s = make_shipment(store, provider)
+    s.destination = GG.model_copy(update={"phone": ""})
+    s.quote = next(q for q in es.quotes(s) if q.tracked)
+    cfg.origin.phone = ""
     sent = len(es_server.requests)
-    with pytest.raises(ProviderRefused, match="customer phone, customer email"):
+    with pytest.raises(ProviderRefused, match="Setup → Ship from phone"):
         es.verify(s, s.quote)
-    with pytest.raises(ProviderRefused, match="customer phone, customer email"):
+    with pytest.raises(ProviderRefused, match="Setup → Ship from phone"):
         es.create_order(s, s.quote, "op-1")
     assert es_server.requests[sent:] == [] and es_server.charges == []
 
@@ -477,6 +497,54 @@ def test_shopify_failing_after_an_easyship_purchase_retries_shopify_only(svc, sh
     assert len(es_server.requests) == calls and len(es_server.charges) == 1
 
 
+def test_a_shopify_order_without_a_phone_is_ready_and_books_with_the_store_phone(
+    svc, shopify, es_server, cfg
+):
+    """CROOKS-2142: Shopify had no phone for the customer. Not an error; the store's is used."""
+    snap = fo(2142, [tee_line(qty=1)])
+    snap.destination = GG.model_copy(update={"phone": ""})
+    shopify.add(snap)
+    svc.sync(SHOP)
+    (s,) = svc.store.shipments(SHOP)
+    s = answer_all_first_time(svc, s)
+    assert s.status == S.ready and s.quote.provider == "Easyship" and not s.questions
+    d = views.detail(s, svc.recommendation(s), [], origin=cfg.origin)
+    assert d["address"]["contact_note"] == (
+        "Carrier contact: store phone used because the customer supplied no phone"
+    )
+    assert d["address"]["ok"] and d["provider"] == "Easyship"
+    pv = svc.preview(SHOP, s.id)
+    assert pv["money"]["shipping_minor"] == 324 and "Easyship account" in pv["charged"]
+    svc.buy(SHOP, s.id, pv["basis"], "george", "k1")
+    _, body = next(b for b in es_server.bodies if b[0] == "create")
+    assert body["destination_address"]["contact_phone"] == cfg.origin.phone
+    s = svc.store.get(SHOP, s.id)
+    assert s.status == S.fulfilled and s.destination.phone == ""  # nothing written back
+
+
+def test_the_customers_own_phone_needs_no_note(svc, shopify, cfg):
+    s = guernsey_order(svc, shopify)
+    assert (
+        views.detail(s, svc.recommendation(s), [], origin=cfg.origin)["address"]["contact_note"]
+        is None
+    )
+
+
+def test_zero_easyship_credit_blocks_nothing_until_easyship_refuses(svc, shopify, es_server):
+    """The £0.00 balance is information: a saved card may pay. Only Easyship's refusal stops
+    the purchase, and then in words, with nothing charged."""
+    es_server.balance = 0.0
+    s = guernsey_order(svc, shopify)
+    assert s.status == S.ready and s.quote.provider == "Easyship"
+    pv = svc.preview(SHOP, s.id)  # Check price works
+    out = svc.buy(SHOP, s.id, pv["basis"], "george", "k1")
+    assert not out["charged"] and es_server.charges == []
+    s = svc.store.get(SHOP, s.id)
+    assert "Insufficient balance" in (s.last_error or "")
+    assert "Add credit or a payment method in your Easyship account" in s.last_error
+    assert "weren't charged" in s.last_error
+
+
 # ------------------------------------------------------------------ cancel and tracking
 
 
@@ -545,3 +613,47 @@ def test_a_tracking_number_that_arrives_later_reaches_shopify(svc, shopify, es_s
 
 def test_the_easyship_balance_is_read_for_setup(es):
     assert es.account() == {"balance": 50.0, "currency": "GBP"}
+
+
+# ------------------------------------------------------------------ the dry run
+
+
+def test_the_dry_run_reports_real_blockers_and_buys_nothing(
+    svc, shopify, es_server, p2g_fake, monkeypatch, capsys
+):
+    from shipping.fake_shopify import hoodie_line
+    from shipping.tools import dry_run
+
+    snap = fo(2142, [tee_line(qty=1)])
+    snap.destination = GG.model_copy(update={"phone": ""})
+    shopify.add(snap)
+    svc.sync(SHOP)
+    (s,) = svc.store.shipments(SHOP)
+    answer_all_first_time(svc, s)
+    shopify.add(fo(2150, [hoodie_line(qty=1)], country="DE"))  # a new product: not known yet
+
+    class Cfg:
+        shop_domain = SHOP
+
+    monkeypatch.setattr(dry_run, "Settings", lambda: Cfg())
+    monkeypatch.setattr(dry_run, "build_service", lambda settings: svc)
+    assert dry_run.main(["--probe-easyship"]) == 0
+    out = capsys.readouterr().out
+    assert "Open international orders: 2" in out
+    assert "CROOKS-2142  GG GY1*  ready" in out
+    assert "service  Easyship · Royal Mail" in out
+    assert "note     Carrier contact: store phone used" in out
+    assert "Check price  OK: 3.24 GBP (nothing bought)" in out
+    assert "Easyship booking  accepted at 3.24 GBP, no label; deleted again" in out
+    assert "CROOKS-2150  DE 10115*  needs_attention" in out and "BLOCKER [" in out
+    assert "Max Muster" not in out and "Torstrasse" not in out  # no customer details
+    # Nothing bought anywhere, and the probe left nothing behind at Easyship.
+    assert es_server.charges == [] and p2g_fake.charges == [] and es_server.shipments == {}
+    assert ("POST", "/2024-09/shipments/ESGG1001/label") not in es_server.requests
+
+
+def test_easyship_refuses_to_delete_a_shipment_with_a_label(purchases, ready, es_server, es):
+    buy(purchases, ready)
+    with pytest.raises(ProviderRefused):
+        es.discard("es:ESGG1001")
+    assert es_server.charges == ["ESGG1001"] and "ESGG1001" in es_server.shipments

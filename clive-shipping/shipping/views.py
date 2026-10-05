@@ -14,8 +14,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from shipping import readiness
-from shipping.models import CustomsMode, DocumentKind, Quote, Shipment
+from shipping import contacts, readiness
+from shipping.models import Address, CustomsMode, DocumentKind, Quote, Shipment
 from shipping.models import ShipmentStatus as S
 from shipping.money import Money
 from shipping.printing import PRINTABLE, TITLES, printed
@@ -337,6 +337,7 @@ def detail(
     presets: list[dict[str, Any]],
     may_buy: bool = True,
     may_cancel: bool = False,
+    origin: Address | None = None,
 ) -> dict[str, Any]:
     d = s.destination
     gaps = readiness.address_gaps(d)
@@ -350,7 +351,12 @@ def detail(
             "country": d.country,
             "ok": not gaps,
             "gaps": gaps,
+            # Booking data only, e.g. "Carrier contact: store phone used because ..."
+            "contact_note": contacts.note(contacts.recipient(d, origin)[1]) or None,
         },
+        # Who the label is (or would be) bought from, for messages about it.
+        "provider": (label.provider if label and label.provider else None)
+        or (s.quote.provider if s.quote else None),
         "products": [
             {
                 "title": ln.title,

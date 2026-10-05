@@ -71,6 +71,15 @@ def test_a_new_address_refuses_the_old_preview(svc, previewed, provider):
     assert_nothing_bought(provider)
 
 
+def test_a_new_customer_phone_refuses_the_old_preview(svc, previewed, provider):
+    # The carrier is given the phone (or the store's in its place): it is part of the basis.
+    s, b, snap = previewed
+    snap.destination = snap.destination.model_copy(update={"phone": "+4930123456"})
+    with pytest.raises(Stale):
+        svc.buy(SHOP, s.id, b, "george", "k1")
+    assert_nothing_bought(provider)
+
+
 def test_a_price_change_on_a_line_refuses_the_old_preview(svc, previewed, provider):
     s, b, snap = previewed
     snap.lines[0].unit_value = Money(minor=2900)  # customs value changes

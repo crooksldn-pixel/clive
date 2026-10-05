@@ -26,12 +26,14 @@ from __future__ import annotations
 import base64
 import binascii
 import logging
+import re
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
 import httpx
 
+from shipping import contacts
 from shipping.documents import is_pdf, page_size, pdf_pages
 from shipping.models import (
     Address,
@@ -62,6 +64,8 @@ API = "/2024-09"
 PRODUCTION = "https://public-api.easyship.com"
 SANDBOX = "https://public-api-sandbox.easyship.com"
 REF_PREFIX = "es:"
+# Words in Easyship's refusal of a label that mean "couldn't charge you".
+PAYMENT_WORDS = re.compile(r"credit|balance|payment|card|fund", re.IGNORECASE)
 SERVICE_PREFIX = "es-"
 
 # Label states that mean the label exists or is being made, i.e. it was bought.
@@ -118,6 +122,12 @@ def _handover(options: Any) -> str:
 
 
 BILLED_BY = {"Easyship": "provider", "EasyshipPayOnScan": "on_scan", "Courier": "courier_account"}
+
+
+def _variant_ref(variant_id: str | None) -> str | None:
+    """A stable item reference for a line without a SKU: its Shopify variant number."""
+    num = (variant_id or "").rsplit("/", 1)[-1]
+    return f"shopify-variant-{num}" if num.isdigit() else None
 
 
 class Easyship:
@@ -235,7 +245,8 @@ class Easyship:
             "description": ln.customs_description or ln.title,
             "hs_code": ln.hs_code,
             "origin_country_alpha2": ln.origin_country,
-            "sku": ln.sku,  # Easyship refuses a null SKU: an item without one leaves it out
+            # Easyship refuses a null SKU; without one, the Shopify variant stands in.
+            "sku": ln.sku or _variant_ref(ln.variant_id),
             "quantity": ln.quantity,
             "declared_currency": ln.unit_value.currency,
             "declared_customs_value": float(ln.unit_value.minor) / 100,
@@ -245,7 +256,7 @@ class Easyship:
     def _rates_body(self, s: Shipment, service_ids: list[str] | None = None) -> dict[str, Any]:
         body: dict[str, Any] = {
             "origin_address": self._origin(s),
-            "destination_address": self._address(s.destination),
+            "destination_address": self._address(self._recipient(s)),
             "incoterms": "DDP" if s.duties and s.duties.incoterm == "DDP" else "DDU",
             "insurance": {"is_insured": False},
             "courier_settings": {"show_courier_logo_url": False, "apply_shipping_rules": False},
@@ -317,23 +328,26 @@ class Easyship:
             raise ProviderRefused("That service isn't an Easyship service.", code="service")
         return quote.service_code[len(SERVICE_PREFIX) :]
 
+    def _recipient(self, s: Shipment) -> Address:
+        # The customer's phone and email, else the shop's (booking data, not saved anywhere).
+        return contacts.recipient(s.destination, self.config(s.shop).origin)[0]
+
     def missing_contacts(self, s: Shipment) -> list[str]:
-        """Contact details Easyship requires to create a shipment (quoting needs none of them)."""
-        o, d = self.config(s.shop).origin, s.destination
+        """What Easyship needs to create a shipment and nothing can stand in for (after the
+        store phone/email fallback). Quoting needs none of it."""
+        o, d = self.config(s.shop).origin or Address(), self._recipient(s)
         missing = []
-        if o is not None:
-            for name, v in (("name", o.name or o.company), ("phone", o.phone), ("email", o.email)):
-                if not v.strip():
-                    missing.append(f"ship-from {name}")
-        for name, v in (("name", d.name or d.company), ("phone", d.phone), ("email", d.email)):
+        for name, v in (("name", o.name or o.company), ("phone", o.phone), ("email", o.email)):
             if not v.strip():
-                missing.append(f"customer {name}")
+                missing.append(f"Setup → Ship from {name}")
+        if not (d.name or d.company).strip():
+            missing.append("the customer's name")
         return missing
 
     def _require_contacts(self, s: Shipment) -> None:
         if missing := self.missing_contacts(s):
             raise ProviderRefused(
-                f"Easyship needs the {', '.join(missing)} to book a label", code="contacts"
+                f"Easyship needs {', '.join(missing)} to book a label", code="contacts"
             )
 
     def verify(self, shipment: Shipment, quote: Quote) -> int:
@@ -417,24 +431,40 @@ class Easyship:
 
     def pay(self, ref: str) -> None:
         """Buy the label. Called at most once per shipment, by the purchase protocol only."""
-        body = self._call(
-            "POST",
-            f"/shipments/{self._id(ref)}/label",
-            writes=True,
-            json={
-                "printing_options": {
-                    "format": "pdf",
-                    "label": "4x6",
-                    "commercial_invoice": "A4",
-                    "packing_slip": "none",
-                }
-            },
-        )
+        try:
+            body = self._call(
+                "POST",
+                f"/shipments/{self._id(ref)}/label",
+                writes=True,
+                json={
+                    "printing_options": {
+                        "format": "pdf",
+                        "label": "4x6",
+                        "commercial_invoice": "A4",
+                        "packing_slip": "none",
+                    }
+                },
+            )
+        except ProviderRefused as exc:
+            # The credit balance shown in Setup is only information (a saved card may pay);
+            # Easyship's own refusal is what counts, and it says what to do.
+            if exc.code == "402" or PAYMENT_WORDS.search(str(exc)):
+                raise ProviderRefused(
+                    f"{exc}. Add credit or a payment method in your Easyship account, then "
+                    "buy again",
+                    code="payment",
+                ) from exc
+            raise
         sh = _obj(body.get("shipment"))
         state = str(sh.get("label_state") or "")
         if not sh.get("label_paid_at") and state not in BOUGHT_STATES:
             # A 2xx that doesn't show a bought label: the read-back decides, never a retry.
             raise ProviderUncertain(f"Easyship answered but the label is '{state or 'unknown'}'.")
+
+    def discard(self, ref: str) -> None:
+        """Delete a shipment that has no label (the dry run's booking probe). Easyship refuses
+        to delete one with a label, so this can never undo or lose a purchase."""
+        self._call("DELETE", f"/shipments/{self._id(ref)}", writes=True)
 
     def _shipment(self, ref: str, params: dict[str, str] | None = None) -> dict[str, Any]:
         body = self._call("GET", f"/shipments/{self._id(ref)}", writes=False, params=params)

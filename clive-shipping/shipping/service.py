@@ -300,6 +300,13 @@ class ShippingService:
             handover_preference=cfg.handover_preference,
         )
 
+    @staticmethod
+    def _seller(s: Shipment) -> str:
+        """The provider the label was bought from."""
+        if s.label and s.label.provider:
+            return s.label.provider
+        return s.quote.provider if s.quote and s.quote.provider else "the provider"
+
     def _watch_after_purchase(self, s: Shipment, snap: FoSnapshot | None) -> None:
         """After money moved we never rewrite the shipment; we only tell a person if the order
         no longer matches the label."""
@@ -307,7 +314,7 @@ class ShippingService:
             self._alert(
                 s,
                 "The order was cancelled after the label was bought. If the parcel "
-                "won't be sent, cancel the label at Parcel2Go for a refund.",
+                f"won't be sent, cancel the label at {self._seller(s)} for a refund.",
             )
             return
         if (
@@ -639,6 +646,11 @@ class ShippingService:
             + (" and email the customer" if cfg.notify_customer else "")
         )
         out["duties"] = s.duties.model_dump() if s.duties else None
+        who = s.quote.provider if s.quote else ""
+        out["charged"] = {
+            "Parcel2Go": "Charged to your Parcel2Go PrePay balance.",
+            "Easyship": "Charged to your Easyship account (its credit or saved payment method).",
+        }.get(who, f"Charged by {who or 'the provider'}.")
         return out
 
     def buy(self, shop: str, sid: str, basis: str, actor: str, key: str) -> dict[str, Any]:
@@ -713,8 +725,8 @@ class ShippingService:
                 s,
                 actor,
                 "The order is already closed in Shopify without this label's tracking number. "
-                "Add the number to its fulfilment in Shopify, or cancel the label at Parcel2Go "
-                "if the parcel won't use it.",
+                "Add the number to its fulfilment in Shopify, or cancel the label at "
+                f"{self._seller(s)} if the parcel won't use it.",
                 retry=False,
             )
         cfg = self.store.config(shop)

@@ -115,7 +115,7 @@ class FakeEasyship:
         self._ids = itertools.count(1001)
         # endpoint -> fault, used once: an httpx.Response, "garbage", "timeout" (the request
         # never answered), or "timeout_after" (done, then the reply is lost).
-        # Endpoints: rates create label read cancel credit
+        # Endpoints: rates create label read cancel credit delete
         self.faults: dict[str, Any] = {}
         self.label_state_after_buy = "generated"
         self.tracking_after_buy = True
@@ -136,6 +136,8 @@ class FakeEasyship:
             return "credit"
         if path.startswith("/2024-09/shipments/") and method == "GET":
             return "read"
+        if path.startswith("/2024-09/shipments/") and method == "DELETE":
+            return "delete"
         return ""
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -227,7 +229,7 @@ class FakeEasyship:
             return httpx.Response(201, json={"shipment": self.public(sh)})
         es_id = path.split("/")[3] if path.count("/") >= 3 else ""
         sh: dict[str, Any] = self.shipments.get(es_id) or {}
-        if name in ("label", "read", "cancel") and not sh:
+        if name in ("label", "read", "cancel", "delete") and not sh:
             return httpx.Response(
                 404, json={"error": {"code": "not_found", "message": "record not found"}}
             )
@@ -274,6 +276,14 @@ class FakeEasyship:
                     )
                 out["shipping_documents"] = docs
             return httpx.Response(200, json={"shipment": out})
+        if name == "delete":
+            if sh["label_paid_at"]:
+                return httpx.Response(
+                    404,
+                    json={"error": {"code": "not_found", "message": "not in a deletable state"}},
+                )
+            del self.shipments[es_id]
+            return httpx.Response(200, json={"success": {"message": "deleted"}, "meta": {}})
         if name == "cancel":
             if sh["shipment_state"] == "cancelled":
                 return httpx.Response(

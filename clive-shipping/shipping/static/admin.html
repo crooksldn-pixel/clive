@@ -80,7 +80,7 @@ class ApiError extends Error {
   }
 }
 
-// Refusals that CLIVE gives before anything is sent to Parcel2Go: certainly nothing bought.
+// Refusals that CLIVE gives before anything is sent to the provider: certainly nothing bought.
 const BEFORE_BUYING = new Set(["stale", "shopify_unavailable", "provider_unavailable",
                                "provider_refused", "not_found"]);
 function certainlyNotBought(err) {
@@ -362,7 +362,7 @@ function renderShipment() {
   let top = `<s-stack direction="inline" gap="small-200" alignItems="center">${badge(d.status)}</s-stack>`;
   if (d.status.label === "Purchase requires reconciliation") {
     top += banner({ tone: "critical", heading: "Purchase requires reconciliation",
-      text: d.error || "CLIVE is confirming with Parcel2Go whether this label was paid. Don't buy it again." });
+      text: d.error || `CLIVE is confirming with ${d.provider || "the provider"} whether this label was paid. Don't buy it again.` });
   } else if (d.status.label === "Label purchased — Shopify update needs retry") {
     top += banner({ tone: "critical", heading: "Label purchased — Shopify update needs retry",
       text: d.error || "The label is bought. Only Shopify needs updating.",
@@ -471,6 +471,7 @@ function renderShipment() {
         <s-text>${flag(a.country)} ${esc(countryName(a.country))}</s-text>
         ${a.ok ? `<s-stack direction="inline" gap="small-200" alignItems="center"><s-icon type="check-circle" tone="success"></s-icon><s-text color="subdued">Address complete</s-text></s-stack>`
                : `<s-badge tone="critical">Address needs attention</s-badge>`}
+        ${a.contact_note ? `<s-text color="subdued">${esc(a.contact_note)}</s-text>` : ""}
       </s-stack></s-section>
     <s-section heading="History">
       <s-stack gap="small-200">${d.timeline.slice(0, 12).map((e) =>
@@ -506,7 +507,7 @@ function modals(d) {
   const buy = `<s-modal id="buy-modal" heading="${d.buy_authorised ? "Buy this label?" : "Exact price (not bought)"}">
     ${pv ? `<s-stack gap="base">
       <s-unordered-list>${pv.will.map((w) => `<s-list-item>${esc(w)}</s-list-item>`).join("")}</s-unordered-list>
-      <s-paragraph color="subdued">Charged to your Parcel2Go PrePay balance. A label is bought once, even if you click twice.</s-paragraph>
+      <s-paragraph color="subdued">${esc(pv.charged || "")} A label is bought once, even if you click twice.</s-paragraph>
     </s-stack>
     ${d.buy_authorised
       ? `<s-button slot="primary-action" variant="primary" data-action="buy" id="buy-button">Buy label — ${esc(pv.price)}</s-button>`
@@ -763,7 +764,7 @@ const ACTIONS = {
         state.shipment = out.shipment;
         renderShipment();
         if (out.charged) toast(out.replayed ? "Already bought: showing that label" : "Label purchased");
-        else if (out.may_have_been_charged) toast("Checking with Parcel2Go whether it was paid", true);
+        else if (out.may_have_been_charged) toast(`Checking with ${out.shipment?.provider || "the provider"} whether it was paid`, true);
       } catch (err) {
         hideModal("buy-modal");
         if (!certainlyNotBought(err)) {

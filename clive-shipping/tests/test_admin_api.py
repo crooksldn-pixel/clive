@@ -235,6 +235,8 @@ def test_buy_label_then_print_4x6(client, shopify, provider):
     d = ready_order(client, shopify)
     pv, r = buy(client, d)
     assert pv["price"] == "£10.69" and any("Mark CROOKS-2145 fulfilled" in w for w in pv["will"])
+    assert pv["charged"] == "Charged to your Parcel2Go PrePay balance."
+    assert pv["shipment"]["provider"] == "Parcel2Go"
     out = ok(r)
     assert out["charged"] and out["status"] == "fulfilled"
     d = out["shipment"]

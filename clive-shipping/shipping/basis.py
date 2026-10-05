@@ -33,7 +33,8 @@ def basis(shipment: Shipment, cfg: ShopConfig | None = None) -> str:
             )
             for ln in shipment.lines
         ),
-        "to": [d.name, d.line1, d.line2, d.city, d.region, d.postcode, d.country],
+        # Phone and email too: the carrier gets them (or the shop's in their place).
+        "to": [d.name, d.line1, d.line2, d.city, d.region, d.postcode, d.country, d.phone, d.email],
         "package": [p.length_mm, p.width_mm, p.height_mm, p.total_weight_g] if p else None,
         "service": [q.provider, q.service_code, q.amount.minor, q.amount.currency] if q else None,
         "duties": [shipment.duties.incoterm, shipment.duties.ioss_number]

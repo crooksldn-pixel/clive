@@ -615,10 +615,25 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
    with a 400 (CROOKS-2142's first live quote failed on `"sku": null`). The fake Easyship in the
    tests validates every request against those schemas (`tests/easyship_requests_2024-09.json`,
    request schemas only). Rates need a `state` key on both addresses (origin: a string, may be
-   empty; destination: may be null) and refuse null item fields. Creating a shipment also needs
-   the sender's company, contact, phone and email and the customer's name, phone and email:
-   quoting works without them, but `verify` (the preview) refuses with the missing fields named,
-   before anything reaches Easyship.
+   empty; destination: may be null) and refuse null item fields; a line without a SKU is sent
+   as `shopify-variant-<id>`. Creating a shipment also needs the sender's company, contact,
+   phone and email and the customer's name, phone and email.
+
+   **Only genuine facts block a label.** Shopify doesn't require a customer phone (or always an
+   email), so the carrier contact is deterministic (`shipping/contacts.py`, both providers):
+   the customer's phone/email if given, otherwise Setup → Ship from phone/email. It is booking
+   data only, never written to Shopify; the detail screen shows a subtle "Carrier contact:
+   store phone used…" note, not an error. Both are part of the purchase basis, so a change
+   between Check price and Buy is stale. Only a missing Ship-from phone/email (or customer
+   name) stops an Easyship booking, at Check price, before anything is sent. The Easyship
+   credit balance is information only (a saved card may pay); only Easyship's own refusal of
+   the label stops a purchase, with "Add credit or a payment method in your Easyship
+   account" and nothing charged.
+
+   **Dry run:** `python -m shipping.tools.dry_run [--probe-easyship]` refreshes every open
+   international order, lists genuine blockers and runs Check price (Parcel2Go's is its full
+   `/orders/verify`). `--probe-easyship` also creates each Easyship booking exactly as Buy
+   would but without a label (no money moves), reports Easyship's verdict, and deletes it.
 
 6. **Stage 5 — API for CLIVE, webhooks, `shipping-ctl`, PrintNode sender**, mirroring Returns.
 7. **Stage 6 — deploy and pilot:**

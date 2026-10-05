@@ -126,7 +126,8 @@ def _check(settings: Settings, p: Any) -> dict[str, Any]:
             cur = acct.get("currency")
             cur = cur if isinstance(cur, str) else "GBP"
             detail = (
-                f"Credit balance {Money(minor=to_minor(bal), currency=cur)}"
+                f"Credit balance {Money(minor=to_minor(bal), currency=cur)} (labels can also "
+                "be paid by a payment method saved in Easyship)"
                 if bal is not None
                 else "Connected; no credit balance reported (labels may be charged to a card)."
             )

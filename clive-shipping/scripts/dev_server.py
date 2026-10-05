@@ -63,6 +63,15 @@ ORIGIN = Address(
 )
 
 ADDRESSES = {
+    # Like CROOKS-2142: the customer gave Shopify no phone; the store's is booked instead.
+    "GG": Address(
+        name="Test Recipient",
+        line1="1 Test Street",
+        city="St Peter Port",
+        postcode="GY1 1AA",
+        country="GG",
+        email="recipient@example.com",
+    ),
     "DE": Address(
         name="Max Muster",
         line1="Torstrasse 12",
@@ -280,6 +289,7 @@ def seed_states(svc: ShippingService, shopify: FakeShopify, provider: DevProvide
     order(shopify, 2151, [tee_line()], "IT")
     order(shopify, 2152, [tee_line()], "BY")
     order(shopify, 2154, [tee_line(qty=1)], "NL")
+    order(shopify, 2142, [tee_line(qty=1)], "GG")
     svc.sync(SHOP)
     buy(svc, 2148, "seed-2148")  # fulfilled, paperless
     s = by_order(svc, 2149)  # Evri: paper customs

@@ -28,6 +28,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from shipping import contacts
 from shipping.documents import (
     ENVELOPE,
     CustomsEvidence,
@@ -514,6 +515,7 @@ class Parcel2Go:
     def _order(self, s: Shipment, quote: Quote, reference: str) -> dict[str, Any]:
         cfg = self.config(s.shop)
         ship = quote.ship_date or next_working_day(self.clock().date()).isoformat()
+        to, _ = contacts.recipient(s.destination, cfg.origin)  # shop phone/email if none given
         item: dict[str, Any] = {
             "Id": str(uuid.uuid4()),
             "CollectionDate": f"{ship}T09:00:00+00:00",
@@ -527,7 +529,7 @@ class Parcel2Go:
                     "Id": str(uuid.uuid4()),
                     **self._parcel(s),
                     "EstimatedValue": self._value(s),
-                    "DeliveryAddress": self._destination(s.destination),
+                    "DeliveryAddress": self._destination(to),
                     "ContentsSummary": ", ".join(
                         sorted({ln.customs_description for ln in s.lines})
                     )[:100],

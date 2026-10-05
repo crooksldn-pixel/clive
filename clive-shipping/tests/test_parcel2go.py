@@ -198,6 +198,23 @@ def test_the_destination_street_is_not_doubled(p2g, store, provider, server):
     assert (to["Property"], to["Street"]) == ("12", "Torstrasse")
 
 
+def test_a_customer_without_a_phone_is_booked_with_the_store_phone(p2g, store, provider, server):
+    s = make_shipment(store, provider)
+    s.destination = s.destination.model_copy(update={"phone": "", "email": ""})
+    p2g.create_order(s, p2g.quotes(s)[0], "op_1")
+    to = server.bodies[-1]["Items"][0]["Parcels"][0]["DeliveryAddress"]
+    assert (to["Phone"], to["Email"]) == ("07700900000", "team@crooksldn.com")
+    assert to["ContactName"] == "Max Muster"
+    assert s.destination.phone == "" and s.destination.email == ""  # booking data only
+
+
+def test_the_customers_own_phone_is_kept(p2g, store, provider, server):
+    s = make_shipment(store, provider)
+    p2g.create_order(s, p2g.quotes(s)[0], "op_1")
+    to = server.bodies[-1]["Items"][0]["Parcels"][0]["DeliveryAddress"]
+    assert to["Phone"] == "+4915112345678"
+
+
 def test_origin_is_the_country_not_a_region_that_shares_its_code(p2g):
     # Madeira's row has PT too; the invoice must still say Portugal.
     assert p2g._country_name("PT") == "Portugal"
