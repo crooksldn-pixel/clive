@@ -456,14 +456,73 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
        the `All` cross-check makes it `unknown` and CLIVE retries, never paperless);
      - the Canaries DNI field, for Stage 4.
 
-4. **Stage 4 — rates + recommendation.**
-   - `rates.py`: recommended / cheapest / fastest, carrier reliability table, parcel limits.
-5. **Stage 5 — API + webhooks + reconcile + notifier + `shipping-ctl`**, mirroring Returns.
-6. **Stage 6 — Admin UI** (App Bridge + Polaris web components): Inbox, Shipment, Setup, with browser screenshots.
-7. **Stage 7 — deploy and pilot:**
+4. **Stage 4 — international fulfilment that feels domestic. ✅ Built (2026-10-05).**
+   Five commits (4a–4e), 248 tests, plus a 36-check browser walk. The Stage 3 invariants and
+   their tests are unchanged: fingerprint, compare-and-set, pay at most once, UNKNOWN never
+   retried, reconcile first, purchase and reprint separate, documents decide paper vs
+   electronic, `Label4X6`, integer minor units, durable state before side effects.
+
+   - **Recommendation (`rates.py`, documented in the module).** Deterministic:
+     1. "Reasonable" services promise delivery in ≤ 10 days; if none do, all count.
+     2. The cheapest reasonable price sets the bar. Comparable = within max(£1.00, 10%).
+        Nothing materially dearer is ever chosen silently.
+     3. Among comparable services: the merchant's preferred carrier, then customs paperwork
+        (electronic, unknown, paper), then price, then speed.
+     4. Cheapest and Fastest are shown only when they differ (fastest only if actually quicker).
+     Paperwork per service comes from this shop's own labels (service + destination, learned
+     when customs settle), else the dated sandbox evidence, shown as "expected". The
+     merchant's own choice is kept until that service stops being offered.
+   - **Revalidation before preview and buy (`service._revalidate`).** The fulfillment order
+     and item facts are re-read from Shopify; the fingerprint is recomputed from them (items,
+     quantities, values, address, weights, package). Any difference refreshes the shipment and
+     refuses: "Order changed — refresh required", nothing bought. Cancelled or closed: refused.
+     Shopify unreachable: 503, nothing bought.
+   - **Shopify after purchase.** Separate, recorded steps: label purchased → Shopify fulfilment
+     created (its id kept; tracking goes in the same `fulfillmentCreate`) → tracking on the
+     order, verified by reading the fulfillment order back. A failure shows "Label purchased —
+     Shopify update needs retry"; the retry (button or timer) touches Shopify only (proved: the
+     provider sees no call). An order closed in Shopify without this label's number is flagged,
+     not blindly retried. A repeated identical failure doesn't grow the timeline.
+   - **Readiness in merchant phrases (`views.py`).** Ready · "N details needed" (Missing
+     weight / HS code / country of origin, Package needed) · Address needs attention · No
+     available service · Provider unavailable · Purchase requires reconciliation · Label
+     purchased — updating Shopify / Shopify update needs retry · Fulfilled. Inbox rows carry no
+     provider ids, hashes or raw customs. Answers are saved to Shopify and to CLIVE; an answer
+     unblocks every other order waiting on the same product at once. Origin is never guessed;
+     an HS suggestion (from the shop's own products of the same type) needs confirmation.
+   - **Printing (`printing.py`).** Print and reprint build jobs from stored files only: the
+     4×6 label (label printer) and each must-print customs document with its copies (A4
+     printer). The module imports no provider or purchase code (a test parses its imports),
+     refuses an unbought order ("Printing never buys one"), and supports "reprint order 2145"
+     and "print all ready labels". Jobs are plain data (printer role, file, copies), so a
+     PrintNode sender can take them later; today the browser opens each PDF.
+   - **Embedded admin (`admin.py`, `static/admin.html`).** Polaris web components and App
+     Bridge; session token checked on every call (HS256, aud, dest, exp/nbf); the page may only
+     be framed by Shopify admin. Inbox (Needs attention / Ready to ship / Labels bought, search,
+     filter), shipment detail (problems first; questions answered in place; Recommended /
+     Cheapest / Fastest and "See other services"; package Change; customs Review; "Buy label —
+     £X" through the preview; label, tracking, Shopify steps, documents, print/reprint), Setup
+     (ship-from, packages, Parcel2Go connection by reading the PrePay balance, 4×6, printer
+     placeholder, customs defaults). One idempotency key per buy confirmation; after a lost
+     reply "Check again" resends the same key. Rendered markup validated with the Shopify AI
+     Toolkit (Polaris App Home v1).
+   - **Verified in a browser (`scripts/ui_walk.cjs`, screenshots in
+     `docs/shipping/stage4-screens/`).** Every state: inbox, ready, needs attention, customs
+     missing → confirmed, quote selection, preview, purchase (double click charges once),
+     purchase uncertain, Shopify failure and retry, paperless, paper, print, reprint, print all,
+     stale preview, provider outage, no service, address, Setup, empty, 390 px.
+   - **E2E through the embedded UI against the Parcel2Go sandbox** (fixture Shopify; no real
+     store touched): CROOKS-2160, two tees to Berlin. Recommended Evri International
+     Collection £6.65 (Evri ParcelShop £6.60 had 3 A4 copies; paperless DPD Direct £8.49 was
+     outside the allowance). Bought once: PrePay £9772.24 → £9765.59. Paper customs detected
+     (commercial invoice ×3, A4) and learned for that service; the genuine 4×6 label and the
+     invoice printed from the stored files.
+
+5. **Stage 5 — API for CLIVE, webhooks, `shipping-ctl`, PrintNode sender**, mirroring Returns.
+6. **Stage 6 — deploy and pilot:**
    - Shopify app toml, compose service, Caddy site block, separate Parcel2Go credential;
    - pilot behind an order-number allowlist (like Returns);
-   - one real label to Germany.
+   - one real label to Germany (see the live-readiness gate below).
 
 ## I. Test plan
 
