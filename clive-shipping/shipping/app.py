@@ -165,7 +165,9 @@ def create_app(settings: Settings | None = None, service: ShippingService | None
     shop = settings.shop_domain
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI):
+    async def lifespan(app: FastAPI):
+        await run_in_threadpool(app.state.operations.resume, shop)
+
         # Reconcile purchases, retry Shopify and refresh orders on a timer: correctness never
         # depends on someone having the page open.
         async def ticker() -> None:
@@ -173,6 +175,7 @@ def create_app(settings: Settings | None = None, service: ShippingService | None
                 await asyncio.sleep(settings.tick_interval_s)
                 try:
                     await run_in_threadpool(svc.tick, shop)
+                    await run_in_threadpool(app.state.operations.resume, shop)
                 except Exception:  # noqa: BLE001 - one failed sweep must not stop the next
                     log.exception("tick failed")
 
@@ -225,7 +228,14 @@ def create_app(settings: Settings | None = None, service: ShippingService | None
     def health() -> dict[str, Any]:
         return {"ok": True}
 
-    app.include_router(build_admin_router(svc, settings, lambda: connection_status(settings, svc)))
+    app.include_router(
+        build_admin_router(
+            svc,
+            settings,
+            lambda: connection_status(settings, svc),
+            lambda ops: setattr(app.state, "operations", ops),
+        )
+    )
     app.state.service = svc
     return app
 

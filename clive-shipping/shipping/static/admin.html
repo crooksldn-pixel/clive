@@ -52,7 +52,7 @@
 const BASE = location.pathname.replace(/\/admin\/?$/, "");
 const EMBEDDED = window.top !== window.self;
 const state = { inbox: null, shipment: null, setup: null, preview: null, buyKey: null,
-                flash: null, q: "", group: "all", busy: false };
+                batch: null, selected: new Set(), flash: null, q: "", group: "all", busy: false };
 
 // ------------------------------------------------------------------ helpers
 
@@ -159,7 +159,10 @@ async function route() {
   const view = p.get("view");
   try {
     loading(true);
-    if (p.get("shipment")) {
+    if (p.get("batch")) {
+      state.batch = await api(`/batches/${encodeURIComponent(p.get("batch"))}`);
+      renderBatch();
+    } else if (p.get("shipment")) {
       state.shipment = await api(`/shipments/${encodeURIComponent(p.get("shipment"))}`);
       renderShipment();
     } else if (view === "setup") {
@@ -177,7 +180,8 @@ async function route() {
 
 function render() {
   const p = new URLSearchParams(location.search);
-  if (p.get("shipment") && state.shipment) renderShipment();
+  if (p.get("batch") && state.batch) renderBatch();
+  else if (p.get("shipment") && state.shipment) renderShipment();
   else if (p.get("view") === "setup" && state.setup) renderSetup();
   else if (state.inbox) renderInbox();
 }
@@ -197,6 +201,56 @@ function page(heading, slots, body, aside = "") {
   document.title = `${heading} · CLIVE Shipping`;
 }
 
+const localTime = at => at ? new Date(at).toLocaleString('en-GB') : '—';
+function printBadge(p) {
+  if (!p) return '—';
+  return `<s-badge tone="${esc(p.tone)}">${esc(p.label)}${p.reprint_count ? ` · Reprints ×${p.reprint_count}` : ''}</s-badge>`;
+}
+function printFilter(r) {
+  if (!state.group.startsWith('print_')) return true;
+  const status = r.print_status?.state;
+  return state.group === 'print_not_printed' ? status === 'not_printed' :
+         state.group === 'print_sent' ? status === 'sent' : ['failed', 'unknown', 'sending'].includes(status);
+}
+function visibleInboxRows() {
+  return GROUPS.filter(([k]) => state.group.startsWith('print_') ||
+    (state.group === 'all' ? k !== 'done' || state.q : k === state.group))
+    .flatMap(([k]) => state.inbox.groups[k].filter(printFilter));
+}
+const batchMoney = b => new Intl.NumberFormat('en-GB', {style:'currency', currency:b.currency}).format(b.total_minor / 100);
+function renderBatch() {
+  const b = state.batch;
+  const ready = b.children.filter(c => c.state === 'review').length;
+  const complete = b.children.filter(c => !['queued', 'running', 'review'].includes(c.state)).length;
+  const slots = `<s-link slot="breadcrumb-actions" data-action="go-inbox" href="${BASE}/admin">Shipping</s-link>` +
+    (b.state === 'review' && ready ? `<s-button slot="primary-action" variant="primary" data-action="confirm-batch">${b.kind === 'buy' ? 'Buy' : 'Print'} ${ready} labels</s-button>` : '');
+  const rows = b.children.map((c,i) => `<s-table-row><s-table-cell>${i+1}. ${esc(c.order)}</s-table-cell><s-table-cell>${esc(c.provider || '—')} · ${esc(c.service || '—')}</s-table-cell><s-table-cell>${b.kind === 'buy' ? new Intl.NumberFormat('en-GB',{style:'currency',currency:c.currency}).format(c.amount_minor/100) : '1 first copy'}</s-table-cell><s-table-cell>${esc(c.state)}${c.message ? ` — ${esc(c.message)}` : ''}</s-table-cell></s-table-row>`).join('');
+  const counts = Object.fromEntries(['purchased','sent','failed','uncertain','excluded','skipped'].map(k => [k,b.children.filter(c => c.state === k).length]));
+  page(b.state === 'review' ? 'Review selected labels' : 'Bulk operation progress', slots,
+    `<s-section><s-stack gap="base"><s-text>${b.state === 'review' ? `${ready} eligible labels` : `${complete} / ${b.children.length} completed`} · ${b.kind === 'buy' ? `Total ${batchMoney(b)}` : 'Print order is shown below.'}</s-text><s-text>${b.state === 'review' ? 'Review the exclusions and each provider/service before confirming. No action has run yet.' : `${counts.purchased} purchased · ${counts.sent} sent · ${counts.failed} failed · ${counts.uncertain} uncertain · ${counts.excluded+counts.skipped} excluded/skipped`}</s-text><s-text color="subdued">Each order is independent. Uncertain outcomes are not automatically retried.</s-text><s-table><s-table-header-row><s-table-header>Order</s-table-header><s-table-header>Service</s-table-header><s-table-header>Price / copies</s-table-header><s-table-header>Outcome</s-table-header></s-table-header-row><s-table-body>${rows}</s-table-body></s-table></s-stack></s-section>`);
+}
+async function reviewSelected(kind) {
+  const ids = visibleInboxRows().filter(r => state.selected.has(r.id)).map(r => r.id);
+  if (!ids.length) return;
+  const storage = `crooks-bulk-review:${kind}:${ids.join(',')}`;
+  let key = sessionStorage.getItem(storage);
+  if (!key) { key = crypto.randomUUID(); sessionStorage.setItem(storage, key); }
+  const b = await api('/batches/preview', {method:'POST', body:{kind, shipment_ids:ids, idempotency_key:key}});
+  sessionStorage.removeItem(storage);
+  state.selected.clear(); navigate({batch:b.id});
+}
+let batchPollPending = false;
+async function pollBatch() {
+  const bid = new URLSearchParams(location.search).get('batch');
+  if (!bid || state.batch?.id !== bid || state.batch.state !== 'queued' || batchPollPending || state.busy) return;
+  batchPollPending = true;
+  try { const b = await api(`/batches/${encodeURIComponent(bid)}`);
+    if (new URLSearchParams(location.search).get('batch') === bid) { state.batch=b; renderBatch(); }
+  } catch (_) { /* Durable progress can be read again, never resubmit. */ }
+  finally { batchPollPending=false; }
+}
+setInterval(() => { void pollBatch(); }, 2000);
+
 // ------------------------------------------------------------------ inbox
 
 const GROUPS = [
@@ -211,21 +265,25 @@ function inboxTable(rows) {
     const extra = r.status.reasons.filter((x) => x !== r.status.label);
     const reasons = extra.length && r.status.group === "attention"
       ? `<s-text color="subdued">${esc(extra.join(" · "))}</s-text>` : "";
-    return `<s-table-row clickDelegate="open-${esc(r.id)}">
+    return `<s-table-row>
+      <s-table-cell>${r.can_select ? `<input type="checkbox" aria-label="Select ${esc(r.order)}" data-select="${esc(r.id)}" ${state.selected.has(r.id) ? "checked" : ""}>` : ""}</s-table-cell>
       <s-table-cell><s-link id="open-${esc(r.id)}" data-open="${esc(r.id)}">${esc(r.order)}</s-link></s-table-cell>
       <s-table-cell>${flag(r.destination.country)} ${esc(countryName(r.destination.country))}${r.destination.city ? `<s-text color="subdued"> · ${esc(r.destination.city)}</s-text>` : ""}</s-table-cell>
       <s-table-cell>${esc(r.package)}</s-table-cell>
       <s-table-cell>${esc(r.shipping)}</s-table-cell>
       <s-table-cell><s-stack gap="small-200">${badge(r.status)}${reasons}</s-stack></s-table-cell>
+      <s-table-cell>${printBadge(r.print_status)}</s-table-cell>
     </s-table-row>`;
   }).join("");
   return `<s-table>
     <s-table-header-row>
+      <s-table-header>Select</s-table-header>
       <s-table-header listSlot="primary">Order</s-table-header>
       <s-table-header listSlot="secondary">Destination</s-table-header>
       <s-table-header listSlot="labeled">Package</s-table-header>
       <s-table-header listSlot="labeled">Shipping</s-table-header>
       <s-table-header listSlot="inline">Status</s-table-header>
+      <s-table-header listSlot="inline">Label printing</s-table-header>
     </s-table-header-row>
     <s-table-body>${body}</s-table-body>
   </s-table>`;
@@ -233,9 +291,8 @@ function inboxTable(rows) {
 
 function renderInbox() {
   const ib = state.inbox;
-  const n = ib.ready_to_print;
   const slots =
-    (n ? `<s-button slot="primary-action" variant="primary" data-action="print-ready">Print ${n} ready label${n === 1 ? "" : "s"}</s-button>` : "") +
+    `<s-button slot="primary-action" data-action="select-ready">Select ready on this page (up to 100)</s-button>` +
     `<s-button slot="secondary-actions" data-action="sync">Check Shopify for orders</s-button>` +
     `<s-button slot="secondary-actions" data-action="go-setup">Setup</s-button>`;
   let top = "";
@@ -249,14 +306,14 @@ function renderInbox() {
       <s-search-field id="search" label="Search orders" labelAccessibilityVisibility="exclusive"
         placeholder="Search by order number, name or city" value="${esc(state.q)}"></s-search-field>
       <s-select id="group" label="Show" labelAccessibilityVisibility="exclusive">
-        ${[["all", "Open orders"], ...GROUPS].map(([k, l]) =>
+        ${[["all", "Open orders"], ...GROUPS, ["print_not_printed", "Not printed"], ["print_sent", "Sent to printer"], ["print_problem", "Print problem"]].map(([k, l]) =>
           `<s-option value="${k}" ${state.group === k ? "selected" : ""}>${l}</s-option>`).join("")}
       </s-select>
     </s-grid>
   </s-section>`;
   const shown = GROUPS.filter(([k]) =>
-    state.group === "all" ? k !== "done" || state.q : state.group === k);
-  const total = shown.reduce((sum, [k]) => sum + ib.groups[k].length, 0);
+    state.group.startsWith("print_") || (state.group === "all" ? k !== "done" || state.q : state.group === k));
+  const total = visibleInboxRows().length;
   let body = "";
   if (!total) {
     body = `<s-section accessibilityLabel="No orders">
@@ -268,12 +325,15 @@ function renderInbox() {
       </s-stack></s-section>`;
   } else {
     for (const [k, label] of shown) {
-      const rows = ib.groups[k];
+      const rows = ib.groups[k].filter(printFilter);
       if (!rows.length) continue;
       body += `<s-section heading="${esc(label)} (${rows.length})" padding="none">${inboxTable(rows)}</s-section>`;
     }
   }
-  page("International shipping", slots, top + filters + body);
+  const selected = visibleInboxRows().filter(r => state.selected.has(r.id));
+  const bulk = selected.length ? `<s-section heading="${selected.length} selected"><s-stack direction="inline" gap="base"><s-button data-action="bulk-buy">Buy labels — review</s-button><s-button data-action="bulk-print">Print labels — review</s-button><s-button data-action="clear-selection">Clear selection</s-button></s-stack></s-section>` : "";
+  const recent = (ib.batches || []).length ? `<s-section heading="Recent bulk operations">${ib.batches.map(b => `<s-link href="${BASE}/admin?batch=${esc(b.id)}">${esc(b.kind === 'buy' ? 'Label purchase' : 'Label print')} · ${esc(b.state)} · ${esc(new Date(b.created_at).toLocaleString('en-GB'))}</s-link><br>`).join('')}</s-section>` : '';
+  page("International shipping", slots, top + filters + bulk + body + recent);
 }
 
 // ------------------------------------------------------------------ one shipment
@@ -352,11 +412,11 @@ function renderShipment() {
   } else if (acts.has("retry_shopify")) {
     primary = `<s-button slot="primary-action" variant="primary" data-action="retry-shopify">Retry Shopify update</s-button>`;
   } else if (acts.has("print") || acts.has("reprint")) {
-    primary = `<s-button slot="primary-action" variant="primary" data-action="physical-print">Print label</s-button>`;
+    primary = `<s-button slot="primary-action" variant="primary" data-action="${d.print_status?.first_print_available === false ? "physical-reprint" : "physical-print"}">${d.print_status?.first_print_available === false ? "Reprint label" : "Print label"}</s-button>`;
   }
   const reprintButton = (acts.has("print") || acts.has("reprint")) ?
     `<s-button slot="secondary-actions" data-action="physical-reprint">Reprint</s-button>` : "";
-  const statusButton = sessionStorage.getItem(`crooks-last-print:${state.shipment.id}`) ?
+  const statusButton = d.print_status?.intent_id ?
     `<s-button slot="secondary-actions" data-action="print-status">Check print status</s-button>` : "";
   const slots = statusButton + reprintButton + `<s-link slot="breadcrumb-actions" data-action="go-inbox" href="${BASE}/admin">Shipping</s-link>` +
     primary +
@@ -409,6 +469,11 @@ function renderShipment() {
             : `<s-text color="subdued">Waiting for the carrier</s-text>`}</s-stack>
         </s-grid>
         <s-stack gap="small-200">${steps}</s-stack>
+        <s-stack gap="small-200"><s-heading>Label printing</s-heading>${printBadge(d.print_status)}
+        <s-text>Last attempt: ${esc(localTime(d.print_status?.last_attempt))} · Last sent: ${esc(localTime(d.print_status?.last_sent))}</s-text>
+        <s-text>Reprints sent: ${d.print_status?.reprint_count || 0}</s-text>
+        ${d.print_status?.state === 'unknown' ? '<s-text>Outcome uncertain. Check the printer before intentionally choosing Reprint.</s-text>' : '<s-text color="subdued">Sent means submitted to the printer; physical paper is not confirmed.</s-text>'}
+        ${d.print_status?.job_id ? `<s-text color="subdued">PrintNode job ${esc(d.print_status.job_id)}</s-text>` : ''}</s-stack>
         <s-divider></s-divider>
         <s-stack gap="small-200"><s-heading>Documents</s-heading>${docs || '<s-text color="subdued">Fetching the label file…</s-text>'}
           <s-text color="subdued">${l.printed ? "Previously sent for printing. Reprint uses the same label; nothing is bought." : "Not sent for printing yet."}</s-text></s-stack>
@@ -458,6 +523,10 @@ function renderShipment() {
     </s-grid></s-section>`;
 
   // Products
+  if (!d.label && acts.has("refresh")) {
+    main += `<s-section heading="Edit product customs"><s-stack gap="base">${d.products.map((p,i) => `<s-stack gap="small-200"><s-text type="strong">${esc(p.title)} · ${esc(p.variant)}</s-text><s-grid gridTemplateColumns="1fr 1fr 2fr" gap="base"><s-text-field id="customs-${i}-hs" label="HS / commodity code" value="${esc(p.hs_code_value || '')}"></s-text-field><s-text-field id="customs-${i}-origin" label="Country of origin" value="${esc(p.origin || '')}"></s-text-field><s-text-field id="customs-${i}-desc" label="Customs description" value="${esc(p.description || '')}"></s-text-field></s-grid><s-button data-action="edit-customs" data-line="${i}">Save product customs</s-button></s-stack>`).join('')}<s-text color="subdued">Saved through the product's existing Shopify customs and CLIVE knowledge records for future orders. Purchased declarations stay unchanged.</s-text></s-stack></s-section>`;
+  }
+
   main += `<s-section heading="Products" padding="none"><s-table>
     <s-table-header-row><s-table-header listSlot="primary">Product</s-table-header>
       <s-table-header listSlot="labeled" format="numeric">Qty</s-table-header>
@@ -699,10 +768,22 @@ async function sendPhysical(path) {
 }
 
 const ACTIONS = {
+  'select-ready': () => { visibleInboxRows().filter(r => r.can_buy).slice(0,100).forEach(r => state.selected.add(r.id)); renderInbox(); },
+  'clear-selection': () => {state.selected.clear(); renderInbox();},
+  'bulk-buy': el => withButton(el, () => reviewSelected('buy')),
+  'bulk-print': el => withButton(el, () => reviewSelected('print')),
+  'confirm-batch': el => withButton(el, async () => {
+    state.batch = await api(`/batches/${state.batch.id}/confirm`, {method:'POST', body:{confirm:true}}); renderBatch();
+  }),
+  'edit-customs': el => withButton(el, async () => {
+    const i = Number(el.dataset.line); const p = state.shipment.products[i];
+    await shipmentAction('/customs', {subject:p.subject, hs_code:val(`customs-${i}-hs`), origin:val(`customs-${i}-origin`).toUpperCase(), description:val(`customs-${i}-desc`)});
+  }),
   async "print-status"(el) {
     await withButton(el, async () => {
-      const id = sessionStorage.getItem(`crooks-last-print:${state.shipment.id}`);
+      const id = state.shipment.print_status.intent_id;
       const out = await api(`/print/intents/${encodeURIComponent(id)}`);
+      state.shipment = await api(`/shipments/${state.shipment.id}`);
       toast(`${out.message} · PrintNode: ${out.print_intent.provider_state || out.print_intent.state}. Physical output unconfirmed.`, out.print_intent.state !== "accepted");
     });
   },
@@ -714,7 +795,11 @@ const ACTIONS = {
     });
   },
   async "physical-reprint"(el) {
-    await withButton(el, () => sendPhysical(`/shipments/${state.shipment.id}/reprint-label`));
+    if (!window.confirm("Send one additional copy of this existing label? Check any uncertain output first.")) return;
+    await withButton(el, async () => {
+      await sendPhysical(`/shipments/${state.shipment.id}/reprint-label`);
+      state.shipment = await api(`/shipments/${state.shipment.id}`); renderShipment();
+    });
   },
   async "printer-test"(el) {
     await withButton(el, () => sendPhysical("/print/test"));
@@ -914,6 +999,11 @@ document.addEventListener("input", (ev) => {
   }, 250);
 });
 document.addEventListener("change", (ev) => {
+  if (ev.target.dataset?.select) {
+    const id = ev.target.dataset.select;
+    if (ev.target.checked) state.selected.add(id); else state.selected.delete(id);
+    renderInbox(); return;
+  }
   if (ev.target.id === "group") { state.group = ev.target.value || "all"; renderInbox(); }
 });
 // Read the state recovered by the server tick; never submit quotes or a purchase here.

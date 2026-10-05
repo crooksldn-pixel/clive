@@ -15,7 +15,7 @@ from collections.abc import Callable
 from importlib import resources
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,7 @@ from shipping import views
 from shipping.auth import BadToken, verify_session_token
 from shipping.models import Address
 from shipping.money import Money
+from shipping.operations import Operations
 from shipping.physical_printing import PhysicalPrinting
 from shipping.print_provider import PrintNodeProvider
 from shipping.printing import PrintError, Printing
@@ -79,6 +80,19 @@ class PrintBody(BaseModel):
     idempotency_key: str = Field(min_length=8, max_length=120)
 
 
+class BatchBody(BaseModel):
+    kind: str
+    shipment_ids: list[str] = Field(min_length=1, max_length=100)
+    idempotency_key: str = Field(min_length=8, max_length=120)
+
+
+class CustomsBody(BaseModel):
+    subject: str = Field(max_length=200)
+    hs_code: str = Field(max_length=10)
+    description: str = Field(max_length=100)
+    origin: str = Field(max_length=2)
+
+
 class CancelBody(BaseModel):
     confirm: bool = False
 
@@ -121,6 +135,7 @@ def build_admin_router(
     svc: ShippingService,
     settings: Settings,
     connection: Callable[[], dict[str, Any]],
+    operations_ready: Callable[[Operations], None] | None = None,
 ) -> APIRouter:
     shop = settings.shop_domain
     printing = Printing(svc.store, clock=svc.clock)
@@ -167,9 +182,13 @@ def build_admin_router(
             for p in cfg.packages
         ]
 
+    operations = Operations(svc, physical)
+    if operations_ready:
+        operations_ready(operations)
+
     def detail_of(sid: str) -> dict[str, Any]:
         s = shipment(sid)
-        return views.detail(
+        result = views.detail(
             s,
             svc.recommendation(s),
             presets(),
@@ -177,6 +196,8 @@ def build_admin_router(
             may_cancel=svc.can_cancel(s),
             origin=svc.store.config(s.shop).origin,
         )
+        result["print_status"] = physical.summary(shop, sid)
+        return result
 
     def act(fn: Callable[[], Any]) -> Any:
         try:
@@ -218,21 +239,72 @@ def build_admin_router(
             if not views.matches(s, q):
                 continue
             r = views.row(s)
+            r["print_status"] = physical.summary(shop, s.id)
+            r["can_buy"] = s.status.value == "ready" and svc.may_buy(s)
+            r["can_select"] = r["can_buy"] or r["can_print"]
             groups[r["status"]["group"]].append(r)
         if not q:
-            groups[views.GROUP_DONE] = groups[views.GROUP_DONE][:20]
-            groups[views.GROUP_BOUGHT] = groups[views.GROUP_BOUGHT][:50]
+            groups[views.GROUP_DONE] = [
+                r
+                for i, r in enumerate(groups[views.GROUP_DONE])
+                if i < 20 or (r["print_status"] and r["print_status"]["state"] != "sent")
+            ]
+            groups[views.GROUP_BOUGHT] = [
+                r
+                for i, r in enumerate(groups[views.GROUP_BOUGHT])
+                if i < 50 or (r["print_status"] and r["print_status"]["state"] != "sent")
+            ]
         cfg = svc.store.config(shop)
         return {
             "me": who,
             "groups": groups,
             "counts": {k: len(v) for k, v in groups.items()},
             "ready_to_print": len(printing.ready(shop)),
+            "batches": [
+                {
+                    "id": b["id"],
+                    "kind": b["kind"],
+                    "state": b["state"],
+                    "created_at": b["created_at"],
+                }
+                for b in svc.store.batches(shop)[:10]
+            ],
             "setup": {
                 "origin": cfg.origin is not None,
                 "package": bool(cfg.packages),
             },
         }
+
+    @router.post("/api/batches/preview")
+    def batch_preview(body: BatchBody, who: str = Depends(staff)):
+        return act(
+            lambda: operations.preview(
+                shop, body.kind, body.shipment_ids, who, body.idempotency_key
+            )
+        )
+
+    @router.get("/api/batches/{bid}")
+    def batch_get(bid: str, who: str = Depends(staff)):
+        return act(lambda: operations.get(shop, bid))
+
+    @router.post("/api/batches/{bid}/confirm")
+    def batch_confirm(
+        bid: str, body: CancelBody, tasks: BackgroundTasks, who: str = Depends(staff)
+    ):
+        if not body.confirm:
+            raise HTTPException(422, "Review and confirm this batch first.")
+        result = act(lambda: operations.confirm(shop, bid, who))
+        tasks.add_task(operations.run, shop, bid)
+        return result
+
+    @router.post("/api/shipments/{sid}/customs")
+    def customs_edit(sid: str, body: CustomsBody, who: str = Depends(staff)):
+        act(
+            lambda: svc.edit_customs(
+                shop, sid, body.subject, body.hs_code, body.description, body.origin, who
+            )
+        )
+        return detail_of(sid)
 
     @router.post("/api/sync")
     def sync(who: str = Depends(staff)) -> dict[str, Any]:

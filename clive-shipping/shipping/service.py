@@ -431,6 +431,22 @@ class ShippingService:
         self._unblock_others(shop, sid, kind, subject)
         return self._prepare_after_answer(shop, sid)
 
+    def edit_customs(
+        self, shop: str, sid: str, subject: str, hs: str, description: str, origin: str, actor: str
+    ) -> Shipment:
+        if not re.fullmatch(r"[0-9]{6,10}", hs):
+            raise ActionError(
+                "HS/commodity codes must contain 6–10 digits only. Do not pad codes.", 422
+            )
+        if not 3 <= len(description.strip()) <= 100:
+            raise ActionError("Give a customs description of 3–100 characters.", 422)
+        if not re.fullmatch(r"[A-Z]{2}", origin) or origin == "ZZ":
+            raise ActionError("Use the two-letter country of origin.", 422)
+        s = self.answer(
+            shop, sid, "customs", subject, {"hs_code": hs, "description": description}, actor
+        )
+        return self.answer(shop, s.id, "origin", subject, {"country": origin}, actor)
+
     def _unblock_others(self, shop: str, sid: str, kind: str, subject: str) -> None:
         """Asked once: other orders waiting on the same answer go ahead now, not at the next
         sync."""

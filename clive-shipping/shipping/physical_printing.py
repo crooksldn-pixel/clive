@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Any
 
@@ -66,9 +67,7 @@ class PhysicalPrinting:
             )
         return self.provider.health()
 
-    def print_label(
-        self, shop: str, sid: str, actor: str, key: str, reprint: bool = False
-    ) -> dict[str, Any]:
+    def _label_input(self, shop: str, sid: str):
         s = self.store.get(shop, sid)
         if s is None:
             raise PrintError("Shipment not found.", 404)
@@ -89,6 +88,15 @@ class PhysicalPrinting:
             page_size=doc.page_size,
         )
         validate_label(body)
+        return s, doc, body
+
+    def validate_for_print(self, shop: str, sid: str) -> None:
+        self._label_input(shop, sid)
+
+    def print_label(
+        self, shop: str, sid: str, actor: str, key: str, reprint: bool = False
+    ) -> dict[str, Any]:
+        s, doc, body = self._label_input(shop, sid)
         # A second first-print click (even with a different request key) never reprints.
         identity = f"reprint:{key}" if reprint else "first"
         intent_key = hashlib.sha256(f"{sid}:{doc.artifact_id}:{identity}".encode()).hexdigest()
@@ -140,6 +148,7 @@ class PhysicalPrinting:
                 provider_job_id=None,
                 idempotency_key=new_id("print"),
                 copies=1,
+                reprint=reprint,
                 requested_at=now().isoformat(),
                 requested_by=actor,
                 state="requested",
@@ -155,7 +164,7 @@ class PhysicalPrinting:
             jid = self.provider.print_pdf(
                 body, f"CROOKS Shipping {order}", record["idempotency_key"]
             )
-            record.update(provider_job_id=jid, state="accepted")
+            record.update(provider_job_id=jid, state="accepted", sent_at=now().isoformat())
         except PrintProviderError as exc:
             record.update(state="unknown" if exc.uncertain else "failed", error=str(exc))
         except Exception:
@@ -197,3 +206,67 @@ class PhysicalPrinting:
             except PrintProviderError:
                 pass  # Last recorded submission evidence remains valid.
         return record
+
+    def summary(self, shop: str, sid: str) -> dict[str, Any] | None:
+        s = self.store.get(shop, sid)
+        if s is None or s.label is None:
+            return None
+        doc = s.label.document(DocumentKind.shipping_label)
+        intents = [
+            p
+            for p in self.store.print_intents_for(shop, sid)
+            if doc and p["document_id"] == doc.artifact_id
+        ]
+        legacy_reprints = {
+            e.detail.get("print_intent") for e in s.timeline if e.type == "label_reprinted"
+        }
+        for p in intents:
+            p["reprint"] = p.get("reprint", p["id"] in legacy_reprints)
+        last = intents[-1] if intents else None
+        sent = [p for p in intents if p.get("provider_job_id")]
+        state = "not_printed"
+        if last:
+            state = {
+                "accepted": "sent",
+                "failed": "failed",
+                "expired": "failed",
+                "unknown": "unknown",
+                "requested": "sending",
+                "submitting": "sending",
+            }[last["state"]]
+            if state == "sending" and now() - datetime.fromisoformat(
+                last["requested_at"]
+            ) > timedelta(minutes=5):
+                state = "unknown"  # Interrupted submission is never safe to retry.
+        return dict(
+            state=state,
+            label={
+                "not_printed": "Not printed",
+                "sent": "Sent to printer",
+                "failed": "Print failed",
+                "unknown": "Print uncertain",
+                "sending": "Sending",
+            }[state],
+            tone={
+                "not_printed": "warning",
+                "sent": "success",
+                "failed": "critical",
+                "unknown": "critical",
+                "sending": "info",
+            }[state],
+            last_attempt=last["requested_at"] if last else None,
+            last_sent=(sent[-1].get("sent_at") or sent[-1]["requested_at"]) if sent else None,
+            reprint_count=sum(bool(p["reprint"]) for p in sent),
+            intent_id=last["id"] if last else None,
+            job_id=last.get("provider_job_id") if last else None,
+            first_print_available=not intents,
+            history=[
+                dict(
+                    at=p["requested_at"],
+                    state=p["state"],
+                    reprint=p["reprint"],
+                    job_id=p.get("provider_job_id"),
+                )
+                for p in intents
+            ],
+        )

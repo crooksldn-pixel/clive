@@ -21,10 +21,16 @@ from typing import Any
 from shipping.models import OPEN_OP_STATES, ProviderOp, Shipment, ShopConfig
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS fulfilment_batches (
+ shop TEXT NOT NULL, id TEXT NOT NULL, request_key TEXT NOT NULL, doc TEXT NOT NULL,
+ PRIMARY KEY(shop,id), UNIQUE(shop,request_key)
+);
 CREATE TABLE IF NOT EXISTS print_intents (
   shop TEXT NOT NULL, id TEXT NOT NULL, request_key TEXT NOT NULL, doc TEXT NOT NULL,
   PRIMARY KEY(shop, id), UNIQUE(shop, request_key)
 );
+CREATE INDEX IF NOT EXISTS print_intent_shipment
+ON print_intents(shop,json_extract(doc,'$.shipment_id'));
 CREATE TABLE IF NOT EXISTS shipments (
   shop TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -459,3 +465,43 @@ class Store:
             "SELECT doc FROM print_intents WHERE shop=? AND id=?", (shop, intent_id)
         ).fetchone()
         return json.loads(row[0]) if row else None
+
+    def print_intents_for(self, shop: str, sid: str) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            "SELECT doc FROM print_intents WHERE shop=? AND json_extract(doc,'$.shipment_id')=?",
+            (shop, sid),
+        ).fetchall()
+        return sorted(
+            [d for row in rows if (d := json.loads(row[0])).get("shipment_id") == sid],
+            key=lambda d: d["requested_at"],
+        )
+
+    def batches(self, shop: str) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            "SELECT doc FROM fulfilment_batches WHERE shop=? ORDER BY rowid DESC", (shop,)
+        ).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
+    def batch(self, shop: str, bid: str) -> dict[str, Any] | None:
+        row = self._db.execute(
+            "SELECT doc FROM fulfilment_batches WHERE shop=? AND id=?", (shop, bid)
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def batch_by_key(self, shop: str, key: str) -> dict[str, Any] | None:
+        row = self._db.execute(
+            "SELECT doc FROM fulfilment_batches WHERE shop=? AND request_key=?", (shop, key)
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def add_batch(self, shop: str, key: str, record: dict[str, Any]) -> None:
+        self._db.execute(
+            "INSERT INTO fulfilment_batches VALUES (?,?,?,?)",
+            (shop, record["id"], key, json.dumps(record)),
+        )
+
+    def save_batch(self, shop: str, record: dict[str, Any]) -> None:
+        self._db.execute(
+            "UPDATE fulfilment_batches SET doc=? WHERE shop=? AND id=?",
+            (json.dumps(record), shop, record["id"]),
+        )

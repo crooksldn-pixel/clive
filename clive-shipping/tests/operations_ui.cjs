@@ -1,0 +1,71 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const data = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+let source = [...fs.readFileSync(process.argv[2], 'utf8').matchAll(/<script>([\s\S]*?)<\/script>/g)].at(-1)[1];
+source = source.slice(0, source.lastIndexOf('route();'));
+let rendered = '', phase = 'review', requests = [], fields = {};
+const handlers = {}, storage = new Map();
+const host = {setAttribute() {}, replaceChildren() {}};
+const document = {hidden:false, title:'',
+  getElementById: id => fields[id] || host,
+  createElement: () => ({set innerHTML(v) {rendered=v;}, childNodes:[]}),
+  addEventListener: (name,fn) => {(handlers[name] ||= []).push(fn);}};
+const location = {pathname:'/admin',search:''};
+const history = {pushState:(_,__,url) => {location.search=new URL(url,'http://localhost').search;}, replaceState:(_,__,url)=>{location.search=new URL(url,'http://localhost').search;}};
+const window = {addEventListener() {},confirm:()=>false};window.top=window.self=window;
+const context = vm.createContext({document,window,location,history,data,URLSearchParams,URL,Intl,structuredClone,
+ console,setTimeout,clearTimeout,setInterval(){},crypto:require('node:crypto').webcrypto,
+ sessionStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},
+ fetch:async(url,options)=>{
+   requests.push({url,method:options.method,body:options.body ? JSON.parse(options.body) : null});
+   let result;
+   if(url.endsWith('/batches/preview')) result=data.review;
+   else if(url.endsWith('/confirm')) {assert.equal(JSON.parse(options.body).confirm,true);phase='queued';result=data.queued;}
+   else if(url.includes('/batches/')) result=phase==='queued'?data.complete:data.review;
+   else if(url.endsWith('/customs')) {result=structuredClone(data.detail);result.products[0].hs_code_value='01012100';}
+   else throw new Error('Unexpected request '+url);
+   return {ok:true,json:async()=>result};
+ }});
+vm.runInContext(source,context);
+const execute = code => vm.runInContext(code,context);
+const button = {setAttribute(){},removeAttribute(){},dataset:{line:'0'}};
+context.button=button;
+(async()=>{
+  execute('state.inbox=data.inbox; renderInbox(); ACTIONS["select-ready"]();');
+  assert.equal(execute('state.selected.size'),2);
+  assert.ok(rendered.includes('Buy labels — review'));
+  await execute('ACTIONS["bulk-buy"](button)');
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(document.title.includes('Review selected labels'));
+  assert.deepEqual(requests[0].body.shipment_ids,data.review.children.map(c=>c.shipment_id));
+  assert.equal(requests.filter(r=>r.url.endsWith('/confirm')).length,0);
+  assert.ok(rendered.includes('No action has run yet'));
+  await execute('ACTIONS["confirm-batch"](button)');
+  assert.ok(document.title.includes('Bulk operation progress'));
+  await execute('pollBatch()');
+  assert.ok(rendered.includes('2 purchased'));
+  assert.equal(execute('state.batch.state'),'complete');
+  location.search='';
+  execute('state.inbox=data.print_inbox; state.group="print_not_printed"; renderInbox();');
+  assert.equal(execute('visibleInboxRows().length'),1);
+  assert.ok(rendered.includes('Not printed'));
+  execute('state.group="print_sent";renderInbox();');
+  assert.equal(execute('visibleInboxRows().length'),1);
+  assert.ok(rendered.includes('Sent to printer'));
+  execute('state.shipment=data.sent; renderShipment();');
+  assert.ok(rendered.includes('Reprint label'));
+  assert.ok(!rendered.includes('variant="primary" data-action="physical-print"'));
+  const before=requests.length;
+  await execute('ACTIONS["physical-reprint"](button)');
+  assert.equal(requests.length,before); // Intentional copy requires confirmation.
+  location.search='?shipment='+data.detail.id;
+  fields={'customs-0-hs':{value:'01012100'},'customs-0-origin':{value:'CN'},'customs-0-desc':{value:'Cotton tee'}};
+  execute('state.shipment=data.detail; renderShipment();');
+  assert.ok(rendered.includes('Save product customs'));
+  await execute('ACTIONS["edit-customs"](button)');
+  assert.equal(requests.at(-1).body.hs_code,'01012100');
+  assert.equal(requests.at(-1).body.subject,data.detail.products[0].subject);
+  assert.equal(execute('state.shipment.products[0].hs_code_value'),'01012100');
+  console.log('Bulk selection/review/progress, print filters/status and inline customs interactions passed');
+})().catch(error=>{console.error(error);process.exitCode=1;});

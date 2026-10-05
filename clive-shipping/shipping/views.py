@@ -371,6 +371,7 @@ def detail(
                 "unit_value": str(ln.unit_value),
                 "weight": f"{ln.unit_weight_g} g" if ln.unit_weight_g else None,
                 "hs_code": hs_text(ln.hs_code),
+                "hs_code_value": ln.hs_code,
                 "origin": ln.origin_country,
                 "description": ln.customs_description,
                 "subject": ln.product_id or ln.title,
