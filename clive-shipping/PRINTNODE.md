@@ -28,13 +28,21 @@ Add to the EXISTING production `clive-shipping/.env` only after review:
 Only this exact configured JD-168BT is accepted. It must be online, its client connected,
 and expose the proven paper, roll feeder and 203x203 DPI. Windows client must use Engine6.
 
-Payload is pdf_base64 of the stored shipping artifact; copies=1, qty=1, pages="1",
+Payload is pdf_base64 of the selected shipping-label PDF; copies=1, qty=1, pages="1",
 paper='4.00"x6.00"(101.6x152.4)', dpi="203x203", bin="Roll Paper Feeder",
 fit_to_page=false, rotate=0, color=false, expireAfter=300.
 
-Metadata AND PDF validation require a dedicated shipping_label artifact, PDF MIME type,
-one page, portrait, approximately 4x6, unrotated, uncropped. Mixed, A4, multi-page, malformed,
-encrypted or unknown PDFs are refused, not guessed or split at page 1. The label stays bought.
+Physical printing selects from a stored shipping_label PDF without modifying its bytes.
+Dedicated single-page labels (including Parcel2Go Label4X6) pass through unchanged. The
+verified Easyship Royal Mail Domestic Tracked 48 Small Parcel bundle has two portrait 4x6
+pages: label first, CN23 second. With matching provider/service metadata and positive CN23
+evidence on page 2, only page 1 is copied into an in-memory PDF. Open PDF continues serving
+the entire original bundle; separate A4 commercial invoices are unchanged. Newly fetched
+Easyship bundles record a CN23 note and paper customs metadata.
+
+The selected PDF must be exactly one page, portrait, approximately 4x6, unrotated and
+uncropped. A4, ambiguous multipage, malformed, encrypted or unknown documents are refused.
+No postage provider is contacted by Print/Reprint. The original artifact and purchase stay intact.
 
 ## Intent and status API
 

@@ -9,6 +9,7 @@ from typing import Any
 from pypdf import PdfReader
 from reportlab.pdfgen import canvas
 
+from shipping.label_selection import select_shipping_label_pdf
 from shipping.models import DocumentKind, Event, PageSize
 from shipping.print_provider import PrintProvider, PrintProviderError
 from shipping.printing import PRINTABLE, PrintError
@@ -79,7 +80,14 @@ class PhysicalPrinting:
         artifact = self.store.get_artifact(shop, doc.artifact_id)
         if not artifact or artifact[0] != "shipping_label" or artifact[1] != "application/pdf":
             raise PrintError("The stored shipping-label PDF is unavailable.")
-        body = artifact[2]
+        body = select_shipping_label_pdf(
+            artifact[2],
+            provider=s.label.provider,
+            carrier=s.label.carrier,
+            service=s.label.service_name,
+            kind=doc.kind,
+            page_size=doc.page_size,
+        )
         validate_label(body)
         # A second first-print click (even with a different request key) never reprints.
         identity = f"reprint:{key}" if reprint else "first"

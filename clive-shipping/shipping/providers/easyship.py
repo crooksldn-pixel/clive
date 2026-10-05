@@ -35,6 +35,7 @@ import httpx
 
 from shipping import contacts
 from shipping.documents import is_pdf, page_size, pdf_pages
+from shipping.label_selection import CN23_NOTE, easyship_cn23
 from shipping.models import (
     Address,
     CustomsLine,
@@ -494,6 +495,7 @@ class Easyship:
             raise ProviderUnavailable(f"Easyship is still making the label ({state}).")
         docs: list[ProviderDocument] = []
         invoice = False
+        cn23 = False
         for d in sh.get("shipping_documents") or []:
             if not isinstance(d, dict):
                 continue
@@ -503,6 +505,8 @@ class Easyship:
                 if not is_pdf(body):
                     raise ProviderUnavailable("Easyship's label file wasn't a PDF yet.")
                 assert body is not None
+                includes_cn23 = easyship_cn23(body)
+                cn23 = cn23 or includes_cn23
                 docs.append(
                     ProviderDocument(
                         kind=DocumentKind.shipping_label,
@@ -510,6 +514,7 @@ class Easyship:
                         page_size=page_size(body),
                         pages=pdf_pages(body),
                         copies_required=1,
+                        note=CN23_NOTE if includes_cn23 else "",
                         must_print=True,
                         attach_to_parcel=True,
                     )
@@ -531,9 +536,9 @@ class Easyship:
                 )
         if not any(d.kind == DocumentKind.shipping_label for d in docs):
             raise ProviderUnavailable("Easyship hasn't attached the label file yet.")
-        # Easyship: "An invoice will only be provided if necessary." No invoice: the customs
-        # data travels with the label. The protocol confirms paperless with a second look.
-        customs = CustomsMode.paper if invoice else CustomsMode.electronic
+        # A separate invoice or a positively identified bundled CN23 is paper customs.
+        # Otherwise retain Easyship's existing electronic-customs assumption.
+        customs = CustomsMode.paper if invoice or cn23 else CustomsMode.electronic
         number, _ = self._tracking(sh)
         from shipping.providers.parcel2go import safe_link
 
