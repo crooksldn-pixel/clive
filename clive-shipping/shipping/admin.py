@@ -152,7 +152,7 @@ def build_admin_router(
 
     def detail_of(sid: str) -> dict[str, Any]:
         s = shipment(sid)
-        return views.detail(s, svc.recommendation(s), presets())
+        return views.detail(s, svc.recommendation(s), presets(), may_buy=svc.may_buy(s))
 
     def act(fn: Callable[[], Any]) -> Any:
         try:

@@ -66,12 +66,15 @@ class ShippingService:
         provider: ShippingProvider,
         purchases: Purchases | None = None,
         clock: Callable[[], datetime] = now,
+        may_buy: Callable[[Shipment], bool] = lambda s: True,
     ) -> None:
         self.store = store
         self.shopify = shopify
         self.provider = provider
         self.clock = clock
         self.purchases = purchases or Purchases(store, provider, clock=clock)
+        # The owner's per-order authorisation (Settings.authorised_orders in production).
+        self.may_buy = may_buy
 
     # ------------------------------------------------------------------ helpers
 
@@ -633,6 +636,15 @@ class ShippingService:
         return out
 
     def buy(self, shop: str, sid: str, basis: str, actor: str, key: str) -> dict[str, Any]:
+        s = self._get(shop, sid)
+        if s.status in PRE_PURCHASE and not self.may_buy(s):
+            log.warning("buy refused for %s by %s: not authorised", s.order_name, actor)
+            raise ActionError(
+                f"Buying the label for {s.order_name} isn't authorised yet. Nothing was bought. "
+                "The owner authorises each label on the server before it can be bought.",
+                403,
+                "not_authorised",
+            )
         self._revalidate(shop, sid)
         out = self.purchases.buy(shop, sid, basis, actor, key)
         # From here money may have moved: the reply must report the purchase whatever happens

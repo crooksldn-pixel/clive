@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import re
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -56,7 +57,19 @@ def build_service(settings: Settings) -> ShippingService:
             settings.shop_domain, settings.shopify_client_id, settings.shopify_client_secret
         )
     provider = build_provider(settings, store)
-    return ShippingService(store, shopify, provider, Purchases(store, provider))
+    allowed = settings.authorised()
+    return ShippingService(
+        store,
+        shopify,
+        provider,
+        Purchases(store, provider),
+        may_buy=lambda s: _order_number(s.order_name) in allowed,
+    )
+
+
+def _order_number(name: str) -> str:
+    found = re.findall(r"\d+", name or "")
+    return found[-1] if found else ""
 
 
 def connection_status(settings: Settings, svc: ShippingService) -> dict[str, Any]:

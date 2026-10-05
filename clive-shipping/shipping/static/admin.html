@@ -17,9 +17,25 @@
 </head>
 <body>
 <s-app-nav>
-  <s-link href="/admin" rel="home">International shipping</s-link>
-  <s-link href="/admin?view=setup">Setup</s-link>
+  <s-link href="/admin" rel="home">Home</s-link>
+  <s-link href="/admin?section=returns">Returns</s-link>
+  <s-link href="/shipping/admin">Shipping</s-link>
+  <s-link href="/settings">Settings</s-link>
 </s-app-nav>
+<script>
+// CROOKS Operations: Returns, Shipping and Settings are separate services under one embedded
+// app. If App Bridge moves the URL to another section without loading it, load that section.
+(() => {
+  const at = (p) => p.replace(/\/+$/, "");
+  const home = at(location.pathname);  // this section's page; its own routing keeps the path
+  const check = () => { if (at(location.pathname) !== home) location.reload(); };
+  for (const k of ["pushState", "replaceState"]) {
+    const orig = history[k];
+    history[k] = function (...args) { const r = orig.apply(this, args); check(); return r; };
+  }
+  addEventListener("popstate", check);
+})();
+</script>
 <s-page id="page" heading="International shipping"><s-section><s-stack alignItems="center" padding="large"><s-spinner accessibilityLabel="Loading" size="large"></s-spinner></s-stack></s-section></s-page>
 
 <script>
@@ -327,6 +343,9 @@ function renderShipment() {
   let primary = "";
   if (acts.has("buy") && chosen) {
     primary = `<s-button slot="primary-action" variant="primary" data-action="preview">Buy label — ${esc(chosen.price)}</s-button>`;
+  } else if (acts.has("preview") && chosen && !d.buy_authorised) {
+    // Not authorised to buy yet: the full preview still runs, nothing can be bought.
+    primary = `<s-button slot="primary-action" variant="primary" data-action="preview">Check price — ${esc(chosen.price)}</s-button>`;
   } else if (acts.has("retry_shopify")) {
     primary = `<s-button slot="primary-action" variant="primary" data-action="retry-shopify">Retry Shopify update</s-button>`;
   } else if (acts.has("print") || acts.has("reprint")) {
@@ -350,6 +369,10 @@ function renderShipment() {
     top += banner({ tone: "warning", heading: "Last attempt", text: d.error });
   }
   for (const a of d.alerts) top += banner({ tone: "warning", heading: "Check this order", text: a });
+  if (!d.buy_authorised && acts.has("preview")) {
+    top += banner({ tone: "info", heading: "Buying is not authorised for this order",
+      text: "You can check everything and see the exact price. A label can only be bought once the owner authorises this order on the server." });
+  }
 
   let main = top;
   if (d.questions.length) {
@@ -477,12 +500,14 @@ function modals(d) {
     <s-button slot="secondary-actions" commandFor="customs-modal" command="--hide">Close</s-button>
   </s-modal>`;
   const pv = state.preview;
-  const buy = `<s-modal id="buy-modal" heading="Buy this label?">
+  const buy = `<s-modal id="buy-modal" heading="${d.buy_authorised ? "Buy this label?" : "Exact price (not bought)"}">
     ${pv ? `<s-stack gap="base">
       <s-unordered-list>${pv.will.map((w) => `<s-list-item>${esc(w)}</s-list-item>`).join("")}</s-unordered-list>
       <s-paragraph color="subdued">Charged to your Parcel2Go PrePay balance. A label is bought once, even if you click twice.</s-paragraph>
     </s-stack>
-    <s-button slot="primary-action" variant="primary" data-action="buy" id="buy-button">Buy label — ${esc(pv.price)}</s-button>`
+    ${d.buy_authorised
+      ? `<s-button slot="primary-action" variant="primary" data-action="buy" id="buy-button">Buy label — ${esc(pv.price)}</s-button>`
+      : `<s-paragraph>Not bought: buying isn't authorised for this order yet.</s-paragraph>`}`
     : `<s-spinner accessibilityLabel="Checking the price"></s-spinner>`}
     <s-button slot="secondary-actions" commandFor="buy-modal" command="--hide">Cancel</s-button>
   </s-modal>`;

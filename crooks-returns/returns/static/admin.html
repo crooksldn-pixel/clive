@@ -21,6 +21,7 @@
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
+  s-app-nav { display: none; } /* App Bridge shows it in the admin sidebar */
   html, body { margin: 0; background: var(--bg); color: var(--ink);
     font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
     -webkit-font-smoothing: antialiased; }
@@ -202,6 +203,26 @@
 </style>
 </head>
 <body>
+<s-app-nav>
+  <s-link href="/admin" rel="home">Home</s-link>
+  <s-link href="/admin?section=returns">Returns</s-link>
+  <s-link href="/shipping/admin">Shipping</s-link>
+  <s-link href="/settings">Settings</s-link>
+</s-app-nav>
+<script>
+// CROOKS Operations: Returns, Shipping and Settings are separate services under one embedded
+// app. If App Bridge moves the URL to another section without loading it, load that section.
+(() => {
+  const at = (p) => p.replace(/\/+$/, "");
+  const home = at(location.pathname);  // this section's page; its own routing keeps the path
+  const check = () => { if (at(location.pathname) !== home) location.reload(); };
+  for (const k of ["pushState", "replaceState"]) {
+    const orig = history[k];
+    history[k] = function (...args) { const r = orig.apply(this, args); check(); return r; };
+  }
+  addEventListener("popstate", check);
+})();
+</script>
 <div class="wrap" id="app"><div class="loading"><span class="spin"></span></div></div>
 <div id="modal-root"></div>
 <script>

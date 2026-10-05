@@ -310,7 +310,9 @@ TIMELINE = {
 }
 
 
-def detail(s: Shipment, rec: Recommendation, presets: list[dict[str, Any]]) -> dict[str, Any]:
+def detail(
+    s: Shipment, rec: Recommendation, presets: list[dict[str, Any]], may_buy: bool = True
+) -> dict[str, Any]:
     d = s.destination
     gaps = readiness.address_gaps(d)
     p = s.package
@@ -368,7 +370,8 @@ def detail(s: Shipment, rec: Recommendation, presets: list[dict[str, Any]]) -> d
         "steps": steps(s) if label is not None else [],
         "alerts": list(s.alerts),
         "error": s.last_error,
-        "actions": actions(s),
+        "actions": [a for a in actions(s) if may_buy or a != "buy"],
+        "buy_authorised": may_buy,
         "timeline": [
             {
                 "at": e.at.isoformat(),

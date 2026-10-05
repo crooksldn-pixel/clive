@@ -1,10 +1,16 @@
-# Shopify app configuration for CROOKS Returns. Copy to shopify.app.toml, fill in the two
-# placeholders, then from this folder run:
-#   npx @shopify/cli app config link     (pick or create the "CROOKS Returns" app)
-#   npx @shopify/cli app deploy          (applies scopes, the app proxy and the webhooks)
-# Then install the app on the store from the Dev Dashboard.
+# Shopify app configuration for CROOKS Operations (formerly "CROOKS Returns"): one embedded
+# app whose sections are separate services on the same address (see Caddyfile):
+#   /admin            Returns    (crooks-returns)
+#   /shipping/admin   Shipping   (clive-shipping)
+#   /settings         Settings   (links to each service's own settings)
+# Copy to shopify.app.toml, fill in the two placeholders, then from this folder run:
+#   npx @shopify/cli app config link     (pick the existing app)
+#   npx @shopify/cli app deploy          (applies the name, scopes, app proxy and webhooks)
+# After a scope change, approve the update for the app in the store's admin.
 
-name = "CROOKS Returns"
+# The name shown in the admin sidebar. Changing it doesn't change the client id, the app's
+# URL, the app proxy (/apps/returns) or the webhooks; keep "CROOKS Returns" to defer it.
+name = "CROOKS Operations"
 client_id = "<CLIENT ID FROM THE DEV DASHBOARD>"
 # The staff screen: Shopify admin -> Apps -> CROOKS Returns opens this inside the admin.
 application_url = "https://<RETURNS HOST>/admin"
@@ -16,7 +22,11 @@ embedded = true
 redirect_urls = ["https://<RETURNS HOST>/auth/callback"]
 
 [access_scopes]
-scopes = "read_orders,read_customers,read_products,read_returns,write_returns,read_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,read_third_party_fulfillment_orders,read_store_credit_accounts,read_store_credit_account_transactions,write_store_credit_account_transactions"
+# Returns' scopes, then Shipping's additions (Admin API 2026-10 docs):
+#   write_merchant_managed_fulfillment_orders  fulfillmentCreate (label tracking on the order)
+#   read_inventory, write_inventory            HS code, origin, weight (inventoryItemUpdate)
+#   read_locations                             the ship-from address
+scopes = "read_orders,read_customers,read_products,read_returns,write_returns,read_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,read_third_party_fulfillment_orders,read_store_credit_accounts,read_store_credit_account_transactions,write_store_credit_account_transactions,write_merchant_managed_fulfillment_orders,read_inventory,write_inventory,read_locations"
 
 # crooksldn.com/apps/returns/* is forwarded, signed, to https://<RETURNS HOST>/proxy/*
 [app_proxy]

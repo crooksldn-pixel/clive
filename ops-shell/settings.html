@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="shopify-api-key" content="{{env "SHOPIFY_CLIENT_ID"}}">
+<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+<script src="https://cdn.shopify.com/shopifycloud/polaris.js"></script>
+<title>Settings · CROOKS Operations</title>
+<style>body { margin: 0; } s-app-nav { display: none; }</style>
+</head>
+<body>
+<!-- CROOKS Operations: one embedded app, separate services. This page only links to each
+     service's own settings; it holds no data. Served by Caddy (ops-shell/). -->
+<s-app-nav>
+  <s-link href="/admin" rel="home">Home</s-link>
+  <s-link href="/admin?section=returns">Returns</s-link>
+  <s-link href="/shipping/admin">Shipping</s-link>
+  <s-link href="/settings">Settings</s-link>
+</s-app-nav>
+<s-page heading="Settings">
+  <s-section heading="Returns">
+    <s-paragraph>Return policy, labels and the pilot list for the customer returns portal.</s-paragraph>
+    <s-button href="/admin#/setup">Open Returns settings</s-button>
+  </s-section>
+  <s-section heading="Shipping">
+    <s-paragraph>Ship-from address, packages, the Parcel2Go connection, label format and customs defaults for international orders.</s-paragraph>
+    <s-button href="/shipping/admin?view=setup">Open Shipping settings</s-button>
+  </s-section>
+</s-page>
+<script>
+// CROOKS Operations: Returns, Shipping and Settings are separate services under one embedded
+// app. If App Bridge moves the URL to another section without loading it, load that section.
+(() => {
+  const at = (p) => p.replace(/\/+$/, "");
+  const home = at(location.pathname);  // this section's page; its own routing keeps the path
+  const check = () => { if (at(location.pathname) !== home) location.reload(); };
+  for (const k of ["pushState", "replaceState"]) {
+    const orig = history[k];
+    history[k] = function (...args) { const r = orig.apply(this, args); check(); return r; };
+  }
+  addEventListener("popstate", check);
+})();
+</script>
+</body>
+</html>

@@ -1,5 +1,25 @@
-# Serves the returns service on your address over HTTPS (certificate from Let's Encrypt).
+# CROOKS Operations on one address over HTTPS (certificate from Let's Encrypt). One embedded
+# Shopify app; each section is its own service with its own data:
+#   /shipping/*  -> clive-shipping (prefix removed: the service sees /admin, /health ...)
+#   /settings    -> a static page linking to each service's own settings (ops-shell/)
+#   everything else -> crooks-returns (its admin, the customer portal proxy, webhooks)
 {$RETURNS_DOMAIN} {
 	encode gzip
-	reverse_proxy returns:8100
+
+	handle_path /shipping/* {
+		reverse_proxy shipping:8120
+	}
+
+	handle /settings {
+		root * /srv/ops
+		rewrite * /settings.html
+		templates
+		header Content-Security-Policy "frame-ancestors https://{$SHOPIFY_SHOP_DOMAIN} https://admin.shopify.com;"
+		header Cache-Control "no-store"
+		file_server
+	}
+
+	handle {
+		reverse_proxy returns:8100
+	}
 }

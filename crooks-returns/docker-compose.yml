@@ -5,7 +5,9 @@
 #   2. docker compose up -d --build
 #   3. open https://<your address>/health
 #
-# Returns are saved in ./data/returns.sqlite3 beside this file.
+# Returns are saved in ./data/returns.sqlite3 beside this file; Shipping (served under
+# /shipping on the same address) in ../clive-shipping/data/shipping.sqlite3, with its own
+# ../clive-shipping/.env.
 
 services:
   returns:
@@ -20,11 +22,25 @@ services:
     expose:
       - "8100"
 
+  # CLIVE Shipping: a separate service with its own database and its own .env, served under
+  # /shipping on the same address (one embedded Shopify app, "CROOKS Operations").
+  shipping:
+    build: ../clive-shipping
+    restart: unless-stopped
+    env_file: ../clive-shipping/.env
+    environment:
+      SHIPPING_DB_PATH: /data/shipping.sqlite3
+    volumes:
+      - ../clive-shipping/data:/data
+    expose:
+      - "8120"
+
   caddy:
     image: caddy:2
     restart: unless-stopped
     depends_on:
       - returns
+      - shipping
     # Only the public address: Tailscale already listens on 443 on the tailnet address, and
     # Linux will not let a second program take 443 on every address while it does.
     ports:
@@ -32,8 +48,12 @@ services:
       - "${RETURNS_BIND_IP:-0.0.0.0}:443:443"
     environment:
       RETURNS_DOMAIN: ${RETURNS_DOMAIN}
+      # For the shared Settings page (public client id) and its frame-ancestors header.
+      SHOPIFY_CLIENT_ID: ${RETURNS_SHOPIFY_CLIENT_ID}
+      SHOPIFY_SHOP_DOMAIN: ${RETURNS_SHOP_DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../ops-shell:/srv/ops:ro
       - caddy_data:/data
       - caddy_config:/config
 
