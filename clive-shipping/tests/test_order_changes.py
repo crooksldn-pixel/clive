@@ -123,3 +123,25 @@ def test_the_preview_itself_shows_the_current_order(svc, previewed, provider):
         svc.preview(SHOP, s.id)  # a preview of an old order would mislead too
     pv = svc.preview(SHOP, s.id)
     assert pv["basis"] != b and "1 items" in " ".join(pv["will"])
+
+
+def test_an_address_missing_its_postcode_asks_for_it_and_buys_nothing(svc, shopify, provider):
+    snap = fo(2146, [tee_line()])
+    snap.destination = snap.destination.model_copy(update={"postcode": ""})
+    shopify.add(snap)
+    svc.sync(SHOP)
+    s = only(svc)
+    address = [q for q in s.questions if q.kind == "address"]
+    assert s.status == S.needs_attention and "postcode" in address[0].text
+    snap.destination = snap.destination.model_copy(update={"postcode": "10115"})
+    svc.sync(SHOP)  # fixed in Shopify: picked up without asking anything here
+    assert not [q for q in only(svc).questions if q.kind == "address"]
+
+
+def test_places_without_postcodes_arent_asked_for_one():
+    from shipping.models import Address
+    from shipping.readiness import address_gaps
+
+    hk = Address(name="Ka Ming", line1="1 Queen's Road", city="Hong Kong", country="HK")
+    assert address_gaps(hk) == []
+    assert address_gaps(hk.model_copy(update={"country": "DE"})) == ["postcode"]

@@ -13,7 +13,7 @@ for confirmation and never used until confirmed.
 
 from __future__ import annotations
 
-from shipping.models import CustomsLine, Question
+from shipping.models import Address, CustomsLine, Question
 from shipping.shopify import FoSnapshot, ItemFacts
 from shipping.store import Store
 
@@ -29,6 +29,27 @@ COUNTRY_NAMES = {
     "IT": "Italy",
     "ES": "Spain",
 }
+
+
+# Places that don't use postcodes in addresses; everywhere else a missing postcode is a gap.
+NO_POSTCODE = frozenset("AE AG AW BS BZ BO FJ GH HK JM KE MO PA QA TT TZ UG ZW".split())
+
+
+def address_gaps(a: Address) -> list[str]:
+    """What a courier needs from the delivery address that isn't there."""
+    gaps = [
+        name
+        for name, value in (
+            ("recipient name", a.name or a.company),
+            ("street", a.line1),
+            ("town or city", a.city),
+            ("country", a.country),
+        )
+        if not value.strip()
+    ]
+    if a.country and a.country not in NO_POSTCODE and not a.postcode.strip():
+        gaps.append("postcode")
+    return gaps
 
 
 def resolve_lines(
@@ -80,9 +101,23 @@ def _hs_suggestion(store: Store, shop: str, line: CustomsLine) -> str | None:
 
 
 def questions(
-    store: Store, shop: str, lines: list[CustomsLine], has_package: bool
+    store: Store,
+    shop: str,
+    lines: list[CustomsLine],
+    has_package: bool,
+    destination: Address | None = None,
 ) -> list[Question]:
     out: list[Question] = []
+    gaps = address_gaps(destination) if destination is not None else []
+    if gaps:
+        out.append(
+            Question(
+                kind="address",
+                subject="address",
+                text=f"The delivery address has no {' or '.join(gaps)}. Fix it on the order "
+                "in Shopify; CLIVE picks the change up by itself.",
+            )
+        )
     if not has_package:
         out.append(
             Question(

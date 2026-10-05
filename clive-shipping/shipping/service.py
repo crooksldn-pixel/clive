@@ -198,7 +198,9 @@ class ShippingService:
         s.duties = duties.terms(
             cfg.duties, s.destination.country, value, postcode=s.destination.postcode
         )
-        s.questions = readiness.questions(self.store, shop, s.lines, s.package is not None)
+        s.questions = readiness.questions(
+            self.store, shop, s.lines, s.package is not None, s.destination
+        )
         if s.questions:
             s.quote = None
             self._to(
@@ -322,6 +324,7 @@ class ShippingService:
             self.store.save_config(cfg)
             name = cfg.packages[-1].name
             self._commit(s, lambda x: self._event(x, "package_added", actor, {"name": name}))
+            self._unblock_others(shop, sid, "package", subject)
             return self._prepare_after_answer(shop, sid)
         line = next((ln for ln in s.lines if (ln.product_id or ln.title) == subject), None)
         if line is None:
@@ -383,7 +386,20 @@ class ShippingService:
             self._event(x, "answered", actor, {"question": kind, "product": line.title})
 
         self._commit(s, record)
+        self._unblock_others(shop, sid, kind, subject)
         return self._prepare_after_answer(shop, sid)
+
+    def _unblock_others(self, shop: str, sid: str, kind: str, subject: str) -> None:
+        """Asked once: other orders waiting on the same answer go ahead now, not at the next
+        sync."""
+        for other in self.store.shipments(shop, [S.needs_attention.value]):
+            if other.id != sid and any(
+                q.kind == kind and q.subject == subject for q in other.questions
+            ):
+                try:
+                    self.prepare(shop, other.id)
+                except (Conflict, ShopifyError, ProviderError):
+                    log.info("shipment %s left for the next sync", other.id)
 
     def _commit(self, s: Shipment, apply: Callable[[Shipment], None]) -> Shipment:
         """Save what this request did to the shipment. If something else saved it meanwhile
