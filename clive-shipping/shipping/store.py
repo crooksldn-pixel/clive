@@ -21,6 +21,10 @@ from typing import Any
 from shipping.models import OPEN_OP_STATES, ProviderOp, Shipment, ShopConfig
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS print_intents (
+  shop TEXT NOT NULL, id TEXT NOT NULL, request_key TEXT NOT NULL, doc TEXT NOT NULL,
+  PRIMARY KEY(shop, id), UNIQUE(shop, request_key)
+);
 CREATE TABLE IF NOT EXISTS shipments (
   shop TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -429,3 +433,29 @@ class Store:
             (shop, artifact_id),
         ).fetchone()
         return (row[0], row[1], row[2]) if row else None
+
+    # Print ledger is separate from the postage purchase ledger.
+    def add_print_intent(self, shop, key, record):
+        self._db.execute(
+            "INSERT INTO print_intents VALUES (?,?,?,?)",
+            (shop, record["id"], key, json.dumps(record)),
+        )
+
+    def save_print_intent(self, shop, record):
+        with self.lock:
+            self._db.execute(
+                "UPDATE print_intents SET doc=? WHERE shop=? AND id=?",
+                (json.dumps(record), shop, record["id"]),
+            )
+
+    def print_intent_by_key(self, shop, key):
+        row = self._db.execute(
+            "SELECT doc FROM print_intents WHERE shop=? AND request_key=?", (shop, key)
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def print_intent(self, shop, intent_id):
+        row = self._db.execute(
+            "SELECT doc FROM print_intents WHERE shop=? AND id=?", (shop, intent_id)
+        ).fetchone()
+        return json.loads(row[0]) if row else None

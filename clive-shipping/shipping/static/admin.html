@@ -350,12 +350,16 @@ function renderShipment() {
   } else if (acts.has("retry_shopify")) {
     primary = `<s-button slot="primary-action" variant="primary" data-action="retry-shopify">Retry Shopify update</s-button>`;
   } else if (acts.has("print") || acts.has("reprint")) {
-    primary = `<s-button slot="primary-action" variant="primary" data-action="print">${acts.has("reprint") ? "Reprint" : "Print"} 4×6 label</s-button>`;
+    primary = `<s-button slot="primary-action" variant="primary" data-action="physical-print">Print label</s-button>`;
   }
-  const slots = `<s-link slot="breadcrumb-actions" data-action="go-inbox" href="${BASE}/admin">Shipping</s-link>` +
+  const reprintButton = (acts.has("print") || acts.has("reprint")) ?
+    `<s-button slot="secondary-actions" data-action="physical-reprint">Reprint</s-button>` : "";
+  const statusButton = sessionStorage.getItem(`crooks-last-print:${state.shipment.id}`) ?
+    `<s-button slot="secondary-actions" data-action="print-status">Check print status</s-button>` : "";
+  const slots = statusButton + reprintButton + `<s-link slot="breadcrumb-actions" data-action="go-inbox" href="${BASE}/admin">Shipping</s-link>` +
     primary +
     (acts.has("refresh") ? `<s-button slot="secondary-actions" data-action="refresh">Refresh from Shopify</s-button>` : "") +
-    (acts.has("retry_shopify") ? `<s-button slot="secondary-actions" data-action="print">Print 4×6 label</s-button>` : "") +
+    (acts.has("retry_shopify") ? `<s-button slot="secondary-actions" data-action="physical-print">Print label</s-button>` : "") +
     (acts.has("cancel_label") ? `<s-button slot="secondary-actions" tone="critical" commandFor="cancel-modal" command="--show">Cancel label</s-button>` : "");
 
   // Problems first.
@@ -393,7 +397,7 @@ function renderShipment() {
     const docs = l.documents.filter((x) => x.must_print).map((x) =>
       `<s-stack direction="inline" gap="small-200" alignItems="center"><s-text>${esc(x.title)}</s-text>
         <s-text color="subdued">${x.page_size === "4x6" ? "4×6 label printer" : `${esc(x.page_size)}${x.copies > 1 ? ` · ${x.copies} copies` : ""}`}</s-text>
-        <s-button variant="tertiary" data-action="open-doc" data-doc="${esc(x.artifact_id)}">Open</s-button></s-stack>`).join("");
+        <s-button variant="tertiary" data-action="open-doc" data-doc="${esc(x.artifact_id)}">Open PDF</s-button></s-stack>`).join("");
     main += `<s-section heading="Label purchased">
       <s-stack gap="base">
         <s-grid gridTemplateColumns="1fr 1fr" gap="base">
@@ -405,7 +409,7 @@ function renderShipment() {
         <s-stack gap="small-200">${steps}</s-stack>
         <s-divider></s-divider>
         <s-stack gap="small-200"><s-heading>Documents</s-heading>${docs || '<s-text color="subdued">Fetching the label file…</s-text>'}
-          <s-text color="subdued">${l.printed ? "Printed before: printing again uses the same label, nothing is bought." : "Not printed yet."}</s-text></s-stack>
+          <s-text color="subdued">${l.printed ? "Previously sent for printing. Reprint uses the same label; nothing is bought." : "Not sent for printing yet."}</s-text></s-stack>
       </s-stack></s-section>`;
   } else if (d.shipping.chosen && !acts.has("service")) {
     // Being bought or checked: show what was chosen, offer no changes.
@@ -583,7 +587,10 @@ function renderSetup() {
     <s-stack gap="small-200">
       <s-text>Label format: 4×6 (100 × 150 mm), for the thermal label printer.</s-text>
       <s-text color="subdued">${esc(s.printer.label)}. ${esc(s.printer.document)}.</s-text>
-      <s-text color="subdued">${esc(s.printer.direct)}.</s-text>
+      <s-text>JD-168BT · PrintNode · ${s.label_printer.connected ? "Connected" : "Unavailable"}</s-text>
+      <s-text>4×6 · 203 dpi · Printer ID: ${esc(s.label_printer.printer_id)}</s-text>
+      <s-text>Status: ${esc(s.label_printer.state)} · ${esc(s.label_printer.detail)}</s-text>
+      <s-button data-action="printer-test">Test print</s-button>
     </s-stack>
   </s-section>
   <s-section heading="Customs defaults">
@@ -674,7 +681,42 @@ async function printJobs(path, win) {
   }
 }
 
+// Retain the same intent across network errors / reloads. A successful deliberate reprint
+// clears its key; a later deliberate click creates one additional copy.
+async function sendPhysical(path) {
+  const storageKey = `crooks-print:${BASE}:${path}`;
+  let key = sessionStorage.getItem(storageKey);
+  if (!key) { key = crypto.randomUUID(); sessionStorage.setItem(storageKey, key); }
+  const out = await api(path, { method: "POST", body: { idempotency_key: key } });
+  if (out.print_intent.shipment_id) {
+    sessionStorage.setItem(`crooks-last-print:${out.print_intent.shipment_id}`, out.print_intent.id);
+  }
+  if (out.print_intent.state === "accepted") sessionStorage.removeItem(storageKey);
+  toast(out.message, out.print_intent.state !== "accepted");
+  return out;
+}
+
 const ACTIONS = {
+  async "print-status"(el) {
+    await withButton(el, async () => {
+      const id = sessionStorage.getItem(`crooks-last-print:${state.shipment.id}`);
+      const out = await api(`/print/intents/${encodeURIComponent(id)}`);
+      toast(`${out.message} · PrintNode: ${out.print_intent.provider_state || out.print_intent.state}. Physical output unconfirmed.`, out.print_intent.state !== "accepted");
+    });
+  },
+  async "physical-print"(el) {
+    await withButton(el, async () => {
+      await sendPhysical(`/shipments/${state.shipment.id}/print-label`);
+      state.shipment = await api(`/shipments/${state.shipment.id}`);
+      renderShipment();
+    });
+  },
+  async "physical-reprint"(el) {
+    await withButton(el, () => sendPhysical(`/shipments/${state.shipment.id}/reprint-label`));
+  },
+  async "printer-test"(el) {
+    await withButton(el, () => sendPhysical("/print/test"));
+  },
   "go-inbox": () => navigate({}),
   "go-setup": () => navigate({ view: "setup" }),
   async sync(el) {

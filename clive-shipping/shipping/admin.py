@@ -23,6 +23,8 @@ from shipping import views
 from shipping.auth import BadToken, verify_session_token
 from shipping.models import Address
 from shipping.money import Money
+from shipping.physical_printing import PhysicalPrinting
+from shipping.print_provider import PrintNodeProvider
 from shipping.printing import PrintError, Printing
 from shipping.providers.base import ProviderError
 from shipping.purchase import ActionError, Stale
@@ -73,6 +75,10 @@ class BuyBody(BaseModel):
     idempotency_key: str = Field(min_length=8, max_length=120)
 
 
+class PrintBody(BaseModel):
+    idempotency_key: str = Field(min_length=8, max_length=120)
+
+
 class CancelBody(BaseModel):
     confirm: bool = False
 
@@ -118,6 +124,13 @@ def build_admin_router(
 ) -> APIRouter:
     shop = settings.shop_domain
     printing = Printing(svc.store, clock=svc.clock)
+    key = settings.printnode_api_key.get_secret_value()
+    provider = (
+        PrintNodeProvider(key, settings.printnode_printer_id)
+        if settings.printnode_enabled and key
+        else None
+    )
+    physical = PhysicalPrinting(svc.store, provider, settings.printnode_printer_id)
 
     def staff(authorization: str | None = Header(default=None)) -> str:
         """The signed-in staff member, for the timeline."""
@@ -356,6 +369,41 @@ def build_admin_router(
             },
         )
 
+    def sent_result(intent):
+        message = (
+            "Sent to JD-168BT"
+            if intent["state"] == "accepted" and intent["provider_job_id"]
+            else intent["error"] or "Print request recorded; check its status before reprinting"
+        )
+        return {"print_intent": intent, "message": message}
+
+    @router.post("/api/shipments/{sid}/print-label")
+    def physical_label(sid: str, body: PrintBody, who: str = Depends(staff)):
+        return sent_result(act(lambda: physical.print_label(shop, sid, who, body.idempotency_key)))
+
+    @router.post("/api/shipments/{sid}/reprint-label")
+    def physical_reprint(sid: str, body: PrintBody, who: str = Depends(staff)):
+        return sent_result(
+            act(lambda: physical.print_label(shop, sid, who, body.idempotency_key, reprint=True))
+        )
+
+    @router.post("/api/print/order/{ref}/label")
+    def physical_order(ref: str, body: PrintBody, who: str = Depends(staff)):
+        s = act(lambda: printing.find_order(shop, ref))
+        return sent_result(act(lambda: physical.print_label(shop, s.id, who, body.idempotency_key)))
+
+    @router.get("/api/print/intents/{intent_id}")
+    def physical_status(intent_id: str, who: str = Depends(staff)):
+        return sent_result(act(lambda: physical.status(shop, intent_id)))
+
+    @router.get("/api/print/health")
+    def physical_health(who: str = Depends(staff)):
+        return physical.health()
+
+    @router.post("/api/print/test")
+    def physical_test(body: PrintBody, who: str = Depends(staff)):
+        return sent_result(act(lambda: physical.test_print(shop, who, body.idempotency_key)))
+
     # ------------------------------------------------------------------ setup
 
     def setup_view() -> dict[str, Any]:
@@ -365,10 +413,11 @@ def build_admin_router(
             "presets": presets(),
             "default_package_id": cfg.default_package_id,
             "label_format": "4x6",
+            "label_printer": physical.health(),
             "printer": {
-                "label": "Labels open in your browser to print on the 4×6 label printer",
+                "label": "Open PDF remains available for manual 4×6 printing",
                 "document": "Customs copies open in your browser to print on A4",
-                "direct": "Direct printing to your printers (PrintNode) isn't set up yet",
+                "direct": "Direct labels use the server-side PrintNode connection",
             },
             "customs": {
                 "duties": cfg.duties.mode,

@@ -7,6 +7,7 @@ import os
 from functools import lru_cache
 from urllib.parse import urlparse
 
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +20,12 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="SHIPPING_", env_file=_env_file(), env_file_encoding="utf-8", extra="ignore"
     )
+
+    printnode_enabled: bool = Field(default=False, validation_alias="PRINTNODE_ENABLED")
+    printnode_api_key: SecretStr = Field(
+        default=SecretStr(""), validation_alias="PRINTNODE_API_KEY", exclude=True
+    )
+    printnode_printer_id: int = Field(default=75883753, validation_alias="PRINTNODE_PRINTER_ID")
 
     # --- Shopify ---
     shop_domain: str = "5wn03t-nm.myshopify.com"
