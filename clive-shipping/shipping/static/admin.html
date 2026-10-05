@@ -59,7 +59,18 @@ class ApiError extends Error {
     const d = typeof detail === "object" && detail ? detail : { message: String(detail || "") };
     super(d.message || "Something went wrong.");
     this.status = status; this.code = d.code || ""; this.title = d.title || "";
+    // CLIVE itself answered with a reason (not a proxy page or a dropped connection).
+    this.fromClive = typeof detail === "object" && !!detail && !!detail.message;
   }
+}
+
+// Refusals that CLIVE gives before anything is sent to Parcel2Go: certainly nothing bought.
+const BEFORE_BUYING = new Set(["stale", "shopify_unavailable", "provider_unavailable",
+                               "provider_refused", "not_found"]);
+function certainlyNotBought(err) {
+  if (err.status === 401) return true;
+  if (!err.fromClive || err.code === "busy") return false;
+  return err.status < 500 || BEFORE_BUYING.has(err.code);
 }
 
 async function api(path, { method = "GET", body } = {}) {
@@ -363,7 +374,7 @@ function renderShipment() {
         <s-grid gridTemplateColumns="1fr 1fr" gap="base">
           <s-stack gap="small-300"><s-text color="subdued">Service</s-text><s-text>${esc(l.carrier)} ${esc(l.service)} · ${esc(l.price)}</s-text></s-stack>
           <s-stack gap="small-300"><s-text color="subdued">Tracking</s-text>${l.tracking
-            ? (l.tracking_url ? `<s-link href="${esc(l.tracking_url)}" target="_blank">${esc(l.tracking)}</s-link>` : `<s-text>${esc(l.tracking)}</s-text>`)
+            ? (/^https:\/\//i.test(l.tracking_url || "") ? `<s-link href="${esc(l.tracking_url)}" target="_blank">${esc(l.tracking)}</s-link>` : `<s-text>${esc(l.tracking)}</s-text>`)
             : `<s-text color="subdued">Waiting for the carrier</s-text>`}</s-stack>
         </s-grid>
         <s-stack gap="small-200">${steps}</s-stack>
@@ -568,17 +579,58 @@ async function shipmentAction(path, body) {
   renderShipment();
 }
 
-async function openDocuments(jobs) {
-  // One tab per document, opened from the click so the browser allows it.
+// Printing opens one window, synchronously in the click (so the browser allows it), before
+// anything is recorded. The window shows each document with how many copies to print and on
+// which printer; a single label opens straight in the PDF viewer.
+function openPrintWindow() {
+  const win = window.open("", "_blank");
+  if (!win) {
+    state.flash = { tone: "warning", heading: "Your browser blocked the print window",
+      text: "Allow pop-ups for Shopify admin, then print again. Nothing was printed or recorded." };
+    render();
+  }
+  return win;
+}
+
+async function fillPrintWindow(win, jobs) {
+  const doc = win.document;
+  doc.title = "Print · CLIVE Shipping";
+  doc.body.style.cssText = "margin:16px;font:14px/1.4 -apple-system,system-ui,sans-serif";
+  const headers = {};
+  const t = await token();
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const loaded = [];
   for (const job of jobs) {
-    const win = window.open("", "_blank");
-    const headers = {};
-    const t = await token();
-    if (t) headers.Authorization = `Bearer ${t}`;
     const res = await fetch(`${BASE}/admin/api/documents/${encodeURIComponent(job.artifact_id)}`, { headers });
-    if (!res.ok) { win?.close(); throw new ApiError(res.status, { message: "The document couldn't be opened." }); }
-    const url = URL.createObjectURL(await res.blob());
-    if (win) win.location.href = url; else location.assign(url);
+    loaded.push({ job, url: res.ok ? URL.createObjectURL(await res.blob()) : null });
+  }
+  if (loaded.length === 1 && loaded[0].url && loaded[0].job.copies === 1) {
+    win.location.href = loaded[0].url;  // one label: straight to the PDF viewer
+    return;
+  }
+  const add = (tag, text, parent = doc.body) => {
+    const el = doc.createElement(tag); el.textContent = text; parent.append(el); return el;
+  };
+  add("h1", `${loaded.length} document${loaded.length === 1 ? "" : "s"} to print`);
+  for (const { job, url } of loaded) {
+    const where = job.printer === "label" ? "the 4×6 label printer" : "the A4 printer";
+    add("h2", `${job.order_name} — ${job.title}: print ${job.copies} cop${job.copies === 1 ? "y" : "ies"} on ${where}`);
+    if (!url) { add("p", "This document couldn't be loaded. Print it again from the order."); continue; }
+    const frame = doc.createElement("iframe");
+    frame.src = url; frame.title = `${job.order_name} ${job.title}`;
+    frame.style.cssText = "width:100%;height:80vh;border:1px solid #ccc";
+    doc.body.append(frame);
+  }
+}
+
+async function printJobs(path, win) {
+  try {
+    const out = await api(path, { method: "POST" });
+    await fillPrintWindow(win, out.jobs);
+    return out;
+  } catch (err) {
+    win.close();
+    throw err;
   }
 }
 
@@ -594,12 +646,18 @@ const ACTIONS = {
     });
   },
   async "print-ready"(el) {
+    const win = openPrintWindow();
+    if (!win) return;
     await withButton(el, async () => {
-      const out = await api("/print/ready", { method: "POST" });
+      const out = await printJobs("/print/ready", win);
       state.inbox = await api(`/inbox?q=${encodeURIComponent(state.q)}`);
+      if (out.skipped.length) {
+        state.flash = { tone: "warning",
+          heading: `${out.labels} of ${out.labels + out.skipped.length} labels opened to print`,
+          text: out.skipped.map((x) => `${x.order}: ${x.reason}`).join(" ") };
+      }
       renderInbox();
-      toast(`${out.labels} label${out.labels === 1 ? "" : "s"} sent to print`);
-      await openDocuments(out.jobs);
+      if (!out.skipped.length) toast(`${out.labels} label${out.labels === 1 ? "" : "s"} opened to print`);
     });
   },
   async refresh(el) {
@@ -669,10 +727,11 @@ const ACTIONS = {
         else if (out.may_have_been_charged) toast("Checking with Parcel2Go whether it was paid", true);
       } catch (err) {
         hideModal("buy-modal");
-        if (err.code === "network") {
-          // The reply was lost: the same key replays, never buys twice. Offer exactly that.
-          state.flash = { tone: "warning", heading: "No answer from CLIVE",
-            text: "The label may or may not have been bought. Check again: it uses the same request, so you can't be charged twice.",
+        if (!certainlyNotBought(err)) {
+          // No clear answer (dropped connection, a proxy error, a restart): the label may have
+          // been bought. The same key replays, never buys twice. Offer exactly that.
+          state.flash = { tone: "warning", heading: "The label may have been bought",
+            text: "CLIVE didn't give a clear answer. Check again: it repeats the same request, so you can't be charged twice.",
             action: "buy-again", actionLabel: "Check again" };
           render();
           return;
@@ -698,15 +757,22 @@ const ACTIONS = {
     });
   },
   async print(el) {
+    const win = openPrintWindow();
+    if (!win) return;
     await withButton(el, async () => {
-      const out = await api(`/shipments/${state.shipment.id}/print`, { method: "POST" });
+      const out = await printJobs(`/shipments/${state.shipment.id}/print`, win);
       state.shipment = out.shipment;
       renderShipment();
-      await openDocuments(out.jobs);
     });
   },
   async "open-doc"(el) {
-    await withButton(el, () => openDocuments([{ artifact_id: el.dataset.doc }]));
+    // Viewing one stored document; not recorded as a print.
+    const win = openPrintWindow();
+    if (!win) return;
+    const doc = state.shipment.label.documents.find((x) => x.artifact_id === el.dataset.doc);
+    await withButton(el, () => fillPrintWindow(win, [{ artifact_id: el.dataset.doc,
+      order_name: state.shipment.order, title: doc ? doc.title : "Document",
+      copies: doc && doc.copies > 1 ? doc.copies : 1, printer: doc && doc.page_size === "4x6" ? "label" : "document" }]));
   },
   async "save-setup"(el) {
     const origin = { ...(state.setup.origin || {}) };

@@ -18,7 +18,7 @@ from shipping import readiness
 from shipping.models import CustomsMode, DocumentKind, Quote, Shipment
 from shipping.models import ShipmentStatus as S
 from shipping.money import Money
-from shipping.printing import TITLES, printed
+from shipping.printing import PRINTABLE, TITLES, printed
 from shipping.rates import Option, Recommendation
 
 QUESTION_PHRASES = {
@@ -29,10 +29,16 @@ QUESTION_PHRASES = {
     "address": "Address needs attention",
     "no_rates": "No available service",
     "provider_unavailable": "Provider unavailable",
+    "on_hold": "On hold in Shopify",
 }
 # Not something the merchant fills in: these name the problem instead of counting details.
-NOT_DETAILS = ("no_rates", "provider_unavailable", "address")
-PROBLEM_TONES = {"no_rates": "critical", "provider_unavailable": "caution", "address": "warning"}
+NOT_DETAILS = ("no_rates", "provider_unavailable", "address", "on_hold")
+PROBLEM_TONES = {
+    "no_rates": "critical",
+    "provider_unavailable": "caution",
+    "address": "warning",
+    "on_hold": "warning",
+}
 
 STALE = "Order changed — refresh required"
 
@@ -132,8 +138,7 @@ def row(s: Shipment) -> dict[str, Any]:
         "shipping": shipping_text(s),
         "status": st,
         "printed": printed(s),
-        "can_print": s.label is not None
-        and s.status in (S.label_purchased, S.fulfillment_failed, S.fulfilled),
+        "can_print": s.label is not None and s.status in PRINTABLE,
         "updated_at": s.updated_at.isoformat(),
     }
 
@@ -263,6 +268,7 @@ def actions(s: Shipment) -> list[str]:
         S.label_purchased: ["print"],
         S.fulfillment_failed: ["retry_shopify", "print"],
         S.fulfilled: ["print"],
+        S.in_transit: ["print"],
         S.discovered: ["refresh"],
         S.reconciliation_required: [],
         S.purchasing: [],
@@ -294,6 +300,7 @@ TIMELINE = {
     "label_reprinted": "Label reprinted",
     "alert": "Alert",
     "order_closed": "Order closed in Shopify",
+    "on_hold": "On hold in Shopify",
     "provider_unavailable": "Prices unavailable",
     "no_rates": "No courier offered a price",
     "payment_outcome_unknown": "Checking whether the label was paid",

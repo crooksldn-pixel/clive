@@ -157,3 +157,67 @@ def test_shopify_down_after_purchase_leaves_the_label_and_retries_later(
     shopify.fo_reads_fail = 0
     svc.fulfil(SHOP, s.id, "george")
     assert only(svc).status == S.fulfilled and len(provider.charges) == 1
+
+
+def test_a_fulfilment_shopify_accepted_but_not_yet_shows_is_never_called_closed_elsewhere(
+    svc, shopify, provider
+):
+    shopify.add(fo(2145, [tee_line()]))
+    svc.sync(SHOP)
+    s = answer_all_first_time(svc, only(svc))
+    real_create = shopify.create_fulfillment
+
+    def created_but_tracking_lags(fo_id, *args, **kwargs):
+        fid = real_create(fo_id, *args, **kwargs)
+        shopify.fos[fo_id].tracking_numbers.clear()  # CLOSED, number not readable yet
+        return fid
+
+    shopify.create_fulfillment = created_but_tracking_lags
+    b = svc.preview(SHOP, s.id)["basis"]
+    s = svc.buy(SHOP, s.id, b, "george", "k1")["shipment"]
+    s = svc.fulfil(SHOP, s.id, "george")  # the retry
+    assert s.status == S.fulfillment_failed
+    assert "without this label" not in (s.last_error or "")
+    assert len(shopify.fulfillments) == 1
+    shopify.fos["gid://shopify/FulfillmentOrder/2145"].tracking_numbers.append(
+        s.label.tracking_number
+    )
+    assert svc.fulfil(SHOP, s.id, "george").status == S.fulfilled
+    assert len(shopify.fulfillments) == 1 and len(provider.charges) == 1
+
+
+def test_shopify_unreadable_means_no_fulfilment_is_created_blind(svc, shopify, provider):
+    shopify.add(fo(2145, [tee_line()]))
+    svc.sync(SHOP)
+    s = answer_all_first_time(svc, only(svc))
+    real_buy = svc.purchases.buy
+
+    def buy_then_shopify_unreadable(*args, **kwargs):
+        out = real_buy(*args, **kwargs)
+        shopify.fo_reads_fail = 1
+        return out
+
+    svc.purchases.buy = buy_then_shopify_unreadable
+    out = svc.buy(SHOP, s.id, svc.preview(SHOP, s.id)["basis"], "george", "k1")
+    assert out["status"] == "fulfillment_failed" and shopify.fulfillments == []
+    assert "without this label" not in (out["error"] or "")  # unreadable isn't "closed"
+    assert svc.fulfil(SHOP, s.id, "george").status == S.fulfilled  # readable again
+    assert len(shopify.fulfillments) == 1
+
+
+def test_a_refusal_after_an_earlier_lost_reply_reads_back_first(svc, shopify, provider):
+    snap = shopify.add(fo(2145, [tee_line()]))
+    svc.sync(SHOP)
+    s = answer_all_first_time(svc, only(svc))
+    real_create = shopify.create_fulfillment
+
+    def already_done_then_refused(fo_id, lines, company, number, *rest):
+        snap.tracking_numbers.append(number)  # an earlier attempt landed meanwhile
+        from shipping.shopify import ShopifyRefused
+
+        raise ShopifyRefused("no remaining quantity")
+
+    shopify.create_fulfillment = already_done_then_refused
+    out = svc.buy(SHOP, s.id, svc.preview(SHOP, s.id)["basis"], "george", "k1")
+    assert out["status"] == "fulfilled"
+    shopify.create_fulfillment = real_create

@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from shipping import views
 from shipping.auth import BadToken, verify_session_token
-from shipping.models import Address, ShipmentStatus
+from shipping.models import Address
 from shipping.money import Money
 from shipping.printing import PrintError, Printing
 from shipping.providers.base import ProviderError
@@ -32,6 +32,9 @@ from shipping.shopify import ShopifyError
 from shipping.store import Conflict
 
 log = logging.getLogger("shipping.admin")
+
+# What a stored document may be served as; anything else downloads as bytes.
+DOCUMENT_TYPES = frozenset({"application/pdf", "image/png", "image/jpeg"})
 
 
 def page_html(client_id: str) -> str:
@@ -53,7 +56,7 @@ def problem(exc: ActionError | PrintError) -> HTTPException:
 class AnswerBody(BaseModel):
     kind: str = Field(max_length=40)
     subject: str = Field(max_length=200)
-    value: dict[str, Any] = Field(default_factory=dict)
+    value: dict[str, Any] = Field(default_factory=dict, max_length=8)
 
 
 class PackageBody(BaseModel):
@@ -79,8 +82,21 @@ class PresetBody(BaseModel):
     make_default: bool = False
 
 
+class OriginBody(BaseModel):
+    name: str = Field(default="", max_length=100)
+    company: str = Field(default="", max_length=100)
+    line1: str = Field(default="", max_length=120)
+    line2: str = Field(default="", max_length=120)
+    city: str = Field(default="", max_length=80)
+    region: str = Field(default="", max_length=80)
+    postcode: str = Field(default="", max_length=20)
+    country: str = Field(default="", max_length=2)
+    phone: str = Field(default="", max_length=30)
+    email: str = Field(default="", max_length=120)
+
+
 class SetupBody(BaseModel):
-    origin: Address | None = None
+    origin: OriginBody | None = None
     default_package_id: str | None = Field(default=None, max_length=60)
     eori_number: str | None = Field(default=None, max_length=20)
     vat_number: str | None = Field(default=None, max_length=20)
@@ -220,10 +236,12 @@ def build_admin_router(
         try:
             act(lambda: svc.prepare(shop, sid))
         except (ShopifyError, ProviderError) as exc:
+            log.warning("refresh of %s failed: %s", sid, exc)
             raise HTTPException(
                 503,
                 {
-                    "message": f"Couldn't refresh just now ({exc}). Try again in a minute.",
+                    "message": "Shopify or Parcel2Go didn't answer just now. Nothing changed; "
+                    "try again in a minute.",
                     "code": "unavailable",
                 },
             ) from exc
@@ -291,10 +309,11 @@ def build_admin_router(
     @router.post("/api/print/ready")
     def print_ready(who: str = Depends(staff)) -> dict[str, Any]:
         """ "Print all ready labels": every bought label not printed yet."""
-        jobs = act(lambda: printing.print_ready(shop, who))
+        jobs, skipped = act(lambda: printing.print_ready(shop, who))
         return {
             "jobs": [j.as_dict() for j in jobs],
             "labels": len({j.shipment_id for j in jobs}),
+            "skipped": skipped,
         }
 
     @router.get("/api/documents/{artifact_id}")
@@ -302,10 +321,16 @@ def build_admin_router(
         if not re.fullmatch(r"art_[A-Za-z0-9]{6,40}", artifact_id):
             raise HTTPException(404, {"message": "Document not found.", "code": "not_found"})
         content_type, body = act(lambda: printing.document(shop, artifact_id))
+        if content_type not in DOCUMENT_TYPES:
+            content_type = "application/octet-stream"  # never rendered in the app's origin
         return Response(
             body,
             media_type=content_type,
-            headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": "sandbox",
+            },
         )
 
     # ------------------------------------------------------------------ setup
@@ -362,7 +387,7 @@ def build_admin_router(
                         "code": "invalid",
                     },
                 )
-            cfg.origin = o
+            cfg.origin = Address(**o.model_dump())
         if body.default_package_id is not None:
             if not any(p.id == body.default_package_id for p in cfg.packages):
                 raise HTTPException(
@@ -406,12 +431,7 @@ def build_admin_router(
             cfg.default_package_id = p.id
         svc.store.save_config(cfg)
         # Orders waiting only for a package can go ahead now.
-        for s in svc.store.shipments(shop, [ShipmentStatus.needs_attention.value]):
-            if any(q.kind == "package" for q in s.questions):
-                try:
-                    svc.prepare(shop, s.id)
-                except (Conflict, ShopifyError, ProviderError):
-                    continue  # the next sync picks it up
+        svc.reprepare_waiting(shop, lambda q: q.kind == "package")
         return setup_view()
 
     return router

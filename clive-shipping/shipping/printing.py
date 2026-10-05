@@ -12,6 +12,7 @@ today; a PrintNode sender can take the same jobs later, for "CLIVE, reprint orde
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -28,6 +29,8 @@ from shipping.models import (
     ShipmentStatus,
 )
 from shipping.store import Conflict, Store, now
+
+log = logging.getLogger("shipping.printing")
 
 # Statuses where a label exists and may be printed.
 PRINTABLE = (
@@ -165,15 +168,19 @@ class Printing:
             key=lambda s: (s.label.purchased_at if s.label else s.created_at, s.order_name),
         )
 
-    def print_ready(self, shop: str, actor: str) -> list[PrintJob]:
-        """Every unprinted label, as one batch ("print all 9 ready labels")."""
+    def print_ready(self, shop: str, actor: str) -> tuple[list[PrintJob], list[dict[str, str]]]:
+        """Every unprinted label, as one batch ("print all 9 ready labels"). Returns the jobs
+        and the orders left out, with why (e.g. the label file isn't stored yet); those stay in
+        the ready list."""
         out: list[PrintJob] = []
+        skipped: list[dict[str, str]] = []
         for s in self.ready(shop):
             try:
                 out.extend(self.print_shipment(shop, s.id, actor))
-            except PrintError:
-                continue  # its file isn't stored yet; it stays in the ready list
-        return out
+            except PrintError as exc:
+                log.warning("print all: %s left out: %s", s.order_name, exc)
+                skipped.append({"order": s.order_name, "reason": str(exc)})
+        return out, skipped
 
     def document(self, shop: str, artifact_id: str) -> tuple[str, bytes]:
         """A stored document's bytes, for this shop only."""
@@ -193,4 +200,5 @@ class Printing:
                 return
             except Conflict:
                 continue  # saved meanwhile (a sync, a reconcile): add ours to the fresh copy
+        log.warning("print of %s not recorded: the shipment kept changing", sid)
         raise PrintError("This order is being updated; print again in a moment.")

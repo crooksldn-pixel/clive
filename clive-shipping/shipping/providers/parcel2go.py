@@ -24,6 +24,7 @@ import uuid
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 import httpx
 
@@ -579,7 +580,10 @@ class Parcel2Go:
             raise ProviderUncertain("Parcel2Go's order answer was unreadable; nothing was paid.")
         order_id, order_hash = str(made.get("OrderId") or ""), str(made.get("Hash") or "")
         if not order_id or not order_hash:
-            raise ProviderRefused(f"Parcel2Go created no usable order: {str(made)[:200]}")
+            # Never echo the answer: it can carry the order's access hash.
+            raise ProviderRefused(
+                f"Parcel2Go created no usable order (fields: {sorted(made)[:12]})."
+            )
         try:
             line = str(((made.get("OrderlineIdMap") or [{}])[0]).get("OrderLineId") or "")
         except (AttributeError, IndexError, TypeError):
@@ -710,7 +714,7 @@ class Parcel2Go:
             customs=mode,
             # Until the courier's number exists (none in the sandbox), Parcel2Go's own.
             tracking_number=courier or (f"P2G{line_id}" if line_id else None),
-            tracking_url=links.get("tracking-page")
+            tracking_url=safe_link(links.get("tracking-page"))
             or (f"https://www.parcel2go.com/tracking/{line_id}" if line_id else None),
             provider_ids={"order": order_id, "order_line": line_id}
             | ({"courier_tracking": courier} if courier else {}),
@@ -770,6 +774,14 @@ class Parcel2Go:
         except (ProviderError, AttributeError, TypeError) as exc:
             log.info("tracking for %s not ready: %s", order_id, exc)
             return None
+
+
+def safe_link(url: object) -> str | None:
+    """A provider link shown to staff and sent to Shopify: https with a host, or nothing."""
+    if not isinstance(url, str):
+        return None
+    parsed = urlparse(url.strip())
+    return url.strip() if parsed.scheme == "https" and parsed.hostname else None
 
 
 def balance(provider: Parcel2Go) -> Money | None:

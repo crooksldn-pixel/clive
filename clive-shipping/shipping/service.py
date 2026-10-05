@@ -185,6 +185,19 @@ class ShippingService:
                 s.questions, s.quote = [], None
             return self.store.save(s)
 
+        if snap.status == "ON_HOLD":
+            # Held in Shopify (fraud review, a wrong address...): never bought while held.
+            s.quote = None
+            s.questions = [
+                Question(
+                    kind="on_hold",
+                    subject="order",
+                    text=f"{snap.order_name} is on hold in Shopify. Release the hold there when "
+                    "it's ready to ship; CLIVE picks it up by itself.",
+                )
+            ]
+            self._to(s, S.needs_attention, "on_hold", detail={})
+            return self.store.save(s)
         cfg = self.store.config(shop)
         items = self.shopify.item_facts(
             [ln.inventory_item_id for ln in snap.lines if ln.inventory_item_id]
@@ -192,12 +205,7 @@ class ShippingService:
         s.order_name, s.destination, s.currency = snap.order_name, snap.destination, snap.currency
         s.lines = readiness.resolve_lines(self.store, shop, snap, items)
         s.package = packages.plan(self.store, cfg, s.lines, s.package)
-        value = Money(
-            minor=sum(ln.unit_value.minor * ln.quantity for ln in s.lines), currency=s.currency
-        )
-        s.duties = duties.terms(
-            cfg.duties, s.destination.country, value, postcode=s.destination.postcode
-        )
+        s.duties = self._duties(cfg, s)
         s.questions = readiness.questions(
             self.store, shop, s.lines, s.package is not None, s.destination
         )
@@ -257,6 +265,15 @@ class ShippingService:
             detail={"service": choice.title, "price": str(choice.amount)},
         )
         return self.store.save(s)
+
+    @staticmethod
+    def _duties(cfg, s: Shipment):
+        value = Money(
+            minor=sum(ln.unit_value.minor * ln.quantity for ln in s.lines), currency=s.currency
+        )
+        return duties.terms(
+            cfg.duties, s.destination.country, value, postcode=s.destination.postcode
+        )
 
     def paperwork(self, shop: str, quote: Quote, country: str) -> rates.Paperwork:
         """What this shop's own labels showed for this service and country; before any, the
@@ -392,14 +409,26 @@ class ShippingService:
     def _unblock_others(self, shop: str, sid: str, kind: str, subject: str) -> None:
         """Asked once: other orders waiting on the same answer go ahead now, not at the next
         sync."""
+        self.reprepare_waiting(
+            shop,
+            lambda q: q.kind == kind and q.subject == subject,
+            skip=sid,
+        )
+
+    def reprepare_waiting(
+        self, shop: str, waiting_on: Callable[[Question], bool], skip: str = ""
+    ) -> None:
+        """Re-check orders waiting on something just provided. Each is best effort: a failure
+        is logged and the next sync tries again; the merchant's change is already saved."""
         for other in self.store.shipments(shop, [S.needs_attention.value]):
-            if other.id != sid and any(
-                q.kind == kind and q.subject == subject for q in other.questions
-            ):
-                try:
-                    self.prepare(shop, other.id)
-                except (Conflict, ShopifyError, ProviderError):
-                    log.info("shipment %s left for the next sync", other.id)
+            if other.id == skip or not any(waiting_on(q) for q in other.questions):
+                continue
+            try:
+                self.prepare(shop, other.id)
+            except Conflict:
+                log.info("shipment %s changed meanwhile; left for the next sync", other.id)
+            except Exception:  # noqa: BLE001 - one order must not fail the merchant's save
+                log.exception("re-checking %s failed; left for the next sync", other.id)
 
     def _commit(self, s: Shipment, apply: Callable[[Shipment], None]) -> Shipment:
         """Save what this request did to the shipment. If something else saved it meanwhile
@@ -418,6 +447,9 @@ class ShippingService:
             return self.prepare(shop, sid)
         except Conflict:
             return self._get(shop, sid)  # the answer is saved; the next sync re-prepares
+        except (ShopifyError, ProviderError):
+            log.exception("re-checking %s after an answer failed; the next sync retries", sid)
+            return self._get(shop, sid)  # the answer is saved
 
     def _product_items(self, line) -> list[str]:
         items = self.shopify.product_items(line.product_id) if line.product_id else []
@@ -493,6 +525,8 @@ class ShippingService:
         )
 
         def record(x: Shipment) -> None:
+            if x.status not in PRE_PURCHASE:
+                raise ActionError("This order is past the point of changing its service.")
             x.service_choice = None if back_to_recommended else service_code
             x.quote = chosen
             self._event(x, "service_chosen", actor, {"service": chosen.title})
@@ -517,7 +551,7 @@ class ShippingService:
             if x.label is not None:
                 x.label = x.label.model_copy(update={"paperwork_learned": True})
 
-        self._commit(s, record)
+        # Record first (an upsert), then flag: a failure leaves it to be learned next time.
         self.store.record_paperwork(
             shop,
             service,
@@ -526,6 +560,7 @@ class ShippingService:
             copies,
             self.clock(),
         )
+        self._commit(s, record)
 
     # ------------------------------------------------------------------ buying
 
@@ -547,6 +582,9 @@ class ShippingService:
                 raise Stale(
                     f"{s.order_name} was cancelled or fulfilled in Shopify, so nothing was bought."
                 )
+            if snap.status == "ON_HOLD":
+                self._refresh(shop, sid, snap)
+                raise Stale(f"{s.order_name} is on hold in Shopify, so nothing was bought.")
             items = self.shopify.item_facts(
                 [ln.inventory_item_id for ln in snap.lines if ln.inventory_item_id]
             )
@@ -555,15 +593,17 @@ class ShippingService:
         candidate = s.model_copy(deep=True)
         candidate.destination = snap.destination
         candidate.lines = readiness.resolve_lines(self.store, shop, snap, items)
-        candidate.package = packages.plan(
-            self.store, self.store.config(shop), candidate.lines, s.package
-        )
+        cfg = self.store.config(shop)
+        candidate.package = packages.plan(self.store, cfg, candidate.lines, s.package)
+        candidate.duties = self._duties(cfg, candidate)
         if fingerprint(candidate) != fingerprint(s):
             self._event_changed(shop, sid)
             try:
                 self.prepare(shop, sid, snap)
-            except (Conflict, ShopifyError):
+            except Conflict:
                 log.info("refresh of changed order %s deferred to the next sync", sid)
+            except Exception:  # noqa: BLE001 - the refusal below matters more than the refresh
+                log.exception("refresh of changed order %s failed; the next sync retries", sid)
             raise Stale(
                 f"{s.order_name} changed in Shopify since its price was shown (items, address "
                 "or package). Nothing was bought; check it and buy again."
@@ -576,7 +616,7 @@ class ShippingService:
                 lambda x: self._event(x, "order_changed", "system", {"at": "before purchase"}),
             )
         except Conflict:
-            pass  # the refresh that follows records the new order anyway
+            pass  # the refusal still stands; the refresh that follows re-reads the order
 
     def preview(self, shop: str, sid: str) -> dict[str, Any]:
         self._revalidate(shop, sid)
@@ -595,27 +635,36 @@ class ShippingService:
     def buy(self, shop: str, sid: str, basis: str, actor: str, key: str) -> dict[str, Any]:
         self._revalidate(shop, sid)
         out = self.purchases.buy(shop, sid, basis, actor, key)
+        # From here money may have moved: the reply must report the purchase whatever happens
+        # to the bookkeeping below. Each step is logged and left to the timer if it fails.
         s = self._get(shop, sid)
         if s.status == S.label_purchased:
             if s.package and s.package.preset_id and not out.get("replayed"):
-                self.store.record_package_choice(
-                    shop, packages.signature(s.lines), s.package.preset_id
+                self._after_purchase(
+                    sid,
+                    "remembering the package",
+                    lambda: self.store.record_package_choice(
+                        shop,
+                        packages.signature(s.lines),
+                        s.package.preset_id,  # type: ignore[union-attr]
+                    ),
                 )
             if s.label and s.label.tracking_number:
-                try:
-                    self.fulfil(shop, sid, actor)
-                except Conflict:
-                    # The label is bought; something else saved the shipment meanwhile. The
-                    # timer's fulfilment retry finishes it (it reads Shopify first).
-                    log.info("fulfilment of %s raced another save; left to the timer", sid)
-        try:
-            self._learn_paperwork(shop, sid)
-        except Conflict:
-            pass  # the timer learns it next time
+                self._after_purchase(sid, "updating Shopify", lambda: self.fulfil(shop, sid, actor))
+        self._after_purchase(sid, "learning paperwork", lambda: self._learn_paperwork(shop, sid))
         out["shipment"] = self._get(shop, sid)
         out["status"] = out["shipment"].status.value
         out["error"] = out["shipment"].last_error
         return out
+
+    def _after_purchase(self, sid: str, what: str, step: Callable[[], Any]) -> None:
+        try:
+            step()
+        except Conflict:
+            # Something else saved the shipment meanwhile; the timer finishes this step.
+            log.info("%s for %s raced another save; left to the timer", what, sid)
+        except Exception:  # noqa: BLE001 - the label is bought; never turn that into an error
+            log.exception("%s for %s failed after the purchase; left to the timer", what, sid)
 
     # ------------------------------------------------------------------ fulfilment
 
@@ -634,7 +683,14 @@ class ShippingService:
         snap, readable = self._read_fo(s)
         if snap is not None and number in snap.tracking_numbers:
             return self._fulfilled(s, actor, "Already in Shopify")
-        if readable and (snap is None or snap.status == "CLOSED" or snap.order_cancelled):
+        if not readable:
+            # Never create blind: an earlier attempt may already be there.
+            return self._fulfil_failed(s, actor, "CLIVE couldn't read the order in Shopify.")
+        if snap is None or snap.status == "CLOSED" or snap.order_cancelled:
+            if s.fulfillment_id:
+                return self._fulfil_failed(
+                    s, actor, "Shopify accepted the fulfilment but CLIVE couldn't confirm it yet."
+                )
             return self._fulfil_failed(
                 s,
                 actor,
@@ -654,8 +710,13 @@ class ShippingService:
                 cfg.notify_customer,
             )
         except ShopifyRefused as exc:
+            log.warning("fulfillmentCreate refused for %s: %s", s.id, exc)
+            snap, _ = self._read_fo(s)  # an earlier attempt may have done it
+            if snap is not None and number in snap.tracking_numbers:
+                return self._fulfilled(s, actor, "Already in Shopify")
             return self._fulfil_failed(s, actor, f"Shopify didn't mark it fulfilled: {exc}.")
-        except ShopifyError:
+        except ShopifyError as exc:
+            log.warning("fulfillmentCreate for %s had no clear reply: %s", s.id, exc)
             fid = None  # may have happened: the read-back decides
         if fid:
             s.fulfillment_id = fid
@@ -676,7 +737,8 @@ class ShippingService:
         """(the fulfillment order, whether Shopify answered at all)."""
         try:
             return self.shopify.fulfillment_order(s.fulfillment_order_id), True
-        except ShopifyError:
+        except ShopifyError as exc:
+            log.warning("reading %s from Shopify failed: %s", s.fulfillment_order_id, exc)
             return None, False
 
     def _fulfilled(self, s: Shipment, actor: str, how: str) -> Shipment:
@@ -701,8 +763,9 @@ class ShippingService:
             if retry
             else ""
         )
+        log.warning("fulfilment of %s (%s) not done: %s", s.id, s.order_name, why)
         if s.status == S.fulfillment_failed and s.last_error == error and not changed:
-            return s  # the same failure again (a timer retry): nothing new to record
+            return s  # the same failure again (a timer retry): logged, not re-recorded
         s.last_error = error
         if s.status != S.fulfillment_failed:
             move(
@@ -730,6 +793,9 @@ class ShippingService:
                     self.fulfil(shop, s.id, "system")
                 except Conflict:
                     continue  # changed meanwhile; the next tick retries
+                except Exception:  # noqa: BLE001 - one shipment must not stop the sweep
+                    log.exception("fulfilment retry for %s failed", s.id)
+                    continue
                 retried += 1
         for s in self.store.shipments(
             shop, [S.label_purchased.value, S.fulfilled.value, S.fulfillment_failed.value]
@@ -739,5 +805,7 @@ class ShippingService:
                     self._learn_paperwork(shop, s.id)
                 except Conflict:
                     continue
+                except Exception:  # noqa: BLE001 - one shipment must not stop the sweep
+                    log.exception("learning paperwork for %s failed", s.id)
         found = self.sync(shop)
         return {"reconciled": reconciled, "fulfil_retried": retried, **found}

@@ -156,12 +156,21 @@ def recommend(
         quick_days, best_days = quickest.quote.est_days_max or 99, best.quote.est_days_max
         if quickest is not best and (best_days is None or quick_days < best_days):
             quickest.roles.append("fastest")
-            quickest.reason = (
-                f"Up to {quickest.quote.est_days_max} days; "
-                f"{_money_diff(quickest, best)} more than the recommendation"
-            )
+            if "cheapest" in quickest.roles:  # cheaper and quicker: keep the cheapest note
+                quickest.reason = f"Up to {quickest.quote.est_days_max} days; {quickest.reason}"
+            else:
+                quickest.reason = (
+                    f"Up to {quickest.quote.est_days_max} days; {_more_or_less(quickest, best)} "
+                    "than the recommendation"
+                )
             fastest_shown = quickest
     return Recommendation(best, cheapest_shown, fastest_shown, options)
+
+
+def _more_or_less(a: Option, b: Option) -> str:
+    """ "£0.50 more" or "£0.50 less": a's price against b's."""
+    word = "more" if a.quote.amount.minor >= b.quote.amount.minor else "less"
+    return f"{_money_diff(a, b)} {word}"
 
 
 def _money_diff(a: Option, b: Option) -> str:

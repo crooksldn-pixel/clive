@@ -34,7 +34,7 @@ def verify_session_token(
     token: str, *, client_id: str, secret: str, shop_domain: str, now: float | None = None
 ) -> dict[str, Any]:
     """Check a Shopify admin session token: HS256 with the app secret, for this app, for this
-    shop, inside its validity window. Returns its claims."""
+    shop (issuer and destination), inside its validity window. Returns its claims."""
     parts = token.split(".")
     if len(parts) != 3 or not secret:
         raise BadToken("malformed")
@@ -43,19 +43,28 @@ def verify_session_token(
         claims = json.loads(_b64(parts[1]))
     except ValueError as exc:
         raise BadToken("malformed") from exc
+    if not isinstance(header, dict) or not isinstance(claims, dict):
+        raise BadToken("malformed")
     if header.get("alg") != "HS256":
         raise BadToken("wrong algorithm")
     want = hmac.new(secret.encode(), f"{parts[0]}.{parts[1]}".encode(), hashlib.sha256).digest()
     if not hmac.compare_digest(want, _b64(parts[2])):
         raise BadToken("bad signature")
     now = time.time() if now is None else now
-    if float(claims.get("exp", 0)) < now - LEEWAY_S:
+    try:
+        exp, nbf = float(claims.get("exp", 0)), float(claims.get("nbf", 0))
+    except (TypeError, ValueError) as exc:
+        raise BadToken("malformed") from exc
+    if exp < now - LEEWAY_S:
         raise BadToken("expired")
-    if float(claims.get("nbf", 0)) > now + LEEWAY_S:
+    if nbf > now + LEEWAY_S:
         raise BadToken("not yet valid")
     aud = claims.get("aud")
     if client_id not in (aud if isinstance(aud, list) else [aud]):
         raise BadToken("for another app")
     if urlparse(str(claims.get("dest", ""))).hostname != shop_domain:
         raise BadToken("for another shop")
+    # Shopify: "iss and dest ... Their hostnames must match." (ID tokens, checked 2026-10-05).
+    if urlparse(str(claims.get("iss", ""))).hostname != shop_domain:
+        raise BadToken("issued elsewhere")
     return claims

@@ -145,3 +145,142 @@ def test_places_without_postcodes_arent_asked_for_one():
     hk = Address(name="Ka Ming", line1="1 Queen's Road", city="Hong Kong", country="HK")
     assert address_gaps(hk) == []
     assert address_gaps(hk.model_copy(update={"country": "DE"})) == ["postcode"]
+
+
+# ------------------------------------------------------------------ Setup changes (review, 4f)
+
+
+def test_changed_customs_terms_after_the_preview_refuse_the_old_preview(svc, previewed, provider):
+    s, b, _ = previewed
+    cfg = svc.store.config(SHOP)
+    cfg.duties.mode = "DDP"  # changes the terms the carrier is given
+    svc.store.save_config(cfg)
+    with pytest.raises(Stale):
+        svc.buy(SHOP, s.id, b, "george", "k1")
+    assert_nothing_bought(provider)
+    fresh = svc.store.get(SHOP, s.id)
+    assert fresh.duties and fresh.duties.incoterm == "DDP"
+
+
+def test_an_ioss_number_that_cant_apply_doesnt_invalidate_the_preview(svc, previewed, provider):
+    # Without a confirmed euro value IOSS is never sent, so nothing the carrier gets changed.
+    s, b, _ = previewed
+    cfg = svc.store.config(SHOP)
+    cfg.duties.ioss_number = "IM1234567890"
+    svc.store.save_config(cfg)
+    assert svc.buy(SHOP, s.id, b, "george", "k1")["charged"]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda cfg: setattr(cfg, "eori_number", "GB123456789000"),
+        lambda cfg: setattr(cfg, "vat_number", "GB123456789"),
+        lambda cfg: setattr(cfg, "origin", cfg.origin.model_copy(update={"postcode": "SL8 5AT"})),
+    ],
+    ids=["eori", "vat", "ship-from"],
+)
+def test_sender_details_changed_after_the_preview_refuse_it(svc, previewed, provider, change):
+    s, b, _ = previewed
+    cfg = svc.store.config(SHOP)
+    change(cfg)
+    svc.store.save_config(cfg)
+    with pytest.raises(ActionError):
+        svc.buy(SHOP, s.id, b, "george", "k1")
+    assert_nothing_bought(provider)
+    assert svc.buy(SHOP, s.id, svc.preview(SHOP, s.id)["basis"], "george", "k2")["charged"]
+
+
+def test_an_order_put_on_hold_is_never_bought(svc, previewed, provider):
+    s, b, snap = previewed
+    snap.status = "ON_HOLD"  # e.g. fraud review in Shopify
+    with pytest.raises(Stale, match="on hold"):
+        svc.buy(SHOP, s.id, b, "george", "k1")
+    assert_nothing_bought(provider)
+    held = svc.store.get(SHOP, s.id)
+    assert held.status == S.needs_attention and held.questions[0].kind == "on_hold"
+    snap.status = "OPEN"  # released
+    svc.sync(SHOP)
+    assert svc.store.get(SHOP, s.id).status == S.ready
+
+
+def test_a_fulfillment_order_that_disappeared_is_never_bought(svc, previewed, provider, shopify):
+    s, b, snap = previewed
+    del shopify.fos[snap.id]
+    with pytest.raises(Stale):
+        svc.buy(SHOP, s.id, b, "george", "k1")
+    assert_nothing_bought(provider)
+
+
+def test_item_facts_unreachable_at_buy_time_buys_nothing(svc, previewed, provider, shopify):
+    s, b, _ = previewed
+    from shipping.shopify import ShopifyError
+
+    real = shopify.item_facts
+    shopify.item_facts = lambda ids: (_ for _ in ()).throw(ShopifyError("timed out"))
+    with pytest.raises(ActionError) as e:
+        svc.buy(SHOP, s.id, b, "george", "k1")
+    assert e.value.status == 503 and "nothing was bought" in str(e.value).lower()
+    assert_nothing_bought(provider)
+    shopify.item_facts = real
+
+
+def test_choosing_another_service_makes_the_old_preview_stale(svc, previewed, provider):
+    s, b, _ = previewed
+    other = next(
+        q for q in svc.store.get(SHOP, s.id).rates if q.service_code != s.quote.service_code
+    )
+    svc.choose_service(SHOP, s.id, other.service_code, "george")
+    with pytest.raises(ActionError):
+        svc.buy(SHOP, s.id, b, "george", "k1")
+    assert_nothing_bought(provider)
+
+
+def test_a_service_cant_be_changed_on_a_bought_label(svc, previewed):
+    s, b, _ = previewed
+    svc.buy(SHOP, s.id, b, "george", "k1")
+    with pytest.raises(ActionError):
+        svc.choose_service(SHOP, s.id, s.quote.service_code, "george")
+
+
+def test_answering_once_unblocks_other_orders_with_the_same_product(svc, shopify, provider):
+    shopify.add(fo(2145, [tee_line()]))
+    shopify.add(fo(2146, [tee_line()]))
+    svc.sync(SHOP)
+    first = next(x for x in svc.store.shipments(SHOP) if x.order_name == "CROOKS-2145")
+    answer_all_first_time(svc, first)
+    assert {x.status for x in svc.store.shipments(SHOP)} == {S.ready}  # no sync needed
+    assert "create_order" not in provider.calls
+
+
+def test_one_failing_order_doesnt_fail_the_answer_that_unblocks_it(svc, shopify, provider):
+    shopify.add(fo(2145, [tee_line()]))
+    shopify.add(fo(2146, [tee_line()], country="US"))
+    svc.sync(SHOP)
+    real = provider.quotes
+
+    def us_broken(shipment):
+        if shipment.destination.country == "US":
+            raise RuntimeError("unexpected provider bug")
+        return real(shipment)
+
+    provider.quotes = us_broken
+    first = next(x for x in svc.store.shipments(SHOP) if x.order_name == "CROOKS-2145")
+    assert answer_all_first_time(svc, first).status == S.ready
+
+
+def test_a_service_change_racing_a_purchase_never_lands_on_it(svc, previewed, monkeypatch):
+    s, _, _ = previewed
+    other = next(q for q in s.rates if q.service_code != s.quote.service_code)
+    real = svc.recommendation
+
+    def a_buy_starts_meanwhile(shipment):
+        fresh = svc.store.get(SHOP, s.id)
+        fresh.status = S.purchasing  # a purchase was authorised in between
+        svc.store.save(fresh)
+        return real(shipment)
+
+    monkeypatch.setattr(svc, "recommendation", a_buy_starts_meanwhile)
+    with pytest.raises(ActionError):
+        svc.choose_service(SHOP, s.id, other.service_code, "george")
+    assert svc.store.get(SHOP, s.id).quote.service_code == s.quote.service_code

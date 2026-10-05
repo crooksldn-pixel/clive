@@ -167,3 +167,39 @@ def test_paperwork_seen_on_a_label_is_remembered_for_that_service_and_country(
     svc.buy(SHOP, s.id, b, "george", "k1")  # a replay doesn't count it twice
     row = svc.store._db.execute("SELECT seen FROM service_paperwork").fetchone()
     assert row[0] == 1
+
+
+def test_an_option_both_cheapest_and_fastest_keeps_its_price_and_paperwork_right():
+    dpd = q("dpd-classic", "DPD", 1000, 5)  # paperless
+    evri = q("myhermes-international-parcelshop", "Evri", 950, 3)  # paper, cheaper and quicker
+    rec = recommend([dpd, evri])
+    assert must(rec.recommended).quote is dpd
+    reason = must(rec.fastest).reason
+    assert must(rec.fastest) is must(rec.cheapest)
+    assert "£0.50 less" in reason and "more" not in reason and "A4" in reason
+
+
+def test_a_quicker_dearer_option_says_more():
+    rec = recommend([DPD, FEDEX])
+    assert "more than the recommendation" in must(rec.fastest).reason
+
+
+def test_a_preview_price_change_shows_everywhere(svc, shopify, provider):
+    shopify.add(fo(2145, [tee_line()]))
+    svc.sync(SHOP)
+    s = answer_all_first_time(svc, only(svc))
+    provider.price_minor = 1240  # the exact price at preview differs from the quote
+    svc.preview(SHOP, s.id)
+    s = svc.store.get(SHOP, s.id)
+    chosen = next(r for r in s.rates if r.service_code == s.quote.service_code)
+    assert chosen.amount.minor == s.quote.amount.minor == 1240
+
+
+def test_a_quicker_cheaper_option_that_isnt_the_cheapest_says_less():
+    cheapest = q("ups-access-point-euro", "UPS", 900, 9)  # paper
+    dpd = q("dpd-classic", "DPD", 1000, 5)  # paperless: recommended
+    evri = q("myhermes-international-parcelshop", "Evri", 950, 3)  # paper, quickest
+    rec = recommend([cheapest, dpd, evri])
+    assert must(rec.recommended).quote is dpd and must(rec.cheapest).quote is cheapest
+    assert must(rec.fastest).quote is evri
+    assert "£0.50 less than the recommendation" in must(rec.fastest).reason

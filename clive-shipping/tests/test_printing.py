@@ -59,6 +59,7 @@ def test_the_printing_module_has_no_way_to_buy():
     } | {a.name for node in ast.walk(tree) if isinstance(node, ast.Import) for a in node.names}
     assert imported <= {
         "__future__",
+        "logging",
         "re",
         "collections.abc",
         "dataclasses",
@@ -124,9 +125,21 @@ def test_print_all_ready_labels_prints_each_unprinted_label_once(
     printing.print_shipment(SHOP, ids[0], "george")  # already printed by hand
     trap(provider, monkeypatch)
     assert [s.id for s in printing.ready(SHOP)] == ids[1:]
-    jobs = printing.print_ready(SHOP, "george")
-    assert sorted({j.shipment_id for j in jobs}) == sorted(ids[1:])
-    assert printing.ready(SHOP) == [] and printing.print_ready(SHOP, "george") == []
+    jobs, skipped = printing.print_ready(SHOP, "george")
+    assert sorted({j.shipment_id for j in jobs}) == sorted(ids[1:]) and skipped == []
+    assert printing.ready(SHOP) == [] and printing.print_ready(SHOP, "george") == ([], [])
+
+
+def test_print_all_says_which_labels_it_left_out(svc, shopify, printing):
+    ids = [bought(svc, shopify, n).id for n in (2145, 2146)]
+    s = svc.store.get(SHOP, ids[1])
+    s.label.documents = [d for d in s.label.documents if d.kind.value != "shipping_label"]
+    svc.store.save(s)  # its label file isn't stored (yet)
+    jobs, skipped = printing.print_ready(SHOP, "george")
+    assert {j.shipment_id for j in jobs} == {ids[0]}
+    assert skipped == [{"order": "CROOKS-2146", "reason": skipped[0]["reason"]}]
+    assert "isn't stored yet" in skipped[0]["reason"]
+    assert [x.id for x in printing.ready(SHOP)] == [ids[1]]  # still waiting to print
 
 
 def test_a_document_from_another_shop_is_not_served(svc, shopify, printing):

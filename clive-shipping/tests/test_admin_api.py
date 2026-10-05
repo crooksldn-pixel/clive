@@ -25,16 +25,25 @@ CLIENT_ID, SECRET = "client-abc", "app-secret-xyz"
 TEE = "gid://shopify/Product/tee"
 
 
-def token(shop: str = SHOP, secret: str = SECRET, aud: str = CLIENT_ID, exp: float = 0) -> str:
+def token(
+    shop: str = SHOP,
+    secret: str = SECRET,
+    aud: str = CLIENT_ID,
+    exp: float = 0,
+    iss: str = "",
+    header: object = None,
+) -> str:
     def b64(raw: bytes) -> str:
         return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
-    head = b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+    head = b64(
+        json.dumps(header if header is not None else {"alg": "HS256", "typ": "JWT"}).encode()
+    )
     now = time.time()
     body = b64(
         json.dumps(
             {
-                "iss": f"https://{shop}/admin",
+                "iss": iss or f"https://{shop}/admin",
                 "dest": f"https://{shop}",
                 "aud": aud,
                 "sub": "42",
@@ -147,6 +156,11 @@ def test_only_shopify_admin_sessions_for_this_shop_get_in(client):
     assert client.get("/admin/api/inbox", headers=other).status_code == 401
     forged = {"Authorization": f"Bearer {token(secret='guess')}"}
     assert client.get("/admin/api/inbox", headers=forged).status_code == 401
+    elsewhere = {"Authorization": f"Bearer {token(iss='https://checkout.example.com')}"}
+    assert client.get("/admin/api/inbox", headers=elsewhere).status_code == 401
+    for odd in (["alg"], "HS256", 7):  # a header that isn't an object: 401, never a 500
+        r = client.get("/admin/api/inbox", headers={"Authorization": f"Bearer {token(header=odd)}"})
+        assert r.status_code == 401
     other_app = {"Authorization": f"Bearer {token(aud='another-app')}"}
     assert client.get("/admin/api/inbox", headers=other_app).status_code == 401
     expired = {"Authorization": f"Bearer {token(exp=time.time() - 120)}"}
@@ -394,3 +408,98 @@ def test_setup_shows_the_connection_and_saves_safely(client, shopify):
     # The order that only lacked a package no longer asks for one.
     (r,) = ok(client.get("/admin/api/inbox"))["groups"]["attention"]
     assert "Package needed" not in r["status"]["reasons"]
+
+
+def test_a_provider_tracking_link_must_be_https():
+    from shipping.providers.parcel2go import safe_link
+
+    assert safe_link("https://www.parcel2go.com/tracking/123") == (
+        "https://www.parcel2go.com/tracking/123"
+    )
+    for bad in ("javascript:alert(1)", "http://x.example", "data:text/html,hi", "", None, 5):
+        assert safe_link(bad) is None
+
+
+def test_only_the_real_sandbox_host_counts_as_sandbox():
+    s = Settings(provider="parcel2go", p2g_base_url="https://sandbox.parcel2go.com")
+    assert s.p2g_environment == "sandbox"
+    for live in ("https://www.parcel2go.com/?sandbox", "https://sandbox.parcel2go.com.evil.io"):
+        assert Settings(provider="parcel2go", p2g_base_url=live).p2g_environment == "live"
+
+
+def test_a_document_of_an_unexpected_type_is_never_rendered(client, shopify, svc):
+    d = ready_order(client, shopify)
+    buy(client, d)
+    s = svc.store.get(SHOP, d["id"])
+    art = svc.store.put_artifact(SHOP, s.id, "other", "text/html", b"<script>alert(1)</script>")
+    r = client.get(f"/admin/api/documents/{art}")
+    assert r.headers["content-type"] == "application/octet-stream"
+    assert r.headers["content-security-policy"] == "sandbox"
+
+
+def test_dev_bypass_is_off_unless_asked_for():
+    assert Settings().dev_skip_admin_auth is False
+
+
+# ------------------------------------------------------------------ review gaps (4f)
+
+
+def test_created_but_not_yet_verified_shows_two_of_three_steps(client, shopify):
+    d = ready_order(client, shopify)
+    real = shopify.create_fulfillment
+
+    def created_then_unreadable(*args, **kwargs):
+        fid = real(*args, **kwargs)
+        shopify.fo_reads_fail = 1
+        return fid
+
+    shopify.create_fulfillment = created_then_unreadable
+    _, r = buy(client, d)
+    d = ok(r)["shipment"]
+    assert [s["done"] for s in d["steps"]] == [True, True, False]
+    assert d["status"]["label"] == "Label purchased — Shopify update needs retry"
+
+
+def test_bookkeeping_failing_after_payment_still_reports_the_purchase(
+    client, shopify, provider, svc, monkeypatch
+):
+    d = ready_order(client, shopify)
+
+    def disk_full(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(svc.store, "record_package_choice", disk_full)
+    monkeypatch.setattr(svc.store, "record_paperwork", disk_full)
+    _, r = buy(client, d)
+    out = ok(r)  # never a 500 once money moved
+    assert out["charged"] and out["shipment"]["label"] is not None
+    assert len(provider.charges) == 1
+
+
+def test_one_broken_shipment_doesnt_stop_the_timer(client, shopify, svc, monkeypatch):
+    d = ready_order(client, shopify)
+    shopify.refuse_fulfillment = 1
+    buy(client, d)
+    shopify.add(fo(2146, [tee_line()]))
+    real = svc.fulfil
+    monkeypatch.setattr(svc, "fulfil", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("bug")))
+    out = svc.tick(SHOP)  # must not raise; the sync still runs
+    assert out["new"] == 1
+    monkeypatch.setattr(svc, "fulfil", real)
+
+
+def test_bad_setup_changes_nothing(client, shopify, svc):
+    first_order(client, shopify)
+    before = svc.store.config(SHOP).model_dump()
+    for body in (
+        {"default_package_id": "pkg_nope"},
+        {"origin": {"name": "X", "line1": "1 St", "city": "Y", "postcode": "Z1", "country": "gb"}},
+        {"origin": {"name": "X" * 500, "country": "GB"}},
+        {"ioss_number": "IM12"},
+    ):
+        assert client.post("/admin/api/setup", json=body).status_code == 422, body
+    assert svc.store.config(SHOP).model_dump() == before
+    s = ok(client.post("/admin/api/setup", json={"ioss_number": "im1234567890"}))
+    assert s["customs"]["ioss_number"] == "IM1234567890"
+    s = ok(client.post("/admin/api/setup", json={"ioss_number": ""}))
+    assert s["customs"]["ioss_number"] is None

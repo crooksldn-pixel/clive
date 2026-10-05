@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -47,7 +48,8 @@ class Settings(BaseSettings):
     def p2g_environment(self) -> str:
         if self.provider != "parcel2go":
             return "test"
-        return "sandbox" if "sandbox" in self.p2g_base_url else "live"
+        host = urlparse(self.p2g_base_url).hostname
+        return "sandbox" if host == "sandbox.parcel2go.com" else "live"
 
 
 @lru_cache

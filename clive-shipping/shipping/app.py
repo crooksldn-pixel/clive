@@ -67,11 +67,24 @@ def connection_status(settings: Settings, svc: ShippingService) -> dict[str, Any
         return {**out, "connected": True, "detail": "Test provider: nothing is booked."}
     if not (settings.p2g_client_id and settings.p2g_client_secret):
         return {**out, "connected": False, "detail": "No Parcel2Go credentials on the server."}
-    from shipping.providers.parcel2go import Parcel2Go, balance
+    from shipping.money import Money, to_minor
+    from shipping.providers.parcel2go import Parcel2Go
 
-    found = balance(svc.provider) if isinstance(svc.provider, Parcel2Go) else None
-    if found is None:
-        return {**out, "connected": False, "detail": "Parcel2Go didn't answer with a balance."}
+    if not isinstance(svc.provider, Parcel2Go):
+        return {**out, "connected": False, "detail": "Not a Parcel2Go connection."}
+    try:
+        raw = svc.provider._call("GET", "/prepay")
+        found = Money(minor=to_minor(raw))
+    except ProviderError as exc:
+        log.warning("Parcel2Go connection check failed: %s", exc)
+        why = (
+            "the credentials were refused"
+            if exc.code in ("unauthorized", "forbidden") or "401" in str(exc) or "403" in str(exc)
+            else "it didn't answer"
+        )
+        return {**out, "connected": False, "detail": f"Parcel2Go: {why}."}
+    except (ArithmeticError, ValueError, TypeError):
+        return {**out, "connected": True, "detail": "Connected; the balance couldn't be read."}
     return {**out, "connected": True, "detail": f"PrePay balance {found}"}
 
 
@@ -111,12 +124,12 @@ def create_app(settings: Settings | None = None, service: ShippingService | None
 
     @app.exception_handler(ShopifyError)
     async def shopify_down(request: Request, exc: ShopifyError) -> UTF8JSONResponse:
-        log.error("%s %s: %s", request.method, request.url.path, exc)
+        log.error("%s %s: %s", request.method, request.url.path, exc, exc_info=exc)
         return UTF8JSONResponse(
             {
                 "detail": {
-                    "message": "Shopify didn't answer just now. Nothing was bought; try "
-                    "again in a minute.",
+                    "message": "Shopify didn't answer just now. Try again in a minute; "
+                    "anything already saved is kept.",
                     "code": "shopify_unavailable",
                 }
             },
@@ -125,12 +138,12 @@ def create_app(settings: Settings | None = None, service: ShippingService | None
 
     @app.exception_handler(ProviderError)
     async def provider_down(request: Request, exc: ProviderError) -> UTF8JSONResponse:
-        log.error("%s %s: %s", request.method, request.url.path, exc)
+        log.error("%s %s: %s", request.method, request.url.path, exc, exc_info=exc)
         return UTF8JSONResponse(
             {
                 "detail": {
-                    "message": f"{svc.provider.name} didn't answer just now. Try again in "
-                    "a minute.",
+                    "message": f"{svc.provider.name} didn't answer just now. Try again in a "
+                    "minute.",
                     "code": "provider_unavailable",
                 }
             },

@@ -101,6 +101,10 @@ class Purchases:
             raise ActionError("Shipment not found.", 404)
         return s
 
+    def _basis(self, s: Shipment) -> str:
+        """The fingerprint, including the shop's sender details the provider is sent."""
+        return basis(s, self.store.config(s.shop))
+
     def _require_ready(self, s: Shipment) -> None:
         if s.status != S.ready:
             raise ActionError(
@@ -143,6 +147,8 @@ class Purchases:
             s.quote = s.quote.model_copy(
                 update={"amount": Money(minor=exact, currency=was.currency)}
             )
+            # The list of services shows the same price as the preview.
+            s.rates = [s.quote if r.service_code == s.quote.service_code else r for r in s.rates]
             self._event(s, "price_updated", "system", {"was": str(was), "now": str(s.quote.amount)})
             try:
                 self.store.save(s)
@@ -169,7 +175,7 @@ class Purchases:
                 "name": q.service_name,
                 "days": [q.est_days_min, q.est_days_max],
             },
-            "basis": basis(s),
+            "basis": self._basis(s),
         }
 
     # ------------------------------------------------------------------ execute
@@ -191,7 +197,7 @@ class Purchases:
                     NOT_READY.get(s.status, "A purchase for this order is already in progress.")
                 )
             self._require_ready(s)
-            if basis_token != basis(s):
+            if basis_token != self._basis(s):
                 raise Stale(
                     "This order changed since you saw the price. Nothing was bought; check it "
                     "again before buying."
@@ -205,7 +211,7 @@ class Purchases:
         with self.store.atomic():  # the operation and "purchasing" are written together
             s = self._get(shop, shipment_id)
             self._require_ready(s)
-            if basis_token != basis(s):
+            if basis_token != self._basis(s):
                 raise Stale("This order changed a moment ago. Nothing was bought.")
             at = self.clock()
             op = ProviderOp(
@@ -285,7 +291,7 @@ class Purchases:
             s = self._get(op.shop, op.shipment_id)
             if op.state == OpState.authorised:
                 quote = op.quote or s.quote
-                if quote is None or basis(s) != op.basis:
+                if quote is None or self._basis(s) != op.basis:
                     self._fail(
                         op,
                         "This order changed after the label was authorised, so nothing was "

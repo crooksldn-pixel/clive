@@ -356,15 +356,14 @@ def test_fulfilment_created_but_unconfirmed_is_found_on_retry_not_duplicated(svc
     shopify.add(fo(2145, [tee_line()]))
     svc.sync(SHOP)
     s = answer_all_first_time(svc, only(svc))
-    shopify.fulfillment_reply_lost = True
-    real_buy = svc.purchases.buy
+    shopify.fulfillment_reply_lost = True  # created, then the reply is lost
+    real_create = shopify.create_fulfillment
 
-    def buy_then_lose_shopify(*args, **kwargs):
-        out = real_buy(*args, **kwargs)  # the order check before buying got through
-        shopify.fo_reads_fail = 2  # neither the pre-check nor the read-back gets through
-        return out
+    def create_then_reads_fail(*args, **kwargs):
+        shopify.fo_reads_fail = 1  # ...and the read-back doesn't get through either
+        return real_create(*args, **kwargs)
 
-    svc.purchases.buy = buy_then_lose_shopify
+    shopify.create_fulfillment = create_then_reads_fail
     out = buy(svc, s)
     assert out["status"] == "fulfillment_failed"
     svc.tick(SHOP)  # reads first, finds it, doesn't create another
