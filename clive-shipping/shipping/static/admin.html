@@ -277,7 +277,7 @@ function questionForm(q, i) {
   }
   return `<s-box padding="base" border="base" borderRadius="base">
     <s-stack gap="base">
-      <s-stack direction="inline" gap="small-200" alignItems="center"><s-badge tone="warning">${esc(q.phrase)}</s-badge></s-stack>
+      <s-stack direction="inline" gap="small-200" alignItems="center"><s-badge tone="${esc(q.tone)}">${esc(q.phrase)}</s-badge></s-stack>
       <s-paragraph>${esc(q.text)}</s-paragraph>
       ${fields}
       <s-stack direction="inline" gap="base">${save}</s-stack>
@@ -298,10 +298,10 @@ const ORIGINS = ["PT", "CN", "TR", "GB", "IN", "BD", "PK", "VN", "IT", "ES", "LK
   "MA", "TN", "RO", "BG", "PL", "LT", "MK", "EG", "MX", "US", "DE", "FR", "NL", "TH", "MY",
   "KR", "JP", "TW", "MM"];
 
-function optionLine(o, label) {
+function optionLine(o, label, choosable = true) {
   const days = o.days ? ` · ${esc(o.days)}` : "";
   const use = o.chosen ? `<s-badge tone="success">Selected</s-badge>`
-    : `<s-button variant="tertiary" data-action="choose" data-code="${esc(o.code)}">Use this</s-button>`;
+    : (choosable ? `<s-button variant="tertiary" data-action="choose" data-code="${esc(o.code)}">Use this</s-button>` : "");
   return `<s-grid gridTemplateColumns="1fr auto" gap="base" alignItems="center">
     <s-stack gap="small-300">
       <s-text type="strong">${label ? esc(label) + ": " : ""}${esc(o.title)} — ${esc(o.price)}</s-text>
@@ -342,8 +342,9 @@ function renderShipment() {
 
   let main = top;
   if (d.questions.length) {
-    const n = d.questions.length;
-    main += `<s-section heading="${n} detail${n === 1 ? "" : "s"} needed">
+    const n = d.questions.filter((q) => q.is_detail).length;
+    const heading = n ? `${n} detail${n === 1 ? "" : "s"} needed` : d.status.label;
+    main += `<s-section heading="${esc(heading)}">
       <s-stack gap="base">${d.questions.map(questionForm).join("")}</s-stack></s-section>`;
   }
 
@@ -370,6 +371,9 @@ function renderShipment() {
         <s-stack gap="small-200"><s-heading>Documents</s-heading>${docs || '<s-text color="subdued">Fetching the label file…</s-text>'}
           <s-text color="subdued">${l.printed ? "Printed before: printing again uses the same label, nothing is bought." : "Not printed yet."}</s-text></s-stack>
       </s-stack></s-section>`;
+  } else if (d.shipping.chosen && !acts.has("service")) {
+    // Being bought or checked: show what was chosen, offer no changes.
+    main += `<s-section heading="Shipping">${optionLine(d.shipping.chosen, "", false)}</s-section>`;
   } else if (d.shipping.recommended) {
     const sh = d.shipping;
     const extra = [];
@@ -390,7 +394,7 @@ function renderShipment() {
     main += `<s-section heading="Package">
       <s-grid gridTemplateColumns="1fr auto" gap="base" alignItems="center">
         <s-stack gap="small-300"><s-text type="strong">${esc(d.package.name)}</s-text>
-          <s-text color="subdued">${esc(d.package.size)} · ${esc(d.package.weight)} packed · ${esc(d.package.source)}</s-text></s-stack>
+          <s-text color="subdued">${esc(d.package.size)} · ${d.package.weight ? esc(d.package.weight) + " packed" : "weight not known yet"} · ${esc(d.package.source)}</s-text></s-stack>
         ${acts.has("package") && d.presets.length > 1 ? `<s-button commandFor="package-modal" command="--show">Change</s-button>` : ""}
       </s-grid></s-section>`;
   }
@@ -443,7 +447,7 @@ function renderShipment() {
 function modals(d) {
   const sh = d.shipping;
   const services = `<s-modal id="services-modal" heading="All services for this parcel">
-    <s-stack gap="base">${sh.options.map((o) => optionLine(o, o.roles.includes("recommended") ? "Recommended" : "")).join("<s-divider></s-divider>")}</s-stack>
+    <s-stack gap="base">${sh.options.map((o) => optionLine(o, o.roles.includes("recommended") ? "Recommended" : "", d.actions.includes("service"))).join("<s-divider></s-divider>")}</s-stack>
     <s-button slot="secondary-actions" commandFor="services-modal" command="--hide">Close</s-button>
   </s-modal>`;
   const pkg = `<s-modal id="package-modal" heading="Change package">
@@ -527,7 +531,8 @@ function renderSetup() {
   <s-section heading="Labels and printing">
     <s-stack gap="small-200">
       <s-text>Label format: 4×6 (100 × 150 mm), for the thermal label printer.</s-text>
-      <s-text color="subdued">${esc(s.printer.label)}. Customs copies print on A4: ${esc(s.printer.document)}.</s-text>
+      <s-text color="subdued">${esc(s.printer.label)}. ${esc(s.printer.document)}.</s-text>
+      <s-text color="subdued">${esc(s.printer.direct)}.</s-text>
     </s-stack>
   </s-section>
   <s-section heading="Customs defaults">

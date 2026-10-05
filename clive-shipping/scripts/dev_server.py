@@ -351,6 +351,11 @@ def build(port: int, empty: bool = False, sandbox: bool = False) -> FastAPI:
             provider.outage = bool(on)
         return {"ok": True}
 
+    @app.get("/dev/charges")
+    def charges() -> dict:
+        """How many times the (fake) provider took money, for double-click checks."""
+        return {"charges": len(getattr(provider, "charges", []))}
+
     @app.post("/dev/shopify/refuse")
     def refuse(times: int = 1) -> dict:
         shopify.refuse_fulfillment = times

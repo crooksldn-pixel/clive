@@ -317,7 +317,11 @@ def build_admin_router(
             "presets": presets(),
             "default_package_id": cfg.default_package_id,
             "label_format": "4x6",
-            "printer": {"label": "Browser print (PrintNode later)", "document": "Browser print"},
+            "printer": {
+                "label": "Labels open in your browser to print on the 4×6 label printer",
+                "document": "Customs copies open in your browser to print on A4",
+                "direct": "Direct printing to your printers (PrintNode) isn't set up yet",
+            },
             "customs": {
                 "duties": cfg.duties.mode,
                 "ioss_number": cfg.duties.ioss_number,

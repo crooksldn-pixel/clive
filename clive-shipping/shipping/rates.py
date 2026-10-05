@@ -141,7 +141,8 @@ def recommend(
         overall_cheapest.roles.append("cheapest")
         notes = [f"{_money_diff(best, overall_cheapest)} less than the recommendation"]
         if overall_cheapest.paperwork.mode == CustomsMode.paper:
-            notes.append(overall_cheapest.paperwork.summary.lower())
+            summary = overall_cheapest.paperwork.summary
+            notes.append(summary[:1].lower() + summary[1:])
         days = overall_cheapest.quote.est_days_max
         if days is not None and days > max_days:
             notes.append(f"up to {days} days")

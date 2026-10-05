@@ -90,6 +90,19 @@ def _badge(label: str, tone: str, group: str, reasons: list[str]) -> dict[str, A
     return {"label": label, "tone": tone, "group": group, "reasons": reasons}
 
 
+def hs_text(code: str | None) -> str | None:
+    """ "611020" -> "6110.20"; "6109100010" -> "6109.10.0010"."""
+    if not code:
+        return code
+    return ".".join(x for x in (code[:4], code[4:6], code[6:]) if x)
+
+
+def place(d) -> str:
+    """ "New York, NY 10004" """
+    tail = " ".join(x for x in (d.region, d.postcode) if x)
+    return ", ".join(x for x in (d.city, tail) if x)
+
+
 def kg(grams: int) -> str:
     return f"{grams / 1000:.2f} kg"
 
@@ -299,9 +312,7 @@ def detail(s: Shipment, rec: Recommendation, presets: list[dict[str, Any]]) -> d
         **row(s),
         "order_admin_id": numeric_id(s.order_id),
         "address": {
-            "lines": [
-                x for x in (d.name, d.company, d.line1, d.line2, d.city, d.region, d.postcode) if x
-            ],
+            "lines": [x for x in (d.name, d.company, d.line1, d.line2, place(d)) if x],
             "country": d.country,
             "ok": not gaps,
             "gaps": gaps,
@@ -314,7 +325,7 @@ def detail(s: Shipment, rec: Recommendation, presets: list[dict[str, Any]]) -> d
                 "quantity": ln.quantity,
                 "unit_value": str(ln.unit_value),
                 "weight": f"{ln.unit_weight_g} g" if ln.unit_weight_g else None,
-                "hs_code": ln.hs_code,
+                "hs_code": hs_text(ln.hs_code),
                 "origin": ln.origin_country,
                 "description": ln.customs_description,
                 "subject": ln.product_id or ln.title,
@@ -325,6 +336,8 @@ def detail(s: Shipment, rec: Recommendation, presets: list[dict[str, Any]]) -> d
             {
                 **q.model_dump(),
                 "phrase": QUESTION_PHRASES.get(q.kind, "Needs a detail"),
+                "tone": PROBLEM_TONES.get(q.kind, "warning"),
+                "is_detail": q.kind not in NOT_DETAILS,
             }
             for q in s.questions
         ],
@@ -334,7 +347,7 @@ def detail(s: Shipment, rec: Recommendation, presets: list[dict[str, Any]]) -> d
             "preset_id": p.preset_id,
             "name": p.name,
             "size": f"{p.length_mm / 10:g} × {p.width_mm / 10:g} × {p.height_mm / 10:g} cm",
-            "weight": kg(p.total_weight_g),
+            "weight": kg(p.total_weight_g) if p.items_weight_g else None,
             "source": {
                 "merchant": "You chose this",
                 "learned": "Used last time for these items",
@@ -362,7 +375,9 @@ def detail(s: Shipment, rec: Recommendation, presets: list[dict[str, Any]]) -> d
     if label is not None:
         out["label"] = {
             "carrier": label.carrier,
-            "service": label.service_name,
+            "service": label.service_name[len(label.carrier) :].strip()
+            if label.service_name.lower().startswith(label.carrier.lower())
+            else label.service_name,
             "price": str(label.amount),
             "tracking": label.tracking_number,
             "tracking_url": label.tracking_url,
