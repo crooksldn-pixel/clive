@@ -290,6 +290,9 @@ class Shipment(BaseModel):
     package: PackagePlan | None = None
     quote: Quote | None = None
     label: Label | None = None
+    # Shopify's id for the fulfillment carrying this label's tracking, once Shopify accepted it.
+    # Verified (status fulfilled) only when a read of the fulfillment order shows the number.
+    fulfillment_id: str | None = None
     # Every service quoted on the last refresh (for "See all services"), and the one the
     # merchant picked over the recommendation, if any.
     rates: list[Quote] = Field(default_factory=list)

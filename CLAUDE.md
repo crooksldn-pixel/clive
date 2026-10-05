@@ -38,7 +38,7 @@ ruff check . && ruff format --check .  # lint and format (config in pyproject.to
 pyright <changed files>                # types; config in /pyrightconfig.json
 ```
 
-Pyright had 54 existing errors on 2026-10-05 (after the purchase-path fixes), mostly Optional
+Pyright had 53 existing errors on 2026-10-05 (after Stage 4b), mostly Optional
 narrowing that is already guarded. Don't add new ones in
 files you touch. In cloud sessions the pyright-lsp plugin doesn't run (Claude Code doesn't start
 language servers there), so run the CLI; in a local terminal the plugin gives diagnostics after

@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any
 
 from shipping import duties, packages, rates, readiness
+from shipping.basis import basis as fingerprint
 from shipping.models import (
     CustomsMode,
     DocumentKind,
@@ -26,7 +27,7 @@ from shipping.models import (
 from shipping.models import ShipmentStatus as S
 from shipping.money import Money
 from shipping.providers.base import ProviderError, ShippingProvider
-from shipping.purchase import ActionError, Purchases
+from shipping.purchase import ActionError, Purchases, Stale
 from shipping.shopify import FoSnapshot, ShopifyError, ShopifyPort, ShopifyRefused
 from shipping.states import move
 from shipping.store import Conflict, Store, new_id, now
@@ -512,7 +513,57 @@ class ShippingService:
 
     # ------------------------------------------------------------------ buying
 
+    def _revalidate(self, shop: str, sid: str) -> None:
+        """Re-read the order from Shopify before a price is shown or a label bought. If the
+        items, quantities, values, address, weights or the order's own state changed, the
+        shipment is refreshed and the action refused: nothing old is ever bought."""
+        s = self._get(shop, sid)
+        if s.status not in PRE_PURCHASE:
+            return  # bought or being bought: purchases decides (replays, reconciliation)
+        unreachable = (
+            "CLIVE couldn't check the order in Shopify just now, so nothing was bought. "
+            "Try again in a moment."
+        )
+        try:
+            snap = self.shopify.fulfillment_order(s.fulfillment_order_id)
+            if snap is None or not snap.open or snap.order_cancelled:
+                self._refresh(shop, sid, snap)
+                raise Stale(
+                    f"{s.order_name} was cancelled or fulfilled in Shopify, so nothing was bought."
+                )
+            items = self.shopify.item_facts(
+                [ln.inventory_item_id for ln in snap.lines if ln.inventory_item_id]
+            )
+        except ShopifyError as exc:
+            raise ActionError(unreachable, 503, "shopify_unavailable") from exc
+        candidate = s.model_copy(deep=True)
+        candidate.destination = snap.destination
+        candidate.lines = readiness.resolve_lines(self.store, shop, snap, items)
+        candidate.package = packages.plan(
+            self.store, self.store.config(shop), candidate.lines, s.package
+        )
+        if fingerprint(candidate) != fingerprint(s):
+            self._event_changed(shop, sid)
+            try:
+                self.prepare(shop, sid, snap)
+            except (Conflict, ShopifyError):
+                log.info("refresh of changed order %s deferred to the next sync", sid)
+            raise Stale(
+                f"{s.order_name} changed in Shopify since its price was shown (items, address "
+                "or package). Nothing was bought; check it and buy again."
+            )
+
+    def _event_changed(self, shop: str, sid: str) -> None:
+        try:
+            self._commit(
+                self._get(shop, sid),
+                lambda x: self._event(x, "order_changed", "system", {"at": "before purchase"}),
+            )
+        except Conflict:
+            pass  # the refresh that follows records the new order anyway
+
     def preview(self, shop: str, sid: str) -> dict[str, Any]:
+        self._revalidate(shop, sid)
         out = self.purchases.preview(shop, sid)
         s = self._get(shop, sid)
         cfg = self.store.config(shop)
@@ -526,6 +577,7 @@ class ShippingService:
         return out
 
     def buy(self, shop: str, sid: str, basis: str, actor: str, key: str) -> dict[str, Any]:
+        self._revalidate(shop, sid)
         out = self.purchases.buy(shop, sid, basis, actor, key)
         s = self._get(shop, sid)
         if s.status == S.label_purchased:
@@ -552,8 +604,9 @@ class ShippingService:
     # ------------------------------------------------------------------ fulfilment
 
     def fulfil(self, shop: str, sid: str, actor: str) -> Shipment:
-        """Make Shopify show the label. Safe to repeat: it reads Shopify first, so a retry
-        after a lost reply never creates a second fulfillment."""
+        """Make Shopify show the label: one fulfillment carrying the tracking number, verified
+        by reading the fulfillment order back. Touches Shopify only, never the provider. Safe to
+        repeat: it reads Shopify first, so a retry after a lost reply never creates a second."""
         s = self._get(shop, sid)
         if s.status == S.fulfilled:
             return s
@@ -562,11 +615,21 @@ class ShippingService:
         if not (s.label and s.label.tracking_number):
             raise ActionError("Waiting for the tracking number from the provider.")
         number = s.label.tracking_number
-        if self._fulfilled_in_shopify(s, number):
+        snap, readable = self._read_fo(s)
+        if snap is not None and number in snap.tracking_numbers:
             return self._fulfilled(s, actor, "Already in Shopify")
+        if readable and (snap is None or snap.status == "CLOSED" or snap.order_cancelled):
+            return self._fulfil_failed(
+                s,
+                actor,
+                "The order is already closed in Shopify without this label's tracking number. "
+                "Add the number to its fulfilment in Shopify, or cancel the label at Parcel2Go "
+                "if the parcel won't use it.",
+                retry=False,
+            )
         cfg = self.store.config(shop)
         try:
-            self.shopify.create_fulfillment(
+            fid = self.shopify.create_fulfillment(
                 s.fulfillment_order_id,
                 [(ln.fulfillment_order_line_item_id, ln.quantity) for ln in s.lines],
                 tracking_company(s.label.carrier),
@@ -577,19 +640,31 @@ class ShippingService:
         except ShopifyRefused as exc:
             return self._fulfil_failed(s, actor, f"Shopify didn't mark it fulfilled: {exc}.")
         except ShopifyError:
-            pass  # may have happened: the read-back decides
-        if self._fulfilled_in_shopify(s, number):
+            fid = None  # may have happened: the read-back decides
+        if fid:
+            s.fulfillment_id = fid
+            self._event(s, "fulfillment_created", actor, {"fulfillment": fid, "tracking": number})
+        snap, _ = self._read_fo(s)
+        if snap is not None and number in snap.tracking_numbers:
             return self._fulfilled(s, actor, "Created and read back")
+        if fid:
+            return self._fulfil_failed(
+                s,
+                actor,
+                "Shopify accepted the fulfilment but CLIVE couldn't confirm it yet.",
+                changed=True,
+            )
         return self._fulfil_failed(s, actor, "Shopify didn't confirm the fulfillment yet.")
 
-    def _fulfilled_in_shopify(self, s: Shipment, number: str) -> bool:
+    def _read_fo(self, s: Shipment) -> tuple[FoSnapshot | None, bool]:
+        """(the fulfillment order, whether Shopify answered at all)."""
         try:
-            snap = self.shopify.fulfillment_order(s.fulfillment_order_id)
+            return self.shopify.fulfillment_order(s.fulfillment_order_id), True
         except ShopifyError:
-            return False
-        return bool(snap and number in snap.tracking_numbers)
+            return None, False
 
     def _fulfilled(self, s: Shipment, actor: str, how: str) -> Shipment:
+        assert s.label is not None
         s.last_error = None
         self._to(
             s,
@@ -601,11 +676,18 @@ class ShippingService:
         )
         return self.store.save(s)
 
-    def _fulfil_failed(self, s: Shipment, actor: str, why: str) -> Shipment:
-        s.last_error = (
-            f"The label is bought (no need to buy again). {why} It will be retried; "
-            "you can also mark it fulfilled in Shopify with the tracking number."
+    def _fulfil_failed(
+        self, s: Shipment, actor: str, why: str, retry: bool = True, changed: bool = False
+    ) -> Shipment:
+        error = f"The label is bought (no need to buy again). {why}" + (
+            " It will be retried; you can also mark it fulfilled in Shopify with the tracking "
+            "number."
+            if retry
+            else ""
         )
+        if s.status == S.fulfillment_failed and s.last_error == error and not changed:
+            return s  # the same failure again (a timer retry): nothing new to record
+        s.last_error = error
         if s.status != S.fulfillment_failed:
             move(
                 s,
