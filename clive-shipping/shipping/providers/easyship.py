@@ -167,22 +167,28 @@ class Easyship:
         try:
             r = self._http.request(method, url, headers=headers, json=json, params=params)
         except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
-            raise ProviderUnavailable(f"Easyship could not be reached ({exc})") from exc
+            raise ProviderUnavailable(
+                f"Easyship could not be reached ({exc})", code="timeout"
+            ) from exc
         except httpx.HTTPError as exc:
             if writes:
                 raise ProviderUncertain(f"Easyship's answer was lost ({exc})") from exc
-            raise ProviderUnavailable(f"Easyship didn't answer ({exc})") from exc
+            raise ProviderUnavailable(f"Easyship didn't answer ({exc})", code="timeout") from exc
         if r.status_code in (401, 403):
             raise ProviderRefused(
                 f"Easyship refused the access token ({r.status_code}).", code="auth"
             )
         if r.status_code == 429:
             # Rejected before processing: definitely not done.
-            raise ProviderUnavailable("Easyship's rate limit was reached; try again shortly.")
+            raise ProviderUnavailable(
+                "Easyship's rate limit was reached; try again shortly.", code="rate_limit"
+            )
         if r.status_code >= 500:
             if writes:
                 raise ProviderUncertain(f"Easyship failed while handling it ({r.status_code})")
-            raise ProviderUnavailable(f"Easyship is having problems ({r.status_code})")
+            raise ProviderUnavailable(
+                f"Easyship is having problems ({r.status_code})", code="server_error"
+            )
         if r.status_code >= 400:
             raise ProviderRefused(_errors(r), code=str(r.status_code))
         try:

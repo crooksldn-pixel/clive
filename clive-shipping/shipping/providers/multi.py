@@ -1,8 +1,8 @@
 """Several label providers behind the one ShippingProvider port.
 
 Quotes come from every provider at once (concurrently) and are merged into one list; a provider
-that fails is named in `quote_all`'s second result and the others' rates still stand. Every
-step after that belongs to exactly one provider: verify and create_order go to the provider
+that fails has a safe structured failure in `quote_all`'s second result; other rates still stand.
+Every step after that belongs to exactly one provider: verify and create_order go to the provider
 named on the quote, and pay / read_order / documents / cancel go to the provider whose
 reference prefix the order carries ("p2g:", "es:"). The purchase protocol (purchase.py) is
 unchanged: it still sees one provider that pays at most once per order.
@@ -14,7 +14,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from shipping.models import Quote, Shipment
+from shipping.models import ProviderFailure, Quote, Shipment
 from shipping.providers.base import (
     Documents,
     OrderReadback,
@@ -24,6 +24,7 @@ from shipping.providers.base import (
     ProviderUnavailable,
     ShippingProvider,
 )
+from shipping.providers.reporting import quote_failure
 
 log = logging.getLogger("shipping.providers")
 
@@ -60,8 +61,8 @@ class Providers:
 
     # ------------------------------------------------------------------ quotes
 
-    def quote_all(self, shipment: Shipment) -> tuple[list[Quote], list[str]]:
-        """Every provider's quotes, merged, and the providers that couldn't be asked."""
+    def quote_all(self, shipment: Shipment) -> tuple[list[Quote], list[ProviderFailure]]:
+        """Fresh merged quotes and safe failures for this attempt only."""
 
         def ask(p: ShippingProvider) -> tuple[str, list[Quote] | Exception]:
             try:
@@ -75,18 +76,24 @@ class Providers:
         with ThreadPoolExecutor(max_workers=len(self.providers)) as pool:
             answers = list(pool.map(ask, self.providers))
         quotes: list[Quote] = []
-        unavailable: list[str] = []
-        errors: list[str] = []
+        failures: list[ProviderFailure] = []
         for name, got in answers:
             if isinstance(got, Exception):
-                log.warning("%s quotes unavailable: %s", name, got)
-                unavailable.append(name)
-                errors.append(f"{name}: {got}")
+                log.warning(
+                    "%s quotes unavailable for %s (%s): %s",
+                    name,
+                    shipment.id,
+                    shipment.order_name,
+                    got,
+                )
+                failures.append(quote_failure(name, got))
             else:
                 quotes.extend(got)
-        if len(unavailable) == len(self.providers):
-            raise ProviderUnavailable("; ".join(errors))
-        return quotes, unavailable
+        if len(failures) == len(self.providers):
+            raise ProviderUnavailable(
+                "; ".join(f.safe_message for f in failures), failures=failures
+            )
+        return quotes, failures
 
     def quotes(self, shipment: Shipment) -> list[Quote]:
         return self.quote_all(shipment)[0]

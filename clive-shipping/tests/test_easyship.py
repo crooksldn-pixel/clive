@@ -452,7 +452,10 @@ def test_easyship_down_still_ships_with_parcel2go(svc, shopify, es_server):
     assert s.status == S.ready and s.quote.provider == "Parcel2Go"
     assert s.rates_unavailable == ["Easyship"]
     d = views.detail(s, svc.recommendation(s), [])
-    assert d["shipping"]["note"] == "Easyship unavailable — showing Parcel2Go rates"
+    assert (
+        d["shipping"]["note"] == "Easyship didn't answer just now. CLIVE will retry automatically. "
+        "Parcel2Go rates are shown instead."
+    )
 
 
 def test_parcel2go_down_still_ships_with_easyship(svc, shopify, p2g_fake):

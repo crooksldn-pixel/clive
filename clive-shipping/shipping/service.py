@@ -27,6 +27,7 @@ from shipping.models import (
 from shipping.models import ShipmentStatus as S
 from shipping.money import Money
 from shipping.providers.base import ProviderError, ProviderRefused, ShippingProvider
+from shipping.providers.reporting import quote_failure
 from shipping.purchase import ActionError, Purchases, Stale
 from shipping.shopify import FoSnapshot, ShopifyError, ShopifyPort, ShopifyRefused
 from shipping.states import move
@@ -221,25 +222,33 @@ class ShippingService:
                 detail={"questions": [q.kind for q in s.questions]},
             )
             return self.store.save(s)
+        s.provider_failures = []
         try:
             quote_all = getattr(self.provider, "quote_all", None)
             if quote_all is not None:
                 # Every provider at once; one being down never hides the others' rates.
-                options, s.rates_unavailable = quote_all(s)
+                options, s.provider_failures = quote_all(s)
+                s.rates_unavailable = [f.provider for f in s.provider_failures]
             else:
                 options, s.rates_unavailable = self.provider.quotes(s), []
         except ProviderError as exc:
             # No provider could be asked: not the same as "no courier will take it".
-            s.quote, s.rates, s.rates_unavailable = None, [], []
+            s.provider_failures = exc.failures or [quote_failure(self.provider.name, exc)]
+            s.quote, s.rates = None, []
+            s.rates_unavailable = [f.provider for f in s.provider_failures]
             s.questions = [
                 Question(
                     kind="provider_unavailable",
                     subject="rates",
-                    text=f"Couldn't get prices from {self.provider.name} just now ({exc}). "
-                    "CLIVE tries again shortly; nothing needs changing.",
+                    text=" ".join(f.safe_message for f in s.provider_failures),
                 )
             ]
-            self._to(s, S.needs_attention, "provider_unavailable", detail={"why": str(exc)})
+            self._to(
+                s,
+                S.needs_attention,
+                "provider_unavailable",
+                detail={"why": " ".join(f.safe_message for f in s.provider_failures)},
+            )
             return self.store.save(s)
         s.rates = options
         rec = self.recommendation(s)

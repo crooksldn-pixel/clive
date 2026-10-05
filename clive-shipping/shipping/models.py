@@ -7,7 +7,7 @@ shipment can always say whether money may have moved, even mid-flight.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -286,6 +286,17 @@ class Question(BaseModel):
     choices: list[str] = Field(default_factory=list)
 
 
+class ProviderFailure(BaseModel):
+    provider: str
+    category: str
+    occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    code: str
+    safe_message: str
+    fields: list[str] = Field(default_factory=list)
+    retryable: bool = False
+    actionable: bool = False
+
+
 class Shipment(BaseModel):
     id: str
     shop: str
@@ -307,6 +318,7 @@ class Shipment(BaseModel):
     rates: list[Quote] = Field(default_factory=list)
     # Providers that couldn't be asked on the last refresh (the others' rates are shown).
     rates_unavailable: list[str] = Field(default_factory=list)
+    provider_failures: list[ProviderFailure] = Field(default_factory=list)
     service_choice: str | None = None
     questions: list[Question] = Field(default_factory=list)
     duties: DutiesTerms | None = None

@@ -182,7 +182,9 @@ function render() {
   else if (state.inbox) renderInbox();
 }
 
+let quoteFormDirty = false;
 function page(heading, slots, body, aside = "") {
+  quoteFormDirty = false;
   // One s-page for the whole app. New content is built detached and upgraded first, so each
   // component sees finished children when it connects (slots are checked on connect).
   const host = document.getElementById("page");
@@ -422,7 +424,7 @@ function renderShipment() {
     const chosenIsRec = chosen && chosen.code === sh.recommended.code;
     main += `<s-section heading="Shipping">
       <s-stack gap="base">
-        ${sh.note ? `<s-text color="subdued">${esc(sh.note)}</s-text>` : ""}
+        ${(sh.provider_failures || []).map(f => `<s-banner tone="${f.actionable ? "warning" : "info"}"><strong>${esc(f.provider)} ${f.retryable ? 'temporarily unavailable' : 'couldn’t quote this shipment'} · ${esc(new Date(f.occurred_at).toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'}))}</strong><p>${esc(f.safe_message)}</p>${f.fields.length ? `<p>Check: ${esc(f.fields.join(", "))}</p>` : ""}<p>${sh.options.length ? "Other provider rates remain available below." : "Refresh rates after resolving the issue."}</p></s-banner>`).join("")}
         ${chosenIsRec ? "" : (chosen ? optionLine(chosen, "Your choice") : "")}
         ${optionLine(sh.recommended, "Recommended")}
         ${extra.join("")}
@@ -914,6 +916,33 @@ document.addEventListener("input", (ev) => {
 document.addEventListener("change", (ev) => {
   if (ev.target.id === "group") { state.group = ev.target.value || "all"; renderInbox(); }
 });
+// Read the state recovered by the server tick; never submit quotes or a purchase here.
+let quoteRecoveryPending = false;
+async function refreshQuoteRecovery() {
+  const sid = new URLSearchParams(location.search).get("shipment");
+  const before = state.shipment;
+  if (!sid || before?.id !== sid || before.label || state.busy || state.preview ||
+      quoteFormDirty || quoteRecoveryPending || document.hidden) return;
+  quoteRecoveryPending = true;
+  try {
+    const fresh = await api(`/shipments/${encodeURIComponent(sid)}`);
+    if (new URLSearchParams(location.search).get("shipment") !== sid ||
+        state.shipment !== before || state.busy || state.preview || quoteFormDirty) return;
+    const changed = JSON.stringify([fresh.shipping, fresh.status, fresh.label]) !==
+                    JSON.stringify([before.shipping, before.status, before.label]);
+    state.shipment = fresh;
+    if (changed) renderShipment();
+  } catch (_) { /* Keep the current explanation; the next read can recover. */ }
+  finally { quoteRecoveryPending = false; }
+}
+document.addEventListener("input", ev => {
+  if (ev.target.id !== "search") quoteFormDirty = true;
+});
+document.addEventListener("change", ev => {
+  if (ev.target.id !== "group") quoteFormDirty = true;
+});
+setInterval(() => { void refreshQuoteRecovery(); }, 20000);
+
 window.addEventListener("popstate", () => route());
 route();
 </script>

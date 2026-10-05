@@ -204,13 +204,18 @@ def shipping_view(s: Shipment, rec: Recommendation) -> dict[str, Any]:
         "fastest": one(rec.fastest),
         "options": [option_view(o, s.quote) for o in rec.options],
         "overridden": bool(s.service_choice),
-        # e.g. "Easyship unavailable — showing Parcel2Go rates"
+        "provider_failures": [f.model_dump(mode="json") for f in s.provider_failures],
         "note": (
-            f"{' and '.join(s.rates_unavailable)} unavailable — showing "
-            f"{' and '.join(sorted({o.quote.provider for o in rec.options}))} rates"
-            if s.rates_unavailable and rec.options
-            else None
-        ),
+            " ".join(f.safe_message for f in s.provider_failures)
+            + (
+                f" {' and '.join(sorted({o.quote.provider for o in rec.options}))} "
+                "rates are shown instead."
+                if rec.options
+                else ""
+            )
+        )
+        if s.provider_failures
+        else None,
     }
 
 

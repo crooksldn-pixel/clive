@@ -18,13 +18,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from shipping.models import CustomsMode, DocumentKind, PageSize, Quote, Shipment
+from shipping.models import CustomsMode, DocumentKind, PageSize, ProviderFailure, Quote, Shipment
 
 
 class ProviderError(RuntimeError):
-    def __init__(self, message: str, *, code: str = "") -> None:
+    def __init__(
+        self, message: str, *, code: str = "", failures: list[ProviderFailure] | None = None
+    ) -> None:
         super().__init__(message)
         self.code = code
+        self.failures = failures or []
 
 
 class ProviderRefused(ProviderError):
