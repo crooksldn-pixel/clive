@@ -333,6 +333,7 @@ function optionLine(o, label, choosable = true) {
     <s-stack gap="small-300">
       <s-text type="strong">${label ? esc(label) + ": " : ""}${esc(o.title)} — ${esc(o.price)}</s-text>
       <s-text color="subdued">${esc(o.paperwork)}${days}${o.reason ? " · " + esc(o.reason.replace(/^Recommended: /, "").replace(/^./, (c) => c.toUpperCase())) : ""}</s-text>
+      <s-text color="subdued">${[o.tracked === true ? "Tracked" : o.tracked === false ? "Untracked" : "", o.handover, o.provider ? "via " + o.provider : ""].filter(Boolean).map(esc).join(" · ")}</s-text>
     </s-stack>${use}</s-grid>`;
 }
 
@@ -354,7 +355,8 @@ function renderShipment() {
   const slots = `<s-link slot="breadcrumb-actions" data-action="go-inbox" href="${BASE}/admin">Shipping</s-link>` +
     primary +
     (acts.has("refresh") ? `<s-button slot="secondary-actions" data-action="refresh">Refresh from Shopify</s-button>` : "") +
-    (acts.has("retry_shopify") ? `<s-button slot="secondary-actions" data-action="print">Print 4×6 label</s-button>` : "");
+    (acts.has("retry_shopify") ? `<s-button slot="secondary-actions" data-action="print">Print 4×6 label</s-button>` : "") +
+    (acts.has("cancel_label") ? `<s-button slot="secondary-actions" tone="critical" commandFor="cancel-modal" command="--show">Cancel label</s-button>` : "");
 
   // Problems first.
   let top = `<s-stack direction="inline" gap="small-200" alignItems="center">${badge(d.status)}</s-stack>`;
@@ -416,6 +418,7 @@ function renderShipment() {
     const chosenIsRec = chosen && chosen.code === sh.recommended.code;
     main += `<s-section heading="Shipping">
       <s-stack gap="base">
+        ${sh.note ? `<s-text color="subdued">${esc(sh.note)}</s-text>` : ""}
         ${chosenIsRec ? "" : (chosen ? optionLine(chosen, "Your choice") : "")}
         ${optionLine(sh.recommended, "Recommended")}
         ${extra.join("")}
@@ -511,7 +514,15 @@ function modals(d) {
     : `<s-spinner accessibilityLabel="Checking the price"></s-spinner>`}
     <s-button slot="secondary-actions" commandFor="buy-modal" command="--hide">Cancel</s-button>
   </s-modal>`;
-  return services + pkg + customs + buy;
+  const cancel = d.actions.includes("cancel_label") ? `<s-modal id="cancel-modal" heading="Cancel this label?">
+    <s-stack gap="base">
+      <s-paragraph>The label will be cancelled at ${esc(d.label ? d.label.provider || "the provider" : "the provider")} and can't be used to send the parcel. Any refund follows ${esc(d.label ? d.label.provider || "the provider" : "the provider")}'s rules.</s-paragraph>
+      ${d.status.label === "Fulfilled" ? `<s-paragraph>Shopify still shows this order as fulfilled with the label's tracking: cancel that fulfilment in Shopify afterwards.</s-paragraph>` : ""}
+    </s-stack>
+    <s-button slot="primary-action" variant="primary" tone="critical" data-action="cancel-label">Cancel label</s-button>
+    <s-button slot="secondary-actions" commandFor="cancel-modal" command="--hide">Keep label</s-button>
+  </s-modal>` : "";
+  return services + pkg + customs + buy + cancel;
 }
 
 function showModal(id) {
@@ -557,11 +568,14 @@ function renderSetup() {
       <s-stack direction="inline"><s-button data-action="add-package">Add package</s-button></s-stack>
     </s-stack></s-box>
   </s-section>
-  <s-section heading="Parcel2Go">
-    <s-stack direction="inline" gap="small-200" alignItems="center">
-      <s-badge tone="${conn.connected ? "success" : "critical"}">${conn.connected ? "Connected" : "Not connected"}</s-badge>
-      <s-badge tone="${conn.environment === "live" ? "warning" : "info"}">${conn.environment === "live" ? "Live" : conn.environment === "sandbox" ? "Sandbox (test money)" : "Test provider"}</s-badge>
-      <s-text color="subdued">${esc(conn.detail)}</s-text>
+  <s-section heading="Shipping providers">
+    <s-stack gap="small-200">
+    ${(conn.providers || [conn]).map((p) => `<s-stack direction="inline" gap="small-200" alignItems="center">
+      <s-text type="strong">${esc(p.provider)}</s-text>
+      <s-badge tone="${p.connected ? "success" : "critical"}">${p.connected ? "Connected" : "Not connected"}</s-badge>
+      <s-badge tone="${p.environment === "live" ? "warning" : "info"}">${p.environment === "live" ? "Live" : p.environment === "sandbox" ? "Sandbox (test money)" : "Test provider"}</s-badge>
+      <s-text color="subdued">${esc(p.detail)}</s-text>
+    </s-stack>`).join("")}
     </s-stack>
   </s-section>
   <s-section heading="Labels and printing">
@@ -773,6 +787,13 @@ const ACTIONS = {
       state.preview = null; state.buyKey = null; state.flash = null;
       state.shipment = out.shipment;
       renderShipment();
+    });
+  },
+  async "cancel-label"(el) {
+    await withButton(el, async () => {
+      hideModal("cancel-modal");
+      await shipmentAction("/cancel-label", { confirm: true });
+      toast(state.shipment.status.label);
     });
   },
   async "retry-shopify"(el) {

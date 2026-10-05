@@ -29,19 +29,35 @@ class UTF8JSONResponse(JSONResponse):
 
 
 def build_provider(settings: Settings, store: Store) -> ShippingProvider:
+    """Every provider with credentials on the server. Two or more are asked together."""
     if settings.provider == "fake":
         from shipping.providers.fake import FakeProvider
 
         return FakeProvider()
     from shipping.providers.parcel2go import Parcel2Go
 
-    return Parcel2Go(
-        settings.p2g_base_url,
-        settings.p2g_client_id,
-        settings.p2g_client_secret,
-        config=store.config,
-        cache=store,
-    )
+    found: list[ShippingProvider] = []
+    if settings.p2g_client_id and settings.p2g_client_secret:
+        found.append(
+            Parcel2Go(
+                settings.p2g_base_url,
+                settings.p2g_client_id,
+                settings.p2g_client_secret,
+                config=store.config,
+                cache=store,
+            )
+        )
+    if settings.easyship_access_token.strip():
+        from shipping.providers.easyship import Easyship
+
+        found.append(Easyship(settings.easyship_access_token, config=store.config))
+    if not found:  # nothing configured: Parcel2Go, so Setup says what's missing
+        found.append(Parcel2Go(settings.p2g_base_url, "", "", config=store.config, cache=store))
+    if len(found) == 1:
+        return found[0]
+    from shipping.providers.multi import Providers
+
+    return Providers(found)
 
 
 def build_service(settings: Settings) -> ShippingService:
@@ -73,26 +89,67 @@ def _order_number(name: str) -> str:
 
 
 def connection_status(settings: Settings, svc: ShippingService) -> dict[str, Any]:
-    """Is Parcel2Go reachable with these credentials? Reads the PrePay balance only."""
-    env = settings.p2g_environment
-    out: dict[str, Any] = {"provider": svc.provider.name, "environment": env}
+    """Each provider's connection, checked with a read that spends nothing (a balance)."""
     if settings.provider == "fake":
-        return {**out, "connected": True, "detail": "Test provider: nothing is booked."}
+        one = {
+            "provider": svc.provider.name,
+            "environment": "test",
+            "connected": True,
+            "detail": "Test provider: nothing is booked.",
+        }
+        return {**one, "providers": [one]}
+    providers = getattr(svc.provider, "providers", None) or [svc.provider]
+    rows = [_check(settings, p) for p in providers]
     if not (settings.p2g_client_id and settings.p2g_client_secret):
-        return {**out, "connected": False, "detail": "No Parcel2Go credentials on the server."}
+        rows = [r for r in rows if r["provider"] != "Parcel2Go"] + [
+            {
+                "provider": "Parcel2Go",
+                "environment": settings.p2g_environment,
+                "connected": False,
+                "detail": "No Parcel2Go credentials on the server.",
+            }
+        ]
+    first = rows[0]
+    return {**first, "connected": all(r["connected"] for r in rows), "providers": rows}
+
+
+def _check(settings: Settings, p: Any) -> dict[str, Any]:
     from shipping.money import Money, to_minor
+    from shipping.providers.easyship import Easyship
     from shipping.providers.parcel2go import Parcel2Go
 
-    if not isinstance(svc.provider, Parcel2Go):
-        return {**out, "connected": False, "detail": "Not a Parcel2Go connection."}
+    if isinstance(p, Easyship):
+        out: dict[str, Any] = {"provider": p.name, "environment": settings.easyship_environment}
+        try:
+            acct = p.account()
+            bal = acct.get("balance")
+            cur = acct.get("currency")
+            cur = cur if isinstance(cur, str) else "GBP"
+            detail = (
+                f"Credit balance {Money(minor=to_minor(bal), currency=cur)}"
+                if bal is not None
+                else "Connected; no credit balance reported (labels may be charged to a card)."
+            )
+        except ProviderError as exc:
+            log.warning("Easyship connection check failed: %s", exc)
+            why = "the access token was refused" if exc.code == "auth" else "it didn't answer"
+            return {**out, "connected": False, "detail": f"Easyship: {why}."}
+        except (ArithmeticError, ValueError, TypeError):
+            detail = "Connected; the balance couldn't be read."
+        return {**out, "connected": True, "detail": detail}
+    out = {"provider": getattr(p, "name", "Provider"), "environment": settings.p2g_environment}
+    if not isinstance(p, Parcel2Go):
+        return {**out, "connected": True, "detail": ""}
     try:
-        raw = svc.provider._call("GET", "/prepay")
+        raw = p._call("GET", "/prepay")
         found = Money(minor=to_minor(raw))
     except ProviderError as exc:
         log.warning("Parcel2Go connection check failed: %s", exc)
         why = (
             "the credentials were refused"
-            if exc.code in ("unauthorized", "forbidden") or "401" in str(exc) or "403" in str(exc)
+            if exc.code in ("auth", "unauthorized", "forbidden")
+            or "401" in str(exc)
+            or "403" in str(exc)
             else "it didn't answer"
         )
         return {**out, "connected": False, "detail": f"Parcel2Go: {why}."}

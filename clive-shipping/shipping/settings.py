@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     p2g_client_id: str = ""
     p2g_client_secret: str = ""
 
+    # --- Easyship (public API 2024-09) ---
+    # A production ("prod_...") or sandbox ("sand_...") access token; the token decides which
+    # Easyship is used. Empty: Easyship isn't asked. Set on the server only.
+    easyship_access_token: str = ""
+
     # --- the service ---
     db_path: str = "shipping.sqlite3"
     # How often the service reconciles purchases, retries Shopify and refreshes open orders,
@@ -51,6 +56,13 @@ class Settings(BaseSettings):
     def authorised(self) -> set[str]:
         parts = self.authorised_orders.replace(" ", ",").split(",")
         return {"".join(c for c in p if c.isdigit()) for p in parts} - {""}
+
+    @property
+    def easyship_environment(self) -> str:
+        token = self.easyship_access_token.strip()
+        return (
+            "live" if token.startswith("prod_") else "sandbox" if token.startswith("sand_") else ""
+        )
 
     @property
     def p2g_environment(self) -> str:

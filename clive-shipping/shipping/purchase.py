@@ -32,6 +32,7 @@ from shipping.models import (
     Label,
     OpState,
     ProviderOp,
+    Quote,
     Shipment,
     ShipmentDocument,
 )
@@ -101,6 +102,11 @@ class Purchases:
             raise ActionError("Shipment not found.", 404)
         return s
 
+    def _who(self, op: ProviderOp | None = None, quote: Quote | None = None) -> str:
+        """The provider this order or price belongs to, for messages and the label."""
+        q = quote or (op.quote if op is not None else None)
+        return q.provider if q is not None and q.provider else self.provider.name
+
     def _basis(self, s: Shipment) -> str:
         """The fingerprint, including the shop's sender details the provider is sent."""
         return basis(s, self.store.config(s.shop))
@@ -114,19 +120,19 @@ class Purchases:
             raise ActionError("Choose a package and a service first.")
 
     def _exact_price(self, s: Shipment) -> int:
+        who = self._who(quote=s.quote)
         try:
             return self.provider.verify(s, s.quote)
         except ProviderRefused as exc:
             raise ActionError(
-                f"{self.provider.name} won't take this parcel as it stands: {exc}. Nothing was "
-                "bought.",
+                f"{who} won't take this parcel as it stands: {exc}. Nothing was bought.",
                 422,
                 "provider_refused",
             ) from exc
         except ProviderError as exc:
             raise ActionError(
-                f"Couldn't get the exact price from {self.provider.name} ({exc}). Nothing was "
-                "bought; try again in a minute.",
+                f"Couldn't get the exact price from {who} ({exc}). Nothing was bought; try "
+                "again in a minute.",
                 503,
                 "provider_unavailable",
             ) from exc
@@ -162,7 +168,7 @@ class Purchases:
         value = sum((ln.unit_value.minor * ln.quantity for ln in s.lines), 0)
         return {
             "will": [
-                f"Buy {q.title} for {q.amount} from {self.provider.name}",
+                f"Buy {q.title} for {q.amount} from {self._who(quote=q)}",
                 f"Parcel {p.length_mm // 10}×{p.width_mm // 10}×{p.height_mm // 10} cm, "
                 f"{p.total_weight_g / 1000:.2f} kg",
                 f"Customs: {sum(ln.quantity for ln in s.lines)} items, value "
@@ -304,19 +310,17 @@ class Purchases:
                     # An unpaid order may exist; we don't know its ref, so it can never be paid.
                     self._fail(
                         op,
-                        f"{self.provider.name} didn't confirm the order ({exc}). "
+                        f"{self._who(op)} didn't confirm the order ({exc}). "
                         "Nothing was paid; you can try again.",
                     )
                     return
                 except ProviderRefused as exc:
-                    self._fail(
-                        op, f"{self.provider.name} refused the order: {exc}. Nothing was paid."
-                    )
+                    self._fail(op, f"{self._who(op)} refused the order: {exc}. Nothing was paid.")
                     return
                 except ProviderUnavailable as exc:
                     self._fail(
                         op,
-                        f"{self.provider.name} couldn't be reached ({exc}). Nothing was paid; "
+                        f"{self._who(op)} couldn't be reached ({exc}). Nothing was paid; "
                         "try again shortly.",
                     )
                     return
@@ -335,14 +339,14 @@ class Purchases:
                 if order.amount_minor <= 0:
                     self._fail(
                         op,
-                        f"{self.provider.name} didn't give the order a usable price, so it was "
+                        f"{self._who(op)} didn't give the order a usable price, so it was "
                         "not paid. Check the price again.",
                     )
                     return
                 if order.amount_minor > op.amount.minor:
                     self._fail(
                         op,
-                        f"{self.provider.name} priced the order at "
+                        f"{self._who(op)} priced the order at "
                         f"{Money(minor=order.amount_minor, currency=order.currency)}, more than "
                         f"the {op.amount} you agreed. It was not paid; check the price again.",
                     )
@@ -362,8 +366,7 @@ class Purchases:
                 except (ProviderRefused, ProviderUnavailable) as exc:
                     self._fail(
                         op,
-                        f"{self.provider.name} didn't take the payment: {exc}. You "
-                        "weren't charged.",
+                        f"{self._who(op)} didn't take the payment: {exc}. You weren't charged.",
                     )
                     return
                 except ProviderUncertain as exc:
@@ -414,7 +417,7 @@ class Purchases:
                 log.error("operation %s paid but shipment %s is %s", op.id, s.id, s.status)
                 self._alert(
                     s,
-                    f"Paid for: {self.provider.name} took {op.amount} for this order (CLIVE "
+                    f"Paid for: {self._who(op)} took {op.amount} for this order (CLIVE "
                     f"reference {op.id}), but the order was '{s.status.value}' at the time, so "
                     "the label wasn't recorded automatically. Check it before buying again.",
                 )
@@ -423,9 +426,9 @@ class Purchases:
             # What was authorised and paid for, not whatever quote the shipment holds now.
             bought = op.quote or s.quote
             s.label = Label(
-                provider=self.provider.name,
+                provider=self._who(op),
                 provider_ref=op.provider_ref or "",
-                carrier=bought.carrier if bought else self.provider.name,
+                carrier=bought.carrier if bought else self._who(op),
                 service_name=bought.service_name if bought else "",
                 service_code=bought.service_code if bought else "",
                 amount=op.amount,
@@ -457,7 +460,7 @@ class Purchases:
                 # A 2xx payment reply that the provider now contradicts: not ours to guess.
                 # Back to the read-back rule; never paid again from here.
                 log.error("operation %s: provider says not paid after a paid reply", op.id)
-                self._uncertain(op, f"{self.provider.name} says the order isn't paid")
+                self._uncertain(op, f"{self._who(op)} says the order isn't paid")
                 return
             self._documents_later(op, exc)
             return
@@ -554,7 +557,7 @@ class Purchases:
                         s,
                         "The customs paperwork for this label still isn't confirmed after an "
                         f"hour. Check the order (CLIVE reference {op.id}) in "
-                        f"{self.provider.name} and print any customs documents it shows.",
+                        f"{self._who(op)} and print any customs documents it shows.",
                     )
             self.store.save(s)
             self._save_op(op)
@@ -571,7 +574,7 @@ class Purchases:
             if self._overdue(op):
                 self._alert(
                     s,
-                    f"The label's documents still haven't arrived from {self.provider.name} "
+                    f"The label's documents still haven't arrived from {self._who(op)} "
                     f"after an hour (CLIVE reference {op.id}). The label is paid for: download "
                     "it from the provider rather than buying again.",
                 )
@@ -662,8 +665,8 @@ class Purchases:
                 s = self._get(op.shop, op.shipment_id)
                 self._alert(
                     s,
-                    f"CLIVE couldn't confirm the payment with {self.provider.name} for over an "
-                    f"hour. Check the order (CLIVE reference {op.id}) in {self.provider.name} "
+                    f"CLIVE couldn't confirm the payment with {self._who(op)} for over an "
+                    f"hour. Check the order (CLIVE reference {op.id}) in {self._who(op)} "
                     "before buying again. CLIVE keeps checking and will never pay twice.",
                 )
                 self.store.save(s)

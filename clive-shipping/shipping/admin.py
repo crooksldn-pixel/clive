@@ -73,6 +73,10 @@ class BuyBody(BaseModel):
     idempotency_key: str = Field(min_length=8, max_length=120)
 
 
+class CancelBody(BaseModel):
+    confirm: bool = False
+
+
 class PresetBody(BaseModel):
     name: str = Field(max_length=60)
     length_cm: float
@@ -152,7 +156,13 @@ def build_admin_router(
 
     def detail_of(sid: str) -> dict[str, Any]:
         s = shipment(sid)
-        return views.detail(s, svc.recommendation(s), presets(), may_buy=svc.may_buy(s))
+        return views.detail(
+            s,
+            svc.recommendation(s),
+            presets(),
+            may_buy=svc.may_buy(s),
+            may_cancel=svc.can_cancel(s),
+        )
 
     def act(fn: Callable[[], Any]) -> Any:
         try:
@@ -290,6 +300,17 @@ def build_admin_router(
     def retry_shopify(sid: str, who: str = Depends(staff)) -> dict[str, Any]:
         """Retry the Shopify side only. Never reaches the provider."""
         act(lambda: svc.fulfil(shop, sid, who))
+        return detail_of(sid)
+
+    @router.post("/api/shipments/{sid}/cancel-label")
+    def cancel_label(sid: str, body: CancelBody, who: str = Depends(staff)) -> dict[str, Any]:
+        """Cancel a bought label at a provider that supports it. Needs the merchant's explicit
+        confirmation (the page asks; the body must say so)."""
+        if not body.confirm:
+            raise HTTPException(
+                422, {"message": "Confirm the cancellation first.", "code": "confirm"}
+            )
+        act(lambda: svc.cancel_label(shop, sid, who))
         return detail_of(sid)
 
     # ------------------------------------------------------------------ printing (read-only)

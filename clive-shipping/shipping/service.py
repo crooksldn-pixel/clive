@@ -26,7 +26,7 @@ from shipping.models import (
 )
 from shipping.models import ShipmentStatus as S
 from shipping.money import Money
-from shipping.providers.base import ProviderError, ShippingProvider
+from shipping.providers.base import ProviderError, ProviderRefused, ShippingProvider
 from shipping.purchase import ActionError, Purchases, Stale
 from shipping.shopify import FoSnapshot, ShopifyError, ShopifyPort, ShopifyRefused
 from shipping.states import move
@@ -222,10 +222,15 @@ class ShippingService:
             )
             return self.store.save(s)
         try:
-            options = self.provider.quotes(s)
+            quote_all = getattr(self.provider, "quote_all", None)
+            if quote_all is not None:
+                # Every provider at once; one being down never hides the others' rates.
+                options, s.rates_unavailable = quote_all(s)
+            else:
+                options, s.rates_unavailable = self.provider.quotes(s), []
         except ProviderError as exc:
-            # Parcel2Go couldn't be asked: not the same as "no courier will take it".
-            s.quote, s.rates = None, []
+            # No provider could be asked: not the same as "no courier will take it".
+            s.quote, s.rates, s.rates_unavailable = None, [], []
             s.questions = [
                 Question(
                     kind="provider_unavailable",
@@ -292,6 +297,7 @@ class ShippingService:
             s.rates,
             paperwork=lambda q: self.paperwork(s.shop, q, s.destination.country),
             preferred_carriers=cfg.preferred_carriers,
+            handover_preference=cfg.handover_preference,
         )
 
     def _watch_after_purchase(self, s: Shipment, snap: FoSnapshot | None) -> None:
@@ -792,12 +798,119 @@ class ShippingService:
             self._event(s, "fulfillment_retry_failed", actor, {"why": why})
         return self.store.save(s)
 
+    # ------------------------------------------------------------------ cancelling a label
+
+    def can_cancel(self, s: Shipment) -> bool:
+        """Whether this label's provider can cancel it (Easyship can; Parcel2Go can't)."""
+        if s.label is None or not s.label.provider_ref:
+            return False
+        if s.status not in (S.label_purchased, S.fulfillment_failed, S.fulfilled, S.void_rejected):
+            return False
+        flag = getattr(self.provider, "can_cancel", False)
+        return bool(flag(s.label.provider_ref)) if callable(flag) else bool(flag)
+
+    def cancel_label(self, shop: str, sid: str, actor: str) -> Shipment:
+        """Cancel the bought label at the provider. The intent is saved first; a lost reply is
+        unknown and is settled by reading the provider, never by cancelling again."""
+        s = self._get(shop, sid)
+        if not self.can_cancel(s):
+            raise ActionError("This label can't be cancelled here.")
+        assert s.label is not None
+        ref = s.label.provider_ref
+        was_fulfilled = s.status == S.fulfilled
+        move(s, S.void_requested, at=self.clock(), actor=actor, event="void_requested")
+        s.last_error = None
+        s = self.store.save(s)
+        try:
+            self.provider.cancel(ref)  # type: ignore[attr-defined]
+        except ProviderRefused as exc:
+            s = self._get(shop, sid)
+            move(
+                s,
+                S.void_rejected,
+                at=self.clock(),
+                actor="system",
+                event="void_rejected",
+                detail={"why": str(exc)},
+            )
+            s.last_error = (
+                f"{s.label.provider if s.label else 'The provider'} didn't cancel "
+                f"the label: {exc}. It's still valid."
+            )
+            return self.store.save(s)
+        except ProviderError as exc:
+            log.warning("cancel of %s unclear: %s", sid, exc)
+            s = self._get(shop, sid)
+            s.last_error = (
+                "Cancelling was sent but not confirmed. CLIVE checks with the provider "
+                "shortly; don't cancel again or reuse the label until it says."
+            )
+            return self.store.save(s)
+        return self._voided(shop, sid, was_fulfilled)
+
+    def _voided(self, shop: str, sid: str, was_fulfilled: bool) -> Shipment:
+        s = self._get(shop, sid)
+        move(s, S.voided, at=self.clock(), actor="system", event="voided", verified=True)
+        s.last_error = None
+        if was_fulfilled or s.fulfillment_id:
+            self._alert(
+                s,
+                "The label is cancelled. Shopify still shows the order as fulfilled with its "
+                "tracking: cancel that fulfilment in Shopify before shipping it another way.",
+            )
+        return self.store.save(s)
+
+    def _settle_cancels(self, shop: str) -> None:
+        """Cancels sent but not confirmed: read the provider's record (never cancel again)."""
+        for s in self.store.shipments(shop, [S.void_requested.value]):
+            if s.label is None or not hasattr(self.provider, "cancelled"):
+                continue
+            try:
+                if self.provider.cancelled(s.label.provider_ref):  # type: ignore[attr-defined]
+                    self._voided(shop, s.id, bool(s.fulfillment_id))
+            except Conflict:
+                continue
+            except Exception:  # noqa: BLE001 - one shipment must not stop the sweep
+                log.exception("checking the cancel of %s failed", s.id)
+
+    def _fill_tracking(self, shop: str) -> None:
+        """A label bought without a tracking number yet: read it once the carrier gives it."""
+        if not hasattr(self.provider, "tracking"):
+            return
+        for s in self.store.shipments(shop, [S.label_purchased.value]):
+            if s.label is None or s.label.tracking_number or not s.label.complete:
+                continue
+            try:
+                number, url = self.provider.tracking(s.label.provider_ref)  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001 - a read; tried again next sweep
+                log.warning("tracking for %s not available yet", s.id)
+                continue
+            if not number:
+                continue
+
+            def record(x: Shipment, number: str = number, url: str | None = url) -> None:
+                if x.label is not None and not x.label.tracking_number:
+                    x.label = x.label.model_copy(
+                        update={
+                            "tracking_number": number,
+                            "tracking_url": url or x.label.tracking_url,
+                        }
+                    )
+                    self._event(x, "tracking_received", "system", {"tracking": number})
+
+            try:
+                self._commit(s, record)
+            except Conflict:
+                continue
+
     # ------------------------------------------------------------------ the sweep
 
     def tick(self, shop: str) -> dict[str, int]:
         """Reconcile purchases, retry fulfilments, refresh open orders. Webhooks only hurry
         this up; correctness never depends on them."""
         reconciled = self.purchases.reconcile_all()
+        self._fill_tracking(shop)
+        self._settle_cancels(shop)
         retried = 0
         for s in self.store.shipments(shop, [S.label_purchased.value, S.fulfillment_failed.value]):
             if s.label and s.label.tracking_number:

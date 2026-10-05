@@ -33,6 +33,7 @@ class FakeOrder:
 @dataclass
 class FakeProvider:
     name: str = "Parcel2Go"
+    ref_prefix: str = "fake:"
     price_minor: int = 1069  # what verify and create answer
     orders: dict[str, FakeOrder] = field(default_factory=dict)
     charges: list[str] = field(default_factory=list)  # one entry per money movement

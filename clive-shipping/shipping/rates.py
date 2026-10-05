@@ -10,9 +10,15 @@ The rule (deterministic; no guessing at carrier quality we have no evidence for)
    for convenience.
 4. Among comparable services:
    a. a carrier the merchant prefers (Setup), in their order, comes first;
-   b. then customs paperwork expected: electronic, then unknown, then paper (printing and
+   b. then tracking: tracked, then not stated, then untracked (a lost parcel without tracking
+      can't be traced or claimed);
+   c. then the merchant's hand-over preference (drop-off or collection), when set;
+   d. then customs paperwork expected: electronic, then unknown, then paper (printing and
       attaching A4 invoices is real work: a few pence don't outweigh it);
-   c. then price, then the delivery estimate.
+   e. then price, then the delivery estimate.
+   Price dominates: only services within the allowance of the cheapest compete at all, so a
+   £3 service never loses to a £16 one for convenience. Quotes from every connected provider
+   (Parcel2Go, Easyship) are ranked together; the provider itself carries no weight.
 5. "Cheapest" is the cheapest candidate and "Fastest" the shortest estimate, each shown only
    when it differs from the recommendation (fastest only when it is actually quicker).
 
@@ -98,11 +104,22 @@ _PAPERWORK_RANK = {
 }
 
 
+def _tracking_rank(q: Quote) -> int:
+    return 0 if q.tracked is True else 1 if q.tracked is None else 2
+
+
+def _handover_rank(q: Quote, preference: str) -> int:
+    if not preference:
+        return 0
+    return 0 if q.handover in (preference, "either") else 1 if not q.handover else 2
+
+
 def recommend(
     quotes: Sequence[Quote],
     paperwork: Callable[[Quote], Paperwork] = lambda q: sandbox_paperwork(q.service_code),
     preferred_carriers: Sequence[str] = (),
     max_days: int = MAX_DAYS,
+    handover_preference: str = "",
 ) -> Recommendation:
     options = sorted(
         (Option(q, paperwork(q)) for q in quotes),
@@ -127,6 +144,8 @@ def recommend(
         comparable,
         key=lambda o: (
             preference(o),
+            _tracking_rank(o.quote),
+            _handover_rank(o.quote, handover_preference),
             _PAPERWORK_RANK.get(o.paperwork.mode, 1),
             o.quote.amount.minor,
             o.quote.est_days_max or 99,
@@ -185,6 +204,8 @@ def _why(best: Option, cheapest: Option, preferred: bool) -> str:
         parts.append("the cheapest reasonable service")
     else:
         parts.append(f"within {_money_diff(best, cheapest)} of the cheapest")
+    if best.quote.tracked and cheapest.quote.tracked is False:
+        parts.append("tracked")
     paperless = best.paperwork.mode == CustomsMode.electronic
     if paperless and cheapest.paperwork.mode != CustomsMode.electronic:
         parts.append("with no customs paperwork to print")

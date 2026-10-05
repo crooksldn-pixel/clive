@@ -85,6 +85,9 @@ def status_of(s: Shipment) -> dict[str, Any]:
         S.in_transit: ("In transit", "success", GROUP_DONE),
         S.delivered: ("Delivered", "success", GROUP_DONE),
         S.cancelled: ("Cancelled in Shopify", "neutral", GROUP_DONE),
+        S.void_requested: ("Cancelling label", "info", GROUP_ATTENTION),
+        S.voided: ("Label cancelled", "neutral", GROUP_DONE),
+        S.void_rejected: ("Label cancellation refused", "critical", GROUP_ATTENTION),
     }
     label, tone, group = fixed.get(
         s.status, (s.status.value.replace("_", " ").capitalize(), "neutral", GROUP_DONE)
@@ -176,6 +179,13 @@ def option_view(o: Option, chosen: Quote | None) -> dict[str, Any]:
         "roles": list(o.roles),
         "reason": o.reason,
         "chosen": chosen is not None and chosen.service_code == q.service_code,
+        "provider": q.provider,
+        "tracked": q.tracked,
+        "handover": {
+            "dropoff": "Drop-off",
+            "collection": "Collection",
+            "either": "Drop-off or collection",
+        }.get(q.handover, ""),
     }
 
 
@@ -194,6 +204,13 @@ def shipping_view(s: Shipment, rec: Recommendation) -> dict[str, Any]:
         "fastest": one(rec.fastest),
         "options": [option_view(o, s.quote) for o in rec.options],
         "overridden": bool(s.service_choice),
+        # e.g. "Easyship unavailable — showing Parcel2Go rates"
+        "note": (
+            f"{' and '.join(s.rates_unavailable)} unavailable — showing "
+            f"{' and '.join(sorted({o.quote.provider for o in rec.options}))} rates"
+            if s.rates_unavailable and rec.options
+            else None
+        ),
     }
 
 
@@ -307,11 +324,19 @@ TIMELINE = {
     "payment_not_taken": "Not charged: the label wasn't bought",
     "purchase_failed": "Label not bought (nothing charged)",
     "reprinted": "Document printed again",
+    "void_requested": "Label cancellation sent",
+    "voided": "Label cancelled",
+    "void_rejected": "Cancellation refused",
+    "tracking_received": "Tracking number received",
 }
 
 
 def detail(
-    s: Shipment, rec: Recommendation, presets: list[dict[str, Any]], may_buy: bool = True
+    s: Shipment,
+    rec: Recommendation,
+    presets: list[dict[str, Any]],
+    may_buy: bool = True,
+    may_cancel: bool = False,
 ) -> dict[str, Any]:
     d = s.destination
     gaps = readiness.address_gaps(d)
@@ -370,7 +395,8 @@ def detail(
         "steps": steps(s) if label is not None else [],
         "alerts": list(s.alerts),
         "error": s.last_error,
-        "actions": [a for a in actions(s) if may_buy or a != "buy"],
+        "actions": [a for a in actions(s) if may_buy or a != "buy"]
+        + (["cancel_label"] if may_cancel else []),
         "buy_authorised": may_buy,
         "timeline": [
             {
@@ -384,6 +410,7 @@ def detail(
     }
     if label is not None:
         out["label"] = {
+            "provider": label.provider,
             "carrier": label.carrier,
             "service": label.service_name[len(label.carrier) :].strip()
             if label.service_name.lower().startswith(label.carrier.lower())

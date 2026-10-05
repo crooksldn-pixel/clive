@@ -589,8 +589,30 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
      *If anything is wrong:* there is no void API. Cancel the label in Parcel2Go's
      dashboard, and in Shopify cancel the fulfilment. CLIVE never re-buys on its own.
 
-5. **Stage 5 — API for CLIVE, webhooks, `shipping-ctl`, PrintNode sender**, mirroring Returns.
-6. **Stage 6 — deploy and pilot:**
+5. **Easyship, the second provider (2026-10-05).** Parcel2Go stays; both are asked for every
+   order and their quotes are ranked together (`providers/multi.py`). Verified against
+   Easyship's developer reference (version 2024.09, the OpenAPI definitions on each page):
+
+   | Need | Easyship 2024-09 | Notes |
+   | --- | --- | --- |
+   | Quotes, exact price | `POST /2024-09/rates` (read) | price = `total_charge`; no rate id: a service is `courier_service.id`; `output_currency` = the shop's; shipping rules off |
+   | Unpaid order | `POST /2024-09/shipments` | `courier_service_id`, `allow_fallback: false`, `buy_label: false`; 202 = created without a rate (never paid) |
+   | Pay | `POST /2024-09/shipments/{id}/label` | the only call that spends; `printing_options` 4x6 label, A4 invoice |
+   | Read back | `GET /2024-09/shipments/{id}` | paid = `label_paid_at` or `label_state` pending/generating/generated/printed/reported |
+   | Documents | same, `?format=PDF&label=4x6&commercial_invoice=A4` | `shipping_documents[]` base64; an invoice "only if necessary": none = customs travels with the label |
+   | Tracking | same (`trackings[]`, `tracking_page_url`) | a number that arrives later is filled in by the timer, then Shopify is updated |
+   | Cancel | `POST /2024-09/shipments/{id}/cancel` | Easyship only (Parcel2Go has no void); merchant confirms; a lost reply is read back, never repeated |
+   | Balance | `GET /2024-09/account/credit` | `available_balance`; shown in Setup |
+
+   Hosts: `public-api.easyship.com` (token `prod_…`), `public-api-sandbox.easyship.com`
+   (`sand_…`). Bearer token. 60 requests a minute. **No idempotency key is documented**, so the
+   purchase ledger alone prevents a second payment, as for Parcel2Go. Recommendation: price
+   dominates (only services within max(£1, 10%) of the cheapest compete); among those,
+   preferred carrier, then tracked, then the merchant's hand-over preference, then paperwork,
+   then price and speed. Read-only live comparison: `python -m shipping.tools.compare_rates 2142`.
+
+6. **Stage 5 — API for CLIVE, webhooks, `shipping-ctl`, PrintNode sender**, mirroring Returns.
+7. **Stage 6 — deploy and pilot:**
    - Shopify app toml, compose service, Caddy site block, separate Parcel2Go credential;
    - pilot behind an order-number allowlist (like Returns);
    - one real label to Germany (see the live-readiness gate below).

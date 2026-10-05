@@ -201,6 +201,8 @@ def next_working_day(today: date) -> date:
 
 class Parcel2Go:
     name = "Parcel2Go"
+    ref_prefix = "p2g:"
+    can_cancel = False  # Parcel2Go has no void endpoint: cancel in its dashboard
 
     def __init__(
         self,

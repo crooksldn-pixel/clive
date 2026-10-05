@@ -157,6 +157,9 @@ class ShopConfig(BaseModel):
     default_package_id: str | None = None
     # Carriers to favour when their price is comparable (rates.py), most preferred first.
     preferred_carriers: list[str] = Field(default_factory=list)
+    # How parcels reach the carrier, when comparable services differ: "" (no preference),
+    # "dropoff" or "collection".
+    handover_preference: str = ""
 
 
 class Quote(BaseModel):
@@ -170,6 +173,12 @@ class Quote(BaseModel):
     printer_required: bool = True
     ship_date: str | None = None  # the provider's own collection/drop-off date for this price
     generated_at: datetime
+    # Provider-neutral facts used to recommend and to explain a service. None/"": not stated.
+    tracked: bool | None = None
+    handover: str = ""  # "dropoff", "collection" or "either"
+    billed_by: str = ""  # "provider" (prepaid balance or card), "courier_account", "on_scan"
+    rate_id: str | None = None  # the provider's id for this exact price, when it has one
+    valid_until: datetime | None = None
 
     @property
     def title(self) -> str:
@@ -296,6 +305,8 @@ class Shipment(BaseModel):
     # Every service quoted on the last refresh (for "See all services"), and the one the
     # merchant picked over the recommendation, if any.
     rates: list[Quote] = Field(default_factory=list)
+    # Providers that couldn't be asked on the last refresh (the others' rates are shown).
+    rates_unavailable: list[str] = Field(default_factory=list)
     service_choice: str | None = None
     questions: list[Question] = Field(default_factory=list)
     duties: DutiesTerms | None = None

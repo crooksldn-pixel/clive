@@ -37,3 +37,5 @@ testpaths = ["tests"]
 [tool.ruff.lint.per-file-ignores]
 # GraphQL documents are kept exactly as validated against the Admin schema.
 "shipping/shopify.py" = ["E501"]
+# Operator tools print fixed-width tables.
+"shipping/tools/*" = ["E501"]
