@@ -611,6 +611,15 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
    preferred carrier, then tracked, then the merchant's hand-over preference, then paperwork,
    then price and speed. Read-only live comparison: `python -m shipping.tools.compare_rates 2142`.
 
+   Request bodies follow Easyship's OpenAPI schemas exactly; the live API refuses anything else
+   with a 400 (CROOKS-2142's first live quote failed on `"sku": null`). The fake Easyship in the
+   tests validates every request against those schemas (`tests/easyship_requests_2024-09.json`,
+   request schemas only). Rates need a `state` key on both addresses (origin: a string, may be
+   empty; destination: may be null) and refuse null item fields. Creating a shipment also needs
+   the sender's company, contact, phone and email and the customer's name, phone and email:
+   quoting works without them, but `verify` (the preview) refuses with the missing fields named,
+   before anything reaches Easyship.
+
 6. **Stage 5 — API for CLIVE, webhooks, `shipping-ctl`, PrintNode sender**, mirroring Returns.
 7. **Stage 6 — deploy and pilot:**
    - Shopify app toml, compose service, Caddy site block, separate Parcel2Go credential;

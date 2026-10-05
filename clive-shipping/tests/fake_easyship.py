@@ -8,9 +8,12 @@ from __future__ import annotations
 import base64
 import copy
 import itertools
+import json
+from pathlib import Path
 from typing import Any
 
 import httpx
+import jsonschema
 
 from shipping.models import ShopConfig
 from shipping.providers.easyship import Easyship
@@ -18,6 +21,44 @@ from shipping.providers.easyship import Easyship
 from .pdfs import A4, LABEL_4X6, pdf
 
 TOKEN = "prod_test-token"
+
+# Easyship's own request schemas (OpenAPI 3.0, fetched 2026-10-05), so a body the real API
+# would reject with 400 is rejected here too. The live API refused `"sku": null` this way.
+_SPEC = json.loads((Path(__file__).parent / "easyship_requests_2024-09.json").read_text())
+
+
+def _jsonschema(o: Any) -> Any:
+    """OpenAPI 3.0 -> JSON Schema 2020-12: `nullable` becomes a null branch, refs to $defs."""
+    if isinstance(o, list):
+        return [_jsonschema(x) for x in o]
+    if not isinstance(o, dict):
+        return o
+    out = {k: _jsonschema(v) for k, v in o.items() if k != "nullable"}
+    if "$ref" in out:
+        out["$ref"] = out["$ref"].replace("#/components/schemas/", "#/$defs/")
+    if o.get("nullable") is True:
+        if "enum" in out:
+            out["enum"] = [*out["enum"], None]
+        if isinstance(out.get("type"), str):
+            out["type"] = [out["type"], "null"]
+        elif "type" not in out:
+            out = {"anyOf": [out, {"type": "null"}]}
+    return out
+
+
+_DEFS = {k: _jsonschema(v) for k, v in _SPEC["schemas"].items()}
+VALIDATORS = {
+    endpoint: jsonschema.Draft202012Validator({"$ref": f"#/$defs/{root}", "$defs": _DEFS})
+    for endpoint, root in _SPEC["roots"].items()
+}
+
+
+def spec_errors(endpoint: str, body: Any) -> list[str]:
+    """Why Easyship's schema refuses this request body (empty: it complies)."""
+    v = VALIDATORS.get(endpoint)
+    if v is None:
+        return []
+    return [f"{'/'.join(map(str, e.absolute_path))}: {e.message}" for e in v.iter_errors(body)]
 
 
 def service(
@@ -107,10 +148,20 @@ class FakeEasyship:
             )
         body = None
         if request.content:
-            import json
-
             body = json.loads(request.content)
             self.bodies.append((name, body))
+            if errors := spec_errors(name, body):
+                return httpx.Response(
+                    400,
+                    json={
+                        "error": {
+                            "code": "invalid_content",
+                            "message": "The request body content is not valid.",
+                            "details": errors,
+                            "type": "invalid_request_error",
+                        }
+                    },
+                )
         fault = self.faults.pop(name, None)
         if isinstance(fault, httpx.Response):
             return fault

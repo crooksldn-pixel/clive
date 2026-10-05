@@ -35,6 +35,7 @@ import httpx
 from shipping.documents import is_pdf, page_size, pdf_pages
 from shipping.models import (
     Address,
+    CustomsLine,
     CustomsMode,
     DocumentKind,
     PageSize,
@@ -189,12 +190,11 @@ class Easyship:
     # ------------------------------------------------------------------ request shapes
 
     @staticmethod
-    def _address(a: Address) -> dict[str, Any]:
+    def _address(a: Address, *, origin: bool = False) -> dict[str, Any]:
         out = {
             "line_1": a.line1,
             "line_2": a.line2 or None,
             "city": a.city,
-            "state": a.region or None,
             "postal_code": a.postcode or None,
             "country_alpha2": a.country,
             "contact_name": a.name or a.company,
@@ -202,13 +202,17 @@ class Easyship:
             "contact_phone": a.phone or None,
             "contact_email": a.email or None,
         }
-        return {k: v for k, v in out.items() if v not in (None, "")}
+        out = {k: v for k, v in out.items() if v not in (None, "")}
+        # Rates require the key even where there are no states (GB, GG): the origin's must be
+        # a string, the destination's may be null.
+        out["state"] = a.region or ("" if origin else None)
+        return out
 
     def _origin(self, s: Shipment) -> dict[str, Any]:
         cfg = self.config(s.shop)
         if cfg.origin is None:
             raise ProviderRefused("The ship-from address isn't set up yet.", code="origin")
-        return self._address(cfg.origin)
+        return self._address(cfg.origin, origin=True)
 
     @staticmethod
     def _parcel(s: Shipment) -> dict[str, Any]:
@@ -222,19 +226,21 @@ class Easyship:
                 "width": round(p.width_mm / 10, 1),
                 "height": round(p.height_mm / 10, 1),
             },
-            "items": [
-                {
-                    "description": ln.customs_description or ln.title,
-                    "hs_code": ln.hs_code,
-                    "origin_country_alpha2": ln.origin_country,
-                    "sku": ln.sku or None,
-                    "quantity": ln.quantity,
-                    "declared_currency": ln.unit_value.currency,
-                    "declared_customs_value": float(ln.unit_value.minor) / 100,
-                }
-                for ln in s.lines
-            ],
+            "items": [Easyship._item(ln) for ln in s.lines],
         }
+
+    @staticmethod
+    def _item(ln: CustomsLine) -> dict[str, Any]:
+        out = {
+            "description": ln.customs_description or ln.title,
+            "hs_code": ln.hs_code,
+            "origin_country_alpha2": ln.origin_country,
+            "sku": ln.sku,  # Easyship refuses a null SKU: an item without one leaves it out
+            "quantity": ln.quantity,
+            "declared_currency": ln.unit_value.currency,
+            "declared_customs_value": float(ln.unit_value.minor) / 100,
+        }
+        return {k: v for k, v in out.items() if v not in (None, "")}
 
     def _rates_body(self, s: Shipment, service_ids: list[str] | None = None) -> dict[str, Any]:
         body: dict[str, Any] = {
@@ -311,9 +317,29 @@ class Easyship:
             raise ProviderRefused("That service isn't an Easyship service.", code="service")
         return quote.service_code[len(SERVICE_PREFIX) :]
 
+    def missing_contacts(self, s: Shipment) -> list[str]:
+        """Contact details Easyship requires to create a shipment (quoting needs none of them)."""
+        o, d = self.config(s.shop).origin, s.destination
+        missing = []
+        if o is not None:
+            for name, v in (("name", o.name or o.company), ("phone", o.phone), ("email", o.email)):
+                if not v.strip():
+                    missing.append(f"ship-from {name}")
+        for name, v in (("name", d.name or d.company), ("phone", d.phone), ("email", d.email)):
+            if not v.strip():
+                missing.append(f"customer {name}")
+        return missing
+
+    def _require_contacts(self, s: Shipment) -> None:
+        if missing := self.missing_contacts(s):
+            raise ProviderRefused(
+                f"Easyship needs the {', '.join(missing)} to book a label", code="contacts"
+            )
+
     def verify(self, shipment: Shipment, quote: Quote) -> int:
         """The exact price now: the same rates request, for this one service."""
         sid = self._service_id(quote)
+        self._require_contacts(shipment)  # before the preview, so it can't fail at the purchase
         body = self._call("POST", "/rates", writes=False, json=self._rates_body(shipment, [sid]))
         for row in body.get("rates") or []:
             q = self._quote(shipment, row)
@@ -326,9 +352,12 @@ class Easyship:
     def create_order(self, shipment: Shipment, quote: Quote, reference: str) -> ProviderOrder:
         """A shipment for exactly this service, without a label: no money moves."""
         sid = self._service_id(quote)
+        self._require_contacts(shipment)
         cfg = self.config(shipment.shop)
         body = self._rates_body(shipment)
         body.pop("calculate_tax_and_duties", None)
+        if cfg.origin is not None:  # a shipment's sender must name a company
+            body["origin_address"]["company_name"] = cfg.origin.company or cfg.origin.name
         body["courier_settings"] = {
             "courier_service_id": sid,
             "allow_fallback": False,

@@ -95,6 +95,11 @@ def main(number: str) -> None:
     if es is None:
         return
     print("\nEasyship diagnostics (read-only rate requests):")
+    missing = es.missing_contacts(s)
+    print(
+        "  details Easyship needs to book:",
+        "MISSING " + ", ".join(missing) if missing else "all present",
+    )
     try:
         body = es._rates_body(s)
         body["courier_settings"]["apply_shipping_rules"] = True
@@ -116,10 +121,19 @@ def main(number: str) -> None:
     except ProviderError as exc:
         print("  diagnostic rate request failed:", exc)
     try:
-        got = es._call("GET", "/courier_services", writes=False, params={"per_page": "100"})
-        names = [
-            f"{c.get('umbrella_name')} / {c.get('name')}" for c in got.get("courier_services") or []
-        ]
+        names, page = [], 1
+        while page and page <= 10:
+            got = es._call(
+                "GET",
+                "/courier_services",
+                writes=False,
+                params={"per_page": "100", "page": str(page)},
+            )
+            names += [
+                f"{c.get('umbrella_name')} / {c.get('name')}"
+                for c in got.get("courier_services") or []
+            ]
+            page = ((got.get("meta") or {}).get("pagination") or {}).get("next")
         hits = [
             n
             for n in names

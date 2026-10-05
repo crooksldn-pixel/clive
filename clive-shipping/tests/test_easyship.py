@@ -18,7 +18,7 @@ from shipping.purchase import ActionError, Purchases, Stale
 from shipping.service import ShippingService
 
 from .conftest import SHOP, make_shipment
-from .fake_easyship import GUERNSEY, FakeEasyship, service
+from .fake_easyship import GUERNSEY, FakeEasyship, service, spec_errors
 from .fake_easyship import adapter as easyship_adapter
 from .test_stage2 import answer_all_first_time
 
@@ -29,6 +29,7 @@ GG = Address(
     postcode="GY1 1AA",
     country="GG",
     phone="07781000000",
+    email="recipient@example.com",
 )
 
 
@@ -93,6 +94,58 @@ def test_rates_are_normalised_into_our_quotes(es, es_server, store, provider):
     assert item["hs_code"] == "610910" and item["origin_country_alpha2"] == "PT"
     assert item["declared_customs_value"] == 37.0 and item["quantity"] == 2
     assert body["incoterms"] == "DDU"
+
+
+def test_requests_keep_to_easyships_own_schema(es, es_server, store, provider):
+    """Live, Easyship refused CROOKS-2142's rates for `"sku": null`; it also needs `state`."""
+    s = make_shipment(store, provider)
+    s.destination = GG
+    assert s.lines[0].sku is None  # many CROOKS lines have no SKU
+    es.quotes(s)
+    _, body = es_server.bodies[-1]
+    assert "sku" not in body["parcels"][0]["items"][0]
+    assert body["origin_address"]["state"] == "" and body["destination_address"]["state"] is None
+    assert spec_errors("rates", body) == []
+    s.lines[0].sku = "TEE-BLK-M"
+    es.quotes(s)
+    assert es_server.bodies[-1][1]["parcels"][0]["items"][0]["sku"] == "TEE-BLK-M"
+
+
+def test_the_fake_refuses_what_easyship_refuses(es, es_server, store, provider):
+    s = make_shipment(store, provider)
+    s.destination = GG
+    body = es._rates_body(s)
+    body["parcels"][0]["items"][0]["sku"] = None
+    assert any("items/0" in e for e in spec_errors("rates", body))
+    del body["parcels"][0]["items"][0]["sku"]
+    del body["origin_address"]["state"]
+    assert any("state" in e for e in spec_errors("rates", body))
+
+
+def test_missing_contact_details_refuse_before_anything_reaches_easyship(
+    es, es_server, store, provider
+):
+    s = make_shipment(store, provider)
+    s.destination = GG.model_copy(update={"phone": "", "email": ""})
+    s.quote = next(q for q in es.quotes(s) if q.tracked)  # quoting doesn't need them
+    sent = len(es_server.requests)
+    with pytest.raises(ProviderRefused, match="customer phone, customer email"):
+        es.verify(s, s.quote)
+    with pytest.raises(ProviderRefused, match="customer phone, customer email"):
+        es.create_order(s, s.quote, "op-1")
+    assert es_server.requests[sent:] == [] and es_server.charges == []
+
+
+def test_a_shipment_names_the_sender_company(es, es_server, store, provider):
+    s = make_shipment(store, provider)
+    s.destination = GG
+    s.quote = next(q for q in es.quotes(s) if q.tracked)
+    es.create_order(s, s.quote, "op-1")
+    name, body = es_server.bodies[-1]
+    assert name == "create" and spec_errors("create", body) == []
+    assert body["origin_address"]["company_name"] == "CROOKS LDN"
+    assert body["destination_address"]["contact_email"] == "recipient@example.com"
+    assert es_server.charges == []
 
 
 def test_the_same_service_twice_keeps_the_cheaper_and_other_currencies_are_dropped(
@@ -279,6 +332,7 @@ def test_paper_customs_come_as_an_a4_invoice(cfg, clock, store, provider):
     server = FakeEasyship([service("svc-ups", "UPS", "UPS Standard", 9.00, invoice=True)])
     es = easyship_adapter(server, cfg, clock)
     s = make_shipment(store, provider)
+    s.destination.email = "max@example.com"  # Easyship needs it to book
     s.quote = es.quotes(s)[0]
     store.save(s)
     p = Purchases(store, es, clock=clock)
