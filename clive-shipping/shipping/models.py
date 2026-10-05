@@ -155,6 +155,8 @@ class ShopConfig(BaseModel):
     vat_number: str | None = None
     packages: list[PackagePreset] = Field(default_factory=list)
     default_package_id: str | None = None
+    # Carriers to favour when their price is comparable (rates.py), most preferred first.
+    preferred_carriers: list[str] = Field(default_factory=list)
 
 
 class Quote(BaseModel):
@@ -233,6 +235,7 @@ class Label(BaseModel):
     provider_ids: dict[str, str] = Field(default_factory=dict)
     carrier: str
     service_name: str
+    service_code: str = ""
     amount: Money
     tracking_number: str | None = None
     tracking_url: str | None = None
@@ -241,6 +244,8 @@ class Label(BaseModel):
     # in case a carrier's paperwork is generated after the label.
     customs_seen_at: datetime | None = None
     customs_confirmed: bool = False
+    # Recorded once into the shop's paperwork knowledge (rates.py) when customs settled.
+    paperwork_learned: bool = False
     documents: list[ShipmentDocument] = Field(default_factory=list)
     purchased_at: datetime
 
@@ -285,6 +290,10 @@ class Shipment(BaseModel):
     package: PackagePlan | None = None
     quote: Quote | None = None
     label: Label | None = None
+    # Every service quoted on the last refresh (for "See all services"), and the one the
+    # merchant picked over the recommendation, if any.
+    rates: list[Quote] = Field(default_factory=list)
+    service_choice: str | None = None
     questions: list[Question] = Field(default_factory=list)
     duties: DutiesTerms | None = None
     # Things a person should know that don't block anything (e.g. "order edited after the

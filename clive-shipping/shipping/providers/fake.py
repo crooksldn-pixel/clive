@@ -65,6 +65,15 @@ class FakeProvider:
                 est_days_max=3,
                 generated_at=now(),
             ),
+            Quote(  # dearer, and paper customs: never the recommendation
+                provider=self.name,
+                carrier="Evri",
+                service_code="myhermes-international-parcelshop",
+                service_name="Evri International Parcelshop",
+                amount=Money(minor=self.price_minor + 400),
+                est_days_max=7,
+                generated_at=now(),
+            ),
         ]
 
     def verify(self, shipment: Shipment, quote: Quote) -> int:

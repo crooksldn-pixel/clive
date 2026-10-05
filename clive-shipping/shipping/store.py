@@ -75,6 +75,18 @@ CREATE TABLE IF NOT EXISTS package_choices (
   at TEXT NOT NULL,
   PRIMARY KEY (shop, signature)
 );
+-- Customs paperwork actually seen on this shop's labels, per service and destination country:
+-- what the rate recommendation trusts over any seeded expectation.
+CREATE TABLE IF NOT EXISTS service_paperwork (
+  shop TEXT NOT NULL,
+  service_code TEXT NOT NULL,
+  country TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  copies INTEGER NOT NULL,
+  seen INTEGER NOT NULL,
+  at TEXT NOT NULL,
+  PRIMARY KEY (shop, service_code, country)
+);
 -- Provider reference data (e.g. Parcel2Go's country list), cached so screens and quotes don't
 -- depend on the provider being up. Not per shop: it describes the provider, not a merchant.
 CREATE TABLE IF NOT EXISTS reference (
@@ -349,6 +361,27 @@ class Store:
             (shop, signature),
         ).fetchone()
         return row[0] if row else None
+
+    # ---------------------------------------------------------------- paperwork seen
+
+    def record_paperwork(
+        self, shop: str, service_code: str, country: str, mode: str, copies: int, at: datetime
+    ) -> None:
+        with self.lock:
+            self._db.execute(
+                "INSERT INTO service_paperwork VALUES (?,?,?,?,?,1,?) "
+                "ON CONFLICT(shop, service_code, country) DO UPDATE SET mode=excluded.mode, "
+                "copies=excluded.copies, seen=seen+1, at=excluded.at",
+                (shop, service_code, country.upper(), mode, copies, at.isoformat()),
+            )
+
+    def paperwork(self, shop: str, service_code: str, country: str) -> tuple[str, int] | None:
+        row = self._db.execute(
+            "SELECT mode, copies FROM service_paperwork WHERE shop=? AND service_code=? "
+            "AND country=?",
+            (shop, service_code, country.upper()),
+        ).fetchone()
+        return (row[0], int(row[1])) if row else None
 
     # ---------------------------------------------------------------- reference data
 

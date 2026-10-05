@@ -14,7 +14,15 @@ from datetime import datetime
 from typing import Any
 
 from shipping import duties, packages, rates, readiness
-from shipping.models import Event, PackagePlan, Question, Shipment
+from shipping.models import (
+    CustomsMode,
+    DocumentKind,
+    Event,
+    PackagePlan,
+    Question,
+    Quote,
+    Shipment,
+)
 from shipping.models import ShipmentStatus as S
 from shipping.money import Money
 from shipping.providers.base import ProviderError, ShippingProvider
@@ -202,10 +210,28 @@ class ShippingService:
         try:
             options = self.provider.quotes(s)
         except ProviderError as exc:
-            options, why = [], str(exc)
-        else:
-            why = ""
-        choice = rates.recommend(options)
+            # Parcel2Go couldn't be asked: not the same as "no courier will take it".
+            s.quote, s.rates = None, []
+            s.questions = [
+                Question(
+                    kind="provider_unavailable",
+                    subject="rates",
+                    text=f"Couldn't get prices from {self.provider.name} just now ({exc}). "
+                    "CLIVE tries again shortly; nothing needs changing.",
+                )
+            ]
+            self._to(s, S.needs_attention, "provider_unavailable", detail={"why": str(exc)})
+            return self.store.save(s)
+        s.rates = options
+        rec = self.recommendation(s)
+        chosen = next(
+            (q for q in options if s.service_choice and q.service_code == s.service_choice),
+            None,
+        )
+        if chosen is None and s.service_choice:
+            self._event(s, "service_choice_dropped", "system", {"was": s.service_choice})
+            s.service_choice = None  # no longer offered: back to the recommendation
+        choice = chosen or (rec.recommended.quote if rec.recommended else None)
         if choice is None:
             s.quote = None
             s.questions = [
@@ -214,24 +240,36 @@ class ShippingService:
                     subject="rates",
                     text=(
                         f"No courier offered a price for this parcel to {s.destination.country}. "
-                        + (f"({why}) " if why else "")
-                        + "Check the package and weight, or try again shortly."
+                        "Check the package and weight."
                     ),
                 )
             ]
-            self._to(s, S.needs_attention, "no_rates", detail={"why": why})
+            self._to(s, S.needs_attention, "no_rates", detail={})
             return self.store.save(s)
         s.quote = choice
         self._to(
             s,
             S.ready,
             "ready",
-            detail={
-                "service": choice.title,
-                "price": str(choice.amount),
-            },
+            detail={"service": choice.title, "price": str(choice.amount)},
         )
         return self.store.save(s)
+
+    def paperwork(self, shop: str, quote: Quote, country: str) -> rates.Paperwork:
+        """What this shop's own labels showed for this service and country; before any, the
+        dated sandbox evidence."""
+        seen = self.store.paperwork(shop, quote.service_code, country)
+        if seen:
+            return rates.Paperwork(CustomsMode(seen[0]), seen[1], "your labels")
+        return rates.sandbox_paperwork(quote.service_code)
+
+    def recommendation(self, s: Shipment) -> rates.Recommendation:
+        cfg = self.store.config(s.shop)
+        return rates.recommend(
+            s.rates,
+            paperwork=lambda q: self.paperwork(s.shop, q, s.destination.country),
+            preferred_carriers=cfg.preferred_carriers,
+        )
 
     def _watch_after_purchase(self, s: Shipment, snap: FoSnapshot | None) -> None:
         """After money moved we never rewrite the shipment; we only tell a person if the order
@@ -423,6 +461,55 @@ class ShippingService:
         self.store.save(s)
         return self.prepare(shop, sid)
 
+    def choose_service(self, shop: str, sid: str, service_code: str, actor: str) -> Shipment:
+        """Use another quoted service instead of the recommendation. Changes what a preview
+        shows, so any earlier preview no longer buys."""
+        s = self._get(shop, sid)
+        if s.status not in PRE_PURCHASE:
+            raise ActionError("This order is past the point of changing its service.")
+        chosen = next((q for q in s.rates if q.service_code == service_code), None)
+        if chosen is None:
+            raise ActionError("That service isn't offered for this parcel any more.", 422)
+        rec = self.recommendation(s)
+        back_to_recommended = bool(
+            rec.recommended and rec.recommended.quote.service_code == service_code
+        )
+
+        def record(x: Shipment) -> None:
+            x.service_choice = None if back_to_recommended else service_code
+            x.quote = chosen
+            self._event(x, "service_chosen", actor, {"service": chosen.title})
+
+        return self._commit(s, record)
+
+    def _learn_paperwork(self, shop: str, sid: str) -> None:
+        """Once a label's customs settle, remember them for this service and destination."""
+        s = self._get(shop, sid)
+        label = s.label
+        settled = label is not None and (
+            label.customs == CustomsMode.paper
+            or (label.customs == CustomsMode.electronic and label.customs_confirmed)
+        )
+        service = (label.service_code if label else "") or (s.quote.service_code if s.quote else "")
+        if not settled or label is None or label.paperwork_learned or not service:
+            return
+        invoice = label.document(DocumentKind.commercial_invoice)
+        copies = invoice.copies_required if invoice and invoice.must_print else 0
+
+        def record(x: Shipment) -> None:
+            if x.label is not None:
+                x.label = x.label.model_copy(update={"paperwork_learned": True})
+
+        self._commit(s, record)
+        self.store.record_paperwork(
+            shop,
+            service,
+            s.destination.country,
+            label.customs.value,
+            copies,
+            self.clock(),
+        )
+
     # ------------------------------------------------------------------ buying
 
     def preview(self, shop: str, sid: str) -> dict[str, Any]:
@@ -453,6 +540,10 @@ class ShippingService:
                     # The label is bought; something else saved the shipment meanwhile. The
                     # timer's fulfilment retry finishes it (it reads Shopify first).
                     log.info("fulfilment of %s raced another save; left to the timer", sid)
+        try:
+            self._learn_paperwork(shop, sid)
+        except Conflict:
+            pass  # the timer learns it next time
         out["shipment"] = self._get(shop, sid)
         out["status"] = out["shipment"].status.value
         out["error"] = out["shipment"].last_error
@@ -542,5 +633,13 @@ class ShippingService:
                 except Conflict:
                     continue  # changed meanwhile; the next tick retries
                 retried += 1
+        for s in self.store.shipments(
+            shop, [S.label_purchased.value, S.fulfilled.value, S.fulfillment_failed.value]
+        ):
+            if s.label and not s.label.paperwork_learned:
+                try:
+                    self._learn_paperwork(shop, s.id)
+                except Conflict:
+                    continue
         found = self.sync(shop)
         return {"reconciled": reconciled, "fulfil_retried": retried, **found}

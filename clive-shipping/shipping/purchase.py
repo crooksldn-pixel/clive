@@ -421,6 +421,7 @@ class Purchases:
                 provider_ref=op.provider_ref or "",
                 carrier=bought.carrier if bought else self.provider.name,
                 service_name=bought.service_name if bought else "",
+                service_code=bought.service_code if bought else "",
                 amount=op.amount,
                 purchased_at=self.clock(),
             )
