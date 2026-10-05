@@ -55,10 +55,12 @@ class Settings(BaseSettings):
     tick_interval_s: int = 60
     # Local development only: open the admin screen without a Shopify admin session.
     dev_skip_admin_auth: bool = False
-    # Orders a label may be bought for (order numbers, comma-separated). Empty: no label can
-    # be bought at all; preparing, pricing and previewing still work. The owner adds one order
+    # With global buying disabled, orders a label may be bought for (comma-separated). Empty:
+    # no buying; preparing, pricing and previewing still work. The owner adds one order
     # at a time on the server to authorise that label, then removes it.
     authorised_orders: str = ""
+    # Global authorisation only; the existing guarded purchase flow still applies.
+    buying_enabled: bool = False
 
     def authorised(self) -> set[str]:
         parts = self.authorised_orders.replace(" ", ",").split(",")

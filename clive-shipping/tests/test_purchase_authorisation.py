@@ -124,3 +124,96 @@ def _shipment(name):
         created_at=at,
         updated_at=at,
     )
+
+
+@pytest.mark.parametrize(
+    "enabled,allowlist,allowed",
+    [
+        (False, "", False),
+        (False, "2190", True),
+        (True, "2191", True),
+    ],
+)
+def test_global_buying_rule_and_ui_use_the_same_gate(tmp_path, enabled, allowlist, allowed):
+    settings = Settings(
+        shop_domain=SHOP,
+        shopify_backend="fake",
+        provider="fake",
+        db_path=str(tmp_path / "global.db"),
+        tick_interval_s=0,
+        dev_skip_admin_auth=True,
+        buying_enabled=enabled,
+        authorised_orders=allowlist,
+    )
+    svc = build_service(settings)
+    svc.shopify.add(fo(2190, [tee_line()]))
+    svc.sync(SHOP)
+    s = answer_all_first_time(svc, only(svc))
+    with TestClient(create_app(settings, svc)) as client:
+        detail = client.get(f"/admin/api/shipments/{s.id}").json()
+        # The existing blue banner is conditional on !buy_authorised.
+        assert detail["buy_authorised"] is allowed
+        assert ("buy" in detail["actions"]) is allowed
+        pv = svc.preview(SHOP, s.id)
+        if allowed:
+            assert svc.buy(SHOP, s.id, pv["basis"], "staff", "global-test")["charged"]
+            assert len(svc.provider.charges) == 1
+        else:
+            with pytest.raises(ActionError) as exc:
+                svc.buy(SHOP, s.id, pv["basis"], "staff", "global-test")
+            assert exc.value.code == "not_authorised"
+            assert svc.provider.charges == []
+
+
+@pytest.mark.parametrize("change", ["stale", "hold", "cancel", "no-preview"])
+def test_global_buying_preserves_purchase_refusals(tmp_path, change):
+    settings = Settings(
+        shop_domain=SHOP,
+        shopify_backend="fake",
+        provider="fake",
+        db_path=str(tmp_path / "safety.db"),
+        buying_enabled=True,
+    )
+    svc = build_service(settings)
+    snap = svc.shopify.add(fo(2190, [tee_line()]))
+    svc.sync(SHOP)
+    s = answer_all_first_time(svc, only(svc))
+    basis = svc.preview(SHOP, s.id)["basis"] if change != "no-preview" else "not-previewed"
+    if change == "stale":
+        snap.lines[0].quantity += 1
+    elif change == "hold":
+        snap.status = "ON_HOLD"
+    elif change == "cancel":
+        snap.order_cancelled = True
+    with pytest.raises(ActionError):
+        svc.buy(SHOP, s.id, basis, "staff", "guarded-test")
+    assert "create_order" not in svc.provider.calls
+    assert svc.provider.charges == []
+
+
+def test_global_buying_repeated_requests_still_pay_once(tmp_path):
+    settings = Settings(
+        shop_domain=SHOP,
+        shopify_backend="fake",
+        provider="fake",
+        db_path=str(tmp_path / "once.db"),
+        buying_enabled=True,
+    )
+    svc = build_service(settings)
+    svc.shopify.add(fo(2190, [tee_line()]))
+    svc.sync(SHOP)
+    s = answer_all_first_time(svc, only(svc))
+    basis = svc.preview(SHOP, s.id)["basis"]
+    svc.buy(SHOP, s.id, basis, "staff", "same-intent")
+    svc.buy(SHOP, s.id, basis, "staff", "same-intent")
+    with pytest.raises(ActionError):
+        svc.buy(SHOP, s.id, basis, "staff", "different-click")
+    assert len(svc.provider.charges) == 1
+    assert svc.provider.calls.count("pay") == 1
+
+
+def test_global_buying_flag_is_read_from_environment(monkeypatch):
+    monkeypatch.setenv("SHIPPING_BUYING_ENABLED", "true")
+    assert Settings(_env_file=None).buying_enabled is True
+    monkeypatch.setenv("SHIPPING_BUYING_ENABLED", "false")
+    assert Settings(_env_file=None).buying_enabled is False

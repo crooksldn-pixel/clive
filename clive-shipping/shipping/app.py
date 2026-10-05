@@ -79,7 +79,7 @@ def build_service(settings: Settings) -> ShippingService:
         shopify,
         provider,
         Purchases(store, provider),
-        may_buy=lambda s: _order_number(s.order_name) in allowed,
+        may_buy=lambda s: settings.buying_enabled or _order_number(s.order_name) in allowed,
     )
 
 
