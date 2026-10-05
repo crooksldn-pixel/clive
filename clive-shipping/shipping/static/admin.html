@@ -1,2 +1,761 @@
 <!doctype html>
-<html lang="en-GB"><head><meta charset="utf-8"><meta name="shopify-api-key" content="{{CLIENT_ID}}"><title>CLIVE Shipping</title></head><body></body></html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="shopify-api-key" content="{{CLIENT_ID}}">
+<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+<script src="https://cdn.shopify.com/shopifycloud/polaris.js"></script>
+<title>CLIVE Shipping</title>
+<style>
+  /* Layout gaps only: everything visible is a Polaris component. */
+  body { margin: 0; }
+  /* App Bridge shows s-app-nav in the admin sidebar; outside admin it would be bare links. */
+  s-app-nav { display: none; }
+  .nowrap { white-space: nowrap; }
+</style>
+</head>
+<body>
+<s-app-nav>
+  <s-link href="/admin" rel="home">International shipping</s-link>
+  <s-link href="/admin?view=setup">Setup</s-link>
+</s-app-nav>
+<s-page id="page" heading="International shipping"><s-section><s-stack alignItems="center" padding="large"><s-spinner accessibilityLabel="Loading" size="large"></s-spinner></s-stack></s-section></s-page>
+
+<script>
+"use strict";
+/*
+ * CLIVE Shipping, embedded in Shopify admin. Three screens: the inbox, one shipment, Setup.
+ *
+ * Every call carries an App Bridge session token. Buying follows the preview → basis → buy
+ * protocol: the confirmation shows the price the server checked, and the buy sends back that
+ * preview's basis with an idempotency key made once per confirmation, so a double click or a
+ * retry after a lost reply replays the same purchase instead of making another.
+ */
+
+const BASE = location.pathname.replace(/\/admin\/?$/, "");
+const EMBEDDED = window.top !== window.self;
+const state = { inbox: null, shipment: null, setup: null, preview: null, buyKey: null,
+                flash: null, q: "", group: "all", busy: false };
+
+// ------------------------------------------------------------------ helpers
+
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+let regionNames = null;
+try { regionNames = new Intl.DisplayNames(["en-GB"], { type: "region" }); } catch (e) { /* old browser */ }
+const countryName = (iso) => (iso && regionNames ? regionNames.of(iso) : iso) || iso || "";
+const flag = (iso) => /^[A-Z]{2}$/.test(iso || "")
+  ? String.fromCodePoint(...[...iso].map((c) => 0x1f1a5 + c.charCodeAt(0))) : "";
+
+async function token() {
+  if (!EMBEDDED || !window.shopify || !shopify.idToken) return "";
+  return await shopify.idToken();
+}
+
+class ApiError extends Error {
+  constructor(status, detail) {
+    const d = typeof detail === "object" && detail ? detail : { message: String(detail || "") };
+    super(d.message || "Something went wrong.");
+    this.status = status; this.code = d.code || ""; this.title = d.title || "";
+  }
+}
+
+async function api(path, { method = "GET", body } = {}) {
+  const headers = { Accept: "application/json" };
+  const t = await token();
+  if (t) headers.Authorization = `Bearer ${t}`;
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  let res;
+  try {
+    res = await fetch(`${BASE}/admin/api${path}`, {
+      method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (e) {
+    throw new ApiError(0, { message: "The connection dropped before CLIVE answered.",
+                            code: "network" });
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, data.detail);
+  return data;
+}
+
+function toast(message, isError = false) {
+  try { if (EMBEDDED && window.shopify?.toast) { shopify.toast.show(message, { isError }); return; } }
+  catch (e) { /* fall through to the page banner */ }
+  state.flash = { tone: isError ? "critical" : "success", heading: message, text: "" };
+  render();
+}
+
+function loading(on) {
+  state.busy = on;
+  try { if (EMBEDDED && window.shopify?.loading) shopify.loading(on); } catch (e) { /* ignore */ }
+}
+
+function navigate(params, replace = false) {
+  const qs = new URLSearchParams(params).toString();
+  const url = `${BASE}/admin${qs ? "?" + qs : ""}`;
+  (replace ? history.replaceState : history.pushState).call(history, {}, "", url);
+  state.flash = null;
+  route();
+}
+
+function badge(st) {
+  return `<s-badge tone="${esc(st.tone)}">${esc(st.label)}</s-badge>`;
+}
+
+function banner(b) {
+  if (!b) return "";
+  const action = b.action
+    ? `<s-button slot="secondary-actions" data-action="${esc(b.action)}">${esc(b.actionLabel)}</s-button>` : "";
+  return `<s-banner tone="${esc(b.tone)}" heading="${esc(b.heading)}">${esc(b.text)}${action}</s-banner>`;
+}
+
+function errorBanner(err) {
+  if (err.code === "stale") {
+    return { tone: "critical", heading: err.title || "Order changed — refresh required",
+             text: err.message, action: "refresh", actionLabel: "Refresh order" };
+  }
+  if (err.status === 401) {
+    return { tone: "critical", heading: "Open CLIVE Shipping from Shopify admin",
+             text: "Your Shopify session couldn't be checked. Open the app from the Apps menu." };
+  }
+  return { tone: "critical", heading: err.status === 503 ? "Couldn't reach a service" : "That didn't work",
+           text: err.message };
+}
+
+// ------------------------------------------------------------------ routing
+
+async function route() {
+  const p = new URLSearchParams(location.search);
+  const view = p.get("view");
+  try {
+    loading(true);
+    if (p.get("shipment")) {
+      state.shipment = await api(`/shipments/${encodeURIComponent(p.get("shipment"))}`);
+      renderShipment();
+    } else if (view === "setup") {
+      state.setup = await api("/setup");
+      renderSetup();
+    } else {
+      state.inbox = await api(`/inbox?q=${encodeURIComponent(state.q)}`);
+      renderInbox();
+    }
+  } catch (err) {
+    state.flash = errorBanner(err);
+    page("CLIVE Shipping", "", `<s-section><s-paragraph>Nothing to show yet.</s-paragraph></s-section>`);
+  } finally { loading(false); }
+}
+
+function render() {
+  const p = new URLSearchParams(location.search);
+  if (p.get("shipment") && state.shipment) renderShipment();
+  else if (p.get("view") === "setup" && state.setup) renderSetup();
+  else if (state.inbox) renderInbox();
+}
+
+function page(heading, slots, body, aside = "") {
+  // One s-page for the whole app. New content is built detached and upgraded first, so each
+  // component sees finished children when it connects (slots are checked on connect).
+  const host = document.getElementById("page");
+  const scratch = document.createElement("div");
+  scratch.innerHTML = slots + (state.flash ? banner(state.flash) : "") + body +
+    (aside ? `<s-box slot="aside">${aside}</s-box>` : "");
+  if (window.customElements && customElements.upgrade) customElements.upgrade(scratch);
+  host.setAttribute("heading", heading);
+  host.replaceChildren(...scratch.childNodes);
+  document.title = `${heading} · CLIVE Shipping`;
+}
+
+// ------------------------------------------------------------------ inbox
+
+const GROUPS = [
+  ["attention", "Needs attention"],
+  ["ready", "Ready to ship"],
+  ["bought", "Labels bought"],
+  ["done", "Done"],
+];
+
+function inboxTable(rows) {
+  const body = rows.map((r) => {
+    const extra = r.status.reasons.filter((x) => x !== r.status.label);
+    const reasons = extra.length && r.status.group === "attention"
+      ? `<s-text color="subdued">${esc(extra.join(" · "))}</s-text>` : "";
+    return `<s-table-row clickDelegate="open-${esc(r.id)}">
+      <s-table-cell><s-link id="open-${esc(r.id)}" data-open="${esc(r.id)}">${esc(r.order)}</s-link></s-table-cell>
+      <s-table-cell>${flag(r.destination.country)} ${esc(countryName(r.destination.country))}${r.destination.city ? `<s-text color="subdued"> · ${esc(r.destination.city)}</s-text>` : ""}</s-table-cell>
+      <s-table-cell>${esc(r.package)}</s-table-cell>
+      <s-table-cell>${esc(r.shipping)}</s-table-cell>
+      <s-table-cell><s-stack gap="small-200">${badge(r.status)}${reasons}</s-stack></s-table-cell>
+    </s-table-row>`;
+  }).join("");
+  return `<s-table>
+    <s-table-header-row>
+      <s-table-header listSlot="primary">Order</s-table-header>
+      <s-table-header listSlot="secondary">Destination</s-table-header>
+      <s-table-header listSlot="labeled">Package</s-table-header>
+      <s-table-header listSlot="labeled">Shipping</s-table-header>
+      <s-table-header listSlot="inline">Status</s-table-header>
+    </s-table-header-row>
+    <s-table-body>${body}</s-table-body>
+  </s-table>`;
+}
+
+function renderInbox() {
+  const ib = state.inbox;
+  const n = ib.ready_to_print;
+  const slots =
+    (n ? `<s-button slot="primary-action" variant="primary" data-action="print-ready">Print ${n} ready label${n === 1 ? "" : "s"}</s-button>` : "") +
+    `<s-button slot="secondary-actions" data-action="sync">Check Shopify for orders</s-button>` +
+    `<s-button slot="secondary-actions" data-action="go-setup">Setup</s-button>`;
+  let top = "";
+  if (!ib.setup.package) {
+    top += banner({ tone: "info", heading: "Add the package you ship in",
+      text: "CLIVE needs its size and empty weight once, then uses it for every order.",
+      action: "go-setup", actionLabel: "Open Setup" });
+  }
+  const filters = `<s-section>
+    <s-grid gridTemplateColumns="1fr auto" gap="base" alignItems="end">
+      <s-search-field id="search" label="Search orders" labelAccessibilityVisibility="exclusive"
+        placeholder="Search by order number, name or city" value="${esc(state.q)}"></s-search-field>
+      <s-select id="group" label="Show" labelAccessibilityVisibility="exclusive">
+        ${[["all", "Open orders"], ...GROUPS].map(([k, l]) =>
+          `<s-option value="${k}" ${state.group === k ? "selected" : ""}>${l}</s-option>`).join("")}
+      </s-select>
+    </s-grid>
+  </s-section>`;
+  const shown = GROUPS.filter(([k]) =>
+    state.group === "all" ? k !== "done" || state.q : state.group === k);
+  const total = shown.reduce((sum, [k]) => sum + ib.groups[k].length, 0);
+  let body = "";
+  if (!total) {
+    body = `<s-section accessibilityLabel="No orders">
+      <s-stack alignItems="center" gap="base" padding="large">
+        <s-heading>${state.q ? "No orders match that search" : "No international orders waiting"}</s-heading>
+        <s-paragraph color="subdued">${state.q
+          ? "Try the order number on its own, e.g. 2145."
+          : "Orders going abroad appear here by themselves, checked and priced."}</s-paragraph>
+      </s-stack></s-section>`;
+  } else {
+    for (const [k, label] of shown) {
+      const rows = ib.groups[k];
+      if (!rows.length) continue;
+      body += `<s-section heading="${esc(label)} (${rows.length})" padding="none">${inboxTable(rows)}</s-section>`;
+    }
+  }
+  page("International shipping", slots, top + filters + body);
+}
+
+// ------------------------------------------------------------------ one shipment
+
+function questionForm(q, i) {
+  const id = `q${i}`;
+  let fields = "", save = `<s-button data-action="answer" data-q="${i}">Save</s-button>`;
+  if (q.kind === "customs") {
+    const hint = q.suggestion
+      ? `<s-paragraph color="subdued">Used for your other ${esc(q.choices[0] || "products")}: ${esc(q.suggestion)}. Check it before saving.</s-paragraph>` : "";
+    fields = `${hint}<s-grid gridTemplateColumns="1fr 2fr" gap="base">
+      <s-text-field id="${id}-hs" label="HS code" placeholder="e.g. 6109.10" value="${esc(q.suggestion ? "" : "")}"></s-text-field>
+      <s-text-field id="${id}-desc" label="Customs description" value="${esc(q.choices[0] || "")}"></s-text-field>
+    </s-grid>`;
+    if (q.suggestion) save = `<s-button data-action="use-suggestion" data-q="${i}">Use ${esc(q.suggestion)}</s-button>` + save;
+  } else if (q.kind === "origin") {
+    const used = q.choices || [];
+    const all = [...used, ...ORIGINS.filter((c) => !used.includes(c))];
+    fields = `<s-select id="${id}-country" label="Country of origin" placeholder="Choose where it's made">
+      ${all.map((c) => `<s-option value="${c}">${esc(countryName(c))}</s-option>`).join("")}
+    </s-select>`;
+  } else if (q.kind === "weight") {
+    fields = `<s-number-field id="${id}-grams" label="Weight of one item" suffix="g" min="1" max="30000" step="1" inputMode="numeric"></s-number-field>`;
+  } else if (q.kind === "package") {
+    fields = packageFields(id);
+  } else {
+    save = q.kind === "address" && state.shipment.order_admin_id
+      ? `<s-button href="shopify://admin/orders/${esc(state.shipment.order_admin_id)}" target="_top">Open the order in Shopify</s-button>`
+      : `<s-button data-action="refresh">Check again</s-button>`;
+  }
+  return `<s-box padding="base" border="base" borderRadius="base">
+    <s-stack gap="base">
+      <s-stack direction="inline" gap="small-200" alignItems="center"><s-badge tone="warning">${esc(q.phrase)}</s-badge></s-stack>
+      <s-paragraph>${esc(q.text)}</s-paragraph>
+      ${fields}
+      <s-stack direction="inline" gap="base">${save}</s-stack>
+    </s-stack></s-box>`;
+}
+
+function packageFields(id) {
+  return `<s-grid gridTemplateColumns="2fr 1fr 1fr 1fr 1fr" gap="base">
+    <s-text-field id="${id}-name" label="Name" placeholder="e.g. Mailer bag"></s-text-field>
+    <s-number-field id="${id}-l" label="Length" suffix="cm" min="1" max="200"></s-number-field>
+    <s-number-field id="${id}-w" label="Width" suffix="cm" min="1" max="200"></s-number-field>
+    <s-number-field id="${id}-h" label="Height" suffix="cm" min="1" max="200"></s-number-field>
+    <s-number-field id="${id}-g" label="Empty weight" suffix="g" min="1" max="5000"></s-number-field>
+  </s-grid>`;
+}
+
+const ORIGINS = ["PT", "CN", "TR", "GB", "IN", "BD", "PK", "VN", "IT", "ES", "LK", "KH", "ID",
+  "MA", "TN", "RO", "BG", "PL", "LT", "MK", "EG", "MX", "US", "DE", "FR", "NL", "TH", "MY",
+  "KR", "JP", "TW", "MM"];
+
+function optionLine(o, label) {
+  const days = o.days ? ` · ${esc(o.days)}` : "";
+  const use = o.chosen ? `<s-badge tone="success">Selected</s-badge>`
+    : `<s-button variant="tertiary" data-action="choose" data-code="${esc(o.code)}">Use this</s-button>`;
+  return `<s-grid gridTemplateColumns="1fr auto" gap="base" alignItems="center">
+    <s-stack gap="small-300">
+      <s-text type="strong">${label ? esc(label) + ": " : ""}${esc(o.title)} — ${esc(o.price)}</s-text>
+      <s-text color="subdued">${esc(o.paperwork)}${days}${o.reason ? " · " + esc(o.reason.replace(/^Recommended: /, "").replace(/^./, (c) => c.toUpperCase())) : ""}</s-text>
+    </s-stack>${use}</s-grid>`;
+}
+
+function renderShipment() {
+  const d = state.shipment;
+  const acts = new Set(d.actions);
+  const chosen = d.shipping.chosen;
+  let primary = "";
+  if (acts.has("buy") && chosen) {
+    primary = `<s-button slot="primary-action" variant="primary" data-action="preview">Buy label — ${esc(chosen.price)}</s-button>`;
+  } else if (acts.has("retry_shopify")) {
+    primary = `<s-button slot="primary-action" variant="primary" data-action="retry-shopify">Retry Shopify update</s-button>`;
+  } else if (acts.has("print") || acts.has("reprint")) {
+    primary = `<s-button slot="primary-action" variant="primary" data-action="print">${acts.has("reprint") ? "Reprint" : "Print"} 4×6 label</s-button>`;
+  }
+  const slots = `<s-link slot="breadcrumb-actions" data-action="go-inbox" href="${BASE}/admin">Shipping</s-link>` +
+    primary +
+    (acts.has("refresh") ? `<s-button slot="secondary-actions" data-action="refresh">Refresh from Shopify</s-button>` : "") +
+    (acts.has("retry_shopify") ? `<s-button slot="secondary-actions" data-action="print">Print 4×6 label</s-button>` : "");
+
+  // Problems first.
+  let top = `<s-stack direction="inline" gap="small-200" alignItems="center">${badge(d.status)}</s-stack>`;
+  if (d.status.label === "Purchase requires reconciliation") {
+    top += banner({ tone: "critical", heading: "Purchase requires reconciliation",
+      text: d.error || "CLIVE is confirming with Parcel2Go whether this label was paid. Don't buy it again." });
+  } else if (d.status.label === "Label purchased — Shopify update needs retry") {
+    top += banner({ tone: "critical", heading: "Label purchased — Shopify update needs retry",
+      text: d.error || "The label is bought. Only Shopify needs updating.",
+      action: "retry-shopify", actionLabel: "Retry Shopify update" });
+  } else if (d.error && !["Fulfilled"].includes(d.status.label)) {
+    top += banner({ tone: "warning", heading: "Last attempt", text: d.error });
+  }
+  for (const a of d.alerts) top += banner({ tone: "warning", heading: "Check this order", text: a });
+
+  let main = top;
+  if (d.questions.length) {
+    const n = d.questions.length;
+    main += `<s-section heading="${n} detail${n === 1 ? "" : "s"} needed">
+      <s-stack gap="base">${d.questions.map(questionForm).join("")}</s-stack></s-section>`;
+  }
+
+  if (d.label) {
+    const l = d.label;
+    const steps = d.steps.map((s) =>
+      `<s-stack direction="inline" gap="small-200" alignItems="center">
+        <s-icon type="${s.done ? "check-circle" : "clock"}" tone="${s.done ? "success" : "subdued"}"></s-icon>
+        <s-text ${s.done ? "" : 'color="subdued"'}>${esc(s.label)}</s-text></s-stack>`).join("");
+    const docs = l.documents.filter((x) => x.must_print).map((x) =>
+      `<s-stack direction="inline" gap="small-200" alignItems="center"><s-text>${esc(x.title)}</s-text>
+        <s-text color="subdued">${x.page_size === "4x6" ? "4×6 label printer" : `${esc(x.page_size)}${x.copies > 1 ? ` · ${x.copies} copies` : ""}`}</s-text>
+        <s-button variant="tertiary" data-action="open-doc" data-doc="${esc(x.artifact_id)}">Open</s-button></s-stack>`).join("");
+    main += `<s-section heading="Label purchased">
+      <s-stack gap="base">
+        <s-grid gridTemplateColumns="1fr 1fr" gap="base">
+          <s-stack gap="small-300"><s-text color="subdued">Service</s-text><s-text>${esc(l.carrier)} ${esc(l.service)} · ${esc(l.price)}</s-text></s-stack>
+          <s-stack gap="small-300"><s-text color="subdued">Tracking</s-text>${l.tracking
+            ? (l.tracking_url ? `<s-link href="${esc(l.tracking_url)}" target="_blank">${esc(l.tracking)}</s-link>` : `<s-text>${esc(l.tracking)}</s-text>`)
+            : `<s-text color="subdued">Waiting for the carrier</s-text>`}</s-stack>
+        </s-grid>
+        <s-stack gap="small-200">${steps}</s-stack>
+        <s-divider></s-divider>
+        <s-stack gap="small-200"><s-heading>Documents</s-heading>${docs || '<s-text color="subdued">Fetching the label file…</s-text>'}
+          <s-text color="subdued">${l.printed ? "Printed before: printing again uses the same label, nothing is bought." : "Not printed yet."}</s-text></s-stack>
+      </s-stack></s-section>`;
+  } else if (d.shipping.recommended) {
+    const sh = d.shipping;
+    const extra = [];
+    if (sh.cheapest) extra.push(optionLine(sh.cheapest, "Cheapest"));
+    if (sh.fastest) extra.push(optionLine(sh.fastest, "Fastest"));
+    const chosenIsRec = chosen && chosen.code === sh.recommended.code;
+    main += `<s-section heading="Shipping">
+      <s-stack gap="base">
+        ${chosenIsRec ? "" : (chosen ? optionLine(chosen, "Your choice") : "")}
+        ${optionLine(sh.recommended, "Recommended")}
+        ${extra.join("")}
+        ${sh.options.length > 1 ? `<s-stack direction="inline"><s-button variant="tertiary" commandFor="services-modal" command="--show">See other services (${sh.options.length})</s-button></s-stack>` : ""}
+      </s-stack></s-section>`;
+  }
+
+  // Package
+  if (d.package) {
+    main += `<s-section heading="Package">
+      <s-grid gridTemplateColumns="1fr auto" gap="base" alignItems="center">
+        <s-stack gap="small-300"><s-text type="strong">${esc(d.package.name)}</s-text>
+          <s-text color="subdued">${esc(d.package.size)} · ${esc(d.package.weight)} packed · ${esc(d.package.source)}</s-text></s-stack>
+        ${acts.has("package") && d.presets.length > 1 ? `<s-button commandFor="package-modal" command="--show">Change</s-button>` : ""}
+      </s-grid></s-section>`;
+  }
+
+  // Customs
+  const c = d.customs;
+  const customsLine = c.state === "before_purchase"
+    ? (c.expected || "")
+    : (c.state === "electronic" ? `Electronic ✓${c.confirming ? " (CLIVE checks once more in a couple of minutes)" : ""}` : c.text);
+  main += `<s-section heading="Customs">
+    <s-grid gridTemplateColumns="1fr auto" gap="base" alignItems="center">
+      <s-stack gap="small-300">
+        <s-text type="strong">${esc(customsLine)}</s-text>
+        <s-text color="subdued">${esc(c.summary)}${c.incoterm ? " · " + esc(c.incoterm) : ""}</s-text>
+        ${c.duties ? `<s-text color="subdued">${esc(c.duties)}</s-text>` : ""}
+      </s-stack>
+      <s-button commandFor="customs-modal" command="--show">Review</s-button>
+    </s-grid></s-section>`;
+
+  // Products
+  main += `<s-section heading="Products" padding="none"><s-table>
+    <s-table-header-row><s-table-header listSlot="primary">Product</s-table-header>
+      <s-table-header listSlot="labeled" format="numeric">Qty</s-table-header>
+      <s-table-header listSlot="labeled">Value</s-table-header>
+      <s-table-header listSlot="labeled">Weight</s-table-header></s-table-header-row>
+    <s-table-body>${d.products.map((p) => `<s-table-row>
+      <s-table-cell><s-stack gap="small-300"><s-text>${esc(p.title)}</s-text><s-text color="subdued">${esc(p.variant)}</s-text></s-stack></s-table-cell>
+      <s-table-cell>${p.quantity}</s-table-cell><s-table-cell>${esc(p.unit_value)}</s-table-cell>
+      <s-table-cell>${p.weight ? esc(p.weight) : '<s-badge tone="warning">Missing weight</s-badge>'}</s-table-cell>
+    </s-table-row>`).join("")}</s-table-body></s-table></s-section>`;
+
+  // Aside: address and history.
+  const a = d.address;
+  const aside = `<s-section heading="Ship to">
+      <s-stack gap="small-200">
+        ${a.lines.map((x) => `<s-text>${esc(x)}</s-text>`).join("")}
+        <s-text>${flag(a.country)} ${esc(countryName(a.country))}</s-text>
+        ${a.ok ? `<s-stack direction="inline" gap="small-200" alignItems="center"><s-icon type="check-circle" tone="success"></s-icon><s-text color="subdued">Address complete</s-text></s-stack>`
+               : `<s-badge tone="critical">Address needs attention</s-badge>`}
+      </s-stack></s-section>
+    <s-section heading="History">
+      <s-stack gap="small-200">${d.timeline.slice(0, 12).map((e) =>
+        `<s-stack gap="small-500"><s-text>${esc(e.what)}${e.verified ? " ✓" : ""}</s-text>
+          <s-text color="subdued">${esc(new Date(e.at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }))} · ${esc(e.who)}</s-text></s-stack>`).join("")}</s-stack>
+    </s-section>`;
+
+  page(d.order, slots, main + modals(d), aside);
+}
+
+function modals(d) {
+  const sh = d.shipping;
+  const services = `<s-modal id="services-modal" heading="All services for this parcel">
+    <s-stack gap="base">${sh.options.map((o) => optionLine(o, o.roles.includes("recommended") ? "Recommended" : "")).join("<s-divider></s-divider>")}</s-stack>
+    <s-button slot="secondary-actions" commandFor="services-modal" command="--hide">Close</s-button>
+  </s-modal>`;
+  const pkg = `<s-modal id="package-modal" heading="Change package">
+    <s-select id="package-choice" label="Package">
+      ${d.presets.map((p) => `<s-option value="${esc(p.id)}" ${d.package && d.package.preset_id === p.id ? "selected" : ""}>${esc(p.name)} — ${esc(p.size)}</s-option>`).join("")}
+    </s-select>
+    <s-button slot="primary-action" variant="primary" data-action="package">Use this package</s-button>
+    <s-button slot="secondary-actions" commandFor="package-modal" command="--hide">Cancel</s-button>
+  </s-modal>`;
+  const customs = `<s-modal id="customs-modal" heading="Customs details">
+    <s-stack gap="base">${d.products.map((p) => `<s-stack gap="small-300">
+      <s-text type="strong">${esc(p.title)} ${p.variant ? "· " + esc(p.variant) : ""} × ${p.quantity}</s-text>
+      <s-text color="subdued">${esc(p.description)} · HS ${esc(p.hs_code || "missing")} · Made in ${esc(p.origin ? countryName(p.origin) : "missing")} · ${esc(p.unit_value)} each</s-text>
+    </s-stack>`).join("<s-divider></s-divider>")}
+    <s-paragraph color="subdued">These come from your products in Shopify, or from answers you saved here (also written to Shopify).</s-paragraph></s-stack>
+    <s-button slot="secondary-actions" commandFor="customs-modal" command="--hide">Close</s-button>
+  </s-modal>`;
+  const pv = state.preview;
+  const buy = `<s-modal id="buy-modal" heading="Buy this label?">
+    ${pv ? `<s-stack gap="base">
+      <s-unordered-list>${pv.will.map((w) => `<s-list-item>${esc(w)}</s-list-item>`).join("")}</s-unordered-list>
+      <s-paragraph color="subdued">Charged to your Parcel2Go PrePay balance. A label is bought once, even if you click twice.</s-paragraph>
+    </s-stack>
+    <s-button slot="primary-action" variant="primary" data-action="buy" id="buy-button">Buy label — ${esc(pv.price)}</s-button>`
+    : `<s-spinner accessibilityLabel="Checking the price"></s-spinner>`}
+    <s-button slot="secondary-actions" commandFor="buy-modal" command="--hide">Cancel</s-button>
+  </s-modal>`;
+  return services + pkg + customs + buy;
+}
+
+function showModal(id) {
+  const m = document.getElementById(id);
+  if (m && m.showOverlay) m.showOverlay();
+}
+function hideModal(id) {
+  const m = document.getElementById(id);
+  if (m && m.hideOverlay) m.hideOverlay();
+}
+
+// ------------------------------------------------------------------ setup
+
+function renderSetup() {
+  const s = state.setup;
+  const o = s.origin || {};
+  const conn = s.connection;
+  const slots = `<s-link slot="breadcrumb-actions" data-action="go-inbox" href="${BASE}/admin">Shipping</s-link>
+    <s-button slot="primary-action" variant="primary" data-action="save-setup">Save</s-button>`;
+  const field = (k, label) => `<s-text-field id="o-${k}" label="${label}" value="${esc(o[k] || "")}"></s-text-field>`;
+  const body = `
+  <s-section heading="Ship from">
+    <s-paragraph color="subdued">Taken from your Shopify location the first time. Printed on every label as the sender.</s-paragraph>
+    <s-grid gridTemplateColumns="1fr 1fr" gap="base">
+      ${field("name", "Name")}${field("company", "Company")}
+      ${field("line1", "Address")}${field("line2", "Apartment, unit")}
+      ${field("city", "Town or city")}${field("postcode", "Postcode")}
+      ${field("phone", "Phone")}${field("email", "Email")}
+    </s-grid>
+    <s-text color="subdued">Country: ${flag(o.country)} ${esc(countryName(o.country) || "not set")}</s-text>
+  </s-section>
+  <s-section heading="Packages" padding="none">
+    ${s.presets.length ? `<s-table><s-table-header-row><s-table-header listSlot="primary">Package</s-table-header>
+      <s-table-header listSlot="labeled">Size</s-table-header><s-table-header listSlot="labeled">Empty weight</s-table-header>
+      <s-table-header listSlot="inline">Default</s-table-header></s-table-header-row>
+      <s-table-body>${s.presets.map((p) => `<s-table-row><s-table-cell>${esc(p.name)}</s-table-cell>
+        <s-table-cell>${esc(p.size)}</s-table-cell><s-table-cell>${esc(p.empty_weight)}</s-table-cell>
+        <s-table-cell>${p.default ? '<s-badge tone="success">Default</s-badge>' : `<s-button variant="tertiary" data-action="make-default" data-id="${esc(p.id)}">Make default</s-button>`}</s-table-cell></s-table-row>`).join("")}
+      </s-table-body></s-table>` : ""}
+    <s-box padding="base"><s-stack gap="base">
+      <s-heading>Add a package</s-heading>
+      ${packageFields("np")}
+      <s-stack direction="inline"><s-button data-action="add-package">Add package</s-button></s-stack>
+    </s-stack></s-box>
+  </s-section>
+  <s-section heading="Parcel2Go">
+    <s-stack direction="inline" gap="small-200" alignItems="center">
+      <s-badge tone="${conn.connected ? "success" : "critical"}">${conn.connected ? "Connected" : "Not connected"}</s-badge>
+      <s-badge tone="${conn.environment === "live" ? "warning" : "info"}">${conn.environment === "live" ? "Live" : conn.environment === "sandbox" ? "Sandbox (test money)" : "Test provider"}</s-badge>
+      <s-text color="subdued">${esc(conn.detail)}</s-text>
+    </s-stack>
+  </s-section>
+  <s-section heading="Labels and printing">
+    <s-stack gap="small-200">
+      <s-text>Label format: 4×6 (100 × 150 mm), for the thermal label printer.</s-text>
+      <s-text color="subdued">${esc(s.printer.label)}. Customs copies print on A4: ${esc(s.printer.document)}.</s-text>
+    </s-stack>
+  </s-section>
+  <s-section heading="Customs defaults">
+    <s-stack gap="base">
+      <s-paragraph>${esc(s.customs.explain)}</s-paragraph>
+      <s-grid gridTemplateColumns="1fr 1fr 1fr" gap="base">
+        <s-text-field id="c-ioss" label="IOSS number (EU)" placeholder="IM1234567890" value="${esc(s.customs.ioss_number || "")}"></s-text-field>
+        <s-text-field id="c-eori" label="EORI number" value="${esc(s.customs.eori_number || "")}"></s-text-field>
+        <s-text-field id="c-vat" label="VAT number" value="${esc(s.customs.vat_number || "")}"></s-text-field>
+      </s-grid>
+      <s-checkbox id="c-notify" label="Email the customer their tracking from Shopify" ${s.customs.notify_customer ? "checked" : ""}></s-checkbox>
+    </s-stack>
+  </s-section>`;
+  page("Setup", slots, body);
+}
+
+// ------------------------------------------------------------------ actions
+
+const val = (id) => (document.getElementById(id)?.value ?? "").toString().trim();
+
+async function withButton(el, fn) {
+  if (state.busy) return;
+  el?.setAttribute("loading", "");
+  loading(true);
+  try { await fn(); }
+  catch (err) { state.flash = errorBanner(err); render(); }
+  finally { el?.removeAttribute("loading"); loading(false); }
+}
+
+async function shipmentAction(path, body) {
+  state.shipment = await api(`/shipments/${state.shipment.id}${path}`, { method: "POST", body });
+  state.flash = null;
+  renderShipment();
+}
+
+async function openDocuments(jobs) {
+  // One tab per document, opened from the click so the browser allows it.
+  for (const job of jobs) {
+    const win = window.open("", "_blank");
+    const headers = {};
+    const t = await token();
+    if (t) headers.Authorization = `Bearer ${t}`;
+    const res = await fetch(`${BASE}/admin/api/documents/${encodeURIComponent(job.artifact_id)}`, { headers });
+    if (!res.ok) { win?.close(); throw new ApiError(res.status, { message: "The document couldn't be opened." }); }
+    const url = URL.createObjectURL(await res.blob());
+    if (win) win.location.href = url; else location.assign(url);
+  }
+}
+
+const ACTIONS = {
+  "go-inbox": () => navigate({}),
+  "go-setup": () => navigate({ view: "setup" }),
+  async sync(el) {
+    await withButton(el, async () => {
+      const out = await api("/sync", { method: "POST" });
+      toast(`Checked Shopify: ${out.open} open international order${out.open === 1 ? "" : "s"}`);
+      state.inbox = await api(`/inbox?q=${encodeURIComponent(state.q)}`);
+      renderInbox();
+    });
+  },
+  async "print-ready"(el) {
+    await withButton(el, async () => {
+      const out = await api("/print/ready", { method: "POST" });
+      state.inbox = await api(`/inbox?q=${encodeURIComponent(state.q)}`);
+      renderInbox();
+      toast(`${out.labels} label${out.labels === 1 ? "" : "s"} sent to print`);
+      await openDocuments(out.jobs);
+    });
+  },
+  async refresh(el) {
+    await withButton(el, async () => {
+      state.preview = null;
+      await shipmentAction("/refresh");
+      toast("Refreshed from Shopify");
+    });
+  },
+  async answer(el) {
+    const i = Number(el.dataset.q);
+    const q = state.shipment.questions[i];
+    const id = `q${i}`;
+    let value = {};
+    if (q.kind === "customs") value = { hs_code: val(`${id}-hs`), description: val(`${id}-desc`) };
+    else if (q.kind === "origin") value = { country: val(`${id}-country`) };
+    else if (q.kind === "weight") value = { grams: Number(val(`${id}-grams`)) };
+    else if (q.kind === "package") value = { name: val(`${id}-name`), length_cm: Number(val(`${id}-l`)),
+      width_cm: Number(val(`${id}-w`)), height_cm: Number(val(`${id}-h`)), empty_weight_g: Number(val(`${id}-g`)) };
+    await withButton(el, async () => {
+      await shipmentAction("/answer", { kind: q.kind, subject: q.subject, value });
+      toast("Saved. CLIVE won't ask again for this product.");
+    });
+  },
+  "use-suggestion"(el) {
+    const i = Number(el.dataset.q);
+    const f = document.getElementById(`q${i}-hs`);
+    if (f) f.value = state.shipment.questions[i].suggestion;
+  },
+  async choose(el) {
+    await withButton(el, async () => {
+      hideModal("services-modal");
+      state.preview = null;
+      await shipmentAction("/service", { service_code: el.dataset.code });
+    });
+  },
+  async package(el) {
+    await withButton(el, async () => {
+      hideModal("package-modal");
+      state.preview = null;
+      await shipmentAction("/package", { preset_id: val("package-choice") });
+    });
+  },
+  async preview(el) {
+    await withButton(el, async () => {
+      state.preview = null;
+      const pv = await api(`/shipments/${state.shipment.id}/preview`, { method: "POST" });
+      state.preview = pv;
+      state.buyKey = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()).replace(/-/g, "");
+      state.shipment = pv.shipment;
+      renderShipment();
+      showModal("buy-modal");
+    });
+  },
+  async buy(el) {
+    if (!state.preview) return;
+    el.setAttribute("disabled", "");
+    await withButton(el, async () => {
+      try {
+        const out = await api(`/shipments/${state.shipment.id}/buy`,
+          { method: "POST", body: { basis: state.preview.basis, idempotency_key: state.buyKey } });
+        hideModal("buy-modal");
+        state.preview = null; state.buyKey = null;
+        state.shipment = out.shipment;
+        renderShipment();
+        if (out.charged) toast(out.replayed ? "Already bought: showing that label" : "Label purchased");
+        else if (out.may_have_been_charged) toast("Checking with Parcel2Go whether it was paid", true);
+      } catch (err) {
+        hideModal("buy-modal");
+        if (err.code === "network") {
+          // The reply was lost: the same key replays, never buys twice. Offer exactly that.
+          state.flash = { tone: "warning", heading: "No answer from CLIVE",
+            text: "The label may or may not have been bought. Check again: it uses the same request, so you can't be charged twice.",
+            action: "buy-again", actionLabel: "Check again" };
+          render();
+          return;
+        }
+        state.preview = null; state.buyKey = null;
+        throw err;
+      }
+    });
+  },
+  async "buy-again"(el) {
+    await withButton(el, async () => {
+      const out = await api(`/shipments/${state.shipment.id}/buy`,
+        { method: "POST", body: { basis: state.preview.basis, idempotency_key: state.buyKey } });
+      state.preview = null; state.buyKey = null; state.flash = null;
+      state.shipment = out.shipment;
+      renderShipment();
+    });
+  },
+  async "retry-shopify"(el) {
+    await withButton(el, async () => {
+      await shipmentAction("/retry-shopify");
+      toast(state.shipment.status.label === "Fulfilled" ? "Shopify updated" : "Shopify still didn't accept it", state.shipment.status.label !== "Fulfilled");
+    });
+  },
+  async print(el) {
+    await withButton(el, async () => {
+      const out = await api(`/shipments/${state.shipment.id}/print`, { method: "POST" });
+      state.shipment = out.shipment;
+      renderShipment();
+      await openDocuments(out.jobs);
+    });
+  },
+  async "open-doc"(el) {
+    await withButton(el, () => openDocuments([{ artifact_id: el.dataset.doc }]));
+  },
+  async "save-setup"(el) {
+    const origin = { ...(state.setup.origin || {}) };
+    for (const k of ["name", "company", "line1", "line2", "city", "postcode", "phone", "email"]) origin[k] = val(`o-${k}`);
+    const body = { origin, ioss_number: val("c-ioss"), eori_number: val("c-eori"), vat_number: val("c-vat"),
+      notify_customer: !!document.getElementById("c-notify")?.checked };
+    await withButton(el, async () => {
+      state.setup = await api("/setup", { method: "POST", body });
+      state.flash = null; renderSetup(); toast("Setup saved");
+    });
+  },
+  async "add-package"(el) {
+    const body = { name: val("np-name"), length_cm: Number(val("np-l")), width_cm: Number(val("np-w")),
+      height_cm: Number(val("np-h")), empty_weight_g: Number(val("np-g")), make_default: !state.setup.presets.length };
+    await withButton(el, async () => {
+      state.setup = await api("/setup/packages", { method: "POST", body });
+      state.flash = null; renderSetup(); toast("Package added");
+    });
+  },
+  async "make-default"(el) {
+    await withButton(el, async () => {
+      state.setup = await api("/setup", { method: "POST", body: { default_package_id: el.dataset.id } });
+      renderSetup();
+    });
+  },
+};
+
+document.addEventListener("click", (ev) => {
+  const open = ev.target.closest("[data-open]");
+  if (open) { ev.preventDefault(); navigate({ shipment: open.dataset.open }); return; }
+  const el = ev.target.closest("[data-action]");
+  if (!el || el.hasAttribute("disabled")) return;
+  const fn = ACTIONS[el.dataset.action];
+  if (!fn) return;
+  ev.preventDefault();
+  fn(el);
+});
+
+let searchTimer = null;
+document.addEventListener("input", (ev) => {
+  if (ev.target.id !== "search") return;
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(async () => {
+    state.q = ev.target.value || "";
+    try { state.inbox = await api(`/inbox?q=${encodeURIComponent(state.q)}`); renderInbox();
+      const f = document.getElementById("search"); f?.focus?.(); }
+    catch (err) { state.flash = errorBanner(err); render(); }
+  }, 250);
+});
+document.addEventListener("change", (ev) => {
+  if (ev.target.id === "group") { state.group = ev.target.value || "all"; renderInbox(); }
+});
+window.addEventListener("popstate", () => route());
+route();
+</script>
+</body>
+</html>

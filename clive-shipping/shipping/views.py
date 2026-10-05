@@ -31,7 +31,8 @@ QUESTION_PHRASES = {
     "provider_unavailable": "Provider unavailable",
 }
 # Not something the merchant fills in: these name the problem instead of counting details.
-NOT_DETAILS = ("no_rates", "provider_unavailable")
+NOT_DETAILS = ("no_rates", "provider_unavailable", "address")
+PROBLEM_TONES = {"no_rates": "critical", "provider_unavailable": "caution", "address": "warning"}
 
 STALE = "Order changed — refresh required"
 
@@ -53,11 +54,11 @@ def status_of(s: Shipment) -> dict[str, Any]:
     if s.status == S.needs_attention:
         problem = next((q for q in s.questions if q.kind in NOT_DETAILS), None)
         if problem is not None:
-            tone = "warning" if problem.kind == "provider_unavailable" else "critical"
+            tone = PROBLEM_TONES[problem.kind]
             return _badge(QUESTION_PHRASES[problem.kind], tone, GROUP_ATTENTION, reasons)
         n = len([q for q in s.questions if q.kind not in NOT_DETAILS]) or 1
         return _badge(
-            f"{n} detail{'s' if n != 1 else ''} needed", "attention", GROUP_ATTENTION, reasons
+            f"{n} detail{'s' if n != 1 else ''} needed", "warning", GROUP_ATTENTION, reasons
         )
     fixed = {
         S.discovered: ("Checking", "info", GROUP_ATTENTION),

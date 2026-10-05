@@ -318,7 +318,7 @@ def test_a_provider_outage_is_named(client, shopify, provider, monkeypatch):
 
     monkeypatch.setattr(provider, "quotes", down)
     d = ready_order(client, shopify)
-    assert d["status"]["label"] == "Provider unavailable" and d["status"]["tone"] == "warning"
+    assert d["status"]["label"] == "Provider unavailable" and d["status"]["tone"] == "caution"
 
 
 # ------------------------------------------------------------------ printing can't buy
