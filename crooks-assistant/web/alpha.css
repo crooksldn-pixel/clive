@@ -111,7 +111,9 @@ body.alpha .icon-btn::before,.ask-bar::before,.alpha-typerow::before{
 }
 body.alpha .icon-btn{width:44px;height:44px;color:#fff}
 body.alpha .icon-btn:active{transform:scale(.94)}
-body.alpha .chip{color:var(--ink-2);font-size:14px;letter-spacing:0;min-height:40px}
+/* [checker, 8 Oct 2026] 44px, as every control a finger uses (§29, web/collide.js TOUCH); this said
+   40px, and the order list's filter chips (All, To ship, Shipped) were 40px tall at every size. */
+body.alpha .chip{color:var(--ink-2);font-size:14px;letter-spacing:0;min-height:44px}
 body.alpha .chip[aria-pressed="true"],body.alpha .chip.is-active{color:#fff;background:linear-gradient(180deg,rgba(var(--acc),.34),rgba(var(--acc-f2),.3));box-shadow:var(--shadow-active)}
 body.alpha .context-nav{border-radius:26px;background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.02))}
 html[data-lite] body.alpha .icon-btn,html[data-lite] .ask-bar,html[data-lite] .alpha-typerow,html[data-lite] body.alpha .chip,html[data-lite] body.alpha .context-nav{

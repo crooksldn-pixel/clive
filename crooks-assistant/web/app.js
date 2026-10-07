@@ -5131,6 +5131,10 @@ const ASK_CANCEL_PX = 90;
 let askPress = null;
 let askSwallowUntil = 0;
 document.addEventListener('pointerdown', (event) => {
+  // [checker, 8 Oct 2026] A second finger while the bar is held is a gesture, never a sentence:
+  // the press is let go and anything it recorded is discarded, as a pair on the orb is (D-1).
+  // Found by scripts/browser/touch.js: two fingers on the bar sent a turn when the first lifted.
+  if (askPress && event.pointerId !== askPress.id) { abandonAskPress(); return; }
   const bar = event.target && event.target.closest ? event.target.closest('#ask-bar') : null;
   if (!bar || askPress || (event.button !== undefined && event.button !== 0)) return;
   try { bar.setPointerCapture(event.pointerId); } catch { /* unsupported */ }
@@ -5170,6 +5174,18 @@ function endAskPress(event) {
 }
 document.addEventListener('pointerup', endAskPress);
 document.addEventListener('pointercancel', endAskPress);
+// [checker, 8 Oct 2026] The press, let go because a second finger came down (above): nothing it
+// heard is sent, and the click its lift would make does not open the keyboard either.
+function abandonAskPress() {
+  const press = askPress;
+  if (!press) return;
+  askPress = null;
+  clearTimeout(press.timer);
+  press.bar.dataset.cancel = 'false';
+  askSwallowUntil = Date.now() + 700;
+  if (press.live) stopRecording(true);
+  T.record('ask_bar', { outcome: 'second_finger' });
+}
 document.addEventListener('click', (event) => {
   if (Date.now() > askSwallowUntil) return;
   if (!event.target || !event.target.closest || !event.target.closest('#ask-bar')) return;
