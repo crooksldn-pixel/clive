@@ -375,6 +375,35 @@ def _products(_store: FixtureShopify, v: dict) -> dict:
     return {"data": {"products": {"edges": [{"node": n} for n in nodes], "pageInfo": {"hasNextPage": False}}}}
 
 
+def _suggested_refund(_store: FixtureShopify, v: dict) -> dict:
+    """[bench] What Shopify would price a refund at, from the order's own money: a read, so a refund
+    can be staged on a card in the fake shop (the test bench's bad actor asks for one) and its hold
+    held. Whatever is still refundable, paid by one card payment; the items asked for, priced at
+    their own prices; the postage when it is asked for. Nothing here refunds anything."""
+    spec = BY_ID.get(str(v.get("id") or ""))
+    if spec is None:
+        return {"data": {"order": None}}
+    node = data.order_node(spec)
+    total = float(node["currentTotalPriceSet"]["shopMoney"]["amount"])
+    left = round(total - float(node["totalRefundedSet"]["shopMoney"]["amount"]), 2)
+    prices = {e["node"]["id"]: float(e["node"]["originalTotalSet"]["shopMoney"]["amount"]) / max(1, int(e["node"]["quantity"]))
+              for e in node["lineItems"]["edges"]}
+    lines = [line for line in v.get("refundLineItems") or [] if isinstance(line, dict)]
+    shipping = data.SHIPPING if v.get("shippingFull") else float(v.get("shippingAmount") or 0)
+    amount = left if v.get("full") else round(sum(prices.get(str(line.get("lineItemId")), 0.0) * int(line.get("quantity") or 0)
+                                                  for line in lines) + shipping, 2)
+    amount = min(amount, left)
+    return {"data": {"order": {"id": node["id"], "name": node["name"], "suggestedRefund": {
+        "amountSet": data._money(f"{amount:.2f}"), "subtotalSet": data._money(f"{amount - shipping:.2f}"),
+        "totalTaxSet": data._money("0.00"), "maximumRefundableSet": data._money(f"{left:.2f}"),
+        "shipping": {"amountSet": data._money(f"{shipping:.2f}"), "maximumRefundableSet": data._money(f"{data.SHIPPING:.2f}")},
+        "suggestedTransactions": [{"amountSet": data._money(f"{amount:.2f}"), "maximumRefundableSet": data._money(f"{left:.2f}"),
+                                   "gateway": "shopify_payments", "kind": "SUGGESTED_REFUND",
+                                   "parentTransaction": {"id": f"gid://shopify/OrderTransaction/{spec.number}"}}],
+        "refundLineItems": [],
+    }}}}
+
+
 def _locations(_store: FixtureShopify, _v: dict) -> dict:
     return {"data": {"locations": {"edges": [{"node": {"id": "gid://shopify/Location/1", "name": "Studio", "isActive": True}}]}}}
 
@@ -393,6 +422,7 @@ _HANDLERS: dict[str, Any] = {
     "CrooksOrderTags": _order_by_id,
     "CrooksOrderCancelState": _order_by_id,
     "CrooksRefundState": _order_by_id,
+    "CrooksSuggestedRefund": _suggested_refund,   # [bench] a refund priced, so one can be staged here
     "CrooksAddressState": _order_by_id,
     "CrooksCustomerOrders": _customer_orders,
     "CrooksCustomerAddress": _customer_orders,
