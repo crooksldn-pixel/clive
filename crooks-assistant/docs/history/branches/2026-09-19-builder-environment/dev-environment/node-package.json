@@ -1,0 +1,11 @@
+{
+  "name": "crooks-builder-tooling",
+  "private": true,
+  "description": "Pinned builder-only dev tooling for CROOKS. Not shipped, not production.",
+  "dependencies": {
+    "playwright": "1.56.1",
+    "@axe-core/playwright": "4.11.1",
+    "axe-core": "4.11.1",
+    "@biomejs/biome": "2.5.14"
+  }
+}

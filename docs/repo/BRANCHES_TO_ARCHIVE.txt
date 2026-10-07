@@ -1,0 +1,249 @@
+# Branches that archive_branches.sh archives. For each line it checks the branch is still at the
+# SHA below, pushes the tag archive/<branch with every / made ->, reads the tag back, and only
+# then deletes the branch. The tag keeps every commit, so nothing is lost.
+#
+# Made on 7 October 2026 from every branch on crooksldn-pixel/clive, against clive/trunk a68536c6.
+# Each claim below was checked before it was written: docs/repo/BOUNDARY.md says how. Branches
+# that are kept, that belong to the theme, or that wait on George are not here; BOUNDARY.md lists
+# them with the reason.
+#
+# One branch per line, fields separated by single spaces:
+#   branch   sha (40 hex)   requires   reason (the rest of the line)
+# requires: a path that must already be on clive/trunk before the branch may go, or - for none.
+
+# Landed: an ancestor of clive/trunk (153)
+chatgpt/clive-live-experience-v0-5 ff7e22790e32eac590c92b60264b5d8e2c25b076 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+chatgpt/control-plane-vnext-phase1 8588776455a1832da763810064cacb47d7192ef4 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+chatgpt/control-plane-vnext-phase1-repair-2026-09-21 3ff2aa8bb8ee8ee8944980ad0dcebab04a79b481 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+chatgpt/remote-engineering-control-v1-activation-readiness-2026-09-24 abaefa5228880c266e52f35f009527be7344c05e - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+chatgpt/remote-engineering-control-v1-ci-repair-2026-09-23 2426923baf2f419a08aadfb4cde156e364ee591a - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+chatgpt/remote-engineering-control-v1-spec-2026-09-23 d00267d7f5f96fa8515869f1a2be71073d74696a - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/acceptance-says-what-failed aec8529771b0e66fe3b5e85bb11f7bf3bda4a6bc - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/agent-environment-clive-state-2026-09-22 84e12e77e712ed454f12a6300f6e5f5b54391252 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/agent-environment-state-view-2026-09-22 a8005721d22299745dbf2cc0d45b0f42f4c04247 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/app-blue-voice 858d36e4560f265f7580d260fcccbc00a81d528d - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/build-from-clive-2 7ab750021726487c82219c8d57f3529e91658310 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/builder-no-autoupdate d921a8781e44a28eb86ed5617ec387c728576d3d - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/builder-run-checks e060e40acf7c6943ab189f6a7b0188543151b45b - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/builder-run-checks-landing 66fce1a093e8c399cc0106a8d9fc4c1f38746d55 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/builder-run-checks-on-trunk 33e0e3e56da06cbff85863dc5fe12f484d518648 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/capability-gaps 8b769620a31390400c88f1f38570efbce6489ec9 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/ci-age-days-floor-2026-09-22 ef3d08ff9fc58d33ba96994bb2e3256010bda1f4 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/ci-provenance-acceptance-2026-09-22 b68e6e827afbeba3364c8239a2d814a60372f498 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/ci-runner-hardening 07bcc722f23815dae8cf2929e7421d450d95df54 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/ci-stream-integration-judgment-2026-09-22 b68e6e827afbeba3364c8239a2d814a60372f498 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/clive-recovery-handoff-pwuuse 1958b3272e42a2608dfbd957ccf249c720af8332 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/clive-voice 6c3d027cf86bc4eee372448cabb37286cf3a0826 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/clive-voice-assistant-review-1c6kfx 8fe2b3dd6b3c7d36667676fedc1d41f9f3042e3c - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/control-plane-producers-2026-09-22 18c3153a2eec10c6343153b550776afed3bec2ba - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/control-plane-vnext-phase1-repair2-2026-09-21 e8830c44bcae917b7c711b081a8adf003832bc9d - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/crooks-appliance-phase6 93dcd5dad6ebb2ee6191caa7ca7951e826c33ca4 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/crooks-assistant-build-lgxlau e43aecdb39b87b622f64b6ab434e428d216ef157 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/crooks-assistant-mac-local 697db8c4a991ec67469b25c4163c6fa497b46d65 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/deploy-candidate-4d2dc00f 4d2dc00f0cd3ef17ff04e885c595ae9cacbb662b - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/deploy-status-2026-09-27 aa167840b00252af333165d8bbe59986769b74ee - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/digester-hold-per-skill 073440bde8221a101051373ad6ea2003b17da515 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/digester-wave1-2 eb77cde19f318bf8a6bd99b3efab56def539e378 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/digester-wave3 e80abe01c19b923fb8d910978c13209a96aa28f6 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/digester-wave4 6152ef2b6dabb367e35854c5dc95355ff7d7bd5e - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/drift-digester-plan-2026-09-26 f70bdc675597a4739df67a39f82dd02ac843ee90 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/fake-credentials-helper ad1facba3a352e715530d4f2439ddd8e056e1454 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/gate-pr-runs 49cedda19afa457585e5d1f677e6ed31b04c0652 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/gate-skill-tools dd5317a470ed3b7dc9a42ed5c6b945f50a61a005 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/gate-via-actions 89c3ee04fc482d6c74c35a1a72d8128f8ff46e4b - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/generated-output-link-refused 2079cddd14a40d1fb8713067290e134b6f6a7bb1 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/generated-outputs-from-generator 0f3c479de7791c1f1ea0a6ded1ec383294a62529 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/keep-labelled-orders-on-the-list 586e377e3a50adcb7dc8c50230e7a0ebdf7b7f20 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/land-digester-curated 135e766aa92d2be95d2aa28cd633291b2031f122 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/land-engineering-measures-loop-records e0b2a8fcce1864618df36c87991e9e89ec764ceb - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/land-followups-harness-audit-docs e701a090be04b6edd984f518fe9116c6e822c03b - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/land-followups-voice-and-records 0b6303599e6ccdbb1d0ac94f5a43b694389001bd - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/land-owner-builds-2026-09-30 d4dbd4129c24fdd5d22eb80aed1eae778bf45ade - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/land-skill-installer-provenance 31c2dd448699e5a2a9f21875e317bf5e7d1f59c5 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/land-work-list-review-fixes f5f755ff2cee89c4ff87f8b3dce1422bd882a9f4 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/landing-2026-09-26-morning 130526d1d1e07fee689292798a73368bbdc74ba5 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/landing-fresh-green 04b68a3ec4727bb0f9365e9a3150cfb18f7cc87e - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/landing-genui-wording-2026-09-25 e58e266992954ea1bfeeb2de18064cfeb3b16d71 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/landing-provenance-token 9dad447c0ac4f5cc7122779c189da52e68f1cdbb - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/linux-prod-migration-review 1cf3a0f3361b79f9de208d80f501543c53c244b5 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/loop-repair-land-and-status 86ce3054e5e0aa9f8283bb4dfc4f32dd142a5e54 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/loop-repin-followups 24c6bc6522b0d60259aff03acaaa297e562bc281 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/loop-repin-review-fixes 32581b30d05b345450613698f34b00954624bfbe - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/loop-review-fixes 2de2897cd3e42856b4ca1dc439a1aef8fb229dd4 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/loop-update-2 1028e047a3061a01129cde40d0e6d5e7c07707ad - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/memory-2026-09-26-afternoon b01f3b25c92a244ca1738bb047e12c9d0424679b - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/memory-incoming-2026-09-25 01e4ad556c8a6b9f52e22e5f8dbbc574ebf9824d - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/memory-into-trunk-2026-09-25 945619742446383ca69be2c31cc533decec88661 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/mobile-alpha-2026-09-23 ca388ceeedb54cfd495fb2b5205ec2184db9ccae - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/needs-reply-fixes a38cbaee085e54393399abba13bbc2ac9d7ccb7d - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/needs-reply-review-fixes e8f3badcf7bfbe53540992fa0965d75d3b9cba80 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/night-recording-trunk-check d74c99c34f8ddde6936e2f3c46975fb6efe22672 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/night-team-trunk-baseline d74c99c34f8ddde6936e2f3c46975fb6efe22672 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/objective-intake-dispatcher-v1-uz8g7z c566a955903a3a02e4a9ec97f0bab5a62e703fcd - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/order-custom-item c4231fa76c81ce705777b637ea2dd42aed1241dd - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/owner-decisions-2026-09-25 adf62baf402f83403eba06c0386318730dc74fec - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/owner-decisions-2026-09-30 78ccfbf41cbdfe5ca3ee09066000a8a8bccac9b1 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/r10-integrate 036c71c4ecf7b48696f9c02cd6e651b1d5a7a05f - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/r11-integrate 11274313c2e5538b66be54688bf5fd9b860940a9 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/r12-integrate 30ec0ce5f9186ecf718aa83861840e1dfe8c69db - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/r12-polish 406ed2f748172dfabd146a3d6caa006e4856f4f5 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/r13-integrate 1c8f163622e738c584d6386dd945045e7abe723d - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/reconciliation-2026-09-25 0f9bda0450404d3ca8a83bb47066affce7e533c7 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/record-filing-and-landing 377ab7160e5f9b19e361b70f40160678ba091a03 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/record-loop-fix-2026-09-30 83a2da0d3741491dc8dd6a47362bc4572903e52a - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/record-loop-repin-2026-09-30 3d4c0b100f3a6fcca720f26ef0f90f79d548f27b - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/remote-engineering-control-v1-activation-successor-2026-09-24 4c32bb3d5f4935402c9cdc897914370950f7f206 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/review-f01-f02 cede761fb1160c484680ff3eb682d7cb8e4c48ad - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/review-f02-f05 e61625b21a792439eba72b0f636901ddd306938a - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/review-f02-f08 175b16240bb20277918f1bfc7b0bdac4eeea0296 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/review-f02-f09 b58a3387e161ccdbaf9d3c58ae591e3c1fc73c9e - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/review-f02-f10 44a6d9cc19938babacd162cc82b6d6add70de181 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/review-fixes 5d52d2f9871fc4686d805fe93cc1aa7359af74c4 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/review-round-6 a82b2e0a2295ad7b99e85942c8ff25d30d7f4c6d - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/review-round-7 9e6f75c896adcfdcbeb84d3e09b05f608f0de8c7 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/review-round-8 10fe68656f8ef4263bbf500ddd5dd44b0b76c211 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/reviewer-model-2026-09-26 21a8d5d58ab2d3b505a64a3fc94a44190900b72b - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/sandbox-own-loopback cffaeea88a224666f0c86fa99bc74aeafeab11ac - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/screens f4d4c726bd81059dc86004611fa422680013c36c - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/screens-youtube 8cf219b1a8fa4bbae91aa40425450191c4a22fb2 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/settings-and-team-signin 12ddd3e623443f5c21e4267c57e783dc062768e1 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/ship24-connection ee2f1389ccdace81db5dea34ac03edce516e6cde - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/team-and-connections 7dd53097f536e5908827a0f9283096021bf6448e - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/team-review-fixes 0dac613ccf213f9de1cb9e7306f9a38796e49d9a - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/test-mode 23f7fdcd8ded6219fb5c8f2b6f70d242f6b805c5 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/trunk-landing-2026-09-25 98d3dc919be32a77d4ce470e251d26e8e7e06665 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/turn-scene-test-measurements 01aa38438186daabd206f51b4ed338b78bdf8060 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/v05-parallel-worker-20260921 33968c92660032104ed75a49dd96df8e63b29a07 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/v05-production-integration-2026-09-22 d9621337129b171ad284e04c8894884a0612edd1 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/visual-d 015c3e9b06f1f2e09453728cf3a37efd046daf76 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/voice-health-account-credit-2026-09-26 839b8a9162d2a0bf673d701b720fc071309d5fc7 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/voice-settings-on-connections be8f5852e119622f2cd1b5faef784d14d98236df - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/clive-engineering-bridge-5 a7f593c407cfa60be30468486fe22753a17a940e - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/clive-voice-uses-the-clock-2 527c44ad12eed998b0862b46f2c0938d5d1f1279 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/derived-truth-attention-v1 cc5b6751fcff91f7ae34252c05da38560fc066e2 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/digester-curated-skill-list-2 039b2599ac207cde3040d15d1cd88d9938d789e7 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/engineering-measures 069a9ce808aaf9322629bc2e804c4fc2c990b82b - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/engineering-measures-loop-records ec7c33f9e0f636f077087a5d45fd6ecd819fe643 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/expose-draft-order-s-payment-link-2 ada67e5084eeda628c9b251549df5a5d3b420059 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/fix-item-search-failures-order-creation-2 5d1e490ab0ce4a1fec917e529e12db7cb5f9915e - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/followups-app-page-and-cards 7f69618e46797ea928c6db2a5caa52133a754a16 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/followups-harness-audit-docs 671b5c92980a99bc68f6bed23e740214684cff83 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/followups-orders-drafts-halves-2 11ccf62363c220d7a3b8599f39a3ad0846758302 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/followups-reads-say-what-they-read-2 b69a23c7dc9186ce95e274a9440bd838838cbddb - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/followups-voice-and-records-2 6e5b677fa69bcea08b254b8c42c6efc4524c0250 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/generative-ui-v1-evidence-scenes-2 a196809537b4a2a142133a274864975c72b9a624 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/generative-ui-v1-evidence-scenes-4 6e12eab7ed831288c4be6032207f1d6e49fe32af - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/generative-ui-v1-scene-planner 7dc51d208442c41c24838f54cf1839769a52e5c8 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/generative-ui-v1-scene-renderer-2 b80be86342e237b29ed9aadf02e989054d59376e - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/generative-ui-v1-settings-chrome 595d3a3053a09c045972976b4caf210ccb1a287c - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/generative-ui-v1-settings-chrome-3 fe07bb77bcd31f878f625ac2f7e42bad54e7c3d2 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/knowledge-digester-adapter-code 79d7f4be55fef32385fa399bc01b155ec2cbe55a - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/knowledge-digester-adapter-data af0416763633e52800e6378ffd8226881279a0fc - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/knowledge-digester-adapter-design 4bbdd7267f5b0d5a65f3bad0dab500ceb2a111d1 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/knowledge-digester-adapter-documents 9ac2de2f61221fef85eca63bc64a81b7b7711e9f - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/knowledge-digester-adapter-interfaces 2af02bc88ca07ce3ef8733e9b43c38a7e6eb9b79 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/knowledge-digester-adapter-skills bb5ee94cdce6eae43f5e58ae759ac513a9227406 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/knowledge-digester-detect d39d02df07076dee1b8fbcf499536e45b23e19a3 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/knowledge-digester-model 0b1200cd419ecf6bc6e37789125553b000fea3fb - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/knowledge-digester-scan 5a6f705e221175824c6b0daeaeb27e285b066d50 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/let-objectives-marked-complete-or-removed-2 6136d3230a9af4af5e5cc2f0bdea60c21085c2dc - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/mark-packed-counts-as-packed-3 8ad7477da0266bb3695b0114992ba95108b9fe6c - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/microphone-prompt-fix-3 0f7026efb275345e412974c79a0495a65449215a - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/needs-reply-routing-3 7366d760f6736a792657d9840f42c7494e73a17e - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/observer-lifecycle-unknown ab1fde9c8392fc084caef32f0fead1a6bd5819a3 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/operational-alpha-acceptance-repair-3 453e72b5ee37122026bd1ab7fa4676bc9c09df84 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/operational-alpha-acceptance-repair-4 0bbcfb69e7be36f64261ddb56b9532dbbfca542f - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/owner-facing-host-wording-6 f89ad36c5b1b79e1e5deb945488605d2c4694d09 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/product-brain-device-model 6024668334fc7a880f3da5532fe4a5b0a8c68664 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/product-memory-consolidation-4 ef630cbaefbf9b5f7a16467c5339c3d4865c2902 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/remote-engineering-control-v1-repair-2 6c300c5f9a349bf2da397ecd2ac7a263849dbc60 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/remote-engineering-journal-safe-2 e542766db5a40da79e3d687c4873ab849899711d - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/skill-installer-provenance-2 7628bfdf1234cd96348cd6804e2ba6bdb1f6d0ac - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/staff-turn-hardening 72055abf76544b0531e64e7becfa64330733c1a8 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/trunk-repair-ci-2 782dca9f4eaa151c02a1579b7b8c8b740d539f22 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/voice-credits-honest 83dc408702bf0f78f590f4b13eeb67072e9dd1e5 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/voice-credits-honest-3 31bdd8bfc5f64e86d19667e389ccf07fa8a65533 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/objective/work-list-review-fixes 85bf244d23394f0ceb89f830f215ef89bf4de4cd - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+clive/release/operational-alpha-2026-09-23 f7be86f7f4676ca86de9a7ef18bac2342f29f62d - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+
+# Landed some other way (a merged pull request, carried by a branch that landed, or every file on trunk) (40)
+chatgpt/opus-5-5-handoff-2026-09-24 c38a75a302fb3cef1694323eed1ebdec1bafc0d9 - landed: every file it changed reached trunk (staged in _incoming/handoff by PR #10, folded in by PR #14)
+claude/core-map ac4b330fb54964cd38ed3cfad9ef0f0e4035f0d8 - landed: PR #97 (merged 7 Oct); every file it changed is on trunk
+claude/deploy-66d3e05d-record 2cd615aaf2c3c33176ed5a2871a15a282f51e837 - landed: its deploy record is on trunk in crooks-assistant/reports/ (PR #97)
+claude/deploy-b33ccbc2-record d5f0ad2b74255fcacb341e695fcc8a670b7043c6 - landed: its record is on trunk, byte-identical, at crooks-assistant/reports/deploy-b33ccbc2.md (PR #97)
+claude/deploy-cac1a9e7-record b00460a96d16572ec57f699e94968ff5c3b2f796 - landed: its deploy record is on trunk in crooks-assistant/reports/ (PR #97)
+claude/design-fixes 39ea0721a435ddb2bc55723b99a42e68e0c422a7 - landed: an ancestor of claude/returns-and-design, which landed as PR #96
+claude/finish-clockfix e260ea4c9302fd30d37b98738f3d27ed0cc01b2e - landed: PR #99 (merged 7 Oct); every file it changed is on trunk
+claude/finish-clockfix-r e260ea4c9302fd30d37b98738f3d27ed0cc01b2e - landed: the same commit as claude/finish-clockfix, PR #99
+claude/finish-skillread 09480ec6d658158275feaa93ebcd8dede150e694 - landed: PR #98 (merged 7 Oct); every file it changed is on trunk
+claude/fix-number-test-clock 23fc26de87b69f2e308bf2d08b5a9165d9363515 - landed: PR #93; every file it changed is on trunk
+claude/night-builds e3ce049958fde1e8f45ca2b73f7408ba4bb43888 - landed: an ancestor of claude/overnight-build, which landed as PR #94
+claude/night-connections fd10ecb92a4a227328e1b16a104d9a68e4fa8df9 - landed: an ancestor of claude/overnight-build, which landed as PR #94
+claude/night-customers 9aceb4781b44a320ee927de9742eaca9aef1296b - landed: an ancestor of claude/overnight-build, which landed as PR #94
+claude/night-recording 2998d0ca952642c864e6df899874f288a2d243cd - landed: an ancestor of claude/overnight-build, which landed as PR #94
+claude/night-team ce5f4881e6d683ee4ab9f3de459022031830c037 - landed: an ancestor of claude/overnight-build, which landed as PR #94
+claude/night-team-proof 6313128def215e0f337a34d2944aec80a589ffb2 - landed: a CI-proof branch; night-team's work (PR #94) plus a commit patch-identical to PR #93
+claude/night-team-proof-a a8625c0da3370397c70d42d30b981bc4e68906a8 - landed: a CI-proof branch; night-team's work (PR #94) plus a commit patch-identical to PR #93
+claude/night-team-proof-b fc5f9cf2e607f14df10c26fb30fe43e115fe94d9 - landed: a CI-proof branch; night-team's work (PR #94) plus a commit patch-identical to PR #93
+claude/night-team-proof-c 8b59e4f654dce0c59aa717f29d42a83c3cebcc60 - landed: a CI-proof branch; night-team's work (PR #94) plus a commit patch-identical to PR #93
+claude/objectives-by-touch 6359d738058181d3e622ee4cb6dbb60992c44bf4 - landed: PR #91; every file it changed is on trunk
+claude/objectives-number 5058fe4b3c801bb2e6f29a040ebb71a769fdc7a1 - landed: PR #92; every file it changed is on trunk
+claude/overnight-build 1293928cbd5091e9e8ea32e5d7f34fe23afdd6fd - landed: PR #94; every file it changed is on trunk
+claude/post-deploy-fixes d37a5f8195f8dfa9ee27caf6c23fd9b2ed604049 - landed: PR #95; every file it changed is on trunk
+claude/product-memory-2026-09-24 2f7d51a9ad168c6346e2142f4939f2fe8e13e348 - landed: PR #6; only one index line of the product-memory README is worded differently on trunk
+claude/product-memory-foundation 8d6b111259f66a4d6a0704146da29b6e54d1c57e - landed: staged in _incoming/truth (PR #10) and folded in by PR #14; open draft PR #1 is stale (close it first)
+claude/product-memory-truth-2026-09-23 07459b85df00f806d641d924499a207ad41cbe8b - landed: product-memory truth of 23 Sep, folded into trunk by PR #10 and PR #14; its root README change was superseded by trunk's README
+claude/product-memory-truth-2026-09-23-r2 5d12aa5e9ef92e5aee5a7ba40242557e7587deb7 - landed: product-memory truth of 23 Sep, folded into trunk by PR #10 and PR #14; its root README change was superseded by trunk's README
+claude/product-memory-truth-2026-09-23-r3 4a4633767e15120f9edea275f3cb646177496995 - landed: product-memory truth of 23 Sep, folded into trunk by PR #10 and PR #14; its root README change was superseded by trunk's README
+claude/product-memory-truth-2026-09-23-r4 07459b85df00f806d641d924499a207ad41cbe8b - landed: product-memory truth of 23 Sep, folded into trunk by PR #10 and PR #14; its root README change was superseded by trunk's README
+claude/returns-and-design 8b54c54a0323d55ddf1ce2bc601636f2b1ba7b0a - landed: PR #96 (merged 7 Oct); every file it changed is on trunk
+claude/returns-in-clive 92017f306ba50540ee9da2a1be5b73c849693157 - landed: an ancestor of claude/returns-and-design, which landed as PR #96
+claude/support-investigator-v1-2026-09-23 2dbb97bc6c88d3ee3cf5cdf6a980df4f3405104a - landed: the support investigator, landed with the 23 Sep mobile alpha (ca388cee, on trunk); trunk has moved past it
+claude/support-investigator-v1-2026-09-23-r2 921375628d13ce338c659a7b789c11d8ac2b5f58 - landed: the support investigator, landed with the 23 Sep mobile alpha (ca388cee, on trunk); trunk has moved past it
+claude/support-investigator-v1-2026-09-23-r3 2ca2bfee61f91425f119e751ea598d2337b1443e - landed: the support investigator, landed with the 23 Sep mobile alpha (ca388cee, on trunk); trunk has moved past it
+claude/support-investigator-v1-2026-09-23-r4 109f58c40b12b996a353731f5a42bdbf2abbf9bb - landed: the support investigator, landed with the 23 Sep mobile alpha (ca388cee, on trunk); trunk has moved past it
+claude/support-investigator-v1-2026-09-23-r5 2dbb97bc6c88d3ee3cf5cdf6a980df4f3405104a - landed: the support investigator, landed with the 23 Sep mobile alpha (ca388cee, on trunk); trunk has moved past it
+clive/objective/mobile-dogfood-voice-v1 2bd139577a3d5505c4ef221184636dfe27647e31 - landed: every file it changed is on trunk
+clive/objective/skill-read-runtime-tool-4 e7d0e06356b4c8e487a839a9be3d4cfe10dafd5f - landed: finished and landed as PR #98 (skill_list, skill_read); 90% of its added lines are on trunk, the rest were PR #98's review fixes
+clive/objective/uk-midnight-clock-sweep-2 dcbe6bb6c40171ea4857e84a59aa1554ccb7d51e - landed: rebuilt on trunk and landed as PR #99 (London's day after midnight); 94% of its added lines are on trunk
+codex/printnode-shipping 939d55b2ba3d0ab301d39031d4c5fe4134ee8064 - landed: an ancestor of claude/compassionate-dirac-44hnee (kept), so every commit stays on that branch
+
+# Superseded (27)
+chatgpt/bridge-fable-5-1-pin-2026-09-19 7de58555ee954e8561bb0f3bb6d7283715517b62 - superseded: the bridge watcher, retired 25 Sep (DECISIONS, 'Retirements, 2026-09-24')
+chatgpt/bridge-fable-install-fix-2026-09-19 5ada7b47f13547f107be1f53beeb79021cc48c24 - superseded: the bridge watcher, retired 25 Sep (DECISIONS, 'Retirements, 2026-09-24')
+chatgpt/control-plane-progress-v1 22b8afe356decf61f19fbc5d94170f17a5139db0 - superseded: the control-plane-progress stream, retired 24 Sep (DECISIONS, 'Retirements, 2026-09-24'); the loop's status branches do the job
+chatgpt/remote-engineering-control-v1-activation-diagnostics-2026-09-24 ecd98646a89b2ceebeef865dd9cad28028954963 - superseded: a one-line diagnostic on acceptance_provenance.py; PR #71 made a failing gate print why
+chatgpt/remote-engineering-control-v1-diagnostics-2026-09-23 42065e0199cfc2f346729a98a4017ea08b9722eb - superseded: a one-line diagnostic on acceptance_provenance.py; PR #71 made a failing gate print why
+claude/crooks-bridge-watcher-review 73f2000256db8767e2fe09c5f7f05a92f002ac2d - superseded: the bridge watcher, retired 25 Sep (DECISIONS, 'Retirements, 2026-09-24')
+claude/diag-r10-ci 94763538c7f83037350bc330a033b7e7f79c5189 - superseded: a one-line diagnostic on acceptance_provenance.py; PR #71 made a failing gate print why
+claude/night-connections-proof 932f7eac5c9532346fe27b8ebeeb7c0b221271eb - superseded: a CI-proof branch; night-connections (PR #94) plus a variant number-test fix that trunk took as PR #93
+claude/release-secret-baseline-2026-09-24 99d8ace60c3e5c12d101264e3ca6281d463a7db6 - superseded: retired 24 Sep (DECISIONS, 'Retirements, 2026-09-24'); synthetic credentials go through one test helper and the baseline is empty
+clive/objective/clive-engineering-bridge-3 336ce75677882784062ed75d92e494c16941f124 - superseded: an earlier attempt at the same build; its successor clive/objective/clive-engineering-bridge-5 (a7f593c4) landed in PR #19
+clive/objective/clive-voice-uses-the-clock 69bae38da67c2754a01ad1584427e7f14c5932e9 - superseded: an earlier attempt at the same build; its successor clive/objective/clive-voice-uses-the-clock-2 (527c44ad) is on trunk
+clive/objective/engineering-team-activation-v1 e41e80b4153c5bca7e245b50e6ab7f899d6dd1ad - superseded: retired 24 Sep in favour of the remote loop (DECISIONS, 'Retirements, 2026-09-24')
+clive/objective/expose-draft-order-s-payment-link 786f92eed26d07ade008c445a8174f17eb0e3c96 - superseded: an earlier attempt at the same build; its successor clive/objective/expose-draft-order-s-payment-link-2 (ada67e50) landed in PR #66
+clive/objective/expose-draft-order-s-payment-link-3 3e03a30067a7f352ae1056c81329493f9b1ffee5 - superseded: an earlier attempt at the same build; its successor clive/objective/expose-draft-order-s-payment-link-2 (ada67e50) landed in PR #66
+clive/objective/followups-orders-drafts-halves 849579dc0f90cac9586e03236a837a77ec77743c - superseded: an earlier attempt at the same build; its successor clive/objective/followups-orders-drafts-halves-2 (11ccf623) is on trunk
+clive/objective/followups-reads-say-what-they-read 93a19e9295cb66affe518f3399c4f48fcd09ca19 - superseded: an earlier attempt at the same build; its successor clive/objective/followups-reads-say-what-they-read-2 (b69a23c7) is on trunk
+clive/objective/generative-ui-v1-evidence-scenes 80354dbb926e0918a75e0ce724f59f47cd55c799 - superseded: an earlier attempt at the same build; its successor clive/objective/generative-ui-v1-evidence-scenes-4 (6e12eab7) landed in PR #11
+clive/objective/generative-ui-v1-settings-chrome-2 12424569cc8be2ea7d2859bc6005f8c50735b363 - superseded: an earlier attempt at the same build; its successor clive/objective/generative-ui-v1-settings-chrome-3 (fe07bb77) landed in PR #19
+clive/objective/international-waiting-clock 7a5121923d5b627ffe68d4b88b2dc84a418da569 - superseded: PR #3 (age-days floor) fixed the same 'a day too many' at the source in app/analytics/engine.py
+clive/objective/let-objectives-marked-complete-or-removed 9dba9e74d3408ae02d3bc5ac8639a9cd20f52283 - superseded: an earlier attempt at the same build; its successor clive/objective/let-objectives-marked-complete-or-removed-2 (6136d323) landed in PR #66
+clive/objective/let-objectives-marked-complete-or-removed-3 952e32b8e1e72f15c976ac21e112d3d295f9905c - superseded: an earlier attempt at the same build; its successor clive/objective/let-objectives-marked-complete-or-removed-2 (6136d323) landed in PR #66
+clive/objective/microphone-prompt-fix-2 e736aa32b7ba9763b9c14786b01ceb1ac16fa215 - superseded: an earlier attempt at the same build; its successor clive/objective/microphone-prompt-fix-3 (0f7026ef) landed in PR #8
+clive/objective/owner-facing-host-wording-2 3e995765b91830ea9e2b6280b33406549ca65567 - superseded: an earlier attempt at the same build; its successor clive/objective/owner-facing-host-wording-6 (f89ad36c) landed in PR #15
+clive/objective/owner-facing-host-wording-3 3f6d1f737f9cf85fae7bf1e66cab84209304e9fb - superseded: an earlier attempt at the same build; its successor clive/objective/owner-facing-host-wording-6 (f89ad36c) landed in PR #15
+clive/objective/product-memory-consolidation-3 b29752d9b7f57bcfe6ff785d8e0d2775aa95422f - superseded: an earlier attempt at the same build; its successor clive/objective/product-memory-consolidation-4 (ef630cba) landed in PR #14
+clive/objective/skill-read-runtime-tool-2 a6229d74bdfab04748c2b4abfe08e8e7a0ffbeb7 - superseded: an earlier attempt at the same build; its successor skill-read-runtime-tool-4 landed as PR #98
+clive/objective/skill-read-runtime-tool-3 6afed7d2d45e5b1d28099f6396b49d438d17e934 - superseded: an earlier attempt at the same build; its successor skill-read-runtime-tool-4 landed as PR #98
+
+# Knowledge-only: their documents are imported by the same change as this list; each waits until that is on clive/trunk (9)
+chatgpt/capability-registry-reconciliation-2026-09-22 6a522f8f42bf8664fc966152e3f0ea61aa241c81 crooks-assistant/docs/history/branches/README.md knowledge-only: its documents that never reached trunk are copied verbatim into crooks-assistant/docs/history/branches/2026-09-22-capability-registry/; the rest was superseded
+chatgpt/memory-reconcile-2026-09-19 028aca1fdade2791264fb986fa5ad8b10c54811b crooks-assistant/docs/history/branches/README.md knowledge-only: its documents that never reached trunk are copied verbatim into crooks-assistant/docs/history/branches/2026-09-19-ops-runbook/; the rest was superseded
+chatgpt/ops-memory-2026-09-19 028aca1fdade2791264fb986fa5ad8b10c54811b crooks-assistant/docs/history/branches/README.md knowledge-only: its documents that never reached trunk are copied verbatim into crooks-assistant/docs/history/branches/2026-09-19-ops-runbook/; the rest was superseded
+chatgpt/orchestrator-v1-freeze-candidate-2026-09-20 70d0fa174a42a87dba5ae7ee10df8d01255cf40f crooks-assistant/docs/history/branches/README.md knowledge-only: its documents that never reached trunk are copied verbatim into crooks-assistant/docs/history/branches/2026-09-20-orchestrator-v1-freeze/; the rest was superseded
+chatgpt/product-memory-reconcile-2026-09-23 95227cc27729bf7a5ecba8de09e493666342c89e crooks-assistant/docs/history/branches/README.md knowledge-only: its documents that never reached trunk are copied verbatim into crooks-assistant/docs/history/branches/2026-09-23-product-memory-reconcile/; the rest was superseded
+claude/builder-environment-repair-review 295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b crooks-assistant/docs/history/branches/README.md knowledge-only: its documents that never reached trunk are copied verbatim into crooks-assistant/docs/history/branches/2026-09-19-builder-environment/; the rest was superseded
+claude/builder-environment-review 9a27bc441adad1e98e8a9ca257d1883246ee7eec crooks-assistant/docs/history/branches/README.md knowledge-only: its documents that never reached trunk are copied verbatim into crooks-assistant/docs/history/branches/2026-09-19-builder-environment/; the rest was superseded
+claude/mobile-experience-v1-review 564ef3430d58b34de582f5548d7fe201c4cfe04b crooks-assistant/docs/history/branches/README.md knowledge-only: its documents that never reached trunk are copied verbatim into crooks-assistant/docs/history/branches/2026-09-19-mobile-experience-v1/; the rest was superseded
+claude/recovery-handoff-2026-09-22 3df126c287a4264f48afd36fe662f7824eaaa638 crooks-assistant/docs/history/branches/README.md knowledge-only: its documents that never reached trunk are copied verbatim into crooks-assistant/docs/history/branches/2026-09-22-recovery-handoff/; the rest was superseded
