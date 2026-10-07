@@ -7,7 +7,7 @@ import itertools
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from returns.labels import Label, LabelError
+from returns.labels import Keep, Label, LabelError
 from returns.models import Order, OrderLine, OrderMoney, Return, Transaction, Variant
 from returns.shopify import ShopifyRefused, ShopifyUncertain, return_input
 
@@ -296,7 +296,7 @@ class FakeLabels:
     def available(self) -> tuple[bool, str]:
         return (True, "") if self.ok else (False, "Click & Drop is not connected (test).")
 
-    def create(self, ret: Return, address: dict[str, Any]) -> Label:
+    def create(self, ret: Return, address: dict[str, Any], keep: Keep | None = None) -> Label:
         if not self.ok:
             raise LabelError(self.available()[1])
         if ret.postage.label_ref:

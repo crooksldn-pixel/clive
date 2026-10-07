@@ -219,8 +219,9 @@ Note the commit before pulling (`git log --oneline -1`). To go back:
 
 ```bash
 cd /opt/clive
-# Returns that met a lost Shopify reply carry a marker the old code doesn't know; it would drop it.
-python3 -c "import sqlite3; d=sqlite3.connect('crooks-returns/data/returns.sqlite3'); print(d.execute(\"SELECT id, order_name FROM returns WHERE json_extract(doc,'$.shopify.create_unknown_at') IS NOT NULL OR json_extract(doc,'$.shopify.attach_unknown_at') IS NOT NULL\").fetchall())"
+# Returns that met a lost Shopify reply, or whose label payment has no answer yet, carry a marker
+# the old code doesn't know; it would drop it.
+python3 -c "import sqlite3; d=sqlite3.connect('crooks-returns/data/returns.sqlite3'); print(d.execute(\"SELECT id, order_name FROM returns WHERE json_extract(doc,'$.shopify.create_unknown_at') IS NOT NULL OR json_extract(doc,'$.shopify.attach_unknown_at') IS NOT NULL OR json_extract(doc,'$.postage.pay_sent_at') IS NOT NULL\").fetchall())"
 # Settle any listed (approve or label again, which reads Shopify) before going back.
 git checkout <previous commit>
 cd crooks-returns && docker compose up -d --build returns shipping && docker compose ps

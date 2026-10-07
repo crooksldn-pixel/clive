@@ -13,6 +13,10 @@ InPost or Evri shop (or a Post Office). Built to the published Parcel2Go API (Sw
 
 There is no cancel in the API: an unused label is refunded by asking Parcel2Go, so a label is
 only bought when staff approve the return.
+
+Paying a paid order charges again, so every payment is written down (through `keep`) before it
+is sent, and an order that reads unpaid within PAY_SETTLE of a payment that got no answer is not
+paid again: that payment may still be going through.
 """
 
 from __future__ import annotations
@@ -24,12 +28,12 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
 
-from returns.labels import Label, LabelError
+from returns.labels import Keep, Label, LabelError
 from returns.models import Return, declared_value_pence, to_amount, to_pence
 from returns.settings import Settings
 
@@ -46,6 +50,9 @@ COURIERS = {
 NAMES = {"evri": "Evri", "inpost": "InPost", "royal-mail": "Royal Mail", "collectplus": "Collect+"}
 # Shop and locker services, which the customer walks to. Collection services need them in.
 DROP_OFF = {"Shop", "Locker"}
+# How long a payment that got no answer may still be going through. Until then an order that
+# reads unpaid is not believed unpaid (Shipping waits the same two minutes).
+PAY_SETTLE = timedelta(minutes=2)
 
 
 @dataclass
@@ -88,8 +95,10 @@ class Parcel2Go:
         settings: Settings,
         http: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.s = settings
+        self.clock = clock
         self.base = settings.p2g_base_url.rstrip("/")
         self._http = http or httpx.Client(timeout=30)
         self._token: tuple[str, float] | None = None
@@ -142,7 +151,10 @@ class Parcel2Go:
         except httpx.HTTPError as exc:
             raise LabelError(f"Parcel2Go could not be reached: {exc}") from exc
         if r.status_code >= 400:
-            raise LabelError(f"Parcel2Go answered {r.status_code} to {path}: {_errors(r)}")
+            raise LabelError(
+                f"Parcel2Go answered {r.status_code} to {path}: {_errors(r)}",
+                status=r.status_code,
+            )
         if not r.content:
             return None
         try:
@@ -321,13 +333,15 @@ class Parcel2Go:
 
     # ------------------------------------------------------------------ booking
 
-    def create(self, ret: Return, address: dict[str, Any]) -> Label:
+    def create(self, ret: Return, address: dict[str, Any], keep: Keep | None = None) -> Label:
         ok, why = self.available()
         if not ok:
             raise LabelError(why)
         if ret.postage.label_ref and ret.postage.label_ref.startswith("p2g:"):
             # An order exists from an earlier try: settle that one, never create a second.
-            return self._settle(ret.postage.label_ref, ret.postage.service)
+            return self._settle(
+                ret.postage.label_ref, ret.postage.service, ret.postage.pay_sent_at, keep
+            )
         collection = self.customer_address(ret, address)
         if not collection["Phone"]:
             raise LabelError(
@@ -378,7 +392,9 @@ class Parcel2Go:
         line_id = str(lines[0].get("OrderLineId") or "")
         ref = f"p2g:{order_id}:{line_id}:{order_hash}"
         # From here on every failure, of any kind, carries `ref`, so a retry settles this
-        # order and never creates (or pays for) another one.
+        # order and never creates (or pays for) another one. It is written down before paying,
+        # so a restart before the answer is saved settles it too.
+        self._before_paying(ref, keep)
         try:
             paid = self._pay(ref)
             label = self._documents(ref, option.service, paid)
@@ -426,9 +442,18 @@ class Parcel2Go:
                 "POST", f"/orders/{order_id}/paywithprepay", params={"hash": order_hash}
             )
         except LabelError as exc:
+            if exc.status is not None and 400 <= exc.status < 500:
+                # Parcel2Go answered no: nothing was taken and nothing is in flight.
+                raise LabelError(
+                    f"Parcel2Go order {order_id} was not paid: {exc}. Top up PrePay if needed, "
+                    "then try the label again.",
+                    ref=ref,
+                    paid=False,
+                ) from exc
             raise LabelError(
                 f"Parcel2Go order {order_id}: payment not confirmed ({exc}). Try the label "
-                "again: it checks whether the order was paid before doing anything.",
+                "again in a couple of minutes: it checks whether the order was paid before "
+                "doing anything.",
                 ref=ref,
             ) from exc
         if isinstance(paid, dict) and paid.get("Errors"):
@@ -441,9 +466,32 @@ class Parcel2Go:
             )
         return paid
 
-    def _settle(self, ref: str, service: str | None) -> Label:
+    @staticmethod
+    def _before_paying(ref: str, keep: Keep | None) -> None:
+        """Have the caller write the order down before any money can move."""
+        if keep is None:
+            return
+        try:
+            keep(ref)
+        except Exception as exc:
+            log.exception("recording %s before paying", ref.split(":")[1])
+            raise LabelError(
+                f"Parcel2Go order {ref.split(':')[1]} couldn't be recorded here, so it was not "
+                "paid. Try the label again.",
+                ref=ref,
+                paid=False,
+            ) from exc
+
+    def _settle(
+        self,
+        ref: str,
+        service: str | None,
+        pay_sent_at: datetime | None = None,
+        keep: Keep | None = None,
+    ) -> Label:
         """Finish an order from an earlier attempt: read whether it was paid, pay only if
-        Parcel2Go says it wasn't, then fetch its label."""
+        Parcel2Go says it wasn't (and no unanswered payment may still be going through), then
+        fetch its label."""
         _, order_id, _, order_hash = ref.split(":", 3)
         try:
             got = self._call("GET", "/orders", params={"orderId": order_id, "hash": order_hash})
@@ -455,6 +503,14 @@ class Parcel2Go:
             ) from exc
         paid = None
         if not (got or {}).get("PaidDate"):
+            if pay_sent_at is not None and self.clock() < pay_sent_at + PAY_SETTLE:
+                raise LabelError(
+                    f"Parcel2Go order {order_id}: an earlier payment got no answer and may still "
+                    "be going through, so it was not paid again. Try the label again in a "
+                    "couple of minutes: it checks Parcel2Go first.",
+                    ref=ref,
+                )
+            self._before_paying(ref, keep)
             paid = self._pay(ref)
         label = self._documents(ref, service, paid)
         label.price_pence = to_pence((got or {}).get("TotalPrice") or 0) or None

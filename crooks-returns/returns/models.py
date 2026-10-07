@@ -223,6 +223,10 @@ class PostageState(BaseModel):
     tracking_url: str | None = None
     label_file_id: str | None = None
     label_ref: str | None = None
+    # When a payment for label_ref was last sent without a definite answer yet (written down
+    # before it is sent). While it may still be going through, an unpaid-looking order is not
+    # paid again. None once the provider answered: paid, or definitely not.
+    pay_sent_at: datetime | None = None
     label_due_at: datetime | None = None
     # Parcel2Go: the service the customer picked (or that was booked), its drop-off network,
     # what the label cost us, and the QR code they show at the shop.

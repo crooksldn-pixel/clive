@@ -4,6 +4,7 @@ sandbox returned on 2026-10-03."""
 import hashlib
 import hmac
 import json
+from datetime import timedelta
 
 import httpx
 import pytest
@@ -18,6 +19,10 @@ from returns.store import Store
 from .conftest import RecordingNotifier
 
 TEE = "gid://shopify/FulfillmentLineItem/1"
+
+
+class Stopped(BaseException):
+    """The process stopped mid-request (a deploy, a crash): nothing after this line runs."""
 
 
 def quote(slug, courier, collection, price, printer=True, extras=(), code="", size=None):
@@ -55,6 +60,18 @@ class FakeParcel2Go:
         self.unreleased_reads = 0
         self.order_reads = 0
         self.label_answers_html = False
+        # Every paywithprepay that reached Parcel2Go, answered or not.
+        self.pay_calls = 0
+        # The reply is lost and the payment is still going through: the order reads unpaid
+        # until land() (or forever, if it never lands).
+        self.pay_lands_late = False
+        self.landing: list[str] = []
+        # Parcel2Go takes the money, then this process stops before hearing back.
+        self.stop_after_paying = False
+
+    def land(self) -> None:
+        self.paid += self.landing
+        self.landing = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
@@ -124,6 +141,13 @@ class FakeParcel2Go:
                 },
             )
         if path.endswith("/paywithprepay"):
+            self.pay_calls += 1
+            if self.pay_lands_late:
+                self.landing.append(path.split("/")[3])
+                raise httpx.ReadTimeout("no answer yet", request=request)
+            if self.stop_after_paying:
+                self.paid.append(path.split("/")[3])
+                raise Stopped()
             if self.refuse_pay:
                 return httpx.Response(
                     400, json={"Errors": [{"Name": "Balance", "Description": "Not enough"}]}
@@ -403,6 +427,73 @@ def approve(psvc, ret, key="k1"):
     return psvc.execute(ret.id, "approve", {"postage_mode": "label_now"}, "staff", key)[
         "return_doc"
     ]
+
+
+def test_a_payment_still_going_through_is_never_paid_again(psvc, p2g, p2g_server, clock):
+    # The reply to the payment is lost and Parcel2Go hasn't marked the order paid yet. A retry
+    # straight away must wait, not pay again: paying a paid order charges twice.
+    p2g.clock = clock
+    ret = request(psvc)
+    p2g_server.pay_lands_late = True
+    ret = approve(psvc, ret)
+    assert ret.status == Status.awaiting_label and "payment not confirmed" in ret.last_error
+    p2g_server.pay_lands_late = False
+    clock.now += timedelta(seconds=30)
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k2")["return_doc"]
+    assert p2g_server.pay_calls == 1  # not paid a second time
+    assert ret.status == Status.awaiting_label and "may still be going through" in ret.last_error
+    p2g_server.land()  # Parcel2Go finishes taking the first payment
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k3")["return_doc"]
+    assert ret.status == Status.awaiting_shipment and not ret.postage.pay_sent_at
+    assert p2g_server.pay_calls == 1 and p2g_server.paid == ["26633"]
+    assert len(p2g_server.orders) == 1
+
+
+def test_a_payment_that_never_arrived_is_paid_once_two_minutes_on(psvc, p2g, p2g_server, clock):
+    p2g.clock = clock
+    ret = request(psvc)
+    p2g_server.pay_lands_late = True
+    ret = approve(psvc, ret)
+    p2g_server.pay_lands_late, p2g_server.landing = False, []  # it never reached Parcel2Go
+    clock.now += timedelta(minutes=3)
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k2")["return_doc"]
+    assert ret.status == Status.awaiting_shipment
+    assert p2g_server.paid == ["26633"] and len(p2g_server.orders) == 1
+
+
+def test_a_stop_after_paying_never_makes_or_pays_a_second_order(
+    psvc, p2g, p2g_server, settings, shop, clock
+):
+    # Parcel2Go took the money, then the service stopped (a deploy restarts it) before the
+    # answer was saved. The order was written down before paying, so the next try settles it.
+    ret = request(psvc)
+    p2g_server.stop_after_paying = True
+    with pytest.raises(Stopped):
+        approve(psvc, ret)
+    p2g_server.stop_after_paying = False
+    restarted = ReturnsService(
+        settings, Store(settings.db_path), shop, p2g, RecordingNotifier(settings), clock=clock
+    )
+    kept = restarted.store.get(ret.id)
+    assert kept.postage.label_ref and kept.postage.label_ref.startswith("p2g:26633:")
+    assert "never pays twice" in kept.last_error  # what staff see if it stays like this
+    ret = approve(restarted, kept, key="k2")
+    assert ret.status == Status.awaiting_shipment
+    assert p2g_server.paid == ["26633"] and len(p2g_server.orders) == 1
+    assert len(shop.called("returnCreate")) == 1
+
+
+def test_a_refused_payment_clears_the_wait(psvc, p2g, p2g_server, clock):
+    # A 4xx is Parcel2Go saying no: nothing is in flight, so topping up and trying again is
+    # not made to wait.
+    p2g.clock = clock
+    ret = request(psvc)
+    p2g_server.refuse_pay = True
+    ret = approve(psvc, ret)
+    assert ret.status == Status.awaiting_label and ret.postage.pay_sent_at is None
+    p2g_server.refuse_pay = False
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k2")["return_doc"]
+    assert ret.status == Status.awaiting_shipment and p2g_server.paid == ["26633"]
 
 
 def test_a_label_released_a_few_seconds_late_still_reaches_the_customer(psvc, p2g_server):

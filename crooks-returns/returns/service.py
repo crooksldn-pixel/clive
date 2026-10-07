@@ -829,11 +829,25 @@ class ReturnsService:
         address["email"] = address.get("email") or (
             (order.email or order.customer_email) if order else None
         )
+
+        def keep(ref: str) -> None:
+            # Written down before the provider is asked for money: if its answer is lost or
+            # this process stops, the next try settles this order and never pays another.
+            ret.postage.label_ref = ref
+            ret.postage.pay_sent_at = self.clock()
+            ret.last_error = (
+                "Paying for the label. If this message stays, try the label again: it checks "
+                "the courier first and never pays twice."
+            )
+            self.store.save(ret)
+
         try:
-            label = self.labels.create(ret, address)
+            label = self.labels.create(ret, address, keep)
         except LabelError as exc:
             if exc.ref:  # an order exists: keep it so a retry settles it, never buys twice
                 ret.postage.label_ref = exc.ref
+            if exc.paid is not None:  # the provider answered: paid, or definitely not
+                ret.postage.pay_sent_at = None
             ret.last_error = str(exc)
             if exc.paid:
                 self._event(ret, "label_paid_not_collected", actor, {"why": str(exc)})
@@ -845,6 +859,7 @@ class ReturnsService:
         """Keep a bought label, then give it to the customer through Shopify."""
         file_id = self.store.put_file(ret.id, "application/pdf", label.pdf) if label.pdf else None
         ret.postage.carrier, ret.postage.label_ref = label.carrier, label.ref
+        ret.postage.pay_sent_at = None  # paid: nothing is in flight
         ret.postage.tracking = label.tracking
         ret.postage.tracking_url = label.tracking_url or (
             tracking_url(label.tracking) if label.tracking else None

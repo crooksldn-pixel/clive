@@ -11,6 +11,7 @@ later" and say why, rather than pretending a label exists.
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -25,12 +26,25 @@ class LabelError(RuntimeError):
     """No label was made. The message says why, for staff and CLIVE. `ref` is set once an
     order exists with the provider, so a retry settles that one instead of buying another.
     `paid` is True when the provider confirmed the label is paid for (only collecting it
-    failed), False when it confirmed it isn't, None when nobody knows yet."""
+    failed), False when it confirmed it isn't, None when nobody knows yet. `status` is the
+    provider's HTTP status when it answered with an error (a 4xx means it said no)."""
 
-    def __init__(self, message: str, ref: str | None = None, paid: bool | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        ref: str | None = None,
+        paid: bool | None = None,
+        status: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.ref = ref
         self.paid = paid
+        self.status = status
+
+
+# Called with the provider's order reference just before money can move, so the caller writes
+# it down first: a lost answer or a restart then settles that order and never buys another.
+Keep = Callable[[str], None]
 
 
 @dataclass
@@ -55,7 +69,7 @@ def tracking_url(number: str) -> str:
 
 class LabelPort(Protocol):
     def available(self) -> tuple[bool, str]: ...
-    def create(self, ret: Return, address: dict[str, Any]) -> Label: ...
+    def create(self, ret: Return, address: dict[str, Any], keep: Keep | None = None) -> Label: ...
 
 
 class ClickAndDrop:
@@ -113,7 +127,8 @@ class ClickAndDrop:
             ]
         }
 
-    def create(self, ret: Return, address: dict[str, Any]) -> Label:
+    def create(self, ret: Return, address: dict[str, Any], keep: Keep | None = None) -> Label:
+        # One call makes and pays the order, so there is no moment to write a reference down.
         ok, why = self.available()
         if not ok:
             raise LabelError(why)
@@ -158,5 +173,5 @@ class NoLabels:
     def available(self) -> tuple[bool, str]:
         return False, "Automatic labels are not set up."
 
-    def create(self, ret: Return, address: dict[str, Any]) -> Label:
+    def create(self, ret: Return, address: dict[str, Any], keep: Keep | None = None) -> Label:
         raise LabelError(self.available()[1])
