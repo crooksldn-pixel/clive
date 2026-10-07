@@ -111,26 +111,22 @@ def test_channel_islands_parcels_say_tracking_may_stop(svc, shopify, bought):
 
 
 def test_history_shows_staff_names_not_ids(svc, shopify, bought, monkeypatch):
-    import jwt
+    # The session token is signed here as Shopify signs it (no JWT library needed).
+    from .test_admin_api import token
 
     cfg = Settings(shop_domain=SHOP, provider="fake", tick_interval_s=0,
                    shopify_client_id="app", shopify_client_secret="secret")  # fmt: skip
     s = svc.store.get(SHOP, bought.id)
-    s.timeline[-1].actor = "Staff 126812324183"  # written before names were looked up
+    s.timeline[-1].actor = "Staff 42"  # written before names were looked up
     svc.store.save(s)
     shopify.staff_name = "Sam Crooks"
-    import time
-
-    token = jwt.encode(
-        {"iss": f"https://{SHOP}/admin", "dest": f"https://{SHOP}", "aud": "app",
-         "sub": "126812324183", "exp": time.time() + 60, "nbf": time.time() - 5},
-        "secret", algorithm="HS256",
-    )  # fmt: skip
+    signed = token(shop=SHOP, secret="secret", aud="app")  # the staff member with id 42
     with TestClient(create_app(cfg, svc)) as c:
-        d = c.get(f"/admin/api/shipments/{bought.id}", headers={"Authorization": f"Bearer {token}"})
+        auth = {"Authorization": f"Bearer {signed}"}
+        d = c.get(f"/admin/api/shipments/{bought.id}", headers=auth)
         assert d.status_code == 200, d.text
         who = {e["who"] for e in d.json()["timeline"]}
-        assert "Sam Crooks" in who and "Staff 126812324183" not in who
+        assert "Sam Crooks" in who and "Staff 42" not in who
         assert d.json()["journey"]["steps"][0]["title"] == "Order placed"
 
 
