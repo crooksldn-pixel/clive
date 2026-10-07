@@ -422,9 +422,23 @@ async function drive(page, state, fx, gate, posts, owned) {
           bar: !(document.querySelector('#branch-bar') || {}).hidden,
           split: Boolean(document.querySelector('#branch-bar [data-action="split"]')),
         }));
-        check(fx('the idle screen is the screen, with the halves on it'),
-          idle.mode === 'orb' && idle.bar && idle.split, JSON.stringify(idle));
+        // [checker, 8 Oct 2026] Was 'the idle screen is the screen, with the halves on it' (the
+        // branch bar shown, with a Split control). Split is retired (DEC-050, 20 Sep): the idle
+        // screen is still the screen, and Split is not on it.
+        check(fx('the idle screen is the screen, and Split is not on it (DEC-050)'),
+          idle.mode === 'orb' && !idle.split, JSON.stringify(idle));
         await shot(page, `replay-${state.id}-idle`);
+        break;
+      }
+      case 'retired': {
+        // [checker, 8 Oct 2026] A control retired with Split (DEC-050), where a step used to
+        // hit-test it, tap it or count what it drew: nothing on the screen may offer it.
+        const shown = await page.evaluate((sel) => Array.from(document.querySelectorAll(sel)).filter((el) => {
+          const b = el.getBoundingClientRect();
+          return b.width > 0 && b.height > 0;
+        }).length, step.selector);
+        check(gate(`${step.selector} is retired with Split (DEC-050): nothing on the screen offers it`) + owned,
+          shown === 0, `${shown} on screen`);
         break;
       }
       case 'hit_test': {

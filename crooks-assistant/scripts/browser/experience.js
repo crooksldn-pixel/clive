@@ -112,7 +112,9 @@ async function main() {
   const turn = await ask('show me order 1938', 'browser');
   const types = (turn.ui || []).map((i) => i.type);
   check('the backend answered with an order surface', types.indexOf('order') !== -1, `ui=${types.join(',')}`);
-  check('it took the fast lane', turn.lane === 'FAST', `lane=${turn.lane}`);
+  // [checker, 8 Oct 2026] Was 'it took the fast lane' (lane FAST). The fast lane was removed on
+  // 28 September (DEC-063): every sentence is a model turn, and its lane is NORMAL.
+  check('it took the model\'s lane, as every sentence does (DEC-063)', turn.lane === 'NORMAL', `lane=${turn.lane}`);
 
   // The page renders whatever the app puts on screen; drive it the way a person does, by
   // typing into the shell's own input if it has one, otherwise by handing the payload to the
@@ -186,6 +188,14 @@ async function main() {
   const rows = await page.evaluate(() => Array.from(document.querySelectorAll('.rows li, .row')).length);
   check('the list rendered rows to tap', rows > 0, `rows=${rows}`);
 
+  // [checker, 8 Oct 2026] The walk starts from the list the Orders icon opens. Since 28 September
+  // (DEC-063) a spoken list is the model's, and a list the model draws opens no walk: Next said
+  // "There is no list open to move through." That is reported for the flow work; the controls
+  // checked below are the list's own, and the Orders icon is how a thumb opens a list to walk.
+  await page.evaluate(async () => {
+    const form = new URLSearchParams({ session_id: 'browser', command: 'open.area', area: 'orders' });
+    return (await fetch('/command', { method: 'POST', body: form })).json();
+  });
   const next = await page.evaluate(async () => {
     const form = new URLSearchParams({ session_id: 'browser', command: 'workflow.next' });
     return (await fetch('/command', { method: 'POST', body: form })).json();
@@ -239,10 +249,22 @@ async function main() {
     JSON.stringify(bound.changed || {}).slice(0, 160));
 
   // ---- 7. the capability surface
+  // [checker, 8 Oct 2026] Was 'the capability question draws a surface'. The capability card was
+  // the word-matching lane's (its `capability_summary` family), removed on 28 September with the
+  // lane (DEC-063); the question is the model's now and is answered in words, and nothing on the
+  // Mac draws the card (`app/capabilities/surface.py` is parked, MAP.md). The card's renderer and
+  // its question chips are still on the page, so they are checked on the card drawn directly.
   const caps = await ask('what can you do now?', 'browser');
-  check('the capability question draws a surface', (caps.ui || []).some((i) => i.type === 'capability'),
-    `ui=${(caps.ui || []).map((i) => i.type).join(',')}`);
-  const capsDrawn = await page.evaluate((payload) => window.__crooksDraw(payload), caps);
+  check('the capability question is the model\'s, answered in words (DEC-063)',
+    caps.lane === 'NORMAL' && Boolean((caps.answer || '').trim()),
+    `lane=${caps.lane} answer=${(caps.answer || '').slice(0, 80)}`);
+  const capsDrawn = await page.evaluate((payload) => window.__crooksDraw(payload), {
+    ui: [{ type: 'capability', data: {
+      title: 'What this can do', writes_enabled: false, counts: { reads: 55, changes: 22, bulk: 5 },
+      groups: [{ area: 'orders', label: 'Orders', items: [{ name: 'shopify_find_order', what: 'find an order by number, name or email', kind: 'read', state: 'ready' }] }],
+      examples: ['show me today\'s orders', 'who is waiting on a reply?'],
+    } }],
+  });
   check('the capability surface renders', capsDrawn.nodes > 0 && (capsDrawn.skipped || []).length === 0,
     `nodes=${capsDrawn.nodes} skipped=${(capsDrawn.skipped || []).join(',')}`);
   const capsBody = await page.evaluate(() => {
@@ -259,7 +281,8 @@ async function main() {
   // did nothing at all — no turn, no toast, not even a telemetry line. A browser is the only
   // thing that can tell a wired button from an unwired one.
   const chips = await page.evaluate(() => {
-    const found = Array.from(document.querySelectorAll('[data-ask]'));
+    // On the card: the dock's icons carry `data-ask` too, and are not what this is about.
+    const found = Array.from(document.querySelectorAll('.card-capability [data-ask]'));
     return { count: found.length, first: found.length ? (found[0].dataset.ask || '') : '' };
   });
   check('the capability card offers questions to tap', chips.count > 0, JSON.stringify(chips));
@@ -273,7 +296,7 @@ async function main() {
     // 503 — a real backend refusal, not a fault in the page, and not this check's subject.
     const speak = document.querySelector('#speak-toggle, [name="speak"]');
     if (speak && speak.checked) speak.checked = false;
-    const chip = document.querySelector('[data-ask]');
+    const chip = document.querySelector('.card-capability [data-ask]');
     if (chip) chip.click();
     return new Promise((resolve) => setTimeout(() => { window.fetch = real; resolve(posts); }, 500));
   });
@@ -335,7 +358,13 @@ async function main() {
     };
   });
 
-  await say("show me today's orders");
+  // [checker, 8 Oct 2026] Opened with the Orders icon, as a thumb opens a list to walk: a spoken
+  // list opens no walk since 28 September (DEC-063); see section 5.
+  const landedOn = page.waitForResponse((r) => r.url().endsWith('/command') && r.request().method() === 'POST');
+  const dockAt = await page.evaluate(() => { const b = document.querySelector('.dock-btn[data-area="orders"]').getBoundingClientRect(); return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }; });
+  await page.touchscreen.tap(dockAt.x, dockAt.y);
+  await landedOn;
+  await sleep(1400);
   const atList = await walkState();
   // Design pass (3 Oct), and its review: Back is drawn only when there is somewhere to go back
   // to (GENERATIVE_UI_V1 §4 removed the permanent strip, and its greyed slot with it). This check

@@ -11,6 +11,17 @@
  *   node scripts/browser/split.js http://127.0.0.1:8765 /path/to/screenshots
  *
  * Prints one JSON object: { ok, checks: [{name, ok, detail}], shots: [...] }.
+ *
+ * [checker, 8 Oct 2026] Split is retired. George retired user-facing Split on 20 September
+ * (DEC-050: "Retire the user-facing Split / Half 1 / Half 2 / Merge / Close abstraction"), which
+ * says Split-specific UI and tests are migration evidence, not permanent requirements, and
+ * web/alpha.css hides the band (MAP.md, Parked). So this file now holds the retirement, at both
+ * sizes, in the place the gate already runs (tests/test_browser.py names it): no Split control
+ * and no word about it on the idle screen; a list asked for draws its list with no half header;
+ * nothing on the screen divides the orb, no half chip and no half header appear; nothing scrolls
+ * sideways; two fingers on the ask bar are never a sentence. The checks that needed two halves
+ * (the second half's own nothing, two questions on two halves, switching halves, a half that
+ * finished elsewhere saying READY) are retired with it; each is named where it was.
  */
 'use strict';
 
@@ -107,141 +118,71 @@ async function atSize(browser, size) {
     await page.evaluate(() => { const s = document.querySelector('#settings'); if (s && s.open) s.close(); });
     await sleep(300);
   };
-  const tapChip = async (id) => {
-    await page.evaluate((b) => { const c = document.querySelector(`.branch-chip[data-branch="${b}"]`); if (c) c.click(); }, id);
-    await sleep(1500);
-  };
 
-  await page.goto(`${BASE}?dev=1`, { waitUntil: 'domcontentloaded' });
+  // The start-up off, as the other gates that are not about it open the page (web/startup.js).
+  await page.goto(`${BASE}?dev=1&startup=off`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(800);
   await page.evaluate(() => { for (const b of document.querySelectorAll('.dev-banner')) b.remove(); });
 
-  // ---- 1. the visible way in. The gesture is a shortcut; the button is the path that works.
+  // ---- 1. the idle screen. Was 'a visible Split control is on the idle screen, finger-sized
+  // and on screen' and 'and it says what it is for, rather than only what it is called'.
   const splitChip = await page.evaluate(() => {
     const c = document.querySelector('#branch-bar [data-action="split"], #branch-rail [data-action="split"]');
     if (!c) return null;
     const b = c.getBoundingClientRect();
-    return { host: c.parentElement.id, h: Math.round(b.height), w: Math.round(b.width), label: c.getAttribute('aria-label') || '',
-             onScreen: b.top >= 0 && b.bottom <= innerHeight && b.left >= 0 && b.right <= innerWidth };
+    return { host: c.parentElement.id, h: Math.round(b.height), w: Math.round(b.width), shown: b.width > 0 && b.height > 0 };
   });
-  check(at('a visible Split control is on the idle screen, finger-sized and on screen'),
-        Boolean(splitChip && splitChip.h >= 40 && splitChip.onScreen), JSON.stringify(splitChip));
+  check(at('no Split control is on the idle screen: Split is retired (DEC-050)'),
+        !(splitChip && splitChip.shown), JSON.stringify(splitChip));
   const why = await page.evaluate(() => {
     const n = document.querySelector('#branch-bar .branch-why');
     if (!n) return null;
     const b = n.getBoundingClientRect();
-    return { text: n.textContent.trim(), onScreen: b.left >= 0 && b.right <= innerWidth };
+    return { text: n.textContent.trim(), shown: b.width > 0 && b.height > 0 };
   });
-  check(at('and it says what it is for, rather than only what it is called'),
-        Boolean(why && why.text && why.onScreen), JSON.stringify(why));
+  check(at('and no line about Split either'), !(why && why.shown && why.text), JSON.stringify(why));
 
-  // ---- 2. one half, asked for a list. Then divide.
+  // ---- 2. one half, asked for a list.
   await say("show me today's orders");
   const first = await screen();
   check(at('the first half draws its list'), first.cards.some((c) => c.startsWith('order_list')), JSON.stringify(first.cards));
   check(at('with one half there is no header to tell apart'), first.head === '', `head="${first.head}"`);
 
+  // Was 'the Split button divides the orb' (two halves), 'both halves are chips a finger can
+  // hit, each naming what it is' and 'the screen now says which half it is'.
   posts.length = 0;
-  await page.evaluate(() => { const c = document.querySelector('#branch-bar [data-action="split"], #branch-rail [data-action="split"]'); if (c) c.click(); });
-  await sleep(1600);
-  const divided = await branchesNow();
-  check(at('the Split button divides the orb'), divided.count === 2, `branches=${divided.count}`);
-  check(at('and the division sends no speech turn'), !posts.includes('/turn'), `posted: ${posts.join(', ') || 'nothing'}`);
-  const afterSplit = await screen();
-  check(at('both halves are chips a finger can hit, each naming what it is'),
-        afterSplit.chips.length === 2 && afterSplit.chips.every((c) => c.h >= 40 && c.onScreen && c.head),
-        JSON.stringify(afterSplit.chips));
-  check(at('the screen now says which half it is'), /ORDERS/.test(afterSplit.head) && /half 1 of 2/.test(afterSplit.head),
-        `head="${afterSplit.head}"`);
-  await shot('01-divided');
-
-  // ---- 3. the fresh half shows ITS OWN nothing, with somewhere to go — never the other
-  // half's cards under a different chip, which is the whole of the owner's complaint.
-  const other = divided.ids.find((id) => id !== divided.focused);
-  await tapChip(other);
-  const onSecond = await screen();
-  check(at('tapping the other half redraws: the first half\'s cards are gone'),
-        !onSecond.cards.some((c) => c.startsWith('order_list')), JSON.stringify(onSecond.cards));
-  /* Was `/EMPTY|ORDER/`, which asserted the Mac's TOKEN on the glass and so held the band to
-     printing a database state at the owner. The visual pass caught what that permitted:
-     "EMPTY Orders" over a focused empty half — nothing here, and it is about today's orders,
-     in one line. The Mac now sends `headline.words` beside its tokens
-     (app/session/branch.py SAID_ALOUD) and the band draws that.
-
-     Stricter, not looser, in two ways: the band must still name the half AND say which half
-     it is, and it must now carry NO state token at all — which the old regex actively
-     required. A place keeps its own word, so ORDER still passes as itself. */
-  check(at('the fresh half says it is the fresh half'),
-        /NOTHING YET|ORDER/i.test(onSecond.head) && /half 2 of 2/.test(onSecond.head), `head="${onSecond.head}"`);
-  check(at('and says it in words, not in the Mac\'s state tokens'),
-        !/\bEMPTY\b|\bWORKSPACE\b/.test(onSecond.head), `head="${onSecond.head}"`);
-  check(at('and offers somewhere to go, as controls a thumb can hit'),
-        onSecond.offers.length >= 4 && onSecond.offers.every((o) => o.h >= 40 && o.command),
-        JSON.stringify(onSecond.offers));
-  // "Divided." is about the thing he just did, and belongs on screen. What must never be
-  // there is a line about the OTHER half's work: the selector says READY, and that is all.
-  check(at('and nothing about the other half was thrown over this one'),
-        !/other half/i.test(onSecond.toast), `toast="${onSecond.toast}"`);
-  await shot('02-second-half');
-
-  // ---- 4. two halves, two questions, two screens. This is the assertion the session needed.
-  await say('find emails needing replies');
-  const secondAnswered = await screen();
-  check(at('the second half draws its own place'), secondAnswered.cards.some((c) => c.startsWith('email_list')),
-        JSON.stringify(secondAnswered.cards));
-  check(at('and says so in its header'), /INBOX/.test(secondAnswered.head), `head="${secondAnswered.head}"`);
-
-  await tapChip(divided.focused);
-  const backOnFirst = await screen();
-  await tapChip(other);
-  const backOnSecond = await screen();
-  const differ = JSON.stringify(backOnFirst.cards) !== JSON.stringify(backOnSecond.cards);
-  check(at('switching halves changes the cards on screen, both ways'),
-        differ && backOnFirst.cards.some((c) => c.startsWith('order_list')) && backOnSecond.cards.some((c) => c.startsWith('email_list')),
-        JSON.stringify({ first: backOnFirst.cards, second: backOnSecond.cards }));
-  check(at('and changes the header with them'), backOnFirst.head !== backOnSecond.head,
-        JSON.stringify({ first: backOnFirst.head, second: backOnSecond.head }));
-  check(at('the lit chip is the half being talked to'),
-        backOnSecond.chips.filter((c) => c.pressed).length === 1, JSON.stringify(backOnSecond.chips.map((c) => c.pressed)));
-  await shot('03-both-halves');
-
-  // ---- 5. nothing on either half runs off the side of an eight-inch screen.
-  check(at('no half of this ever scrolls sideways'), !backOnSecond.wide, 'the page is wider than the screen');
-
-  // ---- 6. a background half that finishes says READY on the selector, and gives up its work
-  // when it is tapped. Asked on the half NOT on screen, so the answer lands elsewhere.
-  const finished = await page.evaluate(async (id) => {
-    const s = localStorage.getItem('crooks.session') || '';
-    const r = await fetch('/turn', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, cache: 'no-store',
-      body: JSON.stringify({ text: 'show me order 1938', session_id: s, branch_id: id }),
-    });
-    const d = await r.json();
-    return { ok: r.ok, answer: String(d.answer || '').slice(0, 80) };
-  }, divided.focused);
-  await sleep(600);
-  await page.evaluate(async () => {
-    const s = localStorage.getItem('crooks.session') || '';
-    const r = await fetch(`/branches?session_id=${encodeURIComponent(s)}`, { cache: 'no-store' });
-    window.__branches = await r.json();
+  const clicked = await page.evaluate(() => {
+    const c = document.querySelector('#branch-bar [data-action="split"], #branch-rail [data-action="split"]');
+    if (!c || c.getBoundingClientRect().width === 0) return false;
+    c.click();
+    return true;
   });
-  await page.evaluate(() => { if (window.__branches) window.dispatchEvent(new Event('focus')); });
-  const listed = await branchesNow();
-  check(at('the half that answered while he was elsewhere says READY'),
-        finished.ok && listed.states.includes('READY'), JSON.stringify({ ok: finished.ok, states: listed.states }));
-  const whileElsewhere = await screen();
-  check(at('and says it on the selector, not over the half he is reading'),
-        !/other half/i.test(whileElsewhere.toast) && whileElsewhere.cards.some((c) => c.startsWith('email_list')),
-        JSON.stringify({ toast: whileElsewhere.toast, cards: whileElsewhere.cards }));
-  await tapChip(divided.focused);
-  const retrieved = await screen();
-  check(at('and tapping it shows the work it finished'),
-        retrieved.cards.some((c) => c.startsWith('order')), JSON.stringify(retrieved.cards));
-  await shot('04-ready-retrieved');
+  await sleep(1600);
+  const one = await branchesNow();
+  check(at('nothing on the screen divides the orb (DEC-050)'), !clicked && one.count <= 1, `clicked=${clicked} branches=${one.count}`);
+  check(at('and nothing sends a speech turn'), !posts.includes('/turn'), `posted: ${posts.join(', ') || 'nothing'}`);
+  const after = await screen();
+  check(at('no half chip and no half header are drawn'), after.chips.length === 0 && after.head === '',
+        JSON.stringify({ chips: after.chips, head: after.head }));
+  await shot('01-one-half');
 
-  // ---- 7. a one-finger hold is still a question, and a second finger joining it is still
-  // not one: the Phase 2/3 gesture-safety work must not regress with a visible Split button.
-  const pill = await page.evaluate(() => { const b = document.querySelector('#talk-label').getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
+  // ---- 3, 4 and 6 are retired with Split: 'tapping the other half redraws…', 'the fresh half
+  // says it is the fresh half', 'and says it in words, not in the Mac's state tokens', 'and
+  // offers somewhere to go…', 'and nothing about the other half was thrown over this one', 'the
+  // second half draws its own place', 'and says so in its header', 'switching halves changes the
+  // cards on screen, both ways', 'and changes the header with them', 'the lit chip is the half
+  // being talked to', 'the half that answered while he was elsewhere says READY', 'and says it on
+  // the selector, not over the half he is reading' and 'and tapping it shows the work it finished'.
+
+  // ---- 5. nothing runs off the side of an eight-inch screen. Was 'no half of this ever
+  // scrolls sideways'.
+  check(at('nothing here ever scrolls sideways'), !after.wide, 'the page is wider than the screen');
+
+  // ---- 7. a second finger joining a hold is never a sentence. Was held on `#talk-label`, the
+  // pill the alpha product hides; the hold surface beside the cards is the ask bar
+  // (web/alpha.js `#ask-bar`), and was 'a second finger joining a hold merges and never becomes
+  // a sentence': there are no halves to merge.
+  const pill = await page.evaluate(() => { const b = document.querySelector('#ask-bar').getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
   const cdp = await context.newCDPSession(page);
   const touches = (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points });
   posts.length = 0;
@@ -254,7 +195,7 @@ async function atSize(browser, size) {
   }
   await touches('touchEnd', []);
   await sleep(1800);
-  check(at('a second finger joining a hold merges and never becomes a sentence'),
+  check(at('a second finger joining a hold never becomes a sentence'),
         !posts.includes('/turn'), `posted: ${posts.join(', ') || 'nothing'}`);
 
   check(at('no script error during the whole run'), errors.length === 0, errors.slice(0, 3).join(' | '));

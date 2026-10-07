@@ -523,7 +523,6 @@
      "customer",
      "customer_workspace"
     ],
-    "routes_to_model": "28 words, against customer_purchase_lookup's max_words=14",
     "text": "pull up the history of Mia Jones and her orders, see how many times she has ordered, see how much she spent in total, and see if she is in Gmail anywhere"
    },
    "forensics": "D-3 \u00b7 the turn's only new read was gmail_search; renders were [['email_list'],['email_list']]",
@@ -1005,24 +1004,16 @@
       "do": "idle"
      },
      {
-      "do": "hit_test",
+      "do": "retired",
       "selector": "#branch-bar [data-action=\"split\"]"
      },
      {
-      "do": "tap_selector",
-      "expect_no_post": "/turn",
-      "selector": "#branch-bar [data-action=\"split\"]"
-     },
-     {
-      "do": "hit_test",
+      "do": "retired",
       "selector": "#branch-bar .branch-chip"
      },
      {
-      "do": "undivide_controls",
-      "expect": [
-       "cancel"
-      ],
-      "why": "neither half holds anything, so keeping and letting go are the same act"
+      "do": "retired",
+      "selector": "#branch-bar .branch-acts [data-action]"
      },
      {
       "do": "collide",
@@ -1067,24 +1058,11 @@
       "do": "idle"
      },
      {
-      "do": "tap_selector",
-      "expect_no_post": "/turn",
+      "do": "retired",
       "selector": "#branch-bar [data-action=\"split\"]"
      },
      {
-      "count": 2,
-      "do": "expect_branches"
-     },
-     {
-      "do": "undivide_controls",
-      "expect": [
-       "cancel"
-      ],
-      "why": "a fork of an empty half holds nothing, so there is one outcome"
-     },
-     {
-      "do": "tap_selector",
-      "expect_no_post": "/turn",
+      "do": "retired",
       "selector": "#branch-bar [data-action=\"cancel\"]"
      },
      {
@@ -1096,26 +1074,12 @@
       "text": "show me today's orders"
      },
      {
-      "do": "tap_selector",
-      "expect_no_post": "/turn",
-      "selector": "#branch-bar [data-action=\"split\"]"
+      "do": "retired",
+      "selector": "#branch-bar [data-action=\"split\"], #branch-rail [data-action=\"split\"]"
      },
      {
-      "count": 2,
-      "do": "expect_branches"
-     },
-     {
-      "do": "undivide_controls",
-      "expect": [
-       "merge",
-       "cancel"
-      ],
-      "why": "the fork inherits the parent's working set, so keeping it and letting it go differ"
-     },
-     {
-      "do": "tap_selector",
-      "expect_no_post": "/turn",
-      "selector": "#branch-bar [data-action=\"merge\"]"
+      "do": "retired",
+      "selector": "#branch-bar [data-action=\"merge\"], #branch-rail [data-action=\"merge\"]"
      },
      {
       "count": 1,
@@ -1177,11 +1141,8 @@
       "do": "idle"
      },
      {
-      "do": "tap_burst",
-      "durations_from": "observed.ms",
-      "expect_no_post": "/turn",
-      "expect_no_recording": true,
-      "near": "#branch-bar [data-action=\"split\"]"
+      "do": "retired",
+      "selector": "#branch-bar [data-action=\"split\"]"
      },
      {
       "do": "tap_burst",

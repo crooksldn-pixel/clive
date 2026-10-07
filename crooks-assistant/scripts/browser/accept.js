@@ -162,7 +162,9 @@ async function main() {
   const bs = page.locator('.action-surface').first();
   await bs.dispatchEvent('pointerdown'); await bs.dispatchEvent('pointerup');
   await sleep(150);
-  check('a blocked proposal says why and cannot be tapped', blocked.state === 'unavailable' && /switched off on the Mac/.test(blocked.label) && posts.length === 0, JSON.stringify(blocked));
+  // [checker, 8 Oct 2026] Was /switched off on the Mac/: the owner-facing words name the server
+  // since the wording pass of commit 6713d1ed (production is a Linux server, not the Mac).
+  check('a blocked proposal says why and cannot be tapped', blocked.state === 'unavailable' && /switched off on the server/.test(blocked.label) && posts.length === 0, JSON.stringify(blocked));
   await shot('06-action-blocked');
 
   // 7. A card expires on the tablet a second before the Mac would say so.

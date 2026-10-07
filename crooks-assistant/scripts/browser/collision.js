@@ -311,9 +311,13 @@ async function one(browser, vp) {
      `holdsSomething` in web/app.js sets that out, including why §18 is not the reason. The
      assertion is not weaker for saying so: it now pins the strip exactly, so a Merge that
      came back over an empty half would fail here, and so would a missing Close. */
-  check(`${vp.name} · the idle screen divides, and its un-divide strip is Close alone`,
-    divided === 'clicked' && halves.chips === 2
-      && JSON.stringify(halves.acts.slice().sort()) === JSON.stringify(['cancel']),
+  // [checker, 8 Oct 2026] Was 'the idle screen divides, and its un-divide strip is Close alone'
+  // (a Split control, two halves, Close). Split is retired: George retired user-facing Split on
+  // 20 September (DEC-050), which says Split-specific UI and tests are migration evidence, and
+  // web/alpha.css hides the band. So the pinned value is turned round: no Split control, no
+  // halves, no un-divide strip. The measurement below still runs on whatever the screen is.
+  check(`${vp.name} · the idle screen offers no Split, and nothing divides it: Split is retired (DEC-050)`,
+    divided === 'no split control on the idle screen' && halves.chips === 0 && halves.acts.length === 0,
     `${divided} — ${JSON.stringify(halves)}`);
   await measure('idle_two_halves');
   await shot(page, `collide-${vp.width}-idle-divided`);
@@ -386,9 +390,12 @@ async function one(browser, vp) {
       past: fits(nav) + fits(zone),
     };
   });
-  check(`${vp.name} · the divided navigation row could be measured with a list open`,
+  // [checker, 8 Oct 2026] Was 'the divided navigation row could be measured with a list open',
+  // with two halves and an un-divide control in the branch band. With Split retired (DEC-050,
+  // above) the band holds neither; the navigation row is measured with the list open as before.
+  check(`${vp.name} · the navigation row could be measured with a list open, and no halves beside it`,
     Boolean(strip && strip.mode === 'context' && strip.nav.trail && strip.nav.cursor
-      && strip.zone.chips === 2 && strip.zone.undivide.length >= 1), JSON.stringify(strip));
+      && strip.zone.chips <= 0 && strip.zone.undivide.length === 0), JSON.stringify(strip));
   check(`${vp.name} · §8 · navigation and the two halves are in different bands, and both fit the glass`,
     Boolean(strip && strip.nav.branch === 0 && strip.past === 0), JSON.stringify(strip));
   await measure('nav_full_divided');
