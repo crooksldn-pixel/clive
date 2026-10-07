@@ -146,6 +146,19 @@ def test_a_name_bound_only_in_a_nested_scope_does_not_hide_the_module_level_help
                               '    runtime.provider = Model()\n')
 
 
+def test_a_nested_function_that_binds_and_reads_a_name_does_not_reach_a_sibling_of_that_name():
+    # A reached nested function's own `go` is not the test's dispatching nested `go`.
+    nested_go = DISPATCH + 'import anyio\ndef test_it():\n    async def go():\n        await dispatch("probe_tool", {})\n'
+    assert not _cites(nested_go + '    def unused():\n        go = None\n        return go\n    unused()\n')
+    assert not _cites(nested_go + '    def unused(go):\n        return go\n    unused(None)\n')
+    assert not _cites(nested_go + '    pick = lambda go: go\n    pick(None)\n')
+    assert not _cites(nested_go + '    def outer():\n        go = None\n        def inner():\n'
+                                  '            return go\n        return inner()\n    outer()\n')
+    # Reading the name where it means the test's own `go` still reaches it.
+    assert _cites(nested_go + '    def helper():\n        return go\n    anyio.run(helper())\n')
+    assert _cites(nested_go + '    def unused():\n        go = None\n        return go\n    anyio.run(go)\n')
+
+
 def test_a_name_bound_in_the_reading_scope_or_a_function_around_it_is_its_own():
     assert not _cites(MODULE_GO + 'import anyio\ndef test_it():\n    async def inner():\n        go = None\n'
                                   '        return go\n    anyio.run(inner)\n')

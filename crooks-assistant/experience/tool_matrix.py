@@ -430,6 +430,21 @@ def _scopes(fn: ast.AST) -> dict[int, tuple[ast.AST, ...]]:
     return out
 
 
+def _binder(name: str, chain: tuple[ast.AST, ...], bound: dict[int, set[str]]) -> ast.AST | None:
+    """The scope a name read in `chain` (its scopes, the outermost first) means, by Python's own
+    rule: the innermost that binds it, then the functions around it — a class body's names are
+    not seen by the functions it nests. None when none of them binds it: the name is the file's.
+    `bound` caches each scope's names by its id."""
+    for depth, scope in enumerate(reversed(chain)):
+        if depth and isinstance(scope, ast.ClassDef):
+            continue
+        if id(scope) not in bound:
+            bound[id(scope)] = _bound_in(scope)
+        if name in bound[id(scope)]:
+            return scope
+    return None
+
+
 def _annotations(fn: ast.AST) -> list[ast.AST]:
     """A function's annotations, and those of what it nests: a type named there is not used."""
     out: list[ast.AST] = []
@@ -476,6 +491,9 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
     runs only when the running code around it uses it: calls it (`asyncio.run(go())`), hands it
     to a call (`anyio.run(go)`) or returns it to a caller that will (a model step a test
     builds). One it defines and never names again runs nothing (the 2026-10-01 repair, F-01).
+    That name, too, is resolved where it is read: it reaches the function only when the
+    innermost scope around the reading that binds the name is the one that defines it, so a
+    nested function that binds and reads its own `go` reaches no sibling `go`.
     The same holds for a class nested in running code — its methods run once that code makes
     it, hands it on or returns it, as a class of the file's do once it is made — and for a
     lambda kept under a name, whose body runs once that name is used; a class never named again
@@ -541,9 +559,17 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
 
     def runs_with(root: ast.AST) -> list[ast.AST]:
         """The nodes of `root` that run when it does: its own code, and a function nested in it
-        only once that code names the function again."""
+        only once that code names the function again — where the name means that function: the
+        innermost scope around the reading that binds the name is the one that defines it. A
+        nested function that binds and reads its own `go` does not reach a sibling `go`."""
         out: list[ast.AST] = []
-        nested: dict[str, list[ast.AST]] = {}
+        chains = _scopes(root)
+        bound: dict[int, set[str]] = {}
+        nested: dict[tuple[int, str], list[ast.AST]] = {}   # (defining scope's id, name) -> definitions
+
+        def define(node: ast.AST, name: str, fn: ast.AST) -> None:
+            scope = chains.get(id(node), (root,))[-1]
+            nested.setdefault((id(scope), name), []).append(fn)
 
         def visit(children) -> None:
             stack = list(children)
@@ -551,7 +577,7 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
                 node = stack.pop()
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     # Defining it runs its decorators and defaults, not its body.
-                    nested.setdefault(node.name, []).append(node)
+                    define(node, node.name, node)
                     stack.extend(node.decorator_list)
                     stack.extend(node.args.defaults)
                     stack.extend(d for d in node.args.kw_defaults if d is not None)
@@ -561,7 +587,7 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
                     # not its methods: those run once the code around it uses the class — makes
                     # it, hands it on or returns it — as a class of the file runs its methods
                     # once it is made.
-                    nested.setdefault(node.name, []).append(node)
+                    define(node, node.name, node)
                     stack.extend([*node.decorator_list, *node.bases, *node.keywords])
                     stack.extend(item for item in node.body
                                  if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)))
@@ -573,33 +599,40 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
                     # straight into a call, a return or a container is handed on, and runs.
                     out.append(node)
                     for target in _targets(node):
-                        nested.setdefault(target.id, []).append(node.value)
+                        define(node, target.id, node.value)
                     stack.extend(node.value.args.defaults)
                     stack.extend(d for d in node.value.args.kw_defaults if d is not None)
                     continue
                 out.append(node)
                 stack.extend(ast.iter_child_nodes(node))
 
-        def reaches() -> set[str]:
-            # A name the running code reads: a call, an argument, a return, a list entry.
-            return {node.id for node in out if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)}
-
         visit(ast.iter_child_nodes(root))
-        entered: set[str] = set()
-        while waiting := (reaches() & nested.keys()) - entered:
-            for name in waiting:
-                entered.add(name)
-                for fn in nested[name]:
-                    out.append(fn)
-                    if isinstance(fn, ast.ClassDef):
-                        for item in fn.body:
-                            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                                out.append(item)
-                                visit(ast.iter_child_nodes(item))
-                    elif isinstance(fn, ast.Lambda):
-                        visit([fn.body])
-                    else:
-                        visit(fn.body)
+        entered: set[int] = set()
+        read = 0
+        while read < len(out):
+            # A name the running code reads — a call, an argument, a return, a list entry —
+            # reaches what the scope that binds it defines under that name, and nothing else.
+            node = out[read]
+            read += 1
+            if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)):
+                continue
+            scope = _binder(node.id, chains.get(id(node), (root,)), bound)
+            if scope is None:
+                continue
+            for fn in nested.get((id(scope), node.id), ()):
+                if id(fn) in entered:
+                    continue
+                entered.add(id(fn))
+                out.append(fn)
+                if isinstance(fn, ast.ClassDef):
+                    for item in fn.body:
+                        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            out.append(item)
+                            visit(ast.iter_child_nodes(item))
+                elif isinstance(fn, ast.Lambda):
+                    visit([fn.body])
+                else:
+                    visit(fn.body)
         return out
 
     def named(root: ast.AST, ran: list[ast.AST]) -> tuple[set[str], set[str]]:
@@ -612,16 +645,7 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
         bound: dict[int, set[str]] = {}
 
         def local(node: ast.Name) -> bool:
-            # Python's own rule: the innermost scope, then the functions around it — a class
-            # body's names are not seen by the functions it nests.
-            for depth, scope in enumerate(reversed(chains.get(id(node), (root,)))):
-                if depth and isinstance(scope, ast.ClassDef):
-                    continue
-                if id(scope) not in bound:
-                    bound[id(scope)] = _bound_in(scope)
-                if node.id in bound[id(scope)]:
-                    return True
-            return False
+            return _binder(node.id, chains.get(id(node), (root,)), bound) is not None
 
         typed = {id(node) for annotation in _annotations(root) for node in ast.walk(annotation)}
         inner = {id(node) for nested in ast.walk(root) if isinstance(nested, ast.ClassDef)
