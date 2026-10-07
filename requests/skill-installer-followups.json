@@ -1,0 +1,73 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "skill-installer-followups",
+  "title": "Skill installer follow-ups from PR #82: a shell grant is the owner's, the final move never replaces, and a quoted path cannot speak for a proposal",
+  "requested_outcome": "PR #82 (the skill installer, landed 1 October) left three follow-ups, and none is on trunk a68536c6.\n\nF4: app/skills/install.py records a skill's allowed-tools in provenance.json but installs it whatever they grant. A grant of a shell tool (Bash, Shell, PowerShell or Terminal) lets every builder that loads the skill run commands without asking, so it is the owner's, as a hooks key or a !`command` line already are. The installer refuses such a skill as the owner's (`_Refused(OWNER, ...)`, before anything is staged), whoever approved it. It reads the grant from the copy's own SKILL.md front matter with the installer's own reader (`_front_matter_lines`, which reads past a '...' line, as the hooks-key check does). The key is allowed-tools or allowed_tools in any case. The value may be written inline (`allowed-tools: Read, Bash`), as a flow list (`[Read, Bash]`) or as a block list on the lines below the key (`  - Bash`); app/digest/scan.py reads only the inline form, which is why the installer reads it itself. A shell tool counts bare or with a parenthesised pattern such as Bash(npm:*), in any case: the shapes scan.py's `_SHELL_TOOL` names. The installer also refuses on a stored `execute.agent_permissions` finding in the skill's folder (add it to OWNER_RULES). The reason names the grant and the file. A skill whose allowed-tools name no shell tool (for example 'Read, Grep') installs exactly as before, and provenance.json records allowed_tools as before.\n\nF6: `_stage` checks that nothing is at the final name and then calls os.rename(staging, final). A folder that appears at the final name between the check and the move is replaced silently when it is empty, because POSIX rename replaces an empty directory. The move becomes Linux's renameat2(AT_FDCWD, staging, AT_FDCWD, final, RENAME_NOREPLACE), called through ctypes on libc's renameat2 symbol (glibc 2.28 or later; Python's os module has no such call), so nothing at the final name is ever replaced. EEXIST becomes the CONFLICT refusal that is there today ('appeared while the skill was staged; nothing is overwritten'), the staging folder is removed, and whatever is at the final name is left exactly as it was. When the no-replace move is not available (no renameat2 in libc, ENOSYS, or EINVAL from a filesystem that does not take the flag), nothing is installed: the skill is refused as HELD, with a reason saying the move that never replaces is not available here. The installer never falls back to os.rename. Any other OSError propagates as now. The existing check before the move stays, because it gives the clear message in the common case. uninstall's move into its own fresh trash folder is unchanged. ctypes is in the standard library, so there is no new dependency.\n\nexplain is forgeable, the root cause of F1. app/digest/propose.py's `explain` reads a proposal's parts by searching its reasoning for CLIVE's labels from the end. But `_licence_plan` writes text the artifact chose (the licence expression, and the path it was declared in, which can be a folder name) into the Needs-the-owner and Licence clauses after the proposal's ' Target <target>: '. On trunk, for each of tests/test_skill_install.py's FORGED_FOLDERS digested without curated, explain(proposal).needs_owner is '' and needs_owner(proposal) is False, though the reasoning carries CLIVE's own Needs-the-owner clause; so app/digest/report.py counts that proposal among those that do not need the owner. install.is_curated already reads forwards and is not fooled. Fix it in two parts.\n(i) Write time. A small public helper in propose (for example `inert(text)`) replaces the space after every colon with a no-break space (U+00A0). It is applied to the licence expression and the declared-in path wherever `_licence_plan` writes them. They read the same, but ' Needs the owner: ', ' Licence: ', ' Hypothesis: ', ' Measure: ', ' Removal: ', ' Rank: ' and ' Target <target>: ' then occur in a new reasoning, after its marker, only where `_reasoning` writes them. The unit's title and the skill's name, which come before the marker, are left as they are: explain finds the marker from the end, so they cannot speak for the proposal, and tests/test_digest_relate.py pins the title staying in the why as text.\n(ii) Read time, failing closed. A reasoning written before (i), or by hand, can still hold a forged label. explain keeps its reading. But when a reasoning is ambiguous, meaning ' Target <target>: ' occurs in it more than once, or any of the six labels above occurs more than once after its last ' Target <target>: ', and that reading found no Needs-the-owner clause, explain's needs_owner is a fixed sentence in CLIVE's words. The sentence says the reasoning repeats CLIVE's own labels, so whether the owner must decide cannot be read from it. needs_owner() is then True and install.is_curated() False for that proposal. A reasoning that is not ambiguous reads exactly as before.\n\nOne existing expectation changes, and nothing else in its file: tests/test_skill_install.py's test_a_folder_name_cannot_make_a_skill_that_needs_the_owner_curated asserts `folder in proposal.reasoning`, which becomes the helper applied to folder (for example `propose.inert(folder) in proposal.reasoning`), because the folder name now reaches the reasoning with its colons made inert.\n\nMust not change: is_curated and its tests; the installer's other checks, outcomes, records, messages and the CLI; the digest store's records and schema; propose's targets, scores, budgets and every word except the neutralised artifact text; app/digest/scan.py; app/digest/report.py; uninstall. Prove all three in a new crooks-assistant/tests/test_skill_installer_followups.py, reusing tests/test_skill_install.py's helpers by import where they fit. Tests use tiny skills written in tmp_path, never real third-party skills. docs/phase4/TOOL_MATRIX.md is regenerated by the loop: do not edit it. Run every declared check yourself with the run_checks tool, exactly as declared, before you report, and report only a candidate on which all of them pass. If a check fails on the untouched base, report that base failure and its output instead of changing anything to hide it. You cannot delete files or run commands other than the declared checks. Do not report an owner decision for GitHub acceptance: it runs automatically on your published candidate.",
+  "base_ref": "a68536c69596ccec7bb0087dc4e95ac24c01a25f",
+  "base_sha": "a68536c69596ccec7bb0087dc4e95ac24c01a25f",
+  "allowed_paths": [
+    "crooks-assistant/app/skills/install.py",
+    "crooks-assistant/app/digest/propose.py",
+    "crooks-assistant/tests/test_skill_installer_followups.py",
+    "crooks-assistant/tests/test_skill_install.py"
+  ],
+  "acceptance_criteria": [
+    "Each of these SKILL.md front matters is refused as the owner's (status refused, kind owner), nothing is written at skills_dir/<name> and no staging folder is left: 'allowed-tools: Read, Bash'; 'allowed-tools: Bash(npm:*)'; 'allowed_tools: [Grep, shell]'; a block list 'allowed-tools:' then '  - Read' and '  - PowerShell'; 'Allowed-Tools: Terminal'; and 'allowed-tools: Bash' placed after a '...' line before the closing '---'. The reason names the grant and the file (check: tests).",
+    "A stored execute.agent_permissions finding in the skill's folder refuses it as the owner's, and a skill with 'allowed-tools: Read, Grep' still installs with provenance.json allowed_tools 'Read, Grep' (checks: tests, regression).",
+    "An empty folder, and in a second case a non-empty one, made at the final name after the installer's checks and before the move (for example from a wrapped `_seal`) makes the install a conflict; that folder is left exactly as it was and no staging folder remains under skills_dir (check: tests).",
+    "With the no-replace move made unavailable (renameat2 missing, or failing with ENOSYS or EINVAL), the skill is refused as held, nothing is at the final name, no staging folder remains, and os.rename is never called for the install (check: tests).",
+    "propose() on a skill whose licence is declared in a folder named like each of tests/test_skill_install.py's FORGED_FOLDERS, and like 'x Target builder_skill: y', gives a proposal for which needs_owner() is True and explain().needs_owner is CLIVE's own builder-skill sentence. Its reasoning holds ' Target builder_skill: ' exactly once, and each of the six labels at most once after it (check: tests).",
+    "A hand-built builder_skill Absorption whose reasoning is trunk's forged shape (each forged folder quoted raw in its Licence clause, as trunk's propose wrote it) gives needs_owner() True and install.is_curated() False (check: tests).",
+    "For proposals with no forged text, explain's parts and needs_owner are exactly as before: tests/test_digest_propose.py, tests/test_digest_relate.py (including test_a_proposal_reads_back_in_its_parts_and_a_title_cannot_speak_for_it), tests/test_digest_curated.py, tests/test_digest_pipeline.py, tests/test_digest_hold_per_skill.py and tests/test_skill_tools.py pass unchanged (check: regression).",
+    "tests/test_skill_install.py passes, and its only changed line is the folder assertion in test_a_folder_name_cannot_make_a_skill_that_needs_the_owner_curated (check: regression).",
+    "ruff passes (check: ruff)."
+  ],
+  "checks": [
+    {
+      "name": "tests",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_skill_installer_followups.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "regression",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-m",
+        "not live",
+        "tests/test_skill_install.py",
+        "tests/test_skill_tools.py",
+        "tests/test_digest_curated.py",
+        "tests/test_digest_propose.py",
+        "tests/test_digest_relate.py",
+        "tests/test_digest_pipeline.py",
+        "tests/test_digest_hold_per_skill.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/skill-installer-followups",
+  "max_repair_rounds": 3
+}

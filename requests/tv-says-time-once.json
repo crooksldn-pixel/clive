@@ -1,0 +1,67 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "tv-says-time-once",
+  "title": "The TV says the time once, and never 'Waiting for CLIVE' when nothing is up",
+  "requested_outcome": "From the night design audit (§13, the TV, 7 October). These two items were not in the design pass that landed with PR #96, and both are wording on the screen page, web/display.js.\n(1) Idle: under the date and the dot clock, `showLine` rotates three lines: 'Waiting for CLIVE', 'Tell CLIVE: “put the next order on the <screen name>”' and, when there is one, 'Last done here: <title> at <time>'. 'Waiting for CLIVE' reads like a fault when nothing is simply up, so it leaves the rotation. The line then rotates between the other two, or shows the hint alone when there is no last done. The refused, offline and cannot-be-reached lines are unchanged.\n(2) An objective on the TV says its time twice: once in the top bar, 'Put up by CLIVE at 23:29' (`topBar`, the latest of the panes' times), and again in the objective's foot, 'As of 23:29. Ask CLIVE to put it up again for the latest.'. The foot drops 'As of HH:MM. ' whenever that time is the one the top bar already says, leaving 'Ask CLIVE to put it up again for the latest.'. When two panes are up and the objective's own time differs from the top bar's (the other pane was put up later), the foot still says 'As of HH:MM.' for the objective. A foot whose time cannot be read (timeOf gives '') never says 'As of .'.\n\nMust not change: the dots, the layout, the CSS and everything else drawn; the top bar's words; the pairing words; display.html's 'Waiting for CLIVE to answer' (the Mark packed wait); and the phone's 'Waiting for CLIVE…' offline line in web/app.js and web/sw.js, which tests/test_pwa.py and tests/web/sw.test.js pin. Every existing test passes unchanged. Prove both changes with new tests in tests/web/display.test.js, using its own page() stand-in, as its other tests do. No browser is needed: the node suite runs the page's own code against a DOM stand-in. Run every declared check yourself with the run_checks tool, exactly as declared, before you report, and report only a candidate on which all of them pass. If a check fails on the untouched base, report that base failure and its output instead of changing anything to hide it. You cannot delete files or run commands other than the declared checks. Do not report an owner decision for GitHub acceptance: it runs automatically on your published candidate.",
+  "base_ref": "a68536c69596ccec7bb0087dc4e95ac24c01a25f",
+  "base_sha": "a68536c69596ccec7bb0087dc4e95ac24c01a25f",
+  "allowed_paths": [
+    "crooks-assistant/web/display.js",
+    "crooks-assistant/tests/web/display.test.js"
+  ],
+  "acceptance_criteria": [
+    "Idle, with nothing up and CLIVE reachable, the line under the clock is never 'Waiting for CLIVE' over at least four rotations; it shows 'Tell CLIVE: “put the next order on the <screen name>”', and when there is a last done it alternates between that hint and 'Last done here: <title> at <time>' (check: tests).",
+    "The refused, offline and cannot-be-reached lines are exactly as before, and every existing test in tests/web/display.test.js passes unchanged (check: tests).",
+    "With one objective put up, the top bar says 'Put up by CLIVE at HH:MM', the foot is exactly 'Ask CLIVE to put it up again for the latest.', and HH:MM appears once in the page's drawn text (check: tests).",
+    "With two panes up, the objective put up earlier than the other pane, the top bar says the later time and the objective's foot says 'As of <its own HH:MM>. Ask CLIVE to put it up again for the latest.'; with no readable time, no foot says 'As of .' (check: tests).",
+    "web/display.js still parses, and the screen, remote and dots suites under node, and the Python suites that read web/display.js's source, pass (check: regression).",
+    "Only web/display.js and tests/web/display.test.js change; no CSS, HTML or other web file changes (review)."
+  ],
+  "checks": [
+    {
+      "name": "tests",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-c",
+        "import shutil, subprocess, sys\nnode = shutil.which('node')\nif node is None:\n    sys.exit('node is not on PATH here, so the TV suite cannot run')\nsys.exit(subprocess.run([node, '--test', 'tests/web/display.test.js']).returncode)\n"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "regression",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-m",
+        "not live",
+        "tests/test_web_js.py",
+        "tests/test_displays.py",
+        "tests/test_screens_r10.py",
+        "tests/test_r11_screens_server.py",
+        "tests/test_screen_paths.py",
+        "tests/test_screen_privacy.py",
+        "tests/test_r13_screens.py",
+        "tests/test_pwa.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/tv-says-time-once",
+  "max_repair_rounds": 3
+}

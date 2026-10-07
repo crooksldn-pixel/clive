@@ -1,0 +1,83 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "fixture-clock-dst-nights",
+  "title": "The golden world's orders and messages of today stay in the past on the nights the clocks change",
+  "requested_outcome": "PR #99's independent review left one note as found (review note 2), and it is confirmed on trunk a68536c6. experience/fixtures/data.py works out how far through London's day it is on the wall clock: `_today_at` takes `NOW - midnight` with both in Europe/London and adds the result back to London's midnight, and `_local`'s fold for a message of today (days_ago == 0 at an hour still ahead of now) does the same. Python subtracts and adds two aware datetimes that share a tzinfo as wall-clock times, so on the night the clocks go forward (28 March 2027, when London's 01:00 to 02:00 does not exist), from 01:00 UTC until about 01:31 UTC, today's fixture orders are stamped up to 47 minutes after now and out of order (at 01:00:30 UTC they are 01:47:33Z, 00:59:45Z and 00:17:55Z), so 'today's orders' lists orders that have not happened yet. With the spring instants below added to tests/test_clock_boundaries.py, trunk fails test_todays_orders_are_placed_today_apart_and_newest_first and test_the_list_of_todays_orders_is_the_worlds_today at 2027-03-28T01:00:30Z, 01:15:00Z and 01:30:30Z. A second, smaller gap: stamps are written at whole seconds (`_today_iso`, '%SZ'), and in the first few seconds of a day the current half-of-elapsed span puts two or three of today's orders in the same second; at exactly 00:00:00 London time all three share one stamp.\n\nChange three things.\n(1) experience/fixtures/data.py: `_today_at`, and the days_ago == 0 fold in `_local`, take London's midnight of NOW's day as now (NOW with hour, minute, second and microsecond set to 0), convert it and NOW to UTC, take the elapsed seconds between the two in UTC, add the offset to the UTC midnight, and return that instant in SHOP_TZ (the zone every other stamp comes back in). The elapsed time and the stamp are then real time on both changeover nights. Stamps more than a day back (days_ago > 0) keep their meaning, 'N of the shop's days back at this London hour', unchanged.\n(2) The same file: from any NOW more than two seconds after London's midnight, today's three orders have three different whole-second placed_at stamps, every one at or after London's midnight and strictly before NOW, newest first in the order `world.today()` gives (by today_fraction). After the first two minutes of the day they keep the minute of headroom before NOW that they have today. At exactly 00:00:00 London time no instant of today lies before NOW, so the three cannot be apart: there they are stamped at London's midnight. `_today_at`'s docstring says both rules in a sentence or two. createdAt (`order_node`, today_fraction + 0.05) stays inside today and not after NOW.\n(3) tests/test_clock_boundaries.py:\n- INSTANTS, the list every parametrized test in the file walks, gains two nights, built as explicit UTC instants (`_night` builds 2026 only). The autumn change (25 October 2026; the clocks go back at 01:00 UTC): 2026-10-24T22:59:30Z, 2026-10-24T23:00:30Z (London's midnight, in BST), 2026-10-25T00:59:30Z (01:59:30 BST, the last half-minute before the clocks go back), 2026-10-25T01:00:30Z (01:00:30 GMT, the repeated hour) and 2026-10-25T01:59:30Z. The spring change (28 March 2027; the clocks go forward at 01:00 UTC): 2027-03-27T23:59:30Z, 2027-03-28T00:00:30Z (London's midnight, in GMT), 2027-03-28T00:59:30Z, 2027-03-28T01:00:30Z (02:00:30 BST), 2027-03-28T01:15:00Z and 2027-03-28T01:30:30Z. The module docstring says what the new instants are and why.\n- test_a_support_finding_names_the_shops_day_at_every_instant keeps exactly the eight instants it walks today (SUMMER + WINTER), parametrized from its own list with its own ids, and its body does not change. Both changeover nights fall on a weekend, and that test's own premise assertion is that the day being counted is a working day.\n- In test_todays_orders_are_placed_today_apart_and_newest_first, the message assertion `data._local(message.days_ago, message.hour) <= now` compares the two as instants (both in UTC), not as London wall-clock times. Python compares two datetimes that share a tzinfo on the wall clock and ignores fold, so in the repeated hour of 25 October a message stamped at 01:05 BST (00:05 UTC, already past) reads as after 01:00:30 GMT. Its failure message is unchanged. This is the only existing assertion in the file that changes, and it makes the same claim correctly.\n- A new test walks each of the four nights' London midnight (23:00 UTC on 24 September 2026 and on 24 October 2026; 00:00 UTC on 15 January 2026 and on 28 March 2027) at +0 s, +0.5 s, +1 s, +2.5 s, +3 s and +10 s and asserts rule (2).\n\nMust not change: the golden world's people, orders, garments, messages and their order; rebase() and the discount windows; anything under crooks-assistant/app (the application's own day boundaries, periods.resolve, the analytics engine); tests/customers_world.py; the eight existing instants; and every existing assertion except the one message comparison above. No assertion is removed or loosened. Reuse the file's own helpers (held, world_at, query_at, _instant). Run every declared check yourself with the run_checks tool, exactly as declared, before you report, and report only a candidate on which all of them pass. If a check fails on the untouched base, report that base failure and its output instead of changing anything to hide it. You cannot delete files or run commands other than the declared checks. Do not report an owner decision for GitHub acceptance: it runs automatically on your published candidate.",
+  "base_ref": "a68536c69596ccec7bb0087dc4e95ac24c01a25f",
+  "base_sha": "a68536c69596ccec7bb0087dc4e95ac24c01a25f",
+  "allowed_paths": [
+    "crooks-assistant/experience/fixtures/data.py",
+    "crooks-assistant/tests/test_clock_boundaries.py"
+  ],
+  "acceptance_criteria": [
+    "tests/test_clock_boundaries.py's INSTANTS holds the eight existing instants and the eleven listed in the request, and every test that walked INSTANTS still walks all of them, except test_a_support_finding_names_the_shops_day_at_every_instant, which walks exactly the eight existing instants with its body unchanged; every test in the file passes (check: tests).",
+    "At every instant in INSTANTS, today's three fixture orders lie inside periods.resolve('today'), strictly before now, at three different stamps, newest first, and every message of today is at or before now compared as instants (test_todays_orders_are_placed_today_apart_and_newest_first; check: tests).",
+    "At every instant in INSTANTS, 'show me today's orders' through commerce_query lists exactly data.world.today(), in that order (test_the_list_of_todays_orders_is_the_worlds_today; check: tests).",
+    "A new test walks each of the four nights' London midnight at +0 s, +0.5 s, +1 s, +2.5 s, +3 s and +10 s: at +0 s all three placed_at stamps are London's midnight; at every other offset each is at or after London's midnight and strictly before now, newest first; from +2.5 s on, the three stamps differ (check: tests).",
+    "In tests/test_clock_boundaries.py the only changed assertion is the message comparison, now made by instant; no test is renamed, removed or loosened, and the module docstring names the new instants.",
+    "Nothing under crooks-assistant/app changes, and the golden scenarios that walk today's orders (today_orders, landing_orders, the opening-a-row test), the fixture wiring, the per-buyer turn, the query engine, the customers lookup and the analytics tools suites pass (checks: golden, regression).",
+    "ruff passes on app, config, scripts, tests and experience/fixtures/data.py (check: ruff)."
+  ],
+  "checks": [
+    {
+      "name": "tests",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_clock_boundaries.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "regression",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-m",
+        "not live",
+        "tests/test_fixture_wiring.py",
+        "tests/test_n_plus_one_turn.py",
+        "tests/test_query_engine_p3.py",
+        "tests/test_customers_lookup.py",
+        "tests/test_analytics_tools.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "golden",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-m",
+        "not live",
+        "tests/test_experience.py",
+        "-k",
+        "today_orders or landing_orders or opening_a_row"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests",
+        "experience/fixtures/data.py"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/fixture-clock-dst-nights",
+  "max_repair_rounds": 3
+}
