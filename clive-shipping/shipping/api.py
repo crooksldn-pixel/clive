@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import hmac
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -79,6 +79,20 @@ def fail(status: int, code: str, message: str) -> HTTPException:
     return HTTPException(status, {"message": message, "code": code})
 
 
+def page(found: list[dict[str, Any]], limit: int) -> dict[str, Any]:
+    """The oldest events first, at most `limit`. With has_more, ask again with since= the last
+    `at`: a page never ends part-way through one moment, so nothing is skipped."""
+    found.sort(key=lambda x: x["at"])
+    n = max(1, min(limit, 1000))
+    if len(found) <= n:
+        return {"events": found, "has_more": False}
+    cut = found[n]["at"]
+    head = [e for e in found[:n] if e["at"] != cut]
+    if not head:  # one moment fills the page: give all of that moment, never part of it
+        head = [e for e in found if e["at"] == cut]
+    return {"events": head, "has_more": len(found) > len(head)}
+
+
 def summary(s: Shipment, printed: dict[str, Any] | None) -> dict[str, Any]:
     st = views.status_of(s)
     q = s.quote
@@ -112,7 +126,8 @@ def build_api_router(
         return authorization[7:].strip()
 
     def can(kind: str, key: str) -> bool:
-        return any(hmac.compare_digest(key, k) for k in settings.keys(kind))
+        given = key.encode()  # bytes: any key compares, none raises
+        return any(hmac.compare_digest(given, k.encode()) for k in settings.keys(kind))
 
     def reader(authorization: str | None = Header(default=None)) -> None:
         if not can("read", bearer(authorization)):
@@ -243,6 +258,8 @@ def build_api_router(
     def events(since: datetime | None = None, limit: int = 200) -> dict[str, Any]:
         """Every order's history after `since`, oldest first: what changed, on which order,
         who did it, and whether it was checked against Shopify or the provider."""
+        if since is not None and since.tzinfo is None:
+            since = since.replace(tzinfo=UTC)  # a time without a zone is read as UTC
         found = []
         for s in svc.store.shipments(shop):
             if since is not None and s.updated_at <= since:
@@ -261,7 +278,6 @@ def build_api_router(
                             "detail": e.detail,
                         }
                     )
-        found.sort(key=lambda x: x["at"])
-        return {"events": found[-max(1, min(limit, 1000)) :]}
+        return page(found, limit)
 
     return api

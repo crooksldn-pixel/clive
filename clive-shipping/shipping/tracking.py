@@ -102,17 +102,18 @@ FRESH = {  # stage -> how soon to look again
 }
 QUIET_AFTER = timedelta(days=5)  # no news for this long: look twice a day
 QUIET_EVERY = timedelta(hours=12)
-GIVE_UP_AFTER = timedelta(days=30)  # since the label: stop asking, say so
+GIVE_UP_AFTER = timedelta(days=30)  # no carrier news for this long: stop asking, say so
+HARD_STOP_AFTER = timedelta(days=90)  # since the label, however it moves
 
 
 def next_check(
     stage: str, now: datetime, changed_at: datetime, bought_at: datetime
 ) -> datetime | None:
     """When to read this parcel's tracking again; None: never (delivered, cancelled, or no
-    news for a month, as with Channel Islands parcels)."""
+    news for a month, as with Channel Islands parcels, or three months since the label)."""
     if stage in ("delivered", "cancelled"):
         return None
-    if now - bought_at >= GIVE_UP_AFTER:
+    if now - changed_at >= GIVE_UP_AFTER or now - bought_at >= HARD_STOP_AFTER:
         return None
     if now - changed_at >= QUIET_AFTER:
         return now + QUIET_EVERY

@@ -9,6 +9,8 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Protocol
 
@@ -41,6 +43,16 @@ class ShopifyRefused(ShopifyError):
 class ShopifyUncertain(ShopifyError):
     """A change was sent but no answer came back (a dropped connection, a timeout, a 5xx):
     Shopify may or may not have made it. Never sent again blindly; read Shopify back first."""
+
+
+@contextmanager
+def _unclear(root: str) -> Iterator[None]:
+    """An answer to a change that is missing what it should carry is not a refusal: the change
+    may have been made, so it is UNKNOWN."""
+    try:
+        yield
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ShopifyUncertain(f"Shopify's answer to {root} was incomplete.") from exc
 
 
 # Shopify's reason library is keyed by stable handles; these are the ones each of our reasons
@@ -555,19 +567,41 @@ class GraphQLShopify:
                 continue
             if r.status_code != 200:
                 raise ShopifyError(f"Shopify answered {r.status_code}.")
-            body = r.json()
+            # From here Shopify has handled the request: for a change sent once, an answer we
+            # can't read, or an error other than THROTTLED, doesn't prove it wasn't made.
+            unsure = ShopifyUncertain if once else ShopifyError
+            try:
+                body = r.json()
+            except ValueError as exc:
+                raise unsure("Shopify's answer couldn't be read.") from exc
+            if not isinstance(body, dict):
+                raise unsure("Shopify's answer couldn't be read.")
             errors = body.get("errors")
             if errors:
-                if any((e.get("extensions") or {}).get("code") == "THROTTLED" for e in errors):
+                if any(
+                    isinstance(e, dict) and (e.get("extensions") or {}).get("code") == "THROTTLED"
+                    for e in errors
+                ):
                     time.sleep(0.5 * 2**attempt)
                     continue
-                raise ShopifyError("; ".join(e.get("message", "error") for e in errors))
-            return body["data"]
+                raise unsure(
+                    "; ".join(
+                        str(e.get("message", "error")) if isinstance(e, dict) else str(e)
+                        for e in (errors if isinstance(errors, list) else [errors])
+                    )
+                )
+            data = body.get("data")
+            if not isinstance(data, dict):
+                raise unsure("Shopify's answer had no data.")
+            return data
         raise ShopifyError("Shopify is busy; try again shortly.")
 
     @staticmethod
     def _payload(data: dict[str, Any], root: str) -> dict[str, Any]:
-        payload = data[root]
+        payload = data.get(root)
+        if not isinstance(payload, dict):
+            # No payload and no userErrors: for a change, Shopify may still have made it.
+            raise ShopifyUncertain(f"Shopify's answer to {root} was empty.")
         errors = payload.get("userErrors") or []
         if errors:
             raise ShopifyRefused("; ".join(e["message"] for e in errors))
@@ -662,7 +696,9 @@ class GraphQLShopify:
 
     def create_return(self, ret: Return, reason_ids: dict[str, str]) -> dict[str, Any]:
         data = self._call(M_RETURN_CREATE, {"input": return_input(ret, reason_ids)})
-        return parse_created(self._payload(data, "returnCreate")["return"])
+        payload = self._payload(data, "returnCreate")  # userErrors: refused, nothing made
+        with _unclear("returnCreate"):
+            return parse_created(payload["return"])
 
     def attach_shipping(
         self,
@@ -681,7 +717,9 @@ class GraphQLShopify:
         if label_url:
             variables["label"] = {"fileUrl": label_url}
         data = self._call(M_REVERSE_DELIVERY, variables)
-        return self._payload(data, "reverseDeliveryCreateWithShipping")["reverseDelivery"]["id"]
+        payload = self._payload(data, "reverseDeliveryCreateWithShipping")
+        with _unclear("reverseDeliveryCreateWithShipping"):
+            return payload["reverseDelivery"]["id"]
 
     def process_return(self, payload: dict[str, Any], key: str) -> str:
         data = self._call(M_RETURN_PROCESS, {"input": payload, "key": key})
@@ -705,4 +743,6 @@ class GraphQLShopify:
 
     def cancel_return(self, return_id: str) -> str:
         data = self._call(M_CANCEL, {"id": return_id})
-        return self._payload(data, "returnCancel")["return"]["status"]
+        payload = self._payload(data, "returnCancel")
+        with _unclear("returnCancel"):
+            return payload["return"]["status"]

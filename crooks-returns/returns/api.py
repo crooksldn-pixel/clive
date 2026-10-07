@@ -13,7 +13,7 @@ import base64
 import hashlib
 import hmac
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
@@ -36,6 +36,20 @@ def proxy_signature_ok(query: list[tuple[str, str]], secret: str) -> bool:
     message = "".join(sorted(f"{k}={','.join(v)}" for k, v in grouped.items()))
     want = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
     return bool(given) and hmac.compare_digest(want, given)
+
+
+def page(found: list[dict[str, Any]], limit: int) -> dict[str, Any]:
+    """The oldest events first, at most `limit`. With has_more, ask again with since= the last
+    `at`: a page never ends part-way through one moment, so nothing is skipped."""
+    found.sort(key=lambda x: x["at"])
+    n = max(1, min(limit, 1000))
+    if len(found) <= n:
+        return {"events": found, "has_more": False}
+    cut = found[n]["at"]
+    head = [e for e in found[:n] if e["at"] != cut]
+    if not head:  # one moment fills the page: give all of that moment, never part of it
+        head = [e for e in found if e["at"] == cut]
+    return {"events": head, "has_more": len(found) > len(head)}
 
 
 def webhook_ok(body: bytes, header: str, secret: str) -> bool:
@@ -296,6 +310,8 @@ def build_routers(svc: ReturnsService) -> list[APIRouter]:
     def events(since: datetime | None = None, limit: int = 200) -> dict[str, Any]:
         """Every return's history after `since`: what happened, to which return and order,
         who did it, from where (ui, api, ctl, portal, system), and whether it was checked."""
+        if since is not None and since.tzinfo is None:
+            since = since.replace(tzinfo=UTC)  # a time without a zone is read as UTC
         found = []
         for r in svc.store.search(since=since, limit=100_000):
             for e in r.timeline:
@@ -313,8 +329,7 @@ def build_routers(svc: ReturnsService) -> list[APIRouter]:
                             "status_now": r.status.value,
                         }
                     )
-        found.sort(key=lambda x: x["at"])
-        return {"events": found[-max(1, min(limit, 1000)) :]}
+        return page(found, limit)
 
     @api.post("/tick", dependencies=[Depends(writer)])
     def tick() -> dict[str, Any]:

@@ -855,7 +855,7 @@ const ACTIONS = {
   async "printer-test"(el) {
     await withButton(el, () => sendPhysical("/print/test"));
   },
-  "go-inbox": () => navigate(state.inbox ? { stage: state.inbox.stage } : {}),
+  "go-inbox": () => navigate({ ...(state.inbox ? { stage: state.inbox.stage } : {}), ...(state.q ? { q: state.q } : {}) }),
   async "check-tracking"(el) {
     // A read of Shopify's carrier tracking: never buys or prints.
     await withButton(el, async () => {
@@ -1058,7 +1058,7 @@ document.addEventListener("input", (ev) => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(async () => {
     state.q = ev.target.value || "";
-    try { state.inbox = await loadInbox(); renderInbox();
+    try { state.inbox = await loadInbox(); renderInbox(); keepSearchInUrl();
       const f = document.getElementById("search"); f?.focus?.(); }
     catch (err) { state.flash = errorBanner(err); render(); }
   }, 250);

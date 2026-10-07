@@ -159,3 +159,14 @@ def test_a_bought_label_stays_when_payment_changes_later(svc, previewed, provide
     assert s.label is not None and s.status in (S.fulfilled, S.label_purchased)
     assert any("Payment is now 'Refunded'" in a for a in s.alerts)
     assert len(provider.charges) == 1  # nothing cancelled, nothing bought again
+
+
+def test_payment_shown_after_purchase_follows_shopify_both_ways(svc, previewed, clock):
+    s, basis, snap = previewed
+    assert svc.buy(SHOP, s.id, basis, "george", "k1")["charged"]
+    snap.financial_status = "PENDING"
+    svc.refresh_tracking(SHOP, s.id)
+    assert svc.store.get(SHOP, s.id).payment_status == "PENDING"
+    snap.financial_status = "PAID"  # the payment went through after all
+    svc.refresh_tracking(SHOP, s.id)
+    assert svc.store.get(SHOP, s.id).payment_status == "PAID"

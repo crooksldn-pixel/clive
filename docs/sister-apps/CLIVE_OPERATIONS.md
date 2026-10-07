@@ -34,7 +34,8 @@ does. This page is the shared shape; the details are in `clive-shipping/shipping
 - Never use a new key to "try again" after an unknown outcome.
 - The apps reconcile before anything is repeated:
   - Shipping: its purchase ledger.
-  - Returns: reads Shopify back.
+  - Returns: reads Shopify back. Finding nothing counts as safe only two minutes after the
+    unanswered attempt; sooner, the answer says to try again shortly and nothing is sent.
 
 **Buying postage in Shipping**
 - Only `POST /shipments/{id}/buy` buys, with the `basis` that a preview returned.
@@ -84,7 +85,7 @@ Needs a person (a purchase to reconcile, a Shopify update to retry, a cancellati
 
 ## Events: what changed, on what, with what evidence
 
-Both `/events` feeds are each record's own history, flattened, oldest first. Poll with the last `at` seen. The record of what happened is the app's, not CLIVE's chat.
+Both `/events` feeds are each record's own history, flattened, oldest first, at most `limit` (default 200) per answer. Poll with `since=` the last `at` seen; while `has_more` is true, ask again at once. A page never ends part-way through one moment, so nothing is skipped. A `since` without a time zone is read as UTC. The record of what happened is the app's, not CLIVE's chat.
 
 - **Shipping:** `{at, shipment_id, order, type, what, actor, verified, detail}`. Types include:
   - `payment_blocking`, `payment_cleared`
@@ -95,7 +96,7 @@ Both `/events` feeds are each record's own history, flattened, oldest first. Pol
 - **Returns:** `{at, return_id, order, type, actor, source, verified, detail, status_now}`. Types include:
   - `requested`, `approved`, `approve_unknown`, `approve_reconciled`, `declined`
   - `label_bought`, `shipping_attached`, `shipping_attach_unknown`
-  - `in_transit`, `received`, `processed`, `completed`, `cancelled`
+  - `in_transit`, `received`, `processed`, `completed`, `cancelled`, `cancel_unknown`
   - `action_interrupted`
 
 `verified: true` means the outcome was read back from Shopify or the provider and matched.

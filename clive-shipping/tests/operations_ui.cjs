@@ -23,6 +23,7 @@ const context = vm.createContext({document,window,location,history,data,URLSearc
    if(url.endsWith('/batches/preview')) result=data.review;
    else if(url.endsWith('/confirm')) {assert.equal(JSON.parse(options.body).confirm,true);phase='queued';result=data.queued;}
    else if(url.includes('/batches/')) result=phase==='queued'?data.complete:data.review;
+   else if(url.includes('/inbox?')) result=data.inbox;
    else if(url.endsWith('/customs')) {result=structuredClone(data.detail);result.products[0].hs_code_value='01012100';}
    else throw new Error('Unexpected request '+url);
    return {ok:true,json:async()=>result};
@@ -76,5 +77,17 @@ context.button=button;
   assert.equal(requests.at(-1).body.hs_code,'01012100');
   assert.equal(requests.at(-1).body.subject,data.detail.products[0].subject);
   assert.equal(execute('state.shipment.products[0].hs_code_value'),'01012100');
+  // A search lives in the URL, so a reload or the way back to the list keeps it.
+  location.search='?stage=ready';
+  execute('state.inbox=data.inbox; renderInbox();');
+  for (const fn of handlers.input) fn({target:{id:'search',value:'2145'}});
+  await new Promise(resolve=>setTimeout(resolve,400));
+  assert.equal(new URLSearchParams(location.search).get('q'),'2145');
+  assert.ok(requests.at(-1).url.includes('q=2145'));
+  location.search='?shipment='+data.detail.id;
+  execute('ACTIONS["go-inbox"]()');
+  assert.equal(new URLSearchParams(location.search).get('q'),'2145');
+  assert.equal(new URLSearchParams(location.search).get('stage'),'ready');
+  await new Promise(resolve=>setTimeout(resolve,50));
   console.log('Lifecycle tabs, bulk selection/review/progress, print status and inline customs interactions passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -137,8 +137,10 @@ class Store:
             sql += f" AND status IN ({','.join('?' * len(status))})"
             args += status
         if since:
+            # Stored as UTC ISO text, so the bound is compared in UTC too.
+            at = since if since.tzinfo else since.replace(tzinfo=UTC)
             sql += " AND updated_at >= ?"
-            args.append(since.isoformat())
+            args.append(at.astimezone(UTC).isoformat())
         sql += " ORDER BY updated_at DESC LIMIT ?"
         args.append(limit)
         return [Return.model_validate_json(r[0]) for r in self._db.execute(sql, args).fetchall()]

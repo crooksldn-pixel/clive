@@ -254,7 +254,7 @@ class ShopifyRefs(BaseModel):
     # A returnCreate / label hand-over whose answer was lost: Shopify may have done it. Shopify is
     # read back before either is ever sent again.
     create_unknown_at: datetime | None = None
-    attach_unknown: bool = False
+    attach_unknown_at: datetime | None = None
 
 
 class Event(BaseModel):

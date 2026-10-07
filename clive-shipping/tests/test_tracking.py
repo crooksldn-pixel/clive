@@ -175,6 +175,27 @@ def test_a_channel_islands_parcel_stuck_in_transit_is_given_up_on_after_a_month(
     assert "no longer checked" in s.tracking.note
 
 
+def test_a_parcel_that_moved_lately_is_still_checked_a_month_after_the_label(
+    svc, shopify, bought, clock
+):
+    """Giving up is measured from the last carrier news, not from the label: a parcel that
+    went out for delivery on day 25 is still followed on day 35."""
+    shopify.carrier(bought.label.tracking_number, "IN_TRANSIT")
+    svc.tick(SHOP)
+    clock.advance(days=25)
+    shopify.carrier(bought.label.tracking_number, "OUT_FOR_DELIVERY")
+    svc.tick(SHOP)
+    clock.advance(days=10)
+    svc.tick(SHOP)
+    s = svc.store.get(SHOP, bought.id)
+    assert s.tracking.stage == "out_for_delivery" and s.tracking.next_check_at is not None
+    clock.advance(days=60)  # however it moves, three months after the label it stops
+    shopify.carrier(bought.label.tracking_number, "DELAYED")
+    svc.tick(SHOP)
+    s = svc.store.get(SHOP, bought.id)
+    assert s.tracking.next_check_at is None and "90 days" in s.tracking.note
+
+
 def test_the_pace_survives_a_restart(svc, shopify, bought, store, provider, clock):
     svc.tick(SHOP)
     reads = len(shopify.tracking_reads)

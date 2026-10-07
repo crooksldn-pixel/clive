@@ -223,3 +223,34 @@ def test_events_say_what_changed_on_which_order(api, ready, clock):
     assert "label_purchased" in types and all(e["order"] == s.order_name for e in events)
     bought = next(e for e in events if e["type"] == "label_purchased")
     assert bought["verified"] and bought["what"] == "Label purchased"
+
+
+def test_events_page_oldest_first_and_paging_skips_nothing(api, ready, clock):
+    s, _ = ready
+    start = clock().isoformat()
+    clock.advance(minutes=1)
+    buy(api, s.id)
+    every = api.get("/api/v1/events", params={"since": start}, headers=R).json()
+    assert not every["has_more"] and len(every["events"]) >= 3
+    seen, since = [], start
+    for _ in range(20):  # a page of one, again and again, from the last `at` seen
+        got = api.get("/api/v1/events", params={"since": since, "limit": 1}, headers=R).json()
+        seen += got["events"]
+        if not got["has_more"]:
+            break
+        since = got["events"][-1]["at"]
+    assert [e["type"] for e in seen] == [e["type"] for e in every["events"]]  # oldest first
+
+
+def test_a_since_without_a_zone_is_utc_not_an_error(api, ready, clock):
+    s, _ = ready
+    naive = clock().replace(tzinfo=None).isoformat()
+    clock.advance(minutes=1)
+    buy(api, s.id)
+    r = api.get("/api/v1/events", params={"since": naive}, headers=R)
+    assert r.status_code == 200 and any(e["type"] == "label_purchased" for e in r.json()["events"])
+
+
+def test_a_key_with_any_characters_is_refused_not_a_crash(api):
+    r = api.get("/api/v1/shipments", headers={"Authorization": "Bearer clé".encode("latin-1")})
+    assert r.status_code == 403

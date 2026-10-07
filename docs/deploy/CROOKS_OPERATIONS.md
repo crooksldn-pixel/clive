@@ -208,6 +208,29 @@ chat), then `docker compose up -d shipping`. Without them Shipping's `/api/v1` a
 - **Returns on a phone**: open a pending return, tap Approve: the dialog's Approve is on screen,
   says "Checking what this will do…" until it can be pressed, then approves once.
 
+**Expected for the first few minutes:** shipments stored before this release have no payment
+status yet, so ready ones show in Needs attention ("Payment status unknown") until the first
+tick re-reads them from Shopify (about a minute after start) or someone presses "Check Shopify
+for orders". Nothing can be bought while that is so.
+
+### Rolling this release back
+
+Note the commit before pulling (`git log --oneline -1`). To go back:
+
+```bash
+cd /opt/clive
+# Returns that met a lost Shopify reply carry a marker the old code doesn't know; it would drop it.
+python3 -c "import sqlite3; d=sqlite3.connect('crooks-returns/data/returns.sqlite3'); print(d.execute(\"SELECT id, order_name FROM returns WHERE json_extract(doc,'$.shopify.create_unknown_at') IS NOT NULL OR json_extract(doc,'$.shopify.attach_unknown_at') IS NOT NULL\").fetchall())"
+# Settle any listed (approve or label again, which reads Shopify) before going back.
+git checkout <previous commit>
+cd crooks-returns && docker compose up -d --build returns shipping && docker compose ps
+```
+
+The databases need no restore: the old code reads the new records and ignores the new fields
+(payment, tracking, lost-reply markers). Restore the backup from step 1 only if a record is
+damaged: `docker compose stop returns shipping`, copy the backup over the `.sqlite3` file
+(after removing its `-wal` and `-shm` files), and start both again.
+
 ## Rollback
 
 - **Shipping only:** `docker compose stop shipping`. Returns and Settings are unaffected; the

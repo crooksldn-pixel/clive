@@ -639,7 +639,8 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
      `deliveredAt`, `estimatedDeliveryAt`, read by the stored fulfilment id, else matched by
      tracking number (never the first fulfilment). Fulfilment SUCCESS is never delivery. The
      tick reads at most 25 due parcels: every 2h (1h out for delivery), twice a day after 5
-     quiet days, never after delivery or 30 days; the next check is stored on the shipment.
+     quiet days, never after delivery, 30 days without carrier news, or 90 days after the
+     label; the next check is stored on the shipment.
      Seen live (2026-10-07): UK Royal Mail reaches DELIVERED in Shopify; Channel Islands Royal
      Mail stops at IN_TRANSIT (handed to Guernsey/Jersey Post), so Shopify alone can't say those
      arrived. No carrier integration is added for that.

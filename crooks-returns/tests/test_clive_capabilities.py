@@ -109,3 +109,48 @@ def test_clive_can_discover_what_it_may_do_and_what_changed(svc, clock):
     assert all(e["source"] == "api" for e in events)
     assert events[-1]["status_now"] == "awaiting_shipment"
     assert c.get("/api/v1/events", headers={"Authorization": "Bearer nope"}).status_code == 403
+
+
+def test_events_page_oldest_first_and_paging_skips_nothing(svc, clock):
+    from datetime import timedelta
+
+    a, b = two_pending(svc)
+    c = client(svc)
+    start = clock().isoformat()
+    for i, rid in enumerate((a.id, b.id)):
+        clock.now = clock.now + timedelta(minutes=1)
+        c.post(
+            f"/api/v1/returns/{rid}/actions/note",
+            json={"params": {"text": f"n{i}"}, "idempotency_key": f"n-{i}"},
+            headers=W,
+        )
+        clock.now = clock.now + timedelta(minutes=1)
+        c.post(
+            f"/api/v1/returns/{rid}/actions/approve", json={"idempotency_key": f"a-{i}"}, headers=W
+        )
+    every = c.get("/api/v1/events", params={"since": start}, headers=R).json()
+    assert not every["has_more"] and len(every["events"]) >= 4
+    first = c.get("/api/v1/events", params={"since": start, "limit": 1}, headers=R).json()
+    assert first["has_more"] and first["events"][0]["type"] == "note"  # the oldest, not newest
+    seen, since = [], start
+    for _ in range(30):
+        got = c.get("/api/v1/events", params={"since": since, "limit": 1}, headers=R).json()
+        seen += got["events"]
+        if not got["has_more"]:
+            break
+        since = got["events"][-1]["at"]
+    assert [(e["return_id"], e["type"]) for e in seen] == [
+        (e["return_id"], e["type"]) for e in every["events"]
+    ]
+
+
+def test_a_since_without_a_zone_is_utc(svc, clock):
+    from datetime import timedelta
+
+    a, _ = two_pending(svc)
+    c = client(svc)
+    naive = clock().replace(tzinfo=None).isoformat()
+    clock.now = clock.now + timedelta(minutes=1)
+    c.post(f"/api/v1/returns/{a.id}/actions/approve", json={"idempotency_key": "k"}, headers=W)
+    r = c.get("/api/v1/events", params={"since": naive}, headers=R)
+    assert r.status_code == 200 and any(e["type"] == "approved" for e in r.json()["events"])

@@ -62,6 +62,10 @@ CUSTOMER_STATUS = {
     Status.cancelled: "Cancelled.",
 }
 
+# How long a change that got no answer may still be landing in Shopify. Until then, finding
+# nothing there doesn't prove it wasn't made.
+SETTLE = timedelta(minutes=2)
+
 # How couriers are named to customers (Parcel2Go still calls Evri "MyHermes").
 COURIER_NAMES = {"evri": "Evri", "inpost": "InPost", "royal-mail": "Royal Mail"}
 
@@ -493,9 +497,18 @@ class ReturnsService:
                 calls.append("returnProcess")
         elif action == "decline":
             self._require(ret, Status.requested)
-            will.append(
-                f"Decline: {params.get('reason') or 'no reason given'}. Nothing in Shopify changes."
-            )
+            if ret.shopify.create_unknown_at is not None and not ret.shopify.return_id:
+                will.append(
+                    "First check Shopify for a return the earlier approval may have made, and "
+                    "cancel it there if it did."
+                )
+                calls += ["orderReturns", "returnCancel (only if found)"]
+                will.append(f"Decline: {params.get('reason') or 'no reason given'}.")
+            else:
+                will.append(
+                    f"Decline: {params.get('reason') or 'no reason given'}. "
+                    "Nothing in Shopify changes."
+                )
         elif action == "label":
             self._require(ret, Status.awaiting_label)
             if params.get("tracking"):
@@ -525,11 +538,18 @@ class ReturnsService:
                 calls.append("storeCreditAccountCredit")
         elif action == "cancel":
             self._require(ret, Status.requested, Status.awaiting_label, Status.awaiting_shipment)
-            will.append(
-                "Cancel the return" + (" in Shopify too." if ret.shopify.return_id else ".")
-            )
-            if ret.shopify.return_id:
-                calls.append("returnCancel")
+            if ret.shopify.create_unknown_at is not None and not ret.shopify.return_id:
+                will.append(
+                    "Check Shopify for a return the earlier approval may have made, cancel it "
+                    "there if it did, then cancel this one."
+                )
+                calls += ["orderReturns", "returnCancel (only if found)"]
+            else:
+                will.append(
+                    "Cancel the return" + (" in Shopify too." if ret.shopify.return_id else ".")
+                )
+                if ret.shopify.return_id:
+                    calls.append("returnCancel")
         elif action == "note":
             will.append("Add a note to the timeline.")
         else:
@@ -692,11 +712,14 @@ class ReturnsService:
             if not self._reconcile_return(ret, actor):
                 return
         if not ret.shopify.return_id:
-            sent_at = self.clock()
+            # Written down before it is sent: if the answer is lost, or this process stops
+            # before the outcome is saved, the next approval checks Shopify instead of making
+            # a second return.
+            ret.shopify.create_unknown_at = self.clock()
+            self.store.save(ret)
             try:
                 created = self.shopify.create_return(ret, self.shopify.reason_ids())
             except ShopifyUncertain as exc:
-                ret.shopify.create_unknown_at = sent_at
                 ret.last_error = (
                     "Shopify didn't answer, so it may have created the return. Approving again "
                     "checks Shopify first and never makes a second one."
@@ -704,9 +727,11 @@ class ReturnsService:
                 self._event(ret, "approve_unknown", actor, {"error": str(exc)})
                 return
             except ShopifyError as exc:
+                ret.shopify.create_unknown_at = None  # a definite refusal: nothing was made
                 ret.last_error = f"Shopify did not create the return: {exc}"
                 self._event(ret, "approve_failed", actor, {"error": str(exc)})
                 return
+            ret.shopify.create_unknown_at = None
             for k, v in created.items():
                 setattr(ret.shopify, k, v)
         ret.last_error = None
@@ -756,6 +781,15 @@ class ReturnsService:
                 "Shopify; nothing was sent again."
             )
             self._event(ret, "approve_unknown", actor, {"candidates": len(matches)})
+            return False
+        if not matches and since is not None and self.clock() < since + SETTLE:
+            # A request that timed out here can still be finishing in Shopify: "none yet" only
+            # proves "none" once it has had time to land.
+            ret.last_error = (
+                "Shopify may still be finishing the earlier attempt. Try again in a couple of "
+                "minutes; nothing was sent again."
+            )
+            self._event(ret, "approve_unknown", actor, {"check": "too soon to tell"})
             return False
         ret.shopify.create_unknown_at = None
         if matches:
@@ -848,11 +882,14 @@ class ReturnsService:
         if not ret.shopify.reverse_fulfillment_order_ids:
             ret.last_error = "The Shopify return has no reverse fulfilment order to attach to."
             return False
-        if ret.shopify.attach_unknown:
+        if ret.shopify.attach_unknown_at is not None:
             # An earlier hand-over got no answer: it may already have emailed the customer.
             settled = self._reconcile_attach(ret, actor)
             if settled is not None:
                 return settled
+        # Written down before it is sent, as for returnCreate.
+        ret.shopify.attach_unknown_at = self.clock()
+        self.store.save(ret)
         try:
             ret.shopify.reverse_delivery_id = self.shopify.attach_shipping(
                 ret.shopify.reverse_fulfillment_order_ids[0],
@@ -862,7 +899,6 @@ class ReturnsService:
                 notify,
             )
         except ShopifyUncertain as exc:
-            ret.shopify.attach_unknown = True
             ret.last_error = (
                 "Shopify didn't answer, so the label may already be with the customer. It is "
                 "checked in Shopify before it is ever sent again."
@@ -870,9 +906,11 @@ class ReturnsService:
             self._event(ret, "shipping_attach_unknown", actor, {"error": str(exc)})
             return False
         except ShopifyError as exc:
+            ret.shopify.attach_unknown_at = None  # a definite refusal: nothing was sent
             ret.last_error = f"Shopify did not take the shipping details: {exc}"
             self._event(ret, "shipping_attach_failed", actor, {"error": str(exc)})
             return False
+        ret.shopify.attach_unknown_at = None
         ret.last_error = None
         self._event(
             ret,
@@ -908,7 +946,14 @@ class ReturnsService:
             if rfo.get("id") == target
             for d in (rfo.get("reverseDeliveries") or {}).get("nodes") or []
         ]
-        ret.shopify.attach_unknown = False
+        since = ret.shopify.attach_unknown_at
+        if not found and since is not None and self.clock() < since + SETTLE:
+            ret.last_error = (
+                "Shopify may still be finishing the earlier hand-over. Try again in a couple of "
+                "minutes; it was not sent again."
+            )
+            return False
+        ret.shopify.attach_unknown_at = None
         if not found:
             return None
         ret.shopify.reverse_delivery_id = found[0]
@@ -922,10 +967,41 @@ class ReturnsService:
         )
         return True
 
+    def _settle_unknown_create(self, ret: Return, actor: str) -> None:
+        """Before a return is ended here, settle an earlier returnCreate that got no answer, so
+        a return it may have made in Shopify is never left open behind this one."""
+        if ret.shopify.return_id or ret.shopify.create_unknown_at is None:
+            return
+        if not self._reconcile_return(ret, actor):
+            raise ActionError(ret.last_error or "Couldn't check Shopify; nothing changed.", 409)
+
+    def _cancel_in_shopify(self, ret: Return, actor: str) -> bool:
+        assert ret.shopify.return_id
+        try:
+            self.shopify.cancel_return(ret.shopify.return_id)
+        except ShopifyUncertain as exc:
+            ret.last_error = (
+                "Shopify didn't answer, so the return may already be cancelled there. Check the "
+                "order in Shopify; this return has not been changed."
+            )
+            self._event(ret, "cancel_unknown", actor, {"error": str(exc)})
+            return False
+        except ShopifyError as exc:
+            ret.last_error = f"Shopify did not cancel the return: {exc}"
+            self._event(ret, "cancel_failed", actor, {"error": str(exc)})
+            return False
+        return True
+
     def _do_decline(self, ret: Return, params: dict[str, Any], actor: str) -> None:
+        self._settle_unknown_create(ret, actor)
+        if ret.shopify.return_id and not self._cancel_in_shopify(ret, actor):
+            return  # the earlier approval did make one, and it couldn't be cancelled
         ret.status = Status.declined
         ret.decline_reason = (params.get("reason") or "").strip() or None
-        self._event(ret, "declined", actor, {"reason": ret.decline_reason})
+        detail: dict[str, Any] = {"reason": ret.decline_reason}
+        if ret.shopify.return_id:  # the earlier approval had made one: cancelled above
+            detail["shopify_return_cancelled"] = ret.shopify.return_name
+        self._event(ret, "declined", actor, detail)
 
     def _do_label(self, ret: Return, params: dict[str, Any], actor: str) -> None:
         if params.get("tracking"):
@@ -970,13 +1046,9 @@ class ReturnsService:
         self._process(ret, actor)
 
     def _do_cancel(self, ret: Return, params: dict[str, Any], actor: str) -> None:
-        if ret.shopify.return_id:
-            try:
-                self.shopify.cancel_return(ret.shopify.return_id)
-            except ShopifyError as exc:
-                ret.last_error = f"Shopify did not cancel the return: {exc}"
-                self._event(ret, "cancel_failed", actor, {"error": str(exc)})
-                return
+        self._settle_unknown_create(ret, actor)
+        if ret.shopify.return_id and not self._cancel_in_shopify(ret, actor):
+            return
         ret.status = Status.cancelled
         self._event(
             ret,

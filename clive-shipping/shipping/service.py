@@ -1052,7 +1052,11 @@ class ShippingService:
             bought = x.label.purchased_at if x.label else at
             t.next_check_at = tracking.next_check(t.stage, at, t.changed_at, bought)
             if t.next_check_at is None and t.stage not in ("delivered", "cancelled"):
-                t.note = t.note or "No carrier news for 30 days, so it is no longer checked."
+                t.note = t.note or (
+                    "No carrier news for 30 days, so it is no longer checked."
+                    if at - t.changed_at >= tracking.GIVE_UP_AFTER
+                    else "Bought over 90 days ago, so it is no longer checked."
+                )
             x.tracking = t
             if t.stage != was:
                 self._event(
@@ -1062,10 +1066,10 @@ class ShippingService:
                     {"display_status": t.display_status, "fulfillment": t.fulfillment_id},
                     verified=mine is not None,
                 )
-            if mine is not None:
+            if mine is not None and mine.financial_status is not None:
                 paid = payment(mine.financial_status)
-                if mine.financial_status is not None and not paid.allows_purchase:
-                    x.payment_status = paid.status
+                x.payment_status = paid.status  # shown as it is now, paid again included
+                if not paid.allows_purchase:
                     self._alert(
                         x,
                         f"Payment is now '{paid.label}' in Shopify, after the label was bought. "
