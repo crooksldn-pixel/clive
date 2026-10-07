@@ -16,15 +16,15 @@ shopify = test_tracking.shopify
 svc = test_tracking.svc
 bought = test_tracking.bought
 
-# Read live from the store (CROOKS-2120, Guernsey, Royal Mail) on 2026-10-07, newest first as
-# the query asks for them.
+# The shape Shopify answers for a Royal Mail parcel to Guernsey (Admin API 2026-10), newest
+# first as the query asks for them. Every identifier is made up: the repo is public.
 LIVE_2120 = {
-    "id": "gid://shopify/Fulfillment/7660350243159",
+    "id": "gid://shopify/Fulfillment/9001",
     "status": "SUCCESS",
     "displayStatus": "IN_TRANSIT",
     "inTransitAt": "2026-10-07T05:57:26Z",
     "deliveredAt": None,
-    "trackingInfo": [{"number": "VU721297827GB", "company": "Royal Mail"}],
+    "trackingInfo": [{"number": "XX000000010GB", "company": "Royal Mail"}],
     "events": {
         "nodes": [
             {"status": "IN_TRANSIT", "happenedAt": "2026-10-07T05:57:26Z",
@@ -34,7 +34,7 @@ LIVE_2120 = {
              "province": None, "country": "GB"},
         ]
     },
-    "order": {"id": "gid://shopify/Order/8337232200023", "displayFinancialStatus": "PAID",
+    "order": {"id": "gid://shopify/Order/9002", "displayFinancialStatus": "PAID",
               "createdAt": "2026-10-02T19:36:10Z"},
 }  # fmt: skip
 

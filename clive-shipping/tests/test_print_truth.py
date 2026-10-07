@@ -101,7 +101,7 @@ def test_easyship_bundle_opens_as_its_label_page_only(svc, shopify):
     s.label.service_name = "Royal Mail - Domestic Tracked 48 - Small Parcel"
     svc.store.save(s)
     body = "CUSTOMS DECLARATION CN23May be opened officially"
-    s = with_label(svc, s, bundle(("LABEL VU732053366GB", body)))
+    s = with_label(svc, s, bundle(("LABEL XX000000030GB", body)))
     out, _ = PhysicalPrinting(svc.store, None, 0).print_view(SHOP, s.id, "staff")
     assert len(PdfReader(BytesIO(out)).pages) == 1  # the CN23 stays in Open PDF
 

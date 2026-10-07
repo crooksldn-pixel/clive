@@ -66,13 +66,13 @@ def test_a_successful_fulfilment_is_not_delivery():
 
 def test_cliv_es_fulfilment_is_found_by_id_then_number_never_by_position():
     theirs = f("DELIVERED", id="gid://shopify/Fulfillment/1", number="OTHER1GB")
-    ours = f("IN_TRANSIT", id="gid://shopify/Fulfillment/2", number="VU 719 917 558 GB")
+    ours = f("IN_TRANSIT", id="gid://shopify/Fulfillment/2", number="XX 000 000 040 GB")
     assert match([theirs, ours], "gid://shopify/Fulfillment/2", None) is ours
-    assert match([theirs, ours], None, "vu719917558gb") is ours  # spacing and case ignored
+    assert match([theirs, ours], None, "xx000000040gb") is ours  # spacing and case ignored
     assert match([theirs, ours], None, "NOPE") is None
     assert match([theirs, ours], None, None) is None  # never "the first one"
-    twin = f("CONFIRMED", id="gid://shopify/Fulfillment/3", number="VU719917558GB")
-    assert match([theirs, ours, twin], None, "VU719917558GB") is None  # ambiguous: don't guess
+    twin = f("CONFIRMED", id="gid://shopify/Fulfillment/3", number="XX000000040GB")
+    assert match([theirs, ours, twin], None, "XX000000040GB") is None  # ambiguous: don't guess
 
 
 # ------------------------------------------------------------------ reading it for real

@@ -34,7 +34,7 @@ purchased = physical.purchased
 
 
 def bundle(
-    texts=("ROYAL MAIL SHIPPING LABEL - VU721241607GB", "CUSTOMS DECLARATION CN23"),
+    texts=("ROYAL MAIL SHIPPING LABEL - XX000000020GB", "CUSTOMS DECLARATION CN23"),
     size=(101 * mm, 152 * mm),
 ):
     stream = BytesIO()
@@ -274,11 +274,11 @@ LIVE_CN23 = "CUSTOMS DECLARATION CN23May be opened officially"
     ],
 )
 def test_the_live_easyship_label_and_cn23_layout_prints_the_label_page_only(service):
-    body = bundle(("ROYAL MAIL SHIPPING LABEL - VU721241607GB", LIVE_CN23))
+    body = bundle(("ROYAL MAIL SHIPPING LABEL - XX000000020GB", LIVE_CN23))
     assert easyship_cn23(body)
     printed = select(body, service=service)
     pages = PdfReader(BytesIO(printed)).pages
-    assert len(pages) == 1 and "VU721241607GB" in (pages[0].extract_text() or "")
+    assert len(pages) == 1 and "XX000000020GB" in (pages[0].extract_text() or "")
     validate_label(printed)
 
 
