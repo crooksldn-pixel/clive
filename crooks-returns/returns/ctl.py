@@ -175,7 +175,9 @@ def main(argv: list[str] | None = None) -> int:
         print("Nothing changed.")
         return 0
     try:
-        out = svc.execute(return_id, ns.command, params, f"{ns.actor} (ctl)", secrets.token_hex(8))
+        out = svc.execute(
+            return_id, ns.command, params, f"{ns.actor} (ctl)", secrets.token_hex(8), source="ctl"
+        )
     except ActionError as exc:
         print(f"Refused: {exc}")
         return 1

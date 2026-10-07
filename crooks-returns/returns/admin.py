@@ -305,7 +305,9 @@ def build_admin_router(svc: ReturnsService) -> APIRouter:
         return_id: str, action: str, body: AdminAction, who: str = Depends(staff)
     ) -> dict[str, Any]:
         try:
-            out = svc.execute(return_id, action, body.params, who, body.idempotency_key)
+            out = svc.execute(
+                return_id, action, body.params, who, body.idempotency_key, source="ui"
+            )
         except ActionError as exc:
             raise HTTPException(exc.status, str(exc)) from exc
         ret = out.pop("return_doc")

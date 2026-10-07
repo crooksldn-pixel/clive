@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from shipping.admin import build_admin_router
+from shipping.api import build_api_router
 from shipping.providers.base import ProviderError, ShippingProvider
 from shipping.purchase import Purchases
 from shipping.service import ShippingService
@@ -235,6 +236,10 @@ def create_app(settings: Settings | None = None, service: ShippingService | None
             lambda: connection_status(settings, svc),
             lambda ops: setattr(app.state, "operations", ops),
         )
+    )
+    # CLIVE's API: the same service and the same physical printing as the screen.
+    app.include_router(
+        build_api_router(svc, settings, lambda request: request.app.state.operations.physical)
     )
     app.state.service = svc
     return app

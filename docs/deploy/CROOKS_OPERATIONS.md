@@ -165,6 +165,49 @@ nano ../clive-shipping/.env            # SHIPPING_AUTHORISED_ORDERS=
 docker compose up -d shipping
 ```
 
+## Release 2026-10-07: payment, tracking, lifecycle tabs, CLIVE API, Returns safety
+
+What changes: Shipping blocks new labels for unpaid orders and re-reads payment before buying,
+reads carrier tracking from Shopify, and shows lifecycle tabs; both apps gain CLIVE `/api/v1`
+additions; Returns never repeats a Shopify change whose reply was lost, and its action dialog
+works on a phone. No Shopify app change: `read_orders` and the fulfilment-order scopes are
+already granted. No database migration: both apps store each record as one JSON document and
+new fields have defaults, so existing rows load unchanged; nothing is rewritten on start.
+
+```bash
+ssh root@crooks-os-prod-1
+cd /opt/clive
+# 1. Back up both databases (SQLite's online backup: safe while the services run, WAL included)
+for db in crooks-returns/data/returns.sqlite3 clive-shipping/data/shipping.sqlite3; do
+  python3 -c "import sqlite3,sys; s=sqlite3.connect(sys.argv[1]); d=sqlite3.connect(sys.argv[2]); s.backup(d); d.close(); print('backed up', sys.argv[1], '->', sys.argv[2])" \
+    "$db" "/root/$(basename "$db" .sqlite3)-$(date +%F-%H%M).sqlite3"
+done
+# 2. Update and check the commit
+git pull --ff-only && git log --oneline -1
+# 3. Rebuild and restart both services (Caddy is unchanged)
+cd crooks-returns && docker compose up -d --build returns shipping && docker compose ps
+# 4. Health
+curl -s https://returns.crooksldn.com/health | head -c 80; echo
+curl -s https://returns.crooksldn.com/shipping/health; echo        # {"ok":true}
+# 5. Buying authorisation is unchanged (prints "none" unless set on purpose)
+docker compose exec -T shipping python -c "from shipping.settings import Settings as S; s=S(); print('buying_enabled:', s.buying_enabled, '| orders:', sorted(s.authorised()) or 'none')"
+# 6. A read-only look at every open order (buys nothing)
+docker compose exec -T shipping python -m shipping.tools.dry_run
+```
+
+Optional, only when CLIVE is to use Shipping: generate keys on the server and add them to
+`clive-shipping/.env` as `SHIPPING_CLIVE_READ_KEYS` / `SHIPPING_CLIVE_WRITE_KEYS` (never in
+chat), then `docker compose up -d shipping`. Without them Shipping's `/api/v1` answers nothing.
+
+**Check in Shopify admin (CROOKS Operations):**
+- **Shipping**: the tabs show Needs attention, Ready to ship, Labels bought, Printed, In transit,
+  Delivered, All. An unpaid order is in Needs attention with "Payment pending" (or its status)
+  beside any missing details. Within about 2 hours of the first tick, recent labels move to In
+  transit / Delivered as Shopify reports them; Guernsey parcels stay In transit (Royal Mail's
+  tracking ends at Guernsey Post).
+- **Returns on a phone**: open a pending return, tap Approve: the dialog's Approve is on screen,
+  says "Checking what this will do…" until it can be pressed, then approves once.
+
 ## Rollback
 
 - **Shipping only:** `docker compose stop shipping`. Returns and Settings are unaffected; the

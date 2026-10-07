@@ -91,6 +91,8 @@ GET  /stats?since=ISO                   counts by status/resolution/reason, top 
                                         label fees recovered
 POST /returns/{id}/actions/{action}/preview   {"params": {...}}            read key; changes nothing
 POST /returns/{id}/actions/{action}           {"params": {...}, "actor": "clive", "idempotency_key": "…"}  write key
+GET  /capabilities                      what CLIVE can do here: actions, statuses, operations
+GET  /events?since=ISO&limit=           what changed across returns, oldest first (see below)
 POST /tick                              flag overdue labels (the service already does this every 15 min)
 GET  /health                            no key; policy and connection state
 GET  /api/docs                          OpenAPI
@@ -114,6 +116,10 @@ GET  /api/docs                          OpenAPI
 - `execute` needs an `idempotency_key`, scoped per return and action. Sending the same key again returns `{"replayed": true}` and **never repeats a refund or a label**.
 - The response is `{from, status, verified, error, evidence, return}`. A non-empty `error` means the step was recorded but Shopify or Parcel2Go refused part of it. The return carries `last_error` and the `error` attention flag.
 - `actor` is written on the timeline. Use `"clive"`, or `"clive for George"` when acting on the owner's instruction.
+- **One key is one request.** The same key with the same params replays the first outcome; the same key with *different* params is refused (409 "That key was already used for a different request"). A failed outcome is replayed too: to try again, use a new key.
+- **Where it came from.** Every timeline event carries `source`: `ui` (the Returns screen), `api` (this API), `ctl`, `portal` (the customer) or `system`. The screen and the API run the same `ReturnsService.execute`; only `source` differs.
+- **Lost replies.** If Shopify doesn't answer a change (`returnCreate`, the label hand-over), the return says so (`approve_unknown`, `shipping_attach_unknown`) and nothing is sent again blindly: the next attempt reads Shopify back first and adopts what it finds. An action interrupted by an unexpected error answers 503 and keeps what it did (a paid label is settled, never bought twice).
+- **`GET /events`** returns `{"events": [{at, return_id, order, type, actor, source, verified, detail, status_now}]}`, oldest first. Poll it with the last `at` you saw as `since`: it is the record of what changed, so CLIVE never has to keep its own.
 
 ## 5. Webhooks from the service to CLIVE
 
@@ -150,7 +156,7 @@ Treat three things as money-moving and always owner-gated:
 
 ## 7. Other surfaces (don't duplicate)
 
-- **Staff screen in Shopify admin:** Apps → CROOKS Returns, served at `/admin`. It has the returns list, each return, every action with its "This will…" preview, the health check, and the test-order (pilot) list. It authenticates with Shopify session tokens and signs the timeline with the staff member's name.
+- **Staff screen in Shopify admin:** Apps → CROOKS Operations → Returns, served at `/admin`. On a phone the action dialog keeps its buttons on screen and says why Approve is waiting (checking, or what failed, with Try again). It has the returns list, each return, every action with its "This will…" preview, the health check, and the test-order (pilot) list. It authenticates with Shopify session tokens and signs the timeline with the staff member's name.
 - **`returns-ctl` on the server:** `docker compose exec returns returns-ctl check | list | show ID | labels POSTCODE | approve ID self_ship …`.
 
 ## 8. Known gaps and ideas

@@ -264,6 +264,9 @@ class Event(BaseModel):
     detail: dict[str, Any] = Field(default_factory=dict)
     # True once the outcome has been read back from Shopify (or the carrier) and matched.
     verified: bool = False
+    # Where the change came from: "ui" (the Returns screen), "api" (CLIVE or another key),
+    # "ctl" (the command line), "portal" (the customer), or "system" (timers, webhooks).
+    source: str = ""
 
 
 class Return(BaseModel):

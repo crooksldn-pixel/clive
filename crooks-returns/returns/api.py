@@ -20,8 +20,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, R
 from pydantic import BaseModel, Field
 
 from returns import verify
-from returns.models import Postage, Resolution, Selection, gbp
-from returns.service import ActionError, ReturnsService
+from returns.models import OPEN_STATUSES, Postage, Resolution, Selection, Status, gbp
+from returns.service import ACTIONS, ActionError, ReturnsService
 
 
 def proxy_signature_ok(query: list[tuple[str, str]], secret: str) -> bool:
@@ -258,11 +258,63 @@ def build_routers(svc: ReturnsService) -> list[APIRouter]:
     @api.post("/returns/{return_id}/actions/{action}", dependencies=[Depends(writer)])
     def act(return_id: str, action: str, body: ActionBody) -> dict[str, Any]:
         try:
-            out = svc.execute(return_id, action, body.params, body.actor, body.idempotency_key)
+            out = svc.execute(
+                return_id, action, body.params, body.actor, body.idempotency_key, source="api"
+            )
         except ActionError as exc:
             raise fail(exc) from exc
         ret = out.pop("return_doc")
         return {**out, "return": svc.staff(ret)}
+
+    @api.get("/capabilities", dependencies=[Depends(reader)])
+    def capabilities() -> dict[str, Any]:
+        """What CLIVE can do here, for discovery. Every action is preview, then act."""
+        return {
+            "service": "CROOKS Returns",
+            "statuses": [s.value for s in Status],
+            "open_statuses": sorted(s.value for s in OPEN_STATUSES),
+            "actions": list(ACTIONS),
+            "operations": [
+                {"method": "GET", "path": "/api/v1/returns", "key": "read",
+                 "does": "List returns: ?status=requested (waiting for a decision), "
+                         "?open=true, ?since=, ?limit="},
+                {"method": "GET", "path": "/api/v1/returns/{id}", "key": "read",
+                 "does": "One return: status, lines, money, Shopify evidence, timeline."},
+                {"method": "GET", "path": "/api/v1/orders/{order}/returns", "key": "read",
+                 "does": "An order's returns (2131, #2131 and CROOKS-2131 are the same)."},
+                {"method": "POST", "path": "/api/v1/returns/{id}/actions/{action}/preview",
+                 "key": "read", "does": "What the action would do, changing nothing."},
+                {"method": "POST", "path": "/api/v1/returns/{id}/actions/{action}",
+                 "key": "write", "does": "Do it: {params, idempotency_key, actor}. The same "
+                 "key replays the first outcome; a different request needs a new key."},
+                {"method": "GET", "path": "/api/v1/events", "key": "read",
+                 "does": "What changed since a time, across returns, oldest first."},
+            ],
+        }  # fmt: skip
+
+    @api.get("/events", dependencies=[Depends(reader)])
+    def events(since: datetime | None = None, limit: int = 200) -> dict[str, Any]:
+        """Every return's history after `since`: what happened, to which return and order,
+        who did it, from where (ui, api, ctl, portal, system), and whether it was checked."""
+        found = []
+        for r in svc.store.search(since=since, limit=100_000):
+            for e in r.timeline:
+                if since is None or e.at > since:
+                    found.append(
+                        {
+                            "at": e.at.isoformat(),
+                            "return_id": r.id,
+                            "order": r.order_name,
+                            "type": e.type,
+                            "actor": e.actor,
+                            "source": e.source or None,
+                            "verified": e.verified,
+                            "detail": e.detail,
+                            "status_now": r.status.value,
+                        }
+                    )
+        found.sort(key=lambda x: x["at"])
+        return {"events": found[-max(1, min(limit, 1000)) :]}
 
     @api.post("/tick", dependencies=[Depends(writer)])
     def tick() -> dict[str, Any]:

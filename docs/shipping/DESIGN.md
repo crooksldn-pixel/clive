@@ -169,32 +169,26 @@ PrintJob    (later) id, artifact_id, printer, status, requested_by
 | Webhooks in | `orders/updated`, `orders/cancelled`, `fulfillment_orders/*`, `app/uninstalled`. Signals only: a 15-minute reconcile re-reads open shipments regardless |
 | Scopes | `read_orders`, `read_merchant_managed_fulfillment_orders`, `write_merchant_managed_fulfillment_orders`, `read_products`, `read_inventory`, `write_inventory`, `read_locations` |
 
-### API for CLIVE (`/api/v1`, bearer read/write keys, mirrors Returns)
+### API for CLIVE (`/api/v1`, bearer read/write keys, mirrors Returns): as built 2026-10-07
+
+`shipping/api.py`. Keys `SHIPPING_CLIVE_READ_KEYS` / `SHIPPING_CLIVE_WRITE_KEYS`; none set, it
+answers nothing. Every route calls the same service method as the screen.
 
 ```
-GET  /shipments?state=ready|needs_attention|open|done&since=   GET /shipments/{id}
-GET  /orders/{order}/shipment           GET /provider (balance, connected)   GET /health
-POST /shipments/{id}/prepare            (read Shopify, recompute readiness, no money)
-POST /shipments/{id}/actions/{action}/preview      → {will[], money, service, basis}
-POST /shipments/{id}/actions/{action}              {params, basis, actor, idempotency_key}
-POST /batches/buy-label/preview         {shipment_ids} → per-shipment will/basis + total
+GET  /capabilities                       read   what CLIVE can do
+GET  /shipments?stage=&q=&limit=         read   stage: attention|ready|bought|printed|in_transit|delivered|all
+GET  /shipments/{id}                     read   stage, payment, fulfilment, print, carrier, blockers, label
+POST /shipments/{id}/preview             read   Shopify re-read + exact price; returns the basis
+POST /shipments/{id}/buy                 write  {basis, idempotency_key, actor}: the purchase protocol
+POST /shipments/{id}/print               write  first print through PrintNode, once
+POST /shipments/{id}/reprint             write  {confirm: true, ...}: an extra copy
+POST /shipments/{id}/tracking            read   read Shopify's carrier tracking now
+GET  /events?since=&limit=               read   every order's history after `since`
 ```
 
-Execute returns `{from, status, verified, error, evidence, shipment}`. Each batch member is executed separately, with its own key and basis, so a partial failure is exact.
-
-**Actions:**
-
-| Action | Spends money? |
-| --- | --- |
-| `buy-label` | **yes** |
-| `fulfil` (retry the Shopify write) | no |
-| `answer` (one question: HS / origin / weight / address / package) | no; writes knowledge and Shopify |
-| `change-package` | no |
-| `choose-service` | no |
-| `requote` | no |
-| `reprint` | **no**; renders an existing artifact only |
-| `request-void` | no (manual at Parcel2Go in v1); `confirm-void` after the merchant cancels there |
-| `note` | no |
+The earlier plan's prepare/answer/choose-service/void actions and batch endpoints are not
+exposed: CLIVE asks a person to answer questions in the screen, and bulk work stays a reviewed
+screen action. The shared contract for CLIVE: `docs/sister-apps/CLIVE_OPERATIONS.md`.
 
 ### Webhooks out (signed like Returns)
 
@@ -635,8 +629,28 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
    `/orders/verify`). `--probe-easyship` also creates each Easyship booking exactly as Buy
    would but without a label (no money moves), reports Easyship's verdict, and deletes it.
 
-6. **Stage 5 — API for CLIVE, webhooks, `shipping-ctl`, PrintNode sender**, mirroring Returns.
-7. **Stage 6 — deploy and pilot:**
+6. **Payment, tracking, lifecycle and the CLIVE API (2026-10-07).**
+   - **Payment** (`shipping/payment.py`): one policy over `Order.displayFinancialStatus`
+     (2026-10 enum: PAID and PARTIALLY_REFUNDED allow a new label; PENDING, PARTIALLY_PAID,
+     REFUNDED, VOIDED, EXPIRED, AUTHORIZED and unknown block it). The payment is a blocker
+     beside every other, read again in `_revalidate` before Check price and Buy (single, bulk
+     and API), and a label already bought is kept with a warning.
+   - **Tracking** (`shipping/tracking.py`): `Fulfillment.displayStatus`, `inTransitAt`,
+     `deliveredAt`, `estimatedDeliveryAt`, read by the stored fulfilment id, else matched by
+     tracking number (never the first fulfilment). Fulfilment SUCCESS is never delivery. The
+     tick reads at most 25 due parcels: every 2h (1h out for delivery), twice a day after 5
+     quiet days, never after delivery or 30 days; the next check is stored on the shipment.
+     Seen live (2026-10-07): UK Royal Mail reaches DELIVERED in Shopify; Channel Islands Royal
+     Mail stops at IN_TRANSIT (handed to Guernsey/Jersey Post), so Shopify alone can't say those
+     arrived. No carrier integration is added for that.
+   - **Lifecycle** (`shipping/lifecycle.py`): Needs attention, Ready to ship, Labels bought,
+     Printed (PrintNode accepted, via `PhysicalPrinting.summary`), In transit, Delivered, All;
+     derived on every read. Ready selects for bulk Buy, Labels bought for bulk first Print;
+     the batch preview enforces both. The detail keeps Payment, Fulfilment, Print and Carrier
+     apart.
+   - **API for CLIVE**: above.
+7. **Still not built:** webhooks out and `shipping-ctl` (CLIVE polls `/events` instead).
+8. **Stage 6 — deploy and pilot:**
    - Shopify app toml, compose service, Caddy site block, separate Parcel2Go credential;
    - pilot behind an order-number allowlist (like Returns);
    - one real label to Germany (see the live-readiness gate below).

@@ -363,7 +363,12 @@ class ReturnsService:
         if ret.order_id != order.id:
             raise ActionError("Return not found.", 404)
         return self.execute(
-            return_id, "tracking", {"number": number}, "customer", f"customer-tracking-{number}"
+            return_id,
+            "tracking",
+            {"number": number},
+            "customer",
+            f"customer-tracking-{number}",
+            source="portal",
         )["return_doc"]
 
     def courier_tracking(
@@ -418,6 +423,11 @@ class ReturnsService:
         if ret is None:
             raise ActionError("Return not found.", 404)
         return ret
+
+    @staticmethod
+    def _stamp(ret: Return, first: int, source: str) -> None:
+        for e in ret.timeline[first:]:
+            e.source = e.source or source
 
     def _event(
         self,
@@ -603,20 +613,37 @@ class ReturnsService:
         )
 
     def execute(
-        self, return_id: str, action: str, params: dict[str, Any], actor: str, key: str
+        self,
+        return_id: str,
+        action: str,
+        params: dict[str, Any],
+        actor: str,
+        key: str,
+        source: str = "system",
     ) -> dict[str, Any]:
+        """The one way a return changes, whoever asks: the screen, CLIVE, the command line or
+        the customer. `source` is recorded on every event the action makes."""
         if action not in ACTIONS:
             raise ActionError(f"Unknown action {action}.", 404)
         if not key:
             raise ActionError("An idempotency key is required.", 422)
         scoped = f"{return_id}:{action}:{key}"
+        asked = hashlib.sha256(json.dumps(params, sort_keys=True, default=str).encode()).hexdigest()
         with self.store.lock:
             done = self.store.remembered(scoped)
             if done is not None:
+                if done.get("_params", asked) != asked:
+                    # A retry must be the same request; a new request needs a new key.
+                    raise ActionError(
+                        "That key was already used for a different request. Use a new key.",
+                        409,
+                    )
+                done = {k: v for k, v in done.items() if not k.startswith("_")}
                 return {**done, "replayed": True, "return_doc": self._get(return_id)}
             self.preview(return_id, action, params)  # every rule a preview checks, execute checks
             ret = self._get(return_id)
             before = ret.status
+            first_event = len(ret.timeline)
             try:
                 getattr(self, f"_do_{action}")(ret, params, actor)
             except Exception as exc:
@@ -635,10 +662,12 @@ class ReturnsService:
                         actor,
                         {"action": action, "error": type(exc).__name__},
                     )
+                self._stamp(ret, first_event, source)
                 self.store.save(ret)
                 if interrupted:
                     raise ActionError(ret.last_error or "Interrupted.", 503) from exc
                 raise
+            self._stamp(ret, first_event, source)
             self.store.save(ret)
             last = ret.timeline[-1] if ret.timeline else None
             out = {
@@ -650,7 +679,7 @@ class ReturnsService:
                 "error": ret.last_error,
                 "evidence": ret.shopify.model_dump(),
             }
-            self.store.remember(scoped, out)
+            self.store.remember(scoped, {**out, "_params": asked})
         self.notifier.send(f"return.{action}", ret)
         return {**out, "return_doc": ret}
 

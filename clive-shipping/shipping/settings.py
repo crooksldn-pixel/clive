@@ -61,6 +61,16 @@ class Settings(BaseSettings):
     authorised_orders: str = ""
     # Global authorisation only; the existing guarded purchase flow still applies.
     buying_enabled: bool = False
+    # CLIVE's keys for /api/v1 (comma-separated, set on the server only). A write key can
+    # also read. Empty: the API answers nothing.
+    clive_read_keys: str = ""
+    clive_write_keys: str = ""
+
+    def keys(self, kind: str) -> list[str]:
+        """The keys allowed to read, or to act. Acting implies reading."""
+        split = lambda v: [k.strip() for k in v.split(",") if k.strip()]  # noqa: E731
+        write = split(self.clive_write_keys)
+        return write if kind == "write" else split(self.clive_read_keys) + write
 
     def authorised(self) -> set[str]:
         parts = self.authorised_orders.replace(" ", ",").split(",")
