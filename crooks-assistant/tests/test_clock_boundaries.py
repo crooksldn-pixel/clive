@@ -16,6 +16,28 @@ that matter — London's, which is 23:00 UTC in summer, and UTC's:
 the last two instants are London's. Every path is driven at every instant, and what is asserted
 is the right answer, not merely that one came back.
 
+And on the two nights the clocks change, when London's day is not 24 hours long and a sum
+done on London's wall clock is not real time. The fixture measured how far through the day it
+was that way, and from 01:00 UTC until about 01:31 UTC on the night the clocks went forward
+today's orders were stamped up to 47 minutes after now. So the clock is also held at:
+
+    2026-10-24 22:59:30 UTC   the last half-minute of 24 October in London (BST)
+    2026-10-24 23:00:30 UTC   London's midnight, in BST, on the night the clocks go back
+    2026-10-25 00:59:30 UTC   01:59:30 BST, the last half-minute before they go back
+    2026-10-25 01:00:30 UTC   01:00:30 GMT, the repeated hour
+    2026-10-25 01:59:30 UTC   the end of the repeated hour, an hour after it began on the wall
+    2027-03-27 23:59:30 UTC   the last half-minute of 27 March in London (GMT)
+    2027-03-28 00:00:30 UTC   London's midnight, in GMT, on the night the clocks go forward
+    2027-03-28 00:59:30 UTC   00:59:30 GMT, the last half-minute before they go forward
+    2027-03-28 01:00:30 UTC   02:00:30 BST, the far side of the hour that does not exist
+    2027-03-28 01:15:00 UTC   02:15 BST, inside the half-hour the fixture stamped in the future
+    2027-03-28 01:30:30 UTC   02:30:30 BST, its last minute
+
+Both nights fall on a weekend, so the support finding, which counts working days, keeps to the
+eight instants above. And because each of today's orders is stamped to the second, each of the
+four nights' London midnight is walked a second at a time too, from midnight exactly to ten
+seconds past.
+
 What the held-clock sweep of the whole offline suite found on trunk cfe38b83 (7 October 2026,
 each test started at the instant, the suite collected a minute before): seven tests failed at
 23:00:30 UTC and at no other instant. Four walk the golden world's orders of today
@@ -55,11 +77,34 @@ def _night(day: int, month: int) -> list[datetime]:
     ]
 
 
+def _instant(stamp: str) -> datetime:
+    return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+
+
 # The night the acceptance run failed (BST), and a night in January (GMT).
 SUMMER = _night(24, 9)
 WINTER = _night(14, 1)
-INSTANTS = SUMMER + WINTER
+# The nights the clocks go back (25 October 2026) and forward (28 March 2027), both at 01:00 UTC.
+AUTUMN = [_instant(stamp) for stamp in (
+    "2026-10-24T22:59:30Z", "2026-10-24T23:00:30Z", "2026-10-25T00:59:30Z", "2026-10-25T01:00:30Z",
+    "2026-10-25T01:59:30Z",
+)]
+SPRING = [_instant(stamp) for stamp in (
+    "2027-03-27T23:59:30Z", "2027-03-28T00:00:30Z", "2027-03-28T00:59:30Z", "2027-03-28T01:00:30Z",
+    "2027-03-28T01:15:00Z", "2027-03-28T01:30:30Z",
+)]
+INSTANTS = SUMMER + WINTER + AUTUMN + SPRING
 IDS = [instant.strftime("%Y-%m-%dT%H:%M:%SZ") for instant in INSTANTS]
+# The working-day nights only: both changeover nights fall on a weekend.
+WORKING_NIGHTS = SUMMER + WINTER
+WORKING_IDS = [instant.strftime("%Y-%m-%dT%H:%M:%SZ") for instant in WORKING_NIGHTS]
+# London's midnight on each of the four nights, and how far past it the first seconds are walked.
+MIDNIGHTS = [
+    datetime(2026, 9, 24, 23, tzinfo=UTC), datetime(2026, 10, 24, 23, tzinfo=UTC),
+    datetime(2026, 1, 15, 0, tzinfo=UTC), datetime(2027, 3, 28, 0, tzinfo=UTC),
+]
+MIDNIGHT_IDS = [midnight.strftime("%Y-%m-%dT%H:%M:%SZ") for midnight in MIDNIGHTS]
+FIRST_SECONDS = [0, 0.5, 1, 2.5, 3, 10]
 # The shop's and the owner's calendar, said here rather than read from the code under test.
 LONDON = ZoneInfo("Europe/London")
 
@@ -74,10 +119,6 @@ def held(instant: datetime) -> type[datetime]:
             return instant.astimezone(tz) if tz else instant.astimezone().replace(tzinfo=None)
 
     return Held
-
-
-def _instant(stamp: str) -> datetime:
-    return datetime.fromisoformat(stamp.replace("Z", "+00:00"))
 
 
 @pytest.fixture()
@@ -135,10 +176,37 @@ def test_todays_orders_are_placed_today_apart_and_newest_first(instant, world_at
     )
     assert len(set(placed)) == len(placed), f"today's orders share an instant: {placed}"
     assert placed == sorted(placed, reverse=True), f"not newest first: {[o.name for o in expected]} {placed}"
-    # The inbox's messages of today are folded into the part of the day that has happened.
+    # The inbox's messages of today are folded into the part of the day that has happened —
+    # compared as instants: two London times compare on the wall clock, and in the repeated hour
+    # 01:05 BST, already past, reads as after 01:00:30 GMT.
     for thread in data.world.threads:
         for message in thread.messages:
-            assert data._local(message.days_ago, message.hour) <= now, (message.message_id, now)
+            assert data._local(message.days_ago, message.hour).astimezone(UTC) <= now.astimezone(UTC), (message.message_id, now)
+
+
+@pytest.mark.parametrize("seconds", FIRST_SECONDS)
+@pytest.mark.parametrize("midnight", MIDNIGHTS, ids=MIDNIGHT_IDS)
+def test_todays_orders_are_apart_from_the_first_seconds_of_the_day(midnight, seconds, world_at):
+    """Today's orders a second at a time from London's midnight. Stamps are written to the
+    second, and with half of the elapsed day as the span two or three of them shared one for the
+    first few seconds — all three at midnight exactly. From two seconds past they are three
+    different seconds, every one inside today and before now, newest first; at midnight exactly
+    nothing of today is before now, and all three are midnight."""
+    assert midnight.astimezone(LONDON).time() == time(0), "the premise: this is London's midnight"
+    now = world_at(midnight + timedelta(seconds=seconds))
+    expected = data.world.today()
+    placed = [_instant(order.placed_at()) for order in expected]
+    if seconds == 0:
+        assert placed == [midnight] * len(expected), f"at London's midnight: {placed}"
+    else:
+        assert all(midnight <= p < now for p in placed), f"{seconds}s past {midnight}, now {now}: {placed}"
+        assert placed == sorted(placed, reverse=True), f"not newest first: {[o.name for o in expected]} {placed}"
+    if seconds > 2:
+        assert len(set(placed)) == len(placed), f"{seconds}s past midnight, today's orders share an instant: {placed}"
+    for order in expected:
+        for fulfillment in data.order_node(order)["fulfillments"]:
+            created = _instant(fulfillment["createdAt"])
+            assert midnight <= created <= now, f"{order.name} fulfilled at {created}, now {now}"
 
 
 @pytest.mark.parametrize("instant", INSTANTS, ids=IDS)
@@ -239,7 +307,7 @@ def test_a_deadline_tomorrow_is_one_day_away_at_every_instant(instant, tmp_path,
     assert made.summary()["days_left"] == 1, f"at {instant:%H:%M:%S} UTC, deadline {tomorrow}"
 
 
-@pytest.mark.parametrize("instant", INSTANTS, ids=IDS)
+@pytest.mark.parametrize("instant", WORKING_NIGHTS, ids=WORKING_IDS)
 def test_a_support_finding_names_the_shops_day_at_every_instant(instant):
     """What the investigator tells the owner, and the draft tells the customer: the day a stamp
     fell on, and how many working days have passed since, are London's. Read in UTC, an order

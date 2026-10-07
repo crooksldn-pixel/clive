@@ -18,6 +18,7 @@ is not ours to commit.
 from __future__ import annotations
 
 import base64
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -76,11 +77,21 @@ def _local(days_ago: float, hour: int, minute: int = 0) -> datetime:
     """
     when = (NOW - timedelta(days=days_ago)).replace(hour=hour, minute=minute, second=0, microsecond=0)
     if days_ago == 0 and when > NOW:
-        midnight = NOW.replace(hour=0, minute=0, second=0, microsecond=0)
-        elapsed = (NOW - midnight).total_seconds()
+        midnight, elapsed = _since_midnight()
         through_the_day = (hour * 3600 + minute * 60) / 86400.0
-        when = midnight + timedelta(seconds=elapsed * through_the_day)
+        when = (midnight + timedelta(seconds=elapsed * through_the_day)).astimezone(SHOP_TZ)
     return when
+
+
+def _since_midnight() -> tuple[datetime, float]:
+    """London's midnight of NOW's day, in UTC, and the real seconds from it to NOW.
+
+    Measured in UTC because Python subtracts and adds two datetimes that share a zone as wall
+    clock times: on the night the clocks go forward London's day so far read an hour longer
+    than it was, and today's stamps landed up to 47 minutes after now.
+    """
+    midnight = NOW.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+    return midnight, (NOW.astimezone(UTC) - midnight).total_seconds()
 
 
 def _at(days_ago: float, hour: int = 10, minute: int = 0) -> str:
@@ -107,17 +118,25 @@ def _today_at(fraction: float) -> datetime:
     and reports "no orders today" at breakfast, which is a flaky test with a plausible-sounding
     failure. A fraction of the elapsed day is inside the window whatever the hour, and keeps
     the three orders in a fixed order relative to each other.
+
+    From any NOW more than two seconds after London's midnight, today's three orders fall on
+    three different whole seconds, at or after midnight and before NOW. At midnight exactly no
+    instant of today lies before NOW, so there they are all stamped at midnight.
     """
-    midnight = NOW.replace(hour=0, minute=0, second=0, microsecond=0)
-    elapsed = (NOW - midnight).total_seconds()
-    # A minute of headroom, so the newest order is never stamped in the same second as "now" —
-    # but not in the first two minutes of the day, when a minute is most of what there is. With
-    # the headroom taken there, every one of today's orders was stamped at midnight exactly
-    # until a minute past, and "the newest" was whichever the sort happened to leave first.
-    # Half of what has elapsed keeps them apart and in the past; the two meet at two minutes.
-    span = elapsed - 60 if elapsed > 120 else elapsed / 2
-    at = midnight + timedelta(seconds=max(0.0, min(fraction, 1.0) * span))
-    return at
+    midnight, elapsed = _since_midnight()
+    fraction = max(0.0, min(fraction, 1.0))
+    if elapsed > 120:
+        # A minute of headroom, so the newest order is never stamped in the same second as "now".
+        offset = fraction * (elapsed - 60)
+    else:
+        # But not in the first two minutes of the day, when a minute is most of what there is.
+        # With the headroom taken there, every one of today's orders was stamped at midnight
+        # exactly until a minute past; with half of what had elapsed, two or three of them
+        # shared a second for the first few seconds, and stamps are written to the second. So
+        # here they are placed on whole seconds, spread over those begun before now: 0, 1 and 2
+        # from just after two seconds past midnight, further apart as the day goes on.
+        offset = round(fraction * max(0, math.ceil(elapsed) - 1))
+    return (midnight + timedelta(seconds=offset)).astimezone(SHOP_TZ)
 
 
 def _today_iso(fraction: float) -> str:
