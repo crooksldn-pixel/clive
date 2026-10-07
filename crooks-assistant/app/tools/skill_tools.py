@@ -211,7 +211,7 @@ def _record(base: Path, name: str) -> dict[str, Any] | None:
     try:
         raw = _read_under(base, [name, PROVENANCE_FILE], MAX_PROVENANCE_BYTES)
         record = json.loads(raw.decode("utf-8"))
-    except (_Unread, UnicodeDecodeError, ValueError):
+    except Exception:  # noqa: BLE001 - nested too deep (RecursionError), bad bytes, a huge number: not an install
         return None
     if not isinstance(record, dict):
         return None

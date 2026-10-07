@@ -799,13 +799,19 @@ def build(settings: Settings | None = None) -> Runtime:
 
 def offered_skills(withheld: set[str] | frozenset[str] = frozenset()) -> list[str]:
     """The installed skills' names for the system prompt, only while skill_list and skill_read
-    are both offered; none otherwise, so the prompt is what it was without them."""
+    are both offered; none otherwise, so the prompt is what it was without them. Never raises:
+    the skills folder holds files written outside CROOKS, and nothing in it may stop the app
+    starting (`build`) or the knowledge base reloading (`Runtime.system_prompt`)."""
     from app.tools import registry, skill_tools
 
-    registered = set(registry.names())
-    if any(name not in registered or name in withheld for name in skill_tools.TOOLS):
+    try:
+        registered = set(registry.names())
+        if any(name not in registered or name in withheld for name in skill_tools.TOOLS):
+            return []
+        return skill_tools.names()
+    except Exception as exc:  # noqa: BLE001 - a prompt without the skills' names, rather than no app
+        log.warning("the installed skills could not be named in the prompt: %s", type(exc).__name__)
         return []
-    return skill_tools.names()
 
 
 def _staff_provider(runtime: Runtime, person: Any) -> Any:

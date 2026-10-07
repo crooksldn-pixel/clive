@@ -463,6 +463,85 @@ def test_the_offline_suite_never_reads_the_checkouts_installed_skills():
     assert REPO_ROOT not in Path(get_settings().skills_dir).resolve().parents
 
 
+# ------------------------------------------------------------------------------- a malformed provenance
+
+
+def _malformed(base: Path) -> None:
+    """Three folders whose provenance.json no parser should be trusted with: nested past Python's
+    recursion limit (RecursionError, not ValueError), a number with more digits than int() allows,
+    and bytes that are not UTF-8."""
+    head = '{"schema": "clive.skill_install.v1", "route": "instructions", '
+    for name, body in (
+        ("deep", head + '"name": "deep", "x": ' + "[" * 100_000 + "]" * 100_000 + "}"),
+        ("huge-number", head + '"name": "huge-number", "x": ' + "9" * 5_000 + "}"),
+    ):
+        (base / name).mkdir()
+        (base / name / "provenance.json").write_text(body, encoding="utf-8")
+    (base / "not-utf8").mkdir()
+    (base / "not-utf8" / "provenance.json").write_bytes(b'{"name": "\xff\xfe"}')
+
+
+def test_a_malformed_provenance_is_skipped_by_the_list_the_read_and_the_names(skills_dir):
+    install(skills_dir, "good")
+    _malformed(skills_dir)
+
+    listed = skill_list()
+
+    assert [s["name"] for s in listed["skills"]] == ["good"] and listed["unreadable"] == 3
+    assert skill_tools.names() == ["good"]
+    for name in ("deep", "huge-number", "not-utf8"):
+        with pytest.raises(ToolError):
+            skill_read(name)
+    assert skill_read("good")["text"].endswith("How to do it.\n")
+
+
+def test_the_prompts_skill_names_never_raise(skills_dir, monkeypatch):
+    from app import runtime
+
+    install(skills_dir, "good")
+    _malformed(skills_dir)
+    assert runtime.offered_skills() == ["good"]
+
+    def broken():
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(skill_tools, "names", broken)
+    assert runtime.offered_skills() == []
+    kb = KnowledgeBase(text="", files=[], chars=0)
+    fake = SimpleNamespace(kb=kb, settings=SimpleNamespace(writes_enabled=False), withheld_by_family=lambda: set())
+    assert runtime.Runtime.system_prompt(fake) == build_system_prompt(kb)
+
+
+def test_a_runtime_starts_and_reloads_with_a_malformed_provenance_installed(tmp_path):
+    from app import runtime
+    from app.routes import admin
+    from config.settings import get_settings
+    from experience import harness as harness_module
+
+    base = tmp_path / "skills"
+    base.mkdir()
+    install(base, "good")
+    _malformed(base)
+    settings = get_settings().model_copy(update={"skills_dir": base})
+    bound = harness_module._tool_bindings()
+    try:
+        built = runtime.build(settings)
+        assert "`good`" in built.provider._system_prompt and "`deep`" not in built.provider._system_prompt
+        prompts: list[str] = []
+
+        async def set_system_prompt(prompt):
+            prompts.append(prompt)
+
+        built.provider.set_system_prompt = set_system_prompt
+        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(runtime=built)))
+        import asyncio
+
+        assert asyncio.run(admin.reload_kb(request))["reloaded"] is True
+        assert "`good`" in prompts[0]
+    finally:
+        harness_module._put_back(bound)
+
+
 # ------------------------------------------------------------------------------- what the model reads first
 
 
