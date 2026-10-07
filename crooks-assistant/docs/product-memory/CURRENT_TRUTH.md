@@ -24,7 +24,7 @@ The deploys before it, newest first:
 
 Three things not to miss:
 - **The last three deploys waived the exact-SHA review**, which `DEPLOY_LINUX.md` still says every deploy needs. The 30 Sep ship rule changed what blocks a deploy, not whether a review runs. Which one stands is the owner's call.
-- **GitHub Actions starts no jobs.** Since 3 Oct 17:52 UTC every run fails at once with "recent account payments have failed or your spending limit needs to be increased". The last green run is `b33ccbc2`'s. Until the owner puts the billing right, no pull request can show green, so none can land under the one-trunk rule (DEC-058). The self-hosted runner decided on 30 Sep is not set up: the failing runs are GitHub-hosted.
+- **GitHub Actions ran out of included minutes on 3 Oct** (17:52 UTC) and started no jobs until the owner made the repository public on 7 Oct; public repositories get GitHub's standard runners without a minute limit. The self-hosted runner decided on 30 Sep is still not set up.
 - **The owner's phone check for `b33ccbc2` is not on record.** The deploy record left the `/whoami` line outstanding, and the procedure keeps a deploy only once that line appears.
 
 ### Production switches and what runs
@@ -39,14 +39,15 @@ What runs on it:
 
 ### CROOKS Returns: live beside CLIVE, not in it
 
-CROOKS Returns is the owner's own returns and exchanges service, and it replaces AfterShip. It runs at `https://returns.crooksldn.com`, in its own Docker Compose container on `crooks-os-prod-1` (`/opt/clive/crooks-returns`). He built and deployed it himself on 3 Oct, **outside the CLIVE engineering kernel**: it has no kernel task, review or acceptance record ([DEC-066](./DECISIONS.md)). On the trunk, CLIVE has no returns tools, and `app/returns/` and `app/families/returns.py` still say returns are not implemented. CLIVE's side of returns is PR #96.
+CROOKS Returns is the owner's own returns and exchanges service, and it replaces AfterShip. It runs at `https://returns.crooksldn.com`, in its own Docker Compose container on `crooks-os-prod-1` (`/opt/clive/crooks-returns`). He built and deployed it himself on 3 Oct, **outside the CLIVE engineering kernel**: it has no kernel task, review or acceptance record ([DEC-066](./DECISIONS.md)). CLIVE's side is PR #96 (merged 7 Oct, **not deployed yet**): read-only returns tools, the home row, the order card and the customer's history, and one staged write (`return_action`) that runs CROOKS Returns' own preview and waits for the owner's approval, with his hold for anything that moves money or emails a customer. It switches on when he stores the service's read and write keys on Connections. The old stub (`app/returns/`, `app/families/returns.py`) is still on the trunk beside it.
 
 ### Open pull requests
 
-- **#96, "CROOKS Returns in CLIVE, and the design pass"** (`claude/returns-and-design`, head `f475be0d`, 3 Oct). It has 23 commits across 75 files, +5,742 / −173. Every run on it fails before starting because of the billing problem. Its DEC-061 is recorded here as DEC-066, word for word.
-  - When it lands, its `DECISIONS.md` and `CURRENT_TRUTH.md` changes will conflict with this rewrite. Keep this Now, update its CROOKS Returns paragraph, and drop the duplicate decision.
-  - It adds the returns tools but does not remove the returns stub they replace.
 - **#1 and #2** (18–19 Sep: the first product-memory foundation and an operator runbook) are still open and stale.
+
+### Merged, not deployed
+
+- **PR #96** (7 Oct): CROOKS Returns in CLIVE, and the design pass (the answer in full on the phone, Home, approval weights and "Not now", the dock on every tablet, colour). Both halves were reviewed SHIP before merging. Production stays on `b33ccbc2` until it is deployed.
 
 ### The build loop
 
@@ -66,7 +67,6 @@ DEC-062 to DEC-065 record the owner decisions of 26 Sep, 28 Sep, 30 Sep and 1 Oc
 
 ### Still the owner's
 
-- GitHub billing, which stops every run.
 - The phone `/whoami` for `b33ccbc2`.
 - Whether a deploy still needs the exact-SHA review, or the waivers become the rule.
 - Whether the governed loop or direct builders are the normal way work lands.

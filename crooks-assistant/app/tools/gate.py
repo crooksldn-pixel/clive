@@ -202,6 +202,15 @@ _KNOWN_TOOLS = frozenset({
     # from it, and it stages nothing. Named without a mutation verb; named here because this is an
     # allow-list.
     "interaction_review",
+    # CROOKS Returns, the owner's own returns service (app/tools/returns_tools.py, through
+    # app/clients/crooks_returns.py): the open returns and what each needs, one return in full, and
+    # a period's numbers. Each is a GET on the service's /api/v1 with the read key, and nothing else:
+    # no Shopify call, no portal call, nothing staged. AMBER on their ToolSpecs, because a return
+    # names its customer. The owner's alone: no staff member's set and no service work names them
+    # (app/people/staff.py, app/tools/authority.py). Its one change, return_action, is a write with a
+    # complete definition, so it is staged here like every other and never on this list. Named here
+    # one by one, because this is an allow-list.
+    "returns_open", "return_find", "returns_stats",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops
@@ -238,6 +247,8 @@ _ID_KIND = {
     # and the workspace is what the owner is authorising the creation of. Held to its shape
     # here so that a Shopify gid, or a compose id, cannot be handed to a creation tool.
     "workspace_id": re.compile(r"^(?:dsc|ord|crd)_[0-9a-f]{6,}$"),
+    # A return in CROOKS Returns (its service's new_id: "ret_" and hex), as returns_open issued it.
+    "return_id": re.compile(r"^ret_[0-9a-f]{6,40}$"),
 }
 
 

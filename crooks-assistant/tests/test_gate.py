@@ -280,12 +280,19 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     # the tables below are unchanged.
     assert "interaction_review" in gate._KNOWN_TOOLS and not gate._looks_like_mutation("interaction_review")
     assert "interaction_review" not in gate._PII_TOOLS
-    assert len(gate._KNOWN_TOOLS) == 55, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
+    # CROOKS Returns (app/tools/returns_tools.py, 2026-10-03): three reads of the owner's returns
+    # service, AMBER on their ToolSpecs, named without a mutation verb; its one change,
+    # return_action, is a declared write and so is staged, never on this list.
+    returns = {"returns_open", "return_find", "returns_stats"}
+    assert returns <= gate._KNOWN_TOOLS and not any(gate._looks_like_mutation(name) for name in returns)
+    assert "return_action" not in gate._KNOWN_TOOLS
+    assert len(gate._KNOWN_TOOLS) == 58, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
                                           "screen_off and screen_remote, then screen_play and screen_video, "
                                           "then round 12's shopify_order_build, show_again and close_screen, "
                                           "then instagram_inbox, instagram_thread and instagram_comments, "
                                           "then people_list, person_note, work_list and work_note, "
-                                          "then skill_list and skill_read, then track_parcel, then interaction_review")
+                                          "then skill_list and skill_read, then track_parcel, then interaction_review, "
+                                          "then returns_open, return_find and returns_stats")
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",
@@ -300,6 +307,8 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     assert set(gate._ID_KIND) == {
         "order_id", "customer_id", "line_item_id", "variant_id", "thread_id",
         "evidence_message_id", "set_id", "workspace_id", "objective_id",
+        # A CROOKS Returns return, which return_action must act on (app/tools/returns_tools.py).
+        "return_id",
     }
     assert gate._ID_KIND["objective_id"].pattern == r"^obj_[0-9a-f]{8}$"
     assert (gate._MAX_LIMIT, gate._MAX_DAYS) == (50, 365)

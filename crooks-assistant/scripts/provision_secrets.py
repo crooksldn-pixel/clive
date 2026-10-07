@@ -67,6 +67,14 @@ HELP = {
         "Ship24 dashboard -> API keys (dashboard.ship24.com/integrations/api-keys): the Default key "
         "made when you chose a plan (it starts apik_). CLIVE tracks parcels with it."
     ),
+    "crooks_returns_read_key": (
+        "On this server: grep CLIVE /opt/clive/crooks-returns/.env, and paste what follows "
+        "RETURNS_CLIVE_READ_KEYS= (one key). CLIVE reads your returns with it."
+    ),
+    "crooks_returns_write_key": (
+        "Same command: paste what follows RETURNS_CLIVE_WRITE_KEYS= (one key). CLIVE sends it only "
+        "with a returns action you approved on its card."
+    ),
     "instagram_access_token": (
         "Meta for Developers -> the CLIVE app -> Instagram -> API setup with Instagram login -> "
         "Generate token for the crooksldn account (a long-lived token, 60 days). CLIVE reads "

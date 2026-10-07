@@ -1,0 +1,262 @@
+/* The design pass of 3 October 2026: the fixes from the night audit of every screen George and
+   his staff use (night/audit/DESIGN.md), measured against the look he approved for objectives
+   (dark ground, SF type, one blue, grouped cells, nothing decorative).
+
+   What this file promises, in order:
+     1. CLIVE's answer has a full-width line of its own under the orb and what he asked, and is
+        never cut short — on the phone, where it was cut to two or three words, and on a tablet.
+     2. The way home is "‹ Home", the same glass capsule as the horizon's Home (horizon.css).
+     3. No permanent Back / Previous / Next strip (GENERATIVE_UI_V1 §4): Back is drawn only when
+        there is somewhere to go back to, and a list's own steps sit either side of the list's
+        chip ("‹ 2 of 3 · To go out ›"), anchored right so Next never moves under a thumb.
+     4. On a card waiting for his approval, the control that changes the shop is the one filled
+        blue control on the card, in sentence case, and "Not now" sits beside its countdown.
+        Only weight and wording: the gesture, its dead time and its server checks are the
+        same (web/ui.js wireGesture, app/routes/actions.py).
+     5. On a sheet, "Close" is a quiet capsule and completing an objective is the filled button.
+     6. The orders list says each fact once: one line under its title instead of three tiles.
+     7. A warm colour only for something that needs him; normal states are the iOS greys.
+     8. The dock is a tab bar under the ask bar on every tablet, the 601 px Tab A included, and
+        it owns its own band of the screen, so nothing overlaps it. Phones ask by voice.
+     9. The settings sheet is solid.
+   Loaded after every other stylesheet the app page uses, so it wins without !important; where
+   it overrides a rule, the rule's own file and selector are named beside it. */
+
+/* ------------------------------------------------------------------ 1. CLIVE's answer */
+/* The answer was in a column between the orb and the status pill — ~120 px on the phone — and
+   clamped to two lines ("Two hundred…"). Now: the orb and what he asked on the first row (the
+   status pill and the gear keep their places at the right of it), and the answer under them, the
+   whole width, every word. The same on a tablet: beside the orb, a long answer under a status
+   pill ran to seven lines of a narrow column, and the answer's box sat under the gear.
+   `.orb-caption` gives up its box so its lines can be placed on the zone's grid; alpha.css
+   reserved room for the pill on every line, and it is now reserved on the first row only. */
+body.alpha[data-mode="context"] .orb-zone{
+  height:auto;min-height:56px;display:grid;grid-template-columns:auto minmax(0,1fr);
+  grid-template-areas:"orb heard" "label label" "answer answer";grid-template-rows:56px auto auto;
+  align-items:center;column-gap:4px;padding:0 16px 8px 4px;
+}
+body.alpha[data-mode="context"] .orb-caption{display:contents}
+/* the orb at about 50 px whatever size it is drawn at (148 px up to 640 px wide, 340 above) */
+body.alpha{--orb-k:.34}
+@media (min-width:641px){ body.alpha{--orb-k:.15} }
+body.alpha[data-mode="context"] .orb-frame{grid-area:orb;transform:scale(var(--orb-k));margin:calc(var(--orb) * (var(--orb-k) - 1) / 2)}
+body.alpha[data-mode="context"] .state-label{grid-area:label;margin:2px 0 0 12px;text-align:left}
+/* a margin, not padding: the line's own box stops short of the gear and the pill */
+body.alpha[data-mode="context"] .heard{grid-area:heard;margin:0 calc(56px + var(--conn-room, 0px)) 0 0;padding:0;text-align:left;-webkit-line-clamp:1}
+body.alpha[data-mode="context"] .answer{
+  grid-area:answer;display:block;-webkit-line-clamp:unset;
+  margin:4px 0 0 14px;font-size:17px;line-height:1.35;font-weight:500;color:#fff;text-align:left;
+  /* a very long answer still leaves the cards their room: past a third of the screen it scrolls */
+  max-height:34vh;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;
+}
+body.alpha[data-mode="context"] .answer::-webkit-scrollbar{display:none}
+@media (max-width:480px){
+  /* the pill says the same in sentence case and half the width, so the question beside the orb
+     keeps some room while something is wrong */
+  body.alpha .conn{letter-spacing:0;text-transform:none;font-size:13px;padding:6px 10px}
+}
+@media (min-width:481px){
+  body.alpha[data-mode="context"] .orb-zone{grid-template-rows:60px auto auto;padding:0 16px 8px 8px}
+  body.alpha[data-mode="context"] .heard{font-size:14px}
+  body.alpha[data-mode="context"] .answer{font-size:19px;margin-left:12px}
+  body.alpha #stack .chip-set .chip-label{max-width:160px}
+}
+/* The shell itself never scrolls. A card brought into view (web/app.js bringIntoView) or a field
+   focused at the foot of the screen scrolled `.app` — overflow:hidden still scrolls by script —
+   and the whole app slid up, header and gear cut off at the top and a dark band under the bar. */
+body.alpha .app{overflow:hidden;overflow:clip}
+/* The header takes its height from the answer now, so nothing in it may animate its LAYOUT: the
+   orb shrinking into the header animated its margins (style.css .orb-frame) and the zone's
+   padding, and the cards under them slid for 380 ms after they appeared — a finger aimed at the
+   first order landed on the second. The orb still shrinks, by transform; its box is final at once. */
+body.alpha .orb-zone{transition:none}
+body.alpha .orb-frame{transition:transform var(--t-3) var(--ease-spring)}
+
+/* ------------------------------------------------------------------ 2 and 3. Getting about */
+/* The row is no longer a glass strip with chips in it (alpha.css gave `.context-nav` its own
+   glass): each control is its own capsule, like the horizon's Home, and the row is only where
+   they sit. It cannot run off the screen: Home, Back and the list's three parts fit 390 px. */
+body.alpha .context-nav{
+  background:none;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;border:0;border-radius:0;
+  padding:2px 0;margin:0 16px 8px;max-width:calc(100% - 32px);gap:8px;overflow:visible;
+}
+html[data-lite] body.alpha .context-nav{background:none}
+body.alpha .context-nav .chip{min-height:44px;padding:0 16px;font-size:15px;font-weight:600;color:#fff;border-radius:22px}
+/* ‹ Home: the horizon's capsule (horizon.css .hz-home), chevron and all. */
+body.alpha #home-btn{order:1;padding:0 16px 0 10px;gap:6px}
+body.alpha #home-btn svg{width:16px;height:16px;stroke-width:2.2}
+/* Back only while there is somewhere to go back to. The greyed placeholder kept a slot so Next
+   would not move; Next is now anchored at the far right, so the slot has no job. */
+body.alpha #back-btn{order:2}
+body.alpha #back-btn:disabled{display:none}
+/* The list's own control: ‹ its chip ›, at the right-hand end. */
+body.alpha #prev-btn{order:3;margin-left:auto}
+body.alpha #stack{order:4;padding:0;gap:0;min-width:0;flex:0 1 auto}
+body.alpha #next-btn{order:5}
+/* One capsule in three parts: the step back, the list's own chip (where he is in it, and back to
+   it), the step on. Flat parts of one glass body, with a hairline between them. */
+body.alpha #prev-btn:not([hidden]),body.alpha #next-btn:not([hidden]),body.alpha #prev-btn:not([hidden]) ~ #stack .chip-set{
+  background:rgba(118,118,128,.26);box-shadow:inset 0 1px 0 rgba(255,255,255,.12);border:0;
+  -webkit-backdrop-filter:none;backdrop-filter:none}
+body.alpha #prev-btn:not([hidden]){border-radius:22px 0 0 22px;margin-right:-8px;padding:0 12px 0 16px}
+body.alpha #next-btn:not([hidden]){border-radius:0 22px 22px 0;margin-left:-8px;padding:0 16px 0 12px}
+body.alpha #prev-btn:not([hidden]) ~ #stack .chip-set{border-radius:0;padding:0 12px;min-width:0;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),inset .5px 0 0 rgba(255,255,255,.14),inset -.5px 0 0 rgba(255,255,255,.14)}
+/* Without a list, the set chip stands alone at the right as a capsule of its own. */
+body.alpha #prev-btn[hidden] ~ #stack{margin-left:auto}
+body.alpha #stack .chip-set{min-height:44px;border-radius:22px;gap:6px}
+body.alpha #stack .chip-set .chip-kind{font-size:15px;letter-spacing:0;text-transform:none;font-weight:600;color:#fff;font-variant-numeric:tabular-nums}
+body.alpha #stack .chip-set .chip-label{font-size:15px;font-weight:500;color:rgba(235,235,245,.64);max-width:120px}
+/* The records he passed through were chips in this row too, which is what ran it off the edge.
+   Back walks them, and every card links its own records. */
+body.alpha #stack .chip:not(.chip-set){display:none}
+/* A disabled step keeps its shape and greys, so the chip between them does not jump. */
+body.alpha .context-nav .chip:disabled{opacity:.35}
+/* On the phone the steps are chevrons; their words stay as their accessible names. */
+@media (max-width:480px){
+  body.alpha #prev-btn,body.alpha #next-btn{font-size:0;gap:0;min-width:44px;justify-content:center}
+  body.alpha #prev-btn:not([hidden]){padding:0 6px 0 12px}
+  body.alpha #next-btn:not([hidden]){padding:0 12px 0 6px}
+  body.alpha #prev-btn::before,body.alpha #next-btn::before{
+    content:"";width:9px;height:9px;border-left:2.2px solid currentColor;border-bottom:2.2px solid currentColor;
+    transform:rotate(45deg);margin-left:3px;
+  }
+  body.alpha #next-btn::before{transform:rotate(-135deg);margin-left:-3px}
+  body.alpha #stack .chip-set .chip-label{max-width:84px}
+  /* 390 px holds Home, Back and the list's three parts only just: each gives a little. While a
+     list is being walked, its chip says "2 of 3" and lets the list's name go. */
+  body.alpha .context-nav{gap:6px}
+  body.alpha #home-btn{padding:0 12px 0 6px;gap:4px}
+  body.alpha #back-btn{padding:0 12px}
+  body.alpha #prev-btn:not([hidden]){min-width:42px;padding:0 4px 0 10px;margin-right:-6px}
+  body.alpha #next-btn:not([hidden]){min-width:42px;padding:0 10px 0 4px;margin-left:-6px}
+  body.alpha #prev-btn:not([hidden]) ~ #stack .chip-set{padding:0 10px}
+  body.alpha #stack .chip-set.is-walking .chip-label{display:none}
+}
+
+/* ------------------------------------------------------------------ 4. A change waiting for him */
+/* The surface that applies it: filled blue once it can count, in sentence case. While it arms
+   it is the same blue, dim, with its line filling, so it reads as the same control waking. */
+body.alpha :is(.card-confirmation,.card-batch_action) .action-surface{
+  min-height:52px;border-radius:26px;border:0;font-size:17px;font-weight:600;letter-spacing:0;text-transform:none;
+  color:rgba(255,255,255,.72);background:rgba(var(--acc),.32);box-shadow:inset 0 1px 0 rgba(255,255,255,.14);
+}
+body.alpha :is(.card-confirmation,.card-batch_action) .action-surface[data-state="armed"],
+body.alpha :is(.card-confirmation,.card-batch_action) .action-surface[data-state="holding"],
+body.alpha :is(.card-confirmation,.card-batch_action) .action-surface[data-state="held"]{
+  color:#fff;background:linear-gradient(180deg,rgb(var(--acc-f1)),rgb(var(--acc-f2)));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.26),0 8px 22px -8px rgba(var(--acc-glow),.6);
+}
+body.alpha :is(.card-confirmation,.card-batch_action) .action-surface[data-state="armed"] .action-arm{opacity:0}
+body.alpha :is(.card-confirmation,.card-batch_action) .action-arm{height:100%;background:rgba(var(--acc),.38);border-radius:inherit}
+body.alpha :is(.card-confirmation,.card-batch_action) .action-surface[data-pressed="true"]{filter:brightness(.9)}
+/* A hold fills the filled control with light as it runs (style.css drew it red, as if it were
+   an alarm); the approved board's hold fills in its own blue. */
+body.alpha :is(.card-confirmation,.card-batch_action) .action-surface[data-state="holding"] .action-arm{background:rgba(255,255,255,.26);opacity:1}
+body.alpha :is(.card-confirmation,.card-batch_action) .action-surface[data-state="held"] .action-arm{background:rgba(255,255,255,.18);opacity:1}
+/* After the gesture, the in-flight and settled states keep their own words and marks
+   (style.css) on a quiet surface: no fill once nothing more can be done with it. */
+body.alpha :is(.card-confirmation,.card-batch_action) .action-surface:is([data-state="committing"],[data-state="executing"],[data-state="in_progress"],[data-state="verifying"],[data-state="executed"]){
+  background:rgba(255,255,255,.08);color:rgba(235,235,245,.8);border:1px solid rgba(var(--acc),.5)}
+body.alpha :is(.card-confirmation,.card-batch_action) .action-surface:is([data-state="stale"],[data-state="expired"],[data-state="revoked"],[data-state="settled"],[data-state="undone"],[data-state="failed"],[data-state="unverified"],[data-state="unsupported"],[data-state="unknown"]){
+  background:transparent;color:rgba(235,235,245,.5);border:1px dashed rgba(255,255,255,.16);box-shadow:none}
+body.alpha :is(.card-confirmation,.card-batch_action) .action-surface:is([data-state="verified"],[data-state="done"],[data-state="already_executed"]){box-shadow:none}
+body.alpha :is(.card-confirmation,.card-batch_action) .action-surface[data-state="unavailable"]{background:transparent;box-shadow:none;border:1px dashed rgba(255,255,255,.2);color:rgba(235,235,245,.72);font-size:15px}
+/* A swipe or a drag carries its track inside the surface: the handle stays a light disc. */
+body.alpha :is(.card-confirmation,.card-batch_action) .action-surface .action-handle{background:rgba(255,255,255,.92);color:#0a0a0c}
+/* The line under it: the countdown in sentence case, and Not now at its right. */
+.action-foot{display:flex;align-items:center;gap:12px;margin-top:10px}
+.action-foot .action-meta{flex:1;min-width:0;margin:0}
+body.alpha :is(.card-confirmation,.card-batch_action) .action-meta{font-size:13px;letter-spacing:0;text-transform:none;color:rgba(235,235,245,.6)}
+.action-decline{
+  flex:none;min-height:44px;padding:0 18px;border:0;border-radius:22px;cursor:pointer;
+  font:inherit;font-size:15px;font-weight:600;color:#fff;background:rgba(255,255,255,.1);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.14);-webkit-tap-highlight-color:transparent;
+}
+.action-decline:active{transform:scale(.96);background:rgba(255,255,255,.16)}
+.action-decline:focus-visible{outline:2px solid rgb(var(--acc,10,132,255));outline-offset:2px}
+.action-decline[disabled]{opacity:.4;pointer-events:none}
+/* Once the gesture has started applying it, or it has settled, there is nothing to say no to. */
+:is(.card-confirmation,.card-batch_action):has(.action-surface:not([data-state="arming"]):not([data-state="armed"]):not([data-state="holding"]):not([data-state="held"])) .action-decline{display:none}
+/* The mark beside the title: a change proposed is not an error. Grey, with a pencil; the red
+   tier keeps its red, which is the one that needs care. */
+body.alpha .card-confirmation .card-head .mark.quiet,body.alpha .card-batch_action.tier-amber .card-head .mark.warn{color:rgba(235,235,245,.86);background:rgba(255,255,255,.1)}
+body.alpha .card-confirmation.tier-amber{border-color:transparent}
+
+/* ------------------------------------------------------------------ 5. Close, and Mark as done */
+/* Close puts the sheet away and is a quiet capsule; the filled button is the one that changes
+   something (alpha.css made every sheet's Done the brightest button on the sheet). */
+body.alpha .alpha-sheet-head > .alpha-close-sheet,body.alpha #close-settings{
+  flex:none;min-width:0;min-height:44px;padding:0 18px;border-radius:22px;font-size:15px;font-weight:600;
+  color:#fff;background:linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,.05));
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.22);
+}
+body.alpha .alpha-sheet-head > .alpha-close-sheet:focus,body.alpha #close-settings:focus{outline:none}
+body.alpha .alpha-sheet-head > .alpha-close-sheet:focus-visible,body.alpha #close-settings:focus-visible{outline:2px solid rgb(var(--acc));outline-offset:2px}
+body.alpha .alpha-complete{width:100%;min-height:52px;border-radius:26px;margin-top:22px;font-size:17px;font-weight:600}
+/* The note to CLIVE has its own send, a glass one, so the sheet's one filled button is Mark as done. */
+body.alpha .alpha-sheet .btn.primary[data-alpha="continue"]{background:linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,.05));
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.22)}
+
+/* ------------------------------------------------------------------ 6. The orders list */
+.list-sum{margin:4px 0 0;font-size:15px;line-height:1.35;color:rgba(235,235,245,.64);font-variant-numeric:tabular-nums}
+/* A folded card says what is inside it, so its header is never a word and a plus. */
+.fold-head .fold-sum{margin-left:8px;font-size:14px;font-weight:500;color:rgba(235,235,245,.6);font-variant-numeric:tabular-nums}
+.fold-head .fold-label{display:inline-flex;align-items:baseline;flex-wrap:wrap}
+
+/* ------------------------------------------------------------------ 7. A warm colour only for what needs him */
+/* An ordinary state is the iOS grey capsule (web/ui.js gives it `quiet`). The tones that mean
+   something keep their colour (style.css .badge.ok / .bad, and .warn where the card needs him). */
+body.alpha .badge.quiet{color:rgba(235,235,245,.78);background:rgba(255,255,255,.08);border-color:transparent}
+body.alpha .attn-line.calm{color:rgba(235,235,245,.78)}
+body.alpha .attn-line.calm .attn-dot{background:rgba(235,235,245,.45)}
+/* An attention row says its reason first and carries its mark as a dot, not as the customer's
+   name in orange (web/ui.js summaryRow). */
+.row .row-dot{display:inline-block;width:8px;height:8px;border-radius:4px;margin-right:8px;vertical-align:1px;background:var(--warn)}
+.row .row-dot.bad{background:var(--bad)}
+.rows .row.is-reason .row-sub{white-space:normal;-webkit-line-clamp:2}
+
+/* ------------------------------------------------------------------ 8. The dock, as a tab bar */
+/* Every tablet, the 601 px Tab A included (alpha.css hid it up to 640 px). It owns its band:
+   the app grid stops above it in both modes, so the ask bar sits on top of it rather than over
+   it (at 800 x 1280 the two were drawn in the same 56 px). The hold pill's gap is gone with
+   the hold pill (alpha.css hides `.talk`), so the four places spread across the bar. */
+@media (min-width:481px){
+  body.alpha{--alpha-dock:60px}
+  body.alpha .dock{
+    display:flex;height:calc(var(--alpha-dock) + env(safe-area-inset-bottom, 0px));padding:0 8px env(safe-area-inset-bottom, 0px);
+    justify-content:space-evenly;gap:0;background:#060607;box-shadow:inset 0 .5px 0 rgba(255,255,255,.1);
+  }
+  body.alpha[data-mode] .dock{background:#060607}
+  body.alpha .dock-gap{display:none}
+  body.alpha .dock-btn{
+    width:auto;min-width:76px;height:var(--alpha-dock);padding:0 12px;border:0;border-radius:14px;gap:3px;
+    color:rgba(235,235,245,.6);background:none;box-shadow:none;
+  }
+  body.alpha .dock-btn svg{width:24px;height:24px;stroke-width:1.8}
+  body.alpha .dock-label{display:block;font-size:11px;font-weight:600;letter-spacing:0;text-transform:none}
+  body.alpha .dock-btn[aria-pressed="true"]{color:rgb(var(--acc));background:none;box-shadow:none;border:0}
+  /* On the home no place is open, so none is lit, whichever was open last. */
+  body.alpha[data-mode="orb"] .dock-btn[aria-pressed="true"]{color:rgba(235,235,245,.6)}
+  body.alpha .dock-btn[aria-pressed="true"] svg{transform:none}
+  body.alpha .dock-btn:active{background:rgba(255,255,255,.08);transform:scale(.96)}
+  body.alpha .app,body.alpha[data-mode="context"] .app{padding-bottom:calc(var(--alpha-dock) + env(safe-area-inset-bottom, 0px))}
+  /* Typing: the keyboard takes the bottom of the screen, and the dock steps aside for it. */
+  body.alpha:has(.alpha-composer.is-typing) .dock{display:none}
+  body.alpha:has(.alpha-composer.is-typing) .app{padding-bottom:0}
+}
+@media (max-width:480px){ body.alpha .dock{display:none} }
+/* The keyboard is up — in the bar or in a field on a card — and the screen is half its height
+   (`interactive-widget=resizes-content`): the dock steps aside, and CLIVE's answer keeps to two
+   lines (it scrolls), so the field he is typing in keeps the room. */
+@media (max-height:520px){
+  body.alpha .dock{display:none}
+  body.alpha .app,body.alpha[data-mode="context"] .app{padding-bottom:0}
+  body.alpha[data-mode="context"] .orb-zone{grid-template-rows:52px auto auto}
+  body.alpha[data-mode="context"] .answer{max-height:2.7em}
+}
+
+/* ------------------------------------------------------------------ 9. Settings */
+/* Solid, as the alpha sheet was made solid: the inbox behind it read as ghost text under every
+   row (style.css gives `.sheet` a translucent glass). */
+body.alpha #settings.sheet{background:#111114;-webkit-backdrop-filter:none;backdrop-filter:none}

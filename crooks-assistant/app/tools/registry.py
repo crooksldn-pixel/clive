@@ -73,6 +73,12 @@ class WriteSpec:
     # fingerprint also carries a courtesy reading (a fulfilment destination) that may fail on
     # its own and must not make the entity look changed.
     precondition_keys: tuple[str, ...] | None = None
+    # The service the change is sent to, as the owner is told who refused it ("CROOKS Returns").
+    # Empty: Gmail for a Gmail write, Shopify for the rest, as it always was.
+    service: str = ""
+    # True: when the proof fails, `verify`'s note (the service's own account of what went wrong)
+    # is said after the failure line and shown on the card. False, as it always was: it is not.
+    says_failure: bool = False
 
     @property
     def kind(self) -> str:

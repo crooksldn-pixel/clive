@@ -27,7 +27,7 @@ sentence reaches is what the model calls. Tests are read as syntax trees and nev
 here runs a tool, and nothing here can reach a mutation: the audit is a read of
 registries and of source text, so it is safe against a shop it may not touch.
 
-76 tools — 50 reads, 21 writes, 5 bulk.
+80 tools — 53 reads, 22 writes, 5 bulk.
 
 ## Tools
 
@@ -66,6 +66,10 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `objective_show` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
 | `people_list` | AMBER | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `person_note` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
+| `return_action` | AMBER | yes | yes | yes | — | write | prepared from a fresh read, held as return_action, swipe_commit | a predicate over the re-read, after settling | the change's own card | returns | — |
+| `return_find` | AMBER | yes | yes | yes | none needed | read | — | — | presentation.py | returns | — |
+| `returns_open` | AMBER | yes | yes | yes | none needed | read | — | — | presentation.py | returns | — |
+| `returns_stats` | AMBER | yes | yes | yes | none needed | read | — | — | presentation.py | returns | — |
 | `screen_list` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `screen_off` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `screen_pair` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
@@ -117,7 +121,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `batch_email_archive` | the model only | test_batch.py | — |
 | `batch_email_drafts` | the model only | test_batch.py | — |
 | `batch_email_send` | the model only | test_tool_boundary.py | — |
-| `batch_order_tags_add` | the model only | test_batch.py, test_council_fixes.py | — |
+| `batch_order_tags_add` | the model only | test_batch.py, test_council_fixes.py, test_decline.py | — |
 | `batch_order_tags_remove` | the model only | test_batch.py | — |
 | `close_screen` | family:put_away | test_r12_surfaces.py | — |
 | `commerce_aggregate` | recipe:landing_sales, recipe:landing_products, family:analytics | test_analytics_tools.py, test_council_fixes.py, test_r13_timeline_names.py, test_working_sets.py | landing_products, landing_sales |
@@ -147,6 +151,10 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `objective_show` | family:objectives | test_let_objectives_marked_complete_or_removed_2.py, test_objective_design.py | — |
 | `people_list` | family:people | test_people.py | — |
 | `person_note` | family:people | test_people.py | — |
+| `return_action` | family:returns_actions | test_crooks_returns.py, test_crooks_returns_contract.py | — |
+| `return_find` | family:returns_reads | test_crooks_returns.py, test_crooks_returns_contract.py | — |
+| `returns_open` | family:returns_reads | test_crooks_returns.py, test_crooks_returns_contract.py | — |
+| `returns_stats` | family:returns_reads | test_crooks_returns_contract.py | — |
 | `screen_list` | family:screens | test_displays.py, test_mark_packed_counts_as_packed.py, test_r11_screens_server.py, test_screens_r10.py, test_tool_boundary.py | — |
 | `screen_off` | family:screens | test_displays.py, test_screens_r10.py | — |
 | `screen_pair` | family:screens | test_displays.py, test_r13_screens.py | — |
@@ -197,9 +205,9 @@ registries and of source text, so it is safe against a shop it may not touch.
 
 `commerce_capabilities`, `shopify_order_address`
 
-**no golden scenario reaches it (52)**
+**no golden scenario reaches it (56)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_draft_reply`, `gmail_find_in_email`, `gmail_read_thread`, `gmail_send_reply`, `gmail_thread_archive`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `interaction_review`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `people_list`, `person_note`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `shopify_checkout_link_send`, `shopify_find_customer`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_note_append`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `show_again`, `submit_engineering_request`, `track_parcel`, `work_list`, `work_note`
+`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_draft_reply`, `gmail_find_in_email`, `gmail_read_thread`, `gmail_send_reply`, `gmail_thread_archive`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `interaction_review`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `people_list`, `person_note`, `return_action`, `return_find`, `returns_open`, `returns_stats`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `shopify_checkout_link_send`, `shopify_find_customer`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_note_append`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `show_again`, `submit_engineering_request`, `track_parcel`, `work_list`, `work_note`
 
 **nothing but the model reaches it (5)**
 

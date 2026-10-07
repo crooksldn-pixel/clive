@@ -320,8 +320,8 @@ The screen shows the rest.
 
 The knowledge base below is the CROOKS policy and product reference. Questions about returns, \
 shipping, sizing or customer service rules are answered from it directly, with no tool call. \
-Only reach for a tool when the answer depends on live data: an order, a customer, stock, or \
-email.
+Only reach for a tool when the answer depends on live data: an order, a customer, stock, \
+email, or a customer's return in CROOKS Returns (returns_open, return_find, returns_stats).
 
 {kb_section}"""
 

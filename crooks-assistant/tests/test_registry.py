@@ -138,6 +138,7 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
         gmail_writes,
         instagram_tools,
         interaction_tools,
+        returns_tools,
         ship24_tools,
         shopify_tools,
         shopify_writes,
@@ -451,7 +452,16 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # `landed`). The write is staged like every write, so nothing new on the gate's read
     # allow-list. The ceiling is raised by exactly what was measured, leaving no headroom.
     # Together (3 October, both merged): 49_272, measured.
-    assert total <= 49_272, f"the tool block is {total} bytes"
+    #
+    # 51_222 is CROOKS Returns, the owner's returns service (app/tools/returns_tools.py,
+    # tests/test_crooks_returns.py), +1,950 bytes measured (49,272 before, 51,222 after):
+    # returns_open 258, return_find 352, returns_stats 329 (three reads, the owner's alone) and
+    # return_action 1,011 (one staged write: the action, the return, and each action's own few
+    # fields, its preview from the service being the card). Imported above because app/runtime.py
+    # offers them. With no CROOKS Returns key stored their families are DISCONNECTED and none is
+    # offered at all (runtime.withheld_by_family). The ceiling is raised by exactly what was
+    # measured, leaving no headroom.
+    assert total <= 51_222, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

@@ -10,6 +10,10 @@ What each asks (read-only, and spending nothing):
   Ship24       GET /trackers?limit=1, which lists trackers and creates none, so it spends none of
                a per-shipment plan's shipments; per-call plans count only /tracking/search, which
                this never calls (app/clients/ship24.py has the docs relied on)
+  CROOKS Returns  GET /health, which needs no key (is the service there, and does it hold CLIVE's
+               keys?), then GET /api/v1/returns?limit=1 with each key: a read, which changes
+               nothing. A write key can read, so this proves it is a key the service holds; whether
+               it may act is said the first time an approved action is sent (app/clients/crooks_returns.py)
 
 The key goes in a header or a request body, never in an address. What comes back is described
 in our own words; nothing a service wrote is quoted, and no key appears in any detail.
@@ -40,11 +44,16 @@ class Outcome:
     who: str = ""            # the account the key belongs to, when the service says
     checked: bool = True     # False: nothing to ask until the owner signs in
     fix: str = ""            # a failure's remedy: "key", "service" or "retry" (empty: "key")
+    # The keys the service refused, when it can say which of several (CROOKS Returns' read and
+    # write keys): the card then asks for exactly those. Empty: every key the connection requires.
+    refused: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         out = {"ok": self.ok, "detail": self.detail, "who": self.who, "checked": self.checked}
         if not self.ok:
             out["fix"] = self.fix or "key"
+            if self.refused:
+                out["refused"] = list(self.refused)
         return out
 
 
@@ -192,6 +201,43 @@ async def _ship24(values: dict[str, str], settings: Any) -> Outcome:
     return Outcome(False, f"Ship24 answered {response.status_code}; nothing was changed.", fix="retry")
 
 
+async def _returns(values: dict[str, str], settings: Any) -> Outcome:
+    from app.clients import crooks_returns
+
+    base = crooks_returns.clean_base(getattr(settings, "returns_base_url", "") or crooks_returns.DEFAULT_BASE_URL)
+    host = base.split("://", 1)[-1]
+    async with http_client() as client:
+        health = await client.get(f"{base}/health", headers={"Accept": "application/json"})
+        if health.status_code != 200:
+            return Outcome(False, f"CROOKS Returns didn't answer at {host} ({health.status_code}). Check the "
+                                  "service is running: docker compose ps, in /opt/clive/crooks-returns.", fix="retry")
+        try:
+            said = health.json()
+        except ValueError:
+            said = None
+        if not isinstance(said, dict) or said.get("ok") is not True:
+            return Outcome(False, f"Something answered at {host}, but not CROOKS Returns. Check "
+                                  "CROOKS_RETURNS_BASE_URL on this server.", fix="service")
+        if (said.get("clive") or {}).get("read_keys") is False:
+            return Outcome(False, "CROOKS Returns has no keys for CLIVE yet: set RETURNS_CLIVE_READ_KEYS and "
+                                  "RETURNS_CLIVE_WRITE_KEYS in /opt/clive/crooks-returns/.env and restart it.",
+                           fix="service")
+        # The read key only. The write key is never sent to read (the service would allow it, but
+        # the key that can act travels only with an action the owner approved), so it is proven on
+        # his first approved action, and a refusal there asks for it alone (crooks_returns.py
+        # `_note_refused_key`).
+        answer = await client.get(f"{base}/api/v1/returns", params={"limit": "1"}, headers={
+            "Authorization": f"Bearer {values[crooks_returns.READ_KEY]}", "Accept": "application/json"})
+        if answer.status_code in (401, 403):
+            return Outcome(False, "The read key was refused by CROOKS Returns. Paste it again from grep CLIVE "
+                                  "/opt/clive/crooks-returns/.env on the server.", fix="key",
+                           refused=(crooks_returns.READ_KEY,))
+        if answer.status_code != 200:
+            return Outcome(False, crooks_returns.refusal(answer).args[0], fix="retry")
+    return Outcome(True, "CROOKS Returns accepted the read key. The write key is checked the first time you approve "
+                         "an action.", who=host)
+
+
 TESTERS = {
     "elevenlabs": _elevenlabs,
     "youtube": _youtube,
@@ -199,6 +245,7 @@ TESTERS = {
     "github": _github,
     "instagram": _instagram,
     "ship24": _ship24,
+    "returns": _returns,
 }
 
 
@@ -218,4 +265,4 @@ async def run(name: str, values: dict[str, str], settings: Any, *, changed: froz
     except KeyError:
         return Outcome(False, "Fill in every field for this connection.")
     return Outcome(outcome.ok, _scrub(outcome.detail, values), _scrub(outcome.who, values), outcome.checked,
-                   outcome.fix)
+                   outcome.fix, outcome.refused)

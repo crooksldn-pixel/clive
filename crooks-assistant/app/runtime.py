@@ -270,6 +270,14 @@ class Runtime:
             # read when the change runs; without one the change says GitHub is not connected and
             # sends nothing.
             return WriteStatus("ready", f"ready — {operation.replace('_', ' ')}")
+        if operation is not None and operation in self._returns_operations():
+            # A CROOKS Returns action needs no store scope: the service holds its own Shopify app.
+            # It needs the write key, read when the change runs.
+            from app.clients import crooks_returns
+
+            if not crooks_returns.write_key():
+                return WriteStatus("blocked", "blocked — CROOKS Returns has no write key on this server")
+            return WriteStatus("ready", f"ready — {operation.replace('_', ' ')}")
         needed = {scope for op, scope in self._write_scopes().items() if operation is None or op == operation}
         if operation is not None and operation not in self._write_scopes():
             return WriteStatus("blocked", f"blocked — {operation.replace('_', ' ')} is not a change the assistant can make")
@@ -339,6 +347,16 @@ class Runtime:
             s.write.operation
             for s in all_specs()
             if s.write is not None and s.write.mutation.startswith("github:") and not s.name.startswith("mock_")
+        }
+
+    def _returns_operations(self) -> set[str]:
+        """Every registered CROOKS Returns write (app/tools/returns_tools.py)."""
+        from app.tools.registry import all_specs
+
+        return {
+            s.write.operation
+            for s in all_specs()
+            if s.write is not None and s.write.mutation.startswith("returns:") and not s.name.startswith("mock_")
         }
 
     async def _gmail_capabilities(self) -> dict[str, dict[str, str]]:
@@ -567,6 +585,7 @@ def build(settings: Settings | None = None) -> Runtime:
         instagram_tools,
         interaction_tools,
         mock,
+        returns_tools,
         ship24_tools,
         shopify_tools,
         shopify_writes,
@@ -632,6 +651,11 @@ def build(settings: Settings | None = None) -> Runtime:
     # life (never the token) is kept beside CLIVE's other records, for /health.
     instagram_tools.configure(api_version=settings.instagram_api_version,
                               state_path=settings.objectives_dir / "instagram.json")
+    # CROOKS Returns, the owner's returns service: where it answers (CROOKS_RETURNS_BASE_URL). Its
+    # keys are read from the secret store at each call (app/clients/crooks_returns.py).
+    from app.clients import crooks_returns
+
+    crooks_returns.configure(base_url=settings.returns_base_url)
     # The Connections screen (app/connections): the owner's passkeys and the record of changes to
     # connections live beside the keys stored from the app, in the root-only secret directory on
     # Linux; on a Mac, whose keys are in the Keychain, beside CLIVE's other records.

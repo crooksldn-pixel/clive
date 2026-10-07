@@ -26,6 +26,10 @@ class Field:
     label: str
     hint: str = ""
     secret: bool = True
+    # The server setting the value is copied from, when it is one (CROOKS Returns' keys are read
+    # with grep from its .env): a whole line pasted as it was printed, NAME=value, is taken as its
+    # value, and of a comma-separated list the first (app/connections/service.py `_cleaned`).
+    env: str = ""
 
 
 @dataclass(frozen=True)
@@ -107,6 +111,22 @@ CONNECTIONS: tuple[Connection, ...] = (
         requires=("ship24_api_key",), family="parcel_tracking",
         unlocks=("parcel_tracking", "delivery_tracking"),
         without="Without it CLIVE can say an order has shipped, but not where the parcel is.",
+    ),
+    Connection(
+        name="returns", label="CROOKS Returns",
+        what="Your returns and exchanges: what needs you, where a return is, and the actions you approve.",
+        fields=(
+            Field("crooks_returns_read_key", "Read key", env="RETURNS_CLIVE_READ_KEYS",
+                  hint="On the server, run grep CLIVE /opt/clive/crooks-returns/.env and paste what follows "
+                       "RETURNS_CLIVE_READ_KEYS= (one key, if there are several)."),
+            Field("crooks_returns_write_key", "Write key", env="RETURNS_CLIVE_WRITE_KEYS",
+                  hint="Same command: paste what follows RETURNS_CLIVE_WRITE_KEYS=. CLIVE uses it only for an "
+                       "action you approve on its card."),
+        ),
+        requires=("crooks_returns_read_key", "crooks_returns_write_key"), family="returns_reads",
+        unlocks=("returns_reads", "returns_actions"),
+        without="Without it CLIVE can't see your returns, and approving or receiving one is done in Shopify admin "
+                "(Apps, CROOKS Returns).",
     ),
     Connection(
         name="youtube", label="YouTube",

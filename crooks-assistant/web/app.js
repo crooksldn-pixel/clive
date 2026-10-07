@@ -356,6 +356,9 @@ const DETAIL_WORDS = {
   close_screen: ['Clearing', 'your screen'],
   // [recording] CLIVE reading back what it drew and did (app/tools/interaction_tools.py).
   interaction_review: ['Looking back', 'at what you saw'],
+  // CROOKS Returns (app/tools/returns_tools.py): reading returns, and an action prepared for his approval.
+  returns_open: ['Checking', 'returns'], return_find: ['Finding', 'the return'],
+  returns_stats: ['Counting', 'returns'], return_action: ['Preparing', 'the return step', true],
 };
 const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;
@@ -2299,37 +2302,26 @@ async function semanticCommand(name, extra) {
   }
 }
 
-// The Assistant chip: this half's LANDING workspace.
+// Home: the home. (Design pass, 3 Oct.)
 //
-// It is not a move along the trail. While it was one it walked the branch to `nav[0]` and
-// redrew whatever record was oldest — in the live session an email thread from nine minutes
-// earlier, redrawn eight times in twenty-two seconds while the owner pressed the chip again
-// because nothing useful was happening. The Mac now answers with the dock landing for the
-// area this half is in (app/commands.py:_home), which is a place with a fixed shape: it
-// cannot be a stale record, and it is the same screen every time it is pressed.
+// The chip read "CLIVE" and posted `navigation.home`, which lands on this half's dock landing
+// — the orders list, on the phone as well, where nothing else went home. Now it reads "Home",
+// like the horizon's Home (web/horizon.js), and does what it says: the home, with what needs
+// him and what is moving. The page draws it at once; the Mac is told the screen went
+// (`screen.home`, app/commands.py) so a reload draws the home too, not the order that was up —
+// and nothing else it holds is touched: the trail, the open list and any card waiting for a
+// gesture are where they were, and the orders landing is the Orders icon's. Pressed again it
+// is the same screen.
+// The cards leave the deck as they always did on the way back to CLIVE — they go back to the
+// orb as dots (web/dots-app.js) — and are kept here, in the history, for Recent and Back.
 async function goHome() {
   T.record('navigate', { nav: 'home', from: historyIndex });
-  const landed = await semanticCommand('navigation.home');
-  if (landed && landed.ok && Array.isArray(landed.ui) && landed.ui.length) {
-    const rendered = window.CrooksUI.render(landed.ui, renderOpts());
-    if (rendered.nodes.length) {
-      pushContext(rendered.nodes, landed.ui, landed.answer || '');
-      if (landed.answer) el.answer.textContent = landed.answer;
-      return;
-    }
-  }
-  // The Mac is unreachable, or has no landing to draw: the orb screen, as before. A refusal
-  // says why rather than leaving the owner to guess from a screen that changed on its own —
-  // and it says SOMETHING even when the Mac sent no reason, which is how a message with no
-  // words happens. The guard used to require `landed.detail`, so a refusal with an empty
-  // detail changed the screen and explained nothing: one of the eleven, in the one place a
-  // message was most owed.
-  if (landed && landed.ok === false) {
-    notify(String(landed.detail || '').trim() || 'There is nothing on this half to come back to.',
-      { tone: 'warn', code: 'no_landing' });
-  }
+  clear(el.cards);
   setMode('orb');
   renderRecent();
+  // Only once the Mac holds this conversation (`branchState`): before then it has no screen to
+  // clear, and a fresh page asking would be refused. Offline, the page is home all the same.
+  if (branchState) await semanticCommand('screen.home');
 }
 
 // The orb screen keeps one quiet way back to what was last shown.
@@ -2380,6 +2372,9 @@ function setChip() {
   // The kicker counts; the label names. It used to read "3 ORDERS" beside a label already
   // reading "Orders", which spent rail width saying one word twice.
   kind.textContent = at > 0 ? `${at} of ${currentSet.count}` : `${currentSet.count}`;
+  // Design pass (3 Oct): "2 of 3" can stand without the name on a phone. A class, not a data
+  // attribute: the page's data names are a fixed list (app/observability/screens.py).
+  if (at > 0) chip.classList.add('is-walking');
   const label = document.createElement('span'); label.className = 'chip-label'; label.textContent = currentSet.label || currentSet.kind;
   chip.appendChild(kind); chip.appendChild(label);
   chip.addEventListener('click', () => {
@@ -2541,6 +2536,7 @@ function renderOpts() {
   return {
     onCommit: commitAction, onArm: armAction, blocked: actionBlocked, onAction: primeAction,
     onUndoExpire: dismissUndo,
+    onDecline: declineAction,   // design pass (3 Oct): "Not now" on a card waiting for him
     // Which tab a card opens on, and where a change of tab is reported. Per RECORD, never per
     // branch: `tab: branchState.tab` was here, one value handed to every card with tabs, and
     // it is D-2 — one tap on Email put twenty-three later cards on Email, for records the
@@ -3308,6 +3304,36 @@ async function rowAction(action, ref, button) {
 function isBatch(id) {
   return String(id || '').startsWith('batch_');
 }
+
+// ---- design pass (3 Oct): "Not now" on a card waiting for his approval.
+// The Mac withdraws the proposal (POST /actions/{id}/decline, or /batches/{id}/decline): the
+// same withdrawal a new instruction makes, recorded as his. Nothing is applied by it, and it is
+// refused once a gesture has started applying the change — then the card stays as the Mac says.
+async function declineAction(proposalId, node, button) {
+  const form = new FormData();
+  form.append('session_id', sessionId);
+  const where = `/${isBatch(proposalId) ? 'batches' : 'actions'}/${encodeURIComponent(proposalId)}/decline`;
+  let payload = null;
+  try {
+    const response = await fetch(where, { method: 'POST', body: form, cache: 'no-store' });
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+  T.record('action_decline', { proposal_id: proposalId, outcome: payload && payload.withdrawn ? 'withdrawn' : 'kept', code: payload ? String(payload.code || '') : 'offline' });
+  if (payload && payload.withdrawn) {
+    settleActionNode(node, 'revoked', 'Not applied');
+    el.answer.textContent = 'Not applied. Nothing has changed.';   // the line above said how to apply it
+    haptic(HAPTIC.start);
+    return;
+  }
+  if (button) button.disabled = false;
+  // No answer is not "no": the decline may have reached CLIVE and its reply been lost, so the
+  // page does not claim the change is still waiting (review of the design pass, 3 Oct).
+  notifyControl(String((payload && payload.detail) || 'Couldn\u2019t reach CLIVE \u2014 it may still be waiting.'), button,
+    { tone: 'warn', code: codeOf(payload && payload.code, 'not_withdrawn') });
+}
+// ---- design pass · end
 
 // The owner's hold began on a card whose gesture is a hold. Tell the Mac now; it hands back
 // a single-use token the commit will carry. No token, no commit — the surface says so.

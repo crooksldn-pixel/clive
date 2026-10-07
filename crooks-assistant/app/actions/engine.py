@@ -283,12 +283,16 @@ class ActionEngine:
         self._finish(proposal, ActionStatus.EXPIRED, "expired", reason="the offer was let go")
         return True
 
-    def revoke_ids(self, proposal_ids: list[str], reason: str) -> int:
-        """Withdraw these proposals, if still waiting, whatever epoch they were staged in."""
+    def revoke_ids(self, proposal_ids: list[str], reason: str, *, caller: str = "") -> int:
+        """Withdraw these proposals, if still waiting, whatever epoch they were staged in.
+        `caller` is the login of whoever withdrew them by hand ("Not now"), kept on the ledger's
+        line the way a commit keeps who applied a change; a withdrawal by the Mac names nobody."""
         count = 0
         for pid in proposal_ids:
             proposal = self.find(pid)
             if proposal is not None and proposal.status is ActionStatus.PENDING:
+                if caller:
+                    proposal.caller = caller
                 self._finish(proposal, ActionStatus.REVOKED, "revoked", reason=reason)
                 count += 1
         return count
@@ -517,7 +521,14 @@ class ActionEngine:
             return CommitResult(proposal, "verified", spoken)
         proposal.verified = False
         self._finish(proposal, ActionStatus.UNVERIFIED, "unverified", reason="re-read does not match")
-        return CommitResult(proposal, "unverified", _failure_words(proposal, write))
+        words = _failure_words(proposal, write)
+        if note and proposal.undo_of is None and write.verify is not None and getattr(write, "says_failure", False):
+            # The write's own account of what its proof found (CROOKS Returns: the service recorded
+            # the change but reported an error) is said after the failure line and shown on the
+            # card. It is kept off the ledger, whose reason stays the fixed words above.
+            proposal.note = str(note)[:200]
+            words = f"{words} {proposal.note}"
+        return CommitResult(proposal, "unverified", words)
 
     async def _settle_by_observation(self, proposal, execution, session, spec, write, exc, *, courtesy: bool = True) -> CommitResult:
         """One re-read decides an ambiguous mutation. Landed: verified, as if the answer had
@@ -543,9 +554,9 @@ class ActionEngine:
             if getattr(exc, "refused", False):
                 # The service answered and said no, and the re-read shows nothing moved: a
                 # refusal, with the reason it gave — not "could not be reached", which is false.
-                reason = _short(exc, 140)
+                reason = _refusal_words(exc)
                 self._finish(proposal, ActionStatus.FAILED, "refused", reason=reason)
-                service = "Gmail" if str(proposal.tool_name).startswith("gmail_") else "Shopify"
+                service = service_name(proposal.tool_name, write)
                 return CommitResult(proposal, "refused", f"{service} refused that: {reason}. Nothing was changed.", detail=reason)
             if write.settle is not None:
                 # Unchanged after the wait — but a job Shopify accepted may still be running.
@@ -682,6 +693,23 @@ def _failure_words(proposal: ActionProposal, write) -> str:
     if proposal.undo_of:
         return "I couldn't confirm the undo. Check before asking again."
     return write.spoken_failure
+
+
+def service_name(tool_name: str, write=None) -> str:
+    """Who a change is sent to, as the owner is told it: the write's own word when it names one
+    (CROOKS Returns), else Gmail for a Gmail write and Shopify for the rest."""
+    named = str(getattr(write, "service", "") or "")
+    if named:
+        return named
+    return "Gmail" if str(tool_name).startswith("gmail_") else "Shopify"
+
+
+def _refusal_words(exc: BaseException) -> str:
+    """A refusal's reason. An exception that carries words written to be said (`plain_words`,
+    app/clients/crooks_returns.py) is said as it is; any other keeps its type, as it always has."""
+    if getattr(exc, "plain_words", False):
+        return str(exc)[:140].rstrip(". ")
+    return _short(exc, 140)
 
 
 def _same_state(observed: dict[str, Any], before: dict[str, Any], keys: tuple[str, ...] | None) -> bool:

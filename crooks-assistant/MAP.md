@@ -4,7 +4,7 @@ Read this before any code. The hand-written parts change only with a decision. T
 
 <!-- map:live -->
 **Production:** `b33ccbc2`, deployed 2026-10-03 17:48 UTC ([`reports/deploy-b33ccbc2.md`](reports/deploy-b33ccbc2.md)). **Before it:** `cac1a9e7` 2026-10-03 13:01 UTC ([`reports/deploy-cac1a9e7.md`](reports/deploy-cac1a9e7.md)); `66d3e05d` 2026-10-02 13:49 UTC ([`reports/deploy-66d3e05d.md`](reports/deploy-66d3e05d.md)).
-**Tools:** 76 tools — 50 reads, 21 writes, 5 bulk ([`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md)).
+**Tools:** 80 tools — 53 reads, 22 writes, 5 bulk ([`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md)).
 <!-- /map:live -->
 
 ## Where we started (7 September 2026)
@@ -52,16 +52,16 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 <!-- map:parts -->
 | Package | Lines | State | Not loaded by the app | Owner doc |
 |---|---:|---|---|---|
-| (top-level modules) | 11,643 | live | `engineering_measures` | none |
-| `actions` | 3,011 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
+| (top-level modules) | 11,757 | live | `engineering_measures` | none |
+| `actions` | 3,039 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,501 | live | — | none |
 | `builds` | 1,339 | live | — | none |
 | `capabilities` | 759 | live | `surface` | none |
-| `clients` | 4,478 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
-| `connections` | 1,676 | live | — | [`CONNECTIONS.md`](docs/CONNECTIONS.md) |
+| `clients` | 4,930 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
+| `connections` | 1,762 | live | — | [`CONNECTIONS.md`](docs/CONNECTIONS.md) |
 | `context` | 1,211 | live | — | none |
-| `customers` | 1,584 | live | — | none |
+| `customers` | 1,596 | live | — | none |
 | `digest` | 18,931 | CLI | all | [`KNOWLEDGE_DIGESTER_V1.md`](docs/product-memory/KNOWLEDGE_DIGESTER_V1.md) |
 | `displays` | 2,363 | live | — | none |
 | `engineering_bridge` | 595 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
@@ -76,16 +76,16 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `providers` | 973 | live | `anthropic_api` | none |
 | `reads` | 1,451 | live | — | none |
 | `remote_engineering` | 2,066 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
-| `returns` | 334 | live | — | none |
-| `routes` | 7,884 | live | — | none |
+| `returns` | 809 | live | — | none |
+| `routes` | 8,009 | live | — | none |
 | `scenes` | 2,579 | off (`CLIVE_SCENES` off, default) | — | [`GENERATIVE_UI_V1.md`](docs/product-memory/GENERATIVE_UI_V1.md) |
-| `secrets` | 906 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) |
+| `secrets` | 914 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) |
 | `session` | 1,242 | live | — | none |
 | `shipping` | 335 | live | `fixture` | none |
 | `skills` | 905 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
 | `speech` | 844 | live | — | none |
 | `support` | 1,685 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
-| `tools` | 12,604 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
+| `tools` | 13,189 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
 | `work` | 1,374 | live | — | [`TEAM.md`](docs/TEAM.md) |
 <!-- /map:parts -->
 
@@ -96,7 +96,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 |---|---|---|
 | `/connections` | `connections.html` | 3: connections-view.js, connections-voice.js, connections.js |
 | `/display` | `display.html` | 2: dots.js, display.js |
-| `/` | `index.html` | 26: dots.js, startup.js, orb.js, audio-viz.js, live-voice.js, collide.js, touch.js, telemetry.js, notify.js, action-state.js, live-state.js, jobs.js, objective-touch.js, objective-number.js, objective-cards.js, customers.js, ui.js, app.js, horizon.js, distances.js, builds.js, alpha.js, remote.js, lift.js, edges.js, dots-app.js |
+| `/` | `index.html` | 27: dots.js, startup.js, orb.js, audio-viz.js, live-voice.js, collide.js, touch.js, telemetry.js, notify.js, action-state.js, live-state.js, jobs.js, objective-touch.js, objective-number.js, objective-cards.js, customers.js, returns.js, ui.js, app.js, horizon.js, distances.js, builds.js, alpha.js, remote.js, lift.js, edges.js, dots-app.js |
 | no route (only `/static/scenes-gallery.html`) | `scenes-gallery.html` | 2: scenes.js, scene-fixtures.js |
 | `/today` | `today.html` | 6: orb.js, objective-touch.js, today-say.js, today-voice.js, today.js, today-owner.js |
 <!-- /map:pages -->
@@ -191,5 +191,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 2,993 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 2,981 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->

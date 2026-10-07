@@ -316,7 +316,10 @@ async function main() {
       const e = document.querySelector(sel);
       if (!e) return null;
       const b = e.getBoundingClientRect();
-      return { x: Math.round(b.x), w: Math.round(b.width), hidden: Boolean(e.hidden), disabled: Boolean(e.disabled) };
+      // `drawn`: on the glass at all. A control hidden by a stylesheet keeps its `hidden` false,
+      // so a check that read only the attribute passed over a control nobody could see.
+      const drawn = b.width > 0 && b.height > 0 && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden';
+      return { x: Math.round(b.x), w: Math.round(b.width), hidden: Boolean(e.hidden), disabled: Boolean(e.disabled), drawn };
     };
     const card = document.querySelector('#cards .card');
     return {
@@ -327,14 +330,20 @@ async function main() {
       area: document.body.dataset.area || '', mode: document.body.dataset.mode || '',
       answer: ((document.querySelector('#answer') || {}).textContent || '').trim(),
       chip: ((document.querySelector('#stack .chip-set') || {}).textContent || '').trim(),
+      // Design pass (3 Oct): what the home holds, for Home's own destination.
+      home: (document.querySelector('#alpha-home') || { children: [] }).children.length,
     };
   });
 
   await say("show me today's orders");
   const atList = await walkState();
-  check('a list offers Next, and keeps a slot for Back rather than a gap',
-    Boolean(atList.next && !atList.next.hidden && !atList.next.disabled)
-    && Boolean(atList.back && !atList.back.hidden && atList.back.disabled),
+  // Design pass (3 Oct), and its review: Back is drawn only when there is somewhere to go back
+  // to (GENERATIVE_UI_V1 §4 removed the permanent strip, and its greyed slot with it). This check
+  // read "keeps a slot for Back rather than a gap", and passed on the `hidden` attribute while the
+  // stylesheet hid the slot; it now holds the rule as it is.
+  check('a list offers Next, and no Back: there is nothing behind a list just opened',
+    Boolean(atList.next && atList.next.drawn && !atList.next.disabled)
+    && Boolean(atList.back && !atList.back.drawn),
     JSON.stringify(atList).slice(0, 200));
   // The list's own step back sits beside its own step on, and starts greyed: the set is at
   // its first member. Back is the trail's, and there is nothing behind a list just opened.
@@ -357,9 +366,14 @@ async function main() {
     first.type === 'order' && second.type === 'order' && first.ref && second.ref && first.ref !== second.ref
     && /1 of 3/.test(first.answer) && /2 of 3/.test(second.answer),
     `1st=${first.ref} "${first.answer}" 2nd=${second.ref} "${second.answer}"`);
+  // Design pass (3 Oct): Back is drawn only when there is somewhere to go back to — the greyed
+  // placeholder was part of the permanent strip GENERATIVE_UI_V1 §4 removed — so it appears after
+  // the first Next. What must not happen is what the slot was for: the control under the thumb
+  // changing. Next is anchored at the row's far end, so it stays put, and Back appears at the
+  // other end, never where Next was.
+  const clear = (b) => !b || b.w === 0 || b.x + b.w <= atList.next.x || b.x >= atList.next.x + atList.next.w;
   check('neither chip moves under the thumb while the list is walked',
-    first.next.x === atList.next.x && second.next.x === atList.next.x
-    && first.back.x === atList.back.x && second.back.x === atList.back.x,
+    first.next.x === atList.next.x && second.next.x === atList.next.x && clear(first.back) && clear(second.back),
     `next x ${atList.next.x}/${first.next.x}/${second.next.x} back x ${atList.back.x}/${first.back.x}/${second.back.x}`);
   check('the screen says where in the list you are, on the card as well as in the sentence',
     /2\s*of\s*3/.test(second.chip), `chip="${second.chip}"`);
@@ -395,29 +409,34 @@ async function main() {
     out.type === 'order_list' && out.rows > 0 && out.mode === 'context',
     `types=${out.types.join(',')} rows=${out.rows} answer="${out.answer}"`);
   check('and the dock lights the place that list belongs to', out.area === 'orders', `area=${out.area}`);
-  check('at the list, Back is spent and says so in its slot',
-    Boolean(out.back && !out.back.hidden && out.back.disabled && out.back.x === atList.back.x),
+  // Design pass (3 Oct), and its review: this read "Back is spent and says so in its slot" and
+  // passed on the `hidden` attribute while the stylesheet hid the slot. Back spent is Back gone.
+  check('at the list, Back is gone: the trail goes back no further',
+    Boolean(out.back && out.back.disabled && !out.back.drawn),
     JSON.stringify(out.back));
   await shot('05-list-walk');
 
-  // The Assistant chip, with a thumb. It is a place: a landing with cards on it, in the
-  // context mode — not the orb screen the old client-only Home dropped the owner onto, and
-  // not a replay of the record that happened to be oldest on the trail.
+  // Home, with a thumb. Design pass (3 Oct): the chip is "Home" and goes to the home — what needs
+  // him and what is moving — as the horizon's Home does; the orders landing is the Orders icon's.
+  // (It was "CLIVE" and landed on this half's dock landing, which on the phone was the only way
+  // anywhere and was the orders list.) Never a replay of the record oldest on the trail.
   await say('show me order 1938');
   const atRecord = await walkState();
   check('a record is open to press Home from', atRecord.type === 'order', `type=${atRecord.type}`);
   await page.evaluate(() => document.querySelector('#home-btn').click());
   await sleep(1600);
   const landed = await walkState();
-  check('the Assistant chip lands on a landing with cards, not on the orb',
-    landed.mode === 'context' && landed.types.indexOf('order_list') !== -1 && landed.type !== 'order',
+  check('Home lands on the home, not on a landing',
+    landed.mode === 'orb',
     `mode=${landed.mode} types=${landed.types.join(',')}`);
   await page.evaluate(() => document.querySelector('#home-btn').click());
   await sleep(1600);
   const landedTwice = await walkState();
+  // Design pass (3 Oct): the destination is the home, so "still has cards on it" is "the home
+  // is drawn": the same screen both times, with the home on it.
   check('pressed twice, it is the same landing both times and still has cards on it',
-    JSON.stringify(landedTwice.types) === JSON.stringify(landed.types) && landedTwice.rows > 0,
-    `first=${landed.types.join(',')} again=${landedTwice.types.join(',')} rows=${landedTwice.rows}`);
+    landedTwice.mode === landed.mode && landedTwice.mode === 'orb' && landedTwice.home > 0,
+    `first=${landed.mode} again=${landedTwice.mode} home=${landedTwice.home}`);
   await shot('08-assistant-landing');
 
   // ---- 9. touch, then voice, with a finger rather than with fetch

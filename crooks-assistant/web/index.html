@@ -21,6 +21,8 @@
 <link rel="stylesheet" href="/static/objective-cards.css">
 <!-- Customers: the order he meant, their story, a refund landing (web/customers.js). -->
 <link rel="stylesheet" href="/static/customers.css">
+<!-- CROOKS Returns: the returns card, an order's returns, the home's row (web/returns.js) -->
+<link rel="stylesheet" href="/static/returns.css">
 <!-- Round 12: hold an order or an objective and put it on a screen (web/lift.js). -->
 <link rel="stylesheet" href="/static/lift.css">
 <!-- Round 12: soft scroll edges (web/edges.js) and cards that form from CLIVE's dots (web/dots-app.js). -->
@@ -30,6 +32,9 @@
 <link rel="stylesheet" href="/static/horizon.css">
 <!-- The Builds screen: every build of CLIVE itself in plain words, and the decisions it needs (web/builds.js). -->
 <link rel="stylesheet" href="/static/builds.css">
+<!-- The design pass of 3 Oct: the answer in full, Home, the list's steps, approval weights, the
+     dock as a tab bar on every tablet (web/design.css). Last, so it wins without !important. -->
+<link rel="stylesheet" href="/static/design.css">
 </head>
 <body data-mode="orb">
 
@@ -97,8 +102,11 @@
 
     <section id="context" class="context" aria-label="Context">
       <nav id="context-nav" class="context-nav" aria-label="Context navigation">
-        <button id="home-btn" class="chip chip-home" type="button" aria-label="Back to CLIVE">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>CLIVE</span>
+        <!-- Home: the way back to the home, by the same name and in the same capsule as the
+             horizon's Home (web/horizon.js). It used to read "CLIVE" and land on the orders
+             list (design pass, 3 Oct). -->
+        <button id="home-btn" class="chip chip-home" type="button" aria-label="Home">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span>Home</span>
         </button>
         <button id="back-btn" class="chip" type="button" hidden>Back</button>
         <!-- Shown only while a list is open, and both of them together: the pair walks the
@@ -249,7 +257,8 @@
   <div class="sheet-scroll">
     <div class="sheet-head">
       <h2>Settings</h2>
-      <button id="close-settings" class="btn primary" type="button" style="flex:0 0 auto;min-width:96px">Done</button>
+      <!-- Close, quiet: it only puts the sheet away (design pass, 3 Oct; web/design.css). -->
+      <button id="close-settings" class="btn" type="button" style="flex:0 0 auto;min-width:96px">Close</button>
     </div>
 
     <!-- The owner's sheet (GENERATIVE_UI_V1 §4), in this order and in plain words: Voice; What
@@ -353,6 +362,7 @@
 <script src="/static/objective-cards.js"></script>
 <!-- Customers: the order he meant, their story, a refund landing; drawn by ui.js through it. -->
 <script src="/static/customers.js"></script>
+<script src="/static/returns.js"></script>
 <script src="/static/ui.js"></script>
 <script src="/static/app.js"></script>
 <!-- Objectives by touch, part B: the next six weeks and each objective's mark in dots (web/horizon.js),

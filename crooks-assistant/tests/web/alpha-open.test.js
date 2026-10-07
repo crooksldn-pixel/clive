@@ -132,7 +132,8 @@ test('an objective tapped earlier and answered later is never drawn over the one
   // Mark done on it asks about that objective by name, and closes that one.
   const done = pg.sheet().querySelector('[data-alpha="mark_done"]');
   await pg.tap(done);
-  assert.deepEqual(pg.confirms, ['Close "Restock the tees" as done?']);
+  // Design pass (3 Oct): the confirm uses the button's own words; "Close" is the sheet's.
+  assert.deepEqual(pg.confirms, ['Mark "Restock the tees" as done?']);
   const posted = pg.requests.filter((r) => r.method === 'POST');
   assert.deepEqual(posted.map((r) => [r.url, r.body]), [[`/objectives/${B}/status`, { status: 'done' }]]);
   assert.equal(pg.sheet().open, false);

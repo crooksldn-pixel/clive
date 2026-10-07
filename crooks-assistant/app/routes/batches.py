@@ -147,6 +147,34 @@ def _undo_of(batch, session) -> dict | None:
     return undo_batch.public() if undo_batch is not None and undo_batch.status.value == "PENDING" else None
 
 
+@router.post("/{batch_id}/decline", response_model=None)
+async def decline(request: Request, batch_id: str, session_id: str = Form(default="")) -> JSONResponse | dict:
+    """"Not now" on a bulk change waiting for the owner (design pass, 3 Oct): the batch is
+    withdrawn through the batch store's own withdrawal, with his reason, exactly as
+    /actions/{id}/decline withdraws one change. Nothing is applied; a batch already being
+    applied, or an undo offer, is refused."""
+    from app.routes.actions import DECLINED_BY_OWNER
+
+    runtime = request.app.state.runtime
+    session_id = session_id.strip()
+    if not session_id:
+        return _refuse(400, "wrong_session", "The session is missing.")
+    owner_session = _owner_session(runtime, session_id)
+    if owner_session is not None and not session_matches(owner_session, request):
+        return _refuse(403, "wrong_session", "That conversation belongs to another login.")
+    batch = runtime.batches.state(batch_id, session_id)
+    if batch is None:
+        return _refuse(404, "unknown", "No such batch for this session.")
+    if batch.undo_of is not None:
+        return _refuse(409, "an_undo", "That is an offer to undo a change, not a change waiting for you.")
+    withdrawn = runtime.batches.revoke_ids([batch_id], DECLINED_BY_OWNER) == 1
+    timeline.emit("batch_declined", session_id=session_id, batch_id=batch_id, ok=withdrawn, status=batch.status.value)
+    if not withdrawn:
+        return _refuse(409, "not_waiting", "It is no longer waiting for you, so there is nothing to withdraw.")
+    log.info("batch %s withdrawn: %s", batch_id, DECLINED_BY_OWNER)
+    return {"batch_id": batch.batch_id, "status": batch.status.value.lower(), "withdrawn": True}
+
+
 @router.get("/{batch_id}", response_model=None)
 async def state(request: Request, batch_id: str, session_id: str = "") -> JSONResponse | dict:
     runtime = request.app.state.runtime
