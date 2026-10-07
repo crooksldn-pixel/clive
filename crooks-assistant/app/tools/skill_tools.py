@@ -63,6 +63,7 @@ MAX_FOLDERS = 200              # folders looked at by a listing
 MAX_FILES_LISTED = 50          # a skill's readable files named by a listing
 MAX_DESCRIPTION = 300          # characters of a skill's description in a listing
 MAX_FIELD = 300                # characters of a licence, an origin or a pinned ref
+MAX_ECHOED = 80                # characters of a skill's file path a refusal echoes
 CHUNK = 12_000                 # characters returned by one read
 MAX_FILE_BYTES = 1_000_000     # a file read by skill_read: at most a megabyte
 MAX_PROVENANCE_BYTES = 1_000_000
@@ -455,12 +456,12 @@ def skill_read(name: str = "", file: str = DEFAULT_FILE, offset: int = 0) -> dic
     item = listed.get(file)
     if item is None:
         if _safe_path(file) and not _text_file(file) and file in _all_listed(record):
-            raise ToolError(f"The skill's file {_shown(file)} is not a text file, so it is not read.")
+            raise ToolError(f"That file of the skill is not a text file, so it is not read. {_named(file)}")
         raise ToolError("That skill lists no readable text file by that name. Call skill_list for its files.")
     try:
         data = _verified(base, name, file, item)
     except _Unread as why:
-        raise ToolError(f"The skill's file {_shown(file)} was not read: {why}.") from None
+        raise ToolError(f"That file of the skill was not read: {why}. {_named(file)}") from None
     text = _shown(data.decode("utf-8", errors="replace"))
     total = len(text)
     end = min(total, offset + CHUNK)
@@ -476,6 +477,14 @@ def skill_read(name: str = "", file: str = DEFAULT_FILE, offset: int = 0) -> dic
         "total_chars": total,
         "text": text[offset:end] if offset < total else "",
     }
+
+
+def _named(path: str) -> str:
+    """A listed path as a refusal may echo it: after the refusal's own words, said to be the
+    skill's (written outside CROOKS), escaped, and cut to MAX_ECHOED characters."""
+    shown = _shown(path)
+    shown = shown if len(shown) <= MAX_ECHOED else shown[: MAX_ECHOED - 1] + "…"
+    return f"The skill, written outside CROOKS, names it `{shown}`."
 
 
 def _all_listed(record: dict[str, Any]) -> set[str]:
