@@ -1,0 +1,8 @@
+/* The card frame inside the test bench: CLIVE's own card styles (loaded before this), with the page
+   around them taken away. The frame is as tall as its cards; the bench screen sizes it. */
+html,body.bench-cards{height:auto;min-height:0;overflow:visible;background:transparent}
+body.bench-cards{display:block;margin:0;padding:2px 0 8px;animation:none}
+body.bench-cards::before,body.bench-cards::after{display:none}
+.bench-card-stack{display:grid;gap:12px}
+.bench-card-stack > .card{margin:0}
+.bench-none{margin:0;padding:12px 4px;font:15px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;color:rgba(235,235,245,.64)}

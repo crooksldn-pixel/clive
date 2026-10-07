@@ -58,6 +58,7 @@ OWNER_DOCS: dict[str, tuple[str, str | None] | None] = {
     "actions": ("docs/product-memory/DECISIONS.md", "DEC-005–007"),
     "analytics": None,
     "anticipation": None,
+    "bench": ("docs/BENCH.md", None),
     "builds": None,
     "capabilities": None,
     "clients": ("docs/DEPLOY_LINUX.md", "their keys"),
@@ -135,6 +136,9 @@ STORES: tuple[tuple[str, str, str, str | None, tuple[tuple[str, str], ...]], ...
     # Written by the release service on the server (/var/lib/clive-release), not by the running app.
     ("Release service", "status.json, deploys/, failed/, HALT", "app/release/state.py", "CLIVE_RELEASE_ENABLED",
      (("app/release/state.py", '"status.json"'), ("app/release/state.py", '"HALT"'))),
+    ("Bench sets and runs", "bench/questions/, bench/runs/", "app/bench/runner.py", None,
+     (("app/bench/store.py", '"results.jsonl"'), ("app/bench/store.py", '"questions"'))),
+    ("Bench ratings", "bench/ratings.jsonl", "app/bench/store.py", None, (("app/bench/store.py", '"ratings.jsonl"'),)),
 )
 
 # Read first: what a new session was pointed at before this map (at BEFORE_REF), and now.
@@ -237,11 +241,12 @@ def _reach(roots: list[str], graph: dict[str, set[str]]) -> set[str]:
 
 
 def import_graph() -> tuple[dict[str, Module], set[str], set[str]]:
-    """The known modules, those the running app loads (from app.main), and those a script loads."""
+    """The known modules, those the running app loads (from app.main), and those a script loads: a file
+    in scripts/, or a package's own command (`python -m app.bench` runs app/bench/__main__.py)."""
     known = _modules()
     graph = {name: _imports(module, known) for name, module in known.items()}
     live = _reach(["app.main"], graph)
-    cli = _reach([name for name in known if name.startswith("scripts.")], graph)
+    cli = _reach([name for name in known if name.startswith("scripts.") or name.endswith(".__main__")], graph)
     return known, live, cli
 
 
