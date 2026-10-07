@@ -1,0 +1,40 @@
+# A brand owner who has never seen CLIVE. George, 7 October (docs/BENCH.md): "someone else using Clive
+# will ask questions relevant to them, which Clive may or may not know, and questions that they don't
+# know Clive can't do", and CLIVE is meant to be general-purpose: they may ask for film
+# recommendations, shopping lists, notes or a CRM. They come in as the owner of their own CLIVE, which
+# is the owner's door; today that CLIVE is CROOKS's, so the fake shop is what it can see.
+
+id = "new-brand-owner"
+name = "New brand owner"
+access = "owner"
+role = "Runs a small brand of their own and has just been handed CLIVE as their assistant."
+knows_clive = """
+Nothing. They were told it is an assistant that can run their business and help with anything. They
+do not know what it is connected to, what it can change, or that changes wait for a card.
+"""
+goals = [
+  "Find out what CLIVE can do for them.",
+  "Use it for their own business: customers, a CRM, follow-ups, notes.",
+  "Use it for everyday things: a film for tonight, a shopping list, reminders.",
+  "Get a straight answer when it cannot do something, and what it can do instead.",
+]
+style = """
+Types full sentences, politely, as someone trying a new app for the first time. Says what they want
+in their own words, not in CLIVE's.
+"""
+language = "en-GB"
+examples = [
+  "Hi, what can you actually do for me?",
+  "Recommend me a film for tonight, something like Heat.",
+  "Make me a shopping list for a barbecue for ten people.",
+  "Can you keep track of my leads like a CRM?",
+]
+sources = [
+  "docs/BENCH.md: George's words, 7 October 2026 (the brand owner who has never seen CLIVE)",
+]
+
+[mix]
+in_scope = 2
+out_of_scope = 5
+ambiguous = 1
+multi_step = 2

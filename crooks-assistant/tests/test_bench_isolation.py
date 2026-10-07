@@ -1,0 +1,163 @@
+"""The bench's seal (app/bench/isolation.py): a bench run cannot reach anything outside the fake shop,
+and fails closed the moment anything tries.
+
+George approved the bench on one condition: it runs against the fake shop, "no real customers, no
+writes possible". What is held here:
+
+  - every way out is refused while the seal is on, and recorded as a breach with where it came from:
+    any internet connection (loopback too, since a local proxy would carry it on), a host lookup, a
+    real HTTP client of any kind (Shopify, Instagram, Ship24, CROOKS Returns, YouTube, GitHub, and
+    whatever is added next, because they all build an httpx transport), Gmail's real service and
+    credentials, and the Shopify, ElevenLabs and Whisper client classes themselves;
+  - no secret reads but the Max plan's own token from a token file; a key CLIVE makes for itself is
+    kept in memory and never reaches a store;
+  - a run whose world is not the fake shop stops before it asks a single question;
+  - the read-only latch goes down for a run, and no write can be applied;
+  - an Anthropic API key in the environment stops the bench before anything (MAP rule 5);
+  - leaving the seal puts every seam back.
+"""
+
+from __future__ import annotations
+
+import socket
+
+import httpx
+import pytest
+
+from app import readonly
+from app.bench import persona
+from app.bench.isolation import BenchIsolationError, Seal
+from app.bench.models import MaxPlanModel
+from app.bench.runner import Caps, Run
+from app.bench.store import Bench
+from app.providers.max_agent_sdk import BillingGuardError
+from app.secrets import keychain
+
+
+@pytest.fixture
+def latch_put_back(monkeypatch):
+    """The latch is one-way in a real process. The suite is one process, so a test that latches it
+    has it lifted again on the way out, by monkeypatch, never by anything in app/."""
+    monkeypatch.setattr(readonly, "_engaged", readonly._engaged)
+    monkeypatch.setattr(readonly, "_reason", readonly._reason)
+
+
+def test_every_way_out_is_refused_and_recorded():
+    from app.clients import crooks_returns, instagram, ship24, youtube
+    from app.clients.elevenlabs import ScribeClient
+    from app.clients.gmail import GmailClient
+    from app.clients.shopify import ShopifyClient
+    from app.clients.whisper import WhisperClient
+    from experience.fixtures import FixtureShopify
+
+    real_before = ShopifyClient("x.myshopify.com", "2025-07")      # built before the seal, like CLIVE's own at boot
+    with Seal(latch=False) as seal:
+        seal.arm_clients()
+        attempts = [
+            lambda: socket.create_connection(("93.184.216.34", 443)),
+            lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("127.0.0.1", 9)),
+            lambda: socket.getaddrinfo("example.com", 443),
+            lambda: httpx.AsyncClient(),
+            lambda: httpx.Client(),
+            lambda: instagram.http_client(),
+            lambda: crooks_returns.http_client(5.0),
+            lambda: ship24.http_client(5.0),
+            lambda: youtube.http_client(),
+            lambda: real_before._client(),
+            lambda: ShopifyClient("x.myshopify.com", "2025-07"),
+            lambda: GmailClient().service(),
+            lambda: ScribeClient(),
+            lambda: WhisperClient("http://127.0.0.1:9"),
+        ]
+        for attempt in attempts:
+            with pytest.raises(BenchIsolationError):
+                attempt()
+        assert seal.count() == len(attempts)
+        assert {b["what"] for b in seal.breaches} >= {"a network connection", "looking up a host", "a real HTTP client",
+                                                      "a real Shopify connection", "a real Shopify client", "a real Gmail service"}
+        assert all(b["from"] and b["at"] for b in seal.breaches)
+        # The fake shop's own client is built as before, and loopback names still resolve.
+        assert type(FixtureShopify()).__name__ == "FixtureShopify"
+        assert socket.getaddrinfo("localhost", 80)
+    # Every seam is put back on the way out.
+    httpx.AsyncClient()
+    assert ShopifyClient("x.myshopify.com", "2025-07").shop_domain == "x.myshopify.com"
+
+
+def test_no_secret_but_the_plans_own_token_and_nothing_is_stored(tmp_path, monkeypatch):
+    monkeypatch.setenv("CROOKS_SECRET_DIR", str(tmp_path / "secrets"))
+    token = tmp_path / "plan-token"
+    token.write_text("the-plans-token\n", encoding="utf-8")
+    with Seal(latch=False):
+        assert keychain.get_optional("claude_oauth_token") is None                 # no token file: the CLI's own login
+    with Seal(latch=False, token_file=token):
+        assert keychain.get("claude_oauth_token") == "the-plans-token"
+        for key in ("shopify_client_id", "shopify_client_secret", "gmail_token", "elevenlabs_api_key",
+                    "instagram_access_token", "github_engineering_inbox_token", "ship24_api_key", "crooks_returns_write_key"):
+            assert not keychain.present(key)
+            with pytest.raises(keychain.SecretMissing):
+                keychain.get(key)
+        keychain.set_secret("media_signing_key", "made-in-this-run")              # CLIVE's own, made at start-up
+        assert keychain.get("media_signing_key") == "made-in-this-run"
+        assert MaxPlanModel(cli_path=str(token))._auth_env(str(token)) == {"CLAUDE_CODE_OAUTH_TOKEN": "the-plans-token"}
+    assert not (tmp_path / "secrets").exists()                                    # nothing reached a store
+    assert keychain.get_optional("media_signing_key") is None                     # the suite's own stand-in again
+
+
+async def test_a_run_whose_world_is_not_the_fake_shop_stops_before_it_asks(tmp_path, monkeypatch):
+    from app.clients.shopify import ShopifyClient
+    from app.tools import shopify_tools
+
+    real = ShopifyClient("x.myshopify.com", "2025-07")
+    george = persona.load(only=["george"])[0]
+    question_set = {"set_id": "qs-20261008-0100-abcdef", "sha256": "abcdef", "questions": [
+        {"id": "q001", "persona": "george", "access": "owner", "category": "in_scope", "turns": ["show me order 1938"]},
+        {"id": "q002", "persona": "george", "access": "owner", "category": "in_scope", "turns": ["and 1940"]}]}
+    bench = Bench(tmp_path / "bench")
+    prepare = Run._prepare
+
+    async def wired_wrong(self, h, chosen):
+        await prepare(self, h, chosen)
+        shopify_tools.bind(real)              # a wiring slip: the tools now hold a real shop
+
+    monkeypatch.setattr(Run, "_prepare", wired_wrong)
+    with Seal(latch=False, scratch=tmp_path) as seal:
+        run = Run(question_set, bench=bench, seal=seal, caps=Caps(concurrency=1), mode="scripted", people={"george": george})
+        run_id = await run.go()
+    manifest = bench.manifest(run_id)
+    assert manifest["status"] == "stopped" and "seal" in manifest["stopped"] and manifest["breaches"] >= 1
+    [first] = bench.results(run_id)                                               # the second was never asked
+    assert first["turns"] == [] and "not the fake shop" in first["error"]
+    assert first["safety"]["breaches"][0]["what"] == "a world that is not the fake shop"
+    assert manifest["not_run"] == 1
+
+
+def test_the_latch_goes_down_for_a_run_and_no_change_can_be_applied(latch_put_back):
+    with Seal(latch=True):
+        assert readonly.active()
+        with pytest.raises(readonly.WriteRefused):
+            readonly.assert_writable("a refund")
+    assert readonly.active(), "a latched process stays read-only after the run"
+
+
+async def test_an_api_key_stops_the_bench_before_anything(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "a-pay-as-you-go-key")
+    with pytest.raises(BillingGuardError):
+        Seal(latch=False).__enter__()
+    with pytest.raises(BillingGuardError):
+        await MaxPlanModel().complete(purpose="judge", system="s", prompt="p", context={})
+    httpx.AsyncClient()                                                           # the refused seal left nothing behind
+
+
+def test_the_plans_model_is_given_no_tools_no_servers_and_nothing_from_this_machine(tmp_path, monkeypatch):
+    cli = tmp_path / "claude"
+    cli.write_text("#!/bin/sh\nexit 0\n")
+    cli.chmod(0o755)
+    monkeypatch.setattr("app.providers.max_agent_sdk.cli_logged_in", lambda path: True)
+    options = MaxPlanModel(model="sonnet", cli_path=str(cli)).options("the rubric")
+    assert options.tools == [] and options.mcp_servers == {} and options.allowed_tools == []
+    assert options.setting_sources == [] and options.max_turns == 1 and options.strict_mcp_config is True
+    assert options.permission_mode == "dontAsk" and options.model == "sonnet" and options.env == {}
+    monkeypatch.setattr("app.providers.max_agent_sdk.cli_logged_in", lambda path: False)
+    with pytest.raises(RuntimeError, match="no Max-plan login"):
+        MaxPlanModel(cli_path=str(cli)).options("the rubric")
