@@ -358,24 +358,75 @@ def _targets(node: ast.Assign | ast.AnnAssign) -> list[ast.AST]:
     return list(node.targets) if isinstance(node, ast.Assign) else [node.target]
 
 
-def _bound_in(fn: ast.AST) -> set[str]:
-    """The names a function binds for itself — its parameters, what it assigns or imports, the
-    functions and classes it nests — or in a function nested in it. A bare name among them is
-    its own, not the file's."""
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+
+def _params(fn: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda) -> list[ast.arg]:
+    args = fn.args
+    return [a for a in (*args.posonlyargs, *args.args, args.vararg, *args.kwonlyargs, args.kwarg) if a is not None]
+
+
+def _body(scope: ast.AST) -> list[ast.AST]:
+    """A function's, lambda's or class's body: what runs in its own scope."""
+    return scope.body if isinstance(scope.body, list) else [scope.body]
+
+
+def _in_scope(children: list[ast.AST]) -> list[ast.AST]:
+    """The nodes under `children` that are read or bound in their own scope: all of them but the
+    bodies and parameters of the functions, lambdas and classes nested there, whose decorators,
+    defaults, annotations and bases are still the enclosing scope's."""
+    out: list[ast.AST] = []
+    stack = list(children)
+    while stack:
+        node = stack.pop()
+        out.append(node)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            stack.extend(getattr(node, "decorator_list", []))
+            stack.extend(node.args.defaults)
+            stack.extend(d for d in node.args.kw_defaults if d is not None)
+            stack.extend(a.annotation for a in _params(node) if a.annotation is not None)
+            if getattr(node, "returns", None) is not None:
+                stack.append(node.returns)
+        elif isinstance(node, ast.ClassDef):
+            stack.extend([*node.decorator_list, *node.bases, *node.keywords])
+        else:
+            stack.extend(ast.iter_child_nodes(node))
+    return out
+
+
+def _bound_in(scope: ast.AST) -> set[str]:
+    """The names a function, lambda or class binds in its own scope — its parameters, what it
+    assigns or imports, the functions and classes it nests — and not those bound inside a
+    function or class nested in it, which are that one's own. A bare name among them is the
+    scope's, not the file's."""
     out: set[str] = set()
-    for node in ast.walk(fn):
-        if node is fn:
-            continue
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        out.update(a.arg for a in _params(scope))
+    for node in _in_scope(_body(scope)):
         if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
             out.add(node.id)
-        elif isinstance(node, ast.arg):
-            out.add(node.arg)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             out.add(node.name)
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             out.update(alias.asname or alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ExceptHandler) and node.name:
             out.add(node.name)
+    return out
+
+
+def _scopes(fn: ast.AST) -> dict[int, tuple[ast.AST, ...]]:
+    """The scopes each node of a function's body is read in, by the node's id: the function's
+    own first, then each function, lambda or class nested in it that holds the node."""
+    out: dict[int, tuple[ast.AST, ...]] = {}
+
+    def enter(scope: ast.AST, around: tuple[ast.AST, ...]) -> None:
+        chain = (*around, scope)
+        for node in _in_scope(_body(scope)):
+            out[id(node)] = chain
+            if isinstance(node, _SCOPES):
+                enter(node, chain)
+
+    enter(fn, ())
     return out
 
 
@@ -407,8 +458,9 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
     class. Every fixture a running function asks for by name runs too. Any other function of
     the file runs only when something that runs reaches it — directly, or through other
     functions of the file — and a name is resolved by where it is defined: a bare name, called
-    or not, reaches the file's module-level function or class of that name (unless the running
-    function binds the name itself); `self.x()` or `cls.x()` reaches the method x of the class
+    or not, reaches the file's module-level function or class of that name, unless the scope
+    that reads it, or a function around it, binds the name itself (a binding inside a function
+    or class nested in the running one is that one's own, and hides nothing); `self.x()` or `cls.x()` reaches the method x of the class
     the running method belongs to, or of a base class of the file it names, and never a
     module-level function x or a method x of an unrelated class. A `test*` method of a class
     pytest does not collect runs only once running code makes that class. A class of the file
@@ -552,18 +604,33 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
 
     def named(root: ast.AST, ran: list[ast.AST]) -> tuple[set[str], set[str]]:
         """What the running code of `root` reaches: the bare names it reads — calls, hands on,
-        returns, assigns or keeps — that it does not bind itself, outside an annotation; and the
-        methods it calls on `self` or `cls`, outside a class it nests (whose `self` is that
-        class's own)."""
-        own = _bound_in(root)
+        returns, assigns or keeps — that the scope reading them does not bind, nor a function
+        around it, outside an annotation; and the methods it calls on `self` or `cls`, outside a
+        class it nests (whose `self` is that class's own). A name bound only inside a function
+        or class nested in `root` is that one's own, and hides nothing from the code around it."""
+        chains = _scopes(root)
+        bound: dict[int, set[str]] = {}
+
+        def local(node: ast.Name) -> bool:
+            # Python's own rule: the innermost scope, then the functions around it — a class
+            # body's names are not seen by the functions it nests.
+            for depth, scope in enumerate(reversed(chains.get(id(node), (root,)))):
+                if depth and isinstance(scope, ast.ClassDef):
+                    continue
+                if id(scope) not in bound:
+                    bound[id(scope)] = _bound_in(scope)
+                if node.id in bound[id(scope)]:
+                    return True
+            return False
+
         typed = {id(node) for annotation in _annotations(root) for node in ast.walk(annotation)}
         inner = {id(node) for nested in ast.walk(root) if isinstance(nested, ast.ClassDef)
                  for node in ast.walk(nested)}
         bare: set[str] = set()
         on_self: set[str] = set()
         for node in ran:
-            if (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id not in own
-                    and id(node) not in typed):
+            if (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and id(node) not in typed
+                    and not local(node)):
                 bare.add(node.id)
             elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                   and isinstance(node.func.value, ast.Name) and node.func.value.id in ("self", "cls")

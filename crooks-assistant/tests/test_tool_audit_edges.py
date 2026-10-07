@@ -129,3 +129,25 @@ def test_a_helper_named_only_by_the_top_level_code_or_shadowed_by_the_test_is_no
     assert not _cites(MODULE_GO + 'import anyio\ndef test_it():\n    go = None\n    anyio.run(go)\n')
     assert not _cites(MODULE_GO + 'import anyio\ndef test_it():\n    async def go():\n        return None\n'
                                   '    anyio.run(go)\n')
+
+
+def test_a_name_bound_only_in_a_nested_scope_does_not_hide_the_module_level_helper():
+    # The 2026-10-07 repair, F-01: a binding is its own scope's, as Python resolves it.
+    assert _cites(MODULE_GO + 'import anyio\ndef test_it():\n    def unused():\n        go = None\n'
+                              '        return go\n    anyio.run(go)\n')
+    assert _cites(MODULE_GO + 'import anyio\ndef test_it():\n    def unused(go):\n        return go\n'
+                              '    anyio.run(go)\n')
+    assert _cites(MODULE_GO + 'import anyio\ndef test_it():\n    class Unused:\n        go = None\n'
+                              '    anyio.run(go)\n')
+    assert _cites(MODULE_GO + 'import anyio\ndef test_it():\n    pick = lambda go: go\n    anyio.run(go)\n')
+    # A class body's names are not seen by its methods.
+    assert _cites(MODULE_GO + 'def test_it(runtime):\n    class Model:\n        go = None\n'
+                              '        async def turn(self):\n            await go()\n'
+                              '    runtime.provider = Model()\n')
+
+
+def test_a_name_bound_in_the_reading_scope_or_a_function_around_it_is_its_own():
+    assert not _cites(MODULE_GO + 'import anyio\ndef test_it():\n    async def inner():\n        go = None\n'
+                                  '        return go\n    anyio.run(inner)\n')
+    assert not _cites(MODULE_GO + 'import anyio\ndef test_it():\n    go = None\n'
+                                  '    async def inner():\n        return go\n    anyio.run(inner)\n')
