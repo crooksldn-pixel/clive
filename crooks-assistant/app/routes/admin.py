@@ -24,11 +24,11 @@ async def voices() -> dict:
 
 @router.post("/reload-kb")
 async def reload_kb(request: Request) -> dict:
-    from app.kb.loader import build_system_prompt
-
     runtime = request.app.state.runtime
     kb = runtime.reload_kb()
-    await runtime.provider.set_system_prompt(build_system_prompt(kb, writes_enabled=runtime.settings.writes_enabled))
+    # The runtime's own prompt, so what it says beside the knowledge base (the installed skills'
+    # names, app/runtime.py `system_prompt`) is not lost when the knowledge base is reloaded.
+    await runtime.provider.set_system_prompt(runtime.system_prompt())
     return {
         "reloaded": True,
         "files": kb.files,

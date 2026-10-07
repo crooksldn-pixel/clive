@@ -610,7 +610,8 @@ _TOOL_BINDINGS = (
 # (`connections_service.configure`), where the team's grants are kept and the cache of them
 # (`staff_access.configure`), and the runtime the work list reads the shop and the inboxes through
 # (`work_tools.bind`, a one-item list) — the fixture runtime, left there, would outlive the run as
-# the housekeeper once did — and the address CROOKS Returns is reached at (`crooks_returns.configure`).
+# the housekeeper once did — the address CROOKS Returns is reached at (`crooks_returns.configure`),
+# and where the installed skills are read (`skill_tools.configure`).
 _TOOL_CONFIG = (
     ("app.clients.instagram", ("_CONFIG", "_STATE")),
     ("app.connections.passkeys", ("_CONFIG",)),
@@ -619,6 +620,7 @@ _TOOL_CONFIG = (
     ("app.work.tools", ("_RUNTIME",)),
     ("app.speech.voice_prefs", ("_CONFIG",)),
     ("app.clients.crooks_returns", ("_SETTINGS",)),
+    ("app.tools.skill_tools", ("_CONFIG",)),
 )
 # And the stores `build` configures by setting an instance's attributes: (module, the instance's
 # name there, its attributes) — the team's cards (`people_store.configure`) and the work list's

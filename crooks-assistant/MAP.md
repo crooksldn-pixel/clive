@@ -4,7 +4,7 @@ Read this before any code. The hand-written parts change only with a decision. T
 
 <!-- map:live -->
 **Production:** `b33ccbc2`, deployed 2026-10-03 17:48 UTC ([`reports/deploy-b33ccbc2.md`](reports/deploy-b33ccbc2.md)). **Before it:** `cac1a9e7` 2026-10-03 13:01 UTC ([`reports/deploy-cac1a9e7.md`](reports/deploy-cac1a9e7.md)); `66d3e05d` 2026-10-02 13:49 UTC ([`reports/deploy-66d3e05d.md`](reports/deploy-66d3e05d.md)).
-**Tools:** 80 tools — 53 reads, 22 writes, 5 bulk ([`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md)).
+**Tools:** 82 tools — 55 reads, 22 writes, 5 bulk ([`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md)).
 <!-- /map:live -->
 
 ## Where we started (7 September 2026)
@@ -52,7 +52,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 <!-- map:parts -->
 | Package | Lines | State | Not loaded by the app | Owner doc |
 |---|---:|---|---|---|
-| (top-level modules) | 11,757 | live | `engineering_measures` | none |
+| (top-level modules) | 11,774 | live | `engineering_measures` | none |
 | `actions` | 3,039 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,501 | live | — | none |
@@ -62,11 +62,11 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `connections` | 1,762 | live | — | [`CONNECTIONS.md`](docs/CONNECTIONS.md) |
 | `context` | 1,211 | live | — | none |
 | `customers` | 1,596 | live | — | none |
-| `digest` | 18,931 | CLI | all | [`KNOWLEDGE_DIGESTER_V1.md`](docs/product-memory/KNOWLEDGE_DIGESTER_V1.md) |
+| `digest` | 18,931 | live | 19 modules | [`KNOWLEDGE_DIGESTER_V1.md`](docs/product-memory/KNOWLEDGE_DIGESTER_V1.md) |
 | `displays` | 2,363 | live | — | none |
 | `engineering_bridge` | 595 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
 | `families` | 9,844 | live | — | none |
-| `kb` | 403 | live | — | [`OWNER_DECISIONS_2026-10-01.md`](docs/product-memory/OWNER_DECISIONS_2026-10-01.md) the voice spec |
+| `kb` | 437 | live | — | [`OWNER_DECISIONS_2026-10-01.md`](docs/product-memory/OWNER_DECISIONS_2026-10-01.md) the voice spec |
 | `logging` | 193 | live | — | none |
 | `memory` | 586 | live | — | none |
 | `objectives` | 3,313 | live | — | none |
@@ -85,7 +85,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `skills` | 905 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
 | `speech` | 844 | live | — | none |
 | `support` | 1,685 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
-| `tools` | 13,189 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
+| `tools` | 13,576 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
 | `work` | 1,374 | live | — | [`TEAM.md`](docs/TEAM.md) |
 <!-- /map:parts -->
 
@@ -125,7 +125,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | Capability manifest | `capabilities.json` | `capabilities/delta.py` | always |
 | Anticipation | `anticipation/transitions.json` | `anticipation/learning.py` | always |
 | Keys stored from the app | `<secret dir>/app/<key>.cred` | `secrets/vault.py` | always |
-| Digest store | `one folder per artifact` | `digest/store.py` | CLI only |
+| Digest store | `one folder per artifact` | `digest/store.py` | always |
 <!-- /map:stores -->
 
 ## Switches
@@ -173,7 +173,6 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 | **Easyship**: `app/shipping/`, `families/shipping.py` | Disconnected. Tracking is Ship24, and return labels are Parcel2Go through CROOKS Returns | Delete until he chooses a label provider | 19 Oct |
 | **`capabilities/surface.py`** | Nothing imports it, and nothing reads what changed between builds | Wire up "what's new since the last build", or delete it | 19 Oct |
 | **CROOKS Pad**: `android/`, `observability/pad.py`, `routes/pad.py` | The APK was never installed; the heartbeat has no other sender | Install it on the SM-T290, or archive it | 19 Oct |
-| **`skill_list`, `skill_read`** on the gate's GREEN list | No such tools are on the trunk; `skill-read-runtime-tool-4` is blocked in the loop | Land the tool, or remove the names | 19 Oct |
 | **`web/today-say.js`** | Acts on "packed 2106" without the model, against DEC-063 | His call: write an exception, or send the words to the team's CLIVE | 19 Oct |
 | **`docs/product-memory/_incoming/`** (51 files) | Staging copies kept since 25 Sep "for the Director to remove" | Delete | 19 Oct |
 | **The venture engine**: branch `claude/venture-engine-v1-2026-09-29` | His direction of 29 Sep, never landed. Finish first (DEC-018) | Stays parked until the finish list is clear | 19 Oct |
@@ -191,5 +190,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 2,981 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 2,952 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->

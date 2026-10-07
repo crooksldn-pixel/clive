@@ -143,6 +143,7 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
         shopify_tools,
         shopify_writes,
         show_again,
+        skill_tools,
     )
     from app.work import tools as _work_tools  # noqa: F401
 
@@ -461,7 +462,13 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # offers them. With no CROOKS Returns key stored their families are DISCONNECTED and none is
     # offered at all (runtime.withheld_by_family). The ceiling is raised by exactly what was
     # measured, leaving no headroom.
-    assert total <= 51_222, f"the tool block is {total} bytes"
+    #
+    # 51_913 is the installed skills, read and never run (app/tools/skill_tools.py,
+    # tests/test_skill_tools.py), +691 bytes measured (51,222 before, 51,913 after): skill_list 269
+    # (no arguments) and skill_read 422 (a name, a file, an offset). Imported above because
+    # app/runtime.py offers both. The ceiling is raised by exactly what was measured, leaving no
+    # headroom.
+    assert total <= 51_913, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

@@ -359,6 +359,7 @@ const DETAIL_WORDS = {
   // CROOKS Returns (app/tools/returns_tools.py): reading returns, and an action prepared for his approval.
   returns_open: ['Checking', 'returns'], return_find: ['Finding', 'the return'],
   returns_stats: ['Counting', 'returns'], return_action: ['Preparing', 'the return step', true],
+  skill_list: ['Listing', 'skills'], skill_read: ['Reading', 'the skill'],
 };
 const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;

@@ -185,6 +185,9 @@ class Settings(BaseSettings):
     media_cache_dir: Path = REPO_ROOT / ".cache" / "media"
     # The owner's objectives (app/objectives): durable state, not a cache. One JSON file each.
     objectives_dir: Path = REPO_ROOT / ".state" / "objectives"
+    # The skills the installer adopted (app/skills/install.py), read by skill_list and skill_read
+    # (app/tools/skill_tools.py) and never run. Git-ignored, beside the objectives.
+    skills_dir: Path = REPO_ROOT / ".state" / "skills"
 
     # --- engineering: CLIVE's build requests (app/engineering_bridge, app/tools/engineering_tools.py) ---
     # Whose loop builds what CLIVE files: "worker-01" polls clive/control/worker-01-inbox;
