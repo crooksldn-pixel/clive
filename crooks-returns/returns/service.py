@@ -321,6 +321,7 @@ class ReturnsService:
                     "summary": self.summary(ret),
                 },
             )
+            self._stamp(ret, 0, "portal")
             self.store.save(ret)
         self.notifier.send("return.requested", ret)
         return ret
@@ -394,6 +395,7 @@ class ReturnsService:
             )
             if ret is None or ret.postage.courier_stage == stage:
                 return ret
+            first = len(ret.timeline)
             ret.postage.courier_stage = stage
             moving = stage in (
                 "DroppedOff",
@@ -414,6 +416,7 @@ class ReturnsService:
                     {"stage": stage, "courier": description},
                     verified=True,
                 )
+            self._stamp(ret, first, "system")  # the courier's webhook
             self.store.save(ret)
             if event_id:
                 self.store.remember(f"p2g-webhook:{event_id}", {"return": ret.id})
@@ -1263,6 +1266,7 @@ class ReturnsService:
                 ret = self._get(found.id)
                 if ret.status != Status.awaiting_label:
                     continue
+                first = len(ret.timeline)
                 if ret.postage.label_file_id or ret.postage.qr_file_id:
                     # Collected before; only handing it to Shopify failed.
                     label = (
@@ -1284,6 +1288,7 @@ class ReturnsService:
                     self._label_ready(ret, "system", label)
                 else:
                     continue
+                self._stamp(ret, first, "system")  # the timer
                 self.store.save(ret)
             if ret.status == Status.awaiting_shipment:
                 self.notifier.send("return.label", ret)
@@ -1307,6 +1312,7 @@ class ReturnsService:
             ):
                 with self.store.lock:
                     self._event(ret, "label_overdue", "system", {"due": due.isoformat()})
+                    self._stamp(ret, len(ret.timeline) - 1, "system")
                     self.store.save(ret)
                 self.notifier.send("return.awaiting_label.overdue", ret)
                 flagged.append(ret.id)
@@ -1324,6 +1330,7 @@ class ReturnsService:
         state = node.get("status")
         with self.store.lock:
             ret = self._get(ret.id)
+            first = len(ret.timeline)
             if state == "CLOSED" and ret.status != Status.completed:
                 ret.status = Status.completed
                 self._event(ret, "completed", "shopify_admin", {"topic": topic}, verified=True)
@@ -1335,6 +1342,7 @@ class ReturnsService:
                 self._event(ret, "declined", "shopify_admin", {"topic": topic}, verified=True)
             else:
                 return ret
+            self._stamp(ret, first, "system")  # Shopify's webhook
             self.store.save(ret)
         self.notifier.send("return.synced", ret)
         return ret

@@ -154,3 +154,24 @@ def test_a_since_without_a_zone_is_utc(svc, clock):
     c.post(f"/api/v1/returns/{a.id}/actions/approve", json={"idempotency_key": "k"}, headers=W)
     r = c.get("/api/v1/events", params={"since": naive}, headers=R)
     assert r.status_code == 200 and any(e["type"] == "approved" for e in r.json()["events"])
+
+
+def test_events_made_outside_an_action_say_where_they_came_from(svc, shop, clock):
+    # The customer's request comes from the portal; Shopify's webhooks and the timer are the
+    # system. CLIVE's feed names the source of every new event, not only of actions.
+    from datetime import timedelta
+
+    a, b = two_pending(svc)
+    svc.execute(a.id, "approve", {"postage_mode": "label_later"}, "Sam", "a-1", source="ui")
+    done = svc.execute(b.id, "approve", {}, "Sam", "b-1", source="ui")["return_doc"]
+    shop.returns[done.shopify.return_id]["status"] = "CANCELED"  # cancelled in Shopify admin
+    svc.shopify_changed(done.shopify.return_id, "returns/cancel")
+    clock.now = clock.now + timedelta(hours=25)
+    assert svc.tick() == [a.id]  # the label is overdue
+    events = client(svc).get("/api/v1/events", headers=R).json()["events"]
+    source = {(e["return_id"], e["type"]): e["source"] for e in events}
+    assert source[(a.id, "requested")] == source[(b.id, "requested")] == "portal"
+    assert source[(a.id, "approved")] == "ui"
+    assert source[(b.id, "cancelled")] == "system"
+    assert source[(a.id, "label_overdue")] == "system"
+    assert all(e["source"] for e in events)
