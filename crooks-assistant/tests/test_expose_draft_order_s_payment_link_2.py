@@ -189,6 +189,7 @@ def test_the_tool_block_stays_within_its_budget():
         ship24_tools,
         shopify_writes,
         show_again,
+        skill_tools,
     )
     from app.work import tools as _work_tools  # noqa: F401
 
@@ -209,5 +210,6 @@ def test_the_tool_block_stays_within_its_budget():
     # interaction (interaction_review, +564, measured), and 49,272 with the customers workstream
     # (shopify_checkout_link_send and the lookup, history and refund fields, +1,000, measured), and
     # 51,222 with CROOKS Returns (returns_open, return_find, returns_stats, return_action, +1,950,
+    # measured), and 51,913 with the installed skills (skill_list 269 bytes, skill_read 422: +691,
     # measured).
-    assert total <= 51_222, f"the tool block is {total} bytes"
+    assert total <= 51_913, f"the tool block is {total} bytes"

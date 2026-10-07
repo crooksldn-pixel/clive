@@ -26,6 +26,9 @@ os.environ.setdefault("CROOKS_SECRET_DIR", os.path.join(_TEST_STATE, "secrets"))
 os.environ.setdefault("CROOKS_OBJECTIVES_DIR", os.path.join(_TEST_STATE, "objectives"))
 # And the reports folder, which the always-on roll now ages and tightens.
 os.environ.setdefault("CROOKS_REPORTS_DIR", os.path.join(_TEST_STATE, "reports"))
+# And the installed skills (app/tools/skill_tools.py): every runtime a test builds names and reads
+# the skills in settings.skills_dir, so never those really installed in the checkout's .state.
+os.environ.setdefault("CROOKS_SKILLS_DIR", os.path.join(_TEST_STATE, "skills"))
 
 # The environment every offline test is given, whatever the Mac it runs on has in its own.
 # Built from the ones above so a deliberate override on the command line still works, and
@@ -35,6 +38,7 @@ _TEST_ENV = {
     for name in (
         "CROOKS_LOG_DIR", "CROOKS_BENCH_AUDIO_DIR", "CROOKS_SAVE_CAPTURES",
         "CROOKS_ANALYTICS_WARM_DAYS", "CROOKS_SECRET_DIR", "CROOKS_OBJECTIVES_DIR", "CROOKS_REPORTS_DIR",
+        "CROOKS_SKILLS_DIR",
     )
 }
 # No .env. This is the one that matters: `.env` is the owner's own configuration and

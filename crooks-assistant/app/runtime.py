@@ -240,7 +240,8 @@ class Runtime:
                 log.debug("stopping a team member's old assistant failed", exc_info=True)
 
     def system_prompt(self) -> str:
-        return build_system_prompt(self.kb, writes_enabled=self.settings.writes_enabled)
+        return build_system_prompt(self.kb, writes_enabled=self.settings.writes_enabled,
+                                   skills=offered_skills(self.withheld_by_family()))
 
     @property
     def allowed_logins(self) -> tuple[str, ...]:
@@ -590,6 +591,7 @@ def build(settings: Settings | None = None) -> Runtime:
         shopify_tools,
         shopify_writes,
         show_again,
+        skill_tools,
     )
     from app.work import tools as work_tools_module  # noqa: F401 - registers work_list, work_note
 
@@ -665,10 +667,14 @@ def build(settings: Settings | None = None) -> Runtime:
     connections_service.configure(state_dir=connections_dir(settings))
     # Who on the team the owner has let in is kept beside his passkeys: a line there opens the door.
     staff_access.configure(state_dir=connections_dir(settings))
+    # The skills the installer adopted, in this runtime's settings.skills_dir: read by skill_list
+    # and skill_read, never run (app/tools/skill_tools.py). Set before the prompt below names them,
+    # so the prompt and the tools read the same folder.
+    skill_tools.configure(skills_dir=settings.skills_dir)
 
     kb = load(settings.kb_dir)
     provider = MaxAgentSDKProvider(
-        system_prompt=build_system_prompt(kb, writes_enabled=settings.writes_enabled),
+        system_prompt=build_system_prompt(kb, writes_enabled=settings.writes_enabled, skills=offered_skills()),
         model=settings.claude_model,
         session_lookup=sessions.get_or_create,
         tool_timeout_s=settings.tool_timeout_s,
@@ -789,6 +795,23 @@ def build(settings: Settings | None = None) -> Runtime:
     work_tools.bind(runtime)
     runtime.staff_provider_factory = lambda person: _staff_provider(runtime, person)
     return runtime
+
+
+def offered_skills(withheld: set[str] | frozenset[str] = frozenset()) -> list[str]:
+    """The installed skills' names for the system prompt, only while skill_list and skill_read
+    are both offered; none otherwise, so the prompt is what it was without them. Never raises:
+    the skills folder holds files written outside CROOKS, and nothing in it may stop the app
+    starting (`build`) or the knowledge base reloading (`Runtime.system_prompt`)."""
+    from app.tools import registry, skill_tools
+
+    try:
+        registered = set(registry.names())
+        if any(name not in registered or name in withheld for name in skill_tools.TOOLS):
+            return []
+        return skill_tools.names()
+    except Exception as exc:  # noqa: BLE001 - a prompt without the skills' names, rather than no app
+        log.warning("the installed skills could not be named in the prompt: %s", type(exc).__name__)
+        return []
 
 
 def _staff_provider(runtime: Runtime, person: Any) -> Any:
