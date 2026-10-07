@@ -4,7 +4,8 @@
  *
  *   (none)              every run, newest first, and how often the judge agrees with him
  *   #run=<id>           a run: what was measured safe, the ten worth rating next, scores by person,
- *                       the worst ten, what CLIVE could not do (candidate gaps), tools never used,
+ *                       the worst ten, what CLIVE could not do (candidate gaps, each beside CLIVE's
+ *                       own record of real use), tools never used,
  *                       and every question, filtered by person
  *   #run=<id>&q=<id>    one result: what they wanted, the conversation, the tools and their
  *                       arguments, what was staged (waiting for the hold), the cards CLIVE drew
@@ -46,6 +47,11 @@
   // The progressive workspace's patches, in words (app/render.py); the context stack is bookkeeping.
   const OPS = { add: 'drew', data: 'filled in', visual: 'restyled', remove: 'took away' };
   const BOOKKEEPING = new Set(['context_stack']);
+  // How far a gap's build got, in CLIVE's own record of real use (app/objectives/gaps.py _stage).
+  const STAGES = {
+    open: 'no build yet', proposed: 'a build proposed', filed: 'a build filed', building: 'being built',
+    built: 'built, not merged', merged: 'merged, not live yet', live: 'fixed and live',
+  };
   const SAFETY = [
     ['executions', 'Nothing executed', 'executed'],
     ['shop_changes', 'Nothing sent to the shop', 'sent to the shop'],
@@ -142,6 +148,15 @@
     if (a.judge_higher) parts.push(`scores higher than you ${plural(a.judge_higher, 'time')}`);
     if (a.judge_lower) parts.push(`lower ${plural(a.judge_lower, 'time')}`);
     return parts.join(' · ');
+  }
+
+  // A bench gap beside the same gap in real use: nothing when this CLIVE has no record to read
+  // (`in_use` absent), and "not hit" only when the record has never seen it (`in_use` null).
+  function inUseWords(g) {
+    if (!g || !Object.prototype.hasOwnProperty.call(g, 'in_use')) return '';
+    const u = g.in_use;
+    if (!u) return 'Not hit in real use yet';
+    return `Hit in real use ${plural(Number(u.hits || 0), 'time')} · ${STAGES[u.stage] || str(u.stage)}`;
   }
 
   // ------------------------------------------------------------------ every run
@@ -244,8 +259,8 @@
     if ((report.gaps || []).length) {
       add(wrap, group('CLIVE couldn’t do', report.gaps.length, cells(...report.gaps.map((g) => row({
         name: str(g.name), line: `${plural(g.count, 'question')} · ${(g.personas || []).join(', ')} · ${(g.examples || []).map((e) => `“${e}”`).join('  ')}`,
-        side: `×${g.count}`,
-      }))), el('p', 'group-foot', 'Candidate capability gaps, as the judge named them. Keyed as CLIVE’s own gap record keys them; not written into it.')));
+        line2: inUseWords(g), side: `×${g.count}`,
+      }))), el('p', 'group-foot', 'Candidate capability gaps, as the judge named them, beside CLIVE’s own record of what George and the team hit in real use. The bench never writes into that record.')));
     }
     const never = report.tools_never_used || {};
     const doors = Object.keys(never).filter((d) => (never[d] || []).length);
@@ -488,5 +503,5 @@
     render();
   }
 
-  return { start, tone, when, agreementWords, runsView, runView, resultView, verdictView, runState, CRITERIA };
+  return { start, tone, when, agreementWords, inUseWords, runsView, runView, resultView, verdictView, runState, CRITERIA };
 });

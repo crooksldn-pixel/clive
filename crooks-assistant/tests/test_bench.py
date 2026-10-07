@@ -261,6 +261,16 @@ async def test_generate_run_judge_report_and_the_page_shows_it(bench_world, tmp_
         assert line["run_id"] == run_id and line["counts"]["scored"] == 5 and line["overall"] == 3.6
         opened = (await h.client.get(f"/bench/runs/{run_id}", headers=TABLET_HEADERS)).json()
         assert [r["result_id"] for r in opened["results"]] == ["q001", "q002", "q003", "q004", "q005"]
+        # A bench gap beside CLIVE's own record of real use, read and never written: not seen there
+        # yet, then seen once (an objective blocked on it), with no build yet.
+        from app.objectives import gaps as gap_record
+
+        [gap] = opened["report"]["gaps"]
+        assert gap["in_use"] is None and gap_record.ledger().report()["gaps"] == []
+        gap_record.ledger().note_blocker("obj-bench", "No sight of supplier payments", capability="supplier payments")
+        [gap] = (await h.client.get(f"/bench/runs/{run_id}", headers=TABLET_HEADERS)).json()["report"]["gaps"]
+        assert (gap["in_use"]["hits"], gap["in_use"]["stage"]) == (1, "open")
+        assert gap_record.ledger().report()["summary"]["hits"] == 1, "reading the run added nothing to the record"
         one = (await h.client.get(f"/bench/runs/{run_id}/results/q004", headers=TABLET_HEADERS)).json()
         assert one["result"]["turns"][0]["cards"] and one["verdict"]["overall"] == 5 and one["rating"] is None
         rated = await h.client.post("/bench/ratings", headers=TABLET_HEADERS,

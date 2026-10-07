@@ -101,6 +101,22 @@ test('a run: scripted says so first, safety is measured, and nobody-scored is no
   assert.ok(unscored.querySelector('.dot').classList.contains('is-off') && unscored.querySelector('.dot').textContent === '');
 });
 
+test('a gap beside real use: hit and how far its build got, never hit, or nothing when there is no record', () => {
+  assert.equal(Bench.inUseWords({ name: 'film recommendations' }), '', 'no record on this CLIVE: nothing is said');
+  assert.equal(Bench.inUseWords({ in_use: null }), 'Not hit in real use yet');
+  assert.equal(Bench.inUseWords({ in_use: { hits: 1, stage: 'open' } }), 'Hit in real use 1 time · no build yet');
+  assert.equal(Bench.inUseWords({ in_use: { hits: 3, stage: 'filed' } }), 'Hit in real use 3 times · a build filed');
+  assert.equal(Bench.inUseWords({ in_use: { hits: 2, stage: 'live' } }), 'Hit in real use 2 times · fixed and live');
+  const gaps = [{ key: 'crm pipeline', name: 'CRM pipeline', count: 1, personas: ['New brand owner'], examples: [HOSTILE], result_ids: ['q001'],
+    in_use: { hits: 4, stage: 'proposed' } }, { key: 'supplier payments', name: 'supplier payments', count: 1, personas: ['Supplier'],
+    examples: [], result_ids: ['q002'], in_use: null }];
+  const view = Bench.runView({ report: report({ gaps }), results: RESULTS }, { openResult: () => {} });
+  const text = view.allText();
+  assert.match(text, /Hit in real use 4 times · a build proposed/);
+  assert.match(text, /Not hit in real use yet/);
+  assert.ok(text.includes(`“${HOSTILE}”`), 'an example stays text');
+});
+
 test('every question filters by person', () => {
   const view = Bench.runView({ report: report(), results: RESULTS }, { openResult: () => {} });
   const filters = view.querySelectorAll('.filter');

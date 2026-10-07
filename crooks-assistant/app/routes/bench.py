@@ -7,7 +7,9 @@ files on each look (app/bench/report.py), so a run judged after it was copied he
 Behind the door (app/main.py): every route here is the owner's by its one rule (principal_verdict),
 the team's door does not list any of them (app/people/staff.py), and a POST from another site is
 refused before it arrives. The one thing it writes is a rating: a score from 1 to 5 and a short
-note, appended to bench/ratings.jsonl with who rated and what the judge had said.
+note, appended to bench/ratings.jsonl with who rated and what the judge had said. A run's capability
+gaps are shown beside CLIVE's own record of real use (app/objectives/gaps.py), which is read here and
+never written.
 
 The pages hold no data. /bench draws the runs; /bench/cards is the frame a result's cards are drawn
 in, with CLIVE's own card renderer (web/ui.js) and stylesheets, apart from this screen's styles, so a
@@ -106,6 +108,26 @@ def _row(row: dict[str, Any], verdict: dict[str, Any] | None, rating: dict[str, 
     }
 
 
+def _in_real_use(gaps: list[dict[str, Any]]) -> None:
+    """Each gap the bench found, beside the same gap in CLIVE's own record of real use
+    (app/objectives/gaps.py, keyed alike): how often George and the team hit it, and how far its
+    build got. Read only: the bench never writes into that record. `in_use` is left off when this
+    CLIVE has no record to read, and is None when the record has never seen the gap."""
+    from app.objectives import gaps as gap_record
+
+    record = gap_record.ledger()
+    if record is None:
+        return
+    try:
+        rows = {str(r.get("key")): r for r in record.report().get("gaps") or []}
+    except Exception:  # noqa: BLE001 - an unreadable record says nothing about these gaps
+        return
+    for gap in gaps:
+        row = rows.get(str(gap.get("key")))
+        gap["in_use"] = None if row is None else {"hits": int(row.get("hits") or 0), "stage": str(row.get("stage") or "open"),
+                                                   "last_seen": row.get("last_seen")}
+
+
 @router.get("/bench/runs/{run_id}")
 async def bench_run(request: Request, run_id: str) -> JSONResponse:
     if not RUN_ID.fullmatch(run_id):
@@ -114,6 +136,7 @@ async def bench_run(request: Request, run_id: str) -> JSONResponse:
     if bench.manifest(run_id) is None:
         return _refusal(404, "no_run", "There is no such run.")
     made = bench_report.build(bench, run_id)
+    _in_real_use(made["gaps"])
     judged = bench.judged(run_id)
     ratings = {rid: r for (rated_run, rid), r in bench.ratings().items() if rated_run == run_id}
     rows = [_row(r, judged.get(str(r.get("result_id"))), ratings.get(str(r.get("result_id"))))

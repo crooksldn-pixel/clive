@@ -23,7 +23,7 @@ from experience.browser import _free_port, _stop, available
 from tests import bench_world
 
 # Every check the script makes must be made: a run that stopped early is not a pass.
-EXPECTED_CHECKS = 37
+EXPECTED_CHECKS = 38
 
 
 async def test_the_bench_screen_in_a_real_browser(tmp_path, monkeypatch):

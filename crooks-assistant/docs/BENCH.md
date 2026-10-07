@@ -62,7 +62,8 @@ What he approved:
    it for want of a capability, a short name for that capability. The rubric is versioned (`judge-1`).
 6. **Report** (`python -m app.bench report`, also on the screen): scores by person and criterion, the worst
    ten, the tools each door never used, what CLIVE could not do grouped into candidate capability gaps
-   (keyed exactly as CLIVE's own gap record keys them), measured safety, and the judge against George.
+   (keyed exactly as CLIVE's own gap record keys them; the screen shows each beside that record), measured
+   safety, and the judge against George.
 
 ## The seal
 
@@ -185,10 +186,16 @@ in it says how CLIVE would really answer.
 ## Capability gaps
 
 What CLIVE could not do is grouped on the report by the judge's name for the missing capability, keyed by
-`app/objectives/gaps.py`'s own `key_for`, so a bench gap and a gap CLIVE recorded in real use compare
-directly. The bench does **not** write into CLIVE's gap record (`gaps.json`): that record counts what George
-and the team hit in real use, and how often a gap comes back once its fix is live, and questions made up for
-a test would skew both. Turning a bench gap into work is George's call, as with any gap.
+`app/objectives/gaps.py`'s own `key_for`, so a bench gap and a gap CLIVE recorded in real use are the same
+key. On the screen each bench gap sits beside that record, read from the CLIVE that serves the screen: "Hit in
+real use 3 times · a build filed" (no build yet, a build proposed, filed, being built, built, merged, fixed and
+live), or "Not hit in real use yet". Nothing is said when that CLIVE has no record to read.
+
+The bench does **not** write into CLIVE's gap record (`gaps.json`): that record counts what George and the
+team hit in real use, and how often a gap comes back once its fix is live, and questions made up for a test
+would skew both. Turning a bench gap into work goes the way any gap does: an objective that needs the
+capability is blocked on it, CLIVE proposes a build for it, and George files that build with a tap. A gap the
+bench found that real use has hit too is the strongest case for one.
 
 ## Adding a persona
 

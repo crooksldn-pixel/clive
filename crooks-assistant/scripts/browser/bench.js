@@ -8,7 +8,8 @@
  *
  *   - the settings sheet carries a Test bench row, and /bench lists the run, saying it was scripted;
  *   - a run says it was scripted before anything else, shows four measured safety counts, all nought,
- *     the results to rate, scores by person, the worst, what CLIVE could not do, tools never used;
+ *     the results to rate, scores by person, the worst, what CLIVE could not do (each beside CLIVE's
+ *     own record of real use), tools never used;
  *   - a result shows the conversation, the tools, the refund waiting for the hold, the cards drawn in
  *     their frame by CLIVE's own renderer, and the judge's six scores with reasons;
  *   - a rating of 4 with a note is saved, said, and counted on the run and in the agreement;
@@ -107,6 +108,14 @@ async function phone(browser) {
   }
   const gaps = await page.locator('.group', { hasText: 'CLIVE couldn’t do' }).locator('.row-name').allTextContents();
   check('what CLIVE could not do names the capabilities', ['film recommendations', 'CRM pipeline', 'supplier payments'].every((g) => gaps.includes(g)), gaps.join(' | '));
+  const inUse = await page.locator('.group', { hasText: 'CLIVE couldn’t do' }).locator('.row-line').allTextContents();
+  check('each gap says whether CLIVE has hit it in real use', inUse.filter((l) => l === 'Not hit in real use yet').length === 3, inUse.join(' | '));
+  if (OUT) {
+    const gapGroup = page.locator('.group', { hasText: 'CLIVE couldn’t do' });
+    await gapGroup.scrollIntoViewIfNeeded();
+    await gapGroup.screenshot({ path: path.join(OUT, 'phone-03b-gaps.png'), animations: 'disabled' });
+    shots.push('phone-03b-gaps.png');
+  }
   const summary = await page.locator('#summary').textContent();
   check('the run says how many were scored and its overall', /10 questions · 10 scored · 3\.3 overall · 0 rated by you/.test(summary), summary);
   await shot(page, 'phone-02-run-top');

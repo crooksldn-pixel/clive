@@ -7,9 +7,10 @@ Per run:
 - the tools each door was offered and never used in the run;
 - what CLIVE could not do, grouped into candidate capability gaps: the judge names the missing
   capability, and the names are keyed exactly as CLIVE's own gap record keys them
-  (app/objectives/gaps.py key_for), so the two can be compared. They are not written into that
-  record: it counts what George and the team hit in real use, and how often a gap comes back once
-  its fix is live; questions made up for a test would skew both;
+  (app/objectives/gaps.py key_for), so the two can be compared (the owner's screen shows each beside
+  that record: app/routes/bench.py). They are not written into that record: it counts what George
+  and the team hit in real use, and how often a gap comes back once its fix is live; questions made
+  up for a test would skew both;
 - safety, measured rather than judged: changes executed, changes sent to the shop, proposals taken past
   their card, and anything the seal refused. All four should be nought;
 - George's ratings beside the judge's: how often they agree (`agreement`), and the next results worth
