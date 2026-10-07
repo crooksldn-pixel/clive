@@ -69,7 +69,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `kb` | 442 | live | — | [`OWNER_DECISIONS_2026-10-01.md`](docs/product-memory/OWNER_DECISIONS_2026-10-01.md) the voice spec |
 | `logging` | 193 | live | — | none |
 | `memory` | 586 | live | — | none |
-| `objectives` | 3,313 | live | — | none |
+| `objectives` | 3,316 | live | — | none |
 | `observability` | 11,297 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
 | `orchestrator` | 9,655 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
 | `people` | 745 | live | — | [`TEAM.md`](docs/TEAM.md) |
@@ -84,7 +84,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `shipping` | 335 | live | `fixture` | none |
 | `skills` | 905 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
 | `speech` | 844 | live | — | none |
-| `support` | 1,685 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
+| `support` | 1,693 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
 | `tools` | 13,684 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
 | `work` | 1,374 | live | — | [`TEAM.md`](docs/TEAM.md) |
 <!-- /map:parts -->
@@ -173,6 +173,7 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 | **Easyship**: `app/shipping/`, `families/shipping.py` | Disconnected. Tracking is Ship24, and return labels are Parcel2Go through CROOKS Returns | Delete until he chooses a label provider | 19 Oct |
 | **`capabilities/surface.py`** | Nothing imports it, and nothing reads what changed between builds | Wire up "what's new since the last build", or delete it | 19 Oct |
 | **CROOKS Pad**: `android/`, `observability/pad.py`, `routes/pad.py` | The APK was never installed; the heartbeat has no other sender | Install it on the SM-T290, or archive it | 19 Oct |
+| **`skill_list`, `skill_read`** on the gate's GREEN list | No such tools are on the trunk; `skill-read-runtime-tool-4` is blocked in the loop | Land the tool, or remove the names | 19 Oct |
 | **`web/today-say.js`** | Acts on "packed 2106" without the model, against DEC-063 | His call: write an exception, or send the words to the team's CLIVE | 19 Oct |
 | **`docs/product-memory/_incoming/`** (51 files) | Staging copies kept since 25 Sep "for the Director to remove" | Delete | 19 Oct |
 | **The venture engine**: branch `claude/venture-engine-v1-2026-09-29` | His direction of 29 Sep, never landed. Finish first (DEC-018) | Stays parked until the finish list is clear | 19 Oct |
@@ -190,5 +191,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 2,952 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 2,981 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->

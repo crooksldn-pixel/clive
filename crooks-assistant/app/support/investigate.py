@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.support.evidence import EvidenceBundle
 
@@ -30,6 +31,11 @@ MOVING_STATUSES = ("PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY", "ATTEMPTED_DEL
 OPEN_RETURN_STATUSES = ("IN_PROGRESS", "REQUESTED")
 _TAGS = re.compile(r"<[^>]+>")
 _RETURN_NAME = re.compile(r"created return (\S+?)\.?$", re.I)
+# The shop's calendar. Stamps arrive in UTC and are compared in UTC, but a DAY — the date a
+# finding names, and which working day a stamp falls on — is London's. Read in UTC, an order
+# placed at half past midnight in summer was "placed on" the day before, and a parcel waiting
+# since Thursday was still on Thursday for the first hour of Friday.
+SHOP_TZ = ZoneInfo("Europe/London")
 
 
 @dataclass(frozen=True)
@@ -70,17 +76,19 @@ def parse_when(value: Any) -> datetime | None:
 
 def day_words(value: Any) -> str:
     when = parse_when(value)
-    return when.strftime("%-d %b %Y") if when else str(value or "an unknown date")
+    return when.astimezone(SHOP_TZ).strftime("%-d %b %Y") if when else str(value or "an unknown date")
 
 
 def working_days_between(start: datetime, end: datetime) -> int:
-    """Whole weekdays after `start` up to and including `end`'s date. Saturday counts as a
-    dispatch day at CROOKS but not as a delivery day, so this is the delivery reading."""
+    """Whole weekdays after `start` up to and including `end`'s date, both dates the shop's.
+    Saturday counts as a dispatch day at CROOKS but not as a delivery day, so this is the
+    delivery reading."""
     if end <= start:
         return 0
     days = 0
-    cursor = start.date()
-    while cursor < end.date():
+    cursor = start.astimezone(SHOP_TZ).date()
+    last = end.astimezone(SHOP_TZ).date()
+    while cursor < last:
         cursor = cursor.fromordinal(cursor.toordinal() + 1)
         if cursor.weekday() < 5:
             days += 1

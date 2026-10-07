@@ -6,7 +6,9 @@ Not a test module: the customers tests and the browser check build their worlds 
 name, address and email here is invented.
 
 The days are counted back from the shop's today, so "last week" finds last week's order whatever
-day the suite runs on: an order placed seven days ago is always in the calendar week before.
+day the suite runs on: an order placed seven days ago is always in the calendar week before. That
+today is the one the shop is on when a world is built (`rebase`, from `CustomersShop`), not the
+one the suite was collected on.
 """
 
 from __future__ import annotations
@@ -21,6 +23,8 @@ from zoneinfo import ZoneInfo
 from app.clients.shopify import REVIEWED_MUTATIONS, ShopifyClient, ShopifyError
 
 LONDON = ZoneInfo("Europe/London")
+# The shop's today, which every day here is counted back from. Set at import and again whenever a
+# world is built (`rebase`).
 TODAY = datetime.now(LONDON).date()
 INVOICE_HOST = "crooksldn.com"
 
@@ -83,12 +87,18 @@ CARD = {"company": "Visa", "number": "•••• •••• •••• 424
 
 
 def refund(days_ago: int, amount: float, status: str, *, error: str = "", details: dict | None = None) -> dict[str, Any]:
-    return {"id": f"gid://shopify/Refund/{uuid.uuid4().int % 10**8}", "createdAt": stamp(days_ago, 14, 2), "note": None,
+    made = {"id": f"gid://shopify/Refund/{uuid.uuid4().int % 10**8}", "createdAt": stamp(days_ago, 14, 2), "note": None,
             "totalRefundedSet": money(amount),
             "transactions": {"edges": [{"node": {
                 "kind": "REFUND", "status": status, "gateway": "shopify_payments", "formattedGateway": "Shopify Payments",
                 "processedAt": stamp(days_ago, 14, 2), "errorCode": error or None, "amountSet": money(amount),
                 "paymentDetails": details if details is not None else dict(CARD)}}]}}
+    _REFUND_DAYS[made["id"]] = days_ago
+    return made
+
+
+# How many days ago each refund was made, by its id, so `rebase` can stamp the world's own again.
+_REFUND_DAYS: dict[str, int] = {}
 
 
 # (number, customer, days ago, [(variant, quantity)], postcode, town, extra)
@@ -101,6 +111,25 @@ ORDERS: list[tuple[int, str, int, list[tuple[int, int]], str, str, dict[str, Any
     (2204, ELLIS, 7, [(7401, 1)], "HP10 9JK", "Wooburn", {}),
     (2205, MIA, 12, [(7201, 1)], "SL7 1LM", "Marlow", {}),
 ]
+
+
+def rebase() -> None:
+    """Count the world's days back from the shop's today as it is now.
+
+    Frozen at import was frozen at COLLECTION. A suite collected before London's midnight and
+    still running after it asked the application for "two days ago" on the new day, while every
+    order here was still counted back from the old one: Theo's jeans, placed two days ago, were
+    three days ago to the application, and the lookups that pick an order by its day failed.
+    `CustomersShop` calls this when a world is built. Every order, customer and thread stamp is
+    made when it is read, from TODAY; the refunds in ORDERS are made at import, so they are
+    stamped again here.
+    """
+    global TODAY
+    TODAY = datetime.now(LONDON).date()
+    for *_order, extra in ORDERS:
+        for made in extra.get("refunds") or []:
+            at = stamp(_REFUND_DAYS[made["id"]], 14, 2)
+            made["createdAt"] = made["transactions"]["edges"][0]["node"]["processedAt"] = at
 
 
 def _total(items: list[tuple[int, int]]) -> float:
@@ -158,6 +187,7 @@ class CustomersShop(ShopifyClient):
 
     def __init__(self) -> None:
         super().__init__("crooks-test.myshopify.com", "2025-07")
+        rebase()  # the world on the day the shop is on now, not the day the suite was collected
         self._shop = {"name": "CROOKS LDN", "myshopifyDomain": "crooks-test.myshopify.com", "ianaTimezone": "Europe/London", "currencyCode": "GBP"}
         self._tz = LONDON
         self.queries: list[tuple[str, dict]] = []

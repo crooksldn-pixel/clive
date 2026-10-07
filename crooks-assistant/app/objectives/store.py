@@ -700,10 +700,13 @@ def _ends(obj: Objective) -> tuple[int, str | None]:
 
 
 def _days_left(deadline: str | None) -> int | None:
+    """Days from the owner's today to a deadline, both London days. A deadline is a day in London,
+    so today has to be London's too: the UTC date is yesterday's for the hour after midnight in
+    summer, and every objective read a day further off than it was until one in the morning."""
     if not deadline:
         return None
     try:
-        return (date.fromisoformat(deadline) - datetime.now(UTC).date()).days
+        return (date.fromisoformat(deadline) - _shop_today()).days
     except ValueError:
         return None
 
