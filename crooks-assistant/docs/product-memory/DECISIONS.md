@@ -1076,3 +1076,24 @@ CLIVE connects to it as the brief's section 6 says, and only through its `/api/v
 3. **A shared secret.** Generated once, stored as a new CLIVE key (`crooks_returns_webhook_secret`, static tier) and as `RETURNS_CLIVE_WEBHOOK_SECRET` in `/opt/clive/crooks-returns/.env`, with `RETURNS_CLIVE_WEBHOOK_URL` set to the route's address as the container reaches it; the service restarted.
 4. **What it does with an event.** Nothing a customer could steer: it reads only `event` and the return's `id`, keeps none of the body (the body carries the customer's email and address), and drops the minute's cache (`app/clients/crooks_returns.py` `forget()`), so the home's row and the next read ask again. It changes nothing in the service and stages nothing.
 5. **Reconciliation stays.** Delivery is at most once and never retried, so the minute's poll and `?since=` remain the source of truth either way.
+
+---
+
+## DEC-067 — The release service is built and switched off; it deploys only once the owner names who holds deploy authority
+
+**Date:** 2026-10-07
+**Status:** ACTIVE
+**Source:** the owner's approval in the night-build brief of 7 October 2026, verbatim: "Release service. I build it tonight, switched off. It only deploys once you've said who holds deploy authority." His reason, as the brief records it: he wants deploys "to just happen (or fix themselves) without him relaying commands between Claude and the Termius Claude".
+
+**Decision:**
+- **Decision 3 of the self-shipping plan ([2026-09-29](../plans/2026-09-29-clive-ships-its-own-fixes.md)) is answered in part: the release service is built.** It is `app/release/`, with its unit and timer in `deploy/release/`, documented in [`docs/RELEASE_SERVICE.md`](../RELEASE_SERVICE.md). It performs DEPLOY_LINUX.md's "Deploying a new build" as code, rolls back on any failure after a change, writes the deploy record to `claude/deploy-<sha8>-record`, and shows its status on CLIVE's Builds screen.
+- **It is switched off.** `CLIVE_RELEASE_ENABLED` defaults to off, and the unit is not installed. Installing it is a hand step on the production host; switching it on is the owner's setting in `/etc/crooks-os/release.env`.
+- **It deploys nothing until the owner names who holds deploy authority**, as `CLIVE_RELEASE_RULE`:
+  - `exact_sha_review`: a reviewer's SHIP record for exactly that SHA (branch `claude/review-<sha8>-record`);
+  - `owner_waiver`: the owner's waiver of the review for exactly that SHA, given on the server, or with his passkey once CLIVE collects it.
+  - Until then the rule is `off`, and nothing deploys.
+- **Under either rule:** only `clive/trunk`'s head, only forward from what production runs, only with GitHub acceptance green on that exact SHA, one deploy at a time; a change to how CLIVE is installed (deploy/, the Makefile, the installer, the dependencies) stays a hand deploy.
+
+**Still the owner's:** which rule (who holds deploy authority); when to switch it on, and when to leave dry run; and decision 6 of the self-shipping plan, whether anything may ship without his hold. Under `owner_waiver` nothing does; under `exact_sha_review` a deploy needs no gesture of his.
+
+**Consequences:** this entry grants no deploy authority by itself. DEPLOY_LINUX.md's procedure is unchanged and stays the way production is deployed until the owner switches the service on. The service runs from its own pinned copy, never from the checkout it deploys, so moving that pin is a person's act, as the loop's re-pin is.

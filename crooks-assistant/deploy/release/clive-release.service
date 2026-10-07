@@ -1,0 +1,53 @@
+# The CLIVE release service: deploys clive/trunk's head to this server by DEPLOY_LINUX.md's procedure,
+# once George has switched it on and named who holds deploy authority (/etc/crooks-os/release.env).
+# NOT installed by `make install` and not by any deploy. It is installed once, by hand, by the steps
+# in docs/RELEASE_SERVICE.md, and is started by clive-release.timer.
+#
+# It runs from its own pinned copy, /srv/clive-release/pin (an exact SHA, unpacked by `git archive`),
+# never from /opt/crooks-os: a deploy can never change the program that decides the next deploy, and
+# the code refuses to deploy if it finds itself running from the checkout. Moving the pin is a
+# person's act, after review, as the loop's re-pin is.
+#
+# Root, as the hand deploy is: `make install` writes the crooks-assistant unit and restarts it. What
+# it may write is named here and nothing else: the checkout, systemd's unit folder, its own state.
+
+[Unit]
+Description=CLIVE release service (deploys clive/trunk when switched on; docs/RELEASE_SERVICE.md)
+Documentation=file:///srv/clive-release/pin/crooks-assistant/docs/RELEASE_SERVICE.md
+After=network-online.target crooks-assistant.service
+Wants=network-online.target
+# No settings file, no service: it cannot start in a state nobody chose.
+ConditionPathExists=/etc/crooks-os/release.env
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/clive-release/pin/crooks-assistant
+Environment=HOME=/root
+Environment=PYTHONPATH=/srv/clive-release/pin/crooks-assistant
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=/etc/crooks-os/release.env
+# The checkout's virtualenv supplies httpx, pydantic-settings and cryptography; the code is the pin's
+# (WorkingDirectory and PYTHONPATH come first on the import path).
+ExecStart=/opt/crooks-os/crooks-assistant/.venv/bin/python -m app.release tick
+# The service's own fine-grained GitHub token (this repository only: Actions read, Contents read and
+# write), encrypted for this host by systemd-creds and kept apart from CLIVE's credentials, so CLIVE's
+# unit never loads it. Read from $CREDENTIALS_DIRECTORY; never an argument or a log line.
+LoadCredentialEncrypted=clive_release_github_token:/etc/crooks-os/release/clive_release_github_token.cred
+StateDirectory=clive-release
+StateDirectoryMode=0755
+# A deploy is minutes (make install waits up to 90 s for /health); a rollback doubles it.
+TimeoutStartSec=20min
+Nice=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=clive-release
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/opt/crooks-os
+ReadWritePaths=/etc/systemd/system
