@@ -317,16 +317,38 @@ def seed_states(svc: ShippingService, shopify: FakeShopify, provider: DevProvide
     unpaid.financial_status = "PENDING"
     svc.sync(SHOP)
     # Bought labels the carrier has: one moving, one delivered (as Shopify reports them).
-    for n, display, when in (
-        (2157, "IN_TRANSIT", {"in_transit_at": "2026-10-06T19:22:13Z"}),
-        (2158, "DELIVERED", {"delivered_at": "2026-10-07T09:48:22Z"}),
+    # The scans are as Shopify keeps them (FulfillmentEvent); 2159 is a real Guernsey pattern.
+    locker = "Sender advised item dropped off at parcel locker"
+    scans = {
+        2157: [
+            ("CONFIRMED", "2026-10-06T11:22:43Z", locker),
+            ("IN_TRANSIT", "2026-10-06T19:22:13Z", "Item Received"),
+            ("IN_TRANSIT", "2026-10-07T04:10:00Z", "Item at international hub"),
+        ],
+        2158: [
+            ("IN_TRANSIT", "2026-10-05T18:02:00Z", "Item Received"),
+            ("OUT_FOR_DELIVERY", "2026-10-07T07:31:00Z", "Out for delivery"),
+            ("DELIVERED", "2026-10-07T09:48:22Z", "Delivered"),
+        ],
+        2159: [
+            ("CONFIRMED", "2026-10-06T11:22:43Z", locker),
+            ("IN_TRANSIT", "2026-10-07T05:57:26Z", "Item Received"),
+        ],
+    }
+    for n, country, display, when in (
+        (2157, "NL", "IN_TRANSIT", {"in_transit_at": "2026-10-06T19:22:13Z"}),
+        (2158, "NL", "DELIVERED", {"delivered_at": "2026-10-07T09:48:22Z"}),
+        (2159, "GG", "IN_TRANSIT", {"in_transit_at": "2026-10-07T05:57:26Z"}),
     ):
-        order(shopify, n, [tee_line()], "NL")
+        snap = order(shopify, n, [tee_line()], country)
+        snap.order_created_at = "2026-10-05T18:11:29Z"
         svc.sync(SHOP)
         buy(svc, n, f"seed-{n}")
         s = by_order(svc, n)
         assert s.label is not None and s.label.tracking_number
         shopify.carrier(s.label.tracking_number, display, **when)
+        for status, at, message in scans[n]:
+            shopify.scan(s.label.tracking_number, status, message, at)
         svc.refresh_tracking(SHOP, s.id)  # not tick(): it would settle the seeded problems
 
 

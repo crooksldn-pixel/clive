@@ -29,7 +29,7 @@ class ShopifyRefused(ShopifyError):
 
 FO_FIELDS = """
   id status requestStatus updatedAt
-  order { id name email phone cancelledAt currencyCode displayFinancialStatus }
+  order { id name email phone cancelledAt currencyCode displayFinancialStatus createdAt }
   assignedLocation { name address1 address2 city zip countryCode province phone location { id } }
   destination { firstName lastName company address1 address2 city province zip countryCode phone email }
   fulfillments(first: 10) { nodes { id status trackingInfo { number company url } } }
@@ -147,6 +147,7 @@ class FoSnapshot:
     # The order's Order.displayFinancialStatus, as Shopify gave it (None: not given). Read
     # through shipping.payment.payment(), never compared as a string anywhere else.
     financial_status: str | None = None
+    order_created_at: str | None = None  # Order.createdAt: when the customer ordered
 
     @property
     def open(self) -> bool:
@@ -198,6 +199,7 @@ def parse_fo(node: dict[str, Any]) -> FoSnapshot:
         order_name=order.get("name") or "",
         order_cancelled=bool(order.get("cancelledAt")),
         financial_status=order.get("displayFinancialStatus"),
+        order_created_at=order.get("createdAt"),
         currency=order.get("currencyCode") or "GBP",
         destination=Address(
             name=" ".join(x for x in (d.get("firstName"), d.get("lastName")) if x),
@@ -241,9 +243,14 @@ class FulfillmentTracking:
     numbers: list[str] = field(default_factory=list)
     # The order's displayFinancialStatus at the same read (for after-purchase warnings).
     financial_status: str | None = None
+    order_created_at: str | None = None
+    # The carrier's scans as Shopify keeps them (FulfillmentEvent), oldest first.
+    events: list[dict[str, Any]] = field(default_factory=list)
 
 
-def parse_fulfillment(node: dict[str, Any], financial: str | None = None) -> FulfillmentTracking:
+def parse_fulfillment(
+    node: dict[str, Any], financial: str | None = None, created: str | None = None
+) -> FulfillmentTracking:
     order = node.get("order") or {}
     return FulfillmentTracking(
         id=node["id"],
@@ -255,6 +262,24 @@ def parse_fulfillment(node: dict[str, Any], financial: str | None = None) -> Ful
         updated_at=node.get("updatedAt"),
         numbers=[t.get("number") for t in node.get("trackingInfo") or [] if t.get("number")],
         financial_status=order.get("displayFinancialStatus") or financial,
+        order_created_at=order.get("createdAt") or created,
+        # Read newest first (the latest 30: Shopify refuses `last` without a cursor); kept
+        # oldest first.
+        events=sorted(
+            (
+                {
+                    "status": e.get("status"),
+                    "at": e.get("happenedAt"),
+                    "message": (e.get("message") or "")[:300],
+                    "city": e.get("city"),
+                    "province": e.get("province"),
+                    "country": e.get("country"),
+                }
+                for e in (node.get("events") or {}).get("nodes") or []
+                if isinstance(e, dict) and e.get("happenedAt")
+            ),
+            key=lambda e: e["at"],
+        ),
     )
 
 
@@ -282,22 +307,26 @@ class ShopifyPort(Protocol):
     ) -> str: ...
     def fulfillment_tracking(self, fulfillment_id: str) -> FulfillmentTracking | None: ...
     def order_fulfillments(self, order_id: str) -> list[FulfillmentTracking]: ...
+    def staff_member(self, id_token: str) -> str | None: ...
 
 
 TRACKING_FIELDS = """
   id status displayStatus inTransitAt deliveredAt estimatedDeliveryAt updatedAt
   trackingInfo(first: 5) { number company url }
+  events(first: 30, sortKey: HAPPENED_AT, reverse: true) {
+    nodes { status happenedAt message city province country }
+  }
 """
 
 Q_FULFILLMENT_TRACKING = (
     "query FulfillmentTracking($id: ID!) { node(id: $id) { ... on Fulfillment {"
     + TRACKING_FIELDS
-    + " order { id displayFinancialStatus } } } }"
+    + " order { id displayFinancialStatus createdAt } } } }"
 )
 
 Q_ORDER_FULFILLMENTS = (
-    "query OrderFulfillments($id: ID!) { order(id: $id) { id displayFinancialStatus"
-    " fulfillments(first: 50) {" + TRACKING_FIELDS + "} } }"
+    "query OrderFulfillments($id: ID!) { order(id: $id) { id displayFinancialStatus createdAt"
+    " fulfillments(first: 10) {" + TRACKING_FIELDS + "} } }"  # x30 events: within query cost
 )
 
 API_VERSION = "2026-10"
@@ -403,8 +432,31 @@ class GraphQLShopify:
 
     def order_fulfillments(self, order_id: str) -> list[FulfillmentTracking]:
         order = self._call(Q_ORDER_FULFILLMENTS, {"id": order_id}).get("order") or {}
-        paid = order.get("displayFinancialStatus")
-        return [parse_fulfillment(n, paid) for n in order.get("fulfillments") or []]
+        paid, created = order.get("displayFinancialStatus"), order.get("createdAt")
+        return [parse_fulfillment(n, paid, created) for n in order.get("fulfillments") or []]
+
+    def staff_member(self, id_token: str) -> str | None:
+        """The name of the staff member behind an admin session token, by exchanging it for an
+        online token (which carries the user), as Returns does. Only for the history; None if
+        refused or slow."""
+        try:
+            r = self._http.post(
+                f"https://{self.shop}/admin/oauth/access_token",
+                json={
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                    "subject_token": id_token,
+                    "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
+                    "requested_token_type": "urn:shopify:params:oauth:token-type:online-access-token",
+                },
+                timeout=5,  # only a name for the history: never worth a long wait
+            )
+            user = (r.json().get("associated_user") or {}) if r.status_code == 200 else {}
+        except (httpx.HTTPError, ValueError):
+            return None
+        name = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x)
+        return name or user.get("email") or None
 
     def item_facts(self, inventory_item_ids: list[str]) -> dict[str, ItemFacts]:
         out: dict[str, ItemFacts] = {}

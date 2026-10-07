@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from collections.abc import Callable
 from importlib import resources
 from typing import Any
@@ -153,6 +154,19 @@ def build_admin_router(
     physical = PhysicalPrinting(svc.store, provider, settings.printnode_printer_id)
     physical_enabled = provider is not None
 
+    names: dict[str, str] = {}  # Shopify user id -> name, from the token exchange
+    # A failed lookup isn't repeated for ten minutes: it sits in front of every admin call.
+    missed: dict[str, float] = {}
+
+    def who_is(token: str, sub: str) -> str:
+        if sub and sub not in names and time.monotonic() - missed.get(sub, -1e9) > 600:
+            found = svc.shopify.staff_member(token)
+            if found:
+                names[sub] = found
+            else:
+                missed[sub] = time.monotonic()
+        return names.get(sub) or f"Staff {sub}".strip()
+
     def staff(authorization: str | None = Header(default=None)) -> str:
         """The signed-in staff member, for the timeline."""
         token = (authorization or "")[7:].strip() if authorization else ""
@@ -167,7 +181,7 @@ def build_admin_router(
             )
         except BadToken as exc:
             raise HTTPException(401, "Open this from the Apps menu in Shopify admin.") from exc
-        return f"Staff {claims.get('sub', '')}".strip()
+        return who_is(token, str(claims.get("sub", "")))
 
     def shipment(sid: str):
         s = svc.store.get(shop, sid)
@@ -210,6 +224,11 @@ def build_admin_router(
         result["payment"] = views.payment_view(s)
         result["fulfilment"] = views.fulfilment_view(s)
         result["carrier"] = views.carrier_view(s)
+        result["journey"] = views.journey_view(s, result["print_status"]) if s.label else None
+        # History written before a name was known ("Staff 1268…") shows the name once known.
+        for e in result["timeline"]:
+            sub = e["who"][6:] if e["who"].startswith("Staff ") else ""
+            e["who"] = names.get(sub, e["who"])
         return result
 
     def act(fn: Callable[[], Any]) -> Any:

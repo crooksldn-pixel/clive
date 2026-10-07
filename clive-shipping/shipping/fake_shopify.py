@@ -144,6 +144,21 @@ class FakeShopify:
             updated_at=f.get("updated_at"),
             numbers=[f["number"]],
             financial_status=order.financial_status if order else None,
+            order_created_at=order.order_created_at if order else None,
+            events=list(f.get("events", [])),
+        )
+
+    staff_name: str | None = None  # what the token exchange would say; None: refused
+
+    def staff_member(self, id_token: str) -> str | None:
+        return self.staff_name
+
+    def scan(self, number: str, status: str, message: str, at: str, country: str = "GB") -> None:
+        """The carrier scanned a parcel: a FulfillmentEvent on its fulfilment, as Shopify keeps
+        it (status, time, the carrier's words, where)."""
+        f = next(f for f in self.fulfillments if f["number"] == number)
+        f.setdefault("events", []).append(
+            dict(status=status, at=at, message=message, city=None, province=None, country=country)
         )
 
     def fulfillment_tracking(self, fulfillment_id: str) -> FulfillmentTracking | None:

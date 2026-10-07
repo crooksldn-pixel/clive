@@ -337,6 +337,7 @@ TIMELINE = {
     "label_printed": "Label sent to the printer (PrintNode)",
     "label_reprinted": "Extra copy sent to the printer (PrintNode)",
     "label_print_done": "Printer finished printing the label",
+    "carrier_scan": "Carrier update",
     "label_print_failed": "Label didn't print",
     "label_print_view": "Label opened to print",
     "label_print_view_again": "Label opened to print again",
@@ -409,6 +410,92 @@ def carrier_view(s: Shipment) -> dict[str, Any] | None:
         "checked_at": t.checked_at.isoformat() if t.checked_at else None,
         "note": t.note,
     }
+
+
+def journey_view(s: Shipment, printed: dict[str, Any] | None) -> dict[str, Any]:
+    """The order's way to the customer, step by step, each with its time when known:
+    ordered → label bought → label printed → in transit → out for delivery → delivered.
+    Only what Shopify, the provider or the printer reported; nothing is guessed (Shopify's
+    carrier events carry the carrier's words and a country, not a means of transport)."""
+    t = s.tracking
+    events = list(t.events) if t else []
+    stage = t.stage if t else "unknown"
+
+    def first(*statuses: str) -> str | None:
+        return next((e.at for e in events if e.status in statuses), None)
+
+    in_transit = (t.in_transit_at if t else None) or first(
+        "IN_TRANSIT", "CARRIER_PICKED_UP", "PICKED_UP"
+    )
+    out_for_delivery = first("OUT_FOR_DELIVERY")
+    delivered = (t.delivered_at if t else None) or first("DELIVERED")
+    printed_at = (
+        (printed or {}).get("printed_at") if (printed or {}).get("state") == "printed" else None
+    )
+    steps = [
+        ("ordered", "Order placed", s.order_created_at),
+        ("bought", "Label bought", s.label.purchased_at.isoformat() if s.label else None),
+        ("printed", "Label printed", printed_at),
+        ("in_transit", "In transit", in_transit),
+        ("out_for_delivery", "Out for delivery", out_for_delivery),
+        ("delivered", "Delivered", delivered if stage == "delivered" else None),
+    ]
+    moving = stage in tracking.MOVING or stage == "delivered"
+    by_stage = {
+        "in_transit": moving,
+        "out_for_delivery": stage in ("out_for_delivery", "delivery_attempted"),
+        "delivered": stage == "delivered",
+        "ordered": True,  # an order exists; older ones may not have its time stored yet
+    }
+    reached = [bool(at) or by_stage.get(key, False) for key, _, at in steps]
+    last = max((i for i, r in enumerate(reached) if r), default=-1)
+    out = []
+    for i, (key, title, at) in enumerate(steps):
+        if reached[i]:
+            state = "done"
+        elif i < last:
+            # Passed without a record: printed elsewhere, or a scan the carrier never sent.
+            state = "unrecorded" if key in ("ordered", "printed") else "unreported"
+        else:
+            state = "next" if i == last + 1 else "later"
+        out.append({"key": key, "title": title, "at": at, "state": state})
+    problem = None
+    if stage in ("exception", "delivery_attempted"):
+        latest = events[-1] if events else None
+        problem = (latest.message if latest and latest.message else None) or tracking.LABELS.get(
+            stage, "Carrier problem"
+        )
+    seen = next((e for e in reversed(events) if e.country), None)
+    return {
+        "steps": out,
+        "problem": problem,
+        "events": [e.model_dump() for e in reversed(events)],  # newest first
+        "last_seen": {"country": seen.country, "city": seen.city, "at": seen.at} if seen else None,
+        "going_to": s.destination.country,
+        "note": (t.note if t else "")
+        or (
+            "Royal Mail hands Channel Islands parcels to the local post, and its tracking may "
+            "stop at in transit: Shopify may never say delivered."
+            if s.destination.country in ("GG", "JE") and stage != "delivered"
+            else ""
+        ),
+    }
+
+
+def timeline_note(e: Any) -> str:
+    """The detail a person needs beside a history line, in words."""
+    d = e.detail or {}
+    if e.type == "carrier_scan":
+        where = ", ".join(x for x in (d.get("city"), d.get("country")) if x)
+        return " · ".join(x for x in (d.get("message"), where) if x)
+    if e.type in ("label_printed", "label_reprinted"):
+        job = d.get("provider_job_id")
+        return f"PrintNode job {job}" if job else ""
+    if e.type == "label_print_failed":
+        return str(d.get("why") or "")
+    if e.type == "label_print_done":
+        return f"on {d['printer']}" if d.get("printer") else ""
+    return ""
 
 
 def detail(
@@ -491,8 +578,10 @@ def detail(
                 "what": TIMELINE.get(e.type, e.type.replace("_", " ").capitalize()),
                 "who": e.actor,
                 "verified": e.verified,
+                "note": timeline_note(e),
             }
-            for e in reversed(s.timeline[-30:])
+            # By when it happened (a carrier scan is filed at the scan's own time).
+            for e in sorted(s.timeline, key=lambda x: x.at, reverse=True)[:30]
         ],
     }
     if label is not None:

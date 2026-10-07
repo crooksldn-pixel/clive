@@ -16,6 +16,7 @@ from typing import Any
 from shipping import duties, packages, rates, readiness, tracking
 from shipping.basis import basis as fingerprint
 from shipping.models import (
+    CarrierEvent,
     CustomsMode,
     DocumentKind,
     Event,
@@ -210,6 +211,7 @@ class ShippingService:
             [ln.inventory_item_id for ln in snap.lines if ln.inventory_item_id]
         )
         s.order_name, s.destination, s.currency = snap.order_name, snap.destination, snap.currency
+        s.order_created_at = snap.order_created_at or s.order_created_at
         s.lines = readiness.resolve_lines(self.store, shop, snap, items)
         s.package = packages.plan(self.store, cfg, s.lines, s.package)
         s.duties = self._duties(cfg, s)
@@ -1038,10 +1040,15 @@ class ShippingService:
             was = x.tracking.stage if x.tracking else None
             t = (x.tracking or TrackingState()).model_copy()
             t.checked_at = at
+            fresh: list[CarrierEvent] = []
             if mine is None:
                 t.note = "Shopify has no fulfilment with this label's tracking number."
             else:
                 t.note = ""
+                seen = {(e.at, e.status) for e in t.events}
+                t.events = [CarrierEvent(**e) for e in mine.events]
+                fresh = [e for e in t.events if (e.at, e.status) not in seen]
+                x.order_created_at = x.order_created_at or mine.order_created_at
                 t.stage = tracking.stage_of(mine)
                 t.display_status = mine.display_status
                 t.fulfillment_id = mine.id
@@ -1066,6 +1073,23 @@ class ShippingService:
                     {"display_status": t.display_status, "fulfillment": t.fulfillment_id},
                     verified=mine is not None,
                 )
+            if mine is not None:
+                # Each new scan in the history, in the carrier's words, at the scan's own time.
+                for e in fresh:
+                    x.timeline.append(
+                        Event(
+                            at=datetime.fromisoformat(e.at.replace("Z", "+00:00")),
+                            actor=x.label.carrier if x.label else "carrier",
+                            type="carrier_scan",
+                            detail={
+                                "status": e.status,
+                                "message": e.message,
+                                "city": e.city,
+                                "country": e.country,
+                            },
+                            verified=True,
+                        )
+                    )
             if mine is not None and mine.financial_status is not None:
                 paid = payment(mine.financial_status)
                 x.payment_status = paid.status  # shown as it is now, paid again included

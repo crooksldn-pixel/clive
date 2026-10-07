@@ -644,6 +644,13 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
      Seen live (2026-10-07): UK Royal Mail reaches DELIVERED in Shopify; Channel Islands Royal
      Mail stops at IN_TRANSIT (handed to Guernsey/Jersey Post), so Shopify alone can't say those
      arrived. No carrier integration is added for that.
+   - **Journey** (`views.journey_view`): the order page shows Order placed (Shopify
+     `Order.createdAt`) → Label bought → Label printed → In transit → Out for delivery →
+     Delivered, each with its time, plus the carrier's own updates (`Fulfillment.events`, newest
+     30: status, time, message, city/country) and where the parcel was last seen. Each new scan
+     is also a `carrier_scan` history entry at the scan's own time. Live Royal Mail events carry
+     a message and a country only (no city, no means of transport), so nothing more is shown.
+     History names the staff member (session-token exchange, as Returns) instead of their id.
    - **Lifecycle** (`shipping/lifecycle.py`): Needs attention, Ready to ship, Labels bought,
      Printed (PrintNode reported done, or opened in the print view; `PhysicalPrinting.summary`), In transit, Delivered, All;
      derived on every read. Ready selects for bulk Buy, Labels bought for bulk first Print;

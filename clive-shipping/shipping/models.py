@@ -297,6 +297,17 @@ class ProviderFailure(BaseModel):
     actionable: bool = False
 
 
+class CarrierEvent(BaseModel):
+    """One carrier scan, as Shopify keeps it (FulfillmentEvent): what, when, where."""
+
+    status: str | None = None  # FulfillmentEventStatus, e.g. CONFIRMED, IN_TRANSIT
+    at: str  # happenedAt, ISO
+    message: str = ""  # the carrier's own words, e.g. "Item Received"
+    city: str | None = None
+    province: str | None = None
+    country: str | None = None  # ISO code, e.g. GB
+
+
 class TrackingState(BaseModel):
     """The carrier's view of a bought label's parcel, as Shopify last reported it. Facts read
     from Shopify, kept so the stage survives a restart; see shipping.tracking."""
@@ -311,6 +322,7 @@ class TrackingState(BaseModel):
     changed_at: datetime | None = None  # when the stage last changed
     next_check_at: datetime | None = None  # None: not checked again (delivered, or given up)
     note: str = ""  # e.g. "Not found in Shopify", "No carrier news for 30 days"
+    events: list[CarrierEvent] = Field(default_factory=list)  # oldest first
 
 
 class Shipment(BaseModel):
@@ -318,6 +330,7 @@ class Shipment(BaseModel):
     shop: str
     order_id: str
     order_name: str
+    order_created_at: str | None = None  # Shopify Order.createdAt, ISO: when it was ordered
     fulfillment_order_id: str
     destination: Address
     status: ShipmentStatus

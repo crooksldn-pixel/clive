@@ -92,6 +92,7 @@ Both `/events` feeds are each record's own history, flattened, oldest first, at 
   - `purchase_authorised`, `label_purchased`, `fulfilled`
   - `label_printed`, `label_reprinted`, `label_print_done`, `label_print_failed`, `label_print_view`
   - `carrier_in_transit`, `carrier_out_for_delivery`, `carrier_delivered`, `carrier_exception`
+  - `carrier_scan`: each carrier update, at its own time, with `message` and `country`
   - `alert`
 - **Returns:** `{at, return_id, order, type, actor, source, verified, detail, status_now}`. Types include:
   - `requested`, `approved`, `approve_unknown`, `approve_reconciled`, `declined`

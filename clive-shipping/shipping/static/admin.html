@@ -483,11 +483,12 @@ function renderShipment() {
       <s-stack gap="base">${d.questions.map(questionForm).join("")}</s-stack></s-section>`;
   }
 
+  if (d.journey) main += journeySection(d);
   if (d.label) {
     const l = d.label;
     const steps = d.steps.map((s) =>
       `<s-stack direction="inline" gap="small-200" alignItems="center">
-        <s-icon type="${s.done ? "check-circle" : "clock"}" tone="${s.done ? "success" : "subdued"}"></s-icon>
+        <s-icon type="${s.done ? "check-circle" : "clock"}" tone="${s.done ? "success" : "neutral"}"></s-icon>
         <s-text ${s.done ? "" : 'color="subdued"'}>${esc(s.label)}</s-text></s-stack>`).join("");
     const docs = l.documents.filter((x) => x.must_print).map((x) =>
       `<s-stack direction="inline" gap="small-200" alignItems="center"><s-text>${esc(x.title)}</s-text>
@@ -595,7 +596,8 @@ function renderShipment() {
     <s-section heading="History">
       <s-stack gap="small-200">${d.timeline.slice(0, 12).map((e) =>
         `<s-stack gap="small-500"><s-text>${esc(e.what)}${e.verified ? " ✓" : ""}</s-text>
-          <s-text color="subdued">${esc(new Date(e.at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }))} · ${esc(e.who)}</s-text></s-stack>`).join("")}</s-stack>
+          ${e.note ? `<s-text>${esc(e.note)}</s-text>` : ""}
+          <s-text color="subdued">${esc(shortTime(e.at))} · ${esc(e.who)}</s-text></s-stack>`).join("")}</s-stack>
     </s-section>`;
 
   page(d.order, slots, main + modals(d), aside);
@@ -809,6 +811,47 @@ async function sendPhysical(path) {
   if (out.outcome !== "unknown") sessionStorage.removeItem(storageKey);
   toast(out.message, ["failed", "unknown"].includes(out.outcome));
   return out;
+}
+
+// The parcel's way to the customer: each step with its time, then the carrier's own updates.
+// Only what Shopify, the provider or the printer reported; nothing is guessed.
+const shortTime = (at) => at ? new Date(at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : "";
+function journeySection(d) {
+  const j = d.journey;
+  const look = {
+    done: ["check-circle", "success", ""],
+    next: ["clock", "info", ""],
+    later: ["circle", "neutral", 'color="subdued"'],
+    unrecorded: ["minus-circle", "neutral", 'color="subdued"'],
+    unreported: ["minus-circle", "neutral", 'color="subdued"'],
+  };
+  const why = { unrecorded: "Not recorded here", unreported: "Not reported by the carrier" };
+  const steps = j.steps.map((s) => {
+    const [icon, tone, dim] = look[s.state] || look.later;
+    const when = s.at ? shortTime(s.at) : (why[s.state] || (s.state === "next" ? "Next" : ""));
+    return `<s-grid gridTemplateColumns="auto 1fr auto" gap="small-200" alignItems="center">
+        <s-icon type="${icon}" tone="${tone}"></s-icon>
+        <s-text ${dim}${s.state === "next" ? ' type="strong"' : ""}>${esc(s.title)}</s-text>
+        <s-text color="subdued">${esc(when)}</s-text></s-grid>`;
+  }).join("");
+  const place = (e) => [e.city, e.country ? countryName(e.country) : ""].filter(Boolean).join(", ");
+  const where = j.last_seen
+    ? `Last seen in ${esc(place(j.last_seen))} · ${esc(shortTime(j.last_seen.at))} · going to ${flag(j.going_to)} ${esc(countryName(j.going_to))}`
+    : `Going to ${flag(j.going_to)} ${esc(countryName(j.going_to))}`;
+  const updates = j.events.length
+    ? `<s-stack gap="small-200"><s-text type="strong">Carrier updates</s-text>${j.events.map((e) =>
+        `<s-stack gap="small-500"><s-text>${esc(e.message || (e.status || "").replace(/_/g, " ").toLowerCase())}</s-text>
+          <s-text color="subdued">${esc(shortTime(e.at))}${place(e) ? ` · ${esc(place(e))}` : ""}</s-text></s-stack>`).join("")}</s-stack>`
+    : `<s-text color="subdued">No carrier updates yet. They appear here as ${esc(d.label?.carrier || "the carrier")} scans the parcel.</s-text>`;
+  return `<s-section heading="Journey">
+    <s-stack gap="base">
+      ${j.problem ? `<s-banner tone="warning" heading="${esc(j.problem)}"></s-banner>` : ""}
+      <s-text>${where}</s-text>
+      <s-stack gap="small-200">${steps}</s-stack>
+      ${j.note ? `<s-text color="subdued">${esc(j.note)}</s-text>` : ""}
+      <s-divider></s-divider>
+      ${updates}
+    </s-stack></s-section>`;
 }
 
 // Print opens the label in the print view unless PrintNode is connected; then it is sent.
