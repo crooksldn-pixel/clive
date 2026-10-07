@@ -15,7 +15,16 @@ cannot be decided it says so rather than being filled in optimistically:
                       by name — in code that runs: a test, a fixture a test asks for, a helper
                       a test calls, directly or through other helpers, or a class (a model
                       double) such code makes (a dispatch in a helper nothing calls is not
-                      run). The citation is printed. Nothing else
+                      run). What runs is what pytest runs: a `test*` function, a `test*`
+                      method of a class pytest collects (Test-named with no __init__, or a
+                      TestCase), and the set-up and tear-down hooks pytest itself runs, by
+                      their exact names — a helper called `setup_shop` is not one. A name is
+                      resolved by where it is defined: a bare name reaches the file's
+                      module-level function or class, `self.x()` the method x of the running
+                      method's own class or a base of the file it names, never a module-level
+                      x or another class's x. A module-level helper running code hands on by
+                      name (`anyio.run(go)`) is reached; named only by the file's top-level
+                      code, it is not. The citation is printed. Nothing else
                       counts (the 2026-09-28
                       deploy review, round 9, I-tests5 I-05): looking the tool up in the
                       registry, asking the gate to classify a call, drawing a card from a tool
@@ -326,14 +335,61 @@ def read_test(text: str, constant: Callable[[str, str], Any] | None = None) -> C
     return code
 
 
-# What pytest runs of a test file without being asked by name: every `test*` function and
-# method, and the set-up and tear-down hooks.
-_HOOKS = ("setup", "teardown")
+# What pytest runs of a test file without being asked by name: every `test*` function, every
+# `test*` method of a class it collects, and the set-up and tear-down hooks pytest itself runs,
+# matched by their exact names — not by prefix and not case-folded. At module level:
+# setup_module, teardown_module, setup_function and teardown_function, and unittest's
+# setUpModule and tearDownModule. In a collected class — one whose name starts with Test and
+# that defines no __init__ (this repository sets no other python_classes), or one deriving from
+# unittest.TestCase or TestCase — setup_class, teardown_class, setup_method and teardown_method,
+# and in a TestCase class unittest's setUp, tearDown, setUpClass and tearDownClass. The
+# nose-style plain `setup` and `teardown` are not run by pytest 8 or later (this repository is on
+# pytest 9), and a helper called `setup_shop` or `teardown_all` runs only when running code
+# reaches it.
+_MODULE_HOOKS = frozenset({
+    "setup_module", "teardown_module", "setup_function", "teardown_function", "setUpModule", "tearDownModule",
+})
+_CLASS_HOOKS = frozenset({"setup_class", "teardown_class", "setup_method", "teardown_method"})
+_TESTCASE_HOOKS = frozenset({"setUp", "tearDown", "setUpClass", "tearDownClass"})
 
 
 def _targets(node: ast.Assign | ast.AnnAssign) -> list[ast.AST]:
     """What an assignment binds: its targets, or an annotated one's single target."""
     return list(node.targets) if isinstance(node, ast.Assign) else [node.target]
+
+
+def _bound_in(fn: ast.AST) -> set[str]:
+    """The names a function binds for itself — its parameters, what it assigns or imports, the
+    functions and classes it nests — or in a function nested in it. A bare name among them is
+    its own, not the file's."""
+    out: set[str] = set()
+    for node in ast.walk(fn):
+        if node is fn:
+            continue
+        if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            out.add(node.id)
+        elif isinstance(node, ast.arg):
+            out.add(node.arg)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            out.update(alias.asname or alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            out.add(node.name)
+    return out
+
+
+def _annotations(fn: ast.AST) -> list[ast.AST]:
+    """A function's annotations, and those of what it nests: a type named there is not used."""
+    out: list[ast.AST] = []
+    for node in ast.walk(fn):
+        if isinstance(node, ast.arg) and node.annotation is not None:
+            out.append(node.annotation)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.returns is not None:
+            out.append(node.returns)
+        elif isinstance(node, ast.AnnAssign):
+            out.append(node.annotation)
+    return out
 
 
 def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
@@ -342,15 +398,29 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
 
     The file's own code at the top runs when it is imported, but a helper it calls is not taken
     to run: only a test reaching a helper credits the helper's dispatch, so a top-level call to a
-    helper no test calls credits nothing. A test function or method runs,
-    and so do the set-up and tear-down hooks, every autouse fixture, and every fixture a running
-    function asks for by name. Any other function of the file runs only when something that
-    runs calls it — directly, or through other functions of the file, by name or as a method of
-    `self` or `cls`. A class of the file that running code makes (a model double a test puts in
-    the runtime, whose `turn` the application then calls) is taken to run its methods. A
-    dispatch inside a helper nothing that runs calls (an `async def go()` no test awaits) runs no
-    tool, and is not a citation (the 2026-09-28 deploy review, round 9, I-tests5 I-05, still
-    present at round 12). A function nested inside one that runs is held to the same rule: it
+    helper no test calls credits nothing. What runs without being asked for by name is what
+    pytest itself runs: a `test*` function; a `test*` method of a class pytest collects — one
+    whose name starts with Test and that defines no __init__, or one deriving from
+    unittest.TestCase or TestCase; the hooks pytest runs, by their exact names (`_MODULE_HOOKS`,
+    `_CLASS_HOOKS` in a collected class, `_TESTCASE_HOOKS` in a TestCase class), so a helper
+    called `setup_shop` is not one; and every autouse fixture of the file or of a collected
+    class. Every fixture a running function asks for by name runs too. Any other function of
+    the file runs only when something that runs reaches it — directly, or through other
+    functions of the file — and a name is resolved by where it is defined: a bare name, called
+    or not, reaches the file's module-level function or class of that name (unless the running
+    function binds the name itself); `self.x()` or `cls.x()` reaches the method x of the class
+    the running method belongs to, or of a base class of the file it names, and never a
+    module-level function x or a method x of an unrelated class. A `test*` method of a class
+    pytest does not collect runs only once running code makes that class. A class of the file
+    that running code makes or names (a model double a test puts in the runtime, whose `turn`
+    the application then calls) is taken to run its methods and those it inherits from the
+    file's classes. A module-level function running code names without calling it — hands it to
+    a call (`anyio.run(go)`, `monkeypatch.setattr(x, "y", go)`), returns it, assigns it or puts
+    it in a container — is reached, as a nested one is; the file's top-level code naming it
+    reaches nothing. A dispatch inside a helper nothing that runs reaches (an `async def go()` no
+    test awaits) runs no tool, and is not a citation (the 2026-09-28 deploy review, round 9,
+    I-tests5 I-05, still present at round 12). A function nested inside one that runs is held to
+    the same rule: it
     runs only when the running code around it uses it: calls it (`asyncio.run(go())`), hands it
     to a call (`anyio.run(go)`) or returns it to a caller that will (a model step a test
     builds). One it defines and never names again runs nothing (the 2026-10-01 repair, F-01).
@@ -359,22 +429,52 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
     lambda kept under a name, whose body runs once that name is used; a class never named again
     and a lambda never called run nothing (the landing review of 1 October 2026). A lambda
     written straight into a call, a return or a container is handed on, and runs."""
-    units: dict[str, list[ast.AST]] = {}
-    classes: dict[str, list[ast.AST]] = {}
+    functions: dict[str, list[ast.AST]] = {}            # module-level, by name
+    classes: dict[str, list[ast.ClassDef]] = {}          # module-level, by name
+    methods: dict[str, dict[str, list[ast.AST]]] = {}    # class -> its own methods, by name
     loose: list[ast.AST] = []            # statements that run on import
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            units.setdefault(node.name, []).append(node)
+            functions.setdefault(node.name, []).append(node)
         elif isinstance(node, ast.ClassDef):
+            classes.setdefault(node.name, []).append(node)
+            own = methods.setdefault(node.name, {})
             loose.extend(node.decorator_list)
             for item in node.body:
                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    units.setdefault(item.name, []).append(item)
-                    classes.setdefault(node.name, []).append(item)
+                    own.setdefault(item.name, []).append(item)
                 else:
                     loose.append(item)
         else:
             loose.append(node)
+
+    def lineage(name: str) -> list[str]:
+        """The class and the bases of the file it names, the nearest first."""
+        out: list[str] = []
+        todo = [name]
+        while todo:
+            current = todo.pop(0)
+            if current in out or current not in classes:
+                continue
+            out.append(current)
+            todo.extend(base.id for node in classes[current] for base in node.bases if isinstance(base, ast.Name))
+        return out
+
+    def members(name: str) -> dict[str, list[ast.AST]]:
+        """The methods the class's instances have: its own, then those its bases of the file give."""
+        out: dict[str, list[ast.AST]] = {}
+        for current in lineage(name):
+            for method, fns in methods[current].items():
+                out.setdefault(method, fns)
+        return out
+
+    def a_testcase(name: str) -> bool:
+        return any((_dotted(base) or "").rsplit(".", 1)[-1] == "TestCase"
+                   for current in lineage(name) for node in classes[current] for base in node.bases)
+
+    def collected(name: str) -> bool:
+        """Whether pytest collects the class: a TestCase, or Test-named with no __init__."""
+        return a_testcase(name) or (name.startswith("Test") and "__init__" not in members(name))
 
     def is_fixture(fn: ast.AST) -> tuple[bool, bool]:
         """(a fixture, an autouse one)"""
@@ -386,8 +486,6 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
                     for k in decorator.keywords)
                 return True, autouse
         return False, False
-
-    fixtures = {name for name, fns in units.items() if any(is_fixture(fn)[0] for fn in fns)}
 
     def runs_with(root: ast.AST) -> list[ast.AST]:
         """The nodes of `root` that run when it does: its own code, and a function nested in it
@@ -452,44 +550,72 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
                         visit(fn.body)
         return out
 
-    def called(within: ast.AST) -> set[str]:
-        out: set[str] = set()
-        for node in runs_with(within):
-            if not isinstance(node, ast.Call):
-                continue
-            if isinstance(node.func, ast.Name):
-                out.add(node.func.id)
-            elif (isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
-                  and node.func.value.id in ("self", "cls")):
-                out.add(node.func.attr)
-        return out
+    def named(root: ast.AST, ran: list[ast.AST]) -> tuple[set[str], set[str]]:
+        """What the running code of `root` reaches: the bare names it reads — calls, hands on,
+        returns, assigns or keeps — that it does not bind itself, outside an annotation; and the
+        methods it calls on `self` or `cls`, outside a class it nests (whose `self` is that
+        class's own)."""
+        own = _bound_in(root)
+        typed = {id(node) for annotation in _annotations(root) for node in ast.walk(annotation)}
+        inner = {id(node) for nested in ast.walk(root) if isinstance(nested, ast.ClassDef)
+                 for node in ast.walk(nested)}
+        bare: set[str] = set()
+        on_self: set[str] = set()
+        for node in ran:
+            if (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id not in own
+                    and id(node) not in typed):
+                bare.add(node.id)
+            elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                  and isinstance(node.func.value, ast.Name) and node.func.value.id in ("self", "cls")
+                  and id(node) not in inner):
+                on_self.add(node.func.attr)
+        return bare, on_self
 
-    def asked_for(fn: ast.AST) -> set[str]:
+    def asked_for(fn: ast.AST, owner: str | None) -> list[tuple[str | None, ast.AST]]:
+        """The fixtures a function asks for: its class's own (or a base's), else the file's."""
         args = getattr(fn, "args", None)
         if args is None:
-            return set()
-        return {a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)} & fixtures
+            return []
+        mine = members(owner) if owner is not None else {}
+        out: list[tuple[str | None, ast.AST]] = []
+        for param in (a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)):
+            in_class = [(owner, f) for f in mine.get(param, ()) if is_fixture(f)[0]]
+            out += in_class or [(None, f) for f in functions.get(param, ()) if is_fixture(f)[0]]
+        return out
 
-    # Only a test, a hook or a fixture is a root. The file's top-level code runs, but the helpers
-    # it calls are not followed from it: a helper credits a dispatch only when a test function of
-    # the file reaches it (the 2026-10-01 repair of the round-12 follow-up, F-02).
-    todo = [name for name, fns in units.items()
-            if name.startswith("test") or name.lower().startswith(_HOOKS) or any(is_fixture(fn)[1] for fn in fns)]
-    reached: set[str] = set()
-    running: list[ast.AST] = []
-    while todo:
-        name = todo.pop()
-        if name in reached or (name not in units and name not in classes):
+    # Only a test, a hook or an autouse fixture is a root, each with the class it runs in (None at
+    # module level). The file's top-level code runs, but the helpers it calls or names are not
+    # followed from it: a helper credits a dispatch only when a test function of the file reaches
+    # it (the 2026-10-01 repair of the round-12 follow-up, F-02).
+    todo: list[tuple[str | None, ast.AST]] = [
+        (None, fn) for name, fns in functions.items() for fn in fns
+        if name.startswith("test") or name in _MODULE_HOOKS or is_fixture(fn)[1]]
+    for name in classes:
+        if not collected(name):
             continue
-        reached.add(name)
-        # A function of that name runs; a class of that name, made, runs its methods.
-        for fn in [*units.get(name, ()), *classes.get(name, ())]:
-            running.append(fn)
-            todo.extend(called(fn))
-            todo.extend(asked_for(fn))
+        hooks = _CLASS_HOOKS | (_TESTCASE_HOOKS if a_testcase(name) else frozenset())
+        todo += [(name, fn) for method, fns in members(name).items() for fn in fns
+                 if method.startswith("test") or method in hooks or is_fixture(fn)[1]]
+    seen: set[tuple[str | None, int]] = set()
     in_tests: set[int] = set()
-    for root in running:
-        in_tests |= {id(node) for node in runs_with(root) if isinstance(node, ast.Call)}
+    while todo:
+        owner, fn = todo.pop()
+        if (owner, id(fn)) in seen:
+            continue
+        seen.add((owner, id(fn)))
+        ran = runs_with(fn)
+        in_tests |= {id(node) for node in ran if isinstance(node, ast.Call)}
+        bare, on_self = named(fn, ran)
+        for name in bare:
+            # A function of the file of that name runs; a class of that name, made or handed
+            # on, runs its methods.
+            todo += [(None, f) for f in functions.get(name, ())]
+            if name in classes:
+                todo += [(name, f) for fns in members(name).values() for f in fns]
+        if owner is not None:
+            mine = members(owner)
+            todo += [(owner, f) for name in on_self for f in mine.get(name, ())]
+        todo += asked_for(fn, owner)
     at_top = {id(node) for root in loose for node in ast.walk(root) if isinstance(node, ast.Call)}
     return in_tests | at_top, in_tests
 
