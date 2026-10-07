@@ -173,7 +173,6 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 | **Easyship**: `app/shipping/`, `families/shipping.py` | Disconnected. Tracking is Ship24, and return labels are Parcel2Go through CROOKS Returns | Delete until he chooses a label provider | 19 Oct |
 | **`capabilities/surface.py`** | Nothing imports it, and nothing reads what changed between builds | Wire up "what's new since the last build", or delete it | 19 Oct |
 | **CROOKS Pad**: `android/`, `observability/pad.py`, `routes/pad.py` | The APK was never installed; the heartbeat has no other sender | Install it on the SM-T290, or archive it | 19 Oct |
-| **`skill_list`, `skill_read`** on the gate's GREEN list | No such tools are on the trunk; `skill-read-runtime-tool-4` is blocked in the loop | Land the tool, or remove the names | 19 Oct |
 | **`web/today-say.js`** | Acts on "packed 2106" without the model, against DEC-063 | His call: write an exception, or send the words to the team's CLIVE | 19 Oct |
 | **`docs/product-memory/_incoming/`** (51 files) | Staging copies kept since 25 Sep "for the Director to remove" | Delete | 19 Oct |
 | **The venture engine**: branch `claude/venture-engine-v1-2026-09-29` | His direction of 29 Sep, never landed. Finish first (DEC-018) | Stays parked until the finish list is clear | 19 Oct |
@@ -191,5 +190,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 2,981 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 2,952 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->
