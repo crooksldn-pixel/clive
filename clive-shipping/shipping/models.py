@@ -279,7 +279,7 @@ class Event(BaseModel):
 class Question(BaseModel):
     """One thing only a person can answer, asked once and remembered."""
 
-    kind: str  # customs | origin | weight | package | no_rates | address
+    kind: str  # customs | origin | weight | package | no_rates | address | payment | on_hold
     subject: str  # e.g. the inventory item id or "address"
     text: str
     suggestion: str | None = None
@@ -295,6 +295,22 @@ class ProviderFailure(BaseModel):
     fields: list[str] = Field(default_factory=list)
     retryable: bool = False
     actionable: bool = False
+
+
+class TrackingState(BaseModel):
+    """The carrier's view of a bought label's parcel, as Shopify last reported it. Facts read
+    from Shopify, kept so the stage survives a restart; see shipping.tracking."""
+
+    stage: str = "unknown"
+    display_status: str | None = None  # Shopify FulfillmentDisplayStatus, as given
+    fulfillment_id: str | None = None  # the fulfilment it was read from
+    in_transit_at: str | None = None
+    delivered_at: str | None = None
+    estimated_delivery_at: str | None = None
+    checked_at: datetime | None = None
+    changed_at: datetime | None = None  # when the stage last changed
+    next_check_at: datetime | None = None  # None: not checked again (delivered, or given up)
+    note: str = ""  # e.g. "Not found in Shopify", "No carrier news for 30 days"
 
 
 class Shipment(BaseModel):
@@ -321,6 +337,9 @@ class Shipment(BaseModel):
     provider_failures: list[ProviderFailure] = Field(default_factory=list)
     service_choice: str | None = None
     questions: list[Question] = Field(default_factory=list)
+    # The order's payment (Shopify displayFinancialStatus) as last read; see shipping.payment.
+    payment_status: str | None = None
+    tracking: TrackingState | None = None
     duties: DutiesTerms | None = None
     # Things a person should know that don't block anything (e.g. "order edited after the
     # label was bought").

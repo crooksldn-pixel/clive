@@ -29,7 +29,7 @@ class ShopifyRefused(ShopifyError):
 
 FO_FIELDS = """
   id status requestStatus updatedAt
-  order { id name email phone cancelledAt currencyCode }
+  order { id name email phone cancelledAt currencyCode displayFinancialStatus }
   assignedLocation { name address1 address2 city zip countryCode province phone location { id } }
   destination { firstName lastName company address1 address2 city province zip countryCode phone email }
   fulfillments(first: 10) { nodes { id status trackingInfo { number company url } } }
@@ -144,6 +144,9 @@ class FoSnapshot:
     origin_location_id: str | None
     lines: list[FoLine]
     tracking_numbers: list[str] = field(default_factory=list)
+    # The order's Order.displayFinancialStatus, as Shopify gave it (None: not given). Read
+    # through shipping.payment.payment(), never compared as a string anywhere else.
+    financial_status: str | None = None
 
     @property
     def open(self) -> bool:
@@ -194,6 +197,7 @@ def parse_fo(node: dict[str, Any]) -> FoSnapshot:
         order_id=order.get("id") or "",
         order_name=order.get("name") or "",
         order_cancelled=bool(order.get("cancelledAt")),
+        financial_status=order.get("displayFinancialStatus"),
         currency=order.get("currencyCode") or "GBP",
         destination=Address(
             name=" ".join(x for x in (d.get("firstName"), d.get("lastName")) if x),
@@ -223,6 +227,37 @@ def parse_fo(node: dict[str, Any]) -> FoSnapshot:
     )
 
 
+@dataclass
+class FulfillmentTracking:
+    """One Shopify Fulfillment as the carrier last reported it (Admin API 2026-10)."""
+
+    id: str
+    status: str  # FulfillmentStatus: SUCCESS means the fulfilment exists, not delivered
+    display_status: str | None  # FulfillmentDisplayStatus, e.g. IN_TRANSIT, DELIVERED
+    in_transit_at: str | None
+    delivered_at: str | None
+    estimated_delivery_at: str | None
+    updated_at: str | None
+    numbers: list[str] = field(default_factory=list)
+    # The order's displayFinancialStatus at the same read (for after-purchase warnings).
+    financial_status: str | None = None
+
+
+def parse_fulfillment(node: dict[str, Any], financial: str | None = None) -> FulfillmentTracking:
+    order = node.get("order") or {}
+    return FulfillmentTracking(
+        id=node["id"],
+        status=node.get("status") or "",
+        display_status=node.get("displayStatus"),
+        in_transit_at=node.get("inTransitAt"),
+        delivered_at=node.get("deliveredAt"),
+        estimated_delivery_at=node.get("estimatedDeliveryAt"),
+        updated_at=node.get("updatedAt"),
+        numbers=[t.get("number") for t in node.get("trackingInfo") or [] if t.get("number")],
+        financial_status=order.get("displayFinancialStatus") or financial,
+    )
+
+
 class ShopifyPort(Protocol):
     def open_fulfillment_orders(self) -> list[FoSnapshot]: ...
     def fulfillment_order(self, fo_id: str) -> FoSnapshot | None: ...
@@ -245,7 +280,25 @@ class ShopifyPort(Protocol):
         url: str | None,
         notify: bool,
     ) -> str: ...
+    def fulfillment_tracking(self, fulfillment_id: str) -> FulfillmentTracking | None: ...
+    def order_fulfillments(self, order_id: str) -> list[FulfillmentTracking]: ...
 
+
+TRACKING_FIELDS = """
+  id status displayStatus inTransitAt deliveredAt estimatedDeliveryAt updatedAt
+  trackingInfo(first: 5) { number company url }
+"""
+
+Q_FULFILLMENT_TRACKING = (
+    "query FulfillmentTracking($id: ID!) { node(id: $id) { ... on Fulfillment {"
+    + TRACKING_FIELDS
+    + " order { id displayFinancialStatus } } } }"
+)
+
+Q_ORDER_FULFILLMENTS = (
+    "query OrderFulfillments($id: ID!) { order(id: $id) { id displayFinancialStatus"
+    " fulfillments(first: 50) {" + TRACKING_FIELDS + "} } }"
+)
 
 API_VERSION = "2026-10"
 
@@ -258,6 +311,8 @@ DOCUMENTS = (
     "M_INVENTORY_ITEM_UPDATE",
     "M_FULFILLMENT_CREATE",
     "Q_LOCATIONS",
+    "Q_FULFILLMENT_TRACKING",
+    "Q_ORDER_FULFILLMENTS",
 )
 
 
@@ -341,6 +396,15 @@ class GraphQLShopify:
     def fulfillment_order(self, fo_id: str) -> FoSnapshot | None:
         node = self._call(Q_FO, {"id": fo_id}).get("node")
         return parse_fo(node) if node else None
+
+    def fulfillment_tracking(self, fulfillment_id: str) -> FulfillmentTracking | None:
+        node = self._call(Q_FULFILLMENT_TRACKING, {"id": fulfillment_id}).get("node")
+        return parse_fulfillment(node) if node and node.get("id") else None
+
+    def order_fulfillments(self, order_id: str) -> list[FulfillmentTracking]:
+        order = self._call(Q_ORDER_FULFILLMENTS, {"id": order_id}).get("order") or {}
+        paid = order.get("displayFinancialStatus")
+        return [parse_fulfillment(n, paid) for n in order.get("fulfillments") or []]
 
     def item_facts(self, inventory_item_ids: list[str]) -> dict[str, ItemFacts]:
         out: dict[str, ItemFacts] = {}

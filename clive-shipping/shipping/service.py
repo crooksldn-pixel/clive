@@ -13,7 +13,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from shipping import duties, packages, rates, readiness
+from shipping import duties, packages, rates, readiness, tracking
 from shipping.basis import basis as fingerprint
 from shipping.models import (
     CustomsMode,
@@ -23,9 +23,11 @@ from shipping.models import (
     Question,
     Quote,
     Shipment,
+    TrackingState,
 )
 from shipping.models import ShipmentStatus as S
 from shipping.money import Money
+from shipping.payment import payment
 from shipping.providers.base import ProviderError, ProviderRefused, ShippingProvider
 from shipping.providers.reporting import quote_failure
 from shipping.purchase import ActionError, Purchases, Stale
@@ -189,10 +191,11 @@ class ShippingService:
                 s.questions, s.quote = [], None
             return self.store.save(s)
 
+        self._note_payment(s, snap)
         if snap.status == "ON_HOLD":
             # Held in Shopify (fraud review, a wrong address...): never bought while held.
             s.quote = None
-            s.questions = [
+            s.questions = self._payment_questions(s) + [
                 Question(
                     kind="on_hold",
                     subject="order",
@@ -210,7 +213,8 @@ class ShippingService:
         s.lines = readiness.resolve_lines(self.store, shop, snap, items)
         s.package = packages.plan(self.store, cfg, s.lines, s.package)
         s.duties = self._duties(cfg, s)
-        s.questions = readiness.questions(
+        # Every reason at once: an unpaid order still shows its missing weight or HS code.
+        s.questions = self._payment_questions(s) + readiness.questions(
             self.store, shop, s.lines, s.package is not None, s.destination
         )
         if s.questions:
@@ -283,6 +287,25 @@ class ShippingService:
         )
         return self.store.save(s)
 
+    def _note_payment(self, s: Shipment, snap: FoSnapshot) -> None:
+        """Keep the order's payment as Shopify says it is now, and record when it starts or
+        stops blocking a label (an event CLIVE can follow)."""
+        was = payment(s.payment_status) if s.payment_status is not None else None
+        now = payment(snap.financial_status)
+        s.payment_status = now.status
+        if was is None or was.allows_purchase != now.allows_purchase:
+            if not now.allows_purchase:
+                self._event(s, "payment_blocking", "system", {"payment": now.status or None})
+            elif was is not None:
+                self._event(s, "payment_cleared", "system", {"payment": now.status})
+
+    @staticmethod
+    def _payment_questions(s: Shipment) -> list[Question]:
+        state = payment(s.payment_status)
+        if state.allows_purchase:
+            return []
+        return [Question(kind="payment", subject=state.status or "UNKNOWN", text=state.reason)]
+
     @staticmethod
     def _duties(cfg, s: Shipment):
         value = Money(
@@ -319,6 +342,16 @@ class ShippingService:
     def _watch_after_purchase(self, s: Shipment, snap: FoSnapshot | None) -> None:
         """After money moved we never rewrite the shipment; we only tell a person if the order
         no longer matches the label."""
+        if snap is not None and not snap.order_cancelled:
+            now = payment(snap.financial_status)
+            if not now.allows_purchase and s.label is not None:
+                # The bought label stays: it is history. A person decides about the parcel.
+                s.payment_status = now.status
+                self._alert(
+                    s,
+                    f"Payment is now '{now.label}' in Shopify, after the label was bought. The "
+                    "label is kept; check the order before sending the parcel.",
+                )
         if snap is None or snap.order_cancelled:
             self._alert(
                 s,
@@ -626,6 +659,15 @@ class ShippingService:
             if snap.status == "ON_HOLD":
                 self._refresh(shop, sid, snap)
                 raise Stale(f"{s.order_name} is on hold in Shopify, so nothing was bought.")
+            paid = payment(snap.financial_status)
+            if not paid.allows_purchase:
+                # Read now, not at the last sync: an order paid an hour ago may be refunded.
+                self._refresh(shop, sid, snap)
+                raise ActionError(
+                    f"{s.order_name}: {paid.label}. {paid.reason} Nothing was bought.",
+                    409,
+                    "payment",
+                )
             items = self.shopify.item_facts(
                 [ln.inventory_item_id for ln in snap.lines if ln.inventory_item_id]
             )
@@ -940,6 +982,98 @@ class ShippingService:
             except Conflict:
                 continue
 
+    # ------------------------------------------------------------------ carrier tracking
+
+    TRACKING_PER_SWEEP = 25  # Shopify reads per tick, oldest due first
+
+    def _refresh_tracking(self, shop: str) -> int:
+        """Ask Shopify where bought parcels are: only fulfilled, undelivered ones that are due
+        (shipping.tracking sets the pace), a few per sweep. Durable: the next check time is
+        stored on the shipment, so a restart neither forgets nor hammers."""
+        at = self.clock()
+        due = [
+            s
+            for s in self.store.shipments(shop, [S.fulfilled.value])
+            if s.label is not None
+            and (
+                s.tracking is None or (s.tracking.next_check_at and s.tracking.next_check_at <= at)
+            )
+        ]
+        due.sort(
+            key=lambda s: (
+                s.tracking.next_check_at if s.tracking and s.tracking.next_check_at else at
+            )
+        )
+        done = 0
+        for s in due[: self.TRACKING_PER_SWEEP]:
+            try:
+                self.refresh_tracking(shop, s.id)
+                done += 1
+            except Conflict:
+                continue
+            except ShopifyError as exc:
+                log.warning("tracking for %s not read: %s", s.id, exc)
+            except Exception:  # noqa: BLE001 - one parcel must not stop the sweep
+                log.exception("tracking for %s failed", s.id)
+        return done
+
+    def refresh_tracking(self, shop: str, sid: str) -> Shipment:
+        """Read this label's parcel from Shopify now. Only ever reads; never buys or prints."""
+        s = self._get(shop, sid)
+        if s.label is None:
+            raise ActionError(
+                "No label has been bought for this order, so there is nothing to track.", 409
+            )
+        if s.fulfillment_id:
+            found = self.shopify.fulfillment_tracking(s.fulfillment_id)
+            candidates = [found] if found else []
+        else:
+            candidates = []
+        if not candidates:  # no id kept, or Shopify no longer has it: match by tracking number
+            candidates = self.shopify.order_fulfillments(s.order_id)
+        mine = tracking.match(candidates, s.fulfillment_id, s.label.tracking_number)
+        at = self.clock()
+
+        def record(x: Shipment) -> None:
+            was = x.tracking.stage if x.tracking else None
+            t = (x.tracking or TrackingState()).model_copy()
+            t.checked_at = at
+            if mine is None:
+                t.note = "Shopify has no fulfilment with this label's tracking number."
+            else:
+                t.note = ""
+                t.stage = tracking.stage_of(mine)
+                t.display_status = mine.display_status
+                t.fulfillment_id = mine.id
+                t.in_transit_at, t.delivered_at = mine.in_transit_at, mine.delivered_at
+                t.estimated_delivery_at = mine.estimated_delivery_at
+            if t.stage != was or t.changed_at is None:
+                t.changed_at = at
+            bought = x.label.purchased_at if x.label else at
+            t.next_check_at = tracking.next_check(t.stage, at, t.changed_at, bought)
+            if t.next_check_at is None and t.stage not in ("delivered", "cancelled"):
+                t.note = t.note or "No carrier news for 30 days, so it is no longer checked."
+            x.tracking = t
+            if t.stage != was:
+                self._event(
+                    x,
+                    f"carrier_{t.stage}",
+                    "system",
+                    {"display_status": t.display_status, "fulfillment": t.fulfillment_id},
+                    verified=mine is not None,
+                )
+            if mine is not None:
+                paid = payment(mine.financial_status)
+                if mine.financial_status is not None and not paid.allows_purchase:
+                    x.payment_status = paid.status
+                    self._alert(
+                        x,
+                        f"Payment is now '{paid.label}' in Shopify, after the label was bought. "
+                        "The label is kept; check the order before sending the parcel.",
+                    )
+
+        return self._commit(s, record)
+
     # ------------------------------------------------------------------ the sweep
 
     def tick(self, shop: str) -> dict[str, int]:
@@ -948,6 +1082,7 @@ class ShippingService:
         reconciled = self.purchases.reconcile_all()
         self._fill_tracking(shop)
         self._settle_cancels(shop)
+        self._refresh_tracking(shop)
         retried = 0
         for s in self.store.shipments(shop, [S.label_purchased.value, S.fulfillment_failed.value]):
             if s.label and s.label.tracking_number:

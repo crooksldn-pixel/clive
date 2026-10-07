@@ -18,6 +18,7 @@ from shipping import contacts, readiness
 from shipping.models import Address, CustomsMode, DocumentKind, Quote, Shipment
 from shipping.models import ShipmentStatus as S
 from shipping.money import Money
+from shipping.payment import payment
 from shipping.printing import PRINTABLE, TITLES, printed
 from shipping.rates import Option, Recommendation
 
@@ -30,15 +31,26 @@ QUESTION_PHRASES = {
     "no_rates": "No available service",
     "provider_unavailable": "Provider unavailable",
     "on_hold": "On hold in Shopify",
+    "payment": "Payment not taken",
 }
 # Not something the merchant fills in: these name the problem instead of counting details.
-NOT_DETAILS = ("no_rates", "provider_unavailable", "address", "on_hold")
+# The first one present names the badge, so payment (the most basic) comes first.
+NOT_DETAILS = ("payment", "no_rates", "provider_unavailable", "address", "on_hold")
 PROBLEM_TONES = {
+    "payment": "critical",
     "no_rates": "critical",
     "provider_unavailable": "caution",
     "address": "warning",
     "on_hold": "warning",
 }
+
+
+def phrase(q) -> str:
+    """The short reason for one question: "Payment pending", "Missing HS code"."""
+    if q.kind == "payment":
+        return payment(q.subject).label
+    return QUESTION_PHRASES.get(q.kind, "Needs a detail")
+
 
 STALE = "Order changed — refresh required"
 
@@ -54,14 +66,18 @@ def status_of(s: Shipment) -> dict[str, Any]:
     """{label, tone, group, reasons}: one badge and the phrases behind it."""
     reasons = []
     for q in s.questions:
-        phrase = QUESTION_PHRASES.get(q.kind, "Needs a detail")
-        if phrase not in reasons:
-            reasons.append(phrase)
+        said = phrase(q)
+        if said not in reasons:
+            reasons.append(said)
     if s.status == S.needs_attention:
-        problem = next((q for q in s.questions if q.kind in NOT_DETAILS), None)
+        problem = min(
+            (q for q in s.questions if q.kind in NOT_DETAILS),
+            key=lambda q: NOT_DETAILS.index(q.kind),
+            default=None,
+        )
         if problem is not None:
             tone = PROBLEM_TONES[problem.kind]
-            return _badge(QUESTION_PHRASES[problem.kind], tone, GROUP_ATTENTION, reasons)
+            return _badge(phrase(problem), tone, GROUP_ATTENTION, reasons)
         n = len([q for q in s.questions if q.kind not in NOT_DETAILS]) or 1
         return _badge(
             f"{n} detail{'s' if n != 1 else ''} needed", "warning", GROUP_ATTENTION, reasons
@@ -323,6 +339,8 @@ TIMELINE = {
     "alert": "Alert",
     "order_closed": "Order closed in Shopify",
     "on_hold": "On hold in Shopify",
+    "payment_blocking": "Payment doesn't allow a label",
+    "payment_cleared": "Payment taken: ready to price",
     "provider_unavailable": "Prices unavailable",
     "no_rates": "No courier offered a price",
     "payment_outcome_unknown": "Checking whether the label was paid",

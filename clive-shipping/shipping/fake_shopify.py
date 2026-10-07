@@ -9,7 +9,14 @@ from dataclasses import dataclass, field
 
 from shipping.models import Address
 from shipping.money import Money
-from shipping.shopify import FoLine, FoSnapshot, ItemFacts, ShopifyError, ShopifyRefused
+from shipping.shopify import (
+    FoLine,
+    FoSnapshot,
+    FulfillmentTracking,
+    ItemFacts,
+    ShopifyError,
+    ShopifyRefused,
+)
 
 BOURNE_END = Address(
     name="Bourne End",
@@ -89,6 +96,7 @@ def fo(n: int, lines: list[FoLine], country: str = "DE", name: str | None = None
         origin=BOURNE_END,
         origin_location_id="gid://shopify/Location/1",
         lines=lines,
+        financial_status="PAID",
     )
 
 
@@ -103,6 +111,7 @@ class FakeShopify:
     refuse_fulfillment: int = 0  # refuse this many times (userErrors)
     fulfillment_reply_lost: bool = False  # creates it, then raises (reply lost)
     fo_reads_fail: int = 0  # fulfillment_order() raises this many times
+    tracking_reads: list[str] = field(default_factory=list)
     _ids: itertools.count = field(default_factory=lambda: itertools.count(5000))
 
     def add(self, snap: FoSnapshot) -> FoSnapshot:
@@ -116,6 +125,35 @@ class FakeShopify:
 
     def open_fulfillment_orders(self) -> list[FoSnapshot]:
         return [copy.deepcopy(f) for f in self.fos.values() if f.open]
+
+    def carrier(self, number: str, display: str, **when: str | None) -> None:
+        """The carrier moved a parcel: as Shopify would show it on the fulfilment."""
+        f = next(f for f in self.fulfillments if f["number"] == number)
+        f["display"] = display
+        f.update(when)
+
+    def _tracking(self, f: dict) -> FulfillmentTracking:
+        order = next((x for x in self.fos.values() if x.order_id == f.get("order_id")), None)
+        return FulfillmentTracking(
+            id=f["id"],
+            status=f.get("status", "SUCCESS"),
+            display_status=f.get("display"),
+            in_transit_at=f.get("in_transit_at"),
+            delivered_at=f.get("delivered_at"),
+            estimated_delivery_at=f.get("estimated_delivery_at"),
+            updated_at=f.get("updated_at"),
+            numbers=[f["number"]],
+            financial_status=order.financial_status if order else None,
+        )
+
+    def fulfillment_tracking(self, fulfillment_id: str) -> FulfillmentTracking | None:
+        self.tracking_reads.append(fulfillment_id)
+        found = next((f for f in self.fulfillments if f["id"] == fulfillment_id), None)
+        return self._tracking(found) if found else None
+
+    def order_fulfillments(self, order_id: str) -> list[FulfillmentTracking]:
+        self.tracking_reads.append(order_id)
+        return [self._tracking(f) for f in self.fulfillments if f.get("order_id") == order_id]
 
     def fulfillment_order(self, fo_id: str) -> FoSnapshot | None:
         if self.fo_reads_fail:
@@ -158,6 +196,7 @@ class FakeShopify:
             }
         )
         snap = self.fos[fo_id]
+        self.fulfillments[-1].update(order_id=snap.order_id, status="SUCCESS", display="CONFIRMED")
         snap.tracking_numbers.append(number)
         snap.status = "CLOSED"
         if self.fulfillment_reply_lost:
