@@ -78,9 +78,10 @@ def test_a_skill_whose_allowed_tools_grant_a_shell_tool_is_the_owners(tmp_path, 
     assert os.listdir(skills_dir) == []
 
 
-def test_a_stored_agent_permissions_finding_in_the_folder_is_the_owners(tmp_path):
+@pytest.mark.parametrize("severity", ["low", "medium", "high", "critical"])
+def test_a_stored_agent_permissions_finding_in_the_folder_is_the_owners(tmp_path, severity):
     store, quarantine, artifact_id, _units = _approved(tmp_path / "a", STAR)
-    store.add_finding(Finding(artifact_id, "safety", "medium", Location(SKILL_MD, 4, 4),
+    store.add_finding(Finding(artifact_id, "safety", severity, Location(SKILL_MD, 4, 4),
                               "execute.agent_permissions: shell commands without asking."))
     [outcome] = install(store, quarantine, artifact_id, tmp_path / "skills")
     assert (outcome.status, outcome.kind) == (REFUSED, "owner")

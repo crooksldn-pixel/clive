@@ -95,12 +95,15 @@ NEEDS_OWNER_LABEL = f" {propose.NEEDS_OWNER}: "
 AFTER_WHY = (NEEDS_OWNER_LABEL, " Licence: ", " Hypothesis: ")
 HOLDING = frozenset(("high", "critical"))
 CREDENTIAL_RULES = "secret."
+# A stored finding that the skill grants the agent tools without asking: the owner's, before any
+# hold, whatever its severity.
+AGENT_PERMISSIONS = "execute.agent_permissions"
 # Stored findings that make a skill the owner's: something in it would run on its own.
 OWNER_RULES = frozenset((
     "execute.git_hook", "execute.git_config", "execute.install_script", "execute.build",
     "execute.startup", "execute.agent_settings", "execute.agent_hook", "execute.mcp",
     "execute.devcontainer", "execute.editor_task", "execute.ci", "execute.binary",
-    "execute.agent_permissions",
+    AGENT_PERMISSIONS,
 ))
 # Stored findings that say a skill carries scripts: it waits for a sandboxed script route.
 SCRIPT_RULES = frozenset((
@@ -400,6 +403,11 @@ def _install_checked(copy: Path, artifact: Artifact, findings: tuple[Finding, ..
     skill_md = approval.unit.location.path
     folder = posixpath.dirname(skill_md)
     inside = [finding for finding in findings if _finding_in(finding, folder)]
+
+    # the owner's whatever its severity: a grant of tools to use without asking
+    for finding in inside:
+        if _rule(finding) == AGENT_PERMISSIONS:
+            raise _Refused(OWNER, f"{AGENT_PERMISSIONS} at {finding.location.path}")
 
     # held: a hold, a licence that forbids reuse, a changed file
     if blocked:
