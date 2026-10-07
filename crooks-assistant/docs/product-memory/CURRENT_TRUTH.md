@@ -2,7 +2,7 @@
 
 **Purpose:** what is true now, in one place. Read [`MAP.md`](../../MAP.md) first; this file is its live state.
 **Status:** ACTIVE. Rewrite it whenever production, the trunk, the loop or an owner decision changes, and move what it said before into the history file.
-**As of:** 2026-10-05 (production and trunk are both `b33ccbc2`).
+**As of:** 2026-10-07 (production is `b33ccbc2`; the trunk is three merged PRs ahead of it, none deployed).
 
 Everything this file said before 5 October 2026 is kept word for word in [`docs/history/CURRENT_TRUTH_HISTORY.md`](../history/CURRENT_TRUTH_HISTORY.md), including the doctrine summary it used to carry. Decisions and their reasons are in [DECISIONS.md](./DECISIONS.md). How production is run and deployed is [`docs/DEPLOY_LINUX.md`](../DEPLOY_LINUX.md).
 
@@ -13,7 +13,7 @@ Everything this file said before 5 October 2026 is kept word for word in [`docs/
 | | SHA | What it is |
 |---|---|---|
 | **Production** (`crooks-os-prod-1`, `/opt/crooks-os`) | `b33ccbc2` | Live since **3 Oct, 17:48 UTC**. It is PR #95: the six notes of the post-deploy review of `cac1a9e7`, plus one found on the way. That review's verdict was **KEEP** (PR #95's description). The fixes: a voice's settings are never invented, and shipped, refunded or cancelled orders stay off the packing board. Deployed on **the owner's waiver** of the exact-SHA review. GitHub acceptance was green on the exact SHA (run `37128652668`). `/health` answered 200 with all 12 checks `ok` (build `83524b275b07`). `.env`, the unit and the drop-ins were unchanged. Record: [`reports/deploy-b33ccbc2.md`](../../reports/deploy-b33ccbc2.md). Rollback: `cac1a9e7` plus `/root/crooks-unit-before-b33ccbc2.main.service`. |
-| **Trunk** (`clive/trunk`) | `b33ccbc2` | The same SHA. Nothing is merged that is not live. |
+| **Trunk** (`clive/trunk`) | head | `b33ccbc2` plus four merges on 7 Oct: PR #97 (docs only) and PRs #96, #98 and #99, which are not deployed ("Merged, not deployed" below). |
 | **The loop** (clive-worker-01) | not recorded | See "The build loop" below. |
 
 The deploys before it, newest first:
@@ -47,7 +47,11 @@ CROOKS Returns is the owner's own returns and exchanges service, and it replaces
 
 ### Merged, not deployed
 
-- **PR #96** (7 Oct): CROOKS Returns in CLIVE, and the design pass (the answer in full on the phone, Home, approval weights and "Not now", the dock on every tablet, colour). Both halves were reviewed SHIP before merging. Production stays on `b33ccbc2` until it is deployed.
+Production stays on `b33ccbc2` until these are deployed. None of them changes `.env`, the unit, `deploy/` or the loop's code, so no re-pin follows.
+
+- **PR #96** (7 Oct): CROOKS Returns in CLIVE, and the design pass (the answer in full on the phone, Home, approval weights and "Not now", the dock on every tablet, colour). Both halves were reviewed SHIP before merging.
+- **PR #98** (7 Oct): CLIVE can list the installed skills and read one as guidance (`skill_list`, `skill_read`). It finishes the loop's `skill-read-runtime-tool-4` by hand, which stopped at its repair limit on 1 Oct. Reviewed SHIP twice; each note was fixed with a test.
+- **PR #99** (7 Oct): an objective's days left and the support investigator's dates count London's day, not UTC's, so they are right between midnight and 1am in summer time. It re-files the loop's `uk-midnight-clock-sweep-2` on today's trunk. Reviewed SHIP.
 
 ### The build loop
 
@@ -57,7 +61,7 @@ CROOKS Returns is the owner's own returns and exchanges service, and it replaces
   - 2 OWNER_GATE;
   - 2 refused at intake.
 
-  The last request was recorded on **1 Oct at 22:08 UTC**. It still publishes its status to `clive/control/worker-01-status`; the last publish was 4 Oct 23:16 UTC.
+  The last request was recorded on **1 Oct at 22:08 UTC**. It still publishes its status to `clive/control/worker-01-status` about every ten minutes (still on 7 Oct).
 - **The loop landed 7 builds itself on 1 Oct.** Every trunk change after its last landing (`8ad7477d`, 1 Oct 22:27 UTC) came from builders outside it: PRs #89–#95, and two direct landings (`1d03efd6`, `4d2dc00f`).
 - **Its pin is not recorded.** PR #72 records a re-pin to `b577bc97` on 1 Oct, at which the owner waived two findings. A later re-pin review of `b577bc97..4daf49e1` asked for changes, which PR #88 (`718fbc41`) answered. Which SHA the loop runs now is not recorded in the repository.
 
