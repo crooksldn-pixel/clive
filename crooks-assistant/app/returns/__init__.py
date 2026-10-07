@@ -4,7 +4,11 @@
 
 Nothing here mutates anything, and nothing here is a second mutation path. When the scope is
 granted the reviewed mutation becomes a `WriteSpec` through app/actions/engine.py like every
-other change; the capability state the owner sees is in app/families/returns.py.
+other change.
+
+Nothing registers the four as capability families any more: since DEC-066 returns and exchanges
+go through CROOKS Returns, whose own families say what CLIVE can do. The contract is kept until
+it is deleted.
 """
 
 from app.returns.contract import (
