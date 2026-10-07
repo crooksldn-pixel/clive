@@ -91,7 +91,11 @@ async def test_skill_list_names_each_installed_skill_within_its_bounds(skills_di
     assert len(big["description"]) <= 300
     assert len(big["files"]) == 50 and "logo.png" not in big["files"] and "SKILL.md" in big["files"]
     assert small == {"name": "small", "description": "What small is for.", "files": ["SKILL.md"],
+                     "files_failed": 0, "files_not_listed": 0,
                      "licence": "MIT", "origin": "https://example.org/small.git", "pinned_ref": "0123abcd"}
+    # big-one's 61 text files: 50 named, 11 over the cap; the PNG is not a text file at all.
+    assert big["files_failed"] == 0 and big["files_not_listed"] == 11
+    assert listed["stopped"] is None and listed["skills_not_listed"] == 0
 
 
 def test_skill_list_skips_and_counts_what_is_not_an_installed_skill(skills_dir, tmp_path):
@@ -235,18 +239,90 @@ def test_skill_list_names_only_files_that_read_and_then_at_most_fifty(skills_dir
     folder = install(skills_dir, "mixed", {**many, "SKILL.md": b"Fine.\n"}, listed=[
         {"path": "missing.md", "sha256": _sha(b"gone\n"), "bytes": 5},
     ])
-    for i in range(5):
+    for i in range(2):
         (folder / "skill" / f"r{i:02}.md").chmod(0o644)
         (folder / "skill" / f"r{i:02}.md").write_bytes(b"altered\n")
-    (folder / "skill" / "r05.md").unlink()
-    os.symlink(tmp_path, folder / "skill" / "r05.md")
+    (folder / "skill" / "r02.md").unlink()
+    os.symlink(tmp_path, folder / "skill" / "r02.md")
 
-    files = skill_list()["skills"][0]["files"]
+    mixed = skill_list()["skills"][0]
+    files = mixed["files"]
 
     assert len(files) == 50 and "SKILL.md" in files and "missing.md" not in files
-    assert not any(f"r{i:02}.md" in files for i in range(6))
+    assert not any(f"r{i:02}.md" in files for i in range(3))
+    # Four failed (missing, two altered, one link); 53 read, so 3 are over the cap of fifty.
+    assert mixed["files_failed"] == 4 and mixed["files_not_listed"] == 3
     for path in files:
         skill_read("mixed", file=path)
+
+
+def _counting_reads(monkeypatch) -> list[tuple[str, int]]:
+    """Every skill file a listing reads (not provenance), with how many bytes came back."""
+    real, reads = skill_tools._read_under, []
+
+    def counted(base, parts, limit):
+        data = real(base, parts, limit)
+        if parts[-1] != skill_tools.PROVENANCE_FILE:
+            reads.append(("/".join(parts), len(data)))
+        return data
+
+    monkeypatch.setattr(skill_tools, "_read_under", counted)
+    return reads
+
+
+def test_a_listing_reads_at_most_its_byte_budget_and_says_so(skills_dir, monkeypatch):
+    monkeypatch.setattr(skill_tools, "LISTING_BYTES", 1_000)
+    install(skills_dir, "wordy", {f"f{i:02}.md": b"x" * 99 + b"\n" for i in range(20)})
+    reads = _counting_reads(monkeypatch)
+
+    listed = skill_list()
+
+    wordy = listed["skills"][0]
+    assert sum(size for _path, size in reads) <= 1_000 and len(reads) <= 10
+    assert len(wordy["files"]) == len(reads) and wordy["files_not_listed"] == 20 - len(reads)
+    assert "reading limit" in listed["stopped"] and "reading limit" in listed["said"]
+
+
+def test_a_skill_stops_being_checked_after_five_failed_files(skills_dir, monkeypatch):
+    folder = install(skills_dir, "rotten", {"SKILL.md": b"Fine.\n", **{f"a{i:02}.md": b"ok\n" for i in range(12)}})
+    for i in range(12):
+        (folder / "skill" / f"a{i:02}.md").chmod(0o644)
+        (folder / "skill" / f"a{i:02}.md").write_bytes(b"altered\n")
+    reads = _counting_reads(monkeypatch)
+
+    rotten = skill_list()["skills"][0]
+
+    assert len(reads) == 1 + skill_tools.MAX_FAILED_CHECKS == 6
+    assert rotten["files"] == ["SKILL.md"] and rotten["files_failed"] == 5 and rotten["files_not_listed"] == 7
+
+
+def test_a_listing_stops_at_its_size_limit_and_says_how_many_are_left_out(skills_dir, monkeypatch):
+    monkeypatch.setattr(skill_tools, "MAX_LISTING_CHARS", 1_500)
+    for i in range(10):
+        install(skills_dir, f"skill-{i}", description="d" * 300)
+
+    listed = skill_list()
+
+    assert 0 < listed["count"] < 10 and listed["skills_not_listed"] == 10 - listed["count"]
+    assert sum(len(json.dumps(s, ensure_ascii=False)) for s in listed["skills"]) <= 1_500
+    assert "size limit" in listed["stopped"] and f"{10 - listed['count']} installed skills" in listed["stopped"]
+
+
+def test_a_listing_stops_reading_at_its_deadline_rather_than_running_on(skills_dir, monkeypatch):
+    """The deadline is checked inside the loops, so a listing past it reads nothing more: no thread
+    is left hashing after the tool's timeout has answered."""
+    assert skill_tools.LISTING_SECONDS < registry.get("skill_list").timeout_s
+    for i in range(4):
+        install(skills_dir, f"slow-{i}", {f"f{j:02}.md": b"x\n" for j in range(10)})
+    reads = _counting_reads(monkeypatch)
+    clock = iter(range(0, 10_000))
+    monkeypatch.setattr(skill_tools, "time", SimpleNamespace(monotonic=lambda: float(next(clock))))
+
+    listed = skill_list()
+
+    assert len(reads) < 40 and listed["stopped"] and "time limit" in listed["stopped"]
+    left = sum(s["files_not_listed"] for s in listed["skills"]) + 10 * (4 - listed["count"])
+    assert left == 40 - len(reads)
 
 
 def test_a_skill_folder_reached_through_a_link_is_not_read(skills_dir, tmp_path):

@@ -20,6 +20,11 @@ selector or a blank-looking letter: `_hidden`) is written as an escape, so nothi
 reaches the model. A refusal says why in plain words and never quotes the file, nor a path the
 provenance does not list.
 
+skill_list is bounded in what it reads (16 MB of files, five failed checks a skill), in time (3
+seconds, inside the tool's 5) and in size (60,000 characters of skills); one that reaches a bound
+stops there and says so in `stopped`, and each skill says how many of its files failed or were
+left out.
+
 Each result puts its note (a skill is guidance written outside CROOKS that authorises nothing)
 before any skill's own words, so the model has read what the text is before it reads the text.
 
@@ -36,6 +41,7 @@ import json
 import os
 import re
 import stat
+import time
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -60,6 +66,14 @@ MAX_FIELD = 300                # characters of a licence, an origin or a pinned 
 CHUNK = 12_000                 # characters returned by one read
 MAX_FILE_BYTES = 1_000_000     # a file read by skill_read: at most a megabyte
 MAX_PROVENANCE_BYTES = 1_000_000
+
+# What one listing may spend, so skill_list always answers, and answers small. Each is checked
+# inside its loop: a listing that reaches one stops there and says so, rather than reading on in a
+# thread the tool's timeout has given up on.
+LISTING_BYTES = 16_000_000     # bytes of skills' files one listing reads to check them, in all
+LISTING_SECONDS = 3.0          # time one listing spends; the tool's own timeout is 5 seconds
+MAX_FAILED_CHECKS = 5          # a skill's files that fail their check before the rest go unchecked
+MAX_LISTING_CHARS = 60_000     # characters of skills one listing returns
 TEXT_SUFFIXES = frozenset((
     ".md", ".markdown", ".txt", ".rst", ".json", ".yaml", ".yml", ".toml", ".csv", ".tsv",
     ".html", ".htm", ".css", ".xml",
@@ -103,6 +117,10 @@ class _Unread(Exception):
     """Why a file under the skills directory was not read, in plain words."""
 
 
+class _TooBig(_Unread):
+    """A file larger than the read allows."""
+
+
 def _read_under(base: Path, parts: list[str], limit: int) -> bytes:
     """The bytes of the regular file at base/parts, each component opened in the one before it
     and none of them followed if it is a link."""
@@ -129,7 +147,7 @@ def _read_under(base: Path, parts: list[str], limit: int) -> bytes:
         if not stat.S_ISREG(info.st_mode):
             raise _Unread("it is not a plain file")
         if info.st_size > limit:
-            raise _Unread("it is larger than a megabyte")
+            raise _TooBig("it is larger than a megabyte")
         chunks, size = [], 0
         while size <= limit:
             chunk = os.read(file_fd, min(65536, limit + 1 - size))
@@ -138,7 +156,7 @@ def _read_under(base: Path, parts: list[str], limit: int) -> bytes:
             chunks.append(chunk)
             size += len(chunk)
         if size > limit:
-            raise _Unread("it is larger than a megabyte")
+            raise _TooBig("it is larger than a megabyte")
         return b"".join(chunks)
     except OSError:
         raise _Unread("it could not be read") from None
@@ -245,27 +263,65 @@ def _files(record: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return out
 
 
-def _verified(base: Path, name: str, path: str, item: dict[str, Any]) -> bytes:
+def _verified(base: Path, name: str, path: str, item: dict[str, Any], limit: int = MAX_FILE_BYTES) -> bytes:
     """The bytes of a listed file, read without following a link, a plain file of at most a
-    megabyte, still the one the provenance recorded."""
-    data = _read_under(base, [name, SKILL_DIR, *path.split("/")], MAX_FILE_BYTES)
-    if "sha256:" + hashlib.sha256(data).hexdigest() != item["sha256"]:
+    megabyte (or `limit`), still the one the provenance recorded."""
+    data = _read_under(base, [name, SKILL_DIR, *path.split("/")], limit)
+    if not _matches(data, item):
         raise _Unread("it is no longer the file that was installed")
     return data
 
 
-def _readable(base: Path, name: str, record: dict[str, Any]) -> list[str]:
-    """The listed files skill_read would read now, by path, at most MAX_FILES_LISTED of them."""
+def _matches(data: bytes, item: dict[str, Any]) -> bool:
+    return "sha256:" + hashlib.sha256(data).hexdigest() == item["sha256"]
+
+
+class _Budget:
+    """What is left of one listing's reading and time (LISTING_BYTES, LISTING_SECONDS), and
+    which ran out first, if one did."""
+
+    def __init__(self) -> None:
+        self.bytes_left = LISTING_BYTES
+        self.deadline = time.monotonic() + LISTING_SECONDS
+        self.spent: str | None = None
+
+    def left(self) -> bool:
+        if self.spent is None and time.monotonic() >= self.deadline:
+            self.spent = "time"
+        if self.spent is None and self.bytes_left <= 0:
+            self.spent = "reading"
+        return self.spent is None
+
+
+def _readable(base: Path, name: str, record: dict[str, Any], budget: _Budget) -> tuple[list[str], int, int]:
+    """(the listed files skill_read would read now, at most MAX_FILES_LISTED; how many failed
+    their check, at most MAX_FAILED_CHECKS, after which the rest go unchecked; how many listed text
+    files are in neither, being over the cap or unchecked)."""
+    listed = sorted(_files(record).items())
     out: list[str] = []
-    for path, item in sorted(_files(record).items()):
-        if len(out) >= MAX_FILES_LISTED:
+    failed = 0
+    for path, item in listed:
+        if len(out) >= MAX_FILES_LISTED or failed >= MAX_FAILED_CHECKS or not budget.left():
             break
+        limit = min(MAX_FILE_BYTES, budget.bytes_left)
         try:
-            _verified(base, name, path, item)
+            data = _read_under(base, [name, SKILL_DIR, *path.split("/")], limit)
+        except _TooBig:
+            if limit < MAX_FILE_BYTES:      # the listing's reading ran out, not the file's own limit
+                budget.bytes_left = 0
+                budget.left()
+                break
+            failed += 1
+            continue
         except _Unread:
+            failed += 1
+            continue
+        budget.bytes_left -= len(data)
+        if not _matches(data, item):
+            failed += 1
             continue
         out.append(path)
-    return out
+    return out, failed, len(listed) - len(out) - failed
 
 
 def _about(record: dict[str, Any]) -> dict[str, Any]:
@@ -278,8 +334,9 @@ def _about(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def installed(base: Path | None = None) -> tuple[list[dict[str, Any]], int]:
-    """(name and provenance of every installed skill, by name; how many folders were skipped)."""
+def installed(base: Path | None = None, budget: _Budget | None = None) -> tuple[list[dict[str, Any]], int]:
+    """(name and provenance of every installed skill, by name; how many folders were skipped).
+    With a budget, the folders are looked at only until its time runs out."""
     base = _base() if base is None else base
     if base is None:
         return [], 0
@@ -290,6 +347,8 @@ def installed(base: Path | None = None) -> tuple[list[dict[str, Any]], int]:
         return [], 0
     found, unreadable = [], 0
     for entry in looked:
+        if budget is not None and not budget.left():
+            break
         try:
             real = entry.is_dir(follow_symlinks=False) and not entry.is_symlink()
         except OSError:
@@ -319,20 +378,49 @@ def names() -> list[str]:
 )
 def skill_list() -> dict[str, Any]:
     base = _base()
-    found, unreadable = installed(base)
-    skills = []
+    budget = _Budget()
+    found, unreadable = installed(base, budget)
+    skills: list[dict[str, Any]] = []
+    size, too_big = 0, False
     for skill in found:
         record = skill["record"]
-        skills.append({
+        files, failed, unchecked = _readable(base, skill["name"], record, budget)
+        entry = {
             "name": skill["name"],
             "description": _field(record.get("description"), MAX_DESCRIPTION),
-            "files": _readable(base, skill["name"], record),
+            "files": files,
+            "files_failed": failed,
+            "files_not_listed": unchecked,
             **_about(record),
-        })
+        }
+        size += len(json.dumps(entry, ensure_ascii=False))
+        if size > MAX_LISTING_CHARS:
+            too_big = True
+            break
+        skills.append(entry)
     count = len(skills)
-    said = "no skill is installed" if not count else f"{count} skill{'' if count == 1 else 's'} installed"
+    stopped = _stopped(budget, too_big, len(found) - count)
+    if stopped:
+        said = f"{count} skill{'' if count == 1 else 's'} listed; {stopped}"
+    else:
+        said = "no skill is installed" if not count else f"{count} skill{'' if count == 1 else 's'} installed"
     # The note comes first, so the model has read what a skill is before any skill's words.
-    return {"note": NOTE, "count": count, "said": said, "skills": skills, "unreadable": unreadable}
+    return {"note": NOTE, "count": count, "said": said, "skills": skills, "unreadable": unreadable,
+            "skills_not_listed": len(found) - count, "stopped": stopped}
+
+
+def _stopped(budget: _Budget, too_big: bool, not_listed: int) -> str | None:
+    """Why this listing is not the whole of what is installed, in plain words, or None."""
+    if too_big:
+        return (f"the listing reached its size limit ({MAX_LISTING_CHARS:,} characters), so {not_listed} "
+                f"installed skill{' is' if not_listed == 1 else 's are'} not in it")
+    if budget.spent == "time":
+        return (f"the listing reached its time limit ({LISTING_SECONDS:g} seconds), so some skills or "
+                "files were not checked")
+    if budget.spent == "reading":
+        return (f"the listing reached its reading limit ({LISTING_BYTES // 1_000_000} MB), so some files "
+                "were not checked")
+    return None
 
 
 @tool(
