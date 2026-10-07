@@ -75,6 +75,14 @@ def test_unknown_key_cannot_read(svc):
     assert c.get("/api/v1/returns", headers={"Authorization": "Bearer nope"}).status_code == 403
 
 
+def test_a_key_with_any_characters_is_refused_not_a_crash(svc):
+    # A header Shopify, a proxy or a typo could send: refused like any wrong key, never a 500.
+    c = client(svc)
+    odd = {"Authorization": "Bearer clé".encode("latin-1")}
+    assert c.get("/api/v1/returns", headers=odd).status_code == 403
+    assert c.post("/api/v1/returns/x/actions/note", headers=odd, json={}).status_code == 403
+
+
 def test_shopify_webhook_is_verified(svc):
     c = client(svc)
     body = json.dumps({"admin_graphql_api_id": "gid://shopify/Return/1"}).encode()

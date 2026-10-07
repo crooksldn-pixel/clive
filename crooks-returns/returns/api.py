@@ -214,7 +214,8 @@ def build_routers(svc: ReturnsService) -> list[APIRouter]:
         return authorization[7:].strip()
 
     def can(kind: str, key: str) -> bool:
-        return any(hmac.compare_digest(key, k) for k in settings.keys(kind))
+        given = key.encode()  # bytes: any characters compare (as str, non-ASCII raised a 500)
+        return any(hmac.compare_digest(given, k.encode()) for k in settings.keys(kind))
 
     def reader(authorization: str | None = Header(default=None)) -> None:
         if not can("read", bearer(authorization)):
