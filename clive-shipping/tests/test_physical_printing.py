@@ -59,6 +59,17 @@ def sender():
     p = Mock()
     p.print_pdf.side_effect = range(100, 120)
     p.get_job_status.return_value = "done"
+    p.get_job_states.return_value = [
+        dict(state="sent_to_client", at="2026-10-07T15:25:26Z", message=""),
+        dict(state="done", at="2026-10-07T15:25:31Z", message=""),
+    ]
+    p.describe.return_value = dict(
+        reachable=True,
+        printer_name="JD-168BT",
+        printer_state="online",
+        computer_name="CROOKS-PC",
+        computer_state="connected",
+    )
     return p
 
 
@@ -234,7 +245,7 @@ def test_admin_api_authenticated_print_reprint_setup_and_test(svc, purchased, se
         s, _ = purchased
         path = f"/admin/api/shipments/{s.id}/print-label"
         body = {"idempotency_key": "same-request"}
-        assert client.post(path, json=body).json()["message"] == "Sent to JD-168BT"
+        assert client.post(path, json=body).json()["message"] == "Printing on JD-168BT…"
         assert client.post(path, json=body).status_code == 200
         assert sender.print_pdf.call_count == 1
         assert (
@@ -293,12 +304,18 @@ def test_status_error_records_failure_without_touching_label(svc, purchased, sen
     s, _ = purchased
     output = PhysicalPrinting(svc.store, sender, 75883753)
     a = output.print_label(SHOP, s.id, "staff", "first-request")
-    before = svc.store.get(SHOP, s.id).model_dump_json()
-    sender.get_job_status.return_value = "error"
+    before = svc.store.get(SHOP, s.id)
+    sender.get_job_states.return_value = [
+        dict(state="error", at="2026-10-07T15:25:31Z", message="Printer out of paper")
+    ]
     result = output.status(SHOP, a["id"])
     assert result["state"] == "failed" and result["last_checked_at"]
-    assert result["error"] == "PrintNode reported error; physical output unconfirmed."
-    assert svc.store.get(SHOP, s.id).model_dump_json() == before
+    assert (
+        result["error"] == "PrintNode: Printer out of paper. Nothing was printed; print it again."
+    )
+    after = svc.store.get(SHOP, s.id)
+    assert after.timeline[-1].type == "label_print_failed"  # the history says so, in words
+    assert after.label == before.label and after.status == before.status
     assert sender.print_pdf.call_count == 1
 
 

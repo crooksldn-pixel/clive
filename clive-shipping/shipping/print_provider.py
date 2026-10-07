@@ -32,6 +32,8 @@ class PrintProvider(Protocol):
     def get_printer(self) -> dict[str, Any]: ...
     def print_pdf(self, body: bytes, title: str, key: str) -> int: ...
     def get_job_status(self, job_id: int) -> str: ...
+    def get_job_states(self, job_id: int) -> list[dict[str, Any]]: ...
+    def describe(self) -> dict[str, Any]: ...
 
 
 class PrintNodeProvider:
@@ -68,11 +70,30 @@ class PrintNodeProvider:
     def list_printers(self):
         return self._call("GET", "/printers")
 
-    def get_printer(self):
+    def _printer_row(self) -> dict[str, Any]:
         rows = self._call("GET", f"/printers/{self.printer_id}")
         if not isinstance(rows, list) or len(rows) != 1:
             raise PrintProviderError("Configured printer was not found.")
-        p = rows[0]
+        return rows[0]
+
+    def describe(self) -> dict[str, Any]:
+        """What PrintNode says about the printer and the computer it hangs off, whatever their
+        state, so a person can see why printing would wait or fail."""
+        try:
+            p = self._printer_row()
+        except PrintProviderError as exc:
+            return dict(reachable=False, detail=str(exc))
+        computer = p.get("computer") or {}
+        return dict(
+            reachable=True,
+            printer_name=p.get("name"),
+            printer_state=p.get("state"),
+            computer_name=computer.get("name"),
+            computer_state=computer.get("state"),
+        )
+
+    def get_printer(self):
+        p = self._printer_row()
         caps = p.get("capabilities") or {}
         if p.get("id") != self.printer_id or p.get("name") != "JD-168BT":
             raise PrintProviderError("Configured printer does not match JD-168BT.")
@@ -133,13 +154,22 @@ class PrintNodeProvider:
             raise PrintProviderError("PrintNode acceptance could not be confirmed.", uncertain=True)
         return result
 
-    def get_job_status(self, job_id):
+    def get_job_states(self, job_id):
+        """Every state the job has been through, oldest first: new, sent_to_client, queued,
+        in_progress, then done, or error / expired / deleted / disappeared."""
         rows = self._call("GET", f"/printjobs/{job_id}/states")
         # Endpoint returns one array of events per job.
         events = [e for row in rows for e in (row if isinstance(row, list) else [row])]
-        events = [e for e in events if e.get("printJobId") == job_id]
-        if not events:
-            return "accepted"
-        return sorted(events, key=lambda e: e.get("createTimestamp", ""))[-1].get(
-            "state", "accepted"
-        )
+        events = [e for e in events if isinstance(e, dict) and e.get("printJobId") == job_id]
+        return [
+            dict(
+                state=str(e.get("state") or ""),
+                at=e.get("createTimestamp"),
+                message=str(e.get("message") or "")[:200],
+            )
+            for e in sorted(events, key=lambda e: e.get("createTimestamp", ""))
+        ]
+
+    def get_job_status(self, job_id):
+        states = self.get_job_states(job_id)
+        return (states[-1]["state"] or "accepted") if states else "accepted"

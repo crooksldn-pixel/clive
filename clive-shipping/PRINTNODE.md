@@ -65,10 +65,12 @@ automatically POSTed again, even after a restart or PrintNode's 24-hour key rete
 A lost POST reply is unknown, not failed-and-retried. Inspect status/history/physical output
 before choosing a deliberate reprint. requested/submitting after a crash remains uncertain.
 
-PrintNode new/sent_to_client/done/error/expired states are retained as provider_state.
-`done` means handed to the OS queue, NOT confirmed physical printing. Local accepted stays
-accepted; error/expired records failure. No automatic reprints, batch printing or natural
-language handling is added. Legacy browser batch behavior is unchanged.
+Every PrintNode state of a job (new, sent_to_client, queued, in_progress, done, error, expired,
+deleted, disappeared) is kept with its time and message. Until the last one is `done`, the order
+shows "Printing…" and stays under Labels bought; `done` (the printer's computer finished the job)
+is shown as Printed. error / expired / deleted / disappeared are Print failed, with PrintNode's
+message, and a new press of Print label may print again. Without PrintNode, Print opens the
+label as a 4×6 PDF instead (the print view). No automatic reprints.
 
 Official reference: https://www.printnode.com/en/docs/api/curl
 

@@ -246,9 +246,9 @@ function renderBatch() {
   const slots = `<s-link slot="breadcrumb-actions" data-action="go-inbox" href="${BASE}/admin">Shipping</s-link>` +
     (b.state === 'review' && ready ? `<s-button slot="primary-action" variant="primary" data-action="confirm-batch">${b.kind === 'buy' ? 'Buy' : 'Print'} ${ready} labels</s-button>` : '');
   const rows = b.children.map((c,i) => `<s-table-row><s-table-cell>${i+1}. ${esc(c.order)}</s-table-cell><s-table-cell>${esc(c.provider || '—')} · ${esc(c.service || '—')}</s-table-cell><s-table-cell>${b.kind === 'buy' ? new Intl.NumberFormat('en-GB',{style:'currency',currency:c.currency}).format(c.amount_minor/100) : '1 first copy'}</s-table-cell><s-table-cell>${esc(c.state)}${c.message ? ` — ${esc(c.message)}` : ''}</s-table-cell></s-table-row>`).join('');
-  const counts = Object.fromEntries(['purchased','sent','failed','uncertain','excluded','skipped'].map(k => [k,b.children.filter(c => c.state === k).length]));
+  const counts = Object.fromEntries(['purchased','printed','sent','failed','uncertain','excluded','skipped'].map(k => [k,b.children.filter(c => c.state === k).length]));
   page(b.state === 'review' ? 'Review selected labels' : 'Bulk operation progress', slots,
-    `<s-section><s-stack gap="base"><s-text>${b.state === 'review' ? `${ready} eligible labels` : `${complete} / ${b.children.length} completed`} · ${b.kind === 'buy' ? `Total ${batchMoney(b)}` : 'Print order is shown below.'}</s-text><s-text>${b.state === 'review' ? 'Review the exclusions and each provider/service before confirming. No action has run yet.' : `${counts.purchased} purchased · ${counts.sent} sent · ${counts.failed} failed · ${counts.uncertain} uncertain · ${counts.excluded+counts.skipped} excluded/skipped`}</s-text><s-text color="subdued">Each order is independent. Uncertain outcomes are not automatically retried.</s-text><s-table><s-table-header-row><s-table-header>Order</s-table-header><s-table-header>Service</s-table-header><s-table-header>Price / copies</s-table-header><s-table-header>Outcome</s-table-header></s-table-header-row><s-table-body>${rows}</s-table-body></s-table></s-stack></s-section>`);
+    `<s-section><s-stack gap="base"><s-text>${b.state === 'review' ? `${ready} eligible labels` : `${complete} / ${b.children.length} completed`} · ${b.kind === 'buy' ? `Total ${batchMoney(b)}` : 'Print order is shown below.'}</s-text><s-text>${b.state === 'review' ? 'Review the exclusions and each provider/service before confirming. No action has run yet.' : (b.kind === 'buy' ? `${counts.purchased} purchased` : `${counts.printed} printed · ${counts.sent} printing`) + ` · ${counts.failed} failed · ${counts.uncertain} uncertain · ${counts.excluded+counts.skipped} excluded/skipped`}</s-text><s-text color="subdued">Each order is independent. Uncertain outcomes are not automatically retried.</s-text><s-table><s-table-header-row><s-table-header>Order</s-table-header><s-table-header>Service</s-table-header><s-table-header>Price / copies</s-table-header><s-table-header>Outcome</s-table-header></s-table-header-row><s-table-body>${rows}</s-table-body></s-table></s-stack></s-section>`);
 }
 async function reviewSelected(kind) {
   const ids = visibleInboxRows().filter(r => state.selected.has(r.id)).map(r => r.id);
@@ -307,7 +307,7 @@ const EMPTY = {
   attention: ["Nothing needs you", "Orders that can't ship yet appear here, with every reason at once."],
   ready: ["Nothing ready to ship", "Paid orders with every detail and a service appear here."],
   bought: ["No labels waiting", "Bought labels that haven't gone to the printer appear here."],
-  printed: ["Nothing printed and waiting", "Labels sent to the printer stay here until the carrier has them."],
+  printed: ["Nothing printed and waiting", "Printed labels stay here until the carrier has them."],
   in_transit: ["Nothing in transit", "Parcels the carrier has scanned appear here."],
   delivered: ["Nothing delivered yet", "Parcels the carrier reports delivered appear here."],
   all: ["No international orders", "Orders going abroad appear here by themselves, checked and priced."],
@@ -331,7 +331,7 @@ function renderInbox() {
   const rows = visibleInboxRows();
   // Bulk actions only where they make sense: buy from Ready, first print from Labels bought.
   const pick = stage === "ready" ? ["can_buy", "Select all ready (up to 100)", "bulk-buy", "Buy labels — review"]
-    : stage === "bought" && ib.printing ? ["can_first_print", "Select unprinted (up to 100)", "bulk-print", "Print labels — review"]
+    : stage === "bought" ? ["can_first_print", "Select unprinted (up to 100)", "bulk-print", ib.print_method === "printnode" ? "Print labels — review" : "Print labels"]
     : null;
   const slots =
     (pick && rows.some((r) => r[pick[0]]) ? `<s-button slot="primary-action" variant="primary" data-action="select-stage">${pick[1]}</s-button>` : "") +
@@ -445,16 +445,16 @@ function renderShipment() {
   } else if ((acts.has("print") || acts.has("reprint")) && !["in_transit", "delivered"].includes(d.stage)) {
     // The carrier already has a moving or delivered parcel: printing isn't the next step
     // (an explicit Reprint stays under the secondary actions).
-    primary = `<s-button slot="primary-action" variant="primary" data-action="${d.print_status?.first_print_available === false ? "physical-reprint" : "physical-print"}">${d.print_status?.first_print_available === false ? "Reprint label" : "Print label"}</s-button>`;
+    primary = `<s-button slot="primary-action" variant="primary" data-action="${printAction(d, false)}">${d.print_status?.first_print_available === false ? "Reprint label" : "Print label"}</s-button>`;
   }
-  const reprintButton = (acts.has("print") || acts.has("reprint")) ?
-    `<s-button slot="secondary-actions" data-action="physical-reprint">Reprint</s-button>` : "";
-  const statusButton = d.print_status?.intent_id ?
+  const reprintButton = (acts.has("print") || acts.has("reprint")) && !primary.includes('data-action="' + printAction(d, false) + '"') && !primary.includes('data-action="physical-reprint"') ?
+    `<s-button slot="secondary-actions" data-action="${printAction(d, true)}">Reprint</s-button>` : "";
+  const statusButton = d.print_method === "printnode" && d.print_status?.job_id ?
     `<s-button slot="secondary-actions" data-action="print-status">Check print status</s-button>` : "";
   const slots = statusButton + reprintButton + `<s-link slot="breadcrumb-actions" data-action="go-inbox" href="${BASE}/admin">Shipping</s-link>` +
     primary +
     (acts.has("refresh") ? `<s-button slot="secondary-actions" data-action="refresh">Refresh from Shopify</s-button>` : "") +
-    (acts.has("retry_shopify") ? `<s-button slot="secondary-actions" data-action="physical-print">Print label</s-button>` : "") +
+    (acts.has("retry_shopify") ? `<s-button slot="secondary-actions" data-action="${printAction(d, false)}">Print label</s-button>` : "") +
     (acts.has("cancel_label") ? `<s-button slot="secondary-actions" tone="critical" commandFor="cancel-modal" command="--show">Cancel label</s-button>` : "");
 
   // Problems first.
@@ -502,14 +502,10 @@ function renderShipment() {
             : `<s-text color="subdued">Waiting for the carrier</s-text>`}</s-stack>
         </s-grid>
         <s-stack gap="small-200">${steps}</s-stack>
-        <s-stack gap="small-200"><s-heading>Label printing</s-heading>${printBadge(d.print_status)}
-        <s-text>Last attempt: ${esc(localTime(d.print_status?.last_attempt))} · Last sent: ${esc(localTime(d.print_status?.last_sent))}</s-text>
-        <s-text>Reprints sent: ${d.print_status?.reprint_count || 0}</s-text>
-        ${d.print_status?.state === 'unknown' ? '<s-text>Outcome uncertain. Check the printer before intentionally choosing Reprint.</s-text>' : '<s-text color="subdued">Sent means submitted to the printer; physical paper is not confirmed.</s-text>'}
-        ${d.print_status?.job_id ? `<s-text color="subdued">PrintNode job ${esc(d.print_status.job_id)}</s-text>` : ''}</s-stack>
+        ${printCard(d)}
         <s-divider></s-divider>
         <s-stack gap="small-200"><s-heading>Documents</s-heading>${docs || '<s-text color="subdued">Fetching the label file…</s-text>'}
-          <s-text color="subdued">${l.printed ? "Previously sent for printing. Reprint uses the same label; nothing is bought." : "Not sent for printing yet."}</s-text></s-stack>
+          <s-text color="subdued">Reprinting uses the same label; nothing is bought.</s-text></s-stack>
       </s-stack></s-section>`;
   } else if (d.shipping.chosen && !acts.has("service")) {
     // Being bought or checked: show what was chosen, offer no changes.
@@ -706,10 +702,9 @@ function renderSetup() {
     <s-stack gap="small-200">
       <s-text>Label format: 4×6 (100 × 150 mm), for the thermal label printer.</s-text>
       <s-text color="subdued">${esc(s.printer.label)}. ${esc(s.printer.document)}.</s-text>
-      <s-text>JD-168BT · PrintNode · ${s.label_printer.connected ? "Connected" : "Unavailable"}</s-text>
-      <s-text>4×6 · 203 dpi · Printer ID: ${esc(s.label_printer.printer_id)}</s-text>
-      <s-text>Status: ${esc(s.label_printer.state)} · ${esc(s.label_printer.detail)}</s-text>
-      <s-button data-action="printer-test">Test print</s-button>
+      ${connectionLines(s.print_connection)}
+      ${s.print_connection?.method === "printnode" ? `<s-text color="subdued">4×6 · 203 dpi · Printer ID: ${esc(s.label_printer.printer_id)}</s-text>
+      <s-button data-action="printer-test">Test print</s-button>` : ""}
     </s-stack>
   </s-section>
   <s-section heading="Customs defaults">
@@ -810,9 +805,90 @@ async function sendPhysical(path) {
   if (out.print_intent.shipment_id) {
     sessionStorage.setItem(`crooks-last-print:${out.print_intent.shipment_id}`, out.print_intent.id);
   }
-  if (out.print_intent.state === "accepted") sessionStorage.removeItem(storageKey);
-  toast(out.message, out.print_intent.state !== "accepted");
+  // Uncertain keeps its key (a retry replays it); anything definite lets the next press try.
+  if (out.outcome !== "unknown") sessionStorage.removeItem(storageKey);
+  toast(out.message, ["failed", "unknown"].includes(out.outcome));
   return out;
+}
+
+// Print opens the label in the print view unless PrintNode is connected; then it is sent.
+function printAction(d, reprint) {
+  if (d.print_method !== "printnode") return "print-view";
+  return reprint || d.print_status?.first_print_available === false ? "physical-reprint" : "physical-print";
+}
+
+function connectionLines(c) {
+  if (!c) return "";
+  if (c.method !== "printnode") {
+    return `<s-text>Printing: print view</s-text><s-text color="subdued">${esc(c.detail)}</s-text>`;
+  }
+  const on = (v, good) => v ? `${esc(v)}${v === good ? "" : " ⚠"}` : "unknown";
+  return `<s-stack direction="inline" gap="small-200" alignItems="center"><s-text>Printing: PrintNode</s-text>
+      <s-badge tone="${c.ready ? "success" : "critical"}">${c.ready ? "Ready" : "Not ready"}</s-badge></s-stack>
+    <s-text color="subdued">Printer ${esc(c.printer_name || "—")}: ${on(c.printer_state, "online")} · Computer ${esc(c.computer_name || "—")}: ${on(c.computer_state, "connected")}</s-text>
+    ${c.ready ? "" : `<s-text color="subdued">${esc(c.detail || "")}</s-text>`}
+    <s-text color="subdued">Checked ${esc(localTime(c.checked_at))}</s-text>`;
+}
+
+function printCard(d) {
+  const p = d.print_status;
+  if (!p) return "";
+  const via = p.via ? ` · ${esc(p.via)}` : "";
+  const say = {
+    not_printed: d.print_method === "printnode" ? "Print label sends it to the printer." : "Print label opens it as a 4×6 PDF to print.",
+    sending: "Sending to PrintNode…",
+    printing: "PrintNode has it; waiting for the printer to finish.",
+    printed: `Printed ${esc(localTime(p.printed_at))}${p.via === "print view" ? " (opened in the print view)" : " (the printer finished the job)"}.`,
+    failed: `${esc(p.error || "The printer didn't print it.")}`,
+    unknown: "Outcome uncertain: check the printer before choosing Reprint.",
+    unconfirmed: "PrintNode never said the printer finished. Check the printer; Reprint if it didn't come out.",
+  }[p.state] || "";
+  const steps = (p.steps || []).map((x) =>
+    `<s-text color="subdued">${esc(localTime(x.at))} · ${esc(x.words)}${x.message ? ` — ${esc(x.message)}` : ""}</s-text>`).join("");
+  return `<s-stack gap="small-200"><s-heading>Label printing</s-heading>
+    <s-stack direction="inline" gap="small-200" alignItems="center">${printBadge(p)}<s-text color="subdued">${via}</s-text></s-stack>
+    <s-text>${say}</s-text>
+    ${steps ? `<s-stack gap="small-100">${steps}</s-stack>` : ""}
+    ${p.reprint_count ? `<s-text color="subdued">Reprints: ${p.reprint_count}</s-text>` : ""}
+    ${d.print_method === "printnode" ? connectionLines(d.print_connection) : ""}
+  </s-stack>`;
+}
+
+// The print view: a PDF in a new tab, as Shopify prints labels. The tab is opened in the click
+// (so the browser allows it), then filled once the server has recorded the print.
+async function openPdf(win, path, body) {
+  const headers = {};
+  const t = await token();
+  if (t) headers.Authorization = `Bearer ${t}`;
+  if (body) headers["Content-Type"] = "application/json";
+  const res = await fetch(`${BASE}/admin/api${path}`, { method: "POST", headers, body: body ? JSON.stringify(body) : undefined });
+  if (!res.ok) {
+    win.close();
+    let message = "The label couldn't be opened.";
+    try { const j = await res.json(); message = j.detail?.message || j.detail || message; } catch { /* keep */ }
+    throw new Error(message);
+  }
+  const note = decodeURIComponent(res.headers.get("X-Print-Note") || "");
+  win.location.href = URL.createObjectURL(await res.blob());
+  return { note, count: Number(res.headers.get("X-Print-Count") || 1) };
+}
+
+// After a PrintNode send: "Printing…" until PrintNode says done or failed (a minute at most;
+// after that the server's own check carries on).
+async function watchPrint(intentId) {
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const out = await api(`/print/intents/${encodeURIComponent(intentId)}`);
+    if (state.shipment) {
+      state.shipment = await api(`/shipments/${state.shipment.id}`);
+      if (new URLSearchParams(location.search).get("shipment") === state.shipment.id) renderShipment();
+    }
+    if (!["printing", "sending"].includes(out.outcome)) {
+      toast(out.message, out.outcome !== "printed");
+      return out;
+    }
+  }
+  return null;
 }
 
 const ACTIONS = {
@@ -822,7 +898,19 @@ const ACTIONS = {
   },
   'clear-selection': () => {state.selected.clear(); renderInbox();},
   'bulk-buy': el => withButton(el, () => reviewSelected('buy')),
-  'bulk-print': el => withButton(el, () => reviewSelected('print')),
+  'bulk-print': el => {
+    if (state.inbox.print_method === 'printnode') return withButton(el, () => reviewSelected('print'));
+    const ids = visibleInboxRows().filter(r => state.selected.has(r.id)).map(r => r.id);
+    if (!ids.length || state.busy) return;
+    const win = openPrintWindow();
+    if (!win) return;
+    return withButton(el, async () => {
+      const out = await openPdf(win, '/print-view', { shipment_ids: ids });
+      toast(`${out.count} label${out.count === 1 ? '' : 's'} opened to print${out.note ? `. ${out.note}` : ''}`, Boolean(out.note));
+      state.selected.clear();
+      state.inbox = await loadInbox(); renderInbox();
+    });
+  },
   'confirm-batch': el => withButton(el, async () => {
     state.batch = await api(`/batches/${state.batch.id}/confirm`, {method:'POST', body:{confirm:true}}); renderBatch();
   }),
@@ -835,22 +923,38 @@ const ACTIONS = {
       const id = state.shipment.print_status.intent_id;
       const out = await api(`/print/intents/${encodeURIComponent(id)}`);
       state.shipment = await api(`/shipments/${state.shipment.id}`);
-      toast(`${out.message} · PrintNode: ${out.print_intent.provider_state || out.print_intent.state}. Physical output unconfirmed.`, out.print_intent.state !== "accepted");
+      renderShipment();
+      toast(out.message, ["failed", "unknown"].includes(out.outcome));
     });
   },
-  async "physical-print"(el) {
+  async "print-view"(el) {
+    if (state.busy) return;
+    const win = openPrintWindow();
+    if (!win) return;
     await withButton(el, async () => {
-      await sendPhysical(`/shipments/${state.shipment.id}/print-label`);
+      const out = await openPdf(win, `/shipments/${state.shipment.id}/print-view`);
+      if (out.note) toast(out.note);
       state.shipment = await api(`/shipments/${state.shipment.id}`);
       renderShipment();
     });
   },
+  async "physical-print"(el) {
+    let out;
+    await withButton(el, async () => {
+      out = await sendPhysical(`/shipments/${state.shipment.id}/print-label`);
+      state.shipment = await api(`/shipments/${state.shipment.id}`);
+      renderShipment();
+    });
+    if (out && ["printing", "sending"].includes(out.outcome)) await watchPrint(out.print_intent.id);
+  },
   async "physical-reprint"(el) {
     if (!window.confirm("Send one additional copy of this existing label? Check any uncertain output first.")) return;
+    let out;
     await withButton(el, async () => {
-      await sendPhysical(`/shipments/${state.shipment.id}/reprint-label`);
+      out = await sendPhysical(`/shipments/${state.shipment.id}/reprint-label`);
       state.shipment = await api(`/shipments/${state.shipment.id}`); renderShipment();
     });
+    if (out && ["printing", "sending"].includes(out.outcome)) await watchPrint(out.print_intent.id);
   },
   async "printer-test"(el) {
     await withButton(el, () => sendPhysical("/print/test"));

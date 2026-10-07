@@ -14,6 +14,7 @@ import re
 from collections.abc import Callable
 from importlib import resources
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from fastapi.responses import HTMLResponse, Response
@@ -24,7 +25,7 @@ from shipping.auth import BadToken, verify_session_token
 from shipping.models import Address
 from shipping.money import Money
 from shipping.operations import Operations
-from shipping.physical_printing import PhysicalPrinting
+from shipping.physical_printing import PhysicalPrinting, intent_state
 from shipping.print_provider import PrintNodeProvider
 from shipping.printing import PrintError, Printing
 from shipping.providers.base import ProviderError
@@ -78,6 +79,10 @@ class BuyBody(BaseModel):
 
 class PrintBody(BaseModel):
     idempotency_key: str = Field(min_length=8, max_length=120)
+
+
+class PrintViewBody(BaseModel):
+    shipment_ids: list[str] = Field(min_length=1, max_length=100)
 
 
 class BatchBody(BaseModel):
@@ -198,6 +203,8 @@ def build_admin_router(
             origin=svc.store.config(s.shop).origin,
         )
         result["print_status"] = physical.summary(shop, sid)
+        result["print_method"] = "printnode" if physical_enabled else "print_view"
+        result["print_connection"] = physical.connection() if s.label else None
         result["stage"] = lifecycle.stage(s, result["print_status"])
         result["stage_title"] = lifecycle.TITLES[result["stage"]]
         result["payment"] = views.payment_view(s)
@@ -253,9 +260,7 @@ def build_admin_router(
             r["stage"] = where
             r["print_status"] = printed
             r["can_buy"] = lifecycle.may_bulk_buy(where) and svc.may_buy(s)
-            r["can_first_print"] = physical_enabled and lifecycle.may_bulk_first_print(
-                where, printed
-            )
+            r["can_first_print"] = lifecycle.may_bulk_first_print(where, printed)
             r["can_select"] = r["can_buy"] or r["can_first_print"]
             rows.append(r)
         if not q and stage in ("delivered", "all"):
@@ -267,6 +272,7 @@ def build_admin_router(
             "rows": rows,
             "counts": counts,
             "printing": physical_enabled,
+            "print_method": "printnode" if physical_enabled else "print_view",
             "ready_to_print": len(printing.ready(shop)),
             "batches": [
                 {
@@ -464,13 +470,45 @@ def build_admin_router(
             },
         )
 
-    def sent_result(intent):
-        message = (
-            "Sent to JD-168BT"
-            if intent["state"] == "accepted" and intent["provider_job_id"]
-            else intent["error"] or "Print request recorded; check its status before reprinting"
+    def pdf(body: bytes, note: str = "", **headers: str) -> Response:
+        return Response(
+            body,
+            media_type="application/pdf",
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+                "X-Print-Note": quote(note),  # headers are latin-1: words go URL-encoded
+                **headers,
+            },
         )
-        return {"print_intent": intent, "message": message}
+
+    @router.post("/api/shipments/{sid}/print-view")
+    def print_view(sid: str, who: str = Depends(staff)) -> Response:
+        """Print without PrintNode: the label as a 4x6 PDF for the browser's print dialog."""
+        body, note = act(lambda: physical.print_view(shop, sid, who))
+        return pdf(body, note)
+
+    @router.post("/api/print-view")
+    def print_view_many(body: PrintViewBody, who: str = Depends(staff)) -> Response:
+        """Several labels as one PDF, as Shopify prints labels in bulk."""
+        out, done, skipped = act(lambda: physical.print_view_many(shop, body.shipment_ids, who))
+        left = "; ".join(f"{x['order']}: {x['reason']}" for x in skipped)
+        return pdf(out, f"Left out: {left}" if left else "", **{"X-Print-Count": str(len(done))})
+
+    @router.get("/api/print/connection")
+    def print_connection(who: str = Depends(staff)) -> dict[str, Any]:
+        return physical.connection()
+
+    def sent_result(intent):
+        outcome = intent_state(intent)
+        message = {
+            "printed": "Printed",
+            "printing": f"Printing on {intent.get('printer_name') or 'the printer'}…",
+            "sending": "Sending to the printer…",
+        }.get(outcome) or (
+            intent.get("error") or "Print request recorded; check its status before reprinting"
+        )
+        return {"print_intent": intent, "outcome": outcome, "message": message}
 
     @router.post("/api/shipments/{sid}/print-label")
     def physical_label(sid: str, body: PrintBody, who: str = Depends(staff)):
@@ -509,6 +547,7 @@ def build_admin_router(
             "default_package_id": cfg.default_package_id,
             "label_format": "4x6",
             "label_printer": physical.health(),
+            "print_connection": physical.connection(),
             "printer": {
                 "label": "Open PDF remains available for manual 4×6 printing",
                 "document": "Customs copies open in your browser to print on A4",

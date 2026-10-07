@@ -645,7 +645,7 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
      Mail stops at IN_TRANSIT (handed to Guernsey/Jersey Post), so Shopify alone can't say those
      arrived. No carrier integration is added for that.
    - **Lifecycle** (`shipping/lifecycle.py`): Needs attention, Ready to ship, Labels bought,
-     Printed (PrintNode accepted, via `PhysicalPrinting.summary`), In transit, Delivered, All;
+     Printed (PrintNode reported done, or opened in the print view; `PhysicalPrinting.summary`), In transit, Delivered, All;
      derived on every read. Ready selects for bulk Buy, Labels bought for bulk first Print;
      the batch preview enforces both. The detail keeps Payment, Fulfilment, Print and Carrier
      apart.

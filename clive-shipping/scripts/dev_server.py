@@ -3,6 +3,7 @@
     cd clive-shipping && python scripts/dev_server.py [PORT]            # default 8120
     python scripts/dev_server.py 8120 --empty                           # nothing waiting
     python scripts/dev_server.py 8120 --sandbox                         # real Parcel2Go SANDBOX
+    python scripts/dev_server.py 8120 --printnode                       # pretend PrintNode
 
     http://127.0.0.1:8120/admin      the embedded admin (admin auth skipped)
 
@@ -27,6 +28,8 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -35,7 +38,9 @@ os.environ.setdefault("SHIPPING_ENV_FILE", "")
 
 import uvicorn  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
+from pydantic import SecretStr  # noqa: E402
 
+from shipping import admin as admin_module  # noqa: E402
 from shipping import packages  # noqa: E402
 from shipping.app import create_app  # noqa: E402
 from shipping.fake_shopify import FakeShopify, fo, hoodie_line, tee_line  # noqa: E402
@@ -325,7 +330,58 @@ def seed_states(svc: ShippingService, shopify: FakeShopify, provider: DevProvide
         svc.refresh_tracking(SHOP, s.id)  # not tick(): it would settle the seeded problems
 
 
-def build(port: int, empty: bool = False, sandbox: bool = False) -> FastAPI:
+class DevPrintNode:
+    """A pretend PrintNode for --printnode: a job is sent, printing, then done a few seconds
+    later (or fails with a reason after POST /dev/printnode/fail). Nothing is printed."""
+
+    def __init__(self, *_args: object) -> None:
+        self.jobs: dict[int, tuple[float, bool]] = {}
+        self.fail_next = False
+
+    def describe(self) -> dict:
+        return dict(
+            reachable=True,
+            printer_name="JD-168BT",
+            printer_state="online",
+            computer_name="DEV-PC",
+            computer_state="connected",
+        )
+
+    def get_printer(self) -> dict:
+        return {"id": 1, "name": "JD-168BT", "state": "online", "computer_id": 1}
+
+    def health(self) -> dict:
+        return dict(
+            enabled=True,
+            connected=True,
+            name="JD-168BT",
+            printer_id=1,
+            state="online",
+            detail="Connected (pretend PrintNode)",
+        )
+
+    def print_pdf(self, body: bytes, title: str, key: str) -> int:
+        job = 9_000_000 + len(self.jobs)
+        self.jobs[job] = (time.time(), self.fail_next)
+        self.fail_next = False
+        return job
+
+    def get_job_states(self, job_id: int) -> list[dict]:
+        started, fails = self.jobs[job_id]
+        age = time.time() - started
+        steps = [(0, "new", ""), (1, "sent_to_client", ""), (2, "in_progress", "")]
+        steps.append((4, "error", "Printer out of paper") if fails else (4, "done", ""))
+        at = lambda s: datetime.fromtimestamp(started + s, UTC).isoformat()  # noqa: E731
+        return [dict(state=st, at=at(t), message=m) for t, st, m in steps if age >= t]
+
+    def get_job_status(self, job_id: int) -> str:
+        states = self.get_job_states(job_id)
+        return states[-1]["state"] if states else "accepted"
+
+
+def build(
+    port: int, empty: bool = False, sandbox: bool = False, printnode: bool = False
+) -> FastAPI:
     db = Path(tempfile.mkdtemp(prefix="shipping-dev-")) / "dev.sqlite3"
     settings = Settings(
         shop_domain=SHOP,
@@ -338,6 +394,11 @@ def build(port: int, empty: bool = False, sandbox: bool = False) -> FastAPI:
         p2g_client_id=os.environ.get("SHIPPING_P2G_CLIENT_ID", ""),
         p2g_client_secret=os.environ.get("SHIPPING_P2G_CLIENT_SECRET", ""),
     )
+    settings.printnode_enabled = printnode
+    settings.printnode_api_key = SecretStr("dev-only" if printnode else "")
+    pretend = DevPrintNode()
+    if printnode:
+        admin_module.PrintNodeProvider = lambda *_a: pretend  # type: ignore[assignment]
     store = Store(settings.db_path)
     shopify = FakeShopify()
     provider: DevProvider | object
@@ -382,6 +443,12 @@ def build(port: int, empty: bool = False, sandbox: bool = False) -> FastAPI:
         """How many times the (fake) provider took money, for double-click checks."""
         return {"charges": len(getattr(provider, "charges", []))}
 
+    @app.post("/dev/printnode/fail")
+    def printnode_fail() -> dict:
+        """The next pretend PrintNode job ends in an error (printer out of paper)."""
+        pretend.fail_next = True
+        return {"ok": True}
+
     @app.post("/dev/shopify/refuse")
     def refuse(times: int = 1) -> dict:
         shopify.refuse_fulfillment = times
@@ -393,5 +460,10 @@ def build(port: int, empty: bool = False, sandbox: bool = False) -> FastAPI:
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     port = int(args[0]) if args else 8120
-    app = build(port, empty="--empty" in sys.argv, sandbox="--sandbox" in sys.argv)
+    app = build(
+        port,
+        empty="--empty" in sys.argv,
+        sandbox="--sandbox" in sys.argv,
+        printnode="--printnode" in sys.argv,
+    )
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Any
 
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 
 from shipping.label_selection import select_shipping_label_pdf
@@ -49,6 +49,53 @@ def test_pdf() -> bytes:
     c.showPage()
     c.save()
     return stream.getvalue()
+
+
+# PrintNode job states (GET /printjobs/{id}/states). Only "done" means the printer's computer
+# finished the job; until then it is printing, and these end it without a print.
+PRINTNODE_DONE = "done"
+PRINTNODE_FAILED = ("error", "expired", "deleted", "disappeared")
+PRINTNODE_WORDS = {
+    "new": "Sent to PrintNode",
+    "sent_to_client": "Sent to the printer's computer",
+    "queued": "Queued on the printer's computer",
+    "in_progress": "Printing",
+    "done": "Printer finished the job",
+    "error": "The printer's computer reported an error",
+    "expired": "Expired: the printer's computer never collected it",
+    "deleted": "Deleted before it printed",
+    "disappeared": "Lost by the printer's computer",
+}
+UNCONFIRMED_AFTER = timedelta(hours=6)  # still not "done": say so, never call it printed
+PRINT_VIEW = "print_view"
+
+
+def _iso(value: str | None) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
+    except ValueError:
+        return None
+
+
+def intent_state(p: dict[str, Any]) -> str:
+    """One print attempt, in words a person acts on: printed, printing, failed, unknown,
+    unconfirmed."""
+    if p.get("provider") == PRINT_VIEW:
+        return "printed"
+    if p["state"] in ("failed", "expired") or p.get("provider_state") in PRINTNODE_FAILED:
+        return "failed"
+    if p["state"] == "unknown":
+        return "unknown"
+    if p["state"] in ("requested", "submitting"):
+        started = _iso(p.get("requested_at"))
+        stale = started is not None and now() - started > timedelta(minutes=5)
+        return "unknown" if stale else "sending"  # interrupted: never safe to resend by itself
+    if p.get("provider_state") == PRINTNODE_DONE:
+        return "printed"
+    sent = _iso(p.get("sent_at") or p.get("requested_at"))
+    if sent is not None and now() - sent > UNCONFIRMED_AFTER:
+        return "unconfirmed"
+    return "printing"
 
 
 class PhysicalPrinting:
@@ -97,8 +144,23 @@ class PhysicalPrinting:
         self, shop: str, sid: str, actor: str, key: str, reprint: bool = False
     ) -> dict[str, Any]:
         s, doc, body = self._label_input(shop, sid)
-        # A second first-print click (even with a different request key) never reprints.
-        identity = f"reprint:{key}" if reprint else "first"
+        mine = [
+            p
+            for p in self.store.print_intents_for(shop, sid)
+            if p["document_id"] == doc.artifact_id
+        ]
+        # The same request again (a lost reply, a retry) is answered from its record, never sent.
+        again = next(
+            (p for p in mine if p.get("client_key") == key and bool(p.get("reprint")) == reprint),
+            None,
+        )
+        if again is not None:
+            return again
+        # A second first-print click (even with a different request key) never prints twice.
+        # Only a print that definitely didn't happen (PrintNode error / expired) frees the next
+        # first print, and every click after that one failure agrees on the same identity.
+        failed = sum(1 for p in mine if not p.get("reprint") and intent_state(p) == "failed")
+        identity = f"reprint:{key}" if reprint else ("first" if not failed else f"first:{failed}")
         intent_key = hashlib.sha256(f"{sid}:{doc.artifact_id}:{identity}".encode()).hexdigest()
         result = self._send(
             shop,
@@ -110,6 +172,7 @@ class PhysicalPrinting:
             body,
             actor,
             reprint,
+            client_key=key,
         )
         return result
 
@@ -126,7 +189,9 @@ class PhysicalPrinting:
             False,
         )
 
-    def _send(self, shop, key, sid, order, artifact_id, kind, body, actor, reprint):
+    def _send(
+        self, shop, key, sid, order, artifact_id, kind, body, actor, reprint, client_key=None
+    ):
         if self.provider is None:
             raise PrintError("Direct printing is disabled. Open PDF is still available.", 503)
         # Cross-process SQLite transaction owns the single submission. No automatic POST
@@ -149,6 +214,7 @@ class PhysicalPrinting:
                 idempotency_key=new_id("print"),
                 copies=1,
                 reprint=reprint,
+                client_key=client_key,
                 requested_at=now().isoformat(),
                 requested_by=actor,
                 state="requested",
@@ -193,19 +259,169 @@ class PhysicalPrinting:
         record = self.store.print_intent(shop, intent_id)
         if record is None:
             raise PrintError("Print intent not found.", 404)
-        if record["provider_job_id"] and self.provider:
+        if record.get("provider_job_id") and self.provider:
+            before = intent_state(record)
             try:
-                state = self.provider.get_job_status(record["provider_job_id"])
-                record.update(provider_state=state, last_checked_at=now().isoformat())
-                if state in ("error", "expired"):
-                    record.update(
-                        state="failed" if state == "error" else "expired",
-                        error=f"PrintNode reported {state}; physical output unconfirmed.",
-                    )
-                self.store.save_print_intent(shop, record)
+                states = self.provider.get_job_states(record["provider_job_id"])
             except PrintProviderError:
-                pass  # Last recorded submission evidence remains valid.
+                return record  # Last recorded submission evidence remains valid.
+            state = (states[-1]["state"] if states else "") or "accepted"
+            record.update(
+                provider_state=state, provider_states=states, last_checked_at=now().isoformat()
+            )
+            if state in PRINTNODE_FAILED:
+                why = states[-1].get("message") or PRINTNODE_WORDS.get(state, state)
+                record.update(
+                    state="failed" if state != "expired" else "expired",
+                    error=f"PrintNode: {why}. Nothing was printed; print it again.",
+                )
+            self.store.save_print_intent(shop, record)
+            after = intent_state(record)
+            if after != before and after in ("printed", "failed") and record.get("shipment_id"):
+                self._note(
+                    shop,
+                    record["shipment_id"],
+                    "label_print_done" if after == "printed" else "label_print_failed",
+                    {
+                        "print_intent": record["id"],
+                        "provider_job_id": record["provider_job_id"],
+                        "printer": record.get("printer_name"),
+                        "why": record.get("error") if after == "failed" else None,
+                    },
+                    verified=True,
+                )
         return record
+
+    def _note(self, shop, sid, kind, detail, verified=False, actor="PrintNode"):
+        with self.store.atomic():
+            current = self.store.get(shop, sid)
+            if current is None:
+                return
+            current.timeline.append(
+                Event(at=now(), actor=actor, type=kind, detail=detail, verified=verified)
+            )
+            self.store.save(current)
+
+    # ------------------------------------------------------------------ the print view
+
+    def print_view(self, shop: str, sid: str, actor: str) -> tuple[bytes, str]:
+        """The label as a 4x6 PDF to print from the browser, as Shopify's own labels print.
+        Recorded as printed when opened: nothing more can be known without PrintNode."""
+        body, note = self._view_body(shop, sid)
+        self._record_view(shop, sid, actor)
+        return body, note
+
+    def print_view_many(
+        self, shop: str, sids: list[str], actor: str
+    ) -> tuple[bytes, list[str], list[dict[str, str]]]:
+        """Several labels as one PDF, in the order given, for one print. Orders that can't print
+        are left out and named."""
+        writer = PdfWriter()
+        done: list[str] = []
+        skipped: list[dict[str, str]] = []
+        for sid in dict.fromkeys(sids):
+            try:
+                body, _ = self._view_body(shop, sid)
+                for page in PdfReader(BytesIO(body)).pages:
+                    writer.add_page(page)
+                done.append(sid)
+            except PrintError as exc:
+                s = self.store.get(shop, sid)
+                skipped.append({"order": s.order_name if s else sid, "reason": str(exc)})
+        if not done:
+            raise PrintError("None of these labels can be printed.", 409)
+        for sid in done:
+            self._record_view(shop, sid, actor)
+        out = BytesIO()
+        writer.write(out)
+        return out.getvalue(), done, skipped
+
+    def _view_body(self, shop: str, sid: str) -> tuple[bytes, str]:
+        s = self.store.get(shop, sid)
+        if s is None:
+            raise PrintError("Shipment not found.", 404)
+        if s.status not in PRINTABLE or s.label is None:
+            raise PrintError("No purchased label exists. Printing never buys postage.")
+        doc = s.label.document(DocumentKind.shipping_label)
+        artifact = (
+            self.store.get_artifact(shop, doc.artifact_id) if doc and doc.artifact_id else None
+        )
+        if not doc or not artifact or artifact[1] != "application/pdf":
+            raise PrintError("The label file isn't stored yet; try again in a minute.", 503)
+        try:
+            return self._label_input(shop, sid)[2], ""
+        except PrintError:
+            # Not a recognised single 4x6 label (e.g. an unknown bundle): the whole original,
+            # so nothing on it is lost; the person picks the pages in the print dialog.
+            return artifact[2], "The full label file is shown: print the label page."
+
+    def _record_view(self, shop: str, sid: str, actor: str) -> None:
+        s = self.store.get(shop, sid)
+        assert s is not None and s.label is not None
+        doc = s.label.document(DocumentKind.shipping_label)
+        assert doc is not None
+        again = any(
+            intent_state(p) == "printed"
+            for p in self.store.print_intents_for(shop, sid)
+            if p["document_id"] == doc.artifact_id
+        )
+        at, rid = now().isoformat(), new_id("prt")
+        record = dict(
+            id=rid,
+            shipment_id=sid,
+            order_reference=s.order_name,
+            document_id=doc.artifact_id,
+            document_kind="shipping_label",
+            provider=PRINT_VIEW,
+            printer_name="this device",
+            provider_job_id=None,
+            reprint=again,
+            requested_at=at,
+            sent_at=at,
+            requested_by=actor,
+            state="opened",
+            provider_state=None,
+            error=None,
+        )
+        with self.store.atomic():
+            self.store.add_print_intent(shop, "view:" + rid, record)
+        self._note(
+            shop,
+            sid,
+            "label_print_view_again" if again else "label_print_view",
+            {"print_intent": rid},
+            actor=actor,
+        )
+
+    # ------------------------------------------------------------------ the connection
+
+    def connection(self) -> dict[str, Any]:
+        """How labels print here, and what PrintNode says right now."""
+        if self.provider is None:
+            return dict(
+                method=PRINT_VIEW,
+                title="Print view",
+                detail="Print opens the label as a 4x6 PDF; print it from your browser to your "
+                "label printer. Connect PrintNode to send labels straight to the printer.",
+            )
+        cached = getattr(self, "_seen", None)
+        if cached and now() - cached[0] < timedelta(seconds=30):
+            return cached[1]  # order pages don't each wait on PrintNode
+        seen = self.provider.describe()
+        health = self.health()
+        out = dict(
+            method="printnode",
+            title="PrintNode",
+            ready=bool(health.get("connected")),
+            detail=health.get("detail"),
+            printer_name=seen.get("printer_name") or health.get("name"),
+            printer_state=seen.get("printer_state"),
+            computer_name=seen.get("computer_name"),
+            computer_state=seen.get("computer_state"),
+            checked_at=now().isoformat(),
+        )
+        self._seen = (now(), out)
+        return out
 
     def summary(self, shop: str, sid: str) -> dict[str, Any] | None:
         s = self.store.get(shop, sid)
@@ -222,50 +438,72 @@ class PhysicalPrinting:
         }
         for p in intents:
             p["reprint"] = p.get("reprint", p["id"] in legacy_reprints)
+            p["outcome"] = intent_state(p)
+        printed = [p for p in intents if p["outcome"] == "printed"]
         last = intents[-1] if intents else None
-        sent = [p for p in intents if p.get("provider_job_id")]
-        state = "not_printed"
-        if last:
-            state = {
-                "accepted": "sent",
-                "failed": "failed",
-                "expired": "failed",
-                "unknown": "unknown",
-                "requested": "sending",
-                "submitting": "sending",
-            }[last["state"]]
-            if state == "sending" and now() - datetime.fromisoformat(
-                last["requested_at"]
-            ) > timedelta(minutes=5):
-                state = "unknown"  # Interrupted submission is never safe to retry.
+        # Printed once is printed: a later reprint that failed doesn't undo the first.
+        state = "printed" if printed else (last["outcome"] if last else "not_printed")
+        sent = [p for p in intents if p.get("provider_job_id") or p.get("provider") == PRINT_VIEW]
+        shown = printed[-1] if printed else last
+        via = None
+        if shown:
+            via = (
+                "print view"
+                if shown.get("provider") == PRINT_VIEW
+                else f"PrintNode → {shown.get('printer_name') or 'printer'}"
+            )
         return dict(
             state=state,
             label={
                 "not_printed": "Not printed",
-                "sent": "Sent to printer",
+                "sending": "Sending to printer",
+                "printing": "Printing…",
+                "printed": "Printed",
                 "failed": "Print failed",
                 "unknown": "Print uncertain",
-                "sending": "Sending",
+                "unconfirmed": "Not confirmed by printer",
             }[state],
             tone={
                 "not_printed": "warning",
-                "sent": "success",
+                "sending": "info",
+                "printing": "info",
+                "printed": "success",
                 "failed": "critical",
                 "unknown": "critical",
-                "sending": "info",
+                "unconfirmed": "warning",
             }[state],
+            via=via,
+            printed_at=(printed[0].get("sent_at") or printed[0]["requested_at"])
+            if printed
+            else None,
+            error=last.get("error") if last and last["outcome"] in ("failed", "unknown") else None,
             last_attempt=last["requested_at"] if last else None,
             last_sent=(sent[-1].get("sent_at") or sent[-1]["requested_at"]) if sent else None,
             reprint_count=sum(bool(p["reprint"]) for p in sent),
             intent_id=last["id"] if last else None,
             job_id=last.get("provider_job_id") if last else None,
-            first_print_available=not intents,
+            # A label may go to the printer "for the first time" until one attempt might have
+            # printed: none yet, or every one definitely failed.
+            first_print_available=all(p["outcome"] == "failed" for p in intents),
+            steps=[
+                dict(
+                    state=x.get("state"),
+                    at=x.get("at"),
+                    words=PRINTNODE_WORDS.get(x.get("state") or "", x.get("state")),
+                    message=x.get("message") or "",
+                )
+                for x in (last.get("provider_states") or [])
+            ]
+            if last
+            else [],
             history=[
                 dict(
                     at=p["requested_at"],
-                    state=p["state"],
+                    state=p["outcome"],
+                    via="print view" if p.get("provider") == PRINT_VIEW else "PrintNode",
                     reprint=p["reprint"],
                     job_id=p.get("provider_job_id"),
+                    error=p.get("error"),
                 )
                 for p in intents
             ],

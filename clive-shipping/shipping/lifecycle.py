@@ -6,15 +6,16 @@ Derived every time from the shipment's own facts, never stored, so it can't disa
   2. Not bought, and ready: payment allows it, a service is chosen               → ready
   3. Bought, and Shopify's carrier tracking says delivered                        → delivered
   4. Bought, and the carrier has it (moving, or a carrier problem)                → in_transit
-  5. Bought, and PrintNode accepted its first print (PhysicalPrinting.summary)    → printed
+  5. Bought, and the label has printed (PhysicalPrinting.summary)                 → printed
   6. Otherwise bought                                                             → bought
 
 A person must act (a purchase to reconcile, a Shopify update to retry, a cancellation) →
 attention. Cancelled orders and cancelled labels are "closed", shown only under All.
 
-"Printed" means PrintNode accepted the job ("Sent to printer"). Sending, failed or uncertain
-prints stay under Labels bought with their own badge: a page that may not exist is never
-called printed. Labels opened in the browser to print are not counted (nothing reports them).
+"Printed" means PrintNode reported the job done, or the label was opened in the print view (as
+Shopify counts a printed label). A job still printing, failed, uncertain or never confirmed
+stays under Labels bought with its own badge: a page that may not exist is never called
+printed.
 """
 
 from __future__ import annotations
@@ -68,7 +69,7 @@ def stage(s: Shipment, print_summary: dict[str, Any] | None) -> str:
         return "attention"  # the Shopify fulfilment was cancelled: a person decides
     if carrier in MOVING:
         return "in_transit"
-    if print_summary and print_summary.get("state") == "sent":
+    if print_summary and print_summary.get("state") == "printed":
         return "printed"
     return "bought"
 
@@ -78,5 +79,5 @@ def may_bulk_buy(stage_name: str) -> bool:
 
 
 def may_bulk_first_print(stage_name: str, print_summary: dict[str, Any] | None) -> bool:
-    """Only labels never sent to the printer, and not already with the carrier."""
+    """Only labels not printed (or whose prints all failed), and not already with the carrier."""
     return stage_name == "bought" and bool(print_summary and print_summary["first_print_available"])

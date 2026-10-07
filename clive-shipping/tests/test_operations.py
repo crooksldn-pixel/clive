@@ -30,6 +30,7 @@ def sender():
     p = Mock()
     p.print_pdf.side_effect = range(1000, 2000)
     p.get_job_status.return_value = "done"
+    p.get_job_states.return_value = [dict(state="done", at="2026-10-07T15:25:31Z", message="")]
     return p
 
 
@@ -170,7 +171,7 @@ def test_restart_unclaimed_resume_and_interrupted_child_no_retry(svc, shopify, o
 
 @pytest.mark.parametrize(
     "state,label",
-    [("accepted", "Sent to printer"), ("failed", "Print failed"), ("unknown", "Print uncertain")],
+    [("accepted", "Printing…"), ("failed", "Print failed"), ("unknown", "Print uncertain")],
 )
 def test_durable_print_states_and_reopen(svc, shopify, ops, sender, state, label):
     s = purchased(svc, shopify, 1)[0]
@@ -183,18 +184,25 @@ def test_durable_print_states_and_reopen(svc, shopify, ops, sender, state, label
     reopened = PhysicalPrinting(Store(path), sender, 75883753)
     summary = reopened.summary(SHOP, s.id)
     assert summary is not None and summary["label"] == label
-    assert reopened.print_label(SHOP, s.id, "staff", "other-request")["id"] == intent["id"]
-    assert sender.print_pdf.call_count == 1
+    assert reopened.print_label(SHOP, s.id, "staff", "first-request")["id"] == intent["id"]
+    sender.print_pdf.side_effect = range(1000, 2000)  # the printer is back
+    again = reopened.print_label(SHOP, s.id, "staff", "other-request")
+    if state == "failed":  # definitely not printed: a new press of Print tries again, once
+        assert again["id"] != intent["id"] and sender.print_pdf.call_count == 2
+        assert reopened.print_label(SHOP, s.id, "staff", "third-request")["id"] == again["id"]
+    else:  # printing, or it may have printed: never sent again by a first print
+        assert again["id"] == intent["id"] and sender.print_pdf.call_count == 1
 
 
-def test_two_explicit_reprints_count_and_done_is_not_physical_proof(svc, shopify, ops):
+def test_two_explicit_reprints_count_and_printnode_done_is_printed(svc, shopify, ops):
     s = purchased(svc, shopify, 1)[0]
     first = ops.physical.print_label(SHOP, s.id, "staff", "first-request")
+    assert ops.physical.summary(SHOP, s.id)["state"] == "printing"  # accepted is not printed
     ops.physical.print_label(SHOP, s.id, "staff", "reprint-one", True)
     ops.physical.print_label(SHOP, s.id, "staff", "reprint-two", True)
     ops.physical.status(SHOP, first["id"])
     summary = ops.physical.summary(SHOP, s.id)
-    assert summary["reprint_count"] == 2 and summary["state"] == "sent"
+    assert summary["reprint_count"] == 2 and summary["state"] == "printed"
     assert len(summary["history"]) == 3 and summary["last_sent"]
     assert not summary["first_print_available"]
 
@@ -439,13 +447,15 @@ def test_ui_selection_review_progress_filters_and_customs(svc, shopify, ops, sen
                 SHOP, row.id, "shipping_label", "application/pdf", bundle(("LABEL",))
             )
             svc.store.save(row)
-        ops.physical.print_label(SHOP, rows[0].id, "staff", "first-print")
+        first = ops.physical.print_label(SHOP, rows[0].id, "staff", "first-print")
+        ops.physical.status(SHOP, first["id"])  # PrintNode: done
         sent = c.get("/admin/api/shipments/" + rows[0].id).json()
         bought_inbox = c.get("/admin/api/inbox?stage=bought").json()
         printed_inbox = c.get("/admin/api/inbox?stage=printed").json()
     # This app was built with PrintNode off; the UI check needs it on (the server's own rule
     # for first prints is tested in test_lifecycle).
     bought_inbox["printing"] = True
+    bought_inbox["print_method"] = sent["print_method"] = "printnode"
     for r in bought_inbox["rows"]:
         r["can_first_print"] = r["can_select"] = r["print_status"]["first_print_available"]
     data = tmp_path / "operations.json"

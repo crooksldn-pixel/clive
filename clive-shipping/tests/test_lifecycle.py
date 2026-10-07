@@ -39,18 +39,19 @@ def test_unbought_orders_are_ready_or_need_attention(svc, shopify):
 def test_bought_labels_move_through_print_carrier_and_delivery(svc, shopify):
     (s,) = purchased(svc, shopify, 1)
     assert lifecycle.stage(s, summary()) == "bought"
-    for not_printed in ("sending", "failed", "unknown"):  # never shown as Printed
+    # Sending, PrintNode still printing, failed, uncertain or never confirmed: never Printed.
+    for not_printed in ("sending", "printing", "failed", "unknown", "unconfirmed"):
         assert lifecycle.stage(s, summary(not_printed, first=False)) == "bought"
-    assert lifecycle.stage(s, summary("sent", first=False)) == "printed"
+    assert lifecycle.stage(s, summary("printed", first=False)) == "printed"
     s.tracking = TrackingState(stage="pre_transit")
-    assert lifecycle.stage(s, summary("sent", first=False)) == "printed"
+    assert lifecycle.stage(s, summary("printed", first=False)) == "printed"
     s.tracking = TrackingState(stage="in_transit")
-    assert lifecycle.stage(s, summary("sent", first=False)) == "in_transit"
+    assert lifecycle.stage(s, summary("printed", first=False)) == "in_transit"
     assert lifecycle.stage(s, summary()) == "in_transit"  # moving even if never printed here
     s.tracking = TrackingState(stage="exception")
     assert lifecycle.stage(s, summary()) == "in_transit"  # a carrier problem: warn, not delivered
     s.tracking = TrackingState(stage="delivered")
-    assert lifecycle.stage(s, summary("sent", first=False)) == "delivered"
+    assert lifecycle.stage(s, summary("printed", first=False)) == "delivered"
     s.tracking = TrackingState(stage="cancelled")
     assert lifecycle.stage(s, summary()) == "attention"
 

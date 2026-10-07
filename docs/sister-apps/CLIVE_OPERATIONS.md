@@ -45,7 +45,7 @@ does. This page is the shared shape; the details are in `clive-shipping/shipping
 **Printing**
 - `print` sends a label to PrintNode the first time only. `reprint` needs `"confirm": true`.
 - Neither can buy.
-- `sent_to_printer: true` means PrintNode accepted the job, not that paper came out.
+- `sent_to_printer: true` means PrintNode accepted the job. The order is "Printing…" until PrintNode reports `done` (stage `printed`) or a failure (`print` says "Print failed", and print may be called again).
 
 **Payment**
 - Shipping never buys a new label unless the order's `displayFinancialStatus` allows it (see "Payment" below).
@@ -64,7 +64,7 @@ does. This page is the shared shape; the details are in `clive-shipping/shipping
 2. Not bought; payment allows it; ready with a service → **ready**.
 3. Bought, and Shopify's tracking says delivered → **delivered**.
 4. Bought, and the carrier has it (moving, or a carrier problem) → **in_transit**.
-5. Bought, and PrintNode accepted its first print → **printed**.
+5. Bought, and the label printed (PrintNode reported done, or it was opened in the print view) → **printed**.
 6. Otherwise bought → **bought**. A failed, uncertain or sending print stays here, with its badge.
 
 Needs a person (a purchase to reconcile, a Shopify update to retry, a cancellation) → **attention**. A cancelled order or label shows only under `all`.
@@ -90,7 +90,7 @@ Both `/events` feeds are each record's own history, flattened, oldest first, at 
 - **Shipping:** `{at, shipment_id, order, type, what, actor, verified, detail}`. Types include:
   - `payment_blocking`, `payment_cleared`
   - `purchase_authorised`, `label_purchased`, `fulfilled`
-  - `label_printed`, `label_reprinted`
+  - `label_printed`, `label_reprinted`, `label_print_done`, `label_print_failed`, `label_print_view`
   - `carrier_in_transit`, `carrier_out_for_delivery`, `carrier_delivered`, `carrier_exception`
   - `alert`
 - **Returns:** `{at, return_id, order, type, actor, source, verified, detail, status_now}`. Types include:

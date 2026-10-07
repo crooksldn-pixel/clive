@@ -60,7 +60,7 @@ context.button=button;
   location.search='?stage=printed';
   execute('state.selected.clear(); state.inbox=data.printed_inbox; renderInbox();');
   assert.equal(execute('visibleInboxRows().length'),1);
-  assert.ok(rendered.includes('Sent to printer'));
+  assert.ok(rendered.includes('Printed'));
   assert.ok(!rendered.includes('type="checkbox"'));  // Printed: no bulk reprint, only explicit Reprint
   assert.ok(!rendered.includes('select-stage'));
   execute('state.shipment=data.sent; renderShipment();');

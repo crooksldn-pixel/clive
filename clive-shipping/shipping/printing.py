@@ -39,7 +39,7 @@ PRINTABLE = (
     ShipmentStatus.fulfilled,
     ShipmentStatus.in_transit,
 )
-PRINT_EVENTS = ("label_printed", "label_reprinted")
+PRINT_EVENTS = ("label_printed", "label_reprinted", "label_print_view", "label_print_view_again")
 
 TITLES = {
     DocumentKind.shipping_label: "Shipping label",

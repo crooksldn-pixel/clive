@@ -2,7 +2,7 @@
 
 ## Merchant workflow
 
-The inbox now shows durable print badges, selection checkboxes, Not printed / Sent to printer / Print problem filters, and links to recent batches. Select ready shipments (up to 100), choose Buy labels, review each provider/service/current price and the total, then confirm. Purchased rows can be selected for a separate reviewed Print labels batch. The review lists their print order, matching the selected rows' visible inbox order. Excluded rows explain why they will not run.
+The inbox now shows durable print badges, selection checkboxes, Not printed / Printing… / Printed / Print failed badges, and links to recent batches. Select ready shipments (up to 100), choose Buy labels, review each provider/service/current price and the total, then confirm. Purchased rows can be selected for a separate reviewed Print labels batch. The review lists their print order, matching the selected rows' visible inbox order. Excluded rows explain why they will not run.
 
 Batch progress has independent per-order outcomes and survives browser reload. Open a recent batch to inspect purchased, sent, failed, skipped and uncertain rows. A failure does not roll back successful rows or retry an uncertain payment or print. There is deliberately no combined Buy & print action.
 
@@ -10,21 +10,31 @@ An unpurchased shipment has inline HS code, origin and customs-description field
 
 ## Print evidence
 
-Status is derived from stored `print_intents` for the current purchased label artifact, never browser storage:
+**How Print works.** Without PrintNode, Print opens the label as a 4×6 PDF in a new tab (the
+print view), as Shopify prints labels; bulk Print opens the selected labels as one PDF. Opening
+it is recorded as the print: nothing else could know. With PrintNode connected, Print sends the
+label to the printer instead and the order says "Printing…" until PrintNode reports the end of
+the job. Open PDF stays available either way.
+
+Status comes from stored `print_intents` for the current label file, never browser storage:
 
 | Status | Evidence / action |
 | --- | --- |
-| Not printed | Purchased label with no print attempt. Eligible for first print. |
-| Sending | Durable intent being submitted. Do not submit another copy. |
-| Sent to printer | PrintNode accepted the job and assigned a job ID. Physical paper emergence is not proven. |
-| Print uncertain | Submission outcome lost, or interrupted submission more than five minutes old. No automatic retry. |
-| Print failed | Definitive submission failure, or PrintNode error/expiry. Inspect the shipment and intentionally Reprint if appropriate. |
+| Not printed | No print yet. Eligible for first print. |
+| Sending to printer | A PrintNode request is being submitted. Do not submit another copy. |
+| Printing… | PrintNode accepted the job; its states so far are shown (sent to the computer, queued, printing). Stays under Labels bought. |
+| Printed | The print view was opened, or PrintNode reported `done`: the printer's computer finished the job. A jam after that can't be seen by PrintNode. Moves to Printed. |
+| Print failed | Refused before PrintNode took it, or PrintNode reported `error`, `expired`, `deleted` or `disappeared`, with PrintNode's own message. Nothing was printed: Print label works again (once per press; a retried request replays). |
+| Print uncertain | Submission outcome lost, or interrupted for more than five minutes. No automatic retry; check the printer, then Reprint on purpose. |
+| Not confirmed by printer | PrintNode took it but never reported an end within six hours. Check the printer; Reprint on purpose. |
 
-PrintNode's `done` means the client delivered the job to the operating-system queue; it does not prove paper emerged. Even `done` remains **Sent to printer**. See [PrintNode job states](https://www.printnode.com/en/docs/api/curl).
+PrintNode is asked about every unfinished job from the last two days each minute (GET only, never
+another print), and the order page asks every two seconds for a minute after Print. Each end of
+a job is written to the order's history ("Printer finished printing the label" / "Label didn't
+print"). The print card shows the printer and the computer it hangs off, and their states.
 
-Detail shows last attempt, last accepted send time, submitted reprint count and job ID. Reprint count counts additional accepted submissions, not physical copies proven. A recorded first attempt switches the main action to Reprint, which asks for confirmation. First-print retries reuse the existing intent. Bulk Print excludes every previously attempted label, including failed/uncertain ones; it never silently creates a second attempt. Open PDF stays separate.
-
-Bulk Print runs each existing PhysicalPrinting first-print path separately. Each PDF undergoes the existing selection/validation: supported Easyship label+CN23 bundles select the shipping-label page; Parcel2Go dedicated 4×6 bytes stay unchanged. No PDF concatenation, postage-provider purchase, automatic uncertain-job retry or reprint semantics are introduced.
+Bulk Print with PrintNode runs each first print separately through review, as before. Easyship
+label+CN23 bundles print their label page only; Parcel2Go 4×6 labels go unchanged.
 
 ## Durable batch safety
 

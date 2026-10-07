@@ -185,6 +185,7 @@ def test_clive_prints_once_and_reprints_only_when_it_says_so(api, ready, provide
     svc.store.save(row)
     sender = Mock()
     sender.print_pdf.side_effect = range(7000, 7100)
+    sender.get_job_states.return_value = [dict(state="done", at="2026-10-07T15:25:31Z", message="")]
     api.app.state.operations.physical.provider = sender  # PrintNode switched on
     charges = list(provider.charges)
     p1 = api.post(
@@ -196,7 +197,12 @@ def test_clive_prints_once_and_reprints_only_when_it_says_so(api, ready, provide
     assert p1.status_code == 200, p1.json()
     assert p2.status_code == 200
     assert sender.print_pdf.call_count == 1  # a second first-print never prints again
-    assert p1.json()["sent_to_printer"] and p1.json()["shipment"]["stage"] == "printed"
+    # PrintNode took it; until it says the printer finished, it is printing, not printed.
+    assert p1.json()["sent_to_printer"] and p1.json()["shipment"]["stage"] == "bought"
+    assert p1.json()["shipment"]["print"] == "Printing…"
+    api.app.state.operations.resume(SHOP)  # the minute's check asks PrintNode: done
+    done = api.get(f"/api/v1/shipments/{s.id}", headers=R).json()
+    assert done["stage"] == "printed" and done["print"] == "Printed"
     no = api.post(
         f"/api/v1/shipments/{s.id}/reprint", headers=W, json={"idempotency_key": "r-000001"}
     )

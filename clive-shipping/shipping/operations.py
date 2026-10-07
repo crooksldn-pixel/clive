@@ -8,7 +8,7 @@ from typing import Any
 
 from shipping import lifecycle
 from shipping.models import OpState, ShipmentStatus
-from shipping.physical_printing import PhysicalPrinting
+from shipping.physical_printing import PRINTNODE_FAILED, PhysicalPrinting, intent_state
 from shipping.printing import PrintError
 from shipping.providers.base import ProviderError
 from shipping.providers.reporting import quote_failure
@@ -200,9 +200,10 @@ class Operations:
                             }.get(intent["state"], "uncertain"),
                             print_intent=intent["id"],
                             job_id=intent["provider_job_id"],
-                            message="Sent to printer"
+                            message="Sent to the printer; printing…"
                             if intent["state"] == "accepted"
-                            else "Print failed or uncertain. Check shipment; no automatic retry.",
+                            else intent.get("error")
+                            or "Print failed or uncertain. Check shipment; no automatic retry.",
                         )
             except (ActionError, PrintError) as exc:
                 c.update(state="failed", message=self.safe_problem(exc))
@@ -241,13 +242,15 @@ class Operations:
                         )
                 self.store.save_batch(shop, current)
             self.run(shop, b["id"])
-        # Refresh status evidence using GET only; never print again.
+        # Refresh status evidence using GET only; never print again. Jobs PrintNode hasn't
+        # finished yet, from the last two days (PrintNode's own expiry is minutes).
+        since = now() - timedelta(days=2)
         for s in self.store.shipments(shop):
             for intent in self.store.print_intents_for(shop, s.id):
-                if intent["state"] == "accepted" and intent.get("provider_state") not in (
-                    "done",
-                    "error",
-                    "expired",
+                if (
+                    intent["state"] == "accepted"
+                    and intent.get("provider_state") not in ("done", *PRINTNODE_FAILED)
+                    and datetime.fromisoformat(intent["requested_at"]) > since
                 ):
                     self.physical.status(shop, intent["id"])
 
@@ -273,15 +276,16 @@ class Operations:
                             changed = True
                     elif b["kind"] == "print" and c.get("print_intent"):
                         intent = self.store.print_intent(shop, c["print_intent"])
-                        if (
-                            intent
-                            and intent["state"] in ("failed", "expired")
-                            and c["state"] != "failed"
-                        ):
+                        outcome = intent_state(intent) if intent else None
+                        if intent and outcome == "failed" and c["state"] != "failed":
                             c.update(
                                 state="failed",
-                                message="PrintNode reported failure; check this shipment.",
+                                message=intent.get("error")
+                                or "PrintNode reported failure; print it again.",
                             )
+                            changed = True
+                        elif outcome == "printed" and c["state"] == "sent":
+                            c.update(state="printed", message="Printed")
                             changed = True
                 if changed:
                     self.store.save_batch(shop, b)
