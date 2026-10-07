@@ -34,9 +34,11 @@ fit_to_page=false, rotate=0, color=false, expireAfter=300.
 
 Physical printing selects from a stored shipping_label PDF without modifying its bytes.
 Dedicated single-page labels (including Parcel2Go Label4X6) pass through unchanged. The
-verified Easyship Royal Mail Domestic Tracked 48 Small Parcel bundle has two portrait 4x6
-pages: label first, CN23 second. With matching provider/service metadata and positive CN23
-evidence on page 2, only page 1 is copied into an in-memory PDF. Open PDF continues serving
+verified Easyship Royal Mail Domestic Tracked 48 / Tracked 24 Small Parcel bundle has two
+portrait 4x6 pages: label first, CN23 second. With matching provider/service metadata and
+positive CN23 evidence on page 2, only page 1 is copied into an in-memory PDF. The live
+bundles' text reads the heading run on ("DECLARATION CN23May be opened"), so "CN23" counts
+when no letter or digit precedes it and no digit follows it. Open PDF continues serving
 the entire original bundle; separate A4 commercial invoices are unchanged. Newly fetched
 Easyship bundles record a CN23 note and paper customs metadata.
 

@@ -15,7 +15,7 @@ from reportlab.lib.units import mm
 from reportlab.pdfgen.canvas import Canvas
 
 from shipping.app import create_app
-from shipping.label_selection import CN23_NOTE, select_shipping_label_pdf
+from shipping.label_selection import CN23_NOTE, easyship_cn23, select_shipping_label_pdf
 from shipping.models import CustomsMode, DocumentKind, PageSize, ShipmentDocument
 from shipping.physical_printing import validate_label
 from shipping.print_provider import OPTIONS, PrintNodeProvider
@@ -259,3 +259,44 @@ def test_unsafe_combined_pdf_refused(fault):
     writer.write(stream)
     with pytest.raises(PrintError):
         select(stream.getvalue())
+
+
+# The live Easyship Royal Mail bundles (CROOKS-2120/2124/2134/2142/2144, 2026-10-05): pypdf reads
+# the CN23 heading run into the next words, "...DECLARATION CN23May be opened officially".
+LIVE_CN23 = "CUSTOMS DECLARATION CN23May be opened officially"
+
+
+@pytest.mark.parametrize(
+    "service",
+    [
+        "Royal Mail - Domestic Tracked 48 - Small Parcel",
+        "Royal Mail - Domestic Tracked 24 - Small Parcel",
+    ],
+)
+def test_the_live_easyship_label_and_cn23_layout_prints_the_label_page_only(service):
+    body = bundle(("ROYAL MAIL SHIPPING LABEL - VU721241607GB", LIVE_CN23))
+    assert easyship_cn23(body)
+    printed = select(body, service=service)
+    pages = PdfReader(BytesIO(printed)).pages
+    assert len(pages) == 1 and "VU721241607GB" in (pages[0].extract_text() or "")
+    validate_label(printed)
+
+
+@pytest.mark.parametrize(
+    "texts",
+    [
+        ("LABEL CN23May be opened", LIVE_CN23),  # the customs form first, or on both pages
+        ("LABEL", "CUSTOMS DECLARATION CN230 FORM"),  # another form number is not a CN23
+        ("LABEL", "CUSTOMS DECLARATION CN22May be opened"),
+    ],
+)
+def test_layouts_that_only_look_like_label_and_cn23_are_still_refused(texts):
+    body = bundle(texts)
+    with pytest.raises(PrintError):
+        select(body, service="Royal Mail - Domestic Tracked 48 - Small Parcel")
+
+
+def test_other_royal_mail_services_are_still_refused():
+    body = bundle(("LABEL", LIVE_CN23))
+    with pytest.raises(PrintError):
+        select(body, service="Royal Mail - International Tracked - Small Parcel")
