@@ -52,7 +52,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 <!-- map:parts -->
 | Package | Lines | State | Not loaded by the app | Owner doc |
 |---|---:|---|---|---|
-| (top-level modules) | 11,774 | live | `engineering_measures` | none |
+| (top-level modules) | 11,780 | live | `engineering_measures` | none |
 | `actions` | 3,039 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,501 | live | — | none |
@@ -66,7 +66,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `displays` | 2,363 | live | — | none |
 | `engineering_bridge` | 595 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
 | `families` | 9,844 | live | — | none |
-| `kb` | 437 | live | — | [`OWNER_DECISIONS_2026-10-01.md`](docs/product-memory/OWNER_DECISIONS_2026-10-01.md) the voice spec |
+| `kb` | 442 | live | — | [`OWNER_DECISIONS_2026-10-01.md`](docs/product-memory/OWNER_DECISIONS_2026-10-01.md) the voice spec |
 | `logging` | 193 | live | — | none |
 | `memory` | 586 | live | — | none |
 | `objectives` | 3,313 | live | — | none |
@@ -85,7 +85,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `skills` | 905 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
 | `speech` | 844 | live | — | none |
 | `support` | 1,685 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
-| `tools` | 13,576 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
+| `tools` | 13,684 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
 | `work` | 1,374 | live | — | [`TEAM.md`](docs/TEAM.md) |
 <!-- /map:parts -->
 
