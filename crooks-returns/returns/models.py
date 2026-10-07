@@ -251,6 +251,10 @@ class ShopifyRefs(BaseModel):
     processed: bool = False
     refund_ids: list[str] = Field(default_factory=list)
     store_credit_transaction_id: str | None = None
+    # A returnCreate / label hand-over whose answer was lost: Shopify may have done it. Shopify is
+    # read back before either is ever sent again.
+    create_unknown_at: datetime | None = None
+    attach_unknown: bool = False
 
 
 class Event(BaseModel):

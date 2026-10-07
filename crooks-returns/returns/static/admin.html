@@ -164,7 +164,12 @@
 
   /* modal */
   .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-start; justify-content: center; padding: 60px 16px 16px; z-index: 50; overflow: auto; }
-  .modal { width: 100%; max-width: 520px; background: #fff; border-radius: var(--radius); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  /* The header and the buttons always stay on screen; only the middle scrolls. */
+  .modal { width: 100%; max-width: 520px; background: #fff; border-radius: var(--radius); box-shadow: 0 20px 60px rgba(0,0,0,.25);
+           display: flex; flex-direction: column; max-height: calc(100vh - 76px); max-height: calc(100dvh - 76px); }
+  .modal header, .modal footer { flex: none; }
+  .modal .body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  .modal footer .why { flex: 1; align-self: center; color: var(--ink-2); font-size: 12px; }
   .modal header { display: flex; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
   .modal header h3 { margin: 0; font-size: 14px; flex: 1; }
   .modal .x { border: 0; background: none; font-size: 20px; line-height: 1; cursor: pointer; color: var(--ink-2); padding: 2px 6px; border-radius: 6px; }
@@ -199,6 +204,15 @@
     .row > :nth-child(2), .row > :nth-child(3), .row > :nth-child(4) { grid-column: 1 / -1; }
     .row > :nth-child(6) { display: none; }
     .search { flex: 1 1 100%; margin-left: 0; }
+    .scrim { padding: 12px 8px; }
+    .modal { max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); }
+  }
+  /* Fingers, not a mouse: buttons big enough to hit (44px). */
+  @media (pointer: coarse) {
+    .btn { min-height: 44px; padding: 10px 14px; }
+    .btn.small { min-height: 40px; }
+    .modal .x { min-width: 44px; min-height: 44px; }
+    .opt { padding: 12px; }
   }
 </style>
 </head>
@@ -292,6 +306,9 @@
     bonus_failed: "Bonus credit failed", completed: "Completed", cancelled: "Cancelled",
     cancel_failed: "Cancel failed", note: "Note", label_overdue: "Label overdue",
     label_bought: "Label bought", delivered_to_us: "Courier delivered it to us",
+    approve_unknown: "Shopify didn't answer: checked before trying again",
+    approve_reconciled: "Checked in Shopify", shipping_attach_unknown: "Shopify didn't answer: label checked before sending again",
+    action_interrupted: "Interrupted: what was done is kept", label_paid_not_collected: "Label paid, not yet collected",
   };
   const ACTION = {
     approve: "Approve", decline: "Decline", label: "Add label", tracking: "Add tracking",
@@ -605,39 +622,53 @@
         <div class="modal">
           <header><h3>${ACTION[action]} · <span class="mono">${esc(r.order_name)}</span></h3><button class="x" aria-label="Close">×</button></header>
           <div class="body">${form(action, r)}<div class="will" id="will"><span class="spin"></span></div></div>
-          <footer><button class="btn" data-close>Cancel</button><button class="btn primary" id="go" disabled>${ACTION[action]}</button></footer>
+          <footer><span class="why" id="why" role="status" aria-live="polite"></span><button class="btn" data-close>Cancel</button><button class="btn primary" id="go" disabled>${ACTION[action]}</button></footer>
         </div>
       </div>`;
     const scrim = modalRoot.querySelector(".scrim");
     const will = modalRoot.querySelector("#will");
     const go = modalRoot.querySelector("#go");
-    const close = () => { if (!busy) modalRoot.innerHTML = ""; };
+    const why = modalRoot.querySelector("#why");
+    // Why Approve can't be pressed yet, beside it: never just a faded button.
+    const say = (text) => { why.textContent = text || ""; };
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    const close = () => {
+      if (busy) return;
+      modalRoot.innerHTML = "";
+      document.removeEventListener("keydown", onKey);
+    };
     modalRoot.querySelector(".x").onclick = close;
     modalRoot.querySelector("[data-close]").onclick = close;
     scrim.onclick = (e) => { if (e.target === scrim) close(); };
-    document.addEventListener("keydown", function onKey(e) {
-      if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); }
-    });
+    document.addEventListener("keydown", onKey);
+    // Inside Shopify's mobile app the frame can be taller than the screen: bring it into view.
+    modalRoot.querySelector(".modal").scrollIntoView({ block: "nearest" });
 
     const needLabelNumber = action === "label" && !r.labels.automatic;
     async function check() {
       const params = readParams(scrim);
       const need = REQUIRED[action] || (needLabelNumber ? "tracking" : null);
       if (need && !params[need]) {
-        will.className = "will"; will.innerHTML = `<span class="faint">Fill in the ${need === "text" ? "note" : need === "number" || need === "tracking" ? "tracking number" : need} first.</span>`;
-        go.disabled = true; return;
+        const what = need === "text" ? "note" : need === "number" || need === "tracking" ? "tracking number" : need;
+        will.className = "will"; will.innerHTML = `<span class="faint">Fill in the ${what} first.</span>`;
+        go.disabled = true; say(`Fill in the ${what} first.`); return;
       }
       const mine = ++seq;
+      preview = null;
       will.className = "will"; will.innerHTML = `<span class="spin"></span>`; go.disabled = true;
+      say("Checking what this will do…");
       try {
         const pv = await api(`/returns/${encodeURIComponent(r.id)}/${action}/preview`, { params });
         if (mine !== seq) return;
         preview = { params };
         will.innerHTML = `<h4>This will</h4><ul>${pv.will.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>`;
-        go.disabled = false;
+        go.disabled = false; say("");
       } catch (err) {
         if (mine !== seq) return;
-        will.className = "will bad"; will.innerHTML = esc(err.message);
+        will.className = "will bad";
+        will.innerHTML = `${esc(err.message)} <button class="btn small" type="button" data-recheck>Try again</button>`;
+        will.querySelector("[data-recheck]").onclick = check;
+        say(err.status === 401 ? "Your Shopify session expired: reload the page." : `Can't ${ACTION[action].toLowerCase()} until this is fixed.`);
       }
     }
     let t;
@@ -651,9 +682,10 @@
     go.onclick = async () => {
       if (!preview || busy) return;
       busy = true; go.disabled = true; go.innerHTML = `<span class="spin"></span>`;
+      say("Working…");
       try {
         const out = await api(`/returns/${encodeURIComponent(r.id)}/${action}`, { params: preview.params, idempotency_key: idem });
-        busy = false; modalRoot.innerHTML = "";
+        busy = false; close();
         state.current = out.return;
         state.overview = null;
         loadOverview().then(renderReturn).catch(() => {});
@@ -664,6 +696,8 @@
         busy = false;
         will.className = "will bad"; will.innerHTML = esc(err.message);
         go.innerHTML = ACTION[action]; go.disabled = false;
+        // The same key goes with every press, so pressing again never does it twice.
+        say(err.status ? "Not done. You can try again." : "No answer. Pressing again is safe: it won't happen twice.");
       }
     };
   }

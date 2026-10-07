@@ -15,7 +15,7 @@ import json
 import logging
 from collections import Counter
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -39,7 +39,7 @@ from returns.models import (
     to_amount,
 )
 from returns.settings import Settings, parse_order_numbers
-from returns.shopify import ShopifyError, ShopifyPort
+from returns.shopify import ShopifyError, ShopifyPort, ShopifyUncertain
 from returns.store import Store, new_id, now
 
 log = logging.getLogger("returns.service")
@@ -66,6 +66,29 @@ CUSTOMER_STATUS = {
 COURIER_NAMES = {"evri": "Evri", "inpost": "InPost", "royal-mail": "Royal Mail"}
 
 ACTIONS = ("approve", "decline", "label", "tracking", "receive", "complete", "cancel", "note")
+ACTION_WORDS = {
+    "approve": "Approving",
+    "decline": "Declining",
+    "label": "Adding the label",
+    "tracking": "Adding tracking",
+    "receive": "Receiving",
+    "complete": "Completing",
+    "cancel": "Cancelling",
+    "note": "Adding the note",
+}
+
+
+def _after(stamp: str | None, since: datetime, *, slack_s: int) -> bool:
+    """Whether Shopify's ISO timestamp is at or after `since`, allowing for clock skew."""
+    if not stamp:
+        return False
+    try:
+        at = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=UTC)
+    return at >= since - timedelta(seconds=slack_s)
 
 
 class Notifier:
@@ -594,7 +617,28 @@ class ReturnsService:
             self.preview(return_id, action, params)  # every rule a preview checks, execute checks
             ret = self._get(return_id)
             before = ret.status
-            getattr(self, f"_do_{action}")(ret, params, actor)
+            try:
+                getattr(self, f"_do_{action}")(ret, params, actor)
+            except Exception as exc:
+                # Keep what was done before the failure: a label paid for, a Shopify return
+                # made. Lost, a retry would buy or create it again; kept, the retry settles it.
+                interrupted = not isinstance(exc, ActionError)
+                if interrupted:
+                    log.exception("%s on %s was interrupted", action, return_id)
+                    ret.last_error = (
+                        f"{ACTION_WORDS.get(action, action)} was interrupted before it finished. "
+                        "What was done is saved; look at the return before repeating it."
+                    )
+                    self._event(
+                        ret,
+                        "action_interrupted",
+                        actor,
+                        {"action": action, "error": type(exc).__name__},
+                    )
+                self.store.save(ret)
+                if interrupted:
+                    raise ActionError(ret.last_error or "Interrupted.", 503) from exc
+                raise
             self.store.save(ret)
             last = ret.timeline[-1] if ret.timeline else None
             out = {
@@ -615,9 +659,21 @@ class ReturnsService:
     def _do_approve(self, ret: Return, params: dict[str, Any], actor: str) -> None:
         mode = self._mode(ret, params)
         ret.postage.mode = mode
+        if not ret.shopify.return_id and ret.shopify.create_unknown_at is not None:
+            if not self._reconcile_return(ret, actor):
+                return
         if not ret.shopify.return_id:
+            sent_at = self.clock()
             try:
                 created = self.shopify.create_return(ret, self.shopify.reason_ids())
+            except ShopifyUncertain as exc:
+                ret.shopify.create_unknown_at = sent_at
+                ret.last_error = (
+                    "Shopify didn't answer, so it may have created the return. Approving again "
+                    "checks Shopify first and never makes a second one."
+                )
+                self._event(ret, "approve_unknown", actor, {"error": str(exc)})
+                return
             except ShopifyError as exc:
                 ret.last_error = f"Shopify did not create the return: {exc}"
                 self._event(ret, "approve_failed", actor, {"error": str(exc)})
@@ -642,6 +698,51 @@ class ReturnsService:
             ret.status = Status.received
             self._event(ret, "no_return", actor, {"note": "Customer keeps the item."})
             self._process(ret, actor)
+
+    def _reconcile_return(self, ret: Return, actor: str) -> bool:
+        """After an uncertain returnCreate: adopt the return it made, or prove it made none.
+        True when it is safe to go on (adopted, or nothing there); False to stop and say why."""
+        try:
+            found = self.shopify.order_returns(ret.order_id)
+        except ShopifyError as exc:
+            ret.last_error = (
+                f"Couldn't check Shopify for the earlier attempt ({exc}); nothing was sent again."
+            )
+            self._event(ret, "approve_unknown", actor, {"error": str(exc), "check": "failed"})
+            return False
+        want = {ln.fulfillment_line_item_id for ln in ret.lines}
+        since = ret.shopify.create_unknown_at
+        mine = {r.shopify.return_id for r in self.store.search(limit=100_000) if r.id != ret.id}
+        matches = [
+            c
+            for c in found
+            if set(c.get("return_line_item_ids") or {}) == want
+            and c.get("status") in ("OPEN", "REQUESTED")
+            and c.get("return_id") not in mine
+            and (since is None or _after(c.get("created_at"), since, slack_s=300))
+        ]
+        if len(matches) > 1:
+            ret.last_error = (
+                f"Shopify has {len(matches)} returns that could be this one. Check the order in "
+                "Shopify; nothing was sent again."
+            )
+            self._event(ret, "approve_unknown", actor, {"candidates": len(matches)})
+            return False
+        ret.shopify.create_unknown_at = None
+        if matches:
+            fields = {k: v for k, v in matches[0].items() if k not in ("status", "created_at")}
+            for k, v in fields.items():
+                setattr(ret.shopify, k, v)
+            self._event(
+                ret,
+                "approve_reconciled",
+                actor,
+                {"shopify_return": ret.shopify.return_name},
+                verified=True,
+            )
+        else:
+            self._event(ret, "approve_reconciled", actor, {"found": "none: safe to create"})
+        return True
 
     def _await_label(self, ret: Return, actor: str, why: str) -> None:
         ret.status = Status.awaiting_label
@@ -718,6 +819,11 @@ class ReturnsService:
         if not ret.shopify.reverse_fulfillment_order_ids:
             ret.last_error = "The Shopify return has no reverse fulfilment order to attach to."
             return False
+        if ret.shopify.attach_unknown:
+            # An earlier hand-over got no answer: it may already have emailed the customer.
+            settled = self._reconcile_attach(ret, actor)
+            if settled is not None:
+                return settled
         try:
             ret.shopify.reverse_delivery_id = self.shopify.attach_shipping(
                 ret.shopify.reverse_fulfillment_order_ids[0],
@@ -726,6 +832,14 @@ class ReturnsService:
                 label_url,
                 notify,
             )
+        except ShopifyUncertain as exc:
+            ret.shopify.attach_unknown = True
+            ret.last_error = (
+                "Shopify didn't answer, so the label may already be with the customer. It is "
+                "checked in Shopify before it is ever sent again."
+            )
+            self._event(ret, "shipping_attach_unknown", actor, {"error": str(exc)})
+            return False
         except ShopifyError as exc:
             ret.last_error = f"Shopify did not take the shipping details: {exc}"
             self._event(ret, "shipping_attach_failed", actor, {"error": str(exc)})
@@ -743,6 +857,38 @@ class ReturnsService:
                 else ret.postage.label_ref,
                 "reverse_delivery": ret.shopify.reverse_delivery_id,
             },
+            verified=True,
+        )
+        return True
+
+    def _reconcile_attach(self, ret: Return, actor: str) -> bool | None:
+        """True: the earlier hand-over happened (adopted). False: couldn't tell, stop. None: it
+        didn't happen, so sending it now is safe."""
+        assert ret.shopify.return_id
+        target = ret.shopify.reverse_fulfillment_order_ids[0]
+        try:
+            node = self.shopify.read_return(ret.shopify.return_id)
+        except ShopifyError as exc:
+            ret.last_error = (
+                f"Couldn't check Shopify for the earlier hand-over ({exc}); not sent again."
+            )
+            return False
+        found = [
+            d["id"]
+            for rfo in (node.get("reverseFulfillmentOrders") or {}).get("nodes") or []
+            if rfo.get("id") == target
+            for d in (rfo.get("reverseDeliveries") or {}).get("nodes") or []
+        ]
+        ret.shopify.attach_unknown = False
+        if not found:
+            return None
+        ret.shopify.reverse_delivery_id = found[0]
+        ret.last_error = None
+        self._event(
+            ret,
+            "shipping_attached",
+            actor,
+            {"reverse_delivery": found[0], "reconciled": True},
             verified=True,
         )
         return True

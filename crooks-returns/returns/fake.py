@@ -9,7 +9,7 @@ from typing import Any
 
 from returns.labels import Label, LabelError
 from returns.models import Order, OrderLine, OrderMoney, Return, Transaction, Variant
-from returns.shopify import ShopifyRefused, return_input
+from returns.shopify import ShopifyRefused, ShopifyUncertain, return_input
 
 _ids = itertools.count(1000)
 
@@ -134,11 +134,18 @@ class FakeShopify:
         self.calls: list[tuple[str, Any]] = []
         self.returns: dict[str, dict[str, Any]] = {}
         self.fail: set[str] = set()
+        # Done at Shopify, but the answer never arrives (a dropped connection, a 502).
+        self.lose_reply: set[str] = set()
         self.holds: list[str] = []
 
     def _maybe_fail(self, name: str) -> None:
         if name in self.fail:
             raise ShopifyRefused(f"{name} refused (test)")
+
+    def _maybe_lose(self, name: str) -> None:
+        if name in self.lose_reply:
+            self.lose_reply.discard(name)
+            raise ShopifyUncertain(f"{name}: no answer (test)")
 
     def find_orders(self, digits: str) -> list[Order]:
         return [o for o in self.orders.values() if o.name.lstrip("#") == digits]
@@ -195,6 +202,12 @@ class FakeShopify:
         self.returns[rid] = {
             "id": rid,
             "status": "OPEN",
+            "order_id": ret.order_id,
+            "created": created,
+            "createdAt": "2099-01-01T00:00:00Z",
+            "reverseFulfillmentOrders": {
+                "nodes": [{"id": rfo, "reverseDeliveries": {"nodes": []}}]
+            },
             "refunds": {"nodes": []},
             "exchangeLineItems": {
                 "nodes": [
@@ -207,6 +220,7 @@ class FakeShopify:
             for o_line in self.orders[ret.order_id].lines:
                 if o_line.fulfillment_line_item_id == ln.fulfillment_line_item_id:
                     o_line.returnable_qty -= ln.quantity
+        self._maybe_lose("create_return")
         return created
 
     def attach_shipping(self, rfo_id, tracking, tracking_url, label_url, notify) -> str:
@@ -217,7 +231,13 @@ class FakeShopify:
                 {"rfo": rfo_id, "tracking": tracking, "label": label_url, "notify": notify},
             )
         )
-        return gid("ReverseDelivery")
+        delivery = gid("ReverseDelivery")
+        for node in self.returns.values():
+            for rfo in node.get("reverseFulfillmentOrders", {}).get("nodes", []):
+                if rfo["id"] == rfo_id:
+                    rfo["reverseDeliveries"]["nodes"].append({"id": delivery})
+        self._maybe_lose("attach_shipping")
+        return delivery
 
     def process_return(self, payload: dict[str, Any], key: str) -> str:
         self._maybe_fail("process_return")
@@ -237,6 +257,14 @@ class FakeShopify:
 
     def read_return(self, return_id: str) -> dict[str, Any]:
         return self.returns[return_id]
+
+    def order_returns(self, order_id: str) -> list[dict[str, Any]]:
+        self.calls.append(("orderReturns", {"id": order_id}))
+        return [
+            {**n["created"], "status": n["status"], "created_at": n["createdAt"]}
+            for n in self.returns.values()
+            if n.get("order_id") == order_id
+        ]
 
     def app_scopes(self) -> list[str]:
         from returns.shopify import REQUIRED_SCOPES
@@ -271,6 +299,13 @@ class FakeLabels:
     def create(self, ret: Return, address: dict[str, Any]) -> Label:
         if not self.ok:
             raise LabelError(self.available()[1])
+        if ret.postage.label_ref:
+            # Like Parcel2Go: an order from an earlier try is settled, never bought again.
+            return Label(
+                tracking=f"RT{int(ret.postage.label_ref):09d}GB",
+                pdf=b"%PDF-1.4 fake label",
+                ref=ret.postage.label_ref,
+            )
         self.made.append(ret.id)
         return Label(
             tracking=f"RT{len(self.made):09d}GB",

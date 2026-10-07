@@ -155,3 +155,18 @@ def test_pilot_list_is_set_from_the_admin(admin, svc):
         admin.post("/proxy/api/lookup", json={"order": "#1939", "proof": "E1 6AN"}).status_code
         == 200
     )
+
+
+def test_a_failed_staff_name_lookup_is_not_repeated_on_every_tap(admin, shop, monkeypatch):
+    """The name lookup sits in front of every admin call; when Shopify refused it, each tap
+    (Approve's preview included) waited on it again. A miss is remembered for a while."""
+    asked = []
+
+    def refused(id_token):
+        asked.append(id_token)
+        return None
+
+    monkeypatch.setattr(shop, "staff_member", refused)
+    for _ in range(3):
+        assert admin.get("/admin/api/overview").json()["me"] == "Staff 42"
+    assert len(asked) == 1

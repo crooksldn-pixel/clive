@@ -38,6 +38,11 @@ class ShopifyRefused(ShopifyError):
     """Shopify answered with user errors: nothing was changed, for the reason given."""
 
 
+class ShopifyUncertain(ShopifyError):
+    """A change was sent but no answer came back (a dropped connection, a timeout, a 5xx):
+    Shopify may or may not have made it. Never sent again blindly; read Shopify back first."""
+
+
 # Shopify's reason library is keyed by stable handles; these are the ones each of our reasons
 # maps to, best first. An unmatched reason is still sent, as a note on the return line.
 REASON_HANDLES: dict[Reason, list[str]] = {
@@ -68,6 +73,7 @@ class ShopifyPort(Protocol):
     def process_return(self, payload: dict[str, Any], key: str) -> str: ...
     def credit(self, customer_id: str, pence: int, currency: str, key: str) -> str: ...
     def read_return(self, return_id: str) -> dict[str, Any]: ...
+    def order_returns(self, order_id: str) -> list[dict[str, Any]]: ...
     def exchange_holds(self, order_id: str, line_item_ids: list[str]) -> list[str]: ...
     def cancel_return(self, return_id: str) -> str: ...
     def staff_member(self, id_token: str) -> str | None: ...
@@ -179,6 +185,24 @@ mutation ReturnsReturnCreate($input: ReturnInput!) {
       returnLineItems(first: 50) { nodes { ... on ReturnLineItem { id fulfillmentLineItem { id } } } }
     }
     userErrors { field message code }
+  }
+}
+"""
+
+# The order's returns, newest first: after an uncertain returnCreate, the one it may have made.
+Q_ORDER_RETURNS = """
+query ReturnsOrderReturns($id: ID!) {
+  order(id: $id) {
+    returns(first: 20, reverse: true) {
+      nodes {
+        id name status createdAt
+        reverseFulfillmentOrders(first: 5) {
+          nodes { id lineItems(first: 50) { nodes { id fulfillmentLineItem { id } } } }
+        }
+        exchangeLineItems(first: 50) { nodes { id } }
+        returnLineItems(first: 50) { nodes { ... on ReturnLineItem { id fulfillmentLineItem { id } } } }
+      }
+    }
   }
 }
 """
@@ -493,6 +517,7 @@ class GraphQLShopify:
                     "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
                     "requested_token_type": "urn:shopify:params:oauth:token-type:online-access-token",
                 },
+                timeout=5,  # only a name for the timeline: never worth a long wait
             )
             user = r.json().get("associated_user") or {} if r.status_code == 200 else {}
         except (httpx.HTTPError, ValueError):
@@ -501,12 +526,30 @@ class GraphQLShopify:
         return name or user.get("email") or None
 
     def _call(self, document: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        # A change without an idempotency key is sent once: if its answer is lost (no reply, a
+        # timeout, a 5xx) Shopify may have made it, so it is UNKNOWN, never retried here. Reads,
+        # and changes Shopify de-duplicates by key, are retried. A 429 or THROTTLED is refused
+        # before any work is done, so it is always safe to repeat.
+        once = document.lstrip().startswith("mutation") and "@idempotent" not in document
         for attempt in range(4):
-            r = self._http.post(
-                self.endpoint,
-                json={"query": document, "variables": variables or {}},
-                headers={"X-Shopify-Access-Token": self._access_token()},
-            )
+            try:
+                r = self._http.post(
+                    self.endpoint,
+                    json={"query": document, "variables": variables or {}},
+                    headers={"X-Shopify-Access-Token": self._access_token()},
+                )
+            except httpx.HTTPError as exc:
+                if once:
+                    raise ShopifyUncertain(
+                        f"Shopify didn't answer ({type(exc).__name__}); it may have made the change."
+                    ) from exc
+                log.warning("Shopify read failed (%s); retrying", type(exc).__name__)
+                time.sleep(0.5 * 2**attempt)
+                continue
+            if r.status_code >= 500 and once:
+                raise ShopifyUncertain(
+                    f"Shopify failed while handling it ({r.status_code}); it may have made the change."
+                )
             if r.status_code == 429 or r.status_code >= 500:
                 time.sleep(0.5 * 2**attempt)
                 continue
@@ -587,6 +630,16 @@ class GraphQLShopify:
         if not node:
             raise ShopifyError("Shopify has no such return.")
         return node
+
+    def order_returns(self, order_id: str) -> list[dict[str, Any]]:
+        """The order's returns as `parse_created` reads them, plus `status` and `created_at`."""
+        order = self._call(Q_ORDER_RETURNS, {"id": order_id}).get("order")
+        if not order:
+            raise ShopifyError("Shopify has no such order.")
+        return [
+            {**parse_created(n), "status": n.get("status"), "created_at": n.get("createdAt")}
+            for n in (order.get("returns") or {}).get("nodes") or []
+        ]
 
     def app_scopes(self) -> list[str]:
         installation = self._call(Q_APP_SCOPES)["currentAppInstallation"]

@@ -35,6 +35,7 @@ from returns.models import (
 from returns.service import ActionError, ReturnsService
 
 LEEWAY_S = 10
+NAME_RETRY_S = 600  # a failed staff-name lookup is tried again after 10 minutes
 
 
 class BadToken(Exception):
@@ -209,6 +210,9 @@ def page_html(client_id: str) -> str:
 def build_admin_router(svc: ReturnsService) -> APIRouter:
     s = svc.s
     names: dict[str, str] = {}
+    # A failed name lookup is not repeated for a while: it sits in front of every admin call,
+    # and a slow or refused token exchange made each tap (Approve's preview too) wait.
+    missed: dict[str, float] = {}
 
     def staff(authorization: str | None = Header(default=None)) -> str:
         """The signed-in staff member's name, for the timeline."""
@@ -225,10 +229,12 @@ def build_admin_router(svc: ReturnsService) -> APIRouter:
         except BadToken as exc:
             raise HTTPException(401, "Open this from the Apps menu in Shopify admin.") from exc
         sub = str(claims.get("sub", ""))
-        if sub not in names:
+        if sub not in names and time.monotonic() - missed.get(sub, -1e9) > NAME_RETRY_S:
             found = svc.shopify.staff_member(token)
             if found:
                 names[sub] = found
+            else:
+                missed[sub] = time.monotonic()
         return names.get(sub) or f"Staff {sub}".strip()
 
     router = APIRouter(prefix="/admin")
