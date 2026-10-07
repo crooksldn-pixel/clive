@@ -19,9 +19,14 @@ second mutation path proven by nothing. So `plan()` builds exactly what would be
 `stage()` refuses, by name, until the scope and the verification exist.
 
 When they do, the work is: a `WriteSpec` in a new app/tools module with these preconditions and
-this verification, `available=True` here, and the family's state derives itself from the
-operation table like every other. Nothing in the application layer needs to change, because
-nothing in the application layer knows about this file — it goes through the one action engine.
+this verification, and `available=True` here. Nothing in the application layer needs to change,
+because nothing in the application layer knows about this file — it goes through the one action
+engine.
+
+Nothing registers the four as capability families any more: since DEC-066 returns and exchanges
+go through CROOKS Returns, whose own families say what CLIVE can do, and the rows
+app/families/returns.py registered from this file were retired. The contract is kept until it is
+deleted.
 """
 
 from __future__ import annotations

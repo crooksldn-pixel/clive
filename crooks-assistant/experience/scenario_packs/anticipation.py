@@ -165,20 +165,19 @@ async def shipping_is_not_connected(h: Harness) -> Result:
 
 
 async def returns_are_not_available_yet(h: Harness) -> Result:
-    """§21 on the tablet: the four future changes are listed, unavailable, each naming the
-    scope to grant — and nothing is registered that could execute one."""
-    r = Result("returns_are_not_available_yet", "A return says what it needs before it can happen")
+    """A return goes through CROOKS Returns and never through Shopify (DEC-066). The four rows
+    that said returns were not built are retired, so the family table has none of them, and
+    nothing is registered or reviewed that could make a return in Shopify itself.
+
+    The name is kept because tests/test_crooks_returns.py calls it by it."""
+    r = Result("returns_are_not_available_yet", "A return goes through CROOKS Returns, never through Shopify")
     from app.returns import contract
     from app.tools import registry
 
     families = await h.runtime.family_states() if hasattr(h.runtime, "family_states") else {}
     for key, capability in contract.CAPABILITIES.items():
-        row = families.get(key) or {}
-        r.checks.append(check(f"{capability.label.lower()} is listed as not built",
-                              row.get("state") == "NOT_IMPLEMENTED" and row.get("offerable") is False,
-                              f"{key}={row.get('state')!r}"))
-        r.checks.append(check(f"{capability.label.lower()} names the scope to grant",
-                              row.get("scope") == capability.scopes[0], f"{row.get('scope')!r}"))
+        r.checks.append(check(f"{capability.label.lower()} has no row in the families table",
+                              key not in families, f"{key}={(families.get(key) or {}).get('state')!r}"))
     # CROOKS Returns (app/tools/returns_tools.py, 3 October 2026) adds the only tools named for
     # returns: three reads of the owner's returns service and one change staged through ITS
     # actions. None of them is a Shopify mutation: CLIVE still cannot start a return itself.

@@ -172,38 +172,6 @@ def test_no_return_mutation_is_registered_anywhere():
                 if any(word in reviewed.document.lower() for word in words)], "a Shopify return mutation is reviewed"
 
 
-async def test_the_four_rows_say_not_implemented_and_name_the_scope_to_grant():
-    from app.capabilities import families
-    from app.families import load_all
-
-    load_all()
-    table = await families.states(None)
-    for key, capability in contract.CAPABILITIES.items():
-        row = table[key]
-        assert row["state"] == "NOT_IMPLEMENTED" and row["offerable"] is False
-        assert row["scope"] == capability.scopes[0]
-        assert row["tools"] == [] and row["operations"] == []
-        line = families.words({key: row})[0]
-        # The instruction lives once at the head of the block (app/routes/turn.py
-        # FAMILY_LINE_PREFIX), not on every line: with seven unavailable families it was
-        # 287 characters a turn of the same sentence.
-        assert capability.scopes[0] in line and "NOT_IMPLEMENTED" in line
-        assert "Do not attempt" not in line, line
-
-
-async def test_the_rows_carry_the_mutation_and_the_verification_for_whoever_builds_it():
-    from app.capabilities import families
-    from app.families import load_all
-
-    load_all()
-    family = families.get("return_create")
-    assert family is not None
-    assert family.extra["mutation"] == "returnCreate"
-    assert family.extra["scopes_required"] == list(contract.RETURN.scopes)
-    assert family.extra["verification"]
-    assert family.extra["preconditions"]
-
-
 def test_the_owner_can_be_told_all_four_in_a_sentence_each():
     lines = contract.words()
     assert len(lines) == 4
