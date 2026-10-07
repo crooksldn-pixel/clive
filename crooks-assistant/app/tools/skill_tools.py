@@ -15,7 +15,8 @@ name, on the "instructions" route. Anything else is skipped and counted as unrea
 skill_read returns one file a skill's provenance lists, with a text suffix, opened component by
 component without following a link, a regular file of at most a megabyte whose sha256 is still
 the one the provenance recorded. Every credential in it is replaced (app.digest.scan.redact) and
-every control, format or variation character is written as an escape, so nothing invisible
+every invisible character (control, format, separator, private-use, unassigned, a variation
+selector or a blank-looking letter: `_hidden`) is written as an escape, so nothing invisible
 reaches the model. A refusal says why in plain words and never quotes the file, nor a path the
 provenance does not list.
 
@@ -165,12 +166,22 @@ def _is_variation(code: int) -> bool:
     return 0xFE00 <= code <= 0xFE0F or 0xE0100 <= code <= 0xE01EF or 0x180B <= code <= 0x180F
 
 
+# Beyond control (Cc) and format (Cf: zero-width, direction, tag) characters: line and paragraph
+# separators (Zl, Zp: a real line break inside a JSON string), surrogates (Cs: text that cannot even
+# be encoded), private-use (Co) and unassigned (Cn) code points.
+_HIDDEN_CATEGORIES = frozenset(("Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"))
+# And the letters and marks that draw as nothing: the Hangul fillers, the braille blank, the
+# combining grapheme joiner and Khmer's two inherent vowels.
+_BLANKS = frozenset((0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800, 0x034F, 0x17B4, 0x17B5))
+
+
 def _hidden(ch: str) -> bool:
-    """A character the model would read but nobody would see: a control character other than a
-    newline or a tab, a format character (zero-width, direction, tag) or a variation selector."""
+    """A character the model would read but nobody would see, or would see as something else:
+    anything but a newline or a tab in the categories above, a variation selector, or a blank."""
     if ch in "\n\t":
         return False
-    return unicodedata.category(ch) in ("Cc", "Cf") or _is_variation(ord(ch))
+    code = ord(ch)
+    return unicodedata.category(ch) in _HIDDEN_CATEGORIES or _is_variation(code) or code in _BLANKS
 
 
 def _escape(ch: str) -> str:
