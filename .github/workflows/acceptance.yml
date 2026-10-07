@@ -39,6 +39,9 @@ env:
   GITLEAKS_VERSION: "8.30.1"
   # gitleaks_8.30.1_linux_x64.tar.gz, as the release's own checksums file gives it.
   GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+  # The browser the screen tests drive. playwright-core 1.56.1 is the version the build
+  # machines run, and it brings its own pinned Chromium build (1194).
+  PLAYWRIGHT_CORE_VERSION: "1.56.1"
 
 jobs:
   acceptance:
@@ -79,6 +82,25 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
+
+      - name: Install the pinned browser for the screen tests
+        # Without node, playwright-core and a Chromium every browser test skips, and a green
+        # run would say nothing about any screen. Installed here, they run; and the last line
+        # refuses to go on if the suite would still think it has no browser.
+        working-directory: crooks-assistant
+        run: |
+          set -euo pipefail
+          node --version
+          prefix="${RUNNER_TEMP}/browser"
+          npm install --no-save --no-audit --no-fund --prefix "$prefix" "playwright-core@${PLAYWRIGHT_CORE_VERSION}"
+          export PLAYWRIGHT_BROWSERS_PATH="${RUNNER_TEMP}/pw-browsers"
+          "$prefix/node_modules/.bin/playwright-core" install --with-deps chromium
+          chrome="$(ls -d "${PLAYWRIGHT_BROWSERS_PATH}"/chromium-*/chrome-linux/chrome | head -n 1)"
+          test -x "$chrome"
+          echo "NODE_PATH=$prefix/node_modules" >> "$GITHUB_ENV"
+          echo "CROOKS_CHROMIUM=$chrome" >> "$GITHUB_ENV"
+          NODE_PATH="$prefix/node_modules" CROOKS_CHROMIUM="$chrome" python -c \
+            "from experience.browser import available; ok, why = available(); print('browser:', ok, why); raise SystemExit(0 if ok else 1)"
 
       - name: Install the pinned secret scanner
         run: |
