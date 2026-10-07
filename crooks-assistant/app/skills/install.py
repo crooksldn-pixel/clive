@@ -24,12 +24,14 @@ For each approved skill, in order: the quarantined copy is verified against the 
 digest (or nothing of the artifact is installed); the skill is refused as held when the artifact
 was blocked or a high or critical finding lies in its folder; refused as the owner's when
 anything in it would run on its own or brings a key (OWNER_RULES, a hooks key in its front
-matter, a !`command` line, a link, special or hard-linked file, a licence that forbids reuse);
-deferred when it carries scripts, which wait for a sandboxed script route; and otherwise copied
-into a private staging folder, scanned again, checked byte for byte against the quarantined
-folder, given its licence and provenance.json, and renamed into place in one step, so a reader
-never sees half an install. The same skill again writes nothing; another skill under an
-installed name is a conflict, and nothing is overwritten.
+matter, allowed-tools granting a shell tool, a !`command` line, a link, special or hard-linked
+file, a licence that forbids reuse); deferred when it carries scripts, which wait for a sandboxed
+script route; and otherwise copied into a private staging folder, scanned again, checked byte
+for byte against the quarantined folder, given its licence and provenance.json, and renamed
+into place in one step that never replaces anything (renameat2 with RENAME_NOREPLACE; held
+where that is not available), so a reader never sees half an install. The same skill again
+writes nothing; another skill under an installed name is a conflict, and nothing is
+overwritten.
 
 Nothing from a skill is executed, imported or installed anywhere else, and there is no network.
 No third-party skill content may go into git: a skills_dir inside the repository is refused
@@ -38,6 +40,8 @@ unless it is under crooks-assistant/.state/, which .gitignore ignores."""
 from __future__ import annotations
 
 import contextlib
+import ctypes
+import errno
 import hashlib
 import json
 import os
@@ -96,6 +100,7 @@ OWNER_RULES = frozenset((
     "execute.git_hook", "execute.git_config", "execute.install_script", "execute.build",
     "execute.startup", "execute.agent_settings", "execute.agent_hook", "execute.mcp",
     "execute.devcontainer", "execute.editor_task", "execute.ci", "execute.binary",
+    "execute.agent_permissions",
 ))
 # Stored findings that say a skill carries scripts: it waits for a sandboxed script route.
 SCRIPT_RULES = frozenset((
@@ -103,6 +108,11 @@ SCRIPT_RULES = frozenset((
 ))
 _HOOKS_KEY = re.compile(r"""[ \t]*["']?hooks["']?[ \t]*:""", re.I)
 _COMMAND = "!`"                    # Claude Code runs !`command` before the model reads the skill
+# allowed-tools (or allowed_tools, in any case), and what follows it on its line.
+_ALLOWED_TOOLS_KEY = re.compile(r"""[ \t]*["']?allowed[-_]tools["']?[ \t]*:(.*)""", re.I)
+# The move that never replaces: Linux's renameat2 with RENAME_NOREPLACE (glibc 2.28 or later).
+_AT_FDCWD = -100
+_RENAME_NOREPLACE = 1
 
 # Outcomes, and why a skill was refused or deferred.
 INSTALLED = "installed"
@@ -417,6 +427,11 @@ def _install_checked(copy: Path, artifact: Artifact, findings: tuple[Finding, ..
         lines = _text_lines(data)
         if any(_HOOKS_KEY.match(line) for line in _front_matter_lines(lines)):
             raise _Refused(OWNER, f"a hooks key in the front matter of {_in_artifact(folder, rel)}")
+        shell = _shell_grants(_front_matter_lines(lines))
+        if shell:
+            raise _Refused(OWNER, f"allowed-tools granting {', '.join(shell)} in the front matter of "
+                                  f"{_in_artifact(folder, rel)}, which lets every builder that loads "
+                                  "it run commands without asking")
         number = next((n for n, line in enumerate(lines, 1) if _COMMAND in line), 0)
         if number:
             raise _Refused(OWNER, f"a !`command` on line {number} of {_in_artifact(folder, rel)}, "
@@ -511,6 +526,25 @@ def _front_matter_lines(lines: list[str]) -> list[str]:
         if lines[end].strip() == "---":
             return lines[1:end]
     return lines[1:]
+
+
+def _shell_grants(front_matter: list[str]) -> list[str]:
+    """The shell tools an allowed-tools key in the front matter grants (scan._SHELL_TOOL's
+    shapes: Bash, Shell, PowerShell or Terminal, bare or with a pattern, in any case), its value
+    written inline, as a flow list or as a block list below the key. scan reads only the inline
+    form; here every line below the key that is indented or a list item is its value too."""
+    grants: list[str] = []
+    for at, line in enumerate(front_matter):
+        key = _ALLOWED_TOOLS_KEY.match(line)
+        if key is None:
+            continue
+        value = [key.group(1)]
+        for below in front_matter[at + 1:]:
+            if below and below[0] not in " \t-":
+                break
+            value.append(below)
+        grants += scan._SHELL_TOOL.findall("\n".join(value))
+    return list(dict.fromkeys(grants))
 
 
 def _front_matter_fields(data: bytes | None) -> tuple[str | None, str | None]:
@@ -756,9 +790,41 @@ def _stage(skills_dir: Path, final: Path, survey: _Survey, digest: str,
         _seal(staging)
         if os.path.lexists(final):
             raise _Refused(CONFLICT, f"{final} appeared while the skill was staged; nothing is overwritten")
-        os.rename(staging, final)
+        _move_noreplace(staging, final)
     finally:
         remove_tree(staging)
+
+
+def _renameat2() -> Callable[..., int] | None:
+    """libc's renameat2, or None when it has none (glibc before 2.28, or not Linux)."""
+    try:
+        function = ctypes.CDLL(None, use_errno=True).renameat2
+    except (OSError, AttributeError):
+        return None
+    function.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+    function.restype = ctypes.c_int
+    return function
+
+
+def _move_noreplace(staging: Path, final: Path) -> None:
+    """Rename staging to final in one step that never replaces anything at final: a folder
+    that appeared there, even an empty one that os.rename would replace silently, is a
+    conflict and is left as it is. Where that move is not available, nothing is installed
+    (held): there is no falling back to os.rename. Any other failure is raised."""
+    renameat2 = _renameat2()
+    unavailable = _Refused(HELD, "the move that never replaces (renameat2 with RENAME_NOREPLACE) is "
+                                 f"not available here, so nothing is installed at {final}")
+    if renameat2 is None:
+        raise unavailable
+    if renameat2(_AT_FDCWD, os.fsencode(staging), _AT_FDCWD, os.fsencode(final),
+                 _RENAME_NOREPLACE) == 0:
+        return
+    code = ctypes.get_errno()
+    if code == errno.EEXIST:
+        raise _Refused(CONFLICT, f"{final} appeared while the skill was staged; nothing is overwritten")
+    if code in (errno.ENOSYS, errno.EINVAL):
+        raise unavailable
+    raise OSError(code, os.strerror(code), str(staging), None, str(final))
 
 
 def _seal(staging: Path) -> None:

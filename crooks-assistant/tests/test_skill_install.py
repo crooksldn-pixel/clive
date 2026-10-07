@@ -331,7 +331,7 @@ def test_a_folder_name_cannot_make_a_skill_that_needs_the_owner_curated(tmp_path
         tmp_path, model, curated=False, files={f"skills/{folder}/SKILL.md": _skill_md("star-charts")})
     unit = _anchor(store, artifact_id, "star-charts")
     [proposal] = [p for p in store.absorptions(artifact_id) if p.unit_id == unit.id and p.target == "builder_skill"]
-    assert propose.NEEDS_OWNER in proposal.reasoning and folder in proposal.reasoning
+    assert propose.NEEDS_OWNER in proposal.reasoning and propose.inert(folder) in proposal.reasoning
     assert not installer.is_curated(proposal)
 
     skills_dir = tmp_path / "skills"

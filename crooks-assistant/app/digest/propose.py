@@ -111,6 +111,11 @@ TOKEN_SHEET = "crooks-assistant/web/style.css"
 COMPONENTS_DIR = "crooks-assistant/web/components"
 
 NEEDS_OWNER = "Needs the owner"
+# Why the owner must decide a proposal whose reasoning repeats CLIVE's own labels (see explain).
+AMBIGUOUS = ("the reasoning repeats CLIVE's own labels, so whether the owner must decide it "
+             "cannot be read from it")
+# The labels _reasoning writes after a proposal's target, each once at most.
+LABELS = (f"{NEEDS_OWNER}: ", "Licence: ", "Hypothesis: ", "Measure: ", "Removal: ", "Rank: ")
 VERIFY_FIRST = "verify first"
 REFERENCE_KINDS = frozenset({"dependency", "script", "example"})
 CONTRACT_TAGS = frozenset({"openapi", "graphql", "json_schema", "mcp", "asyncapi"})
@@ -450,16 +455,37 @@ class Explanation:
     rank: str = ""
 
 
+def inert(text: str) -> str:
+    """The artifact's text with the space after every colon made a no-break space (U+00A0): it
+    reads the same, but cannot write one of CLIVE's labels into a reasoning."""
+    return text.replace(": ", ": ")
+
+
+def _ambiguous(text: str, target: str) -> bool:
+    """Whether a reasoning repeats CLIVE's own labels: " Target <target>: " more than once, or
+    one of LABELS more than once after its last " Target <target>: "."""
+    marker = f" Target {target}: "
+    if text.count(marker) > 1:
+        return True
+    after = text[text.rfind(marker) + len(marker) - 1:]
+    return any(after.count(f" {label}") > 1 for label in LABELS)
+
+
 def explain(absorption: Absorption) -> Explanation:
     """The parts of a proposal's reasoning. They are read from after its target: everything
     from there on is CLIVE's own words, while the unit's title, which comes first, is the
     artifact's text and cannot speak for the proposal — a title that says "Needs the owner:"
     or "Hypothesis:" says it only inside `why`. Reasoning not in _reasoning's shape (clipped,
-    or written by hand) is all `why`."""
+    or written by hand) is all `why`.
+
+    What propose quotes after the target has its colons made inert, but a reasoning written
+    before that, or by hand, can still repeat CLIVE's labels: when it does (see _ambiguous) and
+    nothing read says the owner must decide it, needs_owner is AMBIGUOUS, so it fails closed."""
     text = absorption.reasoning
     marker = text.rfind(f" Target {absorption.target}: ")
     if marker < 0:
         return Explanation(text, "", "", "", "")
+    unclear = AMBIGUOUS if _ambiguous(text, absorption.target) else ""
     head, tail = text[:marker], text[marker + 1:]
     found: dict[str, str] = {}
     for label in ("Self-model ", "Rank: ", "Removal: ", "Measure: ", "Hypothesis: ", "Licence: ",
@@ -469,10 +495,10 @@ def explain(absorption: Absorption) -> Explanation:
             found[label] = tail[at + 1 + len(label):].strip()
             tail = tail[:at]
     if not all(label in found for label in ("Hypothesis: ", "Measure: ", "Removal: ")):
-        return Explanation(text, "", "", "", "")
-    reason = found.get(f"{NEEDS_OWNER}: ", "")
+        return Explanation(text, unclear, "", "", "")
+    reason = found.get(f"{NEEDS_OWNER}: ", "").removesuffix(".") or unclear
     return Explanation(
-        why=f"{head} {tail}".strip(), needs_owner=reason.removesuffix("."),
+        why=f"{head} {tail}".strip(), needs_owner=reason,
         hypothesis=found["Hypothesis: "], measure=found["Measure: "], removal=found["Removal: "],
         licence=found.get("Licence: ", ""), rank=found.get("Rank: ", ""),
     )
@@ -659,11 +685,14 @@ def _count(members: tuple[Unit, ...]) -> str:
 
 
 def _licence_plan(plan: _Plan, licence: tuple[str, str] | None) -> _Plan:
-    """What the licence covering a proposal's units makes of it (see the module's docstring)."""
+    """What the licence covering a proposal's units makes of it (see the module's docstring).
+    The expression and the path that declares it are the artifact's text: they are written
+    inert, so they cannot write one of CLIVE's labels."""
     if plan.target not in ADDING_TARGETS:
         return plan
     expression, where = licence if licence else ("", "")
     rank = scan.licence_rank(expression or None)
+    expression, where = inert(expression), inert(where)
     if rank == 2:
         return replace(_reference(f"Its licence ({expression}, in {where}) forbids reuse, so "
                                   "nothing is taken from it; it is kept as a pointer, and the "
