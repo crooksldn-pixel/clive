@@ -293,7 +293,7 @@ Accept:
 
 ## DEC-027 — Writes remain disabled during migration/verification
 **Date:** 2026-09-19  
-**Status:** ACTIVE UNTIL EXPLICIT CHANGE
+**Status:** SUPERSEDED — production writes are on: `CROOKS_WRITES_ENABLED=true` in the production `.env`, by the owner's choice (`docs/DEPLOY_LINUX.md`; recorded on the host by `crooks-assistant/reports/deploy-66d3e05d.md`, 2 October 2026, and untouched by the deploys since). No dated owner-decision file records the day he turned them on. Every write still waits for its card (DEC-005, DEC-006, DEC-007), and `CROOKS_WRITES_LOCAL_OWNER=false` still holds. Was: ACTIVE UNTIL EXPLICIT CHANGE
 
 `CROOKS_WRITES_ENABLED=false` and `CROOKS_WRITES_LOCAL_OWNER=false` remain the migration baseline.
 
@@ -908,11 +908,151 @@ The unrestricted-English prose-freeze parser experiment is therefore parked as h
 
 ---
 
-## DEC-061 — CROOKS Returns is an owner-deployed service outside the engineering kernel; CLIVE connects to it read-first, writes as proposals, money on the owner's hold
+## DEC-062 — The 2026-09-26 owner decisions join the log: the reviewer's model and cost
+
+**Date:** 2026-09-26 (recorded in this log on 2026-10-05)
+**Status:** ACTIVE
+**Source:** [OWNER_DECISIONS_2026-09-26.md](./OWNER_DECISIONS_2026-09-26.md), "recorded from the owner's explicit answers in the Opus 5.5 engineering session", which remains the full text. It records his answers, not his words verbatim.
+
+**Decision:**
+- **The loop's routine exact-SHA reviews run on `gpt-6-luna` at medium effort.** The code defaults are `DEFAULT_MODEL` and `DEFAULT_EFFORT` in `app/orchestrator/reviewers/gpt.py`. He had asked to move from `gpt-5.6-sol` to `gpt-5.6-luna`, because the reviews were burning OpenAI tokens. On that day's list prices, `gpt-6-luna` beat `gpt-5.6-luna` on both cost and quality.
+- **The production deploy review stays on `gpt-6-sol` at medium effort** (`DEPLOY_REVIEW_MODEL`). It is rare, and it is the last gate before the live system.
+- **He accepted the risk.** A weaker reviewer can pass a defect, or raise a finding that is not real and costs a repair round. The engineering measures judge the choice: review rounds, false findings, and defects found after acceptance. If Luna's quality shows there, the loop moves back to `gpt-6-sol`.
+- **The loop-update follow-ups were left to the Director, who did both.**
+  - The manual kernel CLI's `verdict` and `integrate` need the same green GitHub acceptance gate as the loop.
+  - The tests that hold the protected code are protected too.
+
+**Reason:** the dated record was written outside this log. Without an entry here, a reader of DECISIONS.md would miss an active owner decision (DEC-016, DEC-058).
+
+**Consequences:** this entry creates no new authority.
+
+---
+
+## DEC-063 — The 2026-09-28 owner decisions join the log: every sentence is a model turn
+
+**Date:** 2026-09-28 (recorded in this log on 2026-10-05)
+**Status:** ACTIVE
+**Source:** [OWNER_DECISIONS_2026-09-28.md](./OWNER_DECISIONS_2026-09-28.md), "recorded from the owner's explicit instructions in the Opus 5.5 engineering session", which remains the full text.
+
+**Decision:** The owner, verbatim:
+
+> get rid of the fast path actions and inbuilt voice term base because sometimes even just mentioning a word means nothing gets done but look up order xyz, and the terms block means certain words such as Clive - is registered as Plaid. and many other instances, overall, they are holding it back a for lot more than helping it and this is not good.
+
+- **Every typed or spoken request is a model turn.** The words go in exactly as said, with the tools the model already has. No phrase, order number or intent match answers a sentence, and nothing is looked up before the model is asked. The fast lane is gone: `app/fastpath/`, its recipes and lanes, the order prefetch and the self-correction layer.
+- **Nothing tells the recogniser which words to expect, and nothing rewrites what it heard.**
+  - ElevenLabs Scribe is sent the audio alone, and the Whisper fallback gets no prompt.
+  - The post-transcription normaliser is gone; the transcript is only trimmed.
+  - `CROOKS_SCRIBE_KEYTERMS` and `CROOKS_SCRIBE_MAX_KEYTERMS` are no longer settings.
+- **What was kept:**
+  - Taps. A button names what it does, and `app/recipes.py` holds the reads that buttons name.
+  - The spoken "yes" over a waiting card. That is the write boundary's interlock, and a spoken yes never applies a change.
+  - Plain trimming of the transcript.
+- **The app's accent is iOS blue**, and the start-up's dots go steel (`0bdfe58c`).
+- **The owner's TV screens get a remote mode.**
+
+**Supersedes:** for anything said or typed, the "deterministic fast paths remain" line of [CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md](./CONTINUOUS_PRODUCT_EVALUATION_AND_DYNAMIC_UI.md) §2.6. Taps stay deterministic.
+
+**Reason:** the dated record was written outside this log (DEC-016, DEC-058).
+
+**Consequences:**
+- A simple lookup is now a model round trip: seconds, not milliseconds.
+- "Next", "go back" or "open the inbox" said aloud reach the model, which has no tool that moves the screen. The buttons do that.
+- One departure is on the trunk. The team page reads short sentences such as "I've packed 2106" on the phone (`web/today-say.js`, built from his words of 2 October: "any way they intend to act can be accepted as input: a click, speech, typing"). Whether that is an allowed exception to this decision is his call.
+
+---
+
+## DEC-064 — The 2026-09-30 owner decisions join the log: the ship rule, acceptance, skills, capacity, the re-pin, filing and landing
+
+**Date:** 2026-09-30 (recorded in this log on 2026-10-05)
+**Status:** ACTIVE
+**Source:** [OWNER_DECISIONS_2026-09-30.md](./OWNER_DECISIONS_2026-09-30.md), "recorded from the owner's explicit answers in the Opus 5.5 engineering session", which remains the full text.
+
+**Decision:**
+- **The ship rule is regression-only, with one exception.**
+  - The owner, verbatim: "regression only ship rule is good for now". He was answering the advice he quoted: "anything shown to leak customer data, or to write to the shop or send an email you didn't confirm, blocks whether it's new or old. Everything else old goes into the next build".
+  - A material finding blocks a deploy only when this change makes production worse, or when it is shown to leak customer data, or to write to the shop or send an email he did not confirm, whether the defect is new or old.
+  - Every other material finding is a follow-up for the next build. A finding that cannot be dated to this change is treated as new.
+  - The rule stands "for now", until he changes it.
+  - What stays: the exact-SHA review; green acceptance on the exact head; merging only at the expected head; his hold on every shop or email write; and the rule never to weaken the kernel, test assertions, secret scanning or the acceptance machinery.
+- **Acceptance moves to a self-hosted runner on clive-worker-01.** The owner, verbatim: "Self hosted runner definetely".
+  - The runner is isolated in its own VM or its own user.
+  - It holds no production credential and not the engineering token.
+  - It is registered to this repository only.
+- **The owner's curated skill list is his decision.** He answered "Yes" to: "Does your own skill list count as your approval? That skips the per-skill sign-off and the cap of 5."
+  - Every skill is still pinned, scanned per skill, licence-checked, and installed with its provenance, and it can be removed.
+  - Anything that runs on its own stays his to approve: a hook, an MCP server, an executable, a key, a new data vendor or spend.
+- **Builders run on his one Max plan.** The owner, verbatim: "Just max currently if we need more i can get another max plan". He accepted the consumer-terms risk; the fallback is a Team plan or the API.
+- **The loop was re-pinned to `40e6a73f` under his waiver.** The owner, verbatim: "waive". He said it after being told that the second review's findings were not regressions against the loop the host was running.
+  - The waiver covers exactly `40e6a73fb5095e9415b1e07283ed084bec82f2fd`; any other SHA still needs READY.
+  - Its three follow-ups are the Director's, by hand: a stopped worker is confirmed gone; a restart test of `run`; declared checks are required.
+- **Filing is switched on, and the loop lands its own work.** He was offered four steps: filing; the loop merging its own work; the release service; and parallel builders. He answered, verbatim: "I say yes to the first two".
+  - Filing: `CROOKS_ENGINEERING_HOST=worker-01`, and the engineering inbox credential moves to the live secret tier. Every filing still waits for his hold on its card.
+  - Landing: the loop may fast-forward `clive/trunk` to exactly a candidate's SHA only when all of these hold:
+    - GitHub acceptance is green on that SHA, asked at that moment;
+    - the loop's review of that SHA is READY;
+    - the candidate changes no protected path;
+    - the candidate already contains the trunk head.
+  - Deploying is unchanged by this.
+
+**Still open on that day:** Jev access; a written data policy for business text leaving the host; the reviewer's monthly budget; and decisions 3 and 6 of the self-shipping plan.
+
+**Supersedes:**
+- The rule applied in review rounds 9, 10 and 12 ("it can be exploited; it would lose data; it would leak data").
+- From filing on, the standing deploy rule that the engineering credential stays parked and `CROOKS_ENGINEERING_HOST` stays unset.
+
+**Reason:** the dated record was written outside this log (DEC-016, DEC-058).
+
+**Consequences:** this entry creates no new authority. Deploys, credentials, spend and business writes stay owner-gated exactly as the dated record says.
+
+---
+
+## DEC-065 — The 2026-10-01 owner decisions join the log: CLIVE's voice, keys from the app, the team, and three numbered rulings
+
+**Date:** 2026-10-01 (recorded in this log on 2026-10-05)
+**Status:** ACTIVE
+**Source:**
+- [OWNER_DECISIONS_2026-10-01.md](./OWNER_DECISIONS_2026-10-01.md) is the full text for the voice, the keys and the team.
+- Decisions 7 and 8 and ruling 12 of the same day never reached product memory. They are recorded here from:
+  - PR #85 (`159b4fcc`);
+  - PR #78 (`9252de68`);
+  - the loop request `mark-packed-counts-as-packed-3` on `clive/control/worker-01-inbox`;
+  - the code that carries them.
+- The re-pin waiver is from PR #72.
+
+**Decision:**
+- **CLIVE speaks in his voice spec.** He wrote "JARVIS Decoded — A Voice Spec for CLIVE" (his Claude doc, 30 September) and said, verbatim: "i created this for the personality i want clive to have".
+  - Its drop-in prompt is `PERSONALITY` in `app/kb/loader.py`, the first section after who CLIVE is.
+  - The sections after it win any conflict. So figures are said as words, there is no spoken "Confirm?", and the examples show only what CLIVE can do.
+  - It governs wording only.
+- **Keys and sign-ins are stored from the app.** He was asked whether the app may store keys, and whether every change should ask for a passkey. He answered "yes" to both.
+  - Keys are stored from `/connections`.
+  - Each key is tested with its service before it is stored, and stored encrypted.
+  - Every change asks for his passkey at that moment.
+- **The team uses CLIVE.** His choices, verbatim: "Own phones"; "Mark orders packed, Fulfil in Shopify, Send email replies, Adjust stock from counts"; "Everything but your chats".
+  - The Today screen (`/today`) is the team's.
+  - A member of the team gets in only after he approves their login with his passkey.
+  - Refunds, cancellations, order edits, discounts, store credit and new emails stay his.
+  - The team's conversations run on his Max plan. That carries the consumer-plan risk recorded on 30 September, with the same fallback.
+- **Decision 7: builders never auto-update the Claude CLI** (PR #85). The builder environment carries `DISABLE_AUTOUPDATER=1`, and the CLI is updated deliberately, with the pin.
+- **Decision 8: a custom item on an existing order.** His words, as PR #78 records them: "custom item on an existing order: yes". It is a write, staged on a card for his confirmation, like adding a catalogue item.
+- **Ruling 12, closing B-04: a screen's own Mark packed counts as packed.** The owner, verbatim: "yes, the mark packed should be in clive memory, not shopify this becomes more important later down the line". A packed record counts as packed whichever way it was made (`app/displays/store.py`):
+  - by a screen's own button;
+  - by his remote;
+  - by the remote's controls on a device that is itself a screen.
+- **The loop was re-pinned to `b577bc97`, with two narrow findings waived.** He waived them on the understanding that their fixes ship with the next re-pin (PR #72 carries them).
+
+**Reason:** the dated record was written outside this log, and three of that day's numbered decisions were written only into code, pull requests and a loop request (DEC-016, DEC-058).
+
+**Consequences:** this entry creates no new authority. The numbers 7, 8 and 12 come from a list of that day's decisions that is not in the repository. Nothing else from that list is recorded here, because nothing else from it can be read.
+
+---
+
+## DEC-066 — CROOKS Returns is an owner-deployed service outside the engineering kernel; CLIVE connects to it read-first, writes as proposals, money on the owner's hold
 
 **Date:** 2026-10-03
 **Status:** ACTIVE
 **Source:** the owner's brief for the CLIVE builder (`docs/returns/BRIEF_CLIVE.md` and `docs/returns/SCOPE.md` on branch `claude/compassionate-dirac-44hnee`), which says to record the service this way
+**Recorded here:** on 2026-10-05, from the text of DEC-061 on PR #96's branch (`claude/returns-and-design`, `f475be0d`), word for word apart from this line and the number. PR #96 is not on the trunk. DEC-061 is used on two unmerged branches: on PR #96 for this entry, and on `claude/venture-engine-v1-2026-09-29` for the venture engine. So this log leaves DEC-061 unused, and the two never clash. The files this entry names (`app/tools/returns_tools.py`, `app/clients/crooks_returns.py`, `tests/test_crooks_returns_contract.py`) arrive with PR #96. When PR #96 lands, its DEC-061 is this entry and is dropped as a duplicate.
 
 **Decision:** CROOKS Returns (`https://returns.crooksldn.com`) is the owner's own returns and exchanges service, replacing AfterShip. He built it and deployed it himself on 3 October 2026, in its own Docker Compose container (service plus Caddy) on `crooks-os-prod-1` at `/opt/clive/crooks-returns`, from branch `claude/compassionate-dirac-44hnee`, folder `crooks-returns/`. It was built **outside the CLIVE engineering kernel**: it has no kernel task, no review record and no acceptance record, and none is to be assumed. Shopify stays the system of record (an approved request becomes a native Shopify Return); the service adds the request before Shopify knows of it, the customer's choices, the Parcel2Go label paid from the PrePay balance, the timeline and the attention flags. Its settings are its own `.env` (`RETURNS_*`), never CLIVE's.
 

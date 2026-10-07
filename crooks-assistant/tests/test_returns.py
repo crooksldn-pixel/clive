@@ -143,7 +143,7 @@ def test_no_return_mutation_is_registered_anywhere():
     reviewed Shopify operation, makes a return, an exchange, a replacement or a resend in Shopify
     itself. Unknown writes fail closed (invariant 14), so nothing CLIVE holds can execute one.
 
-    Since 3 October (DEC-061) a return's changes go only through CROOKS Returns, the owner's own
+    Since 3 October (DEC-066) a return's changes go only through CROOKS Returns, the owner's own
     service, which makes the Shopify return itself: CLIVE's one return write is `return_action`,
     which calls that service's actions after the owner's approval and never Shopify. So the
     check is now exact rather than absent: that one operation, sent to CROOKS Returns, and the
