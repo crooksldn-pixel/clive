@@ -72,6 +72,16 @@ KNOWN_KEYS = (
     # returns; the write key is sent only with an action the owner approved on its card.
     "crooks_returns_read_key",
     "crooks_returns_write_key",
+    # [messaging] George's own WeCom app (app/clients/wecom.py): its CorpID and AgentID (not secret,
+    # shown on the Connections card), the app's Secret, a WeChat customer-service Secret when 微信客服
+    # has one of its own, and the callback Token and EncodingAESKey that sign and seal what WeCom
+    # sends to /hooks/wecom. Read at each call; tokens minted from the Secrets are held in memory only.
+    "wecom_corp_id",
+    "wecom_agent_id",
+    "wecom_app_secret",
+    "wecom_kf_secret",
+    "wecom_callback_token",
+    "wecom_encoding_aes_key",
     # Reads the CROOKS Instagram account's messages and comments (app/clients/instagram.py): a
     # long-lived Instagram User access token, renewed by the application before its 60 days run
     # out. The app id and secret are the Meta app's, kept for exchanging a new short-lived token

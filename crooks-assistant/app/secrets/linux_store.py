@@ -88,6 +88,13 @@ STATIC_KEYS = frozenset({
     # Read by app/clients/crooks_returns.py for each call and never written by the application.
     "crooks_returns_read_key",
     "crooks_returns_write_key",
+    # [messaging] Read by app/clients/wecom.py for each call and never written by the application.
+    "wecom_corp_id",
+    "wecom_agent_id",
+    "wecom_app_secret",
+    "wecom_kf_secret",
+    "wecom_callback_token",
+    "wecom_encoding_aes_key",
     # The Meta app's id and secret: read by scripts/instagram.py when a new token is exchanged
     # by hand, never written by the application.
     "instagram_app_id",

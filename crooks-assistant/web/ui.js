@@ -3332,6 +3332,26 @@
     ].concat(kit.body(d)), opts);
   }
 
+  // [messaging] WeChat and WeCom conversations (web/messages.js, loaded beside this file): in English,
+  // each original one tap away. Without that file nothing is drawn.
+  function messagesKit() {
+    const kit = typeof window !== 'undefined' ? window.CliveMessages : globalThis.CliveMessages;
+    return kit && typeof kit.body === 'function' ? kit : null;
+  }
+
+  function renderMessages(d, opts) {
+    const kit = messagesKit();
+    if (!kit) return null;
+    const said = kit.sub(d);
+    return card('messages', [
+      h('div', { class: 'card-head' }, [h('div', {}, [
+        kicker('Messages'),
+        h('h2', { class: 'card-title', text: kit.title(d) }),
+        said ? h('p', { class: 'card-sub', text: said }) : null,
+      ])]),
+    ].concat(kit.body(d)), opts);
+  }
+
   // One of the owner's objectives, in the shape of its kind (round 12). Drawn by
   // web/objective-cards.js, which the page loads beside this file; without it nothing is drawn.
   function renderObjective(d, opts) {
@@ -3377,6 +3397,8 @@
     objective: renderObjective,
     order_match: renderOrderMatch,
     returns: renderReturns,
+    // [messaging] WeChat and WeCom conversations (web/messages.js).
+    messages: renderMessages,
   };
   const TYPES = Object.keys(RENDERERS).concat(['context_stack']);
   // Both Phase 5 workstreams added to this list and the merge produced two declarations of
@@ -3396,7 +3418,9 @@
     // The order he meant, found from what he remembered (web/customers.js).
     'order_match',
     // CROOKS Returns: what needs him, one return, a period's numbers (web/returns.js).
-    'returns'];
+    'returns',
+    // [messaging] WeChat and WeCom conversations (web/messages.js).
+    'messages'];
 
   function isValid(item) {
     return Boolean(item) && typeof item === 'object' && typeof item.type === 'string'
@@ -3545,6 +3569,8 @@
     workspace_plan: ['workspace_id'],
     order_match: ['title', 'question'],
     returns: ['key'],
+    // [messaging]
+    messages: ['key'],
   };
   const NESTED_KEY_OF = { product: ['products', 'product_id'], inventory: ['products', 'product_id'] };
   const SHELL_SUFFIX = '~shell';

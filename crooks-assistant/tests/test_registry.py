@@ -138,6 +138,7 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
         gmail_writes,
         instagram_tools,
         interaction_tools,
+        messaging_tools,
         returns_tools,
         ship24_tools,
         shopify_tools,
@@ -468,7 +469,15 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # (no arguments) and skill_read 422 (a name, a file, an offset). Imported above because
     # app/runtime.py offers both. The ceiling is raised by exactly what was measured, leaving no
     # headroom.
-    assert total <= 51_913, f"the tool block is {total} bytes"
+    #
+    # 53_212 is messaging, WeChat through WeCom (app/tools/messaging_tools.py,
+    # tests/test_messaging_tools.py), +1,299 bytes measured (51,913 before, 53,212 after):
+    # messages_recent 298, message_thread 293 and message_contact 298 (the reads, and saying who a
+    # conversation is with) and message_reply 410 (one staged write: a conversation, the English and
+    # the Chinese). Imported above because app/runtime.py offers them. With no WeCom keys stored their
+    # families are DISCONNECTED and none is offered at all (runtime.withheld_by_family). The ceiling
+    # is raised by exactly what was measured, leaving no headroom.
+    assert total <= 53_212, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

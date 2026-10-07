@@ -623,6 +623,8 @@ _TOOL_CONFIG = (
     ("app.tools.skill_tools", ("_CONFIG",)),
     # [loop upgrade, 7 Oct] the build server's private channel the Builds screen reads (engineering_private.configure)
     ("app.engineering_bridge.private", ("_STATE",)),
+    # [messaging] who translates a message as it arrives (`messaging_translate.bind`).
+    ("app.messaging.translate", ("_COMPLETE",)),
 )
 # And the stores `build` configures by setting an instance's attributes: (module, the instance's
 # name there, its attributes) — the team's cards (`people_store.configure`) and the work list's
@@ -630,6 +632,8 @@ _TOOL_CONFIG = (
 _STORE_CONFIG = (
     ("app.people.store", "people", ("_path",)),
     ("app.work.store", "work", ("_folder", "_archived_on")),
+    # [messaging] the private store of conversations (`messaging_store.configure`).
+    ("app.messaging.store", "store", ("_root",)),
 )
 # A `configure` that `build` calls on one module and that sets another module's configuration:
 # the module it calls, and the modules whose configuration `_TOOL_CONFIG` records for it.

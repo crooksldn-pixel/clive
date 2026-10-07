@@ -61,6 +61,10 @@ class Person:
     uses: str = ""                 # how the owner likes them used: "posters and post designs, not product design"
     notes: str = ""
     login: str = ""                # staff: the Tailscale login they sign in with
+    # [messaging] Where CLIVE can message them, as each channel names them ("wecom:kf:<their WeChat
+    # contact id>"): set only by the owner linking a thread to this card (app/messaging/contacts.py).
+    # Never shown on a card; the messaging tools say "WeChat" instead.
+    channels: list[str] = field(default_factory=list)
     active: bool = True
     created_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
@@ -174,6 +178,34 @@ class PeopleStore:
         if not wanted:
             return None
         return next((p for p in self.all() if p.kind == "staff" and p.login == wanted), None)
+
+    # [messaging] A card's message channels (app/messaging/contacts.py).
+
+    def by_channel(self, key: str) -> Person | None:
+        wanted = str(key or "")
+        if not wanted:
+            return None
+        return next((p for p in self.all(include_inactive=True) if wanted in p.channels), None)
+
+    def link_channel(self, person_id: str, key: str) -> Person:
+        """Say that this channel's contact is this person: on their card, and on nobody else's."""
+        key = str(key or "")[:200]
+        if not key:
+            raise PeopleError("there is no contact to link")
+        with self._lock:
+            people = self._load()
+            target = people.get(str(person_id or ""))
+            if target is None:
+                raise PeopleError("no one with that id is on CLIVE's list")
+            for person in people.values():
+                if key in person.channels and person.person_id != target.person_id:
+                    person.channels = [c for c in person.channels if c != key]
+                    person.updated_at = _now()
+            if key not in target.channels:
+                target.channels = [*target.channels, key][-8:]
+                target.updated_at = _now()
+            self._save(people)
+            return target
 
     # ------------------------------------------------------------------ the one write
 

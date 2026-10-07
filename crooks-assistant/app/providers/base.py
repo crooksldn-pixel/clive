@@ -78,6 +78,12 @@ class ClaudeProvider(ABC):
     async def set_system_prompt(self, prompt: str) -> None:  # noqa: B027 — optional hook
         """Replace the system prompt for all FUTURE conversations. Default: no-op."""
 
+    async def complete(self, system: str, text: str, *, timeout_s: float = 45.0) -> str:
+        """[messaging] One answer to one piece of text, outside any conversation and with no tools
+        (a translation: app/messaging/translate.py). A provider that cannot raises, and the caller
+        says the answer is missing."""
+        raise NotImplementedError("this provider has no one-shot completion")
+
     async def interrupt(self, session_id: str, *, branch_id: str = "") -> bool:
         """Stop the turn in progress for this session — for one half of it when a branch is
         named, if the provider tells halves apart. Default: nothing to stop."""

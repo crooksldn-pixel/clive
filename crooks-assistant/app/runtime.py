@@ -279,6 +279,14 @@ class Runtime:
             if not crooks_returns.write_key():
                 return WriteStatus("blocked", "blocked — CROOKS Returns has no write key on this server")
             return WriteStatus("ready", f"ready — {operation.replace('_', ' ')}")
+        if operation is not None and operation in self._messaging_operations():
+            # [messaging] A message needs no store scope: it is sent with the WeCom app's own keys,
+            # read when it is sent, and only after the owner's hold (app/tools/messaging_tools.py).
+            from app.clients import wecom
+
+            if not wecom.configured():
+                return WriteStatus("blocked", "blocked — WeCom is not connected on this server")
+            return WriteStatus("ready", f"ready — {operation.replace('_', ' ')}")
         needed = {scope for op, scope in self._write_scopes().items() if operation is None or op == operation}
         if operation is not None and operation not in self._write_scopes():
             return WriteStatus("blocked", f"blocked — {operation.replace('_', ' ')} is not a change the assistant can make")
@@ -348,6 +356,16 @@ class Runtime:
             s.write.operation
             for s in all_specs()
             if s.write is not None and s.write.mutation.startswith("github:") and not s.name.startswith("mock_")
+        }
+
+    def _messaging_operations(self) -> set[str]:
+        """[messaging] Every registered message send (app/tools/messaging_tools.py)."""
+        from app.tools.registry import all_specs
+
+        return {
+            s.write.operation
+            for s in all_specs()
+            if s.write is not None and s.write.mutation.startswith("messages:") and not s.name.startswith("mock_")
         }
 
     def _returns_operations(self) -> set[str]:
@@ -585,6 +603,7 @@ def build(settings: Settings | None = None) -> Runtime:
         gmail_writes,
         instagram_tools,
         interaction_tools,
+        messaging_tools,
         mock,
         returns_tools,
         ship24_tools,
@@ -663,6 +682,13 @@ def build(settings: Settings | None = None) -> Runtime:
     from app.clients import crooks_returns
 
     crooks_returns.configure(base_url=settings.returns_base_url)
+    # [messaging] WeChat and WeCom: the private store of conversations beside CLIVE's other records
+    # (app/messaging/store.py), and translation by the provider built below, late-bound so a provider
+    # swapped later (a test's, a team member's) is the one asked. Its keys are read at each call.
+    from app.messaging import translate as messaging_translate
+    from app.messaging.store import store as messaging_store
+
+    messaging_store.configure(Path(settings.objectives_dir).parent / "messaging")
     # The Connections screen (app/connections): the owner's passkeys and the record of changes to
     # connections live beside the keys stored from the app, in the root-only secret directory on
     # Linux; on a Mac, whose keys are in the Keychain, beside CLIVE's other records.
@@ -689,6 +715,7 @@ def build(settings: Settings | None = None) -> Runtime:
         # filled by the first /health or capability probe after that.
         withheld_by_family=lambda: runtime.withheld_by_family(),
     )
+    messaging_translate.bind(lambda system, text, **kw: runtime.provider.complete(system, text, **kw))
     # The action engine is installed process-wide: the dispatcher stages into it from inside a
     # Claude turn, and the tablet's tap reaches it through the runtime. One index for both.
     actions = install_engine(ActionEngine(ledger=ActionLedger(settings.log_dir)))

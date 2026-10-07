@@ -47,6 +47,8 @@ test('the vocabulary is exactly the presentation layer\'s', () => {
     'order_match',
     // CROOKS Returns: what needs him, one return, a period's numbers (web/returns.js).
     'returns',
+    // [messaging] WeChat and WeCom conversations, the original one tap away (web/messages.js).
+    'messages',
   ]));
 });
 

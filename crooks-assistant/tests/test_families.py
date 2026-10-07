@@ -263,7 +263,10 @@ async def test_the_standing_capability_line_is_paid_for_once_per_turn_and_stays_
     # 1,003 is CROOKS Returns (app/tools/returns_tools.py): "- DISCONNECTED — no CROOKS Returns
     # keys stored: Acting on returns, Reading returns", +83 characters measured (854 before, 937
     # after, with the two families sharing one line), said only on a server with no returns keys.
-    assert len(block) <= 1_003, f"{len(block)} chars on every model turn:\n{block}"
+    # 1,074 is WeChat through WeCom (app/tools/messaging_tools.py): "- DISCONNECTED — no WeCom keys
+    # stored: WeChat messages, WeChat replies", +71 characters measured (998 before, 1,069 after, the
+    # two families sharing one line), said only on a server with no WeCom keys stored.
+    assert len(block) <= 1_074, f"{len(block)} chars on every model turn:\n{block}"
 
     # The instruction appears once, at the head, and never on a line.
     assert block.count("Do not attempt") == 1, block

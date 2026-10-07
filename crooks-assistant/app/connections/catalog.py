@@ -128,6 +128,32 @@ CONNECTIONS: tuple[Connection, ...] = (
         without="Without it CLIVE can't see your returns, and approving or receiving one is done in Shopify admin "
                 "(Apps, CROOKS Returns).",
     ),
+    # [messaging] George's own WeCom app: how CLIVE reads and answers the manufacturer and the forwarder
+    # on WeChat (app/clients/wecom.py, docs/WECOM.md). Off until its keys are stored; Test asks WeCom
+    # what the app can do, route by route, and says what to switch on.
+    Connection(
+        name="wecom", label="WeCom",
+        what="Reads WeChat messages from your manufacturer and forwarder, and sends the replies you hold.",
+        fields=(
+            Field("wecom_corp_id", "CorpID", secret=False,
+                  hint="WeCom admin console (work.weixin.qq.com) → My Company (我的企业): the CorpID at the bottom. "
+                       "It starts ww."),
+            Field("wecom_agent_id", "AgentID", secret=False,
+                  hint="App Management (应用管理) → your self-built app: AgentId."),
+            Field("wecom_app_secret", "App Secret", hint="Same page: Secret → View (查看). WeCom sends it to your WeCom app."),
+            Field("wecom_callback_token", "Callback Token",
+                  hint="Same page → Receive Messages (接收消息) → Set API Receive: the Token."),
+            Field("wecom_encoding_aes_key", "EncodingAESKey",
+                  hint="Same place: the EncodingAESKey, 43 letters and digits."),
+            Field("wecom_kf_secret", "Customer service Secret (only if it has its own)",
+                  hint="Leave empty unless 微信客服 → API shows a Secret of its own; the app's Secret is used otherwise."),
+        ),
+        requires=("wecom_corp_id", "wecom_agent_id", "wecom_app_secret", "wecom_callback_token",
+                  "wecom_encoding_aes_key"),
+        family="messaging_reads",
+        unlocks=("messaging_reads", "messaging_replies"),
+        without="Without it CLIVE can't see or answer WeChat messages from your manufacturer and forwarder.",
+    ),
     Connection(
         name="youtube", label="YouTube",
         what="Finds videos to play on your screens.",

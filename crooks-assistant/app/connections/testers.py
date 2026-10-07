@@ -238,6 +238,58 @@ async def _returns(values: dict[str, str], settings: Any) -> Outcome:
                          "an action.", who=host)
 
 
+async def _wecom(values: dict[str, str], settings: Any) -> Outcome:
+    """[messaging] George's WeCom app. Passes when the keys are proven to be one app's: a token
+    from the CorpID and the Secret, and agent/get naming the AgentID with that token. Then what
+    each route can do (app/messaging/wecom.py probe_routes), said in the detail with the first
+    thing to switch on: a console setting still off is the owner's to do, not a reason to refuse
+    keys that work. Read-only calls; nothing is sent. The callback Token and EncodingAESKey are
+    checked for shape here; WeCom proves them when it calls /hooks/wecom."""
+    from app.clients import wecom
+    from app.messaging import wecom as channel
+
+    try:
+        wecom.aes_key(values.get(wecom.AES_KEY, ""))
+    except wecom.CryptoError:
+        return Outcome(False, "The EncodingAESKey isn't 43 letters and digits. Copy it again from the app's Receive "
+                              "Messages (接收消息) settings.", refused=(wecom.AES_KEY,))
+    token = str(values.get(wecom.CALLBACK_TOKEN) or "")
+    if not token.isalnum() or len(token) > 32:
+        return Outcome(False, "The callback Token is letters and digits, 32 at most. Copy it again from Receive "
+                              "Messages (接收消息).", refused=(wecom.CALLBACK_TOKEN,))
+    with wecom.trying(values):
+        try:
+            await wecom.token_check()
+        except wecom.WeComError as exc:
+            fix = "key" if exc.errcode in (40001, 40013, 41002, 41004) else ("service" if exc.kind == "refused" else "retry")
+            refused = {40001: (wecom.APP_SECRET,), 40013: (wecom.CORP_ID,)}.get(exc.errcode, ())
+            return Outcome(False, str(exc), fix=fix, refused=refused)
+        try:
+            await wecom.agent()
+        except wecom.WeComError as exc:
+            if exc.errcode in (40056, 301002):
+                return Outcome(False, str(exc), refused=(wecom.AGENT_ID,))
+            # Anything else (this server's address not yet trusted): the keys are good, and the
+            # routes below say what to do.
+        routes = await channel.probe_routes()
+    return Outcome(True, summary(routes))
+
+
+def summary(routes) -> str:
+    """Each route in one plain phrase, then the first thing to switch on."""
+    states = {r.key: r for r in routes}
+    said = []
+    for key, words in (("kf", "WeChat contacts"), ("member", "your team"), ("callback", "messages arriving")):
+        route = states.get(key)
+        if route is not None:
+            said.append(f"{words}: {'ready' if route.state == 'ready' else 'off' if route.state == 'off' else 'not checked'}")
+    detail = "WeCom accepted the app's keys. " + "; ".join(said) + "."
+    first_off = next((r for r in routes if r.state in ("off", "unknown") and r.switch_on), None)
+    if first_off is not None:
+        detail += f" To do: {first_off.switch_on}"
+    return detail[:600]
+
+
 TESTERS = {
     "elevenlabs": _elevenlabs,
     "youtube": _youtube,
@@ -246,6 +298,7 @@ TESTERS = {
     "instagram": _instagram,
     "ship24": _ship24,
     "returns": _returns,
+    "wecom": _wecom,
 }
 
 

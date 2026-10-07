@@ -360,6 +360,10 @@ const DETAIL_WORDS = {
   returns_open: ['Checking', 'returns'], return_find: ['Finding', 'the return'],
   returns_stats: ['Counting', 'returns'], return_action: ['Preparing', 'the return step', true],
   skill_list: ['Listing', 'skills'], skill_read: ['Reading', 'the skill'],
+  // [messaging] WeChat and WeCom (app/tools/messaging_tools.py): reading conversations, saying who one is
+  // with, and a reply prepared for his hold.
+  messages_recent: ['Reading', 'your messages'], message_thread: ['Reading', 'the conversation'],
+  message_contact: ['Noting', 'who that is'], message_reply: ['Preparing', 'the message', true],
 };
 const detailSentence = (name) => (DETAIL_WORDS[name] ? `${DETAIL_WORDS[name][0]} ${DETAIL_WORDS[name][1]}` : undefined);
 const LONG_THINK_MS = 6000;
