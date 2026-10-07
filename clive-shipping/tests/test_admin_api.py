@@ -135,7 +135,7 @@ def answer_everything(client, sid):
 
 def ready_order(client, shopify):
     inbox = first_order(client, shopify)
-    sid = inbox["groups"]["attention"][0]["id"]
+    sid = inbox["rows"][0]["id"]  # the default tab: Needs attention
     return answer_everything(client, sid)
 
 
@@ -182,7 +182,8 @@ def test_the_page_can_only_be_framed_by_shopify_admin(client):
 
 def test_a_first_order_asks_in_merchant_words(client, shopify):
     inbox = first_order(client, shopify)
-    (r,) = inbox["groups"]["attention"]
+    assert inbox["stage"] == "attention"
+    (r,) = inbox["rows"]
     assert r["status"]["label"] == "3 details needed"
     assert r["status"]["reasons"] == [
         "Package needed",
@@ -197,8 +198,8 @@ def test_a_first_order_asks_in_merchant_words(client, shopify):
 def test_answered_once_it_is_ready_and_the_inbox_shows_no_internals(client, shopify):
     d = ready_order(client, shopify)
     assert d["status"]["label"] == "Ready" and d["status"]["group"] == "ready"
-    inbox = ok(client.get("/admin/api/inbox"))
-    (r,) = inbox["groups"]["ready"]
+    inbox = ok(client.get("/admin/api/inbox?stage=ready"))
+    (r,) = inbox["rows"]
     assert r["shipping"] == "DPD · £10.69" and r["package"].startswith("Mailer · ")
     raw = json.dumps(inbox)
     for internal in ("gid://", "b1_", "fake:", "hs_code", "dpd-classic"):
@@ -371,9 +372,9 @@ def test_print_all_ready_labels(client, shopify):
     for n in (2145, 2146):
         shopify.add(fo(n, [tee_line()]))
     ok(client.post("/admin/api/sync"))
-    ids = [r["id"] for r in ok(client.get("/admin/api/inbox"))["groups"]["attention"]]
+    ids = [r["id"] for r in ok(client.get("/admin/api/inbox?stage=attention"))["rows"]]
     answer_everything(client, ids[0])
-    ids = [r["id"] for r in ok(client.get("/admin/api/inbox"))["groups"]["ready"]]
+    ids = [r["id"] for r in ok(client.get("/admin/api/inbox?stage=ready"))["rows"]]
     for i, sid in enumerate(ids):
         buy(client, {"id": sid}, key=f"click-000{i}")
     assert ok(client.get("/admin/api/inbox"))["ready_to_print"] == 2
@@ -408,7 +409,7 @@ def test_setup_shows_the_connection_and_saves_safely(client, shopify):
     )
     assert [p["name"] for p in s["presets"]] == ["Hoodie box"] and s["presets"][0]["default"]
     # The order that only lacked a package no longer asks for one.
-    (r,) = ok(client.get("/admin/api/inbox"))["groups"]["attention"]
+    (r,) = ok(client.get("/admin/api/inbox?stage=attention"))["rows"]
     assert "Package needed" not in r["status"]["reasons"]
 
 

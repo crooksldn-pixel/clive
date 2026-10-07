@@ -32,9 +32,12 @@ const execute = code => vm.runInContext(code,context);
 const button = {setAttribute(){},removeAttribute(){},dataset:{line:'0'}};
 context.button=button;
 (async()=>{
-  execute('state.inbox=data.inbox; renderInbox(); ACTIONS["select-ready"]();');
+  location.search='?stage=ready';
+  execute('state.inbox=data.inbox; renderInbox(); ACTIONS["select-stage"]();');
   assert.equal(execute('state.selected.size'),2);
   assert.ok(rendered.includes('Buy labels — review'));
+  assert.ok(!rendered.includes('Print labels — review')); // never Buy & Print together
+  assert.ok(rendered.includes('aria-current="page"') && rendered.includes('Ready to ship (2)'));
   await execute('ACTIONS["bulk-buy"](button)');
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(document.title.includes('Review selected labels'));
@@ -46,13 +49,19 @@ context.button=button;
   await execute('pollBatch()');
   assert.ok(rendered.includes('2 purchased'));
   assert.equal(execute('state.batch.state'),'complete');
-  location.search='';
-  execute('state.inbox=data.print_inbox; state.group="print_not_printed"; renderInbox();');
-  assert.equal(execute('visibleInboxRows().length'),1);
-  assert.ok(rendered.includes('Not printed'));
-  execute('state.group="print_sent";renderInbox();');
+  location.search='?stage=bought';
+  execute('state.selected.clear(); state.inbox=data.bought_inbox; renderInbox();');
+  assert.equal(execute('visibleInboxRows().length'),1);  // the one never sent to the printer
+  assert.ok(rendered.includes('Not printed') && rendered.includes('Select unprinted'));
+  execute('ACTIONS["select-stage"]()');
+  assert.equal(execute('state.selected.size'),1);
+  assert.ok(rendered.includes('Print labels — review') && !rendered.includes('Buy labels — review'));
+  location.search='?stage=printed';
+  execute('state.selected.clear(); state.inbox=data.printed_inbox; renderInbox();');
   assert.equal(execute('visibleInboxRows().length'),1);
   assert.ok(rendered.includes('Sent to printer'));
+  assert.ok(!rendered.includes('type="checkbox"'));  // Printed: no bulk reprint, only explicit Reprint
+  assert.ok(!rendered.includes('select-stage'));
   execute('state.shipment=data.sent; renderShipment();');
   assert.ok(rendered.includes('Reprint label'));
   assert.ok(!rendered.includes('variant="primary" data-action="physical-print"'));
@@ -67,5 +76,5 @@ context.button=button;
   assert.equal(requests.at(-1).body.hs_code,'01012100');
   assert.equal(requests.at(-1).body.subject,data.detail.products[0].subject);
   assert.equal(execute('state.shipment.products[0].hs_code_value'),'01012100');
-  console.log('Bulk selection/review/progress, print filters/status and inline customs interactions passed');
+  console.log('Lifecycle tabs, bulk selection/review/progress, print status and inline customs interactions passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

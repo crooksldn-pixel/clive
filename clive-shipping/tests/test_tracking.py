@@ -139,9 +139,15 @@ def test_without_its_id_the_fulfilment_is_found_by_tracking_number(svc, shopify,
     # Another fulfilment on the same order comes FIRST: it must not be taken.
     shopify.fulfillments.insert(
         0,
-        {"id": "gid://shopify/Fulfillment/9", "fo": "x", "order_id": bought.order_id,
-         "number": "SOMEONEELSE1GB", "display": "DELIVERED", "delivered_at": "2026-10-02T10:00:00Z"},
-    )  # fmt: skip
+        {
+            "id": "gid://shopify/Fulfillment/9",
+            "fo": "x",
+            "order_id": bought.order_id,
+            "number": "SOMEONEELSE1GB",
+            "display": "DELIVERED",
+            "delivered_at": "2026-10-02T10:00:00Z",
+        },
+    )
     s = store.get(SHOP, bought.id)
     s.fulfillment_id = None
     store.save(s)

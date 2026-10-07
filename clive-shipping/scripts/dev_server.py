@@ -307,6 +307,22 @@ def seed_states(svc: ShippingService, shopify: FakeShopify, provider: DevProvide
     provider.outage = True  # its prices were asked for during an outage
     svc.prepare(SHOP, by_order(svc, 2153).id)
     provider.outage = False
+    # Payment pending AND a product never shipped abroad: every reason shows at once.
+    unpaid = order(shopify, 2156, [hoodie_line()], "IT")
+    unpaid.financial_status = "PENDING"
+    svc.sync(SHOP)
+    # Bought labels the carrier has: one moving, one delivered (as Shopify reports them).
+    for n, display, when in (
+        (2157, "IN_TRANSIT", {"in_transit_at": "2026-10-06T19:22:13Z"}),
+        (2158, "DELIVERED", {"delivered_at": "2026-10-07T09:48:22Z"}),
+    ):
+        order(shopify, n, [tee_line()], "NL")
+        svc.sync(SHOP)
+        buy(svc, n, f"seed-{n}")
+        s = by_order(svc, n)
+        assert s.label is not None and s.label.tracking_number
+        shopify.carrier(s.label.tracking_number, display, **when)
+        svc.refresh_tracking(SHOP, s.id)  # not tick(): it would settle the seeded problems
 
 
 def build(port: int, empty: bool = False, sandbox: bool = False) -> FastAPI:

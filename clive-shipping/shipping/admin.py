@@ -19,7 +19,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
-from shipping import views
+from shipping import lifecycle, views
 from shipping.auth import BadToken, verify_session_token
 from shipping.models import Address
 from shipping.money import Money
@@ -146,6 +146,7 @@ def build_admin_router(
         else None
     )
     physical = PhysicalPrinting(svc.store, provider, settings.printnode_printer_id)
+    physical_enabled = provider is not None
 
     def staff(authorization: str | None = Header(default=None)) -> str:
         """The signed-in staff member, for the timeline."""
@@ -197,6 +198,11 @@ def build_admin_router(
             origin=svc.store.config(s.shop).origin,
         )
         result["print_status"] = physical.summary(shop, sid)
+        result["stage"] = lifecycle.stage(s, result["print_status"])
+        result["stage_title"] = lifecycle.TITLES[result["stage"]]
+        result["payment"] = views.payment_view(s)
+        result["fulfilment"] = views.fulfilment_view(s)
+        result["carrier"] = views.carrier_view(s)
         return result
 
     def act(fn: Callable[[], Any]) -> Any:
@@ -228,37 +234,39 @@ def build_admin_router(
     # ------------------------------------------------------------------ inbox
 
     @router.get("/api/inbox")
-    def inbox(q: str = "", who: str = Depends(staff)) -> dict[str, Any]:
-        groups: dict[str, list[dict[str, Any]]] = {
-            views.GROUP_READY: [],
-            views.GROUP_ATTENTION: [],
-            views.GROUP_BOUGHT: [],
-            views.GROUP_DONE: [],
-        }
+    def inbox(q: str = "", stage: str = "attention", who: str = Depends(staff)) -> dict[str, Any]:
+        """One lifecycle stage's orders (search applies within it), and how many each holds."""
+        if stage not in (*lifecycle.STAGES, "all"):
+            stage = "attention"
+        counts = dict.fromkeys(lifecycle.STAGES, 0)
+        rows: list[dict[str, Any]] = []
         for s in sorted(svc.store.shipments(shop), key=lambda x: x.created_at, reverse=True):
             if not views.matches(s, q):
                 continue
+            printed = physical.summary(shop, s.id)
+            where = lifecycle.stage(s, printed)
+            if where in counts:
+                counts[where] += 1
+            if stage not in (where, "all"):
+                continue
             r = views.row(s)
-            r["print_status"] = physical.summary(shop, s.id)
-            r["can_buy"] = s.status.value == "ready" and svc.may_buy(s)
-            r["can_select"] = r["can_buy"] or r["can_print"]
-            groups[r["status"]["group"]].append(r)
-        if not q:
-            groups[views.GROUP_DONE] = [
-                r
-                for i, r in enumerate(groups[views.GROUP_DONE])
-                if i < 20 or (r["print_status"] and r["print_status"]["state"] != "sent")
-            ]
-            groups[views.GROUP_BOUGHT] = [
-                r
-                for i, r in enumerate(groups[views.GROUP_BOUGHT])
-                if i < 50 or (r["print_status"] and r["print_status"]["state"] != "sent")
-            ]
+            r["stage"] = where
+            r["print_status"] = printed
+            r["can_buy"] = lifecycle.may_bulk_buy(where) and svc.may_buy(s)
+            r["can_first_print"] = physical_enabled and lifecycle.may_bulk_first_print(
+                where, printed
+            )
+            r["can_select"] = r["can_buy"] or r["can_first_print"]
+            rows.append(r)
+        if not q and stage in ("delivered", "all"):
+            rows = rows[:100]  # the newest; search finds older ones
         cfg = svc.store.config(shop)
         return {
             "me": who,
-            "groups": groups,
-            "counts": {k: len(v) for k, v in groups.items()},
+            "stage": stage,
+            "rows": rows,
+            "counts": counts,
+            "printing": physical_enabled,
             "ready_to_print": len(printing.ready(shop)),
             "batches": [
                 {
@@ -324,6 +332,21 @@ def build_admin_router(
 
     @router.get("/api/shipments/{sid}")
     def get_shipment(sid: str, who: str = Depends(staff)) -> dict[str, Any]:
+        return detail_of(sid)
+
+    @router.post("/api/shipments/{sid}/tracking")
+    def check_tracking(sid: str, who: str = Depends(staff)) -> dict[str, Any]:
+        """Read the carrier's view from Shopify now. Only reads: never buys or prints."""
+        shipment(sid)
+        try:
+            act(lambda: svc.refresh_tracking(shop, sid))
+        except ShopifyError as exc:
+            log.warning("tracking read for %s failed: %s", sid, exc)
+            raise HTTPException(
+                503,
+                {"message": "Shopify didn't answer just now; try again in a minute.",
+                 "code": "unavailable"},
+            ) from exc  # fmt: skip
         return detail_of(sid)
 
     @router.post("/api/shipments/{sid}/refresh")

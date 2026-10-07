@@ -336,7 +336,7 @@ def test_operations_auth_and_durable_api_progress(svc, shopify, ops, monkeypatch
             c.get("/admin/api/shipments/" + rows[0].id).json()["print_status"]["label"]
             == "Not printed"
         )
-        inbox = c.get("/admin/api/inbox").json()
+        inbox = c.get("/admin/api/inbox?stage=ready").json()
         assert inbox["batches"][0]["id"] == b["id"]
 
 
@@ -425,9 +425,9 @@ def test_ui_selection_review_progress_filters_and_customs(svc, shopify, ops, sen
     rows = ready(svc, shopify, 2)
     cfg = Settings(shop_domain=SHOP, provider="fake", dev_skip_admin_auth=True, tick_interval_s=0)
     with TestClient(create_app(cfg, svc)) as c:
-        inbox = c.get("/admin/api/inbox").json()
+        inbox = c.get("/admin/api/inbox?stage=ready").json()
         detail = c.get("/admin/api/shipments/" + rows[0].id).json()
-        ids = [r["id"] for r in inbox["groups"]["ready"]]
+        ids = [r["id"] for r in inbox["rows"]]
         review = ops.preview(SHOP, "buy", ids, "staff", "ui-review-key")
         queued = ops.confirm(SHOP, review["id"], "staff")
         ops.run(SHOP, review["id"])
@@ -441,7 +441,13 @@ def test_ui_selection_review_progress_filters_and_customs(svc, shopify, ops, sen
             svc.store.save(row)
         ops.physical.print_label(SHOP, rows[0].id, "staff", "first-print")
         sent = c.get("/admin/api/shipments/" + rows[0].id).json()
-        print_inbox = c.get("/admin/api/inbox").json()
+        bought_inbox = c.get("/admin/api/inbox?stage=bought").json()
+        printed_inbox = c.get("/admin/api/inbox?stage=printed").json()
+    # This app was built with PrintNode off; the UI check needs it on (the server's own rule
+    # for first prints is tested in test_lifecycle).
+    bought_inbox["printing"] = True
+    for r in bought_inbox["rows"]:
+        r["can_first_print"] = r["can_select"] = r["print_status"]["first_print_available"]
     data = tmp_path / "operations.json"
     data.write_text(
         json.dumps(
@@ -452,7 +458,8 @@ def test_ui_selection_review_progress_filters_and_customs(svc, shopify, ops, sen
                 queued=queued,
                 complete=complete,
                 sent=sent,
-                print_inbox=print_inbox,
+                bought_inbox=bought_inbox,
+                printed_inbox=printed_inbox,
             )
         ),
         encoding="utf-8",

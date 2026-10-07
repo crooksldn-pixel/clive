@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from shipping import contacts, readiness
+from shipping import contacts, readiness, tracking
 from shipping.models import Address, CustomsMode, DocumentKind, Quote, Shipment
 from shipping.models import ShipmentStatus as S
 from shipping.money import Money
@@ -341,6 +341,15 @@ TIMELINE = {
     "on_hold": "On hold in Shopify",
     "payment_blocking": "Payment doesn't allow a label",
     "payment_cleared": "Payment taken: ready to price",
+    "carrier_pre_transit": "Waiting for the carrier",
+    "carrier_in_transit": "In transit (carrier)",
+    "carrier_out_for_delivery": "Out for delivery",
+    "carrier_delivery_attempted": "Delivery attempted",
+    "carrier_ready_for_pickup": "Ready for pickup",
+    "carrier_delivered": "Delivered (carrier)",
+    "carrier_exception": "Carrier reports a problem",
+    "carrier_cancelled": "Fulfilment cancelled in Shopify",
+    "carrier_unknown": "No carrier update yet",
     "provider_unavailable": "Prices unavailable",
     "no_rates": "No courier offered a price",
     "payment_outcome_unknown": "Checking whether the label was paid",
@@ -352,6 +361,50 @@ TIMELINE = {
     "void_rejected": "Cancellation refused",
     "tracking_received": "Tracking number received",
 }
+
+
+def payment_view(s: Shipment) -> dict[str, Any]:
+    state = payment(s.payment_status)
+    bought = s.label is not None
+    note = (
+        "label purchase blocked"
+        if not state.allows_purchase and not bought
+        else "changed after the label was bought"
+        if not state.allows_purchase
+        else ""
+    )
+    return {"label": state.label, "tone": state.tone, "note": note, "reason": state.reason}
+
+
+def fulfilment_view(s: Shipment) -> dict[str, Any]:
+    if s.label is None:
+        return {"label": "No label yet", "tone": "neutral"}
+    st = status_of(s)
+    return {"label": st["label"], "tone": st["tone"]}
+
+
+def carrier_view(s: Shipment) -> dict[str, Any] | None:
+    """Shopify's carrier tracking for a bought label (shipping.tracking); None before."""
+    if s.label is None:
+        return None
+    t = s.tracking
+    if t is None:
+        return {"stage": "unknown", "label": tracking.LABELS["unknown"], "tone": "neutral",
+                "note": "Checked once Shopify has the fulfilment.", "checked_at": None}  # fmt: skip
+    tone = {"delivered": "success", "exception": "warning", "cancelled": "critical"}.get(
+        t.stage, "info" if t.stage in tracking.MOVING else "neutral"
+    )
+    return {
+        "stage": t.stage,
+        "label": tracking.LABELS.get(t.stage, t.stage),
+        "tone": tone,
+        "display_status": t.display_status,
+        "in_transit_at": t.in_transit_at,
+        "delivered_at": t.delivered_at,
+        "estimated_delivery_at": t.estimated_delivery_at,
+        "checked_at": t.checked_at.isoformat() if t.checked_at else None,
+        "note": t.note,
+    }
 
 
 def detail(

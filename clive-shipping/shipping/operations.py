@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
+from shipping import lifecycle
 from shipping.models import OpState, ShipmentStatus
 from shipping.physical_printing import PhysicalPrinting
 from shipping.printing import PrintError
@@ -61,7 +62,11 @@ class Operations:
             try:
                 if s is None:
                     raise ActionError("Shipment not found.", 404)
+                printed = self.physical.summary(shop, sid)
+                where = lifecycle.stage(s, printed)
                 if kind == "buy":
+                    if not lifecycle.may_bulk_buy(where):
+                        raise ActionError(f"In {lifecycle.TITLES[where]}, not Ready to ship.")
                     if s.status != ShipmentStatus.ready or s.label or s.money_may_have_moved:
                         raise ActionError(
                             "Not ready to buy, already purchased, or awaiting reconciliation."
@@ -78,7 +83,12 @@ class Operations:
                         currency=p["money"]["currency"],
                     )
                 else:
-                    status = self.physical.summary(shop, sid)
+                    status = printed
+                    if where in ("in_transit", "delivered"):
+                        raise ActionError(
+                            f"{lifecycle.TITLES[where]}: the carrier already has it. "
+                            "Use explicit Reprint if a copy is needed."
+                        )
                     if not status or not status["first_print_available"]:
                         raise ActionError(
                             "Already attempted/sent or uncertain. "

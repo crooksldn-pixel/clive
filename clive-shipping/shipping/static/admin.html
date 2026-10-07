@@ -13,6 +13,9 @@
   /* App Bridge shows s-app-nav in the admin sidebar; outside admin it would be bare links. */
   s-app-nav { display: none; }
   .nowrap { white-space: nowrap; }
+  /* The stage tabs need room; on a phone the same choice is one select. */
+  .stage-select { display: none; }
+  @media (max-width: 700px) { .stage-tabs { display: none; } .stage-select { display: block; } }
 </style>
 </head>
 <body>
@@ -51,8 +54,23 @@
 
 const BASE = location.pathname.replace(/\/admin\/?$/, "");
 const EMBEDDED = window.top !== window.self;
+const STAGES = [
+  ["attention", "Needs attention"],
+  ["ready", "Ready to ship"],
+  ["bought", "Labels bought"],
+  ["printed", "Printed"],
+  ["in_transit", "In transit"],
+  ["delivered", "Delivered"],
+  ["all", "All"],
+];
+const STAGE_KEYS = STAGES.map(([k]) => k);
+const urlStage = () => {
+  const s = new URLSearchParams(location.search).get("stage");
+  return STAGE_KEYS.includes(s) ? s : "attention";
+};
 const state = { inbox: null, shipment: null, setup: null, preview: null, buyKey: null,
-                batch: null, selected: new Set(), flash: null, q: "", group: "all", busy: false };
+                batch: null, selected: new Set(), flash: null,
+                q: new URLSearchParams(location.search).get("q") || "", busy: false };
 
 // ------------------------------------------------------------------ helpers
 
@@ -169,13 +187,24 @@ async function route() {
       state.setup = await api("/setup");
       renderSetup();
     } else {
-      state.inbox = await api(`/inbox?q=${encodeURIComponent(state.q)}`);
+      state.inbox = await loadInbox();
       renderInbox();
     }
   } catch (err) {
     state.flash = errorBanner(err);
     page("CLIVE Shipping", "", `<s-section><s-paragraph>Nothing to show yet.</s-paragraph></s-section>`);
   } finally { loading(false); }
+}
+
+// One stage's orders; the search applies within it. Both live in the URL (?stage=, ?q=).
+function loadInbox() {
+  const q = state.q ? `&q=${encodeURIComponent(state.q)}` : "";
+  return api(`/inbox?stage=${urlStage()}${q}`);
+}
+function keepSearchInUrl() {
+  const p = new URLSearchParams(location.search);
+  if (state.q) p.set("q", state.q); else p.delete("q");
+  history.replaceState({}, "", `${BASE}/admin${p.toString() ? "?" + p : ""}`);
 }
 
 function render() {
@@ -206,16 +235,8 @@ function printBadge(p) {
   if (!p) return '—';
   return `<s-badge tone="${esc(p.tone)}">${esc(p.label)}${p.reprint_count ? ` · Reprints ×${p.reprint_count}` : ''}</s-badge>`;
 }
-function printFilter(r) {
-  if (!state.group.startsWith('print_')) return true;
-  const status = r.print_status?.state;
-  return state.group === 'print_not_printed' ? status === 'not_printed' :
-         state.group === 'print_sent' ? status === 'sent' : ['failed', 'unknown', 'sending'].includes(status);
-}
 function visibleInboxRows() {
-  return GROUPS.filter(([k]) => state.group.startsWith('print_') ||
-    (state.group === 'all' ? k !== 'done' || state.q : k === state.group))
-    .flatMap(([k]) => state.inbox.groups[k].filter(printFilter));
+  return state.inbox ? state.inbox.rows : [];
 }
 const batchMoney = b => new Intl.NumberFormat('en-GB', {style:'currency', currency:b.currency}).format(b.total_minor / 100);
 function renderBatch() {
@@ -253,17 +274,10 @@ setInterval(() => { void pollBatch(); }, 2000);
 
 // ------------------------------------------------------------------ inbox
 
-const GROUPS = [
-  ["attention", "Needs attention"],
-  ["ready", "Ready to ship"],
-  ["bought", "Labels bought"],
-  ["done", "Done"],
-];
-
 function inboxTable(rows) {
   const body = rows.map((r) => {
     const extra = r.status.reasons.filter((x) => x !== r.status.label);
-    const reasons = extra.length && r.status.group === "attention"
+    const reasons = extra.length && r.stage === "attention"
       ? `<s-text color="subdued">${esc(extra.join(" · "))}</s-text>` : "";
     return `<s-table-row>
       <s-table-cell>${r.can_select ? `<input type="checkbox" aria-label="Select ${esc(r.order)}" data-select="${esc(r.id)}" ${state.selected.has(r.id) ? "checked" : ""}>` : ""}</s-table-cell>
@@ -289,10 +303,38 @@ function inboxTable(rows) {
   </s-table>`;
 }
 
+const EMPTY = {
+  attention: ["Nothing needs you", "Orders that can't ship yet appear here, with every reason at once."],
+  ready: ["Nothing ready to ship", "Paid orders with every detail and a service appear here."],
+  bought: ["No labels waiting", "Bought labels that haven't gone to the printer appear here."],
+  printed: ["Nothing printed and waiting", "Labels sent to the printer stay here until the carrier has them."],
+  in_transit: ["Nothing in transit", "Parcels the carrier has scanned appear here."],
+  delivered: ["Nothing delivered yet", "Parcels the carrier reports delivered appear here."],
+  all: ["No international orders", "Orders going abroad appear here by themselves, checked and priced."],
+};
+
+function stageTabs(ib) {
+  const current = ib.stage;
+  const select = `<s-select class="stage-select" id="stage-select" label="Show">${STAGES.map(([k, l]) =>
+    `<s-option value="${k}" ${k === current ? "selected" : ""}>${esc(l)}${k === "all" ? "" : ` (${ib.counts[k] ?? 0})`}</s-option>`).join("")}</s-select>`;
+  return select + `<s-button-group class="stage-tabs" gap="none" accessibilityLabel="Order stage">${STAGES.map(([k, l]) => {
+    const n = k === "all" ? "" : ` (${ib.counts[k] ?? 0})`;
+    const on = k === current;
+    return `<s-button slot="secondary-actions" data-stage="${k}" ${on ? 'icon="check"' : ""}
+      ${on ? 'aria-current="page"' : ""} href="${BASE}/admin?stage=${k}">${esc(l)}${n}</s-button>`;
+  }).join("")}</s-button-group>`;
+}
+
 function renderInbox() {
   const ib = state.inbox;
+  const stage = ib.stage;
+  const rows = visibleInboxRows();
+  // Bulk actions only where they make sense: buy from Ready, first print from Labels bought.
+  const pick = stage === "ready" ? ["can_buy", "Select all ready (up to 100)", "bulk-buy", "Buy labels — review"]
+    : stage === "bought" && ib.printing ? ["can_first_print", "Select unprinted (up to 100)", "bulk-print", "Print labels — review"]
+    : null;
   const slots =
-    `<s-button slot="primary-action" data-action="select-ready">Select ready on this page (up to 100)</s-button>` +
+    (pick && rows.some((r) => r[pick[0]]) ? `<s-button slot="primary-action" variant="primary" data-action="select-stage">${pick[1]}</s-button>` : "") +
     `<s-button slot="secondary-actions" data-action="sync">Check Shopify for orders</s-button>` +
     `<s-button slot="secondary-actions" data-action="go-setup">Setup</s-button>`;
   let top = "";
@@ -302,36 +344,25 @@ function renderInbox() {
       action: "go-setup", actionLabel: "Open Setup" });
   }
   const filters = `<s-section>
-    <s-grid gridTemplateColumns="1fr auto" gap="base" alignItems="end">
-      <s-search-field id="search" label="Search orders" labelAccessibilityVisibility="exclusive"
+    <s-stack gap="base">
+      ${stageTabs(ib)}
+      <s-search-field id="search" label="Search ${esc(STAGES.find(([k]) => k === stage)[1].toLowerCase())}" labelAccessibilityVisibility="exclusive"
         placeholder="Search by order number, name or city" value="${esc(state.q)}"></s-search-field>
-      <s-select id="group" label="Show" labelAccessibilityVisibility="exclusive">
-        ${[["all", "Open orders"], ...GROUPS, ["print_not_printed", "Not printed"], ["print_sent", "Sent to printer"], ["print_problem", "Print problem"]].map(([k, l]) =>
-          `<s-option value="${k}" ${state.group === k ? "selected" : ""}>${l}</s-option>`).join("")}
-      </s-select>
-    </s-grid>
+    </s-stack>
   </s-section>`;
-  const shown = GROUPS.filter(([k]) =>
-    state.group.startsWith("print_") || (state.group === "all" ? k !== "done" || state.q : state.group === k));
-  const total = visibleInboxRows().length;
-  let body = "";
-  if (!total) {
+  let body;
+  if (!rows.length) {
+    const [h, p] = state.q ? ["No orders match that search", "Try the order number on its own, e.g. 2145."] : EMPTY[stage];
     body = `<s-section accessibilityLabel="No orders">
       <s-stack alignItems="center" gap="base" padding="large">
-        <s-heading>${state.q ? "No orders match that search" : "No international orders waiting"}</s-heading>
-        <s-paragraph color="subdued">${state.q
-          ? "Try the order number on its own, e.g. 2145."
-          : "Orders going abroad appear here by themselves, checked and priced."}</s-paragraph>
+        <s-heading>${h}</s-heading><s-paragraph color="subdued">${p}</s-paragraph>
       </s-stack></s-section>`;
   } else {
-    for (const [k, label] of shown) {
-      const rows = ib.groups[k].filter(printFilter);
-      if (!rows.length) continue;
-      body += `<s-section heading="${esc(label)} (${rows.length})" padding="none">${inboxTable(rows)}</s-section>`;
-    }
+    body = `<s-section padding="none">${inboxTable(rows)}</s-section>`;
   }
-  const selected = visibleInboxRows().filter(r => state.selected.has(r.id));
-  const bulk = selected.length ? `<s-section heading="${selected.length} selected"><s-stack direction="inline" gap="base"><s-button data-action="bulk-buy">Buy labels — review</s-button><s-button data-action="bulk-print">Print labels — review</s-button><s-button data-action="clear-selection">Clear selection</s-button></s-stack></s-section>` : "";
+  const selected = rows.filter((r) => state.selected.has(r.id));
+  const bulk = selected.length && pick
+    ? `<s-section heading="${selected.length} selected"><s-stack direction="inline" gap="base"><s-button variant="primary" data-action="${pick[2]}">${pick[3]}</s-button><s-button data-action="clear-selection">Clear selection</s-button></s-stack></s-section>` : "";
   const recent = (ib.batches || []).length ? `<s-section heading="Recent bulk operations">${ib.batches.map(b => `<s-link href="${BASE}/admin?batch=${esc(b.id)}">${esc(b.kind === 'buy' ? 'Label purchase' : 'Label print')} · ${esc(b.state)} · ${esc(new Date(b.created_at).toLocaleString('en-GB'))}</s-link><br>`).join('')}</s-section>` : '';
   page("International shipping", slots, top + filters + bulk + body + recent);
 }
@@ -411,7 +442,9 @@ function renderShipment() {
     primary = `<s-button slot="primary-action" variant="primary" data-action="preview">Check price — ${esc(chosen.price)}</s-button>`;
   } else if (acts.has("retry_shopify")) {
     primary = `<s-button slot="primary-action" variant="primary" data-action="retry-shopify">Retry Shopify update</s-button>`;
-  } else if (acts.has("print") || acts.has("reprint")) {
+  } else if ((acts.has("print") || acts.has("reprint")) && !["in_transit", "delivered"].includes(d.stage)) {
+    // The carrier already has a moving or delivered parcel: printing isn't the next step
+    // (an explicit Reprint stays under the secondary actions).
     primary = `<s-button slot="primary-action" variant="primary" data-action="${d.print_status?.first_print_available === false ? "physical-reprint" : "physical-print"}">${d.print_status?.first_print_available === false ? "Reprint label" : "Print label"}</s-button>`;
   }
   const reprintButton = (acts.has("print") || acts.has("reprint")) ?
@@ -540,7 +573,22 @@ function renderShipment() {
 
   // Aside: address and history.
   const a = d.address;
-  const aside = `<s-section heading="Ship to">
+  // Four separate facts, each from its own source: never one merged guess.
+  const fact = (name, value, tone, note) => `<s-stack gap="small-500">
+      <s-text color="subdued">${esc(name)}</s-text>
+      <s-stack direction="inline" gap="small-200" alignItems="center"><s-badge tone="${esc(tone || "neutral")}">${esc(value)}</s-badge>${note ? `<s-text color="subdued">${esc(note)}</s-text>` : ""}</s-stack>
+    </s-stack>`;
+  const pr = d.print_status, car = d.carrier;
+  const facts = `<s-section heading="Status">
+      <s-stack gap="base">
+        <s-text>${esc(d.stage_title || "")}</s-text>
+        ${d.payment ? fact("Payment", d.payment.label, d.payment.tone, d.payment.note) : ""}
+        ${d.fulfilment ? fact("Fulfilment", d.fulfilment.label, d.fulfilment.tone) : ""}
+        ${d.label ? fact("Print", pr ? pr.label : "Not printed", pr ? pr.tone : "neutral") : ""}
+        ${car ? fact("Carrier", car.label, car.tone, car.note || (car.checked_at ? `checked ${new Date(car.checked_at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}` : "")) : ""}
+        ${car ? `<s-button data-action="check-tracking">Check tracking</s-button>` : ""}
+      </s-stack></s-section>`;
+  const aside = facts + `<s-section heading="Ship to">
       <s-stack gap="small-200">
         ${a.lines.map((x) => `<s-text>${esc(x)}</s-text>`).join("")}
         <s-text>${flag(a.country)} ${esc(countryName(a.country))}</s-text>
@@ -768,7 +816,10 @@ async function sendPhysical(path) {
 }
 
 const ACTIONS = {
-  'select-ready': () => { visibleInboxRows().filter(r => r.can_buy).slice(0,100).forEach(r => state.selected.add(r.id)); renderInbox(); },
+  'select-stage': () => {
+    const flag = state.inbox.stage === 'ready' ? 'can_buy' : 'can_first_print';
+    visibleInboxRows().filter(r => r[flag]).slice(0,100).forEach(r => state.selected.add(r.id)); renderInbox();
+  },
   'clear-selection': () => {state.selected.clear(); renderInbox();},
   'bulk-buy': el => withButton(el, () => reviewSelected('buy')),
   'bulk-print': el => withButton(el, () => reviewSelected('print')),
@@ -804,13 +855,20 @@ const ACTIONS = {
   async "printer-test"(el) {
     await withButton(el, () => sendPhysical("/print/test"));
   },
-  "go-inbox": () => navigate({}),
+  "go-inbox": () => navigate(state.inbox ? { stage: state.inbox.stage } : {}),
+  async "check-tracking"(el) {
+    // A read of Shopify's carrier tracking: never buys or prints.
+    await withButton(el, async () => {
+      state.shipment = await api(`/shipments/${state.shipment.id}/tracking`, { method: "POST" });
+      renderShipment();
+    });
+  },
   "go-setup": () => navigate({ view: "setup" }),
   async sync(el) {
     await withButton(el, async () => {
       const out = await api("/sync", { method: "POST" });
       toast(`Checked Shopify: ${out.open} open international order${out.open === 1 ? "" : "s"}`);
-      state.inbox = await api(`/inbox?q=${encodeURIComponent(state.q)}`);
+      state.inbox = await loadInbox();
       renderInbox();
     });
   },
@@ -819,7 +877,7 @@ const ACTIONS = {
     if (!win) return;
     await withButton(el, async () => {
       const out = await printJobs("/print/ready", win);
-      state.inbox = await api(`/inbox?q=${encodeURIComponent(state.q)}`);
+      state.inbox = await loadInbox();
       if (out.skipped.length) {
         state.flash = { tone: "warning",
           heading: `${out.labels} of ${out.labels + out.skipped.length} labels opened to print`,
@@ -979,6 +1037,13 @@ const ACTIONS = {
 document.addEventListener("click", (ev) => {
   const open = ev.target.closest("[data-open]");
   if (open) { ev.preventDefault(); navigate({ shipment: open.dataset.open }); return; }
+  const tab = ev.target.closest("[data-stage]");
+  if (tab) {
+    // A stage is a view of the same orders: selections never carry across it.
+    ev.preventDefault(); state.selected.clear();
+    navigate(state.q ? { stage: tab.dataset.stage, q: state.q } : { stage: tab.dataset.stage });
+    return;
+  }
   const el = ev.target.closest("[data-action]");
   if (!el || el.hasAttribute("disabled")) return;
   const fn = ACTIONS[el.dataset.action];
@@ -993,18 +1058,23 @@ document.addEventListener("input", (ev) => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(async () => {
     state.q = ev.target.value || "";
-    try { state.inbox = await api(`/inbox?q=${encodeURIComponent(state.q)}`); renderInbox();
+    try { state.inbox = await loadInbox(); renderInbox();
       const f = document.getElementById("search"); f?.focus?.(); }
     catch (err) { state.flash = errorBanner(err); render(); }
   }, 250);
 });
 document.addEventListener("change", (ev) => {
+  if (ev.target.id === "stage-select") {
+    state.selected.clear();
+    const stage = ev.target.value || "attention";
+    navigate(state.q ? { stage, q: state.q } : { stage });
+    return;
+  }
   if (ev.target.dataset?.select) {
     const id = ev.target.dataset.select;
     if (ev.target.checked) state.selected.add(id); else state.selected.delete(id);
     renderInbox(); return;
   }
-  if (ev.target.id === "group") { state.group = ev.target.value || "all"; renderInbox(); }
 });
 // Read the state recovered by the server tick; never submit quotes or a purchase here.
 let quoteRecoveryPending = false;
