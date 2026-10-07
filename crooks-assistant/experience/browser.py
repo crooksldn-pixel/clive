@@ -134,7 +134,7 @@ async def serve_fixture_world(port: int):
     from app.runtime import _make_customer_lookup
     from app.session.manager import SessionManager
     from app.tools import gmail_tools, gmail_writes, shopify_tools
-    from experience.fixtures import FixtureShopify, fixture_gmail
+    from experience.fixtures import FixtureShopify, data, fixture_gmail
     from experience.harness import RecordingProvider, _warm
 
     original_lifespan = app.router.lifespan_context
@@ -152,6 +152,8 @@ async def serve_fixture_world(port: int):
 
     runtime = app.state.runtime
     runtime.provider = RecordingProvider()
+    # The world on the day the application is on, as the harness builds it (data.rebase).
+    data.rebase()
     store, gmail = FixtureShopify(), fixture_gmail()
     runtime.shopify = store
     runtime.gmail = gmail
