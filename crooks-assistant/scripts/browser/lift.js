@@ -430,6 +430,23 @@ async function main() {
   }
   await sleep(1200);
 
+  // A customer has no view a screen draws: the customer the email names, held, lifts nothing and says
+  // so in a line, and the scroll guard comes off with the line (the check the email had before ruling
+  // 29, pointed at a customer's chip).
+  const who = await centre(tab, '#cards .card-email_thread .link-customer[data-kind="customer"][data-ref]');
+  check('the email names its customer in a chip that can be held', Boolean(who), JSON.stringify(who));
+  if (who) {
+    await tab.touch('touchStart', who.x, who.y);
+    await sleep(700);
+    now = await tray(tab);
+    check('held, a customer lifts nothing and says a screen shows orders, objectives and emails',
+      now.hidden && !now.chip && /^A screen shows orders, objectives and emails, not customers\./.test(now.say), JSON.stringify(now));
+    await tab.shot('10-customer');
+    check('and the scroll guard comes off with the line: nothing is lifted', (await tab.guards()) === 0, await tab.guards());
+    await tab.touch('touchEnd');
+    await sleep(300);
+  }
+
   // An objective's card in the conversation is held like an order's. With the email up on the Office
   // TV, the tablet's tile says so as text, and nothing in the tray carries it in an attribute (the
   // review of 8 October: the tile's aria-label carried the subject).
