@@ -46,6 +46,12 @@ def is_hook(path: str) -> bool:
     return path in HOOK_PATHS
 
 
+def routed_path(request: Request) -> str:
+    """The path the request is routed by (the ASGI scope's), never request.url's, which an older
+    Starlette built from the Host header (review note 8, 8 Oct)."""
+    return str(request.scope.get("path") or "")
+
+
 def _refused() -> Response:
     return Response(status_code=403, content=b"", headers={"Cache-Control": "no-store"})
 
@@ -68,7 +74,7 @@ async def _bounded_body(request: Request) -> bytes | None:
 
 
 async def _door(request: Request) -> Response:
-    channel = CHANNEL_OF.get(request.url.path, "")
+    channel = CHANNEL_OF.get(routed_path(request), "")
     adapter = adapters.get(channel)
     if adapter is None:
         return _refused()

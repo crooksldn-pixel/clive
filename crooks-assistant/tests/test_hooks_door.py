@@ -255,3 +255,29 @@ async def test_a_team_members_message_is_stored_before_the_door_answers_however_
     await ingest.settle()
     assert store.message(thread.chat_id, message.message_id).translation_state == "done"
     assert "<message>\n样衣明天到。\n</message>" in said
+
+
+async def test_the_hook_check_reads_the_routed_path_never_a_url_the_host_header_shaped(client, world, monkeypatch):  # noqa: F811
+    """Review note 8 (8 Oct): the door's exemption read request.url.path. Starlette 1.7 builds that from
+    the routed path, but fastapi is unpinned and an older Starlette built request.url from the Host
+    header, so `Host: x/hooks/wecom#` sent straight to the port would have skipped the door for any
+    route. Here request.url is built the old way; the door must judge by the routed path regardless."""
+    from starlette.datastructures import URL
+    from starlette.requests import HTTPConnection
+
+    def as_an_older_starlette_built_it(self):
+        host = next((v.decode("latin-1") for k, v in self.scope["headers"] if k == b"host"), "")
+        query = self.scope.get("query_string", b"").decode()
+        return URL(f"{self.scope.get('scheme', 'http')}://{host}{self.scope['path']}" + (f"?{query}" if query else ""))
+
+    monkeypatch.setattr(HTTPConnection, "url", property(as_an_older_starlette_built_it))
+    _closed_to_the_public(client)
+    for headers in ({}, STRANGER):
+        shaped = {**headers, "Host": "x/hooks/wecom#"}
+        response = await client.get("/openapi.json", headers=shaped)
+        assert response.status_code == 403 and "not allowed" in response.text, (headers, response.status_code)
+    # And WeCom's own callback is still let in when its Host says something else.
+    query, body = wecom_world.kf_event(nonce="hosted")
+    response = await client.post("/hooks/wecom", params=query, content=body, headers={**STRANGER, "Host": "x/elsewhere#"})
+    assert (response.status_code, response.content) == (200, b"")
+    await ingest.settle()

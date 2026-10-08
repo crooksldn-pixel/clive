@@ -554,8 +554,10 @@ async def guard_and_freshness(request: Request, call_next):
     # paths only): it skips everything below, because WeCom's servers are not on the tailnet, and it
     # carries no authority of any kind, so no tool can run from it. The route checks the channel's
     # signature before anything else and answers anything unsigned or invalid with an empty 403.
-    # Every other path is judged exactly as before (tests/test_hooks_door.py).
-    if hooks_route.is_hook(request.url.path) and request.method in ("GET", "POST"):
+    # Every other path is judged exactly as before (tests/test_hooks_door.py). The routed path, from
+    # the ASGI scope, never request.url, which an older Starlette built from the Host header, so a
+    # Host of "x/hooks/wecom#" could have made any route look like this one (review note 8, 8 Oct).
+    if hooks_route.is_hook(hooks_route.routed_path(request)) and request.method in ("GET", "POST"):
         from app.tools import authority as hook_authority
 
         nobody = hook_authority.TOOL_AUTHORITY.set(None)
