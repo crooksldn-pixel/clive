@@ -129,10 +129,11 @@
     // A message. The three classes of web/notify.js, and the old floating bubble.
     notification: ['.note', '.toast', '[data-notify]'],
     // Furniture a message must never cover, and the controls the brief names: the dock, the
-    // orb, the halves, Back, Next, Split, the composer, the approval surfaces.
+    // orb, the branch band, Back, Next, the composer, the approval surfaces. Split's chips,
+    // Merge and Close went on 8 October (DEC-071, ruling 37), and nothing draws them now.
     chrome: [
       '#talk', '#talk-label', '.dock-btn', '#orb-frame', '#branch-zone', '#branch-bar',
-      '.branch-chip', '.branch-act', '[data-action="split"]', '#home-btn', '#back-btn', '#next-btn',
+      '#home-btn', '#back-btn', '#next-btn',
       '.action-surface', '.compose-btn', '.field-input', '.variant-add', '.armed',
     ],
     // An action rail: a group of controls that belongs beside its content, never over it.
@@ -157,9 +158,12 @@
       '.chip-home', '.chip-step', '.dock-btn', '#stack', '#recent', '#attention',
     ],
     dock: ['#dock', '.dock-btn'],
-    // The halves: Split with one, the two chips with Merge and Close when there are two.
-    split: ['[data-action="split"]', '.branch-split', '.chip-split'],
-    branch: ['.branch-chip', '.branch-act', '.chip-branch-act', '#branch-bar', '#branch-rail', '#branch-head'],
+    // The halves. Split was deleted (DEC-071, ruling 37) and nothing draws its controls, but
+    // §9's Split-voice and branch-voice pairs still stand on these two groups, so each keeps
+    // the one shape that would bring Split back to the screen: a `data-action="split"` control,
+    // and a `.branch-chip` in the band the page still lays out empty and hidden.
+    split: ['[data-action="split"]'],
+    branch: ['.branch-chip', '#branch-bar', '#branch-rail', '#branch-head'],
     orb: ['#orb-frame', '#orb', '.orb-caption'],
     // Where a change is authorised. A message over one of these is a message over the only
     // thing on the tablet that can alter the shop.

@@ -398,6 +398,25 @@ test('with the keyboard open, an action under the fixed furniture is its own ver
   assert.equal(fired(shut, 'keyboard_over_action'), 0, 'the same geometry with the keyboard down is a different question');
 });
 
+/* Split was deleted on the owner's ruling of 8 October (DEC-071, ruling 37). Nothing on the page
+   draws its chips, Merge, Close or the Split control any more, so a selector that names only
+   them measures nothing and says nothing about the screen. What stays, and why, is in
+   web/collide.js beside the two groups. */
+test('no selector group names a Split control nothing draws any more', () => {
+  const RETIRED = ['.branch-split', '.chip-split', '.chip-branch-act'];
+  for (const kind of Object.keys(C.SEL)) {
+    for (const sel of C.SEL[kind]) assert.ok(!RETIRED.includes(sel), `${kind} still names ${sel}`);
+  }
+  for (const sel of ['.branch-chip', '.branch-act', '[data-action="split"]']) {
+    assert.ok(!C.SEL.chrome.includes(sel), `chrome still names ${sel}`);
+  }
+  assert.ok(!C.SEL.branch.includes('.branch-act'), 'branch still names .branch-act');
+  // The two §9 pair sides still stand on something: an empty group would match nothing and
+  // its rule would always pass (tests/test_collision_gate.py).
+  assert.deepEqual(C.SEL.split, ['[data-action="split"]']);
+  assert.ok(C.SEL.branch.includes('.branch-chip') && C.SEL.branch.includes('#branch-bar'));
+});
+
 /* The rule the coordinator's eye found on the before-shots, which nothing above can see: no
    two rectangles intersect and the document does not scroll sideways, because the overflow is
    CLIPPED by a container. An interactive control hangs off the edge of the glass and every

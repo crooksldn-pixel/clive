@@ -4725,9 +4725,9 @@ el.talk.addEventListener('pointerdown', () => {
 /* ============================================================== compose · end */
 
 // ------------------------------------------------------------------ boot
-// After every declaration above. The Split control is on the idle screen from the first
-// frame — one chip while there is one half — and a reload asks the Mac for the screen it
-// still holds rather than starting from nothing.
+// After every declaration above. The branch band is held empty and hidden from the first
+// frame (Split was deleted on 8 October, DEC-071 ruling 37), and a reload asks the server for
+// the screen it still holds rather than starting from nothing.
 drawBranchBar();
 restoreWorkspace();
 
