@@ -124,6 +124,9 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/app/remote_engineering",
     "crooks-assistant/scripts/remote_engineering.py",
     "crooks-assistant/app/orchestrator/github_acceptance.py",
+    # The loop's and the Director's own GitHub identity (DEC-071 ruling 13, DEC-076): what mints their tokens and
+    # narrows them to clive and the named permissions. No build may widen what its own identity can do.
+    "crooks-assistant/scripts/github_app_token.py",
     "crooks-assistant/app/engineering_bridge",
     "crooks-assistant/app/tools/engineering_tools.py",
     # Where keys are kept, and what approves a change to one (the owner's decision of 1 October
@@ -183,6 +186,8 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/tests/test_builder_check_server.py",      # workers/check_server.py
     "crooks-assistant/tests/test_claude_worker_adapter.py",     # workers/claude.py
     "crooks-assistant/tests/test_gpt_reviewer.py",              # reviewers/gpt.py
+    "crooks-assistant/tests/test_claude_reviewer.py",           # reviewers/claude.py, choice.py (DEC-076)
+    "crooks-assistant/tests/test_github_app_token.py",          # scripts/github_app_token.py (DEC-076)
     "crooks-assistant/tests/test_remote_engineering.py",        # app/remote_engineering, its CLI
     "crooks-assistant/tests/test_github_acceptance.py",         # github_acceptance.py
     "crooks-assistant/tests/test_engineering_bridge.py",        # app/engineering_bridge, engineering_tools.py

@@ -57,10 +57,11 @@ from app.orchestrator.lifecycle import (  # noqa: E402
 )
 from app.orchestrator.objectives import ObjectiveStore  # noqa: E402
 from app.orchestrator.reviewers import (  # noqa: E402
+    DEFAULT_REVIEWER,
     GPT_DEFAULT_EFFORT,
     GPT_DEFAULT_MODEL,
-    GptResponsesReviewer,
-    GptUnavailable,
+    REVIEWERS,
+    reviewers_for,
 )
 from app.orchestrator.store import RecordConflictError, StateConflictError  # noqa: E402
 from app.orchestrator.workers import ClaudeCodeWorker  # noqa: E402
@@ -134,7 +135,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--publish-remote", default=None,
                         help="remote the candidates are pushed to, so GitHub runs acceptance on them; "
                              "run refuses to start without it")
-    parser.add_argument("--gpt-api-key-file", default=None)
+    # The owner's ruling of 8 Oct 2026 (DEC-071 ruling 10; DEC-076): Claude on his plan reviews by default; GPT stays
+    # selectable so a re-pin can fall back. The reviewer not chosen only finishes what it was given before the switch.
+    parser.add_argument("--reviewer", choices=list(REVIEWERS), default=DEFAULT_REVIEWER,
+                        help="claude (default): Claude on the owner's plan, read-only, in a session and review room of "
+                             "its own; gpt: the programmatic GPT reviewer (needs --gpt-api-key-file)")
+    parser.add_argument("--reviewer-cli", default=None, help="the claude CLI the reviewer runs (default: --worker-cli)")
+    parser.add_argument("--reviewer-token-file", default=None,
+                        help="host-side file (mode 600) holding the reviewer's CLAUDE_CODE_OAUTH_TOKEN (default: "
+                             "--worker-token-file); an API key is refused")
+    parser.add_argument("--reviewer-model", default=None)
+    parser.add_argument("--reviewer-effort", default=None)
+    parser.add_argument("--reviewer-max-turns", type=int, default=None)
+    parser.add_argument("--gpt-api-key-file", default=None,
+                        help="the OpenAI key file for --reviewer gpt; with --reviewer claude it only lets reviews "
+                             "already dispatched to GPT finish")
     parser.add_argument("--gpt-model", default=GPT_DEFAULT_MODEL)
     parser.add_argument("--gpt-effort", default=GPT_DEFAULT_EFFORT)
     parser.add_argument("--worker-cli", default="claude")
@@ -233,18 +248,19 @@ def _dispatcher(args, kernel: Kernel, objectives: ObjectiveStore) -> Dispatcher:
     if not args.publish_remote:
         raise InboxError(NO_PUBLISH_REMOTE)
     runtime = Path(args.runtime_root)
-    if args.gpt_api_key_file:
-        reviewers = [
-            GptResponsesReviewer(
-                runtime / "gpt",
-                repo=Path(args.repo),
-                key_file=Path(args.gpt_api_key_file),
-                model=args.gpt_model,
-                effort=args.gpt_effort,
-            )
-        ]
-    else:
-        reviewers = [GptUnavailable()]
+    reviewers = reviewers_for(
+        args.reviewer,
+        runtime=runtime,
+        repo=Path(args.repo),
+        gpt_key_file=args.gpt_api_key_file,
+        gpt_model=args.gpt_model,
+        gpt_effort=args.gpt_effort,
+        claude_cli=args.reviewer_cli or args.worker_cli,
+        claude_token_file=args.reviewer_token_file or args.worker_token_file,
+        claude_model=args.reviewer_model,
+        claude_effort=args.reviewer_effort,
+        claude_max_turns=args.reviewer_max_turns,
+    )
     worker = ClaudeCodeWorker(
         cli=args.worker_cli,
         model=args.worker_model,

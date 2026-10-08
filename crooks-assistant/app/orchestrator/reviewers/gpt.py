@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .base import ReviewContext, ReviewerFacts, ReviewResult
+from .base import DECISION_SCHEMA, ReviewContext, ReviewerFacts, ReviewResult
 
 __all__ = ["DEFAULT_EFFORT", "DEFAULT_MODEL", "DEPLOY_REVIEW_MODEL", "GptResponsesReviewer", "key_file_problem"]
 
@@ -51,32 +51,6 @@ MAX_RUNS = 3
 FILES_LIMIT = 300_000
 _PASS_ENV = ("PATH", "LANG", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy",
              "SSL_CERT_FILE", "SSL_CERT_DIR")
-
-DECISION_SCHEMA = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["candidate_sha", "verdict", "findings", "summary"],
-    "properties": {
-        "candidate_sha": {"type": "string", "description": "the exact 40-hex SHA you reviewed"},
-        "verdict": {"type": "string", "enum": ["READY", "CHANGES_REQUIRED"]},
-        "findings": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["finding_id", "material", "finding", "evidence_ref", "required_repair"],
-                "properties": {
-                    "finding_id": {"type": "string", "description": "short id, e.g. F-01"},
-                    "material": {"type": "boolean"},
-                    "finding": {"type": "string"},
-                    "evidence_ref": {"type": "string", "description": "file:line or packet section"},
-                    "required_repair": {"type": "string"},
-                },
-            },
-        },
-        "summary": {"type": "string"},
-    },
-}
 
 INSTRUCTIONS = """You are GPT, the independent engineering reviewer for CLIVE. The builder was a \
 different principal (Claude); you did not write this candidate and must not assume it is correct.

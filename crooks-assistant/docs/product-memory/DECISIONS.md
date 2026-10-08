@@ -1231,3 +1231,39 @@ He wants "the flow from actually asking a question to the action happening to be
 **Reason:** he asked for every decision that needed him, as yes or no, in one place.
 
 **Consequences:** rulings 6 and 7 settle decisions 3 and 6 of the self-shipping plan and DEC-067's open question. Ruling 25 changes DEC-069's focus rules. Ruling 30 is a recorded exception to DEC-063. Rulings 37–40 and 24 retire parked code (MAP "Parked"); ruling 41 keeps the scheduler; ruling 42 keeps the venture engine parked. Rulings that need building are built as their own pull requests, each citing its ruling.
+
+---
+
+## DEC-076 — The loop's exact-SHA reviewer is Claude on the owner's plan; the Director and CLIVE get GitHub Apps of their own
+
+**Date:** 2026-10-08
+**Status:** ACTIVE. Built in the repository (`claude/n3-claude-reviewer`); in force on clive-worker-01 only through the owner-gated re-pin. The GitHub Apps take effect when the owner creates them ([`GITHUB_IDENTITY.md`](../GITHUB_IDENTITY.md)).
+**Source:** the owner's rulings of 8 October 2026 (DEC-071), verbatim: ruling 10, "Replace the GPT reviewer with a Claude reviewer?" — "Y"; ruling 13, "Give the Director and CLIVE their own GitHub identity?" — "Y".
+
+**Decision:**
+- **Claude reviews every candidate in the loop by default.** `app/orchestrator/reviewers/claude.py` is the reviewer: the claude CLI on the owner's Max plan, never an API key. Its contract is the one GPT kept:
+  - the same packet;
+  - the same typed `clive.review_result.v1`, READY or CHANGES_REQUIRED with numbered findings;
+  - bound to the exact SHA by the driver, never by the model;
+  - the same repair loop and limits, and the same private stop reports;
+  - one detached process per review, up to three runs, then the task blocks with the reason.
+- **It is independent of the builder, by how it runs.** It is a principal of its own, `claude-reviewer`, registered in `config/review_principals.json` with the reviewer role only. The builder's principal `claude` still may not review. Each review gets:
+  - a fresh session: its own id, nothing persisted, an empty HOME with no settings or memory;
+  - a review room of its own: the candidate's whole tree written from git objects at the exact SHA, with links shown as notes and never followed, made read-only, and compared with the commit's blobs after the review;
+  - only Read, Glob and Grep, under `dontAsk`.
+  
+  The launch is checked at the CLI's init event, as a builder's is. It is refused for any other tool, any MCP server, any plugin beyond the builtin allowance, any skill or command, any permission mode but `dontAsk`, or any API-key source. A room that changed, or a reviewer that used any other tool, voids the review: that is an error, never a verdict.
+- **GPT stays selectable, so a re-pin can fall back.** Both loop scripts take `--reviewer claude|gpt` (and `engineering_dispatcher.py` still takes `relay`); `claude` is the default for a new pin. The reviewer not chosen never takes a new review. It is kept only to finish one it was given before the switch (`reviewers/choice.py`, `CollectOnly`). The GPT reviewer is kept for that only while the unit still names its key file.
+- **The reviewer runs on the builders' token by default** (`--reviewer-token-file`, else `--worker-token-file`). The file must be 600, owned by the loop's user, and never hold an API key. `engineering_dispatcher.py probe-review` launches it as a review would and stops it at its init event; `--turn` lets it answer one tiny prompt on the token.
+- **The Director and CLIVE each get a GitHub App.** George creates them. Both get contents write on `clive` only, pull requests, Actions read and Workflows. The Director needs Workflows to merge a workflow change (PR #108). CLIVE's App needs it because the loop's refresh merge can carry the trunk's own workflow change; the loop's protected-path checks still refuse any `.github` change a builder makes. Each key lives in a 600 file on its host, never in the repository. `scripts/github_app_token.py` mints an installation token narrowed to `clive` and the permissions named, and works as git's credential helper. The loop switches by configuration alone: git's credential helper in its clone, which the GitHub acceptance gate already asks. CLIVE's production filing (`app/engineering_bridge/github.py`) and the Director are recorded follow-ups, for the reasons in GITHUB_IDENTITY.md.
+
+**Reason:** his rulings. On the reviewer: the loop's routine reviews were a second, pay-as-you-go bill (the OpenAI API), and his Max plan already runs the builders and CLIVE. On identity: today everything the loop and the Director do on GitHub is done as his account.
+
+**Consequences:**
+- **What the change gives up.** The review loses the second model family. `routing.py` has always recorded that diversity is never what eligibility rests on. The registry's note that "every Claude session on this host resolves to this one principal" still holds for the builder principal `claude`. `claude-reviewer` is separate by how it is launched and checked, not by its model.
+- **The plan's limits.** Reviews and builders now share his plan's usage windows.
+- **Untouched.** Nothing in the kernel, the gate, the GitHub acceptance gate or the dispatcher changed. The protected paths only grew.
+- **Newly protected.** The new tests (`test_claude_reviewer.py`, `test_github_app_token.py`) and the token helper are protected paths.
+- **The re-pin's own review stays GPT for now.** `root-repin.sh` on clive-worker-01 runs its own exact-SHA review of the loop's code through the OpenAI API. It lives outside the repository and is not changed here.
+  - The re-pin that brings this in is reviewed by it as before, so the OpenAI key stays on clive-worker-01 for that script. Once the unit drops `--gpt-api-key-file`, the loop no longer reads the key.
+  - **The owner's open call:** keep GPT for re-pin reviews only (a few a month), or move that review to Claude too. Moving it means bringing `root-repin.sh` into the repository, so the change to it is itself reviewed, and then swapping its review call.

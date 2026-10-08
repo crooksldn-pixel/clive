@@ -45,6 +45,26 @@
       ]
     },
     {
+      "principal_id": "claude-reviewer",
+      "kind": "model",
+      "model_family": "claude",
+      "roles": [
+        "reviewer"
+      ],
+      "may_review": true,
+      "recorded_at": "2026-10-08",
+      "recorded_by": "owner ruling of 8 October 2026 (DEC-071, ruling 10: replace the GPT reviewer with a Claude reviewer); DEC-076",
+      "reason": "The loop's exact-SHA reviewer as Claude on the owner's plan (app/orchestrator/reviewers/claude.py). It is a principal of its own, separate from the builder principal claude by how it runs, not by model family: a fresh session each review (its own session id, never resumed, nothing persisted, an empty HOME with no settings, memory or CLAUDE.md), a review room of its own exported from the candidate's git objects (never a builder's workspace), and only Read, Glob and Grep under dontAsk, so it cannot edit the candidate. The launch is checked at its init event and the room is compared with the commit's blobs after every review. It never authors: the loop's builders are the principal claude, which still may not review. The cognitive diversity of a second model family is given up by the owner's ruling; routing.py records that diversity is never what eligibility rests on.",
+      "conditions": [
+        "candidate_sha must be an exact 40-character SHA, never a branch name",
+        "the SHA must be re-resolved at decision time; CANDIDATE_SHA_DRIFT voids the review",
+        "the reviewer workspace is its own export of the candidate at that SHA (REVIEWER_NOT_AT_CANDIDATE), never a builder's (SAME_WORKSPACE)",
+        "the reviewer workspace must be read-only and clean (REVIEWER_WORKSPACE_IS_WRITABLE, REVIEWER_WORKSPACE_IS_DIRTY): verified after every review",
+        "a fresh session per review (SAME_SESSION, STALE_CONTEXT)",
+        "never authors a candidate; never runs on an API key"
+      ]
+    },
+    {
       "principal_id": "owner",
       "kind": "human",
       "roles": [

@@ -26,6 +26,7 @@ from ..review_acceptance import ReviewVerdict
 from ..routing import Party, Principal, PrincipalKind, SessionContext, Workspace
 
 __all__ = [
+    "DECISION_SCHEMA",
     "Finding",
     "ReviewContext",
     "ReviewResult",
@@ -33,6 +34,35 @@ __all__ = [
     "ReviewerFacts",
     "REVIEW_RESULT_SCHEMA",
 ]
+
+# What a programmatic reviewer's model returns: the decision only. Task, revision, attempt, SHA binding and the
+# reviewer's own facts are added by its driver, never by the model. One schema for every model reviewer (GPT,
+# reviewers/gpt.py; Claude, reviewers/claude.py), so the contract cannot drift between them.
+DECISION_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["candidate_sha", "verdict", "findings", "summary"],
+    "properties": {
+        "candidate_sha": {"type": "string", "description": "the exact 40-hex SHA you reviewed"},
+        "verdict": {"type": "string", "enum": ["READY", "CHANGES_REQUIRED"]},
+        "findings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["finding_id", "material", "finding", "evidence_ref", "required_repair"],
+                "properties": {
+                    "finding_id": {"type": "string", "description": "short id, e.g. F-01"},
+                    "material": {"type": "boolean"},
+                    "finding": {"type": "string"},
+                    "evidence_ref": {"type": "string", "description": "file:line or packet section"},
+                    "required_repair": {"type": "string"},
+                },
+            },
+        },
+        "summary": {"type": "string"},
+    },
+}
 
 
 class Finding(StrictRecord):

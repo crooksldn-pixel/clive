@@ -1,12 +1,12 @@
 """Reviewer drivers that exist today, and the one that does not.
 
-``GptUnavailable`` stands in when the dispatcher has no OpenAI key file: the
+``GptUnavailable`` stands in when a loop runs ``--reviewer gpt`` with no OpenAI key file: the
 programmatic reviewer (``gpt.GptResponsesReviewer``) exists, but without its
 host-side credential it cannot run. It reports that gap
 through ``availability`` so the dispatcher blocks truthfully instead of dispatching
-a review nobody will perform. It never falls back to a Claude process: the
-principal registry records ``claude`` with ``may_review: false`` because every
-Claude session on the host is one principal.
+a review nobody will perform. It never falls back to another reviewer by itself: the
+builder's principal ``claude`` keeps ``may_review: false``, and the Claude reviewer
+(``claude-reviewer``, reviewers/claude.py, DEC-076) is chosen only by ``--reviewer claude``.
 
 ``RelayReviewer`` is the courier path, named as such (``courier = True``): the
 dispatcher writes the exact-SHA packet to an outbox and waits for a typed
@@ -26,10 +26,10 @@ from .base import ReviewContext
 __all__ = ["GptUnavailable", "RelayReviewer", "GPT_GAP"]
 
 GPT_GAP = (
-    "no programmatic GPT reviewer is configured for this dispatcher: it was started without "
-    "--gpt-api-key-file (the OpenAI Responses API reviewer, reviewers/gpt.py); claude may not review "
-    "(registry may_review false: one principal for every Claude session); provide the host-side key file, "
-    "register another independent reviewer principal, or run this objective with --reviewer relay (courier)"
+    "no programmatic GPT reviewer is configured for this dispatcher: it was started with --reviewer gpt and "
+    "without --gpt-api-key-file (the OpenAI Responses API reviewer, reviewers/gpt.py); the builder's principal "
+    "claude may not review; run the loop with --reviewer claude (the default: Claude on the owner's plan, "
+    "reviewers/claude.py), provide the host-side key file, or run this objective with --reviewer relay (courier)"
 )
 
 
