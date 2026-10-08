@@ -10,7 +10,8 @@ later shown.
 What it promises:
 - Reading only. Nothing in a file is run: a PDF is parsed by pypdf (the one dependency, loaded
   only for a PDF), a Word file is unzipped and its XML read with the standard library (any
-  DOCTYPE or ENTITY refused before parsing), a ChatGPT export is read as JSON.
+  DOCTYPE or ENTITY refused before parsing), a saved page is read for the words it shows (its
+  scripts and styles dropped unread), a ChatGPT export is read as JSON.
 - Bounded: the file, each part unzipped, the pages read, the text made and the conversations
   taken. Past a bound it says so in words (ConvertError), or notes what it left out.
 - Every section it makes stays under SECTION_CHARS, so no part of a long file is cut off by the
@@ -25,6 +26,7 @@ import json
 import re
 import zipfile
 from dataclasses import dataclass, field
+from html.parser import HTMLParser
 from pathlib import PurePosixPath
 from xml.etree import ElementTree
 
@@ -54,7 +56,7 @@ class ConvertError(Exception):
 
 @dataclass
 class Converted:
-    """What a file became: (name, Markdown or HTML text) files, and notes on anything left out."""
+    """What a file became: (name, Markdown) files, and notes on anything left out."""
 
     kind: str
     files: list[tuple[str, str]]
@@ -67,7 +69,7 @@ def kind_of(name: str) -> str:
 
 
 def convert(name: str, data: bytes) -> Converted:
-    """The file `name` with these bytes, as Markdown (or HTML for a saved page)."""
+    """The file `name` with these bytes, as Markdown: a saved page as the words it shows."""
     kind = kind_of(name)
     if not kind:
         raise ConvertError(f"{_short(name)} isn't a kind of file CLIVE takes as research. It takes {ACCEPTED}.")
@@ -86,15 +88,17 @@ def convert(name: str, data: bytes) -> Converted:
     elif kind == "markdown":
         text = _text(data)
     elif kind == "html":
-        return Converted(kind, [(f"{stem}.html", _text(data))], notes)
+        text = _chunked_markdown(_html(_text(data)))
     elif kind == "chatgpt":
         text = _chatgpt(_json(data, name), notes)
     else:
         text = _chatgpt(_json(_from_zip(data), "conversations.json"), notes)
     text = _BLANKS.sub("\n\n", _CONTROL.sub("", text)).strip()
     if not _has_words(text):
-        raise ConvertError(f"No text could be read from {_short(name)}. A scanned PDF has pictures of words, not words: "
-                           "export the research as text, Markdown or Word instead.")
+        why = ("A page saved before the chat loaded holds the page's code, not the chat: let it load, then save it, "
+               "or export the report as PDF, Word or Markdown." if kind == "html" else
+               "A scanned PDF has pictures of words, not words: export the research as text, Markdown or Word instead.")
+        raise ConvertError(f"No text could be read from {_short(name)}. {why}")
     if len(text) > MAX_TEXT_CHARS:
         notes.append(f"Only the first {MAX_TEXT_CHARS:,} characters were taken; the rest of the file was left out.")
         text = text[:MAX_TEXT_CHARS].rsplit("\n", 1)[0]
@@ -194,6 +198,62 @@ def _runs(node) -> str:
         elif el.tag in (f"{_W}br", f"{_W}cr"):
             parts.append(" ")
     return _SPACE.sub(" ", "".join(parts))
+
+
+class _Page(HTMLParser):
+    """A saved page's visible words, as Markdown lines: headings, paragraphs and list items. Scripts,
+    styles and everything else a page carries but does not show are dropped unread, so the scanner
+    and the model see the page as he read it, never its machinery."""
+
+    SKIP = frozenset(("script", "style", "noscript", "svg", "template", "head", "iframe", "object"))
+    BLOCK = frozenset(("p", "div", "section", "article", "br", "tr", "pre", "blockquote", "li", "ul", "ol", "table",
+                       "h1", "h2", "h3", "h4", "h5", "h6"))
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.lines: list[str] = []
+        self.current: list[str] = []
+        self.prefix = ""
+        self.skipping = 0
+        self.size = 0
+
+    def flush(self) -> None:
+        words = _SPACE.sub(" ", "".join(self.current)).strip()
+        if words and self.size < MAX_TEXT_CHARS:
+            self.lines.append(f"{self.prefix}{words}")
+            self.size += len(words)
+        self.current, self.prefix = [], ""
+
+    def handle_starttag(self, tag, attrs) -> None:
+        if tag in self.SKIP:
+            self.skipping += 1
+        elif not self.skipping and tag in self.BLOCK:
+            self.flush()
+            if tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
+                self.prefix = "#" * int(tag[1]) + " "
+            elif tag == "li":
+                self.prefix = "- "
+
+    def handle_endtag(self, tag) -> None:
+        if tag in self.SKIP:
+            self.skipping = max(0, self.skipping - 1)
+        elif not self.skipping and tag in self.BLOCK:
+            self.flush()
+
+    def handle_data(self, data) -> None:
+        if not self.skipping:
+            self.current.append(data)
+
+
+def _html(text: str) -> list[str]:
+    page = _Page()
+    try:
+        page.feed(text)
+        page.close()
+    except Exception:  # noqa: BLE001 - malformed markup gives what was read before it
+        pass
+    page.flush()
+    return page.lines
 
 
 def _chatgpt(data, notes: list[str]) -> str:
