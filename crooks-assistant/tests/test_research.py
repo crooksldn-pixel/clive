@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import sys
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -101,18 +102,25 @@ def _docx(paragraphs: list[tuple[str, str]], table: list[list[str]] | None = Non
     return out.getvalue()
 
 
-def _pdf(lines: list[str]) -> bytes:
-    """A one-page PDF with real text, written by hand: what a ChatGPT report export holds, small."""
-    content = "BT /F1 12 Tf 72 720 Td " + " ".join(f"({line}) Tj 0 -16 Td" for line in lines) + " ET"
-    objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-               "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
-               f"<< /Length {len(content)} >>\nstream\n{content}\nendstream",
-               "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+def _pdf(lines: list[str], *, content: str = "") -> bytes:
+    """A one-page PDF with real text, written by hand: what a ChatGPT report export holds, small. With
+    `content`, that is the page's content stream instead, compressed."""
+    import zlib
+
+    if content:
+        packed = zlib.compress(content.encode("latin-1"), 9)
+        stream = f"<< /Length {len(packed)} /Filter /FlateDecode >>\nstream\n".encode() + packed + b"\nendstream"
+    else:
+        text = "BT /F1 12 Tf 72 720 Td " + " ".join(f"({line}) Tj 0 -16 Td" for line in lines) + " ET"
+        stream = f"<< /Length {len(text)} >>\nstream\n{text}\nendstream".encode()
+    objects = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+               b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+               stream, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
     out = b"%PDF-1.4\n"
     offsets = []
     for i, obj in enumerate(objects, 1):
         offsets.append(len(out))
-        out += f"{i} 0 obj\n{obj}\nendobj\n".encode()
+        out += f"{i} 0 obj\n".encode() + obj + b"\nendobj\n"
     xref = len(out)
     out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
     out += b"".join(f"{o:010d} 00000 n \n".encode() for o in offsets)
@@ -204,6 +212,51 @@ def test_a_pdf_is_read_page_by_page():
     out = convert.convert("report.pdf", _pdf(["CLIVE should show when each key was last checked.", "This is a test fixture."]))
     text = out.files[0][1]
     assert text.startswith("## Page 1") and "show when each key was last checked" in text
+
+
+def test_pypdf_is_at_least_the_release_with_every_known_parser_fix():
+    """Review note 3: pypdf>=4.0 admitted releases with known memory and runtime bombs (CVE-2025-55197
+    and the advisories after it); 6.19.0 carries every fix published up to 1 Oct 2026."""
+    import re
+    import tomllib
+
+    project = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())["project"]
+    (floor,) = [re.fullmatch(r"pypdf>=([\d.]+)", d.replace(" ", "")).group(1) for d in project["dependencies"] if d.startswith("pypdf")]
+    assert tuple(int(x) for x in floor.split(".")) >= (6, 19, 0)
+
+
+def test_a_pdf_is_read_in_a_process_of_its_own(monkeypatch):
+    """Review note 3: nothing in the app's process parses a PDF, so a pypdf that can't read here changes nothing."""
+    import pypdf
+
+    monkeypatch.setattr(pypdf, "PdfReader", None)
+    out = convert.convert("report.pdf", _pdf(["CLIVE should show when each key was last checked.", "This is a test fixture."]))
+    assert "show when each key was last checked" in out.files[0][1]
+
+
+def test_a_pdf_that_takes_too_long_is_stopped_and_said(monkeypatch):
+    """Review note 3: a small PDF can cost seconds of CPU (this 8 KB page of 300,000 runs took 9 s in the
+    app's process); its own process is killed past PDF_SECONDS, and the refusal says so."""
+    import time
+
+    slow = _pdf([], content="BT /F1 10 Tf 72 760 Td " + " ".join("(a) Tj 1 0 Td" for _ in range(300_000)) + " ET")
+    assert len(slow) < 16 << 10
+    monkeypatch.setattr(convert, "PDF_SECONDS", 2)
+    began = time.monotonic()
+    with pytest.raises(convert.ConvertError, match="took more than 2 seconds, so CLIVE stopped"):
+        convert.convert("slow.pdf", slow)
+    assert time.monotonic() - began < 8
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="only Linux enforces an address-space limit")
+def test_a_pdf_that_needs_too_much_memory_is_stopped_and_said(monkeypatch):
+    """Review note 3: the reader's process holds itself to PDF_MEMORY_BYTES; this 40 KB PDF inflates a 40 MB
+    page, which reads in the app's process but not under a 128 MB limit."""
+    big = _pdf([], content="BT /F1 12 Tf 72 720 Td (CLIVE should show when each key was last checked.) Tj ET\n%" + "x" * (40 << 20) + "\n")
+    assert len(big) < 64 << 10
+    monkeypatch.setattr(convert, "PDF_MEMORY_BYTES", 128 << 20)
+    with pytest.raises(convert.ConvertError, match="needs more than the 128 MB CLIVE gives reading one PDF"):
+        convert.convert("big.pdf", big)
 
 
 def test_a_chatgpt_export_is_his_questions_and_its_answers_and_the_whole_account_is_refused():

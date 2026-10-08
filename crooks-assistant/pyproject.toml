@@ -22,9 +22,10 @@ dependencies = [
   "cryptography>=42",
   "python-dateutil>=2.9",
   "tzdata>=2024.2",
-  # Reads the PDFs George gives CLIVE as research (app/research/convert.py). Pure Python, no system
-  # libraries; loaded only when a PDF is read.
-  "pypdf>=4.0",
+  # Reads the PDFs George gives CLIVE as research, in a process of its own (app/research/pdf_reader.py).
+  # Pure Python, no system libraries. 6.19.0 carries the fix for every parser advisory published up
+  # to 1 Oct 2026 (memory and runtime bombs since 6.0.0's CVE-2025-55197).
+  "pypdf>=6.19.0",
 ]
 
 [project.optional-dependencies]

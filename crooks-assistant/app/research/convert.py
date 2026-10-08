@@ -8,8 +8,8 @@ and the quarantined copy is that Markdown: what the scanner scans is exactly wha
 later shown.
 
 What it promises:
-- Reading only. Nothing in a file is run: a PDF is parsed by pypdf (the one dependency, loaded
-  only for a PDF), a Word file is unzipped and its XML read with the standard library as it
+- Reading only. Nothing in a file is run: a PDF is parsed by pypdf (the one dependency) in a
+  process of its own with a time and memory limit (app/research/pdf_reader.py), a Word file is unzipped and its XML read with the standard library as it
   streams, one paragraph or table at a time (any DOCTYPE or ENTITY refused before parsing), a
   saved page is read for the words it shows (its scripts and styles dropped unread), a ChatGPT
   export is read as JSON.
@@ -35,6 +35,13 @@ from xml.parsers import expat
 
 MAX_FILE_BYTES = 25 << 20        # one file George gives
 MAX_PAGES = 500                  # pages read from one PDF
+# One PDF is read in its own process (app/research/pdf_reader.py, review note 3, 8 Oct), killed past
+# PDF_SECONDS and held to PDF_MEMORY_BYTES of address space. Measured 8 Oct: 100 ordinary pages read
+# in 0.6 s, so 500 take about 3 s; an 8 KB page of 300,000 one-letter runs took 9 s of CPU. The
+# reader starts at 45 MB, and pypdf decompresses at most 75 MB of one stream.
+PDF_SECONDS = 60
+PDF_MEMORY_BYTES = 512 << 20
+_PDF_ENV = {"LC_ALL": "C.UTF-8"}  # all the reader's process is given: no keys, no settings
 MAX_TEXT_CHARS = 1_500_000       # Markdown made from one file (the adapter reads 2 MB a file)
 # A Word file's text (word/document.xml) or a ChatGPT export's JSON, unpacked (review note 2, 8 Oct).
 # 8 MB already holds more text than CLIVE takes from one file: Word writes about 5 bytes of XML for
@@ -128,35 +135,52 @@ def convert(name: str, data: bytes) -> Converted:
 
 
 def _pdf(data: bytes, notes: list[str]) -> list[str]:
-    try:
-        from pypdf import PdfReader
-        from pypdf.errors import PdfReadError
-    except ImportError:
+    said = _pdf_in_its_own_process(data)
+    error = said.get("error")
+    if error == "missing":
         raise ConvertError("PDF reading isn't installed on this server (the pypdf package). "
-                           "Give the research as Word, Markdown or text, or install pypdf.") from None
-    try:
-        reader = PdfReader(io.BytesIO(data), strict=False)
-        if reader.is_encrypted and not reader.decrypt(""):
-            raise ConvertError("That PDF is locked with a password, so CLIVE can't read it.")
-        pages = list(reader.pages)
-    except ConvertError:
-        raise
-    except (PdfReadError, ValueError, KeyError, TypeError, OSError) as exc:
-        raise ConvertError(f"That PDF couldn't be read ({type(exc).__name__}).") from None
-    if len(pages) > MAX_PAGES:
-        notes.append(f"Only the first {MAX_PAGES} of its {len(pages)} pages were read.")
-        pages = pages[:MAX_PAGES]
-    out: list[str] = []
-    unread = 0
-    for page in pages:
-        try:
-            out.append(page.extract_text() or "")
-        except Exception:  # noqa: BLE001 - one bad page is a note, not the whole file lost
-            unread += 1
-            out.append("")
+                           "Give the research as Word, Markdown or text, or install pypdf.")
+    if error == "locked":
+        raise ConvertError("That PDF is locked with a password, so CLIVE can't read it.")
+    if error == "memory":
+        raise ConvertError(f"That PDF needs more than the {PDF_MEMORY_BYTES >> 20} MB CLIVE gives reading one PDF, so it "
+                           "wasn't read. Export the research as Word, Markdown or text instead.")
+    if error:
+        raise ConvertError(f"That PDF couldn't be read ({str(said.get('type') or 'unreadable')[:40]}).")
+    out = [p if isinstance(p, str) else "" for p in said.get("pages") or []][:MAX_PAGES]
+    total, unread = int(said.get("total") or len(out)), int(said.get("unread") or 0)
+    if total > MAX_PAGES:
+        notes.append(f"Only the first {MAX_PAGES} of its {total} pages were read.")
     if unread:
         notes.append(f"{unread} page{'s' if unread != 1 else ''} couldn't be read and {'were' if unread != 1 else 'was'} left out.")
     return out
+
+
+def _pdf_in_its_own_process(data: bytes) -> dict:
+    """What app/research/pdf_reader.py said of these bytes, run as its own process with the app's Python."""
+    import subprocess
+    import sys
+
+    from app.research import pdf_reader
+
+    if not sys.executable:
+        raise ConvertError("That PDF couldn't be read: this server has no Python to read it with.")
+    command = [sys.executable, "-I", pdf_reader.__file__, str(MAX_PAGES), str(PDF_MEMORY_BYTES), str(PDF_SECONDS + 5)]
+    try:
+        done = subprocess.run(command, input=data, capture_output=True, timeout=PDF_SECONDS, env=_PDF_ENV, check=False)
+    except subprocess.TimeoutExpired:
+        raise ConvertError(f"Reading that PDF took more than {PDF_SECONDS} seconds, so CLIVE stopped. "
+                           "Export the research as Word, Markdown or text instead.") from None
+    except OSError as exc:
+        raise ConvertError(f"That PDF couldn't be read: its reader couldn't start ({type(exc).__name__}).") from None
+    try:
+        said = json.loads(done.stdout.decode("ascii")) if done.returncode == 0 else None
+    except (UnicodeDecodeError, ValueError):
+        said = None
+    if not isinstance(said, dict):
+        raise ConvertError("That PDF couldn't be read: reading it stopped before it finished, as one that needs more "
+                           "time or memory than CLIVE gives a PDF would.")
+    return said
 
 
 def _docx(data: bytes, notes: list[str]) -> str:
