@@ -7,10 +7,19 @@ is not.
 
 What the seal does while it is on, every layer on its own:
 
-    no network       this process opens no internet connection at all: socket connects of any
-                     internet address are refused, loopback included (a local proxy would carry a
-                     request out), and names other than loopback do not resolve. The claude CLI is
-                     a separate process and keeps its own connection to Claude.
+    no network       this process opens no internet connection: a socket connect to any internet
+                     address is refused, loopback included (a local proxy would carry a request
+                     out); a send to, a listening port on, or a lookup of anything but loopback is
+                     refused; and below all of that an audit hook (sys.addaudithook) refuses every
+                     socket connect, send, bind and host lookup Python's socket module makes that
+                     is not loopback, which is what catches the calls that never pass through the
+                     socket class (the C-level _socket, gethostbyname and the rest). Loopback is
+                     judged by the address (ipaddress), and only `localhost` by name. What the
+                     hook cannot see: a compiled library that opens its own sockets (CLIVE has
+                     none; httpx and asyncio use the socket module), and the name a raw _socket
+                     call resolves in C before its connect or send is audited (the connect or
+                     send itself is still refused). The claude CLI is a separate process and
+                     keeps its own connection to Claude.
     no real client   once the fake shop is bound (`arm_clients`; CLIVE's start-up builds its real
                      clients first and the harness swaps them out, unused, behind a shut network),
                      building one is refused on the spot: any httpx network transport (every HTTP
@@ -32,13 +41,16 @@ the seal says so on every result it touched, not only in a log. The refusals are
 code that tried treats them as the network failure they are, and CLIVE reports a failed tool.
 
 What it promises: on leaving, every seam is put back as it was, except the latch, which by design
-has no way back (a process that latched stays read-only for its life).
+has no way back (a process that latched stays read-only for its life), and the audit hook, which
+Python cannot remove: it stays installed and, with no seal on, lets everything through.
 """
 
 from __future__ import annotations
 
 import inspect
+import ipaddress
 import socket
+import sys
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -46,8 +58,84 @@ from typing import Any
 
 from app.bench.store import now
 
-LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
+LOOPBACK_NAMES = frozenset({"localhost"})
 SERVED_SECRET = "claude_oauth_token"
+INTERNET = frozenset({socket.AF_INET, socket.AF_INET6})
+# Socket families that never leave this machine: a socket file, the kernel's own netlink (CLIVE asks
+# the kernel its interface addresses that way, app/identity.py), and the kernel's crypto. Any other
+# family that is not the internet's (raw frames, vsock, ...) is refused as the internet's is.
+LOCAL_FAMILIES = frozenset(f for f in (getattr(socket, n, None) for n in ("AF_UNIX", "AF_NETLINK", "AF_ALG")) if f is not None)
+# The socket module's audit events that put traffic on, or open a port to, a network, and what each is
+# recorded as. The lookups name a host; the rest name a socket and an address.
+AUDITED = {
+    "socket.connect": "a network connection",
+    "socket.sendto": "sending on the network",
+    "socket.sendmsg": "sending on the network",
+    "socket.bind": "a port open to the network",
+    "socket.getaddrinfo": "looking up a host",
+    "socket.gethostbyname": "looking up a host",
+    "socket.gethostbyaddr": "looking up a host",
+    "socket.getnameinfo": "looking up a host",
+}
+
+# The seal the audit hook answers to: set while a seal is on, None otherwise.
+_watching: Seal | None = None
+_hooked = False
+
+
+def is_loopback(host: Any) -> bool:
+    """Whether a host is this machine's loopback: `localhost` by name, otherwise an address that
+    ipaddress says is loopback (127.0.0.0/8, ::1, and 127.x mapped into IPv6). A name that merely
+    starts "127." is a name like any other, and is looked up on the internet."""
+    if isinstance(host, (bytes, bytearray)):
+        host = bytes(host).decode("ascii", "replace")
+    name = str(host or "").strip().lower().rstrip(".")
+    if name in LOOPBACK_NAMES:
+        return True
+    try:
+        address = ipaddress.ip_address(name.split("%", 1)[0])
+    except ValueError:
+        return False
+    mapped = getattr(address, "ipv4_mapped", None)
+    return bool((mapped or address).is_loopback)
+
+
+def leaves_the_machine(family: Any, address: Any) -> bool:
+    """Whether a socket of this family, connecting, sending or listening at `address`, reaches past
+    this machine. The internet's families by the address's host; local families never; any other
+    family always (fail closed)."""
+    if family in LOCAL_FAMILIES:
+        return False
+    if family in INTERNET:
+        host = address[0] if isinstance(address, tuple) and address else address
+        return not is_loopback(host)
+    return True
+
+
+def _audit(event: str, args: tuple) -> None:
+    """The audit hook: every socket call Python makes, judged while a seal is on. Called for every
+    audited event in the process, so it does nothing at all until a seal is on and the event is a
+    socket's that can reach a network."""
+    seal = _watching
+    if seal is None:
+        return
+    what = AUDITED.get(event)
+    if what is None:
+        return
+    if what == "looking up a host":
+        host = args[0] if args else None
+        if event == "socket.getnameinfo":
+            host = host[0] if isinstance(host, tuple) and host else host
+        if event == "socket.getaddrinfo" and not host:
+            return                                   # no host: the local wildcard, nothing looked up
+        if not is_loopback(host):
+            raise seal.breach(what, repr(host))
+        return
+    sock, address = (tuple(args) + (None, None))[:2]
+    if address is None:
+        return                                       # a send on a socket already connected (and judged then)
+    if leaves_the_machine(getattr(sock, "family", None), address):
+        raise seal.breach(what, repr(address))
 
 
 class BenchIsolationError(OSError):
@@ -147,32 +235,53 @@ class Seal:
     def _network(self) -> None:
         seal = self
         real_connect, real_connect_ex = socket.socket.connect, socket.socket.connect_ex
+        real_sendto, real_sendmsg = socket.socket.sendto, socket.socket.sendmsg
         real_resolve = socket.getaddrinfo
-        internet = (socket.AF_INET, socket.AF_INET6)
 
         def connect(sock, address, *args, **kwargs):
-            if sock.family in internet:
+            if sock.family in INTERNET:
                 raise seal.breach("a network connection", repr(address))
             return real_connect(sock, address, *args, **kwargs)
 
         def connect_ex(sock, address, *args, **kwargs):
-            if sock.family in internet:
+            if sock.family in INTERNET:
                 raise seal.breach("a network connection", repr(address))
             return real_connect_ex(sock, address, *args, **kwargs)
+
+        # A send names its address, and C looks a name up before the audit hook hears of the send:
+        # judged here first, so the lookup never happens.
+        def sendto(sock, data, *rest):
+            if rest and leaves_the_machine(sock.family, rest[-1]):
+                raise seal.breach("sending on the network", repr(rest[-1]))
+            return real_sendto(sock, data, *rest)
+
+        def sendmsg(sock, buffers, *rest):
+            address = rest[2] if len(rest) > 2 else None
+            if address is not None and leaves_the_machine(sock.family, address):
+                raise seal.breach("sending on the network", repr(address))
+            return real_sendmsg(sock, buffers, *rest)
 
         def create_connection(address, *args, **kwargs):
             raise seal.breach("a network connection", repr(address))
 
         def getaddrinfo(host, *args, **kwargs):
-            name = (host.decode() if isinstance(host, bytes) else str(host or "")).lower()
-            if name and name not in LOOPBACK_NAMES and not name.startswith("127."):
-                raise seal.breach("looking up a host", name)
+            if host and not is_loopback(host):
+                raise seal.breach("looking up a host", str(host.decode("ascii", "replace") if isinstance(host, bytes) else host))
             return real_resolve(host, *args, **kwargs)
 
         self._swap(socket.socket, "connect", connect)
         self._swap(socket.socket, "connect_ex", connect_ex)
+        self._swap(socket.socket, "sendto", sendto)
+        self._swap(socket.socket, "sendmsg", sendmsg)
         self._swap(socket, "create_connection", create_connection)
         self._swap(socket, "getaddrinfo", getaddrinfo)
+        # Under all of it, the audit hook: installed once for the process (Python has no way to take
+        # one out), and listening only while this seal is the one it answers to.
+        global _hooked
+        if not _hooked:
+            sys.addaudithook(_audit)
+            _hooked = True
+        self._swap(sys.modules[__name__], "_watching", self)
 
     def _refuse(self, what: str) -> Callable[..., Any]:
         seal = self

@@ -69,8 +69,13 @@ What he approved:
 
 A run cannot reach anything outside the fake shop (`app/bench/isolation.py`, held by
 `tests/test_bench_isolation.py`):
-- the bench's own process opens no internet connection at all (loopback included, since a local proxy
-  would carry a request on) and resolves no host but loopback. The claude CLI is a separate process and
+- the bench's own process opens no internet connection: a connect to any internet address is refused
+  (loopback included, since a local proxy would carry a request on), and so is a send to, a port open to
+  or a lookup of anything but loopback. Under that, an audit hook (`sys.addaudithook`) refuses every
+  connect, send, port and host lookup Python's socket module makes past loopback, the C-level ones
+  included. Loopback is judged by its address, and only `localhost` by name. Out of the hook's sight: a
+  compiled library that opens sockets of its own (CLIVE has none), and the name a raw `_socket` call looks
+  up in C before its connect or send, which is still refused. The claude CLI is a separate process and
   keeps its own connection to Claude;
 - once the fake shop is bound, building any real outward client is refused on the spot: every httpx
   network transport (Shopify, Instagram, Ship24, ElevenLabs, CROOKS Returns, GitHub, YouTube, and whatever

@@ -9,6 +9,8 @@ writes possible". What is held here:
     real HTTP client of any kind (Shopify, Instagram, Ship24, CROOKS Returns, YouTube, GitHub, and
     whatever is added next, because they all build an httpx transport), Gmail's real service and
     credentials, and the Shopify, ElevenLabs and Whisper client classes themselves;
+  - below the socket class, the audit hook refuses every connect, send, port and lookup Python's
+    socket module makes past loopback, loopback judged by address, never by a name's first characters;
   - no secret reads but the Max plan's own token from a token file; a key CLIVE makes for itself is
     kept in memory and never reaches a store;
   - a run whose world is not the fake shop stops before it asks a single question;
@@ -26,7 +28,7 @@ import pytest
 
 from app import readonly
 from app.bench import persona
-from app.bench.isolation import BenchIsolationError, Seal
+from app.bench.isolation import BenchIsolationError, Seal, is_loopback
 from app.bench.models import MaxPlanModel
 from app.bench.runner import Caps, Run
 from app.bench.store import Bench
@@ -82,6 +84,68 @@ def test_every_way_out_is_refused_and_recorded():
     # Every seam is put back on the way out.
     httpx.AsyncClient()
     assert ShopifyClient("x.myshopify.com", "2025-07").shop_domain == "x.myshopify.com"
+
+
+def _on(make, act):
+    """A socket made, used once, and closed whatever happened."""
+    def attempt():
+        sock = make()
+        try:
+            return act(sock)
+        finally:
+            sock.close()
+    return attempt
+
+
+def test_what_never_passes_the_socket_class_is_refused_and_recorded_too():
+    """Review note N1 (8 Oct): a UDP send, a TCP fast-open send, the C-level _socket's own connect,
+    gethostbyname and a name starting "127." all went out with no breach. Each is refused now."""
+    import _socket
+
+    inet, udp, tcp = socket.AF_INET, socket.SOCK_DGRAM, socket.SOCK_STREAM
+    attempts = {
+        "a UDP send": _on(lambda: socket.socket(inet, udp), lambda s: s.sendto(b"x", ("8.8.8.8", 53))),
+        "a TCP fast-open send": _on(lambda: socket.socket(inet, tcp), lambda s: s.sendto(b"x", socket.MSG_FASTOPEN, ("1.1.1.1", 80))),
+        "a sendmsg": _on(lambda: socket.socket(inet, udp), lambda s: s.sendmsg([b"x"], [], 0, ("8.8.8.8", 53))),
+        "a send to a name": _on(lambda: socket.socket(inet, udp), lambda s: s.sendto(b"x", ("example.com", 53))),
+        "_socket's connect": _on(lambda: _socket.socket(inet, tcp), lambda s: s.connect(("1.1.1.1", 80))),
+        "_socket's connect_ex": _on(lambda: _socket.socket(inet, tcp), lambda s: s.connect_ex(("1.1.1.1", 443))),
+        "_socket's send": _on(lambda: _socket.socket(inet, udp), lambda s: s.sendto(b"x", ("8.8.8.8", 53))),
+        "_socket's sendmsg": _on(lambda: _socket.socket(inet, udp), lambda s: s.sendmsg([b"x"], [], 0, ("9.9.9.9", 53))),
+        "a port open to the network": _on(lambda: socket.socket(inet, udp), lambda s: s.bind(("0.0.0.0", 0))),
+        "gethostbyname": lambda: socket.gethostbyname("example.com"),
+        "gethostbyname_ex": lambda: socket.gethostbyname_ex("example.com"),
+        "gethostbyaddr": lambda: socket.gethostbyaddr("1.1.1.1"),
+        "getnameinfo": lambda: socket.getnameinfo(("1.1.1.1", 80), 0),
+        "_socket's getaddrinfo": lambda: _socket.getaddrinfo("example.com", 443),
+        "a name starting 127.": lambda: socket.getaddrinfo("127.example.com", 80),
+    }
+    with Seal(latch=False) as seal:
+        for name, attempt in attempts.items():
+            with pytest.raises(BenchIsolationError):
+                attempt()
+            assert seal.count() == list(attempts).index(name) + 1, f"{name}: refused, but not recorded once"
+        assert {b["what"] for b in seal.breaches} == {"sending on the network", "a network connection",
+                                                       "a port open to the network", "looking up a host"}
+        # Loopback is still this machine's own, judged by its address: a send, a port, a lookup.
+        _on(lambda: _socket.socket(inet, udp), lambda s: s.sendto(b"x", ("127.0.0.1", 9)))()
+        _on(lambda: socket.socket(inet, udp), lambda s: s.bind(("127.0.0.1", 0)))()
+        assert socket.getaddrinfo("127.0.0.2", 80) and socket.gethostbyname("localhost")
+        assert seal.count() == len(attempts)
+    # Python cannot take the hook out; with no seal on it lets everything through.
+    _on(lambda: _socket.socket(inet, udp), lambda s: s.bind(("0.0.0.0", 0)))()
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "127.255.0.9", "::1", "::1%lo", "::ffff:127.0.0.1", "localhost",
+                                  "LOCALHOST.", b"127.0.0.1"])
+def test_loopback_is_judged_by_its_address(host):
+    assert is_loopback(host)
+
+
+@pytest.mark.parametrize("host", ["127.example.com", "127.0.0.1.nip.io", "localhost.example.com", "1.1.1.1", "0.0.0.0",
+                                  "::", "::ffff:1.1.1.1", "", None])
+def test_anything_else_is_not_loopback(host):
+    assert not is_loopback(host)
 
 
 def test_no_secret_but_the_plans_own_token_and_nothing_is_stored(tmp_path, monkeypatch):
