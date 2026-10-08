@@ -294,8 +294,9 @@ and green, the **Deploy now** card offers "Hold to try it (dry run)".
    `"deploy"` with `"end": "dry_run"` and the approval's id. The card says the same.
 3. After the dry-run days, when its plans have matched hand deploys, George sets
    `CLIVE_RELEASE_DRY_RUN=false` in `/etc/crooks-os/release.env` (the next tick reads it; nothing
-   restarts). From then on his hold deploys: the card follows it, started → checks → installing →
-   health → done, and his phone keeps it (below).
+   restarts). A hold he gave to try it in dry run deploys nothing after that: it was spent by its dry
+   run and signed as a try. Once the card says "Hold to deploy", his hold deploys: the card follows
+   it, started → checks → installing → health → done, and his phone keeps it (below).
 
 ### 2. The token (George, on github.com)
 
@@ -418,16 +419,18 @@ lines with the new SHA, after its own review. Nothing else changes.
    Owner only: the team's routes do not include it, and their page never loads it.
 2. **His hold** (0.9 s) asks `POST /release/deploy/challenge`, which reads the trunk again and issues a
    challenge for exactly that SHA: a fresh nonce, the moment issued and the moment it expires (ten
-   minutes), bound into what the passkey signs (`app/release/authority.py` `waiver_challenge`), held
-   by CLIVE for three minutes and good once (`app/release/approve.py`; `app/connections/passkeys.py`
-   takes the caller's challenge).
+   minutes), and whether the hold deploys or only tries it (the card's dry run), bound into what the
+   passkey signs (`app/release/authority.py` `waiver_challenge`), held by CLIVE for three minutes and
+   good once (`app/release/approve.py`; `app/connections/passkeys.py` takes the caller's challenge).
 3. **Face ID.** `POST /release/deploy` checks the passkey as every approval is checked (this CLIVE's
    address, his passkey, present and verified, its counter going up) and writes the waiver, with the
    assertion inside it and no words or login of his, to
    `/var/lib/crooks-assistant/objectives/release-waivers/<sha>.json`.
 4. **At once**, `clive-release-now.path` starts a tick. The service verifies the signature itself
    against his registered public key, refuses it if expired or already used, marks it used, and
-   deploys. The card follows the status every three seconds: started → checks → installing → health →
+   deploys. In dry run it marks it used too, as a dry run, and changes nothing; a hold given as "Hold
+   to try it (dry run)" is refused once the service deploys for real, so switching dry run off never
+   turns a try into a deploy (the review of DEC-072, note 1). The card follows the status every three seconds: started → checks → installing → health →
    done, or rolled back / stopped / refused with why. Through CLIVE's restart it says CLIVE is
    restarting onto the new build.
 5. **Kept.** Once the service says done and the CLIVE answering is the new build, the page asks

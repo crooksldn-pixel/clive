@@ -36,6 +36,9 @@ owner_waiver: George's waiver of the review for that exact SHA (as for b33ccbc2,
            inside what the passkey signed, so a copied waiver cannot be given a longer life; here a
            waiver past its expiry is refused, and the approval it carries (`approval_id`) is marked
            used (app/release/state.py) before a live deploy begins, so it starts one deploy at most.
+           The mode the hold was given in is signed too (the review of DEC-072, note 1): an approval
+           given only to try it ("Hold to try it (dry run)") is refused once the service deploys for
+           real, whatever its used-mark says, and the dry run that answers it marks it used anyway.
 
 Every refusal is a sentence built here; nothing from the record is repeated except the reviewer's
 name, George's name and a summary, each bounded to one line.
@@ -57,8 +60,10 @@ REVIEW_SCHEMA = "clive.release.review.v1"
 WAIVER_SCHEMA = "clive.release.waiver.v1"
 SHIP = "SHIP"
 _SHA = re.compile(r"^[0-9a-f]{40}$")
-# v2 (8 Oct): the challenge also binds when CLIVE issued it and when it expires (DEC-072).
-_CHALLENGE_TAG = b"clive.release.waiver.v2"
+# v2 (8 Oct): the challenge also binds when CLIVE issued it and when it expires (DEC-072). v3 (8 Oct, the
+# review's note 1): and whether his hold deploys ("live") or only tries it ("dry_run").
+_CHALLENGE_TAG = b"clive.release.waiver.v3"
+MODES = ("live", "dry_run")
 MAX_RECORD = 64 * 1024
 NONCE_MIN = 16
 # How long an approval given in CLIVE may start a deploy: the trigger starts one at once, and the
@@ -147,13 +152,17 @@ def check_review(record: dict[str, Any] | None, sha: str, *, base_is_behind_prod
 # ------------------------------------------------------------------ George's waiver
 
 
-def waiver_challenge(repository: str, sha: str, nonce: bytes, *, issued_at: int, expires_at: int) -> bytes:
+def waiver_challenge(repository: str, sha: str, nonce: bytes, *, issued_at: int, expires_at: int,
+                     mode: str) -> bytes:
     """The WebAuthn challenge a passkey waiver answers: this repository, this SHA, the nonce CLIVE's
-    server issued, and when it issued it and when it expires (whole seconds since 1970, UTC). Every
-    part is inside what the passkey signs, so none can be changed after the tap."""
+    server issued, when it issued it and when it expires (whole seconds since 1970, UTC), and the mode
+    the card's hold was given in ("live": Hold to deploy; "dry_run": Hold to try it). Every part is
+    inside what the passkey signs, so none can be changed after the tap."""
+    if mode not in MODES:
+        raise ValueError(f"not a mode a hold is given in: {mode!r}")
     return hashlib.sha256(b"\x00".join((_CHALLENGE_TAG, repository.encode("utf-8"), sha.encode("ascii"), nonce,
-                                         str(int(issued_at)).encode("ascii"),
-                                         str(int(expires_at)).encode("ascii")))).digest()
+                                         str(int(issued_at)).encode("ascii"), str(int(expires_at)).encode("ascii"),
+                                         mode.encode("ascii")))).digest()
 
 
 def approval_id(nonce: bytes) -> str:
@@ -215,11 +224,12 @@ def host_waiver(host, folder: Path, sha: str, repository: str) -> Authority | No
     return _granted(record, "host", "given on the server")
 
 
-def passkey_waiver(host, folder: Path, passkeys_file: Path, sha: str, repository: str, *,
+def passkey_waiver(host, folder: Path, passkeys_file: Path, sha: str, repository: str, *, dry_run: bool,
                    used: Callable[[str], dict[str, Any] | None] = lambda _approval: None) -> Authority | None:
     """A waiver CLIVE collected with George's passkey: believed only if its signature is his, over
-    a challenge CLIVE issued for exactly this SHA, still inside its life, and never used before
-    (`used(approval_id)` answers when it was, from the service's own record)."""
+    a challenge CLIVE issued for exactly this SHA, still inside its life, never used before
+    (`used(approval_id)` answers when it was, from the service's own record), and, when the service
+    deploys for real (`dry_run` False), given to deploy, not only to try it."""
     raw = host.read(Path(folder) / f"{sha}.json")
     if raw is None:
         return None
@@ -229,7 +239,7 @@ def passkey_waiver(host, folder: Path, passkeys_file: Path, sha: str, repository
         return Authority(False, refused)
     credentials = _credentials(host.read(Path(passkeys_file)))
     why, approval = verify_passkey(record.get("passkey"), credentials, repository, sha,
-                                   now=int(host.now().timestamp()), used=used)
+                                   now=int(host.now().timestamp()), dry_run=dry_run, used=used)
     if why:
         return Authority(False, f"the passkey waiver does not hold: {why}")
     granted = _granted(record, "passkey", "with his passkey")
@@ -251,11 +261,13 @@ def _moments(signed: dict[str, Any]) -> tuple[int, int] | None:
 
 
 def verify_passkey(signed: Any, credentials: list[dict[str, Any]], repository: str, sha: str, *, now: int,
+                   dry_run: bool,
                    used: Callable[[str], dict[str, Any] | None] = lambda _approval: None) -> tuple[str | None, str]:
     """(None, the approval's id) when `signed` is a WebAuthn assertion by one of `credentials` over the
-    challenge CLIVE issued for this SHA, still inside its life at `now` and not used before; otherwise
-    (why not, ""). The signature checks are app/connections/passkeys.py's: the page that asked, the
-    passkey's site, the person present and verified, the signature with the registered key."""
+    challenge CLIVE issued for this SHA, still inside its life at `now`, not used before, and, unless
+    the service is in dry run, given to deploy rather than only to try it; otherwise (why not, "").
+    The signature checks are app/connections/passkeys.py's: the page that asked, the passkey's site,
+    the person present and verified, the signature with the registered key."""
     from app.connections import passkeys as pk
 
     if not isinstance(signed, dict):
@@ -267,6 +279,10 @@ def verify_passkey(signed: Any, credentials: list[dict[str, Any]], repository: s
         return ("it carries no challenge CLIVE issued with an expiry (an older form of approval): "
                 "hold the card in CLIVE again"), ""
     issued, expires = moments
+    mode = signed.get("mode")
+    if mode not in MODES:
+        return ("it does not say whether it was given to deploy or only to try it (an older form of "
+                "approval): hold the card in CLIVE again"), ""
     try:
         nonce = pk.unb64url(signed.get("nonce"), field="the waiver's nonce")
         client_raw = pk.unb64url(signed.get("client_data_json"), field="the prompt's account")
@@ -282,7 +298,7 @@ def verify_passkey(signed: Any, credentials: list[dict[str, Any]], repository: s
         if not isinstance(client, dict) or client.get("type") != "webauthn.get":
             return "it answered a different kind of prompt", ""
         if client.get("challenge") != pk.b64url(waiver_challenge(repository, sha, nonce, issued_at=issued,
-                                                                 expires_at=expires)):
+                                                                 expires_at=expires, mode=mode)):
             return "it was given for something other than deploying this exact SHA", ""
         if client.get("crossOrigin") is True or client.get("origin") != record.get("origin"):
             return "the prompt did not come from CLIVE", ""
@@ -299,6 +315,9 @@ def verify_passkey(signed: Any, credentials: list[dict[str, Any]], repository: s
     if now > expires:
         return (f"the approval expired at {_clock(expires)} (an approval starts a deploy within "
                 f"{APPROVAL_TTL_S // 60} minutes of the hold, or not at all): hold the card in CLIVE again"), ""
+    if mode == "dry_run" and not dry_run:
+        return ("it was given only to try it in dry run, and the release service now deploys for real: hold "
+                "the card again to deploy"), ""
     approval = approval_id(nonce)
     spent = used(approval)
     if spent is not None:
@@ -318,7 +337,7 @@ def waiver(host, settings, sha: str) -> Authority:
         return state.approval_used(host, settings.state_dir, approval)
 
     found = [passkey_waiver(host, settings.passkey_waivers_dir, settings.passkeys_file, sha, settings.repository,
-                            used=used),
+                            dry_run=settings.dry_run, used=used),
              host_waiver(host, settings.waivers_dir, sha, settings.repository)]
     for answer in found:
         if answer is not None and answer.ok:

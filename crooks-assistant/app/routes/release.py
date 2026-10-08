@@ -129,8 +129,9 @@ async def deploy_challenge(request: Request) -> JSONResponse:
     if not card["hold"]["can"]:
         raise conn._Refused(409, "cannot_deploy", card["hold"]["why_not"])
     try:
+        # Signed into the challenge: a hold shown as "Hold to try it (dry run)" can never deploy for real.
         asked = approve.begin(sha, card["title"], repository=ReleaseSettings().repository, login=who, origin=origin,
-                              rp_id=rp_id, now=time.time())
+                              rp_id=rp_id, now=time.time(), mode="dry_run" if card["hold"]["dry_run"] else "live")
     except approve.Refused as exc:
         return _refused(exc)
     return conn._answer(asked)

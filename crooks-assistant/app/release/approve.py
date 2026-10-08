@@ -9,8 +9,9 @@ approval it gives is written into the folder the release service is started from
 writes one file in its own state folder, and the release service checks everything again on its own.
 
     begin(...)    a challenge this server issues for exactly one SHA: a fresh nonce, the moment it was
-                  issued and the moment it expires, bound into what the passkey signs
-                  (app/release/authority.py waiver_challenge); held here, good once, for minutes
+                  issued and the moment it expires, and whether the hold deploys or only tries it (dry
+                  run), bound into what the passkey signs (app/release/authority.py waiver_challenge);
+                  held here, good once, for minutes
     finish(...)   the passkey's answer checked as every approval is (app/connections/passkeys.py: this
                   CLIVE's page, his passkey, present and verified, its counter going up), then the
                   waiver written and read back, with no words of his in it and no login
@@ -66,6 +67,7 @@ class Asked:
     issued_at: int
     expires_at: int
     login: str
+    mode: str          # what the card's hold said: "live" (Hold to deploy) or "dry_run" (Hold to try it)
 
 
 _LOCK = threading.Lock()
@@ -100,15 +102,17 @@ def action(sha: str, nonce: bytes) -> str:
 # ------------------------------------------------------------------ the challenge, and his answer
 
 
-def begin(sha: str, title: str, *, repository: str, login: str, origin: str, rp_id: str, now: float) -> dict[str, Any]:
-    """The passkey prompt for deploying exactly `sha`: options for navigator.credentials.get(), and the
-    ticket the page sends back with the answer."""
-    if not _SHA.fullmatch(sha or ""):
+def begin(sha: str, title: str, *, repository: str, login: str, origin: str, rp_id: str, now: float,
+          mode: str) -> dict[str, Any]:
+    """The passkey prompt for deploying exactly `sha`, in the mode the card's hold was shown in ("live",
+    or "dry_run": only to try it, never to deploy later): options for navigator.credentials.get(),
+    and the ticket the page sends back with the answer."""
+    if not _SHA.fullmatch(sha or "") or mode not in authority.MODES:
         raise Refused(400, "bad_request", "A deploy is for an exact version. Reload the Builds screen.")
     nonce = secrets.token_bytes(32)
     issued = int(now)
     expires = issued + authority.APPROVAL_TTL_S
-    challenge = authority.waiver_challenge(repository, sha, nonce, issued_at=issued, expires_at=expires)
+    challenge = authority.waiver_challenge(repository, sha, nonce, issued_at=issued, expires_at=expires, mode=mode)
     options = passkeys.begin_approval(action(sha, nonce), login=login, origin=origin, rp_id=rp_id, challenge=challenge)
     ticket = passkeys.b64url(nonce)
     with _LOCK:
@@ -116,7 +120,7 @@ def begin(sha: str, title: str, *, repository: str, login: str, origin: str, rp_
             _ASKED.pop(stale, None)
         while len(_ASKED) >= MAX_ASKED:
             _ASKED.pop(min(_ASKED, key=lambda k: _ASKED[k].issued_at), None)
-        _ASKED[ticket] = Asked(sha, " ".join(str(title or "").split())[:160], nonce, issued, expires, login)
+        _ASKED[ticket] = Asked(sha, " ".join(str(title or "").split())[:160], nonce, issued, expires, login, mode)
     return {"publicKey": options, "ticket": ticket, "expires_at": iso(expires)}
 
 
@@ -146,7 +150,7 @@ def finish(sha: str, ticket: str, assertion: Any, *, repository: str, login: str
         "passkey": {
             "credential_id": passkeys.b64url(passkeys.unb64url(assertion.get("rawId") or assertion.get("id"),
                                                                 field="the passkey's identity")),
-            "nonce": ticket, "issued_at": asked.issued_at, "expires_at": asked.expires_at,
+            "nonce": ticket, "issued_at": asked.issued_at, "expires_at": asked.expires_at, "mode": asked.mode,
             "client_data_json": response.get("clientDataJSON"),
             "authenticator_data": response.get("authenticatorData"),
             "signature": response.get("signature"),

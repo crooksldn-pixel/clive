@@ -629,6 +629,58 @@ async def test_the_owner_approves_with_his_passkey_and_the_release_service_deplo
     assert "other than deploying this exact SHA" in _status(settings)["line"]
 
 
+async def test_a_hold_given_to_try_it_in_dry_run_is_signed_so_and_never_deploys_for_real(
+        deploy_world, server, tmp_path):  # noqa: F811 - fixtures imported from the suite they belong to
+    """Review note 1, the mode bound into the challenge: the card said "Hold to try it (dry run)"; root
+    switches dry run off before any tick has answered it (so nothing has marked it used): it deploys nothing."""
+    http = deploy_world
+    await register(http)
+    _write_status(http.release, {**READY, "mode": "dry_run"})
+    shown = (await http.get("/release/deploy", headers=PROXIED)).json()["offer"]["hold"]
+    assert shown["label"] == "Hold to try it (dry run)" and shown["can"]
+    asked, answer = await _approve(http)
+    done = await http.post("/release/deploy", json={"sha": TRUNK, "ticket": asked["ticket"], "approval": answer},
+                           headers=HEADERS)
+    assert done.status_code == 200, done.text
+    assert json.loads((http.waivers / f"{TRUNK}.json").read_text())["passkey"]["mode"] == "dry_run"
+    settings, fake, host = server
+    settings.passkey_waivers_dir = http.waivers
+    settings.passkeys_file = passkeys._path()
+    host.clock = datetime.now(UTC)
+    settings.dry_run = False                                  # switched off before any tick answered it
+    code, printed = _tick(settings, host)
+    assert [s for s in host.steps if s in MUTATING] == [] and fake.head == LIVE, printed
+    assert "it was given only to try it in dry run" in _status(settings)["line"], _status(settings)["line"]
+    # Rewritten after the tap to say it was given to deploy: the signature is over the dry-run challenge.
+    path = http.waivers / f"{TRUNK}.json"
+    forged = json.loads(path.read_text())
+    forged["passkey"]["mode"] = "live"
+    path.write_text(json.dumps(forged))
+    host.calls.clear()
+    _tick(settings, host)
+    assert [s for s in host.steps if s in MUTATING] == [] and fake.head == LIVE
+    assert "other than deploying this exact SHA" in _status(settings)["line"]
+    # In dry run, the same hold is answered as what it was: tried, nothing changed, and spent.
+    forged["passkey"]["mode"] = "dry_run"
+    path.write_text(json.dumps(forged))
+    settings.dry_run = True
+    host.calls.clear()
+    _tick(settings, host)
+    assert [s for s in host.steps if s in MUTATING] == [] and _status(settings)["deploy"]["end"] == "dry_run"
+
+
+def test_a_waiver_that_does_not_say_its_mode_deploys_nothing(server, tmp_path):  # noqa: F811 - fixtures imported from the suite they belong to
+    settings, fake, host = server
+    _passkey_waiver(settings, _register(tmp_path))
+    path = settings.passkey_waivers_dir / f"{TRUNK}.json"
+    record = json.loads(path.read_text())
+    del record["passkey"]["mode"]
+    path.write_text(json.dumps(record))
+    _tick(settings, host)
+    assert [s for s in host.steps if s in MUTATING] == [] and fake.head == LIVE
+    assert "whether it was given to deploy or only to try it" in _status(settings)["line"]
+
+
 async def test_a_used_expired_or_other_challenge_is_refused_and_writes_nothing(deploy_world, monkeypatch):
     http = deploy_world
     await register(http)

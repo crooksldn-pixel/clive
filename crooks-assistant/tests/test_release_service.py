@@ -428,12 +428,14 @@ ISSUED = int(datetime(2026, 10, 8, 0, 59, 0, tzinfo=UTC).timestamp())
 
 
 def _passkey_waiver(settings, device: Authenticator, *, sha: str = TRUNK, signed_for: str = TRUNK,
-                    issued: int = ISSUED, life: int = authority.APPROVAL_TTL_S, nonce: bytes | None = None) -> str:
+                    issued: int = ISSUED, life: int = authority.APPROVAL_TTL_S, nonce: bytes | None = None,
+                    mode: str = "live") -> str:
     """A waiver as CLIVE writes one (app/release/approve.py): the challenge it issued, with its life
-    (DEC-072), signed by the passkey. Returns the approval's id."""
+    (DEC-072) and the mode the hold was given in ("live", or "dry_run": Hold to try it), signed by the
+    passkey. Returns the approval's id."""
     nonce = nonce or os.urandom(32)
     challenge = b64url(authority.waiver_challenge(settings.repository, signed_for, nonce, issued_at=issued,
-                                                  expires_at=issued + life))
+                                                  expires_at=issued + life, mode=mode))
     got = device.get({"challenge": challenge}, count=device.counter + 1)
     settings.passkey_waivers_dir.mkdir(exist_ok=True)
     (settings.passkey_waivers_dir / f"{sha}.json").write_text(json.dumps({
@@ -441,7 +443,7 @@ def _passkey_waiver(settings, device: Authenticator, *, sha: str = TRUNK, signed
         "waives": "exact_sha_review", "given_by": "George", "given_at": "2026-10-08T00:40:00+00:00",
         "words": "deploy the latest", "source": "passkey",
         "passkey": {"credential_id": got["rawId"], "nonce": b64url(nonce), "issued_at": issued,
-                    "expires_at": issued + life,
+                    "expires_at": issued + life, "mode": mode,
                     "client_data_json": got["response"]["clientDataJSON"],
                     "authenticator_data": got["response"]["authenticatorData"],
                     "signature": got["response"]["signature"]}}))
