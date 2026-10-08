@@ -57,9 +57,12 @@ class IntoClive(httpx.BaseTransport):
         return httpx.Response(answer.status_code, content=answer.content)
 
 
-@pytest.fixture()
-def loaded(tmp_path):
-    found = returns_service.load(tmp_path / "service")
+@pytest.fixture(scope="module")
+def loaded(tmp_path_factory):
+    """Module-scoped, like tests/test_crooks_returns_contract.py `service_code`: it is set up before
+    conftest's `_offline_environment` takes every CROOKS_* variable away for the test, so
+    CROOKS_RETURNS_SRC, as the skip below says, is still there to be read."""
+    found = returns_service.load(tmp_path_factory.mktemp("service"))
     if found is None:
         pytest.skip(returns_service.WHY_NOT)
     if not (found.src / "returns" / "doorbell.py").is_file():
