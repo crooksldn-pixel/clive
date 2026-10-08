@@ -532,7 +532,9 @@ async def gmail_unsent() -> dict[str, Any]:
         token = str(headers.get("message-id") or "").strip()
         out.append({
             "thread_id": d.get("thread_id") or "",
-            "to": f"{name} <{address}>" if name else address,
+            # A name and an address under the keys the dispatcher collects for redaction (dispatch
+            # _PII_KEYS): the recipient said aloud is scrubbed from any record that keeps words.
+            "to": {"name": name.strip(), "email": address.strip().lower()},
             "subject": " ".join(str(headers.get("subject") or "").split())[:120],
             "reply": bool(headers.get("in-reply-to")),
             "words": whose(words_of(draft_id=d["draft_id"], token=token), asker),

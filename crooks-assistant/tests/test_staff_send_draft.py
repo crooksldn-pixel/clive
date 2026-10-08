@@ -152,6 +152,22 @@ async def test_george_sends_his_own_gmail_draft_as_it_is_and_the_card_says_so(en
     assert ("send_draft", draft_id) in box.calls and not [c for c in box.calls if c[0] == "send"], "the draft itself went, not new words"
 
 
+async def test_the_drafts_list_gives_each_recipient_as_a_name_and_an_address_kept_for_redaction(engine, box):
+    """The review of 8 October (note 6): the list gave a recipient as one string under `to`, a key the
+    dispatcher does not collect, so a recipient's name said aloud was not scrubbed in a session that
+    keeps words. It is a name and an address now, under the keys the dispatcher collects."""
+    georges_draft(box)
+    talk = Talk("o4")
+    with as_owner():
+        listed = (await call(talk, "gmail_unsent"))[0]
+    assert '"to": {"name": "Daniel Stub", "email": "daniel@example.com"}' in listed, listed
+    assert {"Daniel Stub", "daniel@example.com"} <= talk.session.pii_seen, talk.session.pii_seen
+    from app.observability import timeline
+
+    written = timeline.scrub_text("The draft to Daniel Stub (daniel@example.com) is waiting.")
+    assert "Daniel Stub" not in written and "daniel@example.com" not in written, written
+
+
 # ------------------------------------------------------------------------- the team
 
 
