@@ -155,7 +155,9 @@ answers **403 with an empty body** (no verify token), and any other path is a 40
 3. **Translated** after the door has answered, as for WeChat: anything not in English (Chinese,
    or a Latin-script language such as Portuguese or Turkish, told apart by its words) by Claude on
    the Max plan with no tools, labelled machine translation, the original kept; a failure says the
-   translation is missing.
+   translation is missing. English that only looked foreign ("Café hoodie restock?": an accent, no
+   listed English word) comes back from the translator unchanged, and from then on counts as
+   English: no label, and a reply in English alone.
 4. **Read** with `messages_recent` (`channel: whatsapp` for WhatsApp alone, `person` for one
    person's conversations on every app) and `message_thread`: AMBER, so the model reads the name
    back. Each conversation says how long WhatsApp will still take a reply ("open 20h more").

@@ -99,10 +99,23 @@ def language_of(text: str) -> str:
         return ""
     if any(_is_han(ch) for ch in letters):
         return "zh"
-    latin = sum(1 for ch in letters if ch.isascii() or unicodedata.name(ch, "").startswith("LATIN"))
-    if latin / len(letters) < 0.8:
+    if not _mostly_latin(letters):
         return "other"
     return _latin(words, letters)
+
+
+def _mostly_latin(letters: list[str]) -> bool:
+    latin = sum(1 for ch in letters if ch.isascii() or unicodedata.name(ch, "").startswith("LATIN"))
+    return bool(letters) and latin / len(letters) >= 0.8
+
+
+def english_after_all(text: str, state: str) -> bool:
+    """[channels] Whether a message first read as "other" was English: the translator handed the Latin
+    words back unchanged ("not_needed"), as it does for "Café hoodie restock?", where an accent and
+    no listed English word made the first guess (review note 5). Never Chinese, never another script."""
+    words = str(text or "")
+    letters = [ch for ch in words if unicodedata.category(ch).startswith("L")]
+    return state == "not_needed" and language_of(words) == "other" and _mostly_latin(letters)
 
 
 def needs_translation(language: str) -> bool:

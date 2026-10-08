@@ -176,7 +176,9 @@ async def _translate_waiting() -> None:
             if message is None or message.translation_now() != "pending":
                 continue
             english, state, label = await translate.to_english(message.text)
-            store.update_translation(chat_id, message_id, english=english, state=state, label=label)
+            # [channels] Handed back unchanged: English after all, so an English reply is the right one.
+            language = "en" if translate.english_after_all(message.text, state) else ""
+            store.update_translation(chat_id, message_id, english=english, state=state, label=label, language=language)
             COUNTS["translated" if state == "done" else "untranslated"] += 1
         except Exception as exc:  # noqa: BLE001 - one message's translation; the rest still go
             COUNTS["errors"] += 1

@@ -257,7 +257,11 @@ class MessageStore:
                     return True
         return False
 
-    def update_translation(self, chat_id: str, message_id: str, *, english: str, state: str, label: str) -> bool:
+    def update_translation(self, chat_id: str, message_id: str, *, english: str, state: str, label: str,
+                           language: str = "") -> bool:
+        """Keep a message's translation. [channels] `language`, when given, is what the translation
+        showed it to be (English, handed back unchanged), and is the thread's too when this is their
+        latest message: what message_reply asks of a reply follows it."""
         with self._lock:
             held = self._load(chat_id)
             if not held:
@@ -266,6 +270,10 @@ class MessageStore:
             for message in messages:
                 if message.message_id == message_id:
                     message.english, message.translation_state, message.translation = english, state, label
+                    if language:
+                        message.language = language
+                        if thread.last_in_id == message.message_id:
+                            thread.last_in_language = language
                     self._save(thread, messages)
                     return True
         return False

@@ -226,6 +226,43 @@ async def test_english_is_kept_as_it_is_and_never_sent_to_the_model(client, meta
     assert said == []
 
 
+@pytest.mark.parametrize("words", ["Café hoodie restock?", "Naïve question: do u ship to Spain", "Résumé attached"])
+async def test_english_the_translator_hands_back_unchanged_is_answered_in_english_alone(client, meta, owner, words):  # noqa: F811
+    """[channels] Review note 5: an accent and no listed English word make the first guess "other";
+    the translator giving the words back unchanged shows they were English, so the message, the
+    thread, and what a reply needs follow it: the English alone, never an invented translation."""
+    heard: list[str] = []
+
+    async def hands_back(system, text, **_kw):
+        heard.append(text)
+        return text.removeprefix("<message>\n").removesuffix("\n</message>")
+
+    translate.bind(hands_back)
+    assert translate.language_of(words) == "other"
+    await _post(client, meta_world.wa_text(words, msg_id="wamid.ACCENT"))
+    await ingest.settle()
+    [thread] = store.threads()
+    [message] = store.messages(thread.chat_id)
+    assert heard and (message.language, message.english, message.translation_state, message.translation) == (
+        "en", words, "not_needed", "")
+    assert thread.last_in_language == "en"
+    session = _session(thread)
+    text = await dispatch("message_reply", {"chat_id": thread.chat_id, "english": "Yes, back on Friday."},
+                          session=session, timeout_s=10)
+    assert text.startswith("PROPOSED"), text
+    assert session.proposals[-1].execution["text"] == "Yes, back on Friday."
+
+
+async def test_a_translation_that_changed_the_words_keeps_their_language(client, meta, owner, said):  # noqa: F811
+    await _post(client, meta_world.wa_text(PORTUGUESE, msg_id="wamid.PT"))
+    await ingest.settle()
+    [thread] = store.threads()
+    assert thread.last_in_language == "other" and store.messages(thread.chat_id)[0].language == "other"
+    text = await dispatch("message_reply", {"chat_id": thread.chat_id, "english": "Thank you."},
+                          session=_session(thread), timeout_s=10)
+    assert text.startswith("ERROR") and "give the same words in their language" in text
+
+
 @pytest.mark.parametrize("change", ["unsigned", "wrong_secret", "other_body", "garbage", "not_an_object", "wrong_object",
                                     "utf16", "deep"])
 async def test_anything_not_signed_by_meta_for_this_app_gets_an_empty_403_and_nothing_happens(client, meta, said, change):  # noqa: F811
