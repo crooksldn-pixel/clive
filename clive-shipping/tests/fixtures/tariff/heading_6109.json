@@ -1,0 +1,97 @@
+{
+"data": {
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6109000000",
+"description": "T-shirts, singlets and other vests, knitted or crocheted",
+"declarable": false,
+"validity_end_date": null
+}
+},
+"included": [
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6109100000",
+"producline_suffix": "80",
+"description": "Of cotton",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 42979,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6109100010",
+"producline_suffix": "80",
+"description": "T-shirts",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 99290,
+"parent_sid": 42979
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6109100090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 99291,
+"parent_sid": 42979
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6109900000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 42980,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6109902000",
+"producline_suffix": "80",
+"description": "Of wool or fine animal hair or man-made fibres",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 89744,
+"parent_sid": 42980
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6109909000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 42983,
+"parent_sid": 42980
+}
+}
+]
+}

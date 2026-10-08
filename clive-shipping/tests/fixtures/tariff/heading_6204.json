@@ -1,0 +1,1875 @@
+{
+"data": {
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"declarable": false,
+"validity_end_date": null
+}
+},
+"included": [
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204110000",
+"producline_suffix": "10",
+"description": "Suits",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43247,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204110000",
+"producline_suffix": "80",
+"description": "Of wool or fine animal hair",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43248,
+"parent_sid": 43247
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204120000",
+"producline_suffix": "80",
+"description": "Of cotton",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43249,
+"parent_sid": 43247
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204120010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43250,
+"parent_sid": 43249
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204120090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43251,
+"parent_sid": 43249
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204130000",
+"producline_suffix": "80",
+"description": "Of synthetic fibres",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43252,
+"parent_sid": 43247
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204190000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43253,
+"parent_sid": 43247
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204191000",
+"producline_suffix": "80",
+"description": "Of artificial fibres",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43254,
+"parent_sid": 43253
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204199000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43255,
+"parent_sid": 43253
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204210000",
+"producline_suffix": "10",
+"description": "Ensembles",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43256,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204210000",
+"producline_suffix": "80",
+"description": "Of wool or fine animal hair",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43257,
+"parent_sid": 43256
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204220000",
+"producline_suffix": "80",
+"description": "Of cotton",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43258,
+"parent_sid": 43256
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204221000",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43259,
+"parent_sid": 43258
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204228000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43260,
+"parent_sid": 43258
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204228010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43261,
+"parent_sid": 43260
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204228090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43262,
+"parent_sid": 43260
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204230000",
+"producline_suffix": "80",
+"description": "Of synthetic fibres",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43266,
+"parent_sid": 43256
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204231000",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43267,
+"parent_sid": 43266
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204238000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43268,
+"parent_sid": 43266
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204290000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43270,
+"parent_sid": 43256
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204291100",
+"producline_suffix": "10",
+"description": "Of artificial fibres",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43271,
+"parent_sid": 43270
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204291100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43272,
+"parent_sid": 43271
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204291800",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43273,
+"parent_sid": 43271
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204299000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43275,
+"parent_sid": 43270
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204299010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43276,
+"parent_sid": 43275
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204299090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43277,
+"parent_sid": 43275
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204310000",
+"producline_suffix": "10",
+"description": "Jackets and blazers",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43278,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204310000",
+"producline_suffix": "80",
+"description": "Of wool or fine animal hair",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43279,
+"parent_sid": 43278
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204320000",
+"producline_suffix": "80",
+"description": "Of cotton",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43280,
+"parent_sid": 43278
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204321000",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43281,
+"parent_sid": 43280
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204329000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43282,
+"parent_sid": 43280
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204329010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43283,
+"parent_sid": 43282
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204329090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43284,
+"parent_sid": 43282
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204330000",
+"producline_suffix": "80",
+"description": "Of synthetic fibres",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43285,
+"parent_sid": 43278
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204331000",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43286,
+"parent_sid": 43285
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204339000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43287,
+"parent_sid": 43285
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204390000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43288,
+"parent_sid": 43278
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204391100",
+"producline_suffix": "10",
+"description": "Of artificial fibres",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43289,
+"parent_sid": 43288
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204391100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43290,
+"parent_sid": 43289
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204391900",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43291,
+"parent_sid": 43289
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204399000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43292,
+"parent_sid": 43288
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204399010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43293,
+"parent_sid": 43292
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204399090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43294,
+"parent_sid": 43292
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204410000",
+"producline_suffix": "10",
+"description": "Dresses",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43295,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204410000",
+"producline_suffix": "80",
+"description": "Of wool or fine animal hair",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43296,
+"parent_sid": 43295
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204420000",
+"producline_suffix": "80",
+"description": "Of cotton",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43297,
+"parent_sid": 43295
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204420010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43298,
+"parent_sid": 43297
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204420090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43299,
+"parent_sid": 43297
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204430000",
+"producline_suffix": "80",
+"description": "Of synthetic fibres",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43300,
+"parent_sid": 43295
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204440000",
+"producline_suffix": "80",
+"description": "Of artificial fibres",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43301,
+"parent_sid": 43295
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204440010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43302,
+"parent_sid": 43301
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204440090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43303,
+"parent_sid": 43301
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204490000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43304,
+"parent_sid": 43295
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204491000",
+"producline_suffix": "80",
+"description": "Of silk or silk waste",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 89754,
+"parent_sid": 43304
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204499000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 89764,
+"parent_sid": 43304
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204499010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 89766,
+"parent_sid": 89764
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204499090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 89765,
+"parent_sid": 89764
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510000",
+"producline_suffix": "10",
+"description": "Skirts and divided skirts",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43309,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510000",
+"producline_suffix": "80",
+"description": "Of wool or fine animal hair",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43310,
+"parent_sid": 43309
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510011",
+"producline_suffix": "10",
+"description": "Of wool",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43311,
+"parent_sid": 43310
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510011",
+"producline_suffix": "80",
+"description": "Hand-made",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43312,
+"parent_sid": 43311
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510019",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43313,
+"parent_sid": 43311
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43314,
+"parent_sid": 43310
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204520000",
+"producline_suffix": "80",
+"description": "Of cotton",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43315,
+"parent_sid": 43309
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204520010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43316,
+"parent_sid": 43315
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204520090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43317,
+"parent_sid": 43315
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204530000",
+"producline_suffix": "80",
+"description": "Of synthetic fibres",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43318,
+"parent_sid": 43309
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204530010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43319,
+"parent_sid": 43318
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204530090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43320,
+"parent_sid": 43318
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204590000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43321,
+"parent_sid": 43309
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204591000",
+"producline_suffix": "80",
+"description": "Of artificial fibres",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43322,
+"parent_sid": 43321
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204591010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43323,
+"parent_sid": 43322
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204591090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43324,
+"parent_sid": 43322
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204599000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43325,
+"parent_sid": 43321
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204599010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43326,
+"parent_sid": 43325
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204599090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43327,
+"parent_sid": 43325
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204610000",
+"producline_suffix": "10",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43328,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204610000",
+"producline_suffix": "80",
+"description": "Of wool or fine animal hair",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43329,
+"parent_sid": 43328
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204611000",
+"producline_suffix": "80",
+"description": "Trousers and breeches",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43330,
+"parent_sid": 43329
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204618500",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 80929,
+"parent_sid": 43329
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204620000",
+"producline_suffix": "80",
+"description": "Of cotton",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43333,
+"parent_sid": 43328
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204621100",
+"producline_suffix": "10",
+"description": "Trousers and breeches",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43334,
+"parent_sid": 43333
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204621100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43335,
+"parent_sid": 43334
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623100",
+"producline_suffix": "10",
+"description": "Other",
+"number_indents": 4,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43336,
+"parent_sid": 43334
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623100",
+"producline_suffix": "80",
+"description": "Of denim",
+"number_indents": 5,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43337,
+"parent_sid": 43336
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623110",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 6,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43338,
+"parent_sid": 43337
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623190",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 6,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43339,
+"parent_sid": 43337
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623300",
+"producline_suffix": "80",
+"description": "Of cut corduroy",
+"number_indents": 5,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43340,
+"parent_sid": 43336
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623310",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 6,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43341,
+"parent_sid": 43340
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623390",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 6,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43342,
+"parent_sid": 43340
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623900",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 5,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43346,
+"parent_sid": 43336
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623910",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 6,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43347,
+"parent_sid": 43346
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623990",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 6,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43348,
+"parent_sid": 43346
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204625100",
+"producline_suffix": "10",
+"description": "Bib and brace overalls",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43349,
+"parent_sid": 43333
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204625100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43350,
+"parent_sid": 43349
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204625900",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43351,
+"parent_sid": 43349
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204625910",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43352,
+"parent_sid": 43351
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204625990",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43353,
+"parent_sid": 43351
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204629000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43354,
+"parent_sid": 43333
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204629010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43355,
+"parent_sid": 43354
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204629090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43356,
+"parent_sid": 43354
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204630000",
+"producline_suffix": "80",
+"description": "Of synthetic fibres",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43357,
+"parent_sid": 43328
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204631100",
+"producline_suffix": "10",
+"description": "Trousers and breeches",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43358,
+"parent_sid": 43357
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204631100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43359,
+"parent_sid": 43358
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204631800",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43360,
+"parent_sid": 43358
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204631810",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43361,
+"parent_sid": 43360
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204631890",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43362,
+"parent_sid": 43360
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204633100",
+"producline_suffix": "10",
+"description": "Bib and brace overalls",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43366,
+"parent_sid": 43357
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204633100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43367,
+"parent_sid": 43366
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204633900",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43368,
+"parent_sid": 43366
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204633910",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43369,
+"parent_sid": 43368
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204633990",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43370,
+"parent_sid": 43368
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204639000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43371,
+"parent_sid": 43357
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204639010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43372,
+"parent_sid": 43371
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204639090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43373,
+"parent_sid": 43371
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204690000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43374,
+"parent_sid": 43328
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204691100",
+"producline_suffix": "10",
+"description": "Of artificial fibres",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43375,
+"parent_sid": 43374
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204691100",
+"producline_suffix": "20",
+"description": "Trousers and breeches",
+"number_indents": 4,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43376,
+"parent_sid": 43375
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204691100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43377,
+"parent_sid": 43376
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204691800",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 5,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43378,
+"parent_sid": 43376
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204691810",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 6,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43379,
+"parent_sid": 43378
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204691890",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 6,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43380,
+"parent_sid": 43378
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204693100",
+"producline_suffix": "10",
+"description": "Bib and brace overalls",
+"number_indents": 4,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43384,
+"parent_sid": 43375
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204693100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43385,
+"parent_sid": 43384
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204693900",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 5,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43386,
+"parent_sid": 43384
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204693910",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 6,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43387,
+"parent_sid": 43386
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204693990",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 6,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43388,
+"parent_sid": 43386
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204695000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43389,
+"parent_sid": 43375
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204695010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43390,
+"parent_sid": 43389
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204695090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43391,
+"parent_sid": 43389
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204699000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43392,
+"parent_sid": 43374
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204699010",
+"producline_suffix": "80",
+"description": "Hand-printed by the \"batik\" method",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43393,
+"parent_sid": 43392
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204699090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43394,
+"parent_sid": 43392
+}
+}
+]
+}

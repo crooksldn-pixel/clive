@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 
 from shipping import lifecycle, views
 from shipping.auth import BadToken, verify_session_token
+from shipping.commodity import spaced
 from shipping.models import Address
 from shipping.money import Money
 from shipping.operations import Operations
@@ -64,6 +65,13 @@ class AnswerBody(BaseModel):
     value: dict[str, Any] = Field(default_factory=dict, max_length=8)
 
 
+class SuggestBody(BaseModel):
+    text: str = Field(default="", max_length=200)
+    sid: str | None = Field(default=None, max_length=80)
+    subject: str | None = Field(default=None, max_length=200)
+    answers: dict[str, str] = Field(default_factory=dict, max_length=8)
+
+
 class PackageBody(BaseModel):
     preset_id: str = Field(max_length=60)
 
@@ -97,6 +105,8 @@ class CustomsBody(BaseModel):
     hs_code: str = Field(max_length=10)
     description: str = Field(max_length=100)
     origin: str = Field(max_length=2)
+    # How the code was found (a suggestion confirmed, or typed): kept beside it as evidence.
+    classification: dict[str, Any] | None = None
 
 
 class CancelBody(BaseModel):
@@ -348,7 +358,14 @@ def build_admin_router(
     def customs_edit(sid: str, body: CustomsBody, who: str = Depends(staff)):
         act(
             lambda: svc.edit_customs(
-                shop, sid, body.subject, body.hs_code, body.description, body.origin, who
+                shop,
+                sid,
+                body.subject,
+                body.hs_code,
+                body.description,
+                body.origin,
+                who,
+                classification=body.classification,
             )
         )
         return detail_of(sid)
@@ -404,6 +421,52 @@ def build_admin_router(
                 },
             ) from exc
         return detail_of(sid)
+
+    @router.post("/api/commodity/suggest")
+    def commodity_suggest(body: SuggestBody, who: str = Depends(staff)) -> dict[str, Any]:
+        """Plain words (and what Shopify already says about the product) to a commodity code
+        the UK Trade Tariff confirms, or the one question that decides it. Saves nothing."""
+        if svc.commodity is None:
+            return {"state": "manual", "message": "Finding codes is switched off here."}
+        known: list[str] = []
+        if body.sid and body.subject:
+            s = svc.store.get(shop, body.sid)
+            line = next(
+                (
+                    ln
+                    for ln in (s.lines if s else [])
+                    if (ln.product_id or ln.title) == body.subject
+                ),
+                None,
+            )
+            if line is not None:
+                known = [
+                    line.title,
+                    line.variant_title,
+                    line.product_type,
+                    line.customs_description,
+                ]
+        text = " ".join(x for x in [body.text, *known] if x)[:400]
+        out = svc.commodity.suggest(text, body.answers)
+        result: dict[str, Any] = {"state": out.state, "message": out.message}
+        if out.question is not None:
+            result["question"] = {
+                "fact": out.question.fact,
+                "text": out.question.text,
+                "options": out.question.options,
+            }
+        if out.entry is not None:
+            result["candidate"] = {
+                "code": out.entry.code,
+                "spaced": spaced(out.entry.code),
+                "description": out.entry.description,
+                "path": out.entry.path,
+                "source": out.entry.source,
+                "checked_at": out.entry.checked_at,
+                "reasons": out.reasons,
+                "inputs": out.inputs,
+            }
+        return result
 
     @router.post("/api/shipments/{sid}/answer")
     def answer(sid: str, body: AnswerBody, who: str = Depends(staff)) -> dict[str, Any]:

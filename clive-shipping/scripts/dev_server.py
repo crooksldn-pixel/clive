@@ -43,6 +43,7 @@ from pydantic import SecretStr  # noqa: E402
 from shipping import admin as admin_module  # noqa: E402
 from shipping import packages  # noqa: E402
 from shipping.app import create_app  # noqa: E402
+from shipping.commodity import CommodityAssistant, UkTradeTariff  # noqa: E402
 from shipping.fake_shopify import FakeShopify, fo, hoodie_line, tee_line  # noqa: E402
 from shipping.models import Address, PageSize  # noqa: E402
 from shipping.providers.base import ProviderUnavailable  # noqa: E402
@@ -448,7 +449,9 @@ def build(
         )
     else:
         provider = DevProvider()
-    svc = ShippingService(store, shopify, provider, Purchases(store, provider))  # type: ignore[arg-type]
+    # The real UK Trade Tariff (read only, no key): without a network, Find the code says so.
+    tariff = CommodityAssistant(UkTradeTariff(settings.tariff_base_url))
+    svc = ShippingService(store, shopify, provider, Purchases(store, provider), commodity=tariff)  # type: ignore[arg-type]
     if not empty:
         seed_settings(store)
         if sandbox:

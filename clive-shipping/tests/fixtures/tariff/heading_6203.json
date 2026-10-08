@@ -1,0 +1,951 @@
+{
+"data": {
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6203000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"declarable": false,
+"validity_end_date": null
+}
+},
+"included": [
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203110000",
+"producline_suffix": "10",
+"description": "Suits",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43176,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203110000",
+"producline_suffix": "80",
+"description": "Of wool or fine animal hair",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43177,
+"parent_sid": 43176
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203120000",
+"producline_suffix": "80",
+"description": "Of synthetic fibres",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43178,
+"parent_sid": 43176
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203190000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43179,
+"parent_sid": 43176
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203191000",
+"producline_suffix": "80",
+"description": "Of cotton",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43180,
+"parent_sid": 43179
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203193000",
+"producline_suffix": "80",
+"description": "Of artificial fibres",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43181,
+"parent_sid": 43179
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203199000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43182,
+"parent_sid": 43179
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203220000",
+"producline_suffix": "10",
+"description": "Ensembles",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 87425,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203220000",
+"producline_suffix": "80",
+"description": "Of cotton",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43185,
+"parent_sid": 87425
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203221000",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43186,
+"parent_sid": 43185
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203228000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43187,
+"parent_sid": 43185
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203230000",
+"producline_suffix": "80",
+"description": "Of synthetic fibres",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43189,
+"parent_sid": 87425
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203231000",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43190,
+"parent_sid": 43189
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203238000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43191,
+"parent_sid": 43189
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203290000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43193,
+"parent_sid": 87425
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203291100",
+"producline_suffix": "10",
+"description": "Of artificial fibres",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43194,
+"parent_sid": 43193
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203291100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43195,
+"parent_sid": 43194
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203291800",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43196,
+"parent_sid": 43194
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203293000",
+"producline_suffix": "80",
+"description": "Of wool or fine animal hair",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 87424,
+"parent_sid": 43193
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203299000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43198,
+"parent_sid": 43193
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203310000",
+"producline_suffix": "10",
+"description": "Jackets and blazers",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43199,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203310000",
+"producline_suffix": "80",
+"description": "Of wool or fine animal hair",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43200,
+"parent_sid": 43199
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203320000",
+"producline_suffix": "80",
+"description": "Of cotton",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43201,
+"parent_sid": 43199
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203321000",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43202,
+"parent_sid": 43201
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203329000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43203,
+"parent_sid": 43201
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203330000",
+"producline_suffix": "80",
+"description": "Of synthetic fibres",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43204,
+"parent_sid": 43199
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203331000",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43205,
+"parent_sid": 43204
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203339000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43206,
+"parent_sid": 43204
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203390000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43207,
+"parent_sid": 43199
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203391100",
+"producline_suffix": "10",
+"description": "Of artificial fibres",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43208,
+"parent_sid": 43207
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203391100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43209,
+"parent_sid": 43208
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203391900",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43210,
+"parent_sid": 43208
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203399000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43211,
+"parent_sid": 43207
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203410000",
+"producline_suffix": "10",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43212,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203410000",
+"producline_suffix": "80",
+"description": "Of wool or fine animal hair",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43213,
+"parent_sid": 43212
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203411000",
+"producline_suffix": "80",
+"description": "Trousers and breeches",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43214,
+"parent_sid": 43213
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203413000",
+"producline_suffix": "80",
+"description": "Bib and brace overalls",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43215,
+"parent_sid": 43213
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203419000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43216,
+"parent_sid": 43213
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203420000",
+"producline_suffix": "80",
+"description": "Of cotton",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43217,
+"parent_sid": 43212
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203421100",
+"producline_suffix": "10",
+"description": "Trousers and breeches",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43218,
+"parent_sid": 43217
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203421100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43219,
+"parent_sid": 43218
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203423100",
+"producline_suffix": "10",
+"description": "Other",
+"number_indents": 4,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43220,
+"parent_sid": 43218
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203423100",
+"producline_suffix": "80",
+"description": "Of denim",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43221,
+"parent_sid": 43220
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203423300",
+"producline_suffix": "80",
+"description": "Of cut corduroy",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43222,
+"parent_sid": 43220
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203423500",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43223,
+"parent_sid": 43220
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203425100",
+"producline_suffix": "10",
+"description": "Bib and brace overalls",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43224,
+"parent_sid": 43217
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203425100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43225,
+"parent_sid": 43224
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203425900",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43226,
+"parent_sid": 43224
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203429000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43227,
+"parent_sid": 43217
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203430000",
+"producline_suffix": "80",
+"description": "Of synthetic fibres",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43228,
+"parent_sid": 43212
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203431100",
+"producline_suffix": "10",
+"description": "Trousers and breeches",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43229,
+"parent_sid": 43228
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203431100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43230,
+"parent_sid": 43229
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203431900",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43231,
+"parent_sid": 43229
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203433100",
+"producline_suffix": "10",
+"description": "Bib and brace overalls",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43232,
+"parent_sid": 43228
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203433100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43233,
+"parent_sid": 43232
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203433900",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43234,
+"parent_sid": 43232
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203439000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43235,
+"parent_sid": 43228
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203490000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43236,
+"parent_sid": 43212
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203491100",
+"producline_suffix": "10",
+"description": "Of artificial fibres",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43237,
+"parent_sid": 43236
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203491100",
+"producline_suffix": "20",
+"description": "Trousers and breeches",
+"number_indents": 4,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43238,
+"parent_sid": 43237
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203491100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43239,
+"parent_sid": 43238
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203491900",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43240,
+"parent_sid": 43238
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203493100",
+"producline_suffix": "10",
+"description": "Bib and brace overalls",
+"number_indents": 4,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43241,
+"parent_sid": 43237
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203493100",
+"producline_suffix": "80",
+"description": "Industrial and occupational",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43242,
+"parent_sid": 43241
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203493900",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 5,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43243,
+"parent_sid": 43241
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203495000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43244,
+"parent_sid": 43237
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203499000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43245,
+"parent_sid": 43236
+}
+}
+]
+}

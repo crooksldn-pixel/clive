@@ -1,0 +1,503 @@
+{
+"data": {
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6110000000",
+"description": "Jerseys, pullovers, cardigans, waistcoats and similar articles, knitted or crocheted",
+"declarable": false,
+"validity_end_date": null
+}
+},
+"included": [
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110110000",
+"producline_suffix": "10",
+"description": "Of wool or fine animal hair",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 73976,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110110000",
+"producline_suffix": "80",
+"description": "Of wool",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 73977,
+"parent_sid": 73976
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110111000",
+"producline_suffix": "80",
+"description": "Jerseys and pullovers, containing at least 50\u00a0% by weight of wool and weighing 600\u00a0g or more per article",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 73978,
+"parent_sid": 73977
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110113000",
+"producline_suffix": "10",
+"description": "Other",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 73979,
+"parent_sid": 73977
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110113000",
+"producline_suffix": "80",
+"description": "Men's or boys'",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 73980,
+"parent_sid": 73979
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110119000",
+"producline_suffix": "80",
+"description": "Women's or girls'",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 73981,
+"parent_sid": 73979
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110120000",
+"producline_suffix": "80",
+"description": "Of Kashmir (cashmere) goats",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 73982,
+"parent_sid": 73976
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110121000",
+"producline_suffix": "80",
+"description": "Men's or boys'",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 74505,
+"parent_sid": 73982
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110121010",
+"producline_suffix": "80",
+"description": "Hand-made jerseys, pullovers (with or without sleeves)",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 74506,
+"parent_sid": 74505
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110121090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 74507,
+"parent_sid": 74505
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110129000",
+"producline_suffix": "80",
+"description": "Women's or girls'",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 73988,
+"parent_sid": 73982
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110129010",
+"producline_suffix": "80",
+"description": "Hand-made jerseys, pullovers (with or without sleeves)",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 73989,
+"parent_sid": 73988
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110129090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 73990,
+"parent_sid": 73988
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110190000",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 73991,
+"parent_sid": 73976
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110191000",
+"producline_suffix": "80",
+"description": "Men's or boys'",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 74508,
+"parent_sid": 73991
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110191010",
+"producline_suffix": "80",
+"description": "Hand-made jerseys, pullovers (with or without sleeves)",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 74509,
+"parent_sid": 74508
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110191090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 74510,
+"parent_sid": 74508
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110199000",
+"producline_suffix": "80",
+"description": "Women's or girls'",
+"number_indents": 3,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 73997,
+"parent_sid": 73991
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110199010",
+"producline_suffix": "80",
+"description": "Hand-made jerseys, pullovers (with or without sleeves)",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 73998,
+"parent_sid": 73997
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110199090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 4,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 73999,
+"parent_sid": 73997
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110200000",
+"producline_suffix": "80",
+"description": "Of cotton",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43012,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110201000",
+"producline_suffix": "80",
+"description": "Lightweight fine knit roll, polo or turtleneck jumpers and pullovers",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43013,
+"parent_sid": 43012
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110209100",
+"producline_suffix": "10",
+"description": "Other",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43014,
+"parent_sid": 43012
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110209100",
+"producline_suffix": "80",
+"description": "Men's or boys'",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43015,
+"parent_sid": 43014
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110209900",
+"producline_suffix": "80",
+"description": "Women's or girls'",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43016,
+"parent_sid": 43014
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110300000",
+"producline_suffix": "80",
+"description": "Of man-made fibres",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43017,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110301000",
+"producline_suffix": "80",
+"description": "Lightweight fine knit roll, polo or turtleneck jumpers and pullovers",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43018,
+"parent_sid": 43017
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110309100",
+"producline_suffix": "10",
+"description": "Other",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43019,
+"parent_sid": 43017
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110309100",
+"producline_suffix": "80",
+"description": "Men's or boys'",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43020,
+"parent_sid": 43019
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110309900",
+"producline_suffix": "80",
+"description": "Women's or girls'",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43021,
+"parent_sid": 43019
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110900000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 1,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43022,
+"parent_sid": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110901000",
+"producline_suffix": "80",
+"description": "Of flax or ramie",
+"number_indents": 2,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43023,
+"parent_sid": 43022
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110909000",
+"producline_suffix": "80",
+"description": "Of other textile materials",
+"number_indents": 2,
+"leaf": false,
+"declarable": false,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43024,
+"parent_sid": 43022
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110909030",
+"producline_suffix": "80",
+"description": "Womens' or girls' pullovers of silk or of silk waste",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43030,
+"parent_sid": 43024
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110909090",
+"producline_suffix": "80",
+"description": "Other",
+"number_indents": 3,
+"leaf": true,
+"declarable": true,
+"validity_end_date": null,
+"goods_nomenclature_sid": 43031,
+"parent_sid": 43024
+}
+}
+]
+}

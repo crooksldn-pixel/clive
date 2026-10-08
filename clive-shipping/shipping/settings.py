@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     )
     printnode_printer_id: int = Field(default=75883753, validation_alias="PRINTNODE_PRINTER_ID")
 
+    # The official UK Trade Tariff, for finding and checking commodity codes (read only; no
+    # key). Off: codes are typed by hand, unchecked.
+    tariff_enabled: bool = True
+    tariff_base_url: str = "https://www.trade-tariff.service.gov.uk/uk/api"
+
     # --- Shopify ---
     shop_domain: str = "5wn03t-nm.myshopify.com"
     # The app's client id and secret: the secret also signs admin session tokens.

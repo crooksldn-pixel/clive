@@ -1,0 +1,2154 @@
+{
+"6103410000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103410000",
+"description": "Of wool or fine animal hair",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 2
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6103000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+}
+]
+},
+"6103420000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103420000",
+"description": "Of cotton",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 2
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6103000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+}
+]
+},
+"6103430000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103430000",
+"description": "Of synthetic fibres",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 2
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6103000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+}
+]
+},
+"6103490010": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103490010",
+"description": "Trousers and breeches",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6103000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103490000",
+"description": "Of other textile materials",
+"number_indents": 2
+}
+}
+]
+},
+"6103490091": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103490091",
+"description": "Of artificial fibres",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 4
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6103000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103490000",
+"description": "Of other textile materials",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103490091",
+"description": "Other",
+"number_indents": 3
+}
+}
+]
+},
+"6103490099": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103490099",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 4
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6103000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103490000",
+"description": "Of other textile materials",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6103490091",
+"description": "Other",
+"number_indents": 3
+}
+}
+]
+},
+"6104510000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104510000",
+"description": "Of wool or fine animal hair",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 2
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6104000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104510000",
+"description": "Skirts and divided skirts",
+"number_indents": 1
+}
+}
+]
+},
+"6104520000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104520000",
+"description": "Of cotton",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 2
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6104000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104510000",
+"description": "Skirts and divided skirts",
+"number_indents": 1
+}
+}
+]
+},
+"6104530000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104530000",
+"description": "Of synthetic fibres",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 2
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6104000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104510000",
+"description": "Skirts and divided skirts",
+"number_indents": 1
+}
+}
+]
+},
+"6104590000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104590000",
+"description": "Of other textile materials",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 2
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6104000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104510000",
+"description": "Skirts and divided skirts",
+"number_indents": 1
+}
+}
+]
+},
+"6104610000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104610000",
+"description": "Of wool or fine animal hair",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 2
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6104000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+}
+]
+},
+"6104620000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104620000",
+"description": "Of cotton",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 2
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6104000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+}
+]
+},
+"6104630000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104630000",
+"description": "Of synthetic fibres",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 2
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6104000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+}
+]
+},
+"6104690010": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104690010",
+"description": "Trousers and breeches",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6104000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104690000",
+"description": "Of other textile materials",
+"number_indents": 2
+}
+}
+]
+},
+"6104690091": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104690091",
+"description": "Of artificial fibres",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 4
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6104000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104690000",
+"description": "Of other textile materials",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104690091",
+"description": "Other",
+"number_indents": 3
+}
+}
+]
+},
+"6104690099": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104690099",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 4
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6104000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear), knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104690000",
+"description": "Of other textile materials",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6104690091",
+"description": "Other",
+"number_indents": 3
+}
+}
+]
+},
+"6109100010": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6109100010",
+"description": "T-shirts",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 2
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6109000000",
+"description": "T-shirts, singlets and other vests, knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6109100000",
+"description": "Of cotton",
+"number_indents": 1
+}
+}
+]
+},
+"6109902000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6109902000",
+"description": "Of wool or fine animal hair or man-made fibres",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 2
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6109000000",
+"description": "T-shirts, singlets and other vests, knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6109900000",
+"description": "Of other textile materials",
+"number_indents": 1
+}
+}
+]
+},
+"6109909000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6109909000",
+"description": "Of other textile materials",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 2
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6109000000",
+"description": "T-shirts, singlets and other vests, knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6109900000",
+"description": "Of other textile materials",
+"number_indents": 1
+}
+}
+]
+},
+"6110209100": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110209100",
+"description": "Men's or boys'",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6110000000",
+"description": "Jerseys, pullovers, cardigans, waistcoats and similar articles, knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110200000",
+"description": "Of cotton",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110209100",
+"description": "Other",
+"number_indents": 2
+}
+}
+]
+},
+"6110209900": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110209900",
+"description": "Women's or girls'",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6110000000",
+"description": "Jerseys, pullovers, cardigans, waistcoats and similar articles, knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110200000",
+"description": "Of cotton",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110209100",
+"description": "Other",
+"number_indents": 2
+}
+}
+]
+},
+"6110309100": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110309100",
+"description": "Men's or boys'",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6110000000",
+"description": "Jerseys, pullovers, cardigans, waistcoats and similar articles, knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110300000",
+"description": "Of man-made fibres",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110309100",
+"description": "Other",
+"number_indents": 2
+}
+}
+]
+},
+"6110309900": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110309900",
+"description": "Women's or girls'",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6110000000",
+"description": "Jerseys, pullovers, cardigans, waistcoats and similar articles, knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110300000",
+"description": "Of man-made fibres",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110309100",
+"description": "Other",
+"number_indents": 2
+}
+}
+]
+},
+"6110901000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110901000",
+"description": "Of flax or ramie",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 2
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6110000000",
+"description": "Jerseys, pullovers, cardigans, waistcoats and similar articles, knitted or crocheted",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6110900000",
+"description": "Of other textile materials",
+"number_indents": 1
+}
+}
+]
+},
+"6203411000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203411000",
+"description": "Trousers and breeches",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6203000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203410000",
+"description": "Of wool or fine animal hair",
+"number_indents": 2
+}
+}
+]
+},
+"6203419000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203419000",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6203000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203410000",
+"description": "Of wool or fine animal hair",
+"number_indents": 2
+}
+}
+]
+},
+"6203423100": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203423100",
+"description": "Of denim",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 5
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6203000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203420000",
+"description": "Of cotton",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203421100",
+"description": "Trousers and breeches",
+"number_indents": 3
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203423100",
+"description": "Other",
+"number_indents": 4
+}
+}
+]
+},
+"6203423300": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203423300",
+"description": "Of cut corduroy",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 5
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6203000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203420000",
+"description": "Of cotton",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203421100",
+"description": "Trousers and breeches",
+"number_indents": 3
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203423100",
+"description": "Other",
+"number_indents": 4
+}
+}
+]
+},
+"6203423500": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203423500",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 5
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6203000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203420000",
+"description": "Of cotton",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203421100",
+"description": "Trousers and breeches",
+"number_indents": 3
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203423100",
+"description": "Other",
+"number_indents": 4
+}
+}
+]
+},
+"6203429000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203429000",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6203000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203420000",
+"description": "Of cotton",
+"number_indents": 2
+}
+}
+]
+},
+"6203431900": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203431900",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 4
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6203000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203430000",
+"description": "Of synthetic fibres",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203431100",
+"description": "Trousers and breeches",
+"number_indents": 3
+}
+}
+]
+},
+"6203439000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203439000",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6203000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203430000",
+"description": "Of synthetic fibres",
+"number_indents": 2
+}
+}
+]
+},
+"6203491900": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203491900",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 5
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6203000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203490000",
+"description": "Of other textile materials",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203491100",
+"description": "Of artificial fibres",
+"number_indents": 3
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203491100",
+"description": "Trousers and breeches",
+"number_indents": 4
+}
+}
+]
+},
+"6203495000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203495000",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 4
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6203000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203490000",
+"description": "Of other textile materials",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203491100",
+"description": "Of artificial fibres",
+"number_indents": 3
+}
+}
+]
+},
+"6203499000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203499000",
+"description": "Of other textile materials",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6203000000",
+"description": "Men's or boys' suits, ensembles, jackets, blazers, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203410000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6203490000",
+"description": "Of other textile materials",
+"number_indents": 2
+}
+}
+]
+},
+"6204510019": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510019",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 4
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510000",
+"description": "Skirts and divided skirts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510000",
+"description": "Of wool or fine animal hair",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510011",
+"description": "Of wool",
+"number_indents": 3
+}
+}
+]
+},
+"6204510090": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510090",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510000",
+"description": "Skirts and divided skirts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510000",
+"description": "Of wool or fine animal hair",
+"number_indents": 2
+}
+}
+]
+},
+"6204520090": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204520090",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510000",
+"description": "Skirts and divided skirts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204520000",
+"description": "Of cotton",
+"number_indents": 2
+}
+}
+]
+},
+"6204530090": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204530090",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510000",
+"description": "Skirts and divided skirts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204530000",
+"description": "Of synthetic fibres",
+"number_indents": 2
+}
+}
+]
+},
+"6204591090": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204591090",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 4
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510000",
+"description": "Skirts and divided skirts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204590000",
+"description": "Of other textile materials",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204591000",
+"description": "Of artificial fibres",
+"number_indents": 3
+}
+}
+]
+},
+"6204599090": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204599090",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 4
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204510000",
+"description": "Skirts and divided skirts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204590000",
+"description": "Of other textile materials",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204599000",
+"description": "Of other textile materials",
+"number_indents": 3
+}
+}
+]
+},
+"6204611000": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204611000",
+"description": "Trousers and breeches",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204610000",
+"description": "Of wool or fine animal hair",
+"number_indents": 2
+}
+}
+]
+},
+"6204618500": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204618500",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 3
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204610000",
+"description": "Of wool or fine animal hair",
+"number_indents": 2
+}
+}
+]
+},
+"6204623190": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623190",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 6
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204620000",
+"description": "Of cotton",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204621100",
+"description": "Trousers and breeches",
+"number_indents": 3
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623100",
+"description": "Other",
+"number_indents": 4
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623100",
+"description": "Of denim",
+"number_indents": 5
+}
+}
+]
+},
+"6204623390": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623390",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 6
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204620000",
+"description": "Of cotton",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204621100",
+"description": "Trousers and breeches",
+"number_indents": 3
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623100",
+"description": "Other",
+"number_indents": 4
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623300",
+"description": "Of cut corduroy",
+"number_indents": 5
+}
+}
+]
+},
+"6204623990": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623990",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 6
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204620000",
+"description": "Of cotton",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204621100",
+"description": "Trousers and breeches",
+"number_indents": 3
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623100",
+"description": "Other",
+"number_indents": 4
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204623900",
+"description": "Other",
+"number_indents": 5
+}
+}
+]
+},
+"6204629090": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204629090",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 4
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204620000",
+"description": "Of cotton",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204629000",
+"description": "Other",
+"number_indents": 3
+}
+}
+]
+},
+"6204631890": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204631890",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 5
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204630000",
+"description": "Of synthetic fibres",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204631100",
+"description": "Trousers and breeches",
+"number_indents": 3
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204631800",
+"description": "Other",
+"number_indents": 4
+}
+}
+]
+},
+"6204639090": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204639090",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 4
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204630000",
+"description": "Of synthetic fibres",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204639000",
+"description": "Other",
+"number_indents": 3
+}
+}
+]
+},
+"6204691890": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204691890",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 6
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204690000",
+"description": "Of other textile materials",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204691100",
+"description": "Of artificial fibres",
+"number_indents": 3
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204691100",
+"description": "Trousers and breeches",
+"number_indents": 4
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204691800",
+"description": "Other",
+"number_indents": 5
+}
+}
+]
+},
+"6204695090": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204695090",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 5
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204690000",
+"description": "Of other textile materials",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204691100",
+"description": "Of artificial fibres",
+"number_indents": 3
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204695000",
+"description": "Other",
+"number_indents": 4
+}
+}
+]
+},
+"6204699090": {
+"data": {
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204699090",
+"description": "Other",
+"declarable": true,
+"validity_end_date": null,
+"number_indents": 4
+}
+},
+"included": [
+{
+"type": "heading",
+"attributes": {
+"goods_nomenclature_item_id": "6204000000",
+"description": "Women's or girls' suits, ensembles, jackets, blazers, dresses, skirts, divided skirts, trousers, bib and brace overalls, breeches and shorts (other than swimwear)",
+"number_indents": null
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204610000",
+"description": "Trousers, bib and brace overalls, breeches and shorts",
+"number_indents": 1
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204690000",
+"description": "Of other textile materials",
+"number_indents": 2
+}
+},
+{
+"type": "commodity",
+"attributes": {
+"goods_nomenclature_item_id": "6204699000",
+"description": "Of other textile materials",
+"number_indents": 3
+}
+}
+]
+}
+}

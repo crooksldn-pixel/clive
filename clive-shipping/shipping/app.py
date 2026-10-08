@@ -75,12 +75,18 @@ def build_service(settings: Settings) -> ShippingService:
         )
     provider = build_provider(settings, store)
     allowed = settings.authorised()
+    commodity = None
+    if settings.tariff_enabled:
+        from shipping.commodity import CommodityAssistant, UkTradeTariff
+
+        commodity = CommodityAssistant(UkTradeTariff(settings.tariff_base_url))
     return ShippingService(
         store,
         shopify,
         provider,
         Purchases(store, provider),
         may_buy=lambda s: settings.buying_enabled or _order_number(s.order_name) in allowed,
+        commodity=commodity,
     )
 
 

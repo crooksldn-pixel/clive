@@ -7,6 +7,7 @@ choosing the package, describing duties honestly, and making Shopify reflect the
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections.abc import Callable
@@ -15,6 +16,7 @@ from typing import Any
 
 from shipping import duties, packages, rates, readiness, tracking
 from shipping.basis import basis as fingerprint
+from shipping.commodity import SCHEME, CommodityAssistant, TariffUnavailable, spaced
 from shipping.models import (
     CarrierEvent,
     CustomsMode,
@@ -71,8 +73,12 @@ class ShippingService:
         purchases: Purchases | None = None,
         clock: Callable[[], datetime] = now,
         may_buy: Callable[[Shipment], bool] = lambda s: True,
+        commodity: CommodityAssistant | None = None,
     ) -> None:
         self.store = store
+        # Finds and checks commodity codes against the UK Trade Tariff; None: typed by hand,
+        # unchecked.
+        self.commodity = commodity
         self.shopify = shopify
         self.provider = provider
         self.clock = clock
@@ -415,8 +421,19 @@ class ShippingService:
                 raise ActionError("An HS code has 6 to 10 digits, e.g. 6109.10.", 422)
             if not 3 <= len(desc) <= 100:
                 raise ActionError("Describe it in a few words, e.g. 'Men's cotton T-shirt'.", 422)
+            evidence = self._classification(hs, value.get("classification"), actor)
             written = self._write_product(s, line, actor, hs_code=hs)
             self._remember(shop, "product", subject, "hs_code", hs, actor, line.title, written)
+            self._remember(
+                shop,
+                "product",
+                subject,
+                "hs_classification",
+                json.dumps(evidence),
+                actor,
+                line.title,
+                True,
+            )
             self._remember(
                 shop, "product", subject, "customs_description", desc, actor, line.title, True
             )
@@ -467,8 +484,65 @@ class ShippingService:
         self._unblock_others(shop, sid, kind, subject)
         return self._prepare_after_answer(shop, sid)
 
+    def _classification(self, hs: str, given: Any, actor: str) -> dict[str, Any]:
+        """What a confirmed code rests on, kept beside it. A ten-digit code is read back from the
+        UK Trade Tariff: one it doesn't have is refused; if the tariff can't be reached the code
+        is kept, marked unchecked (typing a code by hand always works)."""
+        given = given if isinstance(given, dict) else {}
+        out: dict[str, Any] = {
+            "code": hs,
+            "scheme": SCHEME,
+            "confirmed_at": self.clock().isoformat(),
+            "confirmed_by": actor,
+            "method": "manual",
+            "verified": False,
+        }
+        if given.get("method") == "suggested" and given.get("code") == hs:
+            out["method"] = "suggested, then confirmed"
+            out["inputs"] = {
+                "text": str((given.get("inputs") or {}).get("text") or "")[:200],
+                "answers": {
+                    str(k)[:20]: str(v)[:40]
+                    for k, v in ((given.get("inputs") or {}).get("answers") or {}).items()
+                },
+            }
+            out["reasons"] = [str(r)[:200] for r in (given.get("reasons") or [])[:8]]
+        if self.commodity is None or len(hs) != 10:
+            out["note"] = (
+                "Not checked: a six or eight digit HS code."
+                if len(hs) != 10
+                else "Not checked: the UK Trade Tariff look-up is off."
+            )
+            return out
+        try:
+            entry = self.commodity.check(hs)
+        except TariffUnavailable as exc:
+            out["note"] = f"Not checked: {exc}"
+            return out
+        if entry is None:
+            raise ActionError(
+                f"{spaced(hs)} isn't a current UK commodity code (UK Trade Tariff). Check it, or "
+                "use Find the code.",
+                422,
+            )
+        out.update(
+            verified=True,
+            official_description=" › ".join(entry.path) or entry.description,
+            source=entry.source,
+            checked_at=entry.checked_at,
+        )
+        return out
+
     def edit_customs(
-        self, shop: str, sid: str, subject: str, hs: str, description: str, origin: str, actor: str
+        self,
+        shop: str,
+        sid: str,
+        subject: str,
+        hs: str,
+        description: str,
+        origin: str,
+        actor: str,
+        classification: dict[str, Any] | None = None,
     ) -> Shipment:
         if not re.fullmatch(r"[0-9]{6,10}", hs):
             raise ActionError(
@@ -478,9 +552,8 @@ class ShippingService:
             raise ActionError("Give a customs description of 3–100 characters.", 422)
         if not re.fullmatch(r"[A-Z]{2}", origin) or origin == "ZZ":
             raise ActionError("Use the two-letter country of origin.", 422)
-        s = self.answer(
-            shop, sid, "customs", subject, {"hs_code": hs, "description": description}, actor
-        )
+        value = {"hs_code": hs, "description": description, "classification": classification}
+        s = self.answer(shop, sid, "customs", subject, value, actor)
         return self.answer(shop, s.id, "origin", subject, {"country": origin}, actor)
 
     def _unblock_others(self, shop: str, sid: str, kind: str, subject: str) -> None:
