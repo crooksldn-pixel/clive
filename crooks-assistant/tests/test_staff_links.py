@@ -61,6 +61,10 @@ TEAM_TOOLS = frozenset({
     "people_list", "work_list", "work_note",
     "shopify_order_fulfil", "shopify_fulfillment_tracking_set", "gmail_draft_reply", "gmail_send_reply",
     "shopify_inventory_adjust",
+    # Rebased in the 8 October chain onto the team's tools other branches added (app/people/staff.py):
+    # named routines' three reads (DEC-074) and the inbox's waiting drafts, read and sent (ruling 34).
+    "routine_list", "routine_note", "routine_run",
+    "gmail_unsent", "gmail_send_draft",
 })
 
 
