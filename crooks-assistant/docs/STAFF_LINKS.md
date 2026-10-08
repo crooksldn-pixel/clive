@@ -119,10 +119,12 @@ the server.
    own five wrong codes. What a flood can still do is make the join page slow while it lasts.
 6. **The rate limits live in memory.** A restart clears the per-address and overall counts, which
    only matter for guessing a 256-bit link (the per-link lockout is on disk and survives).
-7. **Caddy is trusted** to set `X-Clive-Door` and pass the right `Host`. If the site were edited to
-   forward without both, a request from the internet would look like one made on the server itself:
-   still refused every owner route unless `CROOKS_LOCAL_OWNER` is on, which production does not set.
-   Keep the site block as written below.
+7. **Caddy is trusted** to set `X-Clive-Door` and pass the right `Host`. Either one alone makes a
+   request the team door's. If the site were edited to forward without both, the request would still
+   carry the `X-Forwarded-For` Caddy adds, on a connection that did not come from tailscaled, so CLIVE
+   takes it as FORGED and refuses it outright, the team's page and the join included: the door fails
+   closed, and the team simply cannot reach CLIVE until the site is put back. Keep the site block as
+   written below.
 8. **The link stays in that phone's browser history**, as any opened link does (no page of CLIVE's
    rewrites the address bar). Once used, locked or run out it is worth nothing.
 9. **Phones change cookie jars.** On an iPhone, a link opened inside Instagram's or Facebook's own
