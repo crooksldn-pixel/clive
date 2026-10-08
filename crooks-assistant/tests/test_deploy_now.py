@@ -227,11 +227,44 @@ def test_dry_run_answers_his_hold_and_changes_nothing(server, tmp_path):  # noqa
     now = _status(settings)
     assert now["state"] == "would_deploy" and now["mode"] == "dry_run"
     assert now["deploy"]["end"] == "dry_run" and now["deploy"]["approval"] == approval
-    assert state.approval_used(host, settings.state_dir, approval) is None, "a dry run spends nothing"
+    # Review note 1 (8 Oct): a dry run spends the approval, recorded as a dry run, so it never deploys later.
+    assert state.approval_used(host, settings.state_dir, approval)["mode"] == "dry_run"
     shown = offer.progress(_approval(approval), status.read(settings.state_dir), kept=None, process_sha=LIVE,
                            now=_epoch("2026-10-08T01:01:00Z"))
     assert shown["line"] == ("Dry run: the release service checked everything and would deploy it now. Nothing "
                              "was changed.")
+
+
+def test_a_hold_answered_in_dry_run_deploys_nothing_once_dry_run_is_switched_off(server, tmp_path):  # noqa: F811 - fixtures imported from the suite they belong to
+    """Review note 1: he holds "Hold to try it (dry run)"; root switches dry run off within the approval's
+    ten minutes; the next tick must not deploy on an approval he gave only to try it."""
+    settings, fake, host = server
+    settings.dry_run = True
+    approval = _passkey_waiver(settings, _register(tmp_path))
+    _tick(settings, host)
+    assert _status(settings)["deploy"]["end"] == "dry_run"
+    settings.dry_run = False                     # "looks good, turn dry run off", inside the ten minutes
+    assert host.clock.timestamp() < ISSUED + authority.APPROVAL_TTL_S
+    host.calls.clear()
+    code, printed = _tick(settings, host)
+    assert [s for s in host.steps if s in MUTATING] == [] and fake.head == LIVE, printed
+    now = _status(settings)
+    assert now["state"] == "waiting" and now["mode"] == "live"
+    assert "this approval was used for a dry run" in now["line"], now["line"]
+    assert now["deploy"]["end"] == "dry_run" and now["deploy"]["approval"] == approval, "the dry run is still shown"
+    assert now["ready_for"] == TRUNK, "his hold is offered again, to deploy for real"
+
+
+def test_a_dry_run_that_cannot_spend_the_approval_says_so_and_does_not_count_it(server, tmp_path, monkeypatch):  # noqa: F811 - fixtures imported from the suite they belong to
+    settings, fake, host = server
+    settings.dry_run = True
+    approval = _passkey_waiver(settings, _register(tmp_path))
+    monkeypatch.setattr(state, "spend_approval", lambda *a, **k: False)
+    _tick(settings, host)
+    deploy = _status(settings)["deploy"]
+    assert [s for s in host.steps if s in MUTATING] == [] and fake.head == LIVE
+    assert (deploy["end"], deploy["approval"]) == ("refused", approval)
+    assert deploy["reason"] == "the approval could not be marked as used, so it was not used"
 
 
 def test_the_deploy_stays_on_the_status_after_the_next_tick(server, tmp_path):  # noqa: F811 - fixtures imported from the suite they belong to

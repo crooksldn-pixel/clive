@@ -12,7 +12,9 @@ Why it exists: three things must outlive one tick of the timer.
   one knows the deploy before it stopped part way (killed, rebooted, timed out), with production
   perhaps half changed, and halts rather than read production's new SHA as "up to date".
 - The approvals George gave in CLIVE that have started a deploy (DEC-072): `approvals-used/<id>.json`,
-  written and read back before a live deploy begins, so one hold starts one deploy at most.
+  written and read back before a live deploy begins, so one hold starts one deploy at most. A dry run
+  that answers his hold spends it too, recorded as a dry run, so a hold that only tried a deploy never
+  deploys later when dry run is switched off.
 - The latest deploy itself, as CLIVE follows it (`deploy` in the status): its SHA, the approval it
   answers, each stage as it was reached (started, checks, installing, health, then done, rolled back
   with why, halted, or refused with why) and when. Every later status carries it on unchanged, so
@@ -143,12 +145,14 @@ def approval_used(host, state_dir: Path, approval: str) -> dict[str, Any] | None
     return _json(host, Path(state_dir) / USED_DIR / f"{approval}.json")
 
 
-def spend_approval(host, state_dir: Path, approval: str, *, sha: str, at: str) -> bool:
-    """Mark the approval used, before the deploy it starts; True only when that reads back as written."""
-    if not _APPROVAL.fullmatch(approval or ""):
+def spend_approval(host, state_dir: Path, approval: str, *, sha: str, at: str, mode: str) -> bool:
+    """Mark the approval used, before the deploy it starts, or as the dry run that answered it (`mode`
+    "dry_run"): a hold that only tried a deploy can never deploy later, when dry run is switched off.
+    True only when that reads back as written."""
+    if not _APPROVAL.fullmatch(approval or "") or mode not in ("live", "dry_run"):
         return False
     path = Path(state_dir) / USED_DIR / f"{approval}.json"
-    data = _dump({"approval": approval, "sha": sha, "at": at})
+    data = _dump({"approval": approval, "sha": sha, "at": at, "mode": mode})
     try:
         host.write(path, data, 0o600)
     except OSError:

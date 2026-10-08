@@ -303,6 +303,9 @@ def verify_passkey(signed: Any, credentials: list[dict[str, Any]], repository: s
     spent = used(approval)
     if spent is not None:
         when = str(spent.get("at") or "")[:25] or "an earlier deploy"
+        if spent.get("mode") == "dry_run":
+            return (f"this approval was used for a dry run ({when}), and a hold that only tried a deploy never "
+                    "deploys: hold the card again"), ""
         return f"this approval was already used ({when}); each hold starts one deploy: hold the card again", ""
     return None, approval
 

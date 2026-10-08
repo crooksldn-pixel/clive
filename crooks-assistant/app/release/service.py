@@ -28,7 +28,8 @@ a tick at once (no timer wait). A waiver that arrives while a tick is already ru
 the trigger's start into it) is seen by the same tick, which looks once more if it began no deploy
 itself; clive-release.service's time limit covers that second look (tests/test_release_service.py). The tick says each stage on the status as it is
 reached (`deploy` in status.json: started, checks, installing, health, then done, rolled back with
-why, halted, or refused with why), marks the approval used before anything changes, and says
+why, halted, or refused with why), marks the approval used before anything changes (a dry run that
+answers it marks it used too, as a dry run, so it never deploys once dry run is switched off), and says
 `ready_for` when the only thing a deploy of the trunk's head lacks is his approval, which is when
 CLIVE offers him the hold.
 """
@@ -228,10 +229,7 @@ def _locked(host, settings: ReleaseSettings, *, token, gate, pinned: bool, say) 
         line = line_for(decision, facts, dry_run=settings.dry_run)
         extra = {}
         if decision.deploy and approval:
-            # His hold, answered in dry run: the deploy CLIVE follows ends here, having changed nothing.
-            extra["deploy"] = state.deploy_record(sha=facts.trunk, title=facts.trunk_title, approval=approval,
-                                                  steps=[("started", deploy._iso(host.now()))], end="dry_run",
-                                                  reason=line)
+            extra["deploy"] = _dry_run_answer(host, settings, facts, approval, line)
         _status(host, settings, decision.state, line, facts,
                 ready_for=ready_for(settings, facts, decision, failed=failed, pinned=pinned), **extra)
         say(line)
@@ -239,6 +237,18 @@ def _locked(host, settings: ReleaseSettings, *, token, gate, pinned: bool, say) 
             say(f"  also: {reason}")
         return 0, False
     return _deploy(host, settings, facts, decision, approval, token=token, say=say), True
+
+
+def _dry_run_answer(host, settings: ReleaseSettings, facts: Facts, approval: str, line: str) -> dict:
+    """His hold, answered in dry run: the approval spent as a dry run (so switching dry run off later
+    deploys nothing from it), and the deploy CLIVE follows ends here, having changed nothing."""
+    at = deploy._iso(host.now())
+    if not state.spend_approval(host, settings.state_dir, approval, sha=facts.trunk, at=at, mode="dry_run"):
+        return state.deploy_record(sha=facts.trunk, title=facts.trunk_title, approval=approval,
+                                   steps=[("started", at), ("refused", at)], end="refused",
+                                   reason="the approval could not be marked as used, so it was not used")
+    return state.deploy_record(sha=facts.trunk, title=facts.trunk_title, approval=approval,
+                               steps=[("started", at)], end="dry_run", reason=line)
 
 
 def _deploy(host, settings: ReleaseSettings, facts: Facts, decision: Decision, approval: str, *, token, say) -> int:
@@ -250,7 +260,7 @@ def _deploy(host, settings: ReleaseSettings, facts: Facts, decision: Decision, a
                                    end=end, reason=reason, branch=branch)
 
     if approval and not state.spend_approval(host, settings.state_dir, approval, sha=facts.trunk,
-                                             at=steps[0][1]):
+                                             at=steps[0][1], mode="live"):
         steps.append(("refused", steps[0][1]))
         line = (f"Not deploying {_quoted(facts.trunk_title, facts.trunk)}: the approval could not be marked as "
                 "used, so it was not used. Nothing was changed.")
