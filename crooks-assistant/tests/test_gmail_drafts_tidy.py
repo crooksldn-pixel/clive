@@ -18,7 +18,7 @@ import pytest
 from app.actions import engine as engine_module
 from app.actions.engine import ActionEngine
 from app.actions.ledger import NullLedger
-from app.clients.gmail import GmailRefused
+from app.clients.gmail import GmailClient, GmailNotFound, GmailRefused
 from app.presentation import present_proposal_state
 from app.session.models import Session
 from app.tools import gmail_drafts, gmail_writes
@@ -39,11 +39,16 @@ pytestmark = pytest.mark.usefixtures("owner_asking")
 
 
 class Inbox(FakeGmail):
-    """The fake inbox, answering a missing draft as Gmail does: a refusal (404), not a failure."""
+    """The fake inbox, answering a missing draft as Gmail does: a 404 (GmailNotFound), not a failure.
+    `forbid` makes every draft read a 403 from then on, as a Gmail that refuses without saying."""
+
+    forbid = False
 
     def get_draft(self, draft_id: str) -> dict:
+        if self.forbid:
+            raise GmailRefused("Could not read the draft: forbidden")
         if draft_id not in self.drafts:
-            raise GmailRefused("Could not read the draft: not found")
+            raise GmailNotFound("Could not read the draft: not found")
         return super().get_draft(draft_id)
 
     def edit_in_gmail(self, draft_id: str, body: str) -> None:
@@ -195,6 +200,66 @@ async def test_a_delete_that_cannot_be_proven_stays_waiting_and_is_tried_again(b
     box.delete_draft = lambda d: box.calls.append(("delete_draft", d))   # Gmail answers, and keeps it
     counts = await gmail_drafts.sweep(time.time() + 15 * 86400)
     assert counts["waiting"] == 1 and draft_id in box.drafts and gmail_drafts.row(draft_id)["state"] == "waiting"
+
+
+# ------------------------------------------------------------- only a 404 proves it gone
+#
+# The review of 8 October (note 5): any 4xx on the read-back was taken as "deleted". A 403 on both the
+# delete and the read-back was recorded DELETED, with a draft_tidied event, while the draft stayed in
+# Gmail. Only Gmail's 404 proves a draft gone; any other refusal is "couldn't confirm".
+
+
+def test_the_client_tells_a_404_from_any_other_refusal():
+    class Answered(Exception):
+        def __init__(self, status: int) -> None:
+            super().__init__(f"HTTP {status}")
+            self.status_code = status
+
+    client = GmailClient()
+    for status, kind in ((404, GmailNotFound), (403, GmailRefused), (400, GmailRefused)):
+        def fail(status=status):
+            raise Answered(status)
+        with pytest.raises(GmailRefused) as raised:
+            client._run("Could not read the draft", fail)
+        assert type(raised.value) is kind, status
+
+
+async def test_a_403_on_the_delete_and_its_read_back_is_not_a_deletion(box, engine, session):
+    draft_id, _ = await saved_draft(box, engine, session)
+
+    def refused(d):
+        box.calls.append(("delete_draft", d))
+        box.forbid = True
+        raise GmailRefused("Could not delete the draft: forbidden")
+
+    box.delete_draft = refused
+    counts = await gmail_drafts.sweep(time.time() + 15 * 86400)
+    assert counts["deleted"] == 0 and counts["unconfirmed"] == 1, counts
+    assert draft_id in box.drafts and gmail_drafts.row(draft_id)["state"] == "waiting", "not proven gone: still CLIVE's to look at again"
+
+
+async def test_a_send_whose_replaced_draft_cannot_be_confirmed_gone_says_so(box, engine, session):
+    draft_id, _ = await saved_draft(box, engine, session)
+    _, send = await stage(session, "gmail_send_reply", thread_id=THREAD, body="Hi Daniel, it went out this morning.")
+    assert send.execution["replaces"] == [draft_id]
+
+    def refused(d):
+        box.calls.append(("delete_draft", d))
+        box.forbid = True
+        raise GmailRefused("Could not delete the draft: forbidden")
+
+    box.delete_draft = refused
+    result = await hold(engine, send)
+    assert result.code == "verified" and "CLIVE couldn't confirm its earlier draft was deleted" in result.spoken, result.spoken
+    assert draft_id in box.drafts and gmail_drafts.row(draft_id)["state"] == "waiting"
+
+
+async def test_a_403_when_checking_a_draft_is_not_taken_for_gone(box, engine, session):
+    draft_id, _ = await saved_draft(box, engine, session)
+    box.forbid = True
+    counts = await gmail_drafts.sweep(time.time() + 15 * 86400)
+    assert counts["gone"] == 0 and counts["sent"] == 0 and gmail_drafts.row(draft_id)["state"] == "waiting", counts
+    assert not [c for c in box.calls if c[0] == "delete_draft"]
 
 
 async def test_a_record_without_the_words_fingerprint_is_never_tidied(box, engine, session):

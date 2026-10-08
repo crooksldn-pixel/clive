@@ -27,8 +27,9 @@ When:
     fill with CLIVE's leftovers. CLIVE looks every SWEEP_EVERY_S, while changes are switched on, and
     deletes those itself (`sweep`). It changes nothing anyone else wrote and nothing that leaves the
     building, which is why it needs no card.
-Each deletion is proven by reading back (Gmail no longer holds the draft) and recorded here with
-when and why; one that cannot be proven stays waiting and is tried again on the next look.
+Each deletion is proven by reading back — Gmail's 404 for the draft, and nothing else — and recorded
+here with when and why; one that cannot be proven (any other answer, a 403 included) stays waiting,
+is said as not confirmed, and is looked at again on the next look.
 """
 
 from __future__ import annotations
@@ -60,6 +61,10 @@ KEEP_SETTLED_S = 90 * 86400.0  # a settled row is dropped from the record after 
 MAX_ROWS = 2000
 
 WAITING, SENT, DELETED, KEPT, GONE = "waiting", "sent", "deleted", "kept", "gone"
+# Not a state a draft is recorded in (it stays WAITING and is looked at again): a delete Gmail answered
+# with something other than the 404 that proves the draft gone — a 403, a 400 — so whether it went is
+# not known (the review of 8 October, note 5).
+UNCONFIRMED = "unconfirmed"
 
 _path: Path | None = None
 _lock = threading.RLock()
@@ -239,12 +244,14 @@ def words_of(draft_id: str = "", token: str = "") -> str:
 async def _still_ours(found: dict[str, Any]) -> tuple[str, str]:
     """(state, why) for a recorded draft, read from Gmail now: WAITING when it is still CLIVE's
     untouched, unsent draft; KEPT when someone has changed it; SENT or GONE when it has left Drafts."""
-    from app.clients.gmail import GmailRefused
+    from app.clients.gmail import GmailNotFound
     from app.tools.gmail_writes import _draft_text
 
     try:
         draft = await _call(_client.get_draft, found["draft_id"])
-    except GmailRefused:
+    except GmailNotFound:
+        # Gmail's 404 alone says the draft has left Drafts; any other refusal is "not read", and the
+        # caller leaves the draft as it is.
         token = str(found.get("token") or "").strip("<>")
         sent = await _call(_client.find_messages, f"rfc822msgid:{token} in:sent") if token else []
         return (SENT, "sent") if sent else (GONE, "no longer in Drafts")
@@ -260,10 +267,12 @@ async def _still_ours(found: dict[str, Any]) -> tuple[str, str]:
 
 
 async def _take_away(found: dict[str, Any], why: str) -> str:
-    """Delete one of CLIVE's drafts and prove it gone. Returns the state it settled in, or WAITING
-    when it could not be done or proven (it is tried again later)."""
+    """Delete one of CLIVE's drafts and prove it gone: only Gmail's 404 on the read-back proves it.
+    Returns the state it settled in; WAITING when it was not done (it is tried again later); or
+    UNCONFIRMED when Gmail answered the read-back with another refusal, so whether it went is not
+    known (it stays waiting, and is looked at again)."""
     from app import readonly
-    from app.clients.gmail import GmailRefused
+    from app.clients.gmail import GmailNotFound, GmailRefused
 
     if readonly.active():
         return WAITING
@@ -281,13 +290,16 @@ async def _take_away(found: dict[str, Any], why: str) -> str:
         log.info("deleting a draft of CLIVE's answered %s", type(exc).__name__)
     try:
         await _call(_client.get_draft, found["draft_id"])
-    except GmailRefused:
+    except GmailNotFound:
         _settle(found["draft_id"], DELETED, why)
         _timeline("draft_tidied", why=why)
         return DELETED
+    except GmailRefused as exc:
+        log.info("a deleted draft's read-back was refused (%s): not confirmed", type(exc).__name__)
+        return UNCONFIRMED
     except Exception as exc:  # noqa: BLE001 — unproven: still waiting
         log.info("a deleted draft could not be read back (%s)", type(exc).__name__)
-        return WAITING
+        return UNCONFIRMED
     log.warning("a draft of CLIVE's is still in Gmail after its delete; tried again later")
     return WAITING
 
@@ -345,7 +357,7 @@ async def replaced(draft_ids: list[str]) -> str:
     taken away (it changed meanwhile, or the delete could not be proven)."""
     if _client is None or not draft_ids:
         return ""
-    left = kept = 0
+    left = kept = unknown = 0
     for draft_id in draft_ids:
         found = row(draft_id)
         if found is None or found.get("state") != WAITING:
@@ -355,12 +367,17 @@ async def replaced(draft_ids: list[str]) -> str:
             left += 1
         elif state == KEPT:
             kept += 1
+        elif state == UNCONFIRMED:
+            unknown += 1
     notes = []
     if kept:
         notes.append("CLIVE's earlier draft was changed meanwhile, so it was kept." if kept == 1 else f"{kept} of CLIVE's earlier drafts were changed meanwhile, so they were kept.")
     if left:
         notes.append("CLIVE's earlier draft could not be deleted just now; it is still in Drafts and CLIVE tries again later."
                      if left == 1 else f"{left} of CLIVE's earlier drafts could not be deleted just now; they are still in Drafts and CLIVE tries again later.")
+    if unknown:
+        notes.append("CLIVE couldn't confirm its earlier draft was deleted: Gmail refused to say. Look in Drafts; CLIVE checks again later."
+                     if unknown == 1 else f"CLIVE couldn't confirm {unknown} of its earlier drafts were deleted: Gmail refused to say. Look in Drafts; CLIVE checks again later.")
     return " ".join(notes)
 
 
@@ -368,7 +385,7 @@ async def sweep(now: float | None = None) -> dict[str, int]:
     """One look: CLIVE's drafts unused for UNUSED_DAYS, each checked and taken away, at most
     MAX_PER_SWEEP. Counts of what became of them."""
     now = time.time() if now is None else now
-    counts = {DELETED: 0, KEPT: 0, SENT: 0, GONE: 0, WAITING: 0}
+    counts = {DELETED: 0, KEPT: 0, SENT: 0, GONE: 0, WAITING: 0, UNCONFIRMED: 0}
     if _client is None:
         return counts
     old = [r for r in rows() if r.get("state") == WAITING and now - float(r.get("made_at") or now) >= UNUSED_DAYS * 86400]

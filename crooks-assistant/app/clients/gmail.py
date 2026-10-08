@@ -73,6 +73,11 @@ class GmailRefused(GmailError):
     refused = True
 
 
+class GmailNotFound(GmailRefused):
+    """Gmail answered 404: it does not hold the thing asked for. The one answer that proves a draft
+    is gone; any other refusal (a 403, a 400) proves nothing about it (app/tools/gmail_drafts.py)."""
+
+
 def short_scopes(scopes) -> str:
     """"modify, compose" — the scopes as a person says them."""
     return ", ".join(sorted(_SHORT.get(s, s.rsplit("/", 1)[-1]) for s in scopes)) or "none"
@@ -323,6 +328,8 @@ class GmailClient:
                 self.reset()
                 raise GmailAuthRequired("Gmail authorisation has expired.") from exc
             status = getattr(getattr(exc, "resp", None), "status", None) or getattr(exc, "status_code", None)
+            if status == 404:
+                raise GmailNotFound(f"{what}: {describe_error(exc)}") from exc
             if isinstance(status, int) and 400 <= status < 500 and status not in (408, 429):
                 raise GmailRefused(f"{what}: {describe_error(exc)}") from exc
             raise GmailError(f"{what}: {describe_error(exc)}") from exc
