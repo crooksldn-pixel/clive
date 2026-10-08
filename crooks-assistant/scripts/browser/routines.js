@@ -8,7 +8,8 @@
  * tablet's size and a phone's:
  *
  *   - "save this as my friday drop routine" draws the routine as it was saved: its steps in order,
- *     the change ringed blue and saying it will wait for him, and that no order is kept;
+ *     the change ringed blue and saying it will wait for him, and that no id is kept: each run looks
+ *     its records up again from the step's words;
  *   - "show my routines" lists it with its steps and changes;
  *   - "run my friday drop routine" puts the change's own hold card on top, then the routine as it
  *     ran (two reads done, the change waiting for him), then what the reads found; and the card
@@ -111,7 +112,7 @@ async function run(browser, size) {
   check(`${tag}: saved, the routine as the store read it back`, card.found && /Friday drop/.test(card.text)
     && /Saved\. 3 steps, 1 change/.test(card.text) && /1\s*Today's orders/.test(card.text) && /2\s*Who wrote today/.test(card.text)
     && /3\s*Note on 1940: pack it first/.test(card.text) && /A change: waits for you on its card/.test(card.text)
-    && /No order or thread is kept: each run looks them up again\./.test(card.text), JSON.stringify(card));
+    && /No id is kept: each run looks its records up again from the step's words\./.test(card.text), JSON.stringify(card));
   check(`${tag}: the reads are quiet and the change is ringed blue`,
     JSON.stringify(card.dots) === JSON.stringify(['is-read', 'is-read', 'is-change']), JSON.stringify(card.dots));
   check(`${tag}: the saved routine fits`, fits(card), JSON.stringify(card.past));

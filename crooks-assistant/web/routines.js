@@ -119,7 +119,9 @@
       return row(change ? 'is-change' : acts ? 'is-acts' : 'is-read', [h('span', 'rn-n', text(s.n)), h('span', 'rn-say', text(s.say))],
         state, '');
     }))];
-    if (d.looked_up) out.push(h('p', 'card-note', 'No order or thread is kept: each run looks them up again.'));
+    // What is true (the review's N4): no id is kept, and each run finds its records again from the step's words,
+    // which may name the same order every time ("Note on 1940").
+    if (d.looked_up) out.push(h('p', 'card-note', "No id is kept: each run looks its records up again from the step's words."));
     return out;
   }
 

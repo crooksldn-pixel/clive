@@ -81,7 +81,7 @@ def card(name: str, result: dict[str, Any], later: list[Any] | None) -> dict[str
     steps = [_kind_of({"n": n, "say": _text(s.get("say"))}, s) for n, s in enumerate(_steps(routine), start=1)]
     out: dict[str, Any] = {"view": "one", "key": f"one {ident}".strip(), "title": title, "said": said, "steps": steps}
     if result.get("ids_not_kept"):
-        out["looked_up"] = True       # an id he gave is looked up again each run, never kept
+        out["looked_up"] = True       # an id given was not kept: each run finds its records again from the step's words
     return out
 
 

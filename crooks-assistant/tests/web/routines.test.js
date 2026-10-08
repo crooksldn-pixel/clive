@@ -92,7 +92,7 @@ test('a saved routine shows its steps in order, a change ringed blue and saying 
   assert.match(rows[0].allText(), /1\s*This week's orders/);
   assert.equal(all(rows[0], 'rn-state').length, 0, 'a read needs no words about waiting');
   assert.match(all(rows[1], 'rn-state')[0].allText(), /A change: waits for you on its card/);
-  assert.match(card.allText(), /No order or thread is kept: each run looks them up again\./);
+  assert.match(card.allText(), /No id is kept: each run looks its records up again from the step's words\./);
 });
 
 test('a run shows each step as the turn left it, each dot meaning one thing', () => {
