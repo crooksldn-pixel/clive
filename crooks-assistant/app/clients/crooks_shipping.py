@@ -60,7 +60,11 @@ PREVIEW_TIMEOUT_S = 25.0
 TRACKING_TIMEOUT_S = 15.0
 # A buy re-reads Shopify, books and pays at the provider, fetches the documents and fulfils the order.
 BUY_TIMEOUT_S = 90.0
-PRINT_TIMEOUT_S = 30.0
+# A print asks PrintNode twice in turn, the printer's state and then the job, each with the service's
+# own 20 s wait (clive-shipping/shipping/print_provider.py), then picks the 4x6 page out of the label
+# PDF and writes its record: up to 40 s on PrintNode alone. CLIVE waits 60 s, so a slow but working
+# print is answered, not asked again while it is still being sent.
+PRINT_TIMEOUT_S = 60.0
 MAX_DETAIL = 200
 MAX_LIST = 500
 

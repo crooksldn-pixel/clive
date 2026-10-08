@@ -500,10 +500,14 @@ def _verify_print(reprint: bool):
         if out.get("refused"):
             return False, f"{client.NAME} refused it: {out['refused']}"
         if not out["sent"]:
-            if out["state"] == "unknown":
-                return False, ("PrintNode didn't say whether it took the label, and CLIVE Shipping never resends by "
-                               "itself. Check the printer before printing again.")
-            return False, f"The label didn't go to the printer: {out['error'] or 'PrintNode refused it.'}"
+            if out["state"] == "failed":
+                # The service's one definite no (shipping/physical_printing.py): nothing went out.
+                return False, f"The label didn't go to the printer: {out['error'] or 'PrintNode refused it.'}"
+            # Anything else may yet print: PrintNode never said ("unknown"), or the service was still
+            # sending it when it answered ("requested", "submitting": CLIVE's wait ran out first and
+            # the same key was answered from the attempt in flight). Never "refused".
+            return False, ("PrintNode didn't say whether it took the label, and CLIVE Shipping never resends by "
+                           "itself. Check the printer before printing again.")
         if not moved:
             return False, "PrintNode took it, but the order doesn't show the print yet; look at it in Shipping."
         return True, "It counts as printed once PrintNode says the printer has finished."

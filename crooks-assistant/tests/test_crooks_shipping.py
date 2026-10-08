@@ -252,6 +252,29 @@ async def test_what_a_buy_proof_says_names_no_tracking_number(monkeypatch, keys)
     assert number not in note
 
 
+@pytest.mark.parametrize("state", ["requested", "submitting", "unknown", "", "failed"])
+async def test_a_print_still_being_sent_is_never_called_refused(monkeypatch, keys, state):
+    """Only the service's "failed" is a definite no. A print it was still sending when it answered
+    (CLIVE's wait ran out, and the same key was answered from the attempt in flight) may yet come
+    out of the printer: George is told to check it, never that PrintNode refused it."""
+    from app.tools import registry
+
+    error = "PrintNode request failed (HTTP 400)." if state == "failed" else None
+    answering(monkeypatch, lambda r: httpx.Response(200, json={
+        "print_intent": {"state": state, "provider_job_id": None, "error": error}, "sent_to_printer": False}))
+    execution = {"shipment_id": SID, "idempotency_key": "clive-print-this-one-card"}
+    write = registry.get(shipping_tools.PRINT).write
+    await write.execute(execution)
+    held = {"bought": True, "prints": 0, "reprints": 0, "print": "not_printed"}
+    ok, note = write.verify(held, held | {"prints": 1, "print": "sending"}, execution)
+    assert not ok
+    if state == "failed":
+        assert note == "The label didn't go to the printer: PrintNode request failed (HTTP 400)."
+    else:
+        assert note.endswith("Check the printer before printing again.") and "refused" not in note
+    assert sc.PRINT_TIMEOUT_S >= 45, "longer than the service's two PrintNode waits (tests/test_crooks_shipping_contract.py)"
+
+
 # ------------------------------------------------------------------ the tools, refused before staging
 
 

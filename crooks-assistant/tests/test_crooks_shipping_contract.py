@@ -257,6 +257,20 @@ async def test_printing_is_the_services_printnode_once_then_a_confirmed_copy(wor
     assert [e.actor for e in world.store.get(world.shop, ready.id).timeline if e.type == "label_reprinted"] == ["George (CLIVE)"]
 
 
+def test_clive_waits_for_a_print_longer_than_the_service_waits_on_printnode(service_code):
+    """The service's print asks PrintNode twice in turn (the printer, then the job), each with its own
+    wait. CLIVE's wait covers both and the label's own work after them, so a slow print that works is
+    answered rather than asked again while it is still being sent."""
+    import importlib
+
+    printnode = importlib.import_module("shipping.print_provider").PrintNodeProvider("not-a-key", 1)
+    try:
+        each = printnode._client.timeout.read
+    finally:
+        printnode._client.close()
+    assert each and sc.PRINT_TIMEOUT_S >= max(45.0, 2 * each + 10), (each, sc.PRINT_TIMEOUT_S)
+
+
 async def test_what_changed_and_the_tracking_are_the_services(world):
     ready = shipping_service.ready_order(world.s, world)
     session = _session()
