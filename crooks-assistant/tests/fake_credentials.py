@@ -29,9 +29,6 @@ anything ("x", "abc"), does not look like a secret and may stay as written.
 tests/test_fake_credentials.py fails when a credential-shaped literal appears anywhere in the
 tests. Where a test needs a credential on disk (a scanner test proving the scanner finds a key in
 a file), it writes a value from here into a temporary file at runtime.
-
-The Swift tests of mac/CrooksControl follow the same rule through their own helper,
-Tests/CrooksControlCoreTests/FakeCredentials.swift, which uses the same approach.
 """
 
 from __future__ import annotations

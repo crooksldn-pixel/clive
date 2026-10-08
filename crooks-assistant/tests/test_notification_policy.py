@@ -181,10 +181,12 @@ def test_divided_and_merged_are_not_said_anywhere_on_the_tablet():
     assert "code: 'divided'" not in APP_CODE and "code: 'merged'" not in APP_CODE
     assert "Divided. Tap a half" not in APP_CODE, "the words are gone too"
     assert "Merged." not in APP_CODE
-    # What survived the subtraction, and why: a change the OTHER half staged that nobody has
-    # authorised yet comes back with the merge, and no part of the screen shows it.
-    assert "code: 'merge_waiting'" in APP_CODE
-    assert "if (waiting) {" in APP_CODE, "and only when there is one"
+    # What survived the subtraction was `merge_waiting`: a change the OTHER half staged that
+    # nobody had authorised came back with the merge, and no part of the screen showed it.
+    # Changed on the owner's ruling of 8 October (DEC-071, ruling 37): Split's merge was
+    # deleted, and its one surviving line with it, so this pins it gone rather than present.
+    assert "code: 'merge_waiting'" not in APP_CODE
+    assert "if (waiting) {" not in APP_CODE, "the merge's last line is back without a merge"
 
 
 def test_the_three_homes_and_only_the_three():
@@ -194,7 +196,11 @@ def test_the_three_homes_and_only_the_three():
     assert "const CLASSES = ['control', 'workspace', 'global'];" in NOTIFY_CODE
     assert "if (entry.class === 'global' && !m.machine) entry.class = 'workspace';" in NOTIFY_CODE
     globals_ = [c for c in _call_sites(APP_CODE) if "'global'" in c]
-    assert globals_, "the Mac being unreachable is still allowed to be global"
+    # Was `assert globals_, "the Mac being unreachable is still allowed to be global"`. The one
+    # global call site in web/app.js was Split's branch command saying the server did not
+    # answer, and it was deleted with Split on the owner's ruling of 8 October (DEC-071,
+    # ruling 37). That the machine's own state is still ALLOWED to be global is the notify.js
+    # line asserted above, and tests/web/notify.test.js shows a `machine: true` message there.
     for call in globals_:
         assert "machine: true" in call, f"only the machine's own state is global: {call[:100]}"
 

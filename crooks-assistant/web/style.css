@@ -368,18 +368,10 @@ body[data-mode="context"] .app{padding-bottom:calc(var(--dock) + env(safe-area-i
    nothing else, which read as a control with no name — it says Previous now, at the same size
    as Next, and is still 44px tall like everything a thumb has to find on the 8-inch screen. */
 .chip-step{padding-left:14px;padding-right:14px;color:var(--ink-2)}
-/* The INVITATION to divide can sit in this row — one chip, and only while there is one half.
-   The two halves and their Merge and Close never do: see `.branch-zone`. `display:contents`,
-   so the chip is a child of the rail's own flex row rather than a box inside a box. */
+/* The branch rail held the owner's Split chip. Split was deleted on his ruling of 8 October
+   (DEC-071, ruling 37); the rail stays in the page's layout, empty and hidden. */
 .branch-rail{display:contents}
 .branch-rail:empty,.branch-rail[hidden]{display:none}
-.chip-split{color:var(--ink-2)}
-.chip-split::before{content:"";width:12px;height:12px;border-radius:50%;border:1.5px solid currentColor;
-  background:linear-gradient(90deg,currentColor 50%,transparent 50%);opacity:.8}
-.branch-split{padding:8px 18px}
-.branch-split::before{content:"";width:12px;height:12px;border-radius:50%;border:1.5px solid currentColor;
-  background:linear-gradient(90deg,currentColor 50%,transparent 50%);opacity:.8;margin-right:8px;display:inline-block;
-  vertical-align:-1px}
 .chip-home svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
 /* What the next sentence will be applied to. Above the deck, at the deck's own type scale,
@@ -1007,9 +999,8 @@ html[data-lite] .orb-zone{transition:none}
    cards arrive together; on the tablet the deck is simply there. */
 html[data-lite] .card,html[data-lite] .card.success,html[data-lite] .tabbed .panel,
 html[data-lite] .armed,html[data-lite] .note,html[data-lite] .sheet{animation:none}
-/* Decoration, not state: the boot pulse, the ready flourish on a half, the armed dot's
-   scale. The armed dot keeps its colour and its word; it stops moving. */
-html[data-lite] .branch-chip.is-ready{animation:none}
+/* Decoration, not state: the armed dot's scale. It keeps its colour and its word; it stops
+   moving. */
 html[data-lite] .armed-dot{animation:none}
 /* State, kept: a change being applied is the one thing on this screen that must be seen to
    be still happening. Opacity only — no scale, so nothing is re-laid out. */
@@ -1513,83 +1504,24 @@ html[data-lite] .job-list{-webkit-backdrop-filter:none;backdrop-filter:none}
    them — and the branch layer paints above the navigation layer, so the icons stopped
    answering. The touch gate measures exactly that, in both directions. */
 body[data-mode="context"] .branch-zone{min-height:0;padding:6px 14px 4px}
-/* And it takes NO space at all when it is holding nothing — which beside the cards is
-   whenever there is one half, because the Split chip is in the navigation rail then. A band
-   held open for one chip cost the first viewport 54px and took three density fixtures past the
+/* And it takes NO space at all when it is holding nothing — which, since Split was deleted on
+   the owner's ruling of 8 October (DEC-071, ruling 37), is always. A band held open for
+   nothing cost the first viewport 54px and took three density fixtures past the
    screen-and-a-quarter ceiling; a zone has to be worth its pixels. */
 .branch-zone:has(> [hidden]){min-height:0;padding:0}
-body[data-mode="context"] .branch-why{display:none}
-body[data-mode="context"] .branch-chip .branch-bare{display:none}
 
-/* The two halves, DIVIDED VISIBLY (§17): a column each, a rule down the middle, and the
-   halves' own actions on a row of their own beneath them. Not a flex row of chips — that is
-   what it was, in the navigation rail, and at 601 CSS px the second half's chip was cut off by
-   the right edge of the screen. A grid of `minmax(0,1fr)` cannot do that: a long task label
-   ellipses inside its own column instead of pushing its neighbour off the glass. */
+/* The bar drew the two halves and their Merge and Close. Split's chips, its divided grid and
+   its actions went with it (DEC-071, ruling 37); the bar stays in the layout, hidden. */
 .branch-bar{display:flex;flex-direction:column;gap:6px;align-items:center;width:100%;min-width:0}
 .branch-bar[hidden]{display:none}
-.branch-halves{
-  display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
-  align-items:stretch;gap:0;width:100%;max-width:560px;min-width:0;
-}
-/* The division itself. One hairline, full height of the two chips: the orb divides above it
-   and this says the screen has too. */
-.branch-divide{width:1px;align-self:stretch;margin:4px 6px;background:var(--line-2)}
-.branch-acts{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;min-width:0}
 
-/* A half. Four facts, stacked, so the column can be narrow without any of them being cut:
-   which half it is, what it is about, what it is doing, and whether it has a screen at all. */
-.branch-chip{
-  display:flex;flex-direction:column;align-items:flex-start;gap:1px;
-  min-height:var(--tap);padding:6px 12px;border-radius:var(--radius-control);
-  border:1px solid var(--border-rest);background:transparent;color:var(--ink-2);
-  font-size:13px;font-weight:600;text-align:left;min-width:0;width:100%;
-}
-.branch-chip[aria-pressed="true"]{background:var(--glass-control-active);color:var(--ink);border-color:var(--border-active);box-shadow:var(--shadow-active)}
-/* WHICH half, in the smallest type on the chip: it is the thing that never changes, so it
-   identifies without competing with what the half is about. */
-.branch-chip .branch-which{font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-4);font-weight:700}
-.branch-chip[aria-pressed="true"] .branch-which{color:var(--ink-3)}
-.branch-chip .branch-area{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink);
-  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.branch-chip[aria-pressed="false"] .branch-area{color:var(--ink-2)}
-.branch-chip .branch-detail{font-weight:500;color:var(--ink-2);max-width:100%;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap}
-.branch-chip .branch-state{font-weight:500;color:var(--ink-3);text-transform:lowercase}
-.branch-chip .branch-bare{font-size:11px;color:var(--ink-4);font-weight:500}
-.branch-chip.is-ready .branch-state{color:var(--ok,#4f9d69)}
-.branch-chip.is-ready .branch-state::before{content:"\2713\00a0"}
-.branch-chip.is-failed .branch-state{color:var(--bad,#b4462f)}
-.branch-chip.is-failed .branch-state::before{content:"\0021\00a0"}
-
-/* Which half this SCREEN is, above the cards. The chips say it too, but they sit in a rail of
-   other controls and the owner's complaint was about the screen: two of them looked the same.
-   Drawn only when the orb is divided. */
-.branch-head{display:flex;align-items:baseline;gap:10px;margin:0 0 8px;padding:6px 12px;
-  border-left:3px solid var(--border-active);border-radius:4px;background:var(--glass-control,rgba(0,0,0,.03));
-  font-size:12px;line-height:1.3;flex-wrap:wrap}
+/* Which half this SCREEN was, above the cards, drawn only while the orb was divided. Nothing
+   divides it any more (DEC-071, ruling 37): the line stays in the layout, hidden. */
 .branch-head[hidden]{display:none}
-.branch-head .head-area{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink)}
-.branch-head .head-detail{font-weight:600;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis}
-.branch-head .head-which{margin-left:auto;color:var(--ink-3);font-size:11px;white-space:nowrap}
-.branch-head[data-state="ready"]{border-left-color:var(--ok,#4f9d69)}
-.branch-head[data-state="failed"]{border-left-color:var(--bad,#b4462f)}
-.branch-head[data-state="working"],.branch-head[data-state="waiting"]{border-left-color:var(--ink-3)}
 
 /* A half that holds nothing, and the ways out of it. Not a card type: the Mac names the
    commands (offer_for) and this is the shape they are drawn in. */
 .half-empty .rail{margin-top:12px}
-@media (prefers-reduced-motion: no-preference){
-  .branch-chip.is-ready{animation:branch-ready 1200ms ease-out 2}
-}
-@keyframes branch-ready{0%,100%{box-shadow:0 0 0 0 rgba(79,157,105,0)}50%{box-shadow:0 0 0 4px rgba(79,157,105,.22)}}
-.branch-act{min-height:44px;padding:8px 14px;border-radius:999px;border:1px solid var(--border-rest);
-  background:transparent;color:var(--ink-2);font-size:13px;font-weight:600}
-/* What Split is for, on the screen with room for it. The owner asked out loud what the button
-   did; a control explained only by a gesture nobody mentioned is not discoverable. */
-/* `flex:none`, not `flex-basis:100%`: the bar is a COLUMN now, so a basis of 100% was a
-   request for the full height of the band rather than the full width of a row. */
-.branch-why{flex:none;text-align:center;color:var(--ink-3);font-size:11px;letter-spacing:.02em}
 
 /* ---- the capability card: what this build can do, grouped by the part of the shop.
    The kind ("Read", "Change", "Bulk") sits to the right of the sentence rather than after

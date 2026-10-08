@@ -25,7 +25,7 @@ What the seal does while it is on, every layer on its own:
                      building one is refused on the spot: any httpx network transport (every HTTP
                      client CLIVE has, Shopify, Instagram, Ship24, ElevenLabs, CROOKS Returns,
                      GitHub, YouTube, and whatever is added next), Gmail's Google service and its
-                     credentials, and the Shopify, ElevenLabs and Whisper client classes themselves.
+                     credentials, and the Shopify and ElevenLabs client classes themselves.
     no secrets       every key reads as absent, but two kinds: the Max plan's own token, only when a
                      token file was handed in, and a key CLIVE makes for itself while it runs (its
                      media signing key, the server's local command key), which is kept in this
@@ -311,7 +311,6 @@ class Seal:
         from app.clients.elevenlabs import ScribeClient
         from app.clients.elevenlabs_tts import VoiceClient
         from app.clients.shopify import ShopifyClient
-        from app.clients.whisper import WhisperClient
 
         self._swap(httpx.HTTPTransport, "__init__", self._refuse("a real HTTP client"))
         self._swap(httpx.AsyncHTTPTransport, "__init__", self._refuse("a real HTTP client"))
@@ -321,7 +320,6 @@ class Seal:
         self._refuse_real_init(ShopifyClient, "a real Shopify client")
         self._refuse_real_init(ScribeClient, "a real ElevenLabs Scribe client")
         self._refuse_real_init(VoiceClient, "a real ElevenLabs voice client")
-        self._refuse_real_init(WhisperClient, "a real Whisper client")
 
     def _secrets(self) -> None:
         from app.clients import gmail as gmail_client

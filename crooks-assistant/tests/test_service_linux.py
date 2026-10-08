@@ -1,12 +1,12 @@
 """scripts/service_linux.py: the server's lifecycle, against a systemd that behaves like one.
 
-Everything tests/test_service.py holds the Mac's lifecycle to, held here for the server:
-nothing succeeds because systemctl exited 0, every failure the owner reads is in the owner's
-words, and the layer runs nothing but systemctl. The double below models the facts systemd
-itself holds — whether the service is loaded, enabled and active, its pid and how its last
-main process ended — and the rules that follow from them: `restart` on a service systemd
-does not have fails, `enable` on a file systemd has not read fails, `stop` exits 0 the
-moment the signal is sent.
+What tests/test_service.py held the Mac's lifecycle to until the Mac runtime was deleted
+(DEC-071, ruling 38), held here for the server: nothing succeeds because systemctl exited 0,
+every failure the owner reads is in the owner's words, and the layer runs nothing but
+systemctl. The double below models the facts systemd itself holds — whether the service is
+loaded, enabled and active, its pid and how its last main process ended — and the rules that
+follow from them: `restart` on a service systemd does not have fails, `enable` on a file
+systemd has not read fails, `stop` exits 0 the moment the signal is sent.
 
 NOT PROVED HERE: that a real systemd accepts these verbs. There is no systemd in this test
 process. What is proved is which commands would run, in which order, and what this layer
@@ -310,13 +310,6 @@ def test_no_failure_the_owner_reads_is_written_for_a_developer():
         for word in svc.DEVELOPERESE:
             assert word not in human.lower(), f"{code}.human says {word!r}"
             assert word not in fix.lower(), f"{code}.fix says {word!r}"
-
-
-def test_the_two_platforms_agree_on_which_problems_exist():
-    """Same codes, so the app can key its explanations on the code whatever the platform."""
-    from scripts import service
-
-    assert set(svc.PROBLEMS) - {"not_linux", "permission_refused"} == set(service.PROBLEMS) - {"not_macos"}
 
 
 def test_the_layer_runs_nothing_but_systemctl(tmp_path):

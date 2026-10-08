@@ -96,7 +96,8 @@ async def test_opening_an_order_starts_the_background_reads_and_one_guess(antici
     decision = await anticipator.on_signal(order_signal(), session=session)
     started = {p.why: p for p in decision.started}
     assert "order.customer_history" in started and started["order.customer_history"].tier == P1
-    assert "order.shipping_state" in started
+    # "order.shipping_state" was started here too, until the old Easyship boundary it read went
+    # (DEC-071, ruling 24).
     # Three at a time is the bound, so the fourth rule is skipped with a reason rather than run.
     assert len(decision.started) <= anticipator.max_anticipated
     assert all(reason for reason in decision.skipped.values())
@@ -132,19 +133,18 @@ async def test_the_thread_a_reply_would_need_is_read_on_a_hunch(anticipator, ses
     await asyncio.sleep(0.15)
 
 
-async def test_the_bound_counts_what_spends_a_sources_rate_and_not_the_macs_own_reads(anticipator, session, dispatched):
-    """The internal shipping read asks a provider that is not connected and returns a
-    dictionary: it spends no Shopify or Gmail rate, so counting it against the four would cost
-    a real read for nothing. It is still bounded by the prefetcher's own wall."""
+async def test_the_bound_counts_what_spends_a_sources_rate(anticipator, session, dispatched):
+    """Every read that spends a Shopify or Gmail rate counts against the four, and no source
+    gets more than its half. (This also held that CLIVE's own internal reads did NOT count —
+    the shipping context was the one — until the old Easyship boundary went, DEC-071 ruling 24:
+    the internal table is empty now, and test_the_internal_reads_are_a_closed_table holds it.)"""
     signal = order_signal(ids={
         "order_id": "gid://shopify/Order/1", "customer_id": "gid://shopify/Customer/9",
         "email": "jo@example.com", "thread_id": "t_991",
     })
     decision = await anticipator.on_signal(signal, session=session)
     spending = [p for p in decision.started if p.source != "mac"]
-    internal = [p for p in decision.started if p.source == "mac"]
     assert len(spending) <= anticipator.max_anticipated
-    assert internal, "the shipping context was not read at all"
     assert len(decision.started) > anticipator.max_anticipated - 1
     for source in ("shopify", "gmail"):
         assert len([p for p in spending if p.source == source]) <= anticipator.max_per_source
@@ -350,8 +350,11 @@ async def test_a_prediction_naming_a_write_is_refused_and_never_dispatched(antic
 def test_the_internal_reads_are_a_closed_table():
     from app.anticipation import internal
 
-    assert set(internal.READS) == {"shipping_status"}
+    # Empty since the shipping context's read went with the old Easyship boundary (DEC-071,
+    # ruling 24); still closed: a name it does not hold is not known.
+    assert set(internal.READS) == set()
     assert not internal.known("shopify_order_note_append")
+    assert not internal.known("shipping_status")
 
 
 # --------------------------------------------------------------------- §19 what is learned
@@ -477,8 +480,9 @@ async def test_a_predicted_read_is_labelled_differently_from_a_requested_one(ant
     # Every prediction is logged, with what asked for it.
     predictions = [e for e in events if e["kind"] == "prediction"]
     assert predictions and all(e["origin"] == PREDICTED and e["why"] for e in predictions)
-    # And what it filled in says so where the value is used.
-    entry = anticipator.memory.get(ENTITY, "shipping:gid://shopify/Order/1")
+    # And what it filled in says so where the value is used. (The customer's history: the
+    # shipping context was read here until the old Easyship boundary went, DEC-071 ruling 24.)
+    entry = anticipator.memory.get(ENTITY, "customer:gid://shopify/Customer/9")
     assert entry is not None and entry.public()["provenance"]["origin"] == PREDICTED
 
 
@@ -504,23 +508,24 @@ async def test_the_debug_view_says_why_something_was_prefetched(anticipator, ses
 
 async def test_a_learned_transition_reads_something_no_rule_would_have(anticipator, session, dispatched):
     """The brief's own example, mechanically: the owner checks the inbox on an old unfulfilled
-    international order and then, again and again, looks at the tracking. No deterministic rule
-    fires on "the inbox was checked" — so before the habit is learned nothing is read, and
-    after it is, the tracking state is."""
+    international order and then, again and again, looks at the customer's history. No
+    deterministic rule fires on "the inbox was checked" — so before the habit is learned nothing
+    is read, and after it is, the history is. (The habit was the tracking, read through the old
+    Easyship boundary, until that went: DEC-071, ruling 24.)"""
     signal = Signal(
         event="email_checked", session_id="s1", login="owner@example.com", branch_id="b1",
         kind="order", ref="gid://shopify/Order/1", features=("unfulfilled", "international", "old"),
-        ids={"order_id": "gid://shopify/Order/1"},
+        ids={"order_id": "gid://shopify/Order/1", "customer_id": "gid://shopify/Customer/9"},
     )
     cold = await anticipator.on_signal(signal, session=session, learn=False)
     assert cold.started == [] and cold.skipped == {}
     for _ in range(8):
-        anticipator.learner.observe(signal.state, "tracking_checked")
+        anticipator.learner.observe(signal.state, "history_checked")
     warm = await anticipator.on_signal(signal, session=session, learn=False)
     learned = [p for p in warm.started if p.level == 2]
     assert learned, "the learned table predicted nothing"
     for prediction in learned:
-        assert prediction.why == f"learned:{signal.state}->tracking_checked"
+        assert prediction.why == f"learned:{signal.state}->history_checked"
         assert prediction.tier == P2, "a learned read is speculative, whatever tier its rule is"
         assert prediction.observations >= MIN_OBSERVATIONS and prediction.confidence >= THRESHOLD
     await asyncio.sleep(0.1)
@@ -533,11 +538,14 @@ async def test_a_learned_habit_puts_the_read_it_is_about_first(anticipator, sess
     signal = order_signal()
     plain = anticipator._predictions(signal)
     assert [p.why for p in plain][0] == "order.customer_history"
+    # The habit is the linked inbox, second in the plain order. (It was the tracking, through the
+    # old Easyship boundary's rule, until that went: DEC-071, ruling 24.)
+    assert [p.why for p in plain][1] == "order.linked_email"
     for _ in range(9):
-        anticipator.learner.observe(signal.state, "tracking_checked")
+        anticipator.learner.observe(signal.state, "email_checked")
     taught = anticipator._predictions(signal)
     first = taught[0]
-    assert first.why == "order.shipping_state+learned"
+    assert first.why == "order.linked_email+learned"
     assert first.observations >= MIN_OBSERVATIONS and first.tier == P1
     assert len(taught) == len(plain), "a habit about a read already planned must not add a second"
 

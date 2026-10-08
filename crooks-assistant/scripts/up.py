@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""make up — everything the tablet needs, in one Terminal window.
+"""make up — everything the tablet needs, in one terminal window.
 
-Starts whisper-server and the backend as children of this process, prefixes their output so
-one window is readable, makes sure Tailscale is serving port 8000 over HTTPS (once, in the
-background, where it persists), waits for /health and prints the address to open. Ctrl-C stops
-everything. If a child dies it is restarted with a short back-off.
+Starts the backend as a child of this process, prefixes its output, makes sure Tailscale is
+serving port 8000 over HTTPS (once, in the background, where it persists), waits for /health and
+prints the address to open. Ctrl-C stops it. If the backend dies it is restarted with a short
+back-off.
 
-This is the day-to-day way to run the assistant. `make dev` is the same backend with auto-
-reload for working on the code; `make install` is the no-window alternative that has launchd
-start both services at login.
+`make dev` is the same backend with auto-reload for working on the code; `make install` is the
+no-window way, a systemd service that starts at boot. The local whisper-server this used to start
+beside the backend was deleted on the owner's ruling of 8 October (DEC-071, ruling 39).
 """
 
 from __future__ import annotations
@@ -26,7 +26,6 @@ sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
 import launch_common as lc  # noqa: E402
-import whisper_server  # noqa: E402
 
 from config.settings import Settings, get_settings  # noqa: E402
 
@@ -54,29 +53,15 @@ def backend_command(settings: Settings, *, reload: bool = False) -> list[str]:
 def commands(
     settings: Settings, *, reload: bool = False, port_open=lc.port_open,
 ) -> tuple[list[tuple[str, list[str]]], list[str]]:
-    """(children to run, notes to print). whisper is skipped, with a note, when it is not
-    built: the assistant still hears through ElevenLabs, without its fallback. Either service is
-    also skipped when something already answers on its port — the login-time agents from
-    `make install`, usually — rather than started twice."""
+    """(children to run, notes to print). The backend is skipped when something already
+    answers on its port — the service from `make install`, usually — rather than started
+    twice."""
     children: list[tuple[str, list[str]]] = []
     notes: list[str] = []
-    resolved = whisper_server.resolve(settings)
-    notes.extend(resolved.notes)
-    whisper_port = lc.url_port(settings.whisper_url, 8910)
-    if port_open("127.0.0.1", whisper_port):
-        notes.append(f"whisper-server is already running on port {whisper_port}; leaving it alone.")
-    elif resolved.cmd:
-        children.append(("whisper", resolved.cmd))
-    else:
-        notes.append(
-            "whisper-server is NOT starting. ElevenLabs still hears you; there is no offline "
-            "fallback until it is built:\n         "
-            + resolved.problem.replace("\n", "\n         ")
-        )
     if port_open(settings.host, settings.port):
         notes.append(
-            f"the backend is already running on port {settings.port} — probably the login-time "
-            "service from `make install` (make status / make uninstall). Not starting a second."
+            f"the backend is already running on port {settings.port} — probably the service "
+            "from `make install` (make status / make uninstall). Not starting a second."
         )
     else:
         children.append(("backend", backend_command(settings, reload=reload)))
@@ -150,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  start  {child.name}: {' '.join(child.cmd)}")
         child.start()
     if not children:
-        # Everything is already running (the login-time agents, usually). The owner still
+        # Everything is already running (the installed service, usually). The owner still
         # needs the address and a health line; then there is nothing for this window to do.
         if not args.no_tailscale:
             host, note = lc.ensure_serve(settings.port)

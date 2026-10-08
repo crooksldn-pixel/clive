@@ -1,16 +1,16 @@
-"""Shared by `make up` (scripts/up.py) and `make install` (scripts/install_launchd.py).
+"""Shared by `make up` (scripts/up.py), `make install` (scripts/install_systemd.py) and the
+server's status and update commands.
 
-Three things have to be true for the tablet to work: the backend is up on 127.0.0.1:8000,
-whisper-server is up on 127.0.0.1:8910 (the fallback recogniser), and Tailscale is serving
-port 8000 over HTTPS. This module knows how to find the binaries involved, how to read and set
-the Tailscale route, and how to read /health back — so the two launchers can share one answer
-to "is it running?".
+Two things have to be true for the tablet to work: the backend is up on 127.0.0.1:8000, and
+Tailscale is serving port 8000 over HTTPS. This module knows how to find the binaries involved,
+how to read and set the Tailscale route, and how to read /health back — so every launcher shares
+one answer to "is it running?". The Mac's launchd agents and the local whisper-server they
+started were deleted on the owner's ruling of 8 October (DEC-071, rulings 38 and 39).
 """
 
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -22,36 +22,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
 LOG_DIR = ROOT / "logs"
-LAUNCHD_DIR = ROOT / "launchd"
-AGENTS = {
-    "com.crooks.assistant": "com.crooks.assistant.plist",
-    "com.crooks.whisper": "com.crooks.whisper.plist",
-}
 
-# The Linux half. One unit, not two: whisper.cpp is not deployed on the server (no Core ML,
-# no model, no build toolchain), so there is nothing for a second service to supervise.
-# docs/DEPLOY_LINUX.md says what that costs and why it is deliberate.
+# The one service the server supervises (deploy/systemd/).
 SERVICE_UNIT = "crooks-assistant.service"
 SYSTEMD_DIR = Path("/etc/systemd/system")
 SYSTEMD_UNIT_PATH = SYSTEMD_DIR / SERVICE_UNIT
 SYSTEMD_TEMPLATE = ROOT / "deploy" / "systemd" / "crooks-assistant.service"
-
-# The Mac App Store / standalone Tailscale app keeps its CLI inside the bundle.
-TAILSCALE_APP = Path("/Applications/Tailscale.app/Contents/MacOS/Tailscale")
 
 
 # --------------------------------------------------------------------------- binaries
 
 
 def find_tailscale() -> str | None:
-    found = shutil.which("tailscale")
-    if found:
-        return found
-    return str(TAILSCALE_APP) if TAILSCALE_APP.exists() else None
+    return shutil.which("tailscale")
 
 
 def find_claude() -> str | None:
-    """The claude CLI. `which` first; then the places the installers put it, because launchd
+    """The claude CLI. `which` first; then the places the installers put it, because systemd
     does not read a shell profile and a PATH-only answer is not enough there."""
     found = shutil.which("claude")
     if found:
@@ -69,8 +56,8 @@ def find_claude() -> str | None:
 
 def service_path(extra: list[str | None] = ()) -> str:
     """A PATH for a supervised service: the directories of every binary the backend spawns,
-    then the usual places. Neither launchd nor systemd reads a shell profile — both start with
-    almost nothing — and `claude` is a node script that needs `node` beside it."""
+    then the usual places. systemd does not read a shell profile — a service starts with almost
+    nothing — and `claude` is a node script that needs `node` beside it."""
     dirs: list[str] = []
     for binary in [find_claude(), shutil.which("node"), find_tailscale(), sys.executable, *extra]:
         if binary:
@@ -84,65 +71,36 @@ def service_path(extra: list[str | None] = ()) -> str:
     return ":".join(dirs)
 
 
-# The name the Mac has always called it. Same construction on both platforms; the extra
-# /opt/homebrew entries are simply absent on Linux and cost nothing.
-launchd_path = service_path
-
-
 # --------------------------------------------------------------------------- supervision
 
 
 def service_labels() -> tuple[str, ...]:
-    """What supervises the assistant here, named as the platform names it. One definition, so
-    `crooks-update`, CROOKS Control and the installers cannot disagree about what to restart."""
-    return (SERVICE_UNIT,) if is_linux() else tuple(AGENTS)
+    """What supervises the assistant, named as systemd names it. One definition, so
+    `crooks-update` and the installer cannot disagree about what to restart."""
+    return (SERVICE_UNIT,)
 
 
 def restart_services(timeout_s: float = 120.0) -> list[str]:
-    """Restart the assistant through whatever supervises it. Returns the failures, empty when
-    all is well — the caller decides whether a failure stops a run.
-
-    This is the one place the two platforms differ in the update path: `launchctl kickstart`
-    on the Mac, `systemctl restart` on the server. Everything either side of it — the
-    fast-forward, the dependency install, the offline suite, the health read — is the same
-    code doing the same thing.
-    """
-    if is_linux():
-        out = subprocess.run(
-            ["systemctl", "restart", SERVICE_UNIT], capture_output=True, text=True, timeout=timeout_s
-        )
-        if out.returncode == 0:
-            return []
-        return [f"{SERVICE_UNIT}: {(out.stderr or out.stdout).strip() or 'systemctl refused'}"]
-
-    domain = f"gui/{uid()}"
-    failed = []
-    for label in AGENTS:
-        out = subprocess.run(
-            ["launchctl", "kickstart", "-k", f"{domain}/{label}"],
-            capture_output=True, text=True, timeout=timeout_s,
-        )
-        if out.returncode != 0:
-            failed.append(f"{label}: {(out.stderr or '').strip() or 'launchctl refused'}")
-    return failed
+    """Restart the assistant through systemd. Returns the failures, empty when all is well —
+    the caller decides whether a failure stops a run."""
+    out = subprocess.run(
+        ["systemctl", "restart", SERVICE_UNIT], capture_output=True, text=True, timeout=timeout_s
+    )
+    if out.returncode == 0:
+        return []
+    return [f"{SERVICE_UNIT}: {(out.stderr or out.stdout).strip() or 'systemctl refused'}"]
 
 
 def installer_script() -> Path:
-    """The install/status/restart command for this platform, for the Makefile and for the
-    buttons CROOKS Control draws."""
-    return Path(__file__).resolve().parent / ("install_systemd.py" if is_linux() else "install_launchd.py")
+    """The install/status/restart command, for the Makefile."""
+    return Path(__file__).resolve().parent / "install_systemd.py"
 
 
 def restart_hint() -> str:
-    """What to try when a restart fails, named for the platform the operator is standing on."""
-    if is_linux():
-        return (
-            "If the unit was never installed, run `make install` once. Your code IS updated; "
-            f"only the restart failed. Look in: journalctl -u {SERVICE_UNIT} -n 50"
-        )
+    """What to try when a restart fails."""
     return (
-        "If they were never installed, run `make install` once. Your code IS updated; only "
-        "the restart failed."
+        "If the unit was never installed, run `make install` once. Your code IS updated; "
+        f"only the restart failed. Look in: journalctl -u {SERVICE_UNIT} -n 50"
     )
 
 
@@ -219,13 +177,6 @@ def port_open(host: str, port: int, timeout_s: float = 0.5) -> bool:
             return True
     except OSError:
         return False
-
-
-def url_port(url: str, default: int) -> int:
-    try:
-        return int(url.rstrip("/").rsplit(":", 1)[1])
-    except (IndexError, ValueError):
-        return default
 
 
 # --------------------------------------------------------------------------- health
@@ -369,7 +320,7 @@ def _keyed_route(method: str, path: str) -> bool:
 def call_service(port: int, method: str, path: str, body: bytes | None = None, *,
                  timeout_s: float = 5.0) -> tuple[int, bytes]:
     """One request to the service on this machine's loopback, for the server's own commands
-    (scripts/session_ops.py: `make test-session-*` and CROOKS Control's session buttons):
+    (scripts/session_ops.py: `make test-session-*`):
     (status, body), whatever the status.
 
     The server's key goes with it only on a route the key opens (_keyed_route), only where this
@@ -432,8 +383,13 @@ def wait_for_health(url: str, timeout_s: float = 45.0, still_starting=None) -> d
     return None
 
 
+# The three the assistant cannot work without: hearing, Claude, Shopify. One definition of
+# "essential", read by `make health` (scripts/healthcheck.py) and crooks-status alike. It lived
+# in scripts/control.py until that went with the menu-bar app (DEC-071, ruling 38).
+ESSENTIAL = ("speech", "claude", "shopify")
+
 PLAIN_NAMES = {
-    "claude": "Claude", "speech": "hearing", "scribe": "ElevenLabs hearing", "whisper": "offline hearing",
+    "claude": "Claude", "speech": "hearing", "scribe": "ElevenLabs hearing",
     "tts": "the voice", "shopify": "Shopify", "gmail": "Gmail", "knowledge_base": "the knowledge base",
 }
 
@@ -455,12 +411,12 @@ def summarise_health(data: dict | None) -> str:
     return f"partly down · working: {', '.join(ok) or 'nothing'} · NOT working: {', '.join(bad)}"
 
 
-# --------------------------------------------------------------------------- plists
+# --------------------------------------------------------------------------- the unit
 
 
 def render(template: str, values: dict[str, str]) -> str:
-    """Fill {{KEY}} placeholders. Every placeholder must be supplied — a plist with a literal
-    {{ROOT}} in it is a launchd agent that restarts forever."""
+    """Fill {{KEY}} placeholders. Every placeholder must be supplied — a unit with a literal
+    {{ROOT}} in it is a service that restarts forever."""
     out = template
     for key, value in values.items():
         out = out.replace("{{" + key + "}}", value)
@@ -470,30 +426,10 @@ def render(template: str, values: dict[str, str]) -> str:
     return out
 
 
-def plist_values(root: Path = ROOT, python: Path | None = None, home: Path | None = None) -> dict[str, str]:
-    python = python or VENV_PYTHON
-    home = home or Path.home()
-    return {
-        "ROOT": str(root),
-        "PYTHON": str(python),
-        "HOME": str(home),
-        "LOGS": str(root / "logs"),
-        "PATH": launchd_path([str(python)]),
-        "CLAUDE": find_claude() or "",
-    }
-
-
 def env_line(key: str, value: str | int) -> str:
     return f"{key}={value}"
-
-
-def is_macos() -> bool:
-    return sys.platform == "darwin"
 
 
 def is_linux() -> bool:
     return sys.platform.startswith("linux")
 
-
-def uid() -> int:
-    return os.getuid()

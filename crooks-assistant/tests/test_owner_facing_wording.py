@@ -58,7 +58,6 @@ PYTHON_SOURCES = (
     "app/capabilities",
     "app/observability/ui_semantics.py",
     "app/runtime.py",
-    "app/shipping",
     "app/tools",
     "app/displays",
     "app/routes/displays.py",

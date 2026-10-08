@@ -6,12 +6,12 @@ cancellation — and nothing here reads anything itself. A rule is a pure functi
 `Signal` to a `Prediction`, which makes the whole of level 1 testable without a network.
 
 The rules are also the vocabulary level 2 predicts in. A learned transition says an event name
-("the owner usually checks tracking next"); `for_event` turns that event into the same
+("the owner usually checks the customer's history next"); `for_event` turns that event into the same
 `Prediction` the deterministic rule would have made. So the learner cannot invent a read: it
 can only bring one of these forward, and there is exactly one place — this table — where a
 prediction acquires a tool name.
 
-    order_opened  →  P1  the customer's history, the linked inbox, the shipping state
+    order_opened  →  P1  the customer's history and the linked inbox
                      P2  the next record in the set, and the thread a reply would need
 
 P1 is the record on screen: the owner is looking at it and the reads are ones the card itself
@@ -99,22 +99,6 @@ def _linked_email(signal: Signal) -> Prediction | None:
     )
 
 
-def _shipping_state(signal: Signal) -> Prediction | None:
-    """The shipping and tracking context, from whatever provider is connected — internally,
-    through the boundary in app/shipping. With no provider connected this returns a
-    DISCONNECTED answer and costs nothing; it never claims to have checked anything (§20)."""
-    order = str(signal.ids.get("order_id") or signal.ref or "")
-    if not order:
-        return None
-    from app.memory import ENTITY
-
-    return Prediction(
-        key=f"shipping:{order}", tier=P1, internal="shipping_status",
-        args={"order_id": order}, source="mac", why="order.shipping_state",
-        level=LEVEL_RULE, memory=(ENTITY, f"shipping:{order}"),
-    )
-
-
 def _email_thread(signal: Signal) -> Prediction | None:
     """The thread itself, when the order has one waiting.
 
@@ -153,7 +137,8 @@ def _set_neighbour(signal: Signal) -> Prediction | None:
 for _rule in (
     Rule("order.customer_history", ("order_opened",), P1, _customer_history, predicts="history_checked"),
     Rule("order.linked_email", ("order_opened",), P1, _linked_email, predicts="email_checked"),
-    Rule("order.shipping_state", ("order_opened",), P1, _shipping_state, predicts="tracking_checked"),
+    # "order.shipping_state" read the old Easyship boundary (app/shipping) through an internal
+    # read, and went with it on 8 October (DEC-071, ruling 24).
     Rule("order.next_in_set", ("order_opened", "next_record"), P2, _set_neighbour, predicts="next_record"),
     Rule("order.email_thread", ("order_opened", "email_checked"), P2, _email_thread, predicts="reply_drafted"),
 ):

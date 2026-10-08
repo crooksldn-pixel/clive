@@ -38,7 +38,7 @@ def show(port: int, out=None) -> int:
 
     health = lc.fetch_health(f"http://127.0.0.1:{port}/health")
     if not health:
-        print(_line(BAD, "Backend", f"nothing answering on 127.0.0.1:{port}. `make up`, or `make install` to have it start at login."), file=out)
+        print(_line(BAD, "Backend", f"nothing answering on 127.0.0.1:{port}. `make status` says why; `make restart` brings the service back."), file=out)
         return 1
     if lc.health_limited(health):
         # Liveness alone (round 8, F-NEW-PAD): what it does not show is not known to be working.
@@ -73,15 +73,13 @@ def show(port: int, out=None) -> int:
     if observed.get("test_session"):
         print(_line(OK, "Session", f"{observed['test_session']} recording — crooks-watch to follow it"), file=out)
     # The verdict: the parts that make it usable. Tailscale and the order cache are shown
-    # but do not make it "down" — the tablet's route can be off while the Mac is fine. An
+    # but do not make it "down" — the tablet's route can be off while the server is fine. An
     # essential the answer does not report is unknown, never working (round 9, E-01): an answer
     # without them — or without any checks — is not a well one.
-    from control import ESSENTIAL
-
-    missing = [name for name in ESSENTIAL if name not in checks]
+    missing = [name for name in lc.ESSENTIAL if name not in checks]
     if missing:
         print(_line(MEH, "Unknown", "not reported: " + ", ".join(lc.PLAIN_NAMES.get(n, n) for n in missing)), file=out)
-    return 0 if not missing and all(checks[name].get("ok") for name in ESSENTIAL) else 1
+    return 0 if not missing and all(checks[name].get("ok") for name in lc.ESSENTIAL) else 1
 
 
 def main(argv: list[str] | None = None) -> int:

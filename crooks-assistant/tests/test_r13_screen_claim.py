@@ -220,9 +220,9 @@ async def test_an_answer_to_one_half_is_not_abandoned_by_a_question_to_the_other
     sid = "two-halves"
     reached, release = await _held_claim(desk, monkeypatch, sid)
     left = desk.runtime.sessions.get(sid).focused_branch
-    response = await desk.post("/branches/fork", data={"session_id": sid}, headers=test_r11_turn.PROXIED)
-    assert response.status_code == 200, response.text
-    other = response.json()["branch_id"]
+    from tests.second_half import second_half  # the fork route went with Split (DEC-071, ruling 37)
+
+    other = second_half(desk.runtime.sessions.get(sid))
     assert other != left
     desk.model.steps = [says("Order 1938 is on your screen."), reads()]
     asking = asyncio.create_task(say(desk, "put 1938 back up", sid, branch_id=left))

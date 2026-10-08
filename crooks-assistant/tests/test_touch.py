@@ -218,33 +218,26 @@ def test_the_dock_band_is_reserved_once_for_the_whole_column():
 # --------------------------------------------------------------------------- §17 / §18 / §6
 
 
-def test_the_two_halves_are_only_ever_drawn_in_their_own_band():
-    """The rule, and the two defects that set it.
+def test_the_branch_band_is_held_empty_and_takes_no_space():
+    """The band, the rail and the header line drew the owner's Split: a chip for each half, Merge
+    and Close, and which half the screen was. Split was deleted on his ruling of 8 October
+    (DEC-071, ruling 37), so nothing makes a second half and there is never anything to draw in
+    them. The elements stay in the page's layout so nothing around them moves — and the band
+    must still take NO space, because a band held open for nothing cost the first viewport 54px
+    and took three density fixtures past the screen-and-a-quarter ceiling.
 
-    The HALVES — both chips, Merge, Close — are always in `#branch-zone`, a row of `.app`
-    outside the stage `#talk` is positioned in. Drawing them into the context nav rail made
-    that row six heterogeneous controls wide (a landing, a trail step, a list step, a set
-    cursor and two branch chips), which at 601 CSS px ran off the right edge and cut the second
-    half's chip in half. The collision gate cannot see that — it looks for overlapping
-    rectangles, not for a flex row whose last child is clipped by its own container — so
-    `railFits()` in scripts/browser/touch.js measures it at both sizes.
-
-    The INVITATION — one Split chip, while there is one half — is in the band on the idle
-    screen and in the nav rail beside the cards. This test's first draft required ONE home for
-    everything, which held the band open beside the cards for a single chip and cost the first
-    viewport 54px: three density fixtures went past the screen-and-a-quarter ceiling and
-    tests/test_density.py failed. A zone has to be worth its pixels, and this one is worth them
-    when there are two halves in it and not when there is one chip. Both shapes are asserted
-    here so neither can drift back.
+    This was `test_the_two_halves_are_only_ever_drawn_in_their_own_band`, which held where
+    Split's chips were drawn. The chips are gone; what is still live of it is the empty band
+    collapsing, asserted here as it was there.
     """
     body = APP_JS[APP_JS.index("function drawBranchBar()"):]
     body = body[:body.index("\n}\n")]
-    # The rail is only ever reached with fewer than two halves, and only beside the cards.
-    assert "const inRail = branches.length < 2 && el.body.dataset.mode === 'context' && el.branchRail;" in body
-    # The halves and their actions are appended to `host`, which is the band whenever there are
-    # two of them — and `halves` / `acts` are built after the one-half branch has returned.
-    assert body.index("if (branches.length < 2) {") < body.index("halves.className = 'branch-halves'")
-    assert "acts.appendChild(branchAct('Merge'" in body and "acts.appendChild(branchAct('Close'" in body
+    assert "for (const host of [el.branchBar, el.branchRail]) {" in body
+    assert "if (host) { clear(host); host.hidden = true; }" in body
+    assert "if (el.branchZone) el.branchZone.hidden = true;" in body
+    assert "drawBranchHead();" in body
+    for gone in ("branchChip(", "branchAct(", "holdsSomething(", "'branch-halves'", "'branch-divide'"):
+        assert gone not in APP_JS, f"Split's chrome is drawn again: {gone}"
     assert 'id="branch-rail"' in INDEX
     # And the band collapses to nothing when it is holding nothing.
     assert ".branch-zone:has(> [hidden]){min-height:0;padding:0}" in STYLE
@@ -266,44 +259,21 @@ def test_the_branch_band_yields_when_the_keyboard_takes_the_screen():
 
 def test_the_header_band_never_outlives_the_second_half():
     """Found in a screenshot: the band still read "half 1 of 2" over a conversation that had
-    one half. A merge or a close comes back through `applyBranches`, which redraws the bar —
-    and the bar returned on the one-half path before the band was touched. `drawBranchHead`
-    hides itself when there is nothing to tell apart; it just has to be asked, on both paths.
+    one half. A merge or a close came back through `applyBranches`, which redraws the bar — and
+    the bar returned on the one-half path before the band was touched. `drawBranchHead` has to
+    be asked on every redraw, and hide itself.
+
+    Changed on the owner's ruling of 8 October (DEC-071, ruling 37): with Split deleted there is
+    no two-half path, so the bar no longer has a `branches.length < 2` branch to look inside,
+    and the header line no longer has anything to say. What this holds is unchanged: every
+    redraw asks the header line, and the header line comes out hidden and empty.
     """
     body = APP_JS[APP_JS.index("function drawBranchBar()"):]
     body = body[:body.index("\n}\n")]
-    one_half = body[body.index("if (branches.length < 2) {"):body.index("// Two halves, divided visibly")]
-    assert "drawBranchHead();" in one_half, "the header band is left standing when a half goes"
+    assert "drawBranchHead();" in body, "the header band is left standing when a half goes"
     head = APP_JS[APP_JS.index("function drawBranchHead()"):]
     head = head[:head.index("\n}\n")]
-    assert "if (branches.length < 2 || !head) { node.textContent = ''; node.hidden = true;" in head
-
-
-def test_merge_is_only_drawn_when_there_is_something_to_merge():
-    """§18. A Merge over a half that has answered nothing, holds no record, no set and nothing
-    half-written is a control that cannot succeed — which is D-6's defect class."""
-    body = APP_JS[APP_JS.index("function drawBranchBar()"):]
-    body = body[:body.index("\n}\n")]
-    assert "if (holdsSomething(other)) {" in body
-    assert "branchAct('Merge', 'merge', otherId" in body
-    holds = APP_JS[APP_JS.index("function holdsSomething(half)"):]
-    holds = holds[:holds.index("\n}\n")]
-    for field in ("has_workspace", "entity", "set_id", "building", "compose", "workflow"):
-        assert field in holds, f"holdsSomething ignores {field}"
-
-
-def test_a_branch_control_resolves_its_destination_before_it_is_drawn():
-    """§6 / D-6: `open.entity` was posted and refused `not_held`, and the half drew `half_empty`.
-    The same shape was live in the branch bar — `branchCommand(undefined, 'merge')` returns on
-    its first line, so a Merge drawn with no other half was a control that silently did
-    nothing. The id is resolved at draw time and closed over."""
-    act = APP_JS[APP_JS.index("function branchAct(label, verb, branchId, why)"):]
-    act = act[:act.index("\n}\n")]
-    assert "branchCommand(branchId, verb)" in act
-    assert "branches.find" not in act, "the destination is still worked out when the thumb lands"
-    body = APP_JS[APP_JS.index("function drawBranchBar()"):]
-    body = body[:body.index("\n}\n")]
-    assert "if (otherId) {" in body, "Close can be drawn with nothing to close"
+    assert "node.textContent = '';" in head and "node.hidden = true;" in head
 
 
 def test_a_way_out_of_a_half_either_works_or_says_why_it_cannot():
@@ -352,36 +322,6 @@ def test_a_way_out_of_a_half_either_works_or_says_why_it_cannot():
     # And the renderer's own shape, so the collision suite's "every control either works, or
     # says why it cannot" sweep holds this to the same rule as a chip drawn in web/ui.js.
     assert "label.className = 'rail-label';" in chip
-
-
-def test_each_half_says_which_it_is_what_it_is_about_and_what_it_is_doing():
-    """§17. And never two contradictory things at once: the Phase 5 visual pass found a chip
-    reading "EMPTY To go out" — it holds nothing AND it is about its parent's working set.
-    "EMPTY" is a database state, not a word anybody says."""
-    chip = APP_JS[APP_JS.index("function branchChip(half, index)"):]
-    chip = chip[:chip.index("\n}\n")]
-    assert "branch-which" in chip and "`HALF ${index + 1}`" in chip
-    assert "branch-area" in chip and "branch-state" in chip
-    assert "branch-bare" in chip, "a half with no screen on it does not say so"
-    assert "AREA_WORDS[token.toUpperCase()] || token" in chip
-    assert "const AREA_WORDS = { EMPTY: 'NOTHING YET', WORKSPACE: 'THIS HALF' };" in APP_JS
-    # The task label is dropped when it would repeat the identity or the state, and dropped
-    # outright on a half the Mac describes with a STATE rather than a place: "EMPTY To go out"
-    # said it held nothing AND that it was about its parent's working set, which a fork
-    # inherits by design (app/session/branch.py:fork_from).
-    assert "says !== state && says !== area.toLowerCase() && says !== 'nothing yet'" in chip
-    assert "const bare = Object.prototype.hasOwnProperty.call(AREA_WORDS, token.toUpperCase());" in chip
-    assert "if (!bare && detail" in chip
-
-
-def test_the_halves_divide_visibly_and_cannot_push_each_other_off_the_screen():
-    """A grid of `minmax(0,1fr)` columns, with a rule between them. A flex row of chips is what
-    it was, and a long task label pushed its neighbour past the right edge."""
-    assert "grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)" in STYLE
-    assert ".branch-divide{" in STYLE
-    body = APP_JS[APP_JS.index("function drawBranchBar()"):]
-    body = body[:body.index("\n}\n")]
-    assert "rule.className = 'branch-divide';" in body
 
 
 def test_the_list_step_back_carries_a_word():

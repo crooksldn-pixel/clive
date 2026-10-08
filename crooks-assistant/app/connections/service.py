@@ -140,17 +140,9 @@ def _what(runtime: Any, connection: catalog.Connection) -> str:
 
 
 def _without(runtime: Any, connection: catalog.Connection) -> str:
-    """What stops without it. For the voice that depends on this server: whether it has a
-    recogniser of its own to listen with when ElevenLabs is not there."""
-    if connection.name != "elevenlabs":
-        return connection.without
-    settings = getattr(runtime, "settings", None)
-    if str(getattr(settings, "stt_primary", "scribe")) != "scribe":
-        return connection.without
-    if getattr(settings, "whisper_enabled", False):
-        return ("Without it CLIVE listens with the server's own recogniser instead, and speaks in each "
-                "device's own built-in voice.")
-    return "Without it CLIVE can't hear you, so you type instead, and it speaks in each device's own built-in voice."
+    """What stops without it, as the catalogue says. Nothing on this server stands in for
+    ElevenLabs' hearing any more (DEC-071, ruling 39), so no setting changes the answer."""
+    return connection.without
 
 
 def _to_connect(connection: catalog.Connection, sign_in_ready: bool) -> tuple[str, list[str]]:

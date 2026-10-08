@@ -415,7 +415,7 @@ def world_environment(scratch: Path, *, claude_model: str = "", cli_path: str = 
         "CROOKS_REPORTS_DIR": scratch / "reports", "CROOKS_SKILLS_DIR": scratch / "skills",
         "CROOKS_SAVE_CAPTURES": "false", "CROOKS_ANALYTICS_WARM_DAYS": "0", "CROOKS_INTERACTION_RECORD": "false",
         "CROOKS_ALLOWED_LOGINS": "owner@example.com", "CROOKS_LOCAL_OWNER": "false", "CROOKS_ENGINEERING_HOST": "off",
-        "CROOKS_TTS_ENABLED": "false", "CROOKS_TTS_PREFETCH": "false", "CROOKS_WHISPER_ENABLED": "false",
+        "CROOKS_TTS_ENABLED": "false", "CROOKS_TTS_PREFETCH": "false",
         "CROOKS_TEST_SESSION_ALWAYS": "false", "CROOKS_RECORD_EXPERIENCE": "false",
     }
     if claude_model:

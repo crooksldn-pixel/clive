@@ -83,9 +83,9 @@ CONNECTIONS: tuple[Connection, ...] = (
         fields=(Field("elevenlabs_api_key", "API key", hint="ElevenLabs → your profile → API keys."),),
         requires=("elevenlabs_api_key",),
         abilities=("Hearing what you say", "Speaking its answers in the voice you choose"),
-        # Said by the service from the settings in use (app/connections/service.py, _without):
-        # whether the server has its own recogniser decides what listening falls back to.
-        without="Without it CLIVE speaks in each device's own built-in voice.",
+        # The server has no recogniser of its own (DEC-022; the local one was deleted on 8
+        # October, DEC-071 ruling 39), so without ElevenLabs nothing hears him.
+        without="Without it CLIVE can't hear you, so you type instead, and it speaks in each device's own built-in voice.",
     ),
     Connection(
         name="instagram", label="Instagram",

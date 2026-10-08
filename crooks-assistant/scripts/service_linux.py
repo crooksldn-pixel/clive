@@ -2,23 +2,21 @@
 """The lifecycle of CROOKS OS on the Linux server: start it, stop it, restart it, and say
 truthfully which of those it is in.
 
-The twin of scripts/service.py, which does this on the Mac through launchd. Same envelope,
-same seam — a Machine whose commands a test can replace, so every branch below is reachable
-on a machine with no systemd and no listening socket — and the same rule, which is the whole
-reason either file exists:
+Built on scripts/service.py, which holds what it shares: the seam — a Machine whose commands
+a test can replace, so every branch below is reachable on a machine with no systemd and no
+listening socket — the states and their verdict, and the rule, which is the whole reason this
+file exists:
 
     a start or a restart succeeds only when /health answers, never because systemctl
     exited 0. `systemctl restart` returns 0 for a service that then dies on its first
     import. §26: a process reported started is not the same fact as genuinely healthy,
     and only the second one is worth a green light.
 
-What differs is the supervisor, and only the supervisor. systemd holds one service where
-launchd holds two agents; "installed" is a file in /etc/systemd/system, "loaded" is what
-`systemctl show` reports, and the verbs are enable, stop and restart rather than bootstrap,
-bootout and kickstart. Nothing here knows about plists and nothing in service.py knows about
-systemd. scripts/control.py picks one of the two by platform and the app draws the same panel
-either way: the state vocabulary, the verdict logic and the shape of every document come from
-service.py unchanged, so the two cannot drift in what they mean.
+systemd holds one service; "installed" is a file in /etc/systemd/system, "loaded" is what
+`systemctl show` reports, and the verbs are enable, stop and restart. This file had a twin for
+the Mac, through launchd, until the Mac runtime was deleted on the owner's ruling of 8 October
+(DEC-071, ruling 38); `make restart` (scripts/install_systemd.py) and crooks-update
+(scripts/update.py) are what run it now.
 
 Writing the service file needs root. The service already runs as root on this host (see
 deploy/systemd/crooks-assistant.service and docs/DEPLOY_LINUX.md) and so does `make install`.
@@ -72,9 +70,8 @@ SHOW_PROPERTIES = "--property=LoadState,ActiveState,SubState,MainPID,ExecMainSta
 
 # --------------------------------------------------------------------------- human errors
 
-# The same two registers as service.PROBLEMS, for the same reader: "the server" where the
-# Mac's table says "the Mac", "service" where it says "login service", and nothing a
-# developer wrote. tests/test_service_linux.py holds every row here to that.
+# Two registers, for two readers: the owner's sentence and fix, and nothing a developer wrote
+# in either. tests/test_service_linux.py holds every row here to that.
 PROBLEMS: dict[str, tuple[str, str]] = {
     "python_missing": (
         "CROOKS OS couldn't start. Python environment unavailable.",
@@ -246,7 +243,7 @@ class Systemd:
 
 
 def supervisor(machine: Machine, *, root: Path | None = None) -> Systemd:
-    """The seam control.py and update.py use to get this platform's supervisor."""
+    """The seam update.py and install_systemd.py use to get the server's supervisor."""
     return Systemd(machine, root=root)
 
 
@@ -285,13 +282,12 @@ _UNREAD = base._UNREAD
 
 
 def lifecycle(machine: Machine, systemd: Systemd, *, port: int, health=_UNREAD,
-              unwell: list[str] | None = None, ask_launchd: bool = True) -> dict:
-    """The whole lifecycle picture, in the shape service.lifecycle produces. `ask_launchd` is
-    the caller's word for "ask the supervisor" and is kept so both modules take the same
-    keyword; here it costs one `systemctl show`."""
+              unwell: list[str] | None = None, ask_supervisor: bool = True) -> dict:
+    """The whole lifecycle picture: the verdict, the service behind it, and the note about
+    windows. `ask_supervisor` costs one `systemctl show`."""
     if health is _UNREAD:
         health = machine.read_health(False)
-    agents = [systemd.state()] if ask_launchd else []
+    agents = [systemd.state()] if ask_supervisor else []
     verdict = running_state(answering=machine.port_open() if health is None else True,
                             health=health, agents=agents, unwell=unwell)
     return {**verdict, "agents": agents, "port": port, "window": WINDOW_NOTE,

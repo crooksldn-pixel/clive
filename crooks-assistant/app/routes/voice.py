@@ -38,8 +38,8 @@ What it never does
 ------------------
 Return or log the server's key, or log the key it minted. Its log lines name the refusal in its
 own fixed words, never ElevenLabs' answer. It is the owner's: the door in app/main.py
-(guard_and_freshness) refuses anyone else before it runs, and it checks again itself, as the
-pad's routes do; both read the one owner rule, app/routes/actions.py principal_verdict. With
+(guard_and_freshness) refuses anyone else before it runs, and it checks again itself; both
+read the one owner rule, app/routes/actions.py principal_verdict. With
 CROOKS_TAILSCALE_VERIFY on (production), its account of how a request arrived (proxy_state)
 believes a forwarding header only when the kernel says tailscaled opened the connection
 (app/identity.py peer_is_tailscaled), and a login only when `tailscale whois` says the forwarded

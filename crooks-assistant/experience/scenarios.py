@@ -475,18 +475,14 @@ async def linked_entities(h: Harness) -> Result:
 
 
 async def split_branches(h: Harness) -> Result:
-    """Two halves of the orb keep their own entity (brief §21)."""
+    """Two halves of the orb keep their own entity (brief §21). The second half is made directly
+    (`Harness.second_branch`): the fork route went with Split on 8 October (DEC-071, ruling 37);
+    each half keeping its own record is still CLIVE's."""
     r = Result("split_branches", "Two halves, two records")
     session = "split"
     left = await h.open_order("1938", scenario="split:left", session_id=session)
-    fork = await h.client.post("/branches/fork", data={"session_id": session, "label": "right"},
-                               headers={"Tailscale-User-Login": "owner@example.com",
-                                        "X-Forwarded-For": "100.64.0.9"})
-    body = fork.json() if fork.content else {}
-    right_id = str(((body.get("branch") or {}).get("branch_id")) or body.get("branch_id") or "")
-    r.checks.append(check("a second half was opened", bool(right_id), f"fork={str(body)[:140]}"))
-    if not right_id:
-        return r
+    right_id = h.second_branch(session, label="right")
+    r.checks.append(check("a second half was opened", bool(right_id), f"branch_id={right_id!r}"))
     right = await h.open_order("1936", scenario="split:right", session_id=session, branch_id=right_id)
     r.captures += [left, right]
     left_branch = h.branch(session, left.branch_id)

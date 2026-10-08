@@ -30,9 +30,6 @@ BIN = Path.home() / ".local" / "bin"
 COMMANDS = {
     "crooks-update": ("scripts/update.py", ""),
     "crooks-status": ("scripts/status.py", ""),
-    # What CROOKS Control reads, and what its buttons run. On the PATH as well, because a
-    # document you can print is a document you can check when the app says something odd.
-    "crooks-control": ("scripts/control.py", ""),
     "crooks-watch": ("scripts/watch.py", ""),
     "crooks-test": ("scripts/experience.py", ""),
     "crooks-test-ui": ("scripts/experience.py", "--ui"),

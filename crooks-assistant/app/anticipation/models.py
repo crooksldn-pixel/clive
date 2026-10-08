@@ -111,8 +111,8 @@ class Prediction:
     level: int = LEVEL_RULE
     confidence: float = 1.0
     observations: int = 0
-    # An internal read that is not a model-facing tool: the shipping boundary (§20) is the one
-    # of these. Resolved by app/anticipation/internal.py, which is read-only by construction.
+    # An internal read that is not a model-facing tool, resolved by app/anticipation/internal.py,
+    # which is read-only by construction (and empty since the shipping boundary went, DEC-071).
     internal: str = ""
     # (tier, key) in the tiered cache. A prediction whose answer is already fresh there does
     # not run, and its result is put back there for the requested read to find.

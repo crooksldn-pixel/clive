@@ -131,34 +131,9 @@ async function main() {
   check('a terminal card is never settled twice', after.token === before.token && after.label === before.label, JSON.stringify({ before, after }));
   await page.unroute('**/actions/states*');
 
-  // ---- 4. D-2: a merge whose only outstanding thing is an undo offer says nothing is waiting
-  const branchId = await page.evaluate(() => focusedBranch || 'br_test');
-  await page.route('**/branches/*/merge', (route) => route.fulfill({
-    status: 200, contentType: 'application/json',
-    body: JSON.stringify({
-      session_id: 'browser', focused: 'br_keep', can_fork: true,
-      branches: [{ branch_id: 'br_keep', label: 'main', status: 'ACTIVE', has_workspace: false }],
-      merged: { branch_id: 'br_gone', label: 'second', looked_at: [{ kind: 'order', ref: 'o1', label: '#1930' }], read: [], resolved: [], actions: [], still_waiting: [], undoable: ['prop_undo0001'] },
-    }),
-  }));
-  await page.evaluate((id) => branchCommand(id, 'merge'), branchId);
-  await sleep(500);
-  // What the page is saying, from wherever it is saying it. The one floating #toast is gone:
-  // a message now belongs to a control, to the workspace, or to the region above the wordmark
-  // (web/notify.js). Read as one string — this check cares whether the words appeared.
-  const toast = await page.evaluate(() => Array.from(document.querySelectorAll('#notes-global .note-words, #notes-orb .note-words, #notes-deck .note-words, #cards .note-control .note-words'))
-    .filter((n) => !n.closest('.note').hidden)
-    .map((n) => n.textContent.trim()).join(' · '));
-  // D-10 · §10. The claim under test is unchanged and is now made in the strongest way
-  // available: the page says NOTHING AT ALL. "Merged. N things it looked at came back." is
-  // gone — the orb becoming one orb and the deck gaining what came back are the notification,
-  // and two of the live session's five texted notifications were exactly this. What survived
-  // the subtraction is `merge_waiting`, a warn drawn ONLY when a change really did come back
-  // still waiting for a gesture, which is not this fixture (`still_waiting: []`).
-  check('a merge with an undo offer outstanding does not claim a change is still waiting',
-    toast === '' && !/still waiting/.test(toast), `toast="${toast}"`);
-  await page.unroute('**/branches/*/merge');
-  await shot('03-merged');
+  // ---- 4 was D-2: a merge whose only outstanding thing is an undo offer says nothing is
+  // waiting. It drove Split's merge, which was deleted on the owner's ruling of 8 October
+  // (DEC-071, ruling 37): there is no merge to say anything after.
 
   check('no script error during the whole run', errors.length === 0, errors.slice(0, 3).join(' | '));
   await browser.close();

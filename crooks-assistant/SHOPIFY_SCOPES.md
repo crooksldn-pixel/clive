@@ -106,9 +106,9 @@ it has been verified against a store.
 `/health` lists all four as NOT_IMPLEMENTED with the scope beside them, and the model is told
 in one line not to attempt them.
 
-Shipping is not a scope at all: Easyship is an external provider and needs credentials
-(`CROOKS_EASYSHIP_TOKEN`) and a client that this build does not have. Its row says
-DISCONNECTED and names both — see `app/shipping/`.
+Shipping is not a scope at all: labels and international tracking go through CLIVE Shipping
+(PR #106, `app/tools/shipping_tools.py`), a service of its own with its own keys. CLIVE's old
+Easyship code, and its DISCONNECTED row, were deleted on 8 October (DEC-071, ruling 24).
 
 ## Adding a scope, in order
 

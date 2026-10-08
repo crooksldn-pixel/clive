@@ -501,9 +501,9 @@ async def test_a_change_staged_by_one_half_belongs_to_it_while_the_other_half_is
     await say(shop, "show me order 1938", "halves")
     session = shop.runtime.sessions.get("halves")
     left = session.focused_branch
-    forked = await shop.post("/branches/fork", data={"session_id": "halves"}, headers=PROXIED)
-    assert forked.status_code == 200, forked.text
-    right = forked.json()["branch_id"]
+    from tests.second_half import second_half  # the fork route went with Split (DEC-071, ruling 37)
+
+    right = second_half(session)
     assert right != left
 
     gate, read = asyncio.Event(), asyncio.Event()
@@ -883,8 +883,9 @@ async def test_a_navigation_command_after_a_tapped_note_cannot_become_a_change_b
 
     # The other half: a binding armed on this half is not a binding over there.
     await _bound_to_1938(shop, "nav2")
-    forked = await shop.post("/branches/fork", data={"session_id": "nav2"}, headers=PROXIED)
-    other = forked.json()["branch_id"]
+    from tests.second_half import second_half  # the fork route went with Split (DEC-071, ruling 37)
+
+    other = second_half(shop.runtime.sessions.get("nav2"))
     shop.model.steps.append(reads())
     await say(shop, "open the inbox", "nav2", branch_id=other)
     assert "Just before saying this he tapped" not in shop.model.prompts[-1]

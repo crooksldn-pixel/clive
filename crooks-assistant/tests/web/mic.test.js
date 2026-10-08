@@ -168,7 +168,7 @@ function boot(permission) {
     reconcileActions: () => { calls.reconcile += 1; },
     acquireWakeLock() {}, stopSpeaking() {}, unlockSpeech() {}, haptic() {},
     watchForSpeech() {}, stopWatchingForSpeech() {}, sendAudio() {},
-    cancelTurn() {}, cancelForm() { return null; }, mergeOrb() {},
+    cancelTurn() {}, cancelForm() { return null; },
   };
   sandbox.window = sandbox;
   vm.runInNewContext(`'use strict';\n${PARTS}`, sandbox, { filename: 'app.js (microphone parts)' });

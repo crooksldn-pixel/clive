@@ -36,9 +36,8 @@ def _readable_errors() -> tuple[type[BaseException], ...]:
         ShopifyAuthError,
         ShopifyError,
     )
-    from app.clients.whisper import WhisperUnavailable
 
-    return (ToolError, ShopifyError, ShopifyAuthError, GmailError, GmailAuthRequired, WhisperUnavailable)
+    return (ToolError, ShopifyError, ShopifyAuthError, GmailError, GmailAuthRequired)
 
 
 _READABLE_ERRORS = _readable_errors()

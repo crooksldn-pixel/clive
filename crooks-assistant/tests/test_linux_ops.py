@@ -1,14 +1,14 @@
-"""The Linux half of the operational tooling, checked as data rather than by running it.
+"""The operational tooling of the server, checked as data rather than by running it.
 
 Nothing here installs a unit, restarts a service, calls systemctl or touches Tailscale. The
 failures worth catching at this level are the ones that are silent at the point they happen:
-a unit template with a placeholder left unfilled, an update path that kicks launchd agents on
-a machine that has none, a `make install` that runs the Mac's installer on the server, or a
-healthcheck that calls a host degraded for a subsystem it was deliberately never given.
+a unit template with a placeholder left unfilled, an update path that reaches for a supervisor
+the server does not have, or a healthcheck that calls a host degraded for a subsystem it was
+deliberately never given.
 
-Every test forces the platform rather than asking for it, so both platforms' behaviour is
-provable from either — the Mac must be able to demonstrate it did not break the server, and
-this server must be able to demonstrate it did not break the Mac.
+The Mac's half — its launchd agents, its installer, its whisper setting as the doctor read it —
+went with the Mac runtime and the local recogniser on the owner's ruling of 8 October (DEC-071,
+rulings 38 and 39), and so did the tests that held the two platforms apart.
 """
 
 from __future__ import annotations
@@ -40,34 +40,17 @@ healthcheck = load("healthcheck")
 @pytest.fixture
 def on_linux(monkeypatch):
     monkeypatch.setattr(lc, "is_linux", lambda: True)
-    monkeypatch.setattr(lc, "is_macos", lambda: False)
-
-
-@pytest.fixture
-def on_mac(monkeypatch):
-    monkeypatch.setattr(lc, "is_linux", lambda: False)
-    monkeypatch.setattr(lc, "is_macos", lambda: True)
 
 
 # --------------------------------------------------------------- what supervises what
 
 
-def test_linux_supervises_one_unit_and_the_mac_two_agents(on_linux):
+def test_linux_supervises_one_unit(on_linux):
     assert lc.service_labels() == ("crooks-assistant.service",)
 
 
-def test_the_mac_still_names_both_of_its_agents(on_mac):
-    labels = lc.service_labels()
-    assert "com.crooks.assistant" in labels
-    assert "com.crooks.whisper" in labels
-
-
-def test_the_installer_is_chosen_by_platform(on_linux):
+def test_the_installer_is_the_systemd_one(on_linux):
     assert lc.installer_script().name == "install_systemd.py"
-
-
-def test_the_mac_installer_is_still_launchd(on_mac):
-    assert lc.installer_script().name == "install_launchd.py"
 
 
 def test_restart_uses_systemctl_on_linux(on_linux, monkeypatch):
@@ -101,10 +84,6 @@ def test_a_refused_restart_is_reported_rather_than_raised(on_linux, monkeypatch)
 
 def test_the_restart_hint_names_the_journal_on_linux(on_linux):
     assert "journalctl" in lc.restart_hint()
-
-
-def test_the_restart_hint_does_not_mention_the_journal_on_the_mac(on_mac):
-    assert "journalctl" not in lc.restart_hint()
 
 
 # --------------------------------------------------------------- the unit template
@@ -231,12 +210,12 @@ def test_degraded_and_ok_both_exit_zero_and_unhealthy_does_not():
 # --------------------------------------------------------------- the Makefile and set_secrets
 
 
-def test_the_makefile_dispatches_the_installer_by_platform():
+def test_the_makefile_installs_through_the_systemd_installer():
     text = (ROOT / "Makefile").read_text()
-    assert "ifeq ($(UNAME_S),Linux)" in text
     assert "INSTALLER := scripts/install_systemd.py" in text
-    assert "INSTALLER := scripts/install_launchd.py" in text
-    # And the targets must go through the variable, not the Mac's script by name.
+    # The Mac's installer went with the Mac runtime (DEC-071, ruling 38).
+    assert "install_launchd.py" not in text
+    # And the targets go through the variable, not a script by name.
     assert "$(PY) $(INSTALLER)" in text
 
 
@@ -255,53 +234,3 @@ def test_set_secrets_refuses_on_linux_rather_than_using_the_wrong_tier(monkeypat
     monkeypatch.setattr(set_secrets.sys, "argv", ["set_secrets.py", "elevenlabs_api_key"])
     assert set_secrets.main() == 1
     assert "provision_secrets.py" in capsys.readouterr().out
-
-
-# --------------------------------------------------------------- the doctor's own reading
-
-
-# Every value pydantic accepts for a bool, plus values it rejects. The doctor is not asked to
-# agree with an opinion here — it is asked to agree with the parser the application actually
-# uses, so the expected answer is computed from that parser in the test itself. If pydantic's
-# vocabulary ever changes under us, this fails instead of the doctor quietly lying.
-@pytest.mark.parametrize(
-    "value",
-    ["true", "True", "TRUE", "1", "yes", "on", "t", "y",
-     "false", "False", "FALSE", "0", "no", "off", "f", "n",
-     "", "  ", "maybe", "2", "flase", " true ", "true "],
-)
-def test_the_doctor_agrees_with_the_real_settings_parser(value, monkeypatch):
-    """The doctor runs before the venv exists — that is its whole job — so it cannot import
-    config.settings to find out whether whisper is deployed here. It therefore reimplements the
-    parse, and this is what keeps the reimplementation honest.
-
-    Three states, not two. An empty CROOKS_WHISPER_ENABLED= is not "off": pydantic rejects it,
-    the backend refuses to start, and a doctor that answered "enabled" or "disabled" would be
-    inventing a host that does not exist. Measured, not assumed — this test asks the real
-    Settings what it does and requires the doctor to say the same thing.
-    """
-    from config.settings import Settings
-
-    monkeypatch.setenv("CROOKS_WHISPER_ENABLED", value)
-    try:
-        # _env_file=None: this measures the parser, not whatever .env this machine happens to have.
-        runtime = "enabled" if Settings(_env_file=None).whisper_enabled else "disabled"
-    except Exception:
-        runtime = "invalid"
-
-    doctor = load("doctor")
-    assert doctor.whisper_setting() == runtime
-    # And the derived boolean never reports an unparseable value as a deliberate decision.
-    assert doctor.whisper_disabled() is (runtime == "disabled")
-
-
-def test_an_unset_whisper_setting_is_the_settings_default(monkeypatch, tmp_path):
-    """Unset is the one case that is genuinely a default rather than a parse."""
-    from config.settings import Settings
-
-    monkeypatch.delenv("CROOKS_WHISPER_ENABLED", raising=False)
-    doctor = load("doctor")
-    # Point the doctor's .env lookup at an empty directory so the host's own .env cannot answer.
-    monkeypatch.setattr(doctor, "REPO", tmp_path)
-    assert doctor.whisper_setting() == "enabled"
-    assert Settings(_env_file=None).whisper_enabled is True

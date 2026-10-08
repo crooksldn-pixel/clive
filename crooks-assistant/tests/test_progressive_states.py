@@ -35,7 +35,7 @@ import pytest
 from app import progressive
 from app.presentation import UI_TYPES
 from app.render import ADDED, DATA, render_id
-from app.session.branch import Branch, fork_from
+from app.session.branch import Branch
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "web"
@@ -139,18 +139,6 @@ def test_the_per_record_tabs_are_bounded_and_the_oldest_goes_first():
     assert len(branch.tabs) <= Branch.MAX_TABS < progressive_max
     assert branch.tab_for("customer", f"cus_{progressive_max - 1}") == "orders", "the newest is kept"
     assert branch.tab_for("customer", "cus_0") == "", "the oldest was dropped"
-
-
-def test_a_forked_half_inherits_the_tabs_its_parent_held():
-    """A tab the owner chose on a record is context, not presentation: it crosses with the
-    entity, the set and the resolutions (`fork_from`), and the two halves then move apart."""
-    parent = Branch(branch_id="br_1", session_id="s1")
-    parent.visit("customer", "cus_6343", "Ada")
-    parent.mark(tab="email", of="customer:cus_6343")
-    child = fork_from(parent)
-    assert child.tab_for("customer", "cus_6343") == "email"
-    child.mark(tab="orders", of="customer:cus_6343")
-    assert parent.tab_for("customer", "cus_6343") == "email", "one half's tab is not the other's"
 
 
 def test_the_page_no_longer_hands_one_branch_tab_to_every_card():

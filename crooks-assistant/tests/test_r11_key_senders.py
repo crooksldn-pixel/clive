@@ -8,10 +8,11 @@ very connection only when the answer is the service — never through a proxy th
 never on to a redirect. Two families of readers use it:
 
     fetch_health    `make health` (scripts/healthcheck.py), crooks-status (scripts/status.py),
-                    `make install` and `make status` (scripts/install_systemd.py), CROOKS Control
-                    and `make up` (scripts/control.py, scripts/service.py, scripts/up.py)
-    call_service    `make test-session-*` (scripts/test_session.py) and CROOKS Control's session
-                    buttons, through scripts/session_ops.py call
+                    `make install` and `make status` (scripts/install_systemd.py), and `make up`
+                    (scripts/service.py, scripts/up.py). CROOKS Control's reader
+                    (scripts/control.py) went with the menu-bar app on 8 October (DEC-071).
+    call_service    `make test-session-*` (scripts/test_session.py), through
+                    scripts/session_ops.py call
 
 Round 10 found the second family was not on it: session_ops.call sent `local_cli.headers()` with
 urllib, which asked nobody who held the port, read HTTP_PROXY, and followed a redirect with the key
@@ -240,11 +241,10 @@ def test_the_session_commands_still_tell_no_backend_from_a_backend_that_did_not_
 def test_every_status_reader_asks_a_competitor_plainly_and_never_with_the_key(lc, servers, monkeypatch, capsys):
     """Each reader that goes through fetch_health, driven whole against a competitor holding the
     port and judged by the real kernel check: `make health`, `make health --json`, crooks-status,
-    `make status`, `make install`'s wait for health, CROOKS Control's read. One plain request each;
-    the key never sent."""
+    `make status`, `make install`'s wait for health. One plain request each; the key never sent.
+    (CROOKS Control's read was the sixth, until the menu-bar app went: DEC-071, ruling 38.)"""
     import importlib.util
 
-    import control
     import healthcheck
     import status as crooks_status
 
@@ -265,7 +265,6 @@ def test_every_status_reader_asks_a_competitor_plainly_and_never_with_the_key(lc
     monkeypatch.setattr(installer, "systemctl", lambda *args: Done())
     assert installer.status(port) == 0
     assert lc.wait_for_health(f"http://127.0.0.1:{port}/health", timeout_s=5) == WHOLE
-    assert control.read_health(port) == WHOLE
     capsys.readouterr()
     assert len(competitor.seen) >= 5 and not any(competitor.keyed()), competitor.keyed()
 

@@ -13,8 +13,8 @@ through `POST /turn` on an admitted harness:
   unscripted model that calls nothing leaves all three exactly where they were;
 * when the model DOES read the other order, what is drawn is that order's own record under its
   own number — never the open order's card moved to a tab. Nothing the model can call moves a
-  tab or the focus: `commands.run` is reached only from the tap route (app/routes/command.py)
-  and the focus only from the branch routes (app/routes/branches.py);
+  tab or the focus: `commands.run` is reached only from the tap route (app/routes/command.py),
+  and nothing a sentence reaches moves the focus (the focus route went with Split: DEC-071);
 * a cancel the model reaches for comes back as a card held to the graver gesture, a spoken yes
   does not apply it, and nothing reaches the shop;
 * a question about who is waiting on a reply reaches the model as a question: nothing in front
@@ -30,7 +30,7 @@ from __future__ import annotations
 import pytest
 
 from experience.fixtures import world
-from experience.harness import TABLET_HEADERS, harness, order_reads
+from experience.harness import harness, order_reads
 
 MIA_ORDER = world.order("1938").order_id
 
@@ -79,9 +79,11 @@ async def test_the_other_half_said_out_loud_moves_no_focus(stage):
         said = await stage.say(sentence, session_id="halves")
         assert said.model_calls == 1
         assert session.focused_branch == focused, f"{sentence!r} moved the focus with nothing to move to"
-    # Two halves, one closed: still nothing moves on words.
-    forked = await stage.client.post("/branches/fork", data={"session_id": "halves"}, headers=TABLET_HEADERS)
-    other = forked.json()["branch_id"]
+    # Two halves, one closed: still nothing moves on words. (The second is made directly: the
+    # fork route went with Split, DEC-071 ruling 37.)
+    from tests.second_half import second_half
+
+    other = second_half(session)
     session.branches[other].status = "MERGED"
     session.focused_branch = focused
     await stage.say("the other half", session_id="halves")

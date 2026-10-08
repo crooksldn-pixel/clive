@@ -1,10 +1,11 @@
-"""Anticipation, end to end (§18, §19), and the shipping boundary it reads through (§20).
+"""Anticipation, end to end (§18, §19).
 
 These go through the same HTTP the tablet goes through, against the golden world. What they are
 for is the part a unit test cannot see: that opening an order really does start the background
 reads, that MOVING to the next record then costs no read at all because the record was already
-there, that what came back says it was predicted rather than asked for, and that a shipping
-card on an unintegrated build says so instead of showing an empty carrier.
+there, and that what came back says it was predicted rather than asked for. The scenario that
+held the old Easyship boundary (§20) to saying it had checked nothing went with that boundary on
+the owner's ruling of 8 October (DEC-071, ruling 24).
 """
 
 from __future__ import annotations
@@ -137,33 +138,6 @@ async def anticipation_yields_to_the_owner(h: Harness) -> Result:
     return r
 
 
-async def shipping_is_not_connected(h: Harness) -> Result:
-    """§20 on the tablet: the shipping context an order card can show says nothing was checked,
-    and names what is missing. Nothing anywhere claims Easyship answered."""
-    r = Result("shipping_is_not_connected", "Shipping says it was not checked")
-    from app.anticipation import internal
-    from app.shipping import current as provider
-    from app.shipping.easyship import TOKEN_ENV
-
-    context = await internal.run("shipping_status", {"order_id": "gid://shopify/Order/1"})
-    installed = provider()
-    r.checks.append(check("the provider installed is the one that cannot be asked",
-                          installed is not None and installed.connected() is False,
-                          f"{getattr(installed, 'name', installed)!r}"))
-    r.checks.append(check("the context says it was not checked", context.get("checked") is False, f"{context}"))
-    r.checks.append(check("and names what is missing", any(TOKEN_ENV in str(m) for m in context.get("missing") or []),
-                          f"{context.get('missing')}"))
-    r.checks.append(check("no carrier, tracking or status is invented",
-                          not any(context.get(k) for k in ("carrier", "tracking", "status")), f"{context}"))
-    r.checks.append(check("the sentence it renders as does not claim a check",
-                          "not checked" in str(context.get("said") or "").lower(), f"{context.get('said')!r}"))
-    families = await h.runtime.family_states() if hasattr(h.runtime, "family_states") else {}
-    row = families.get("shipping_provider") or {}
-    r.checks.append(check("and the owner's capability list says DISCONNECTED",
-                          row.get("state") == "DISCONNECTED", f"{row.get('state')!r}"))
-    return r
-
-
 async def returns_are_not_available_yet(h: Harness) -> Result:
     """A return goes through CROOKS Returns and never through Shopify (DEC-066). The four rows
     that said returns were not built are retired, so the family table has none of them, and
@@ -214,6 +188,5 @@ SCENARIOS = (
     ("anticipation_reads_ahead", anticipation_reads_ahead),
     ("anticipation_makes_next_free", anticipation_makes_next_free),
     ("anticipation_yields_to_the_owner", anticipation_yields_to_the_owner),
-    ("shipping_is_not_connected", shipping_is_not_connected),
     ("returns_are_not_available_yet", returns_are_not_available_yet),
 )

@@ -88,10 +88,10 @@ log = logging.getLogger("crooks.anticipation")
 # concurrent speculative reads; this is four, with the per-source half at two. Re-run the bench
 # and move them if the store's pricing changes.
 #
-# The Mac's own internal reads (source "mac" — the shipping context, which asks a provider that
-# is not connected and returns a dictionary) spend no source budget and are not counted against
-# the four. They are still bounded: `MAX_PER_SIGNAL` here and `MAX_IN_FLIGHT` per scope in the
-# prefetcher, which is the outer wall for everything.
+# CLIVE's own internal reads (source "mac", app/anticipation/internal.py — none at present; the
+# shipping context was the one until the old Easyship boundary went, DEC-071 ruling 24) spend no
+# source budget and are not counted against the four. They are still bounded: `MAX_PER_SIGNAL`
+# here and `MAX_IN_FLIGHT` per scope in the prefetcher, which is the outer wall for everything.
 MAX_ANTICIPATED = 4
 MAX_PER_SOURCE = 2
 MAX_SPECULATIVE = 2
@@ -257,8 +257,8 @@ class Anticipator:
           behind it. Which of Shopify's two anticipated slots gets used first is exactly what
           "begin preloading that read in future" means when four reads want three slots.
         * A learned transition whose read no rule makes for this event is a new prediction, at
-          P2, level 2. That is how the layer learns to read the tracking state after the inbox
-          was checked, which no deterministic rule fires on.
+          P2, level 2. That is how the layer learns to read the customer's history after the
+          inbox was checked, which no deterministic rule fires on.
         """
         learned = {edge.event: edge for edge in self.learner.likely(signal.state)}
         out: list[Prediction] = []

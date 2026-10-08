@@ -270,8 +270,9 @@ async def test_the_standing_capability_line_is_paid_for_once_per_turn_and_stays_
     # rebased onto messaging (8 Oct), on the trunk where the four returns-stub rows are retired:
     # "- DISCONNECTED — no CLIVE Shipping keys stored: Buying and printing labels, Reading
     # shipping", +93 characters measured (806 before, 899 after, every tool module imported), said
-    # only on a server with no shipping keys. Once the read key is stored both families are READY,
-    # and so is the parked Easyship row (app/families/shipping.py), whose own line then goes too.
+    # only on a server with no shipping keys. Once the read key is stored both families are READY.
+    # (The parked Easyship row, app/families/shipping.py, whose own line was in this block until
+    # then, was deleted on 8 October: DEC-071, ruling 24.)
     # 916 is WhatsApp and Instagram's direct messages on the same two messaging families: the line is
     # now "- DISCONNECTED — no WeCom, WhatsApp or Instagram keys stored: Messages, Message replies",
     # +17 characters measured (899 before, 916 after, every tool module imported), said only on a

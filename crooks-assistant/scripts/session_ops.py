@@ -2,9 +2,9 @@
 """An hour with the tablet, as three buttons instead of four typed commands.
 
 `scripts/test_session.py` is the typed CLI for this and stays exactly as it is; this module is
-the same workflow shaped as documents so that CROOKS Control can draw it: start with a label,
-watch it while it runs, and one press at the end that stops it, keeps the raw timeline, and
-runs the analysis that already exists.
+the same workflow shaped as documents (it was drawn by the CROOKS Control menu-bar app until
+that went with the Mac runtime, DEC-071 ruling 38): start with a label, watch it while it runs,
+and one stop at the end that keeps the raw timeline and runs the analysis that already exists.
 
 Three things it deliberately does NOT do:
 

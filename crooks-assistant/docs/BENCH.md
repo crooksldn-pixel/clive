@@ -79,7 +79,7 @@ A run cannot reach anything outside the fake shop (`app/bench/isolation.py`, hel
   keeps its own connection to Claude;
 - once the fake shop is bound, building any real outward client is refused on the spot: every httpx
   network transport (Shopify, Instagram, Ship24, ElevenLabs, CROOKS Returns, GitHub, YouTube, and whatever
-  is added next), Gmail's real service and credentials, and the Shopify, ElevenLabs and Whisper clients;
+  is added next), Gmail's real service and credentials, and the Shopify and ElevenLabs clients;
 - every secret reads as absent, except the Max plan's own token when a token file is given; a key CLIVE
   makes for itself while it runs stays in memory;
 - the assistants a run builds, the owner's and the team's, are strict about MCP servers

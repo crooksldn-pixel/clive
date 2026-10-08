@@ -5,9 +5,10 @@ At 00:24:53 the tablet said *"Merged. 2 changes still waiting over there."* The 
 already been made and proven. Nothing was waiting.
 
 An undo is a property of a completed action, not a queued one. These tests hold the
-separation everywhere a count is made: the branch summary the merge toast reads, the states
-the tablet reconciles against, the turn's own record of what was waiting when it started —
-and they hold that an offer nobody took up expires on its own clock and can be let go.
+separation everywhere a count is made: per branch, the states the tablet reconciles against,
+the turn's own record of what was waiting when it started — and they hold that an offer nobody
+took up expires on its own clock and can be let go. (The merge toast that said it, and the
+"put aside" refusal that counted the same way, went with Split's routes: DEC-071, ruling 37.)
 """
 
 from __future__ import annotations
@@ -20,7 +21,6 @@ from app.actions.engine import ActionEngine, undoable_ids, waiting_ids
 from app.actions.ledger import NullLedger
 from app.actions.models import PROPOSAL_TTL_S, UNDO_TTL_S, ActionStatus
 from app.main import app
-from app.routes import branches as branch_routes
 from app.session.manager import SessionManager
 from app.session.models import Session
 from app.tools import gmail_writes, shopify_tools
@@ -91,9 +91,9 @@ async def test_an_archive_leaves_an_undo_and_nothing_waiting(box, engine, sessio
     branch_id = str(done.branch_id or "")
     assert waiting_ids(session) == [], "the change is done; nothing is waiting for a gesture"
     assert undoable_ids(session) == [undo.proposal_id]
-    # And the branch summary the merge toast reads says the same.
-    assert branch_routes._waiting(session, branch_id) == []
-    assert branch_routes._undoable(session, branch_id) == [undo.proposal_id]
+    # And counted for the branch the change was made in, the same.
+    assert waiting_ids(session, branch_id=branch_id) == []
+    assert undoable_ids(session, branch_id=branch_id) == [undo.proposal_id]
 
 
 async def test_a_change_that_is_waiting_is_still_counted(box, engine, session):
@@ -109,7 +109,7 @@ async def test_a_proposal_nobody_looked_at_is_not_waiting_once_it_has_expired(bo
     waiting.expires_at = 0.0
     assert waiting.status is ActionStatus.PENDING, "nothing has looked at it yet"
     assert waiting_ids(session) == []
-    assert branch_routes._waiting(session, str(waiting.branch_id or "")) == []
+    assert waiting_ids(session, branch_id=str(waiting.branch_id or "")) == []
 
 
 async def test_the_undo_has_its_own_clock(box, engine, session):
@@ -131,13 +131,6 @@ async def test_an_undo_can_be_let_go_without_withdrawing_anything_else(box, engi
     assert engine.dismiss_undo(undo.proposal_id) is False
     assert engine.dismiss_undo(waiting.proposal_id) is False
     assert waiting.status is ActionStatus.PENDING
-
-
-async def test_a_half_holding_only_an_undo_offer_can_be_put_aside(box, engine, session):
-    """`/branches/{id}/background` refuses a half with a change waiting. An offer to undo
-    something already done is not a change waiting."""
-    done, _undo = await archived_with_an_undo(box, engine, session)
-    assert branch_routes._waiting(session, str(done.branch_id or "")) == []
 
 
 # --------------------------------------------------------------- through the routes
@@ -202,22 +195,6 @@ async def test_the_states_route_separates_what_is_waiting_from_what_can_be_undon
     assert body["undoable"] == [undo.proposal_id]
     assert body["states"][undo.proposal_id]["undo_of"] == done.proposal_id
     assert body["states"][done.proposal_id]["status"] == "verified"
-
-
-async def test_a_merge_says_nothing_is_waiting_when_all_that_is_left_is_an_undo(client):
-    conversation, _done, undo = await note_applied(client)
-    forked = await client.post("/branches/fork", data={"session_id": "s1"}, headers=PROXIED)
-    assert forked.status_code == 200
-    other = [b["branch_id"] for b in forked.json()["branches"] if b["branch_id"] != forked.json()["focused"]]
-    # The undo belongs to the half the change was made in; merge that half into the other.
-    merging = str(undo.branch_id or "")
-    if merging == forked.json()["focused"]:
-        await client.post(f"/branches/{other[0]}/focus", data={"session_id": "s1"}, headers=PROXIED)
-    answer = await client.post(f"/branches/{merging}/merge", data={"session_id": "s1"}, headers=PROXIED)
-    assert answer.status_code == 200, answer.text
-    merged = answer.json()["merged"]
-    assert merged["still_waiting"] == [], "nothing was waiting: it was an offer to undo something done"
-    assert merged["undoable"] == [undo.proposal_id]
 
 
 async def test_the_watchdog_and_the_dismissal_reach_the_record_with_their_fields(client):

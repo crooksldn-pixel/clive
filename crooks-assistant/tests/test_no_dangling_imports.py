@@ -40,6 +40,14 @@ DELETED = (
     "app.speech.normalise",
     "experience.scenario_packs.navigation_extras", "experience.scenario_packs.query_language",
     "scripts.bench_lanes",
+    # And what the owner's rulings of 8 October retired (DEC-071): the old Easyship code
+    # (ruling 24), the Mac runtime (38), the local Whisper client (39) and the CROOKS Pad (40).
+    # scripts.control went with the Mac runtime too; it is left off this list because
+    # tests/test_update.py greps CROOKS OS for that name, to hold that nothing calls it.
+    "app.shipping", "app.families.shipping",
+    "app.clients.whisper", "scripts.whisper_server", "scripts.bench_whisper",
+    "scripts.install_launchd", "tests.fake_launchd",
+    "app.observability.pad", "app.routes.pad",
 )
 _DOTTED = re.compile(r"^(?:app|experience|scripts)(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
 
