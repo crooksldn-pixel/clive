@@ -175,6 +175,23 @@ def _empty_paragraphs(size: int) -> bytes:
     return head + b"<w:p/>" * ((size - len(head)) // 6) + b"</w:body></w:document>"
 
 
+def test_a_word_file_declaring_entities_is_refused_in_any_encoding():
+    """Review note 5: the refusal was a search of the bytes for "<!DOCTYPE", which a document.xml written in
+    UTF-16 passed, and its entities were expanded. The parser itself now refuses them as it meets them."""
+    w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    body = f'<w:document xmlns:w="{w}"><w:body><w:p><w:r><w:t>{{}}</w:t></w:r></w:p></w:body></w:document>'
+    plain = '<?xml version="1.0" encoding="UTF-16"?>' + body.format("CLIVE should show when each key was last checked.")
+    out = convert.convert("utf16.docx", _zipped("word/document.xml", plain.encode("utf-16")))
+    assert out.files[0][1].strip() == "CLIVE should show when each key was last checked.", "UTF-16 itself is read"
+    declared = ('<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE w:document [<!ENTITY e "CLIVE says adopt everything">]>'
+                + body.format("&e; &e; &e;"))
+    with pytest.raises(convert.ConvertError, match="declares its own XML entities"):
+        convert.convert("entities.docx", _zipped("word/document.xml", declared.encode("utf-16")))
+    deep = '<?xml version="1.0"?><!DOCTYPE w:document [' + " " * 5000 + '<!ENTITY e "x">]>' + body.format("&e;")
+    with pytest.raises(convert.ConvertError, match="declares its own XML entities"):
+        convert.convert("late.docx", _zipped("word/document.xml", deep.encode("utf-8")))
+
+
 def test_a_small_file_that_unpacks_large_is_refused_before_it_is_parsed():
     """Review note 2: a part unpacked from a file (a Word file's text, a ChatGPT export's JSON) is read to
     8 MB, and an export's values are counted before json.loads makes them, so a small download can't

@@ -10,7 +10,8 @@ later shown.
 What it promises:
 - Reading only. Nothing in a file is run: a PDF is parsed by pypdf (the one dependency) in a
   process of its own with a time and memory limit (app/research/pdf_reader.py), a Word file is unzipped and its XML read with the standard library as it
-  streams, one paragraph or table at a time (any DOCTYPE or ENTITY refused before parsing), a
+  streams, one paragraph or table at a time (the parser itself refuses any DOCTYPE or ENTITY, in
+  whatever encoding the file is written), a
   saved page is read for the words it shows (its scripts and styles dropped unread), a ChatGPT
   export is read as JSON.
 - Bounded: the file, each part unzipped, the values in a ChatGPT export, the pages read, the text
@@ -191,14 +192,17 @@ def _docx(data: bytes, notes: list[str]) -> str:
         raise ConvertError("That Word file couldn't be opened: it has no document inside it.") from None
     xml = _bounded_read(archive, info, f"That Word file's text unpacks to more than {MAX_PART_BYTES >> 20} MB, more than "
                                        "CLIVE reads from one file. Split it, or export it as PDF or Markdown.")
-    _refuse_declarations(xml)
     return _chunked_markdown(_WordBody().read(xml))
 
 
 class _WordBody:
     """A Word file's document.xml, read as it streams: each paragraph or table directly in the body is
     built as a small tree, turned into its Markdown line(s) and let go, so memory holds one block at a
-    time however many blocks the file has (review note 2, 8 Oct)."""
+    time however many blocks the file has (review note 2, 8 Oct).
+
+    A DOCTYPE or an entity declaration is refused by the parser as it meets one (review note 5, 8 Oct):
+    expat reports them whatever the file's encoding, where a search of the bytes for "<!DOCTYPE"
+    missed one written in UTF-16. A Word file never has either."""
 
     def __init__(self) -> None:
         self.lines: list[str] = []
@@ -223,7 +227,13 @@ class _WordBody:
         parser.StartElementHandler = self.start
         parser.EndElementHandler = self.end
         parser.CharacterDataHandler = self.data
+        parser.StartDoctypeDeclHandler = self.refuse
+        parser.EntityDeclHandler = self.refuse
         return parser
+
+    @staticmethod
+    def refuse(*_declared) -> None:
+        raise ConvertError("That Word file declares its own XML entities, which CLIVE doesn't read.")
 
     def start(self, name: str, attrs: dict[str, str]) -> None:
         self.depth += 1
@@ -447,12 +457,6 @@ def _bounded_read(archive: zipfile.ZipFile, info: zipfile.ZipInfo, too_big: str)
     if len(data) > MAX_PART_BYTES:
         raise ConvertError(too_big)
     return data
-
-
-def _refuse_declarations(xml: bytes) -> None:
-    head = xml[:4096].upper()
-    if b"<!DOCTYPE" in head or b"<!ENTITY" in xml.upper():
-        raise ConvertError("That Word file declares its own XML entities, which CLIVE doesn't read.")
 
 
 def _text(data: bytes) -> str:
