@@ -2,7 +2,7 @@
 
 The shipping service is George's (branch claude/n2-service-fixes, folder clive-shipping/); nothing
 of it is copied into CLIVE. This test takes that folder from the repository's history at one pinned
-commit (tests/shipping_service.py SERVICE_SHA, 8f15b796, the reviewed commit to deploy) and runs its
+commit (tests/shipping_service.py SERVICE_SHA, 36881977, the reviewed commit to deploy) and runs its
 FastAPI app in this process with its own fake Shopify and its own fake courier ("behaves like
 Parcel2Go, including charging again on re-pay"). CLIVE's client reaches it through an ASGI transport: the same requests
 it sends to returns.crooksldn.com/shipping, answered by the code that answers them there. Nothing

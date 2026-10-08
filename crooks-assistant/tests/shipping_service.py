@@ -37,11 +37,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BRANCH = "claude/n2-service-fixes"
-# The service's commit these tests run, and the one to be deployed: the reviewed fixes of 8 October
-# 2026 on top of claude/compassionate-dirac-44hnee's 92c11ba4 (the CLIVE API, 89341403, and its own
-# fixes). Its clive-shipping/shipping/ code is 92c11ba4's unchanged; only its tests' made-up
-# tracking numbers differ. Bump it as the module's docstring says.
-SERVICE_SHA = "8f15b796cad83b0b6a3bbd635a141b60de51ec67"
+# The service's commit these tests run, and the one George is to deploy (the deploy prompt in the
+# night's service report): the tip of claude/n2-service-fixes on 8 October 2026, the reviewed fixes on
+# top of claude/compassionate-dirac-44hnee's 92c11ba4 (the CLIVE API, 89341403, and its own fixes).
+# Its clive-shipping/shipping/ code is 92c11ba4's unchanged; its tests' made-up tracking numbers
+# differ, and CROOKS Returns beside it gained the label-payment fixes. Bump it as the module's
+# docstring says.
+SERVICE_SHA = "368819777d9470876ff82d5ddf42d6e2a0895f88"
 PINNED_ON = "2026-10-08"
 THEIR_TESTS = "clive_shipping_service_tests"
 WHY_NOT = (f"the CLIVE Shipping service's code at {SERVICE_SHA[:8]} ({BRANCH}, clive-shipping/) is not in this "
