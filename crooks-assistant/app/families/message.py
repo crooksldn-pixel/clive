@@ -79,14 +79,45 @@ AGAIN_LABEL = "Try again"
 _EDITS: OrderedDict[str, int] = OrderedDict()
 MAX_TRACKED = 256
 
+# Which message each card is: the card it began as. A card the model (or the composer) prepared
+# begins a message of its own; a card prepared FROM one — an edit, the other way, Try again — is
+# the same message, linked here by the route that prepared it (`prepared`). So two replies to one
+# thread, or a draft and a separate send to one order, are two messages with two keys, and an
+# edit of one never re-prepares or withdraws the other. Bounded: a link outlives its card only
+# for as long as the engine keeps that card.
+_BEGAN_AS: OrderedDict[str, str] = OrderedDict()
+MAX_LINKED = 1024
+
+
+def began_as(proposal: Any) -> str:
+    """The id of the card this message began as: the proposal's own, unless it was prepared from
+    another card of the same message."""
+    proposal_id = str(getattr(proposal, "proposal_id", "") or "")
+    return _BEGAN_AS.get(proposal_id, proposal_id)
+
 
 def key_of(proposal: Any) -> str:
     """One message's id on the card, the same across every edit of it and across its other way
     (a draft and its send are one message): its conversation, what kind of thing it goes to and
-    which one. Minted here and opaque: nothing of who it is to is in it, so it can sit in an
-    attribute on the tablet. Which half it belongs to is the proposal's own (`waiting`)."""
-    parts = "|".join(str(getattr(proposal, name, "") or "") for name in ("session_id", "entity_kind", "entity_ref"))
+    which one, and which message on it — the card it began as (`began_as`), so two messages to
+    the same thread never share a card. Minted here and opaque: nothing of who it is to is in
+    it, so it can sit in an attribute on the tablet. Which half it belongs to is the proposal's
+    own (`waiting`)."""
+    named = [str(getattr(proposal, name, "") or "") for name in ("session_id", "entity_kind", "entity_ref")]
+    parts = "|".join([*named, began_as(proposal)])
     return "msg_" + hashlib.sha256(parts.encode("utf-8")).hexdigest()[:16]
+
+
+def prepared(staging: dict[str, Any], proposal_id: str) -> None:
+    """What `POST /command` tells this module once it has prepared what a finger on the card asked
+    for (`app/routes/command.py`), whether or not a card came of it: the new card, when there is
+    one, is the same message as the card it was prepared from."""
+    origin = str(staging.get("message_origin") or "")
+    if proposal_id and origin:
+        _BEGAN_AS.pop(proposal_id, None)
+        _BEGAN_AS[proposal_id] = origin
+        while len(_BEGAN_AS) > MAX_LINKED:
+            _BEGAN_AS.popitem(last=False)
 
 
 def words_of(proposal: Any) -> dict[str, Any]:
@@ -250,7 +281,7 @@ def _the_other_way(proposal: Any, message: dict[str, Any], key: str) -> Outcome:
     # card he had rather than nothing (`_stage_change` withdraws `revoke` only after success).
     return Outcome(answer="", changed={"stage": {
         "tool": other["tool"], "args": dict(proposal.model_args), "revoke": [str(proposal.proposal_id)],
-        "what": other["label"].lower(), "message_key": key,
+        "what": other["label"].lower(), "message_key": key, "message_origin": began_as(proposal),
     }})
 
 
@@ -262,7 +293,7 @@ def _again(ctx: CommandCtx, key: str) -> Outcome:
         return Outcome.refused("not_again", "That message is not one to send again from here. Ask for it again.")
     return Outcome(answer="", changed={"stage": {
         "tool": str(proposal.tool_name), "args": dict(proposal.model_args), "revoke": [],
-        "what": "the message again", "message_key": key,
+        "what": "the message again", "message_key": key, "message_origin": began_as(proposal),
     }})
 
 
@@ -287,7 +318,7 @@ def _edit(ctx: CommandCtx, proposal: Any, message: dict[str, Any], key: str) -> 
     ctx.runtime.actions.revoke_ids([str(proposal.proposal_id)], EDITED)
     return Outcome(answer="", changed={"stage": {
         "tool": str(proposal.tool_name), "args": args, "revoke": [], "what": "the message as edited",
-        "message_key": key, "edit_seq": _next_edit(key),
+        "message_key": key, "message_origin": began_as(proposal), "edit_seq": _next_edit(key),
     }})
 
 

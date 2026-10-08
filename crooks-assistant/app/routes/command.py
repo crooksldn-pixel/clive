@@ -137,7 +137,16 @@ async def _tap(request: Request, runtime, session, branch, name: str, named: dic
         # is synchronous, and preparing a change is a fresh read of the entity. What the tablet
         # named is a registered write tool and the arguments THE MAC built from its own
         # context; the gesture is still to come.
-        outcome = await _stage_change(request, runtime, session, branch, wanted, outcome)
+        try:
+            outcome = await _stage_change(request, runtime, session, branch, wanted, outcome)
+        finally:
+            if wanted.get("message_key"):
+                # [flow, DEC-067] A message card's edit, other way or Try again: the card it made,
+                # if any, is the same message as the card it came from (app/families/message.py).
+                from app.families.message import prepared
+
+                made = outcome.changed.get("proposal_id") if outcome.ok and isinstance(outcome.changed, dict) else ""
+                prepared(wanted, str(made or ""))
     elapsed = (time.perf_counter() - started) * 1000
 
     timeline.emit(

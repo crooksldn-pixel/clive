@@ -96,7 +96,10 @@ async def _prepare(conversation, outcome):
     staging = outcome.changed["stage"]
     before = len(conversation.proposals)
     text = await dispatch(staging["tool"], dict(staging["args"]), session=conversation, timeout_s=5)
-    return text, (conversation.proposals[-1] if len(conversation.proposals) > before else None)
+    made = conversation.proposals[-1] if len(conversation.proposals) > before else None
+    # And what the route tells the message family once it has prepared it (`_tap`).
+    message_card.prepared(staging, made.proposal_id if made is not None else "")
+    return text, made
 
 
 def _card(proposal, conversation):
@@ -202,6 +205,25 @@ async def test_an_edit_overtaken_by_a_later_one_is_not_the_card(box, engine, ses
     assert message_card.moved_since(session, newer.changed["stage"]) == ""
     assert middle.status is ActionStatus.REVOKED and last.status is ActionStatus.PENDING
     assert message_card.others_waiting(session, key, keep=last.proposal_id) == []
+
+
+async def test_two_messages_to_one_thread_are_two_cards_and_an_edit_of_one_leaves_the_other(box, engine, session):
+    """Review note 7: two cards on the same thread — two replies he asked for — are two messages.
+    They used to share a key (conversation, thread), so an edit of the first re-prepared the
+    newest of them and the route then withdrew the other."""
+    _, first = await stage(session, "gmail_send_reply", thread_id=THREAD, body=BODY)
+    _, second = await stage(session, "gmail_send_reply", thread_id=THREAD, body=EDITED)
+    assert first.status is ActionStatus.PENDING and second.status is ActionStatus.PENDING
+    key = message_card.key_of(first)
+    assert key != message_card.key_of(second), "two messages, two cards"
+    out = _press(engine, session, compose_id=key, field="body", value="Hi Daniel,\n\nIt is on its way to you today.")
+    assert out.ok, out.detail
+    assert first.status is ActionStatus.REVOKED and second.status is ActionStatus.PENDING, "the edit is of the card it was typed on"
+    assert out.changed["stage"]["args"]["body"].endswith("It is on its way to you today.")
+    _, edited = await _prepare(session, out)
+    assert message_card.key_of(edited) == key, "the edited card is still the first message"
+    assert message_card.others_waiting(session, key, keep=edited.proposal_id) == [], "nothing of the other message is withdrawn"
+    assert second.status is ActionStatus.PENDING
 
 
 # --------------------------------------------------------------------------- the other way
