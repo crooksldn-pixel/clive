@@ -89,6 +89,15 @@ def test_the_archive_list_is_well_formed_and_names_no_branch_that_is_kept():
         assert (requires != "-") == reason.startswith("knowledge-only"), branch
 
 
+def test_a_loop_objective_branch_is_listed_only_once_landed_or_superseded_as_boundary_says():
+    rows = [row for row in _rows(ARCHIVE_LIST) if row[0].startswith("clive/objective/")]
+    assert rows and all(row[2] == "-" and row[3].startswith(("landed:", "superseded:")) for row in rows)
+    boundary = (REPO / "docs" / "repo" / "BOUNDARY.md").read_text(encoding="utf-8")
+    loop_row = next(line for line in boundary.splitlines() if line.startswith("| **The build loop's branches**"))
+    assert "archived once its build has landed or been superseded, never while it is in flight" in loop_row
+    assert "Never archived by hand" not in boundary
+
+
 def test_the_theme_list_makes_one_main_and_shares_no_branch_with_the_archive_list():
     rows = _rows(THEME_LIST)
     assert [row[0] for row in rows if row[2] == "refs/heads/main"] == ["claude/crooksldn-theme-init-bnen7a"]

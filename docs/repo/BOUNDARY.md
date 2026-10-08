@@ -12,7 +12,7 @@ the rules that keep it that way, and the exact steps that finish the move.
 | **CLIVE**, the assistant and its engineering control plane | `crooksldn-pixel/clive` (public), branch `clive/trunk`, folder `crooks-assistant/` | Pull request to `clive/trunk`, green acceptance on the exact head, then George's deploy ([DEPLOY_LINUX.md](../../crooks-assistant/docs/DEPLOY_LINUX.md)) |
 | **The Shopify theme** (with the phone app `mobile/` and the returns desk) | `crooksldn-pixel/crooksldn-theme` (private), branch `main`. Until `move_theme.sh` has run, its source is the branch `claude/crooksldn-theme-init-bnen7a` in clive | Shopify CLI, from the theme repository. Never through CLIVE |
 | **The sister apps**, CROOKS Returns and CLIVE Shipping (one embedded Shopify app, CROOKS Operations) | Branch `claude/compassionate-dirac-44hnee` in clive, for now | George's Docker Compose on the production host, outside CLIVE (DEC-066) |
-| **The build loop's branches** | `clive/control/owner-inbox`, `clive/control/status`, `clive/control/worker-01-inbox`, `clive/control/worker-01-status`; `clive/evidence/*`; `clive/engineering-state`; and one `clive/objective/<id>` per build | Written by the loop, read by CLIVE's Builds page. Never archived by hand |
+| **The build loop's branches** | `clive/control/owner-inbox`, `clive/control/status`, `clive/control/worker-01-inbox`, `clive/control/worker-01-status`; `clive/evidence/*`; `clive/engineering-state`; and one `clive/objective/<id>` per build | Written by the loop, read by CLIVE's Builds page. The control, evidence and state branches are never archived. A `clive/objective/<id>` branch is archived once its build has landed or been superseded, never while it is in flight: only from the list, by `archive_branches.sh`, which refuses a branch that has moved since the list was made |
 | **Kept records** | `crooks-ai-bridge` (the retired bridge's inbox and outbox), `claude/venture-engine-v1-2026-09-29` (parked by George) | Not shipped |
 | **Archives** | Tags `archive/<branch, every / made ->` in clive, and in the theme repository for the theme's experiments and research | Never. A tag only keeps the commits |
 
@@ -162,6 +162,15 @@ The scripts check again when they run: a branch that moved since is refused.
 `crooks-ai-bridge`, `claude/compassionate-dirac-44hnee`, `claude/venture-engine-v1-2026-09-29`,
 the night builds `claude/n2-*`, and the theme branch until `move_theme.sh --delete-public` has run.
 `archive_branches.sh` refuses to run if any of them is ever put on its list.
+
+A `clive/objective/<id>` branch is kept while its build is in flight. The 67 on the archive list
+had all landed or been superseded when the list was made, and on 8 October each was still at its
+listed SHA. Five objective branches are not on it:
+- `status-publishes-findings` is held for George (below);
+- `fixture-clock-dst-nights` and `tool-audit-edge-cases` are BLOCKED in the loop's status, not
+  landed, so they stay;
+- `retire-returns-stub` and `skill-installer-followups` landed on `clive/trunk` on the night of
+  7 October, after the list was made, so a later list can take them.
 
 ### Held: not archived, because George decides or a record would be lost
 
