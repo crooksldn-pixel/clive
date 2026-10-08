@@ -3,7 +3,8 @@
 `scripts/browser/flow.js` drives the page against the real backend on the golden world and checks
 what George sees when he asks for a reply: words saying what CLIVE is doing while it works and no
 card of any search, then the reply and nothing else; and the reply as one card whose words he edits
-with real keystrokes and sends with one hold. This file starts that backend, scripts the model for
+with real keystrokes and sends with one hold. And a list he asks for out loud has Next beside it,
+as the Orders icon's list does. This file starts that backend, scripts the model for
 his turn — read for read the turn he described, through the real gate, and SLOWLY, a little under
 a second a call, saying which tool is running as the real provider does
 (`app/providers/max_agent_sdk.py` `_on_tool_event`) — and lets the fixture inbox take the one send
@@ -35,6 +36,8 @@ QUESTIONS = ("show me the email reply to priya", "the email reply to priya pleas
 # The reply Gmail refuses (part c of the walk): the words that come back on "Try again".
 REFUSED = "Hi Priya, one more thing: it comes in black only."
 REFUSED_QUESTION = "and tell her it only comes in black"
+# Part d of the walk: a list asked for out loud, then Next.
+LIST_QUESTION = "show me today's orders"
 
 
 def _the_reply_turn() -> tuple:
@@ -76,6 +79,7 @@ def _slow_provider(runtime):
         provider.will(question, *_the_reply_turn(), reply="The reply to Priya is ready: hold it to send.")
     provider.will(REFUSED_QUESTION, ("gmail_send_reply", {"thread_id": PRIYAS_THREAD, "body": REFUSED}),
                   reply="Ready: hold it to send.")
+    provider.will(LIST_QUESTION, ("shopify_list_orders", {"days": 1}), reply="Today's orders.")
     return provider
 
 

@@ -15,7 +15,9 @@
  *   b. the reply is one card: its words edited there with real keystrokes, and one hold (then
  *      the tap that applies it) sends exactly those words — no Save draft, no second screen;
  *   c. a reply Gmail refuses says "Not sent" and why, and "Try again" puts the same words back on
- *      a card to hold.
+ *      a card to hold;
+ *   d. a list asked for out loud ("show me today's orders") has Next beside it, as the Orders
+ *      icon's list does, and Next opens the first of them: "#… 1 of N".
  *
  *   node scripts/browser/flow.js http://127.0.0.1:8823 /path/to/screenshots
  *
@@ -36,6 +38,7 @@ const SIZES = [
 const ADDED = ' It fits every size.';
 const REFUSED_QUESTION = 'and tell her it only comes in black';
 const REFUSED = 'Hi Priya, one more thing: it comes in black only.';
+const LIST_QUESTION = "show me today's orders";
 
 const checks = [];
 const shots = [];
@@ -216,6 +219,35 @@ async function walk(browser, size) {
   await page.evaluate(() => { const f = document.querySelector('#cards [data-type="confirmation"]'); if (f) f.scrollIntoView({ block: 'start' }); });
   await sleep(300);
   await shot('c2-the-words-again');
+
+  // ---- d. a list asked for out loud is walked with Next, as the Orders icon's list is
+  await page.evaluate((q) => window.CliveAlpha.ask(q), LIST_QUESTION);
+  try {
+    await page.waitForFunction(() => {
+      const next = document.getElementById('next-btn');
+      return Boolean(document.querySelector('#cards [data-type="order_list"]')) && next && !next.hidden;
+    }, null, { timeout: 15000 });
+  } catch { /* checked below */ }
+  await sleep(600);
+  const listed = await glass();
+  const nextUp = await page.evaluate(() => {
+    const next = document.getElementById('next-btn');
+    const b = next ? next.getBoundingClientRect() : null;
+    return { shown: Boolean(next && !next.hidden && !next.disabled), w: b ? Math.round(b.width) : 0, h: b ? Math.round(b.height) : 0 };
+  });
+  check(at('a list asked for out loud is up, with Next beside it'),
+    listed.types.includes('order_list') && nextUp.shown && nextUp.w > 0 && nextUp.h > 0, JSON.stringify({ types: listed.types, nextUp }));
+  await shot('d1-todays-orders-with-next');
+  await page.click('#next-btn');
+  try {
+    await page.waitForFunction(() => /^#\d+\. 1 of \d+\.$/.test(((document.getElementById('answer') || {}).textContent || '').trim()), null, { timeout: 10000 });
+  } catch { /* checked below */ }
+  await sleep(600);
+  const walked = await glass();
+  check(at('Next walks it: the first of them, "1 of N"'),
+    /^#\d+\. 1 of \d+\.$/.test(walked.answer.trim()) && walked.types.some((t) => t === 'order' || t === 'order_workspace'),
+    JSON.stringify({ answer: walked.answer, types: walked.types }));
+  await shot('d2-next-the-first-of-them');
 
   check(at('no page errors'), errors.length === 0, errors.join(' | '));
   await context.close();

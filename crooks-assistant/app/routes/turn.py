@@ -1457,6 +1457,64 @@ def _stand_on_what_was_shown(branch, ui: list, named: frozenset[str] = frozenset
     branch.visit(kind, ref, label)
 
 
+# ------------------------------------------------ a list he asked for, walked as the Orders icon's is
+#
+# The checker's defect 1 (night of 7-8 Oct): since every sentence became the model's (28 Sep), a
+# list drawn for a sentence opened no walk — Next answered "There is no list open to move through"
+# — while the same list opened from the Orders icon could be walked. The answer's own list now
+# opens the walk the landing opens (app/families/landings.py `_open_workflow`), decided from the
+# cards the answer drew and never from the words (MAP rule 7).
+
+#: [flow] The cards that are a list of orders a walk can go through.
+_ORDER_LISTS = frozenset({"order_list", "summary_list"})
+
+
+def _walk_what_was_listed(runtime, session, branch, ui: list) -> None:
+    """When the answer's own screen holds one list of orders and no single record, Next and
+    Previous walk that list, as they walk the Orders icon's.
+
+    The set it walks is the one the read made when it made one (a summary's `set_id`), or one
+    made here from the rows the card drew — their ids were issued to this conversation by the
+    read that returned them, so the walk can open each. A list beside a record, two lists, or a
+    list of something other than orders opens nothing new. Never raises: a walk is a
+    convenience, never the answer."""
+    own = [item for item in ui or [] if isinstance(item, dict) and not item.get("kept")]
+    lists = [item for item in own if item.get("type") in _ORDER_LISTS and isinstance(item.get("data"), dict)
+             and not item["data"].get("empty")]
+    if len(lists) != 1 or _records_shown(own) or session is None or branch is None:
+        return
+    try:
+        set_id = _set_of_the_list(session, lists[0])
+        if not set_id:
+            return
+        from app.commands import Ctx
+        from app.families.landings import _open_workflow
+
+        _open_workflow(Ctx(runtime, session, branch), {}, kind="orders", operation="review", set_id=set_id)
+    except Exception as exc:  # noqa: BLE001 — a cursor is a convenience, never the answer
+        log.debug("could not open a walk on the answer's list: %s: %s", type(exc).__name__, exc)
+
+
+def _set_of_the_list(session, item: dict) -> str:
+    """The working set of orders a list card shows: its own, or one made from its rows."""
+    from app.analytics import sets as working_sets
+    from app.summaries import order_words
+
+    data = item["data"]
+    if data.get("set_id"):
+        held = working_sets.get(session, str(data["set_id"]))
+        return held.set_id if held is not None and held.kind == "orders" else ""
+    rows = [o for o in data.get("orders") or [] if isinstance(o, dict) and o.get("order_id")]
+    if item.get("type") != "order_list" or not rows:
+        return ""
+    made = working_sets.create(
+        session, kind="orders", members=[str(o["order_id"]) for o in rows], label=str(data.get("title") or "Orders"),
+        provenance={"tool": "answer", "step": "shown"},
+        labels={str(o["order_id"]): order_words(o.get("order_number")) for o in rows if order_words(o.get("order_number"))},
+    )
+    return made.set_id
+
+
 # ------------------------------------------------ "it's on your screen" held to the screen
 #
 # George, 29 September: "it can say stuff like confirmed order xyz on screen but there is
@@ -2043,6 +2101,9 @@ async def _answer(
                 branch.idle()
             if not error_kind:
                 _stand_on_what_was_shown(branch, ui, named)
+                # [flow] A list he asked for is walked with Next and Previous, as the Orders
+                # icon's list is (the checker's defect 1).
+                _walk_what_was_listed(runtime, session, branch, ui)
             # A control on a card that listens for words binds the half's cursor, not the card
             # it sits on (web/app.js `primeAction` posts the branch's entity). So only the card
             # that IS the cursor keeps one; every other card's chip primes its words and binds
