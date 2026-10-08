@@ -416,8 +416,10 @@ lines with the new SHA, after its own review. Nothing else changes.
 
 1. **The card.** On the Builds screen, straight under the heading, when `clive/trunk`'s head is ahead
    of the commit CLIVE runs and GitHub acceptance is green on exactly that SHA
-   (`app/release/offer.py`): "Ready to go live", the head's title, the pull requests since what is
-   live in their own titles, and **Hold to deploy** (**Hold to try it (dry run)** in dry run). When his
+   (`app/release/offer.py`): "Ready to go live", the head's title, every commit since what is live in
+   its own title, newest first (only the loop's own refresh merges left out, matched by title and
+   parents, and counted in the technical details; DEPLOY_LINUX.md says what that match does not prove),
+   and **Hold to deploy** (**Hold to try it (dry run)** in dry run). When his
    hold cannot deploy it, the card says why instead: the service not installed, off, not under
    `owner_waiver`, stopped, the change one that stays a hand deploy, or the service's own reason when
    it has looked at this SHA and finds more than his approval missing (`ready_for` in the status).

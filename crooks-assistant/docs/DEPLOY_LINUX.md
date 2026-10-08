@@ -220,10 +220,14 @@ that exact SHA is **no longer required before a deploy**. What a deploy needs in
 - **the pull requests it carries were each independently reviewed before they merged.** This is the
   process, not a lock: merges come only through reviewed PRs or the loop's reviewed landings. The trunk
   has no branch protection, so nothing on GitHub stops a push that skipped review, and neither the
-  release service nor CLIVE checks reviews. The Deploy now card lists the titles of the trunk's own
-  commits since what is live (its first-parent line, newest first, eight shown and the rest counted;
-  only the loop's own refresh merges are left out, matched exactly), so a commit pushed straight onto
-  the trunk is in front of him when he approves, below;
+  release service nor CLIVE checks reviews. The Deploy now card lists every commit the deploy would
+  bring in, in its own title: every commit in GitHub's comparison of production's SHA with the trunk's
+  head, newest first, whichever line it came in on (a pull request a refresh merge carried in is
+  listed like any other); eight are shown, and the headline and "and N more" count the same list. Only
+  the loop's own refresh merges are left out, matched by their exact title and parents, and the card's
+  technical details count them. That match is metadata: anyone who can push can make a commit in that
+  shape, and its own content is then not on the card (the commits it merges still are). So the card
+  shows him what is coming; it does not prove any of it was reviewed;
 - **the owner's approval of that exact SHA** (ruling 7): given in CLIVE, on the Builds screen's
   "Deploy now" card, with his hold and his passkey; or, for a hand deploy, his word to the Termius
   Claude, recorded in the deploy record as his waiver.

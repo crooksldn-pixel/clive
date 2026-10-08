@@ -8,7 +8,7 @@
  * lands, and the owner's passkey (`flow.passkey`) for Chromium's virtual authenticator. Judged on the glass:
  *
  *   - on the tablet (800 x 1280) and the phone (390 x 844), the Builds screen carries "Ready to go live"
- *     straight under its heading: the version's title, the pull requests since what is live in their own
+ *     straight under its heading: the version's title, the commits since what is live in their own
  *     titles, acceptance passed on this exact version, and "Hold to deploy"; no version id on its face;
  *     nothing wider than the screen and every control a finger's size;
  *   - a press let go early does nothing; held, the passkey is asked, and the deploy starts at once;

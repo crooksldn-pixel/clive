@@ -224,6 +224,18 @@ test('a stale dry-run button: the mode it showed is sent, and a changed mode red
   D.state().flash = '';
 });
 
+test('every commit it brings in: the headline and "and N more" from one list; what is left out, counted', () => {
+  const titles = Array.from({ length: 11 }, (_, i) => `Change ${11 - i}`);
+  const node = D.offerNode(offer({ changes: titles.slice(0, 8), more: 3, count: 11, hidden: 2, unlisted: 0 }), {});
+  assert.match(node.allText(), /11 changes since what’s live/);
+  assert.equal(all(node, 'dn-change').pop().allText(), 'and 3 more');
+  assert.match(node.querySelector('.dn-tech').allText(), /Not listed2 of the loop’s own refresh merges \(the commits they merge are listed\)/);
+  assert.doesNotMatch(node.allText(), /GitHub listed only part/);
+  const part = D.offerNode(offer({ changes: titles.slice(0, 8), more: 5, count: 13, hidden: 0, unlisted: 2 }), {});
+  assert.match(part.allText(), /GitHub listed only part of this change: 2 of its commits aren’t named here\./);
+  assert.doesNotMatch(part.querySelector('.dn-tech').allText(), /Not listed/);
+});
+
 test('a cancelled prompt or a refusal: said on the card, nothing deployed, the button back', async () => {
   world({ '/release/deploy/challenge': { data: { publicKey: { challenge: 'AAAA' }, ticket: 'T'.repeat(43) } } });
   const cancelled = Object.assign(new Error('no'), { name: 'NotAllowedError' });

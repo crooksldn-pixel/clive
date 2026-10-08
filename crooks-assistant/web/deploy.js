@@ -6,9 +6,9 @@
  * Drawn inside the Builds screen, straight under its heading (web/builds.js places it), from GET
  * /release/deploy (app/routes/release.py), as it comes:
  *   - the offer: the version waiting to go live, only when the trunk's head is ahead of what runs and
- *     GitHub acceptance passed on exactly that version: its title, the pull requests since what is live
- *     in their own titles, and the hold. Holding the button (a press of 0.9 s) asks for his passkey for
- *     exactly that version, in the mode the
+ *     GitHub acceptance passed on exactly that version: its title, every commit it would bring in, in
+ *     its own title (the loop's refresh merges counted in the technical details), and the hold. Holding
+ *     the button (a press of 0.9 s) asks for his passkey for exactly that version, in the mode the
  *     button said (POST /release/deploy/challenge, refused if the release service's mode has changed
  *     since, then POST /release/deploy). When his hold cannot deploy it now, the card says why instead
  *     of offering it. Dry run is said on the button.
@@ -117,6 +117,8 @@
       if (Number(offer.more) > 0) ul.appendChild(el('li', 'dn-change is-more', `and ${Number(offer.more)} more`));
       card.appendChild(ul);
     }
+    const unlisted = Number(offer.unlisted) || 0;
+    if (unlisted > 0) add(card, el('p', 'dn-note', `GitHub listed only part of this change: ${unlisted} of its commits aren’t named here.`));
     const hold = offer.hold && typeof offer.hold === 'object' ? offer.hold : {};
     if (hold.can) {
       const said = el('p', 'dn-said');
@@ -131,8 +133,10 @@
     } else {
       add(card, el('p', 'dn-why', hold.why_not || 'This one can’t be deployed from here.'));
     }
+    const hidden = Number(offer.hidden) || 0;
     card.appendChild(techNode([['Version', offer.short, true],
-      ['Acceptance runs', list(offer.acceptance && offer.acceptance.runs).map(text).join(', '), true]]));
+      ['Acceptance runs', list(offer.acceptance && offer.acceptance.runs).map(text).join(', '), true],
+      ['Not listed', hidden > 0 ? `${hidden} of the loop’s own refresh merge${hidden === 1 ? '' : 's'} (the commits ${hidden === 1 ? 'it merges' : 'they merge'} are listed)` : '', false]]));
     return card;
   }
 

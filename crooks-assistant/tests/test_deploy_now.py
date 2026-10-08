@@ -619,6 +619,60 @@ def test_only_the_loops_own_refresh_merge_is_left_out_of_the_list_he_approves_fr
     assert '"-p", source, "-p", task.base_sha' in source
 
 
+def test_the_card_lists_every_commit_the_deploy_brings_in_on_a_range_like_the_real_one():
+    """The re-review's finding B, on a range shaped like b33ccbc2..6f844183: objectives land as the loop's
+    refresh merges, fast-forward, and the pull requests merged meanwhile come in through those merges'
+    second parents, off the first-parent line. Every one is listed; only the exact refresh merges are not,
+    and the headline and "and N more" count the list."""
+    def commit(sha, message, *parents):
+        return {"sha": sha, "commit": {"message": message}, "parents": [{"sha": p} for p in parents]}
+
+    def refresh(sha, trunk, objective, source):
+        return commit(sha, f"Merge clive/trunk {trunk} into clive/objective/{objective} at {source} (loop)\n\nThe "
+                           "loop's refresh before landing", source, trunk)
+
+    sha = {name: (str(i) * 40 if i < 10 else chr(87 + i) * 40) for i, name in enumerate(
+        ["pr100a", "t100", "obj1", "r1", "pr101a", "pr101b", "t101", "obj2a", "obj2b", "r2", "pr110a", "t110"], start=1)}
+    # GitHub's comparison lists them oldest first.
+    commits = [
+        commit(sha["pr100a"], "This repository is CLIVE only: the theme moves out", LIVE),
+        commit(sha["t100"], "This repository is CLIVE only (PR #100)", LIVE, sha["pr100a"]),
+        commit(sha["obj1"], "Deflake the reply turn's enrichment", LIVE),
+        refresh(sha["r1"], sha["t100"], "deflake-reply-turn-enrichment", sha["obj1"]),
+        commit(sha["pr101a"], "The release service, off and in dry run", sha["t100"]),
+        commit(sha["pr101b"], "Seven fixes from the review", sha["pr101a"]),
+        commit(sha["t101"], "The release service (PR #101)", sha["t100"], sha["pr101b"]),
+        commit(sha["obj2a"], "Days left count London's day", sha["obj1"]),
+        commit(sha["obj2b"], "Days left: the test for midnight", sha["obj2a"]),
+        refresh(sha["r2"], sha["t101"], "days-left-london", sha["obj2b"]),
+        commit(sha["pr110a"], "Research on the Builds screen", sha["r2"]),
+        commit(sha["t110"], "Give CLIVE research (PR #110)", sha["r2"], sha["pr110a"]),
+    ]
+    green = GateResult(sha["t110"], GateState.GREEN, "acceptance run(s) 77 completed with success",
+                       (RunFact(77, "completed", "success"),))
+    found = Trunk(sha=sha["t110"], ahead=True, acceptance=green)
+    offer.compare(found, {"status": "ahead", "ahead_by": len(commits), "files": [{"filename": "crooks-assistant/a.py"}],
+                          "commits": commits})
+    assert found.changes == ["Give CLIVE research", "Research on the Builds screen", "Days left: the test for midnight",
+                             "Days left count London's day", "The release service", "Seven fixes from the review",
+                             "The release service, off and in dry run", "Deflake the reply turn's enrichment",
+                             "This repository is CLIVE only", "This repository is CLIVE only: the theme moves out"]
+    assert (found.count, found.hidden, found.unlisted) == (12, 2, 0)
+    assert len(found.changes) + found.hidden == found.count, "every commit is listed or counted as a refresh merge"
+    assert found.title == "Give CLIVE research"
+    card = offer.offer(found, live=LIVE, release=READY)
+    assert card["changes"] == found.changes[:8] and (card["count"], card["more"], card["hidden"]) == (10, 2, 2)
+    # The head itself a refresh merge (an objective that landed last): titled by the newest change, not the merge.
+    landed = Trunk(sha=sha["r2"], ahead=True)
+    offer.compare(landed, {"status": "ahead", "ahead_by": 10, "commits": commits[:10]})
+    assert landed.title == "Days left: the test for midnight" and "The release service" in landed.changes
+    # GitHub listed only part (it stops at 250): the rest is counted, never dropped from the headline.
+    part = Trunk(sha=sha["t110"], ahead=True, acceptance=green)
+    offer.compare(part, {"status": "ahead", "ahead_by": 14, "commits": commits})
+    shown = offer.offer(part, live=LIVE, release=READY)
+    assert (part.unlisted, shown["count"], shown["more"], shown["unlisted"]) == (2, 12, 4, 2)
+
+
 def test_progress_follows_his_approval_stage_by_stage_then_kept():
     release = {**READY, "deploy": None}
     mine = _approval("a" * 32)

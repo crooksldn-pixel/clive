@@ -6,8 +6,9 @@ Why it exists. George approves each deploy (ruling 7), and his approval starts i
 Builds screen needs to know, truthfully, three things, and this file decides them from what it reads:
 
     the offer      clive/trunk's head, when it is ahead of the commit this CLIVE runs on the trunk and
-                   GitHub acceptance is green on exactly that SHA: its title, the pull requests since
-                   what is live, in their own titles. Nothing else is a card.
+                   GitHub acceptance is green on exactly that SHA: its title, and every commit the deploy
+                   would bring in, in its own title, newest first (only the loop's own refresh merges are
+                   left out, and counted). Nothing else is a card.
     the hold       whether his hold can deploy it now, and if not, why, in a sentence: the release
                    service installed, on, following owner_waiver, not stopped; the change not one that
                    stays a hand deploy (app/release/facts.py `guarded`, the service's own list); and,
@@ -45,7 +46,10 @@ _PR = re.compile(r"\s*\(PR #(\d+)\)\s*$")
 # The loop's own refresh merge, exactly as app/orchestrator/dispatcher.py (_refresh_merge) titles it, its
 # first line: plumbing, not something that was built. Only this shape is left out of the list George
 # approves from, and only with exactly the two parents its title names (the objective's SHA first, then
-# the trunk's): anything else, a pushed "Merge branch …" included, is listed (review note 2, 8 Oct).
+# the trunk's): anything else, a pushed "Merge branch …" included, is listed (review note 2, 8 Oct). The
+# commits it merges are listed in their own right. Its title and parents are only metadata: a commit
+# forged in this shape is left out too, and its own content is not checked (the merged tree cannot be
+# recomputed: it is the integrator's resolution). The card counts what it left out ("hidden").
 _REFRESH = re.compile(r"Merge " + re.escape(TRUNK) + r" ([0-9a-f]{40}) into clive/objective/[A-Za-z0-9._/-]+ "
                       r"at ([0-9a-f]{40}) \(loop\)")
 STAGES = (("started", "Started"), ("checks", "Checks"), ("installing", "Installing"), ("health", "Health"),
@@ -60,7 +64,9 @@ class Trunk:
     title: str = ""
     ahead: bool | None = None                  # the trunk's head has what runs here behind it
     changes: list[str] = field(default_factory=list)   # titles since what runs here, newest first
-    count: int = 0                             # commits since what runs here
+    count: int = 0                             # commits since what runs here, as GitHub counts them
+    hidden: int = 0                            # of those, the loop's own refresh merges: not in `changes`
+    unlisted: int = 0                          # of those, the ones GitHub's comparison did not list
     files: list[str] | None = None             # what the change touches; None when GitHub listed only part
     acceptance: GateResult | None = None
     problem: str = ""
@@ -152,9 +158,11 @@ class GitHubTrunk:
 
 
 def compare(out: Trunk, body: Any) -> None:
-    """GitHub's comparison of what runs here with the trunk's head, into `out`: ahead or not, the
-    titles of what was merged since (first parents, newest first, only the loop's own refresh merges
-    left out), and the files, when GitHub listed every one."""
+    """GitHub's comparison of what runs here with the trunk's head (what runs here..the head), into `out`:
+    ahead or not; the title of every commit in it, newest first, the loop's own refresh merges left out
+    and counted (`hidden`), whatever line each came in on: a pull request a refresh merge carried in
+    through its second parent is listed like any other (the review of DEC-072, finding B); how many
+    GitHub did not list (`unlisted`); and the files, when GitHub listed every one."""
     if not isinstance(body, dict):
         out.problem = "GitHub's comparison was not in the expected shape"
         return
@@ -164,23 +172,26 @@ def compare(out: Trunk, body: Any) -> None:
     ahead_by = body.get("ahead_by")
     out.count = ahead_by if isinstance(ahead_by, int) and not isinstance(ahead_by, bool) and ahead_by >= 0 \
         else len(commits)
-    chain, at = [], out.sha
-    while at in by_sha and len(chain) < len(commits):
-        chain.append(by_sha[at])
-        parents = by_sha[at].get("parents") or []
-        at = parents[0].get("sha") if parents and isinstance(parents[0], dict) else ""
-    built = [c for c in (chain or list(reversed(commits))) if not refresh_merge(c)]
-    out.changes = [s for s in (plain(str((c.get("commit") or {}).get("message") or "")) for c in built) if s]
-    if out.changes and not out.title:
-        out.title = out.changes[0]
+    out.unlisted = max(0, out.count - len(commits))
+    # GitHub lists a comparison's commits oldest first: newest first is the list turned round.
+    built = [c for c in reversed(commits) if not refresh_merge(c)]
+    out.hidden = len(commits) - len(built)
+    out.changes = [_title(c) for c in built]
     head = by_sha.get(out.sha)
-    if head is not None:
-        out.title = plain(str((head.get("commit") or {}).get("message") or "")) or out.title
+    if head is not None and not refresh_merge(head):
+        out.title = _title(head)
+    elif out.changes and not out.title:
+        out.title = out.changes[0]
     files = body.get("files")
     listed = [f.get("filename") for f in files if isinstance(f, dict) and isinstance(f.get("filename"), str)] \
         if isinstance(files, list) else None
     # GitHub lists at most 300 files and 250 commits in a comparison: past either, what it touches is not known.
     out.files = listed if listed is not None and len(listed) < 300 and len(commits) < 250 else None
+
+
+def _title(commit: dict[str, Any]) -> str:
+    """A listed commit's title in plain words; one without a title says so, by its short SHA."""
+    return plain(str((commit.get("commit") or {}).get("message") or "")) or f"{commit['sha'][:8]} (no title)"
 
 
 def refresh_merge(commit: dict[str, Any]) -> bool:
@@ -228,12 +239,15 @@ def offer(found: Trunk, *, live: str, release: dict[str, Any]) -> dict[str, Any]
     if found.acceptance is None or not found.acceptance.green or found.acceptance.sha != found.sha:
         return None
     changes = found.changes[:CHANGES_SHOWN]
+    # The headline and "and N more" count the same list the card shows from (plus any GitHub didn't list).
+    count = len(found.changes) + found.unlisted
     runs = [run.id for run in found.acceptance.runs]
     why, note = hold(found, release)
     dry = release.get("mode") == "dry_run"
     return {
         "sha": found.sha, "short": found.sha[:8], "title": found.title or found.sha[:8],
-        "changes": changes, "more": max(0, len(found.changes) - len(changes)), "count": found.count,
+        "changes": changes, "more": count - len(changes), "count": count, "hidden": found.hidden,
+        "unlisted": found.unlisted,
         "acceptance": {"green": True, "runs": runs},
         "hold": {"can": why == "", "why_not": why, "note": note, "dry_run": dry,
                  "label": "Hold to try it (dry run)" if dry else "Hold to deploy"},
