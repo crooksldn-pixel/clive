@@ -12,8 +12,8 @@ callback itself. app/clients/wecom.py makes every call; docs/WECOM.md says what 
 What it promises:
 - verify_inbound: the signature is checked before anything else is done with a request; then its
   timestamp (five minutes) and that it is new (app/messaging/guard.py); then it is decrypted, and
-  it must be for this company's CorpID. Anything else is Refused, which the door answers with an
-  empty 403.
+  it must be for this company's CorpID. Anything else, a body that cannot be read at all included,
+  is Refused, which the door answers with an empty 403, never an error.
 - receive: each WeChat message is stored once (by WeCom's msgid), with the read position kept
   after every page, so a restart reads on from where it was. A message WeCom later says did not
   arrive (msg_send_fail) is marked failed, with WeCom's reason in plain words.
@@ -109,9 +109,11 @@ class WeComAdapter:
             if not sealed:
                 raise Refused("unsigned")
         else:
+            # Any failure to read the envelope is a refusal, never a 500: anyone on the internet can
+            # post here, and nothing they send may end the request any other way (review note 1).
             try:
                 outer = wecom.envelope(body)
-            except wecom.CryptoError:
+            except Exception:  # noqa: BLE001 - CryptoError, RecursionError, anything: an empty 403
                 raise Refused("unreadable") from None
             sealed = outer["Encrypt"]
         if not crypto.signed(signature, timestamp, nonce, sealed):
@@ -123,7 +125,7 @@ class WeComAdapter:
         try:
             plain = crypto.decrypt(sealed)
             fields = {} if method == "GET" else wecom.message_fields(plain)
-        except wecom.CryptoError:
+        except Exception:  # noqa: BLE001 - CryptoError or anything else opening it: an empty 403
             raise Refused("crypto") from None
         corp = wecom.value(wecom.CORP_ID)
         if fields.get("ToUserName") and fields["ToUserName"] != corp:

@@ -359,7 +359,9 @@ def envelope(body: bytes) -> dict[str, str]:
     if text.startswith(b"{"):
         try:
             data = json.loads(text.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
+        except (UnicodeDecodeError, ValueError, RecursionError):
+            # RecursionError: JSON nested thousands deep fits under the body cap and would otherwise
+            # end the request in a 500 (review note 1, 8 Oct).
             raise CryptoError(-40002, "the JSON does not parse") from None
         if not isinstance(data, dict):
             raise CryptoError(-40002, "the JSON is not an object")
@@ -380,7 +382,7 @@ def message_fields(plaintext: str) -> dict[str, str]:
     if stripped.startswith("{"):
         try:
             data = json.loads(stripped)
-        except ValueError:
+        except (ValueError, RecursionError):
             raise CryptoError(-40002, "the message JSON does not parse") from None
         return {str(k): str(v) for k, v in data.items() if not isinstance(v, (dict, list))} if isinstance(data, dict) else {}
     root = _xml(stripped)

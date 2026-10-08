@@ -134,6 +134,33 @@ async def test_a_body_over_the_cap_is_refused_before_it_is_read(client, world): 
     assert lying.status_code == 403 and lying.content == b""
 
 
+async def test_a_deeply_nested_body_gets_an_empty_403_never_a_500(client, world, monkeypatch):  # noqa: F811
+    """Review note 1 (8 Oct): JSON nested 30,000 deep is 60 KB, under the cap, and json.loads gives
+    up with RecursionError. Anyone can post it; it must end as every other refusal does. And
+    whatever else reading the envelope might throw is a refusal too."""
+    import httpx
+
+    _closed_to_the_public(client)
+    query, _ = wecom_world.kf_event()
+    deep = b'{"Encrypt":' + b"[" * 30_000 + b"]" * 30_000 + b"}"
+    assert len(deep) < guard_module.MAX_BODY_BYTES
+    with pytest.raises(wecom_world.wecom.CryptoError):
+        wecom_world.wecom.envelope(deep)
+    # As production answers: an exception the app did not catch would be a 500 here, not raised.
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as raw:
+        for headers in ({}, STRANGER):
+            response = await raw.post("/hooks/wecom", params=query, content=deep, headers=headers)
+            assert (response.status_code, response.content) == (403, b""), headers
+
+        def breaks(_body):
+            raise RuntimeError("anything at all")
+
+        monkeypatch.setattr(wecom_world.wecom, "envelope", breaks)
+        response = await raw.post("/hooks/wecom", params=query, content=b"<xml/>")
+        assert (response.status_code, response.content) == (403, b"")
+
+
 async def test_with_no_wecom_keys_the_door_is_shut(client, world, monkeypatch):  # noqa: F811
     monkeypatch.setattr(wecom_world.wecom, "_stored", lambda name: "")
     query, body = wecom_world.kf_event()
