@@ -1,6 +1,6 @@
 """A search in progress never takes the screen, and the screen is only what the answer is about.
 
-George, 7 October 2026 (DEC-067): "today I asked for the email reply to [a customer] and it
+George, 7 October 2026 (DEC-068): "today I asked for the email reply to [a customer] and it
 showed [a customer]'s total orders as a customer, then some random email from someone else,
 today's email threads and today's orders when all I wanted to see was the reply to [a customer]."
 

@@ -39,7 +39,7 @@ routes/turn.py → session/ · system prompt (kb/loader: who CLIVE is, his voice
   → every tool call, through a PreToolUse hook: tools/gate.py GREEN/AMBER/RED · tools/authority.py owner or staff
   → tools/dispatch.py → reads: Shopify, Gmail, analytics, Instagram, Ship24, the screens
                       → writes: STAGED as a proposal in actions/engine.py, never executed here
-  → presentation.py + focus.py (only what the answer is about; words, not cards, while it works: DEC-067)
+  → presentation.py + focus.py (only what the answer is about; words, not cards, while it works: DEC-068)
     + screen.py → cards (web/ui.js draws them); a scene too only if CLIVE_SCENES is on
   → speech/speakable → POST /speak → the ElevenLabs voice
 he holds the card → POST /actions/{id}/arm → /commit → identity.py (Tailscale whois) → re-read → execute → verify → actions.jsonl

@@ -141,7 +141,7 @@ async def _tap(request: Request, runtime, session, branch, name: str, named: dic
             outcome = await _stage_change(request, runtime, session, branch, wanted, outcome)
         finally:
             if wanted.get("message_key"):
-                # [flow, DEC-067] A message card's edit, other way or Try again: the card it made,
+                # [flow, DEC-068] A message card's edit, other way or Try again: the card it made,
                 # if any, is the same message as the card it came from (app/families/message.py).
                 from app.families.message import prepared
 
@@ -190,7 +190,7 @@ async def _tap(request: Request, runtime, session, branch, name: str, named: dic
         # (app/screen.py). `branch.show` is exempt because its cards ARE that screen.
         ui = screen.carry(ui, branch=branch, session=session)
     if outcome.changed.get("staged") and outcome.changed.get("compose_id"):
-        # [flow, DEC-067] The composer's Send, or Save draft, becomes the message card in the
+        # [flow, DEC-068] The composer's Send, or Save draft, becomes the message card in the
         # composer's place: its words are editable there, so the composer is not a second screen.
         ui = _without_composer(ui, str(outcome.changed["compose_id"]))
     # A listening control only on the cursor's card, the cursor as this tap left it: a tap that
@@ -497,7 +497,7 @@ async def _stage_change(request: Request, runtime, session, branch, staging: dic
     # could not be prepared.
     replaced = [str(x) for x in (staging.get("revoke") or [])]
     if staging.get("message_key"):
-        # [flow, DEC-067] One card per message: any older card of the same message that an edit
+        # [flow, DEC-068] One card per message: any older card of the same message that an edit
         # raced past goes too, now that the newest exists (app/families/message.py).
         from app.families.message import others_waiting
 

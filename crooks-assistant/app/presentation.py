@@ -191,7 +191,7 @@ def present(
     from the tool results, one error card per failed service, and the context stack when the
     conversation has accumulated one.
 
-    `focus` (what a spoken turn asks for, DEC-067): only the cards the answer is about
+    `focus` (what a spoken turn asks for, DEC-068): only the cards the answer is about
     (app/focus.py) — a change wins, a record read in full wins over the searches that found it
     — chosen before anything is remembered, so the context stack holds what he was shown.
     Errors are added after the choice and are never set aside. `focus_why` is told the rule.
@@ -266,7 +266,7 @@ def present(
 
     items = _merge(items)
     if focus:
-        # [flow, DEC-067] The records a read returned whole, before a workspace is composed over
+        # [flow, DEC-068] The records a read returned whole, before a workspace is composed over
         # them: a workspace composed over a record that only came up on a listing is not one.
         from app.focus import records_read_whole
 
@@ -281,7 +281,7 @@ def present(
     # not over it (round 12: "it tries to pull up a customer screen first").
     items = [i for i in items if i["type"] == "workspace"] + [i for i in items if i["type"] != "workspace"]
     if focus:
-        # [flow, DEC-067] Only what the answer is about: the searches that found it stay off
+        # [flow, DEC-068] Only what the answer is about: the searches that found it stay off
         # the glass and off the context stack.
         from app.focus import answer_cards
 
@@ -1364,13 +1364,13 @@ def _confirmation(proposal, *, writes: dict[str, Any] | None = None) -> dict[str
         # undo belongs to a change that is finished, and is not waiting on anybody.
         "undo_of": _text(proposal.undo_of or "", 40),
         "commit": commit if commit else {"allowed": True},
-        # [flow, DEC-067] A message — an email today; WeCom, WhatsApp and Instagram next — is
+        # [flow, DEC-068] A message — an email today; WeCom, WhatsApp and Instagram next — is
         # drawn as the message card: its words editable on it, one hold that sends.
         **({"message": message} if (message := _message_block(proposal, words)) else {}),
     })
 
 
-# --------------------------------------------------------------- the message card (DEC-067)
+# --------------------------------------------------------------- the message card (DEC-068)
 #
 # The contract a write's `present()` keeps to get this card is in app/families/message.py.
 # Bounded and copied key by key here, like every card: the channel from a closed set, the
@@ -1407,7 +1407,7 @@ def _message_block(proposal, words: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _not_sent(proposal, card: dict[str, Any]) -> dict[str, Any]:
-    """[flow, DEC-067] A message send that provably did not go says so in a message's words —
+    """[flow, DEC-068] A message send that provably did not go says so in a message's words —
     "Not sent", and why — and offers the same words again as a new card to hold ("Try again",
     app/families/message.py). Any other outcome is the card as it was: an outcome that is not
     known (it may have gone) never offers to send again."""

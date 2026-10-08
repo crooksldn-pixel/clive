@@ -1,4 +1,4 @@
-/* From the question to the action, in a real browser at a phone's and the tablet's sizes (DEC-067).
+/* From the question to the action, in a real browser at a phone's and the tablet's sizes (DEC-068).
  *
  * George, 7 October: "today I asked for the email reply to [a customer] and it showed [a
  * customer]'s total orders as a customer, then some random email from someone else, today's email

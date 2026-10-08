@@ -262,7 +262,7 @@ body.alpha .attn-line.calm .attn-dot{background:rgba(235,235,245,.45)}
 body.alpha #settings.sheet{background:#111114;-webkit-backdrop-filter:none;backdrop-filter:none}
 
 /* ------------------------------------------------------------------ 10. The message card */
-/* [flow, DEC-067] A message he asked for is one card: who it goes to, the words — editable here —
+/* [flow, DEC-068] A message he asked for is one card: who it goes to, the words — editable here —
    and the hold that sends it (web/ui.js `messageBlock`). The fields are the composer's own. */
 .card-confirmation.is-message .message-block{display:flex;flex-direction:column;gap:2px;margin:10px 0 6px}
 .card-confirmation.is-message .message-block .field{margin:8px 0 0}
