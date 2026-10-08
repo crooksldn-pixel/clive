@@ -311,7 +311,13 @@ async def world():
 
 
 async def _thread_up(h, session: str) -> None:
+    """The model's own read waits only MODEL_BUDGET_S for #1938's inbox; on a busy machine the
+    thread reaches the conversation through the rest of the card, collected as the tablet does."""
+    from experience.fixtures import data
+
     await h.open_order("1938", session_id=session)
+    _, extension = await h.enrich(data.BY_NAME["#1938"].order_id, session_id=session)
+    assert extension.get("pending") == [], extension
     thread = await h.ask("show me her email about it", ("gmail_read_thread", {"thread_id": HER_1938_THREAD}),
                          reply="She asked to add to it.", session_id=session)
     assert thread.surface_types[0] == "email_thread", thread.surface_types

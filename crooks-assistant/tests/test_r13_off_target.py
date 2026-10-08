@@ -350,6 +350,13 @@ async def world():
         yield h
 
 
+async def _card_collected(h, order_id: str, session: str) -> None:
+    """The model's own read waits only MODEL_BUDGET_S for an order's inbox; on a busy machine its
+    threads reach the conversation through the rest of the card, collected as the tablet does."""
+    _, extension = await h.enrich(order_id, session_id=session)
+    assert extension.get("pending") == [], extension
+
+
 @pytest.mark.parametrize(("replied_in", "stands"), [(HER_1938_THREAD, False), (HER_1912_THREAD, True)],
                          ids=["another-thread", "the-tapped-thread"])
 async def test_a_reply_after_reply_was_tapped_on_one_thread_is_prepared_only_in_that_thread(world, replied_in, stands):
@@ -359,6 +366,7 @@ async def test_a_reply_after_reply_was_tapped_on_one_thread_is_prepared_only_in_
     and it is withdrawn before it is shown. In the thread he tapped, it is his card."""
     sid = f"reply-{replied_in[-4:]}"
     await world.open_order("1938", session_id=sid)
+    await _card_collected(world, "gid://shopify/Order/1938", sid)
     bound = await world.touch("voice.bind", session_id=sid, family="email.reply", kind="email_thread", ref=HER_1912_THREAD)
     assert bound.raw.get("ok") is True, bound.raw
     said = await world.ask("tell her it went out this morning",
@@ -391,6 +399,7 @@ async def test_after_reply_was_tapped_an_order_he_dictates_does_not_send_it_to_t
     sid = f"reply-new-{tool[-3:]}"
     davids = (await world.open_order("1939", session_id=sid)).data("order")
     await world.open_order("1940", session_id=sid)
+    await _card_collected(world, "gid://shopify/Order/1940", sid)
     bound = await world.touch("voice.bind", session_id=sid, family="email.reply", kind="email_thread", ref=PRIYAS_THREAD)
     assert bound.raw.get("ok") is True, bound.raw
     body = "Hi Priya, so sorry, David's order 1939 went to you by mistake, we'll swap it."
@@ -466,6 +475,7 @@ async def test_after_reply_was_tapped_a_note_on_an_order_he_did_not_name_is_with
     sid = "reply-then-note"
     davids = (await world.open_order("1939", session_id=sid)).data("order")
     await world.open_order("1940", session_id=sid)
+    await _card_collected(world, "gid://shopify/Order/1940", sid)
     bound = await world.touch("voice.bind", session_id=sid, family="email.reply", kind="email_thread", ref=PRIYAS_THREAD)
     assert bound.raw.get("ok") is True, bound.raw
     said = await world.ask("tell her it's on its way", ("shopify_order_note_append", {"order_id": davids["order_id"], "note": "On its way"}),
