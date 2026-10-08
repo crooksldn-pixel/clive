@@ -364,6 +364,23 @@ def test_a_first_name_alone_is_not_the_same_person():
     assert focus.answer_cards([HIS_EMAIL, first, nobody, full], said=said) == [HIS_EMAIL, full]
 
 
+def test_a_full_name_is_two_words_of_two_letters_once_titles_are_dropped():
+    """The review's note 4: "Sam K", "J. Smith", "Mr Khan" and "Customer Service" are not anybody's
+    full name, so a conversation called that is not tied to an email from someone called that."""
+    for label in ("Sam K", "J. Smith", "Mr Khan", "Customer Service", "Dr Raman", "@sam_k", "Sam"):
+        assert focus._name(label) == "", label
+    assert focus._name("Dr Priya Raman") == "priya raman"
+    assert focus._name("Mrs Ana Fixture <ana.fixture@example.com>") == "ana fixture"
+    assert focus._name("Sam J Kelly") == "sam kelly"
+    assert focus._name("@david.replica") == "david replica"
+    for sender, other in (("Sam K", "Sam K"), ("Mr Khan", "Mr Khan"), ("Customer Service", "Customer Service")):
+        said = focus.Asked(records=frozenset({"thread_fixture_label"}), lists=frozenset())
+        email = {"type": "email_thread", "data": {"thread_id": "thread_fixture_label", "messages": [
+            {"from": sender, "from_email": "sam.kelly@example.com", "body": "Hello", "outbound": False}]}}
+        chat = {"type": "messages", "data": {"view": "thread", "thread": {"chat_id": "chat_fixture_label", "who": other}}}
+        assert focus.answer_cards([email, chat], said=said) == [email], sender
+
+
 def test_one_person_s_messages_are_about_them_and_everyone_s_are_not():
     said = focus.Asked(records=frozenset({DAVIDS_THREAD}), lists=frozenset())
     his = {"type": "messages", "data": {"view": "recent", "threads": [{"chat_id": "chat_a", "who": "@david.replica"}]}}

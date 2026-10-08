@@ -305,14 +305,29 @@ def _norm(value: Any) -> str:
     return found.group(1) if found else text
 
 
+# Titles, dropped before a name is counted: "Mr Khan" is one name, not two.
+_TITLES = frozenset({"mr", "mrs", "ms", "miss", "dr", "mx"})
+# Words that make a sender a desk rather than a person: "Customer Service", "Returns Team".
+_DESK = frozenset({
+    "customer", "customers", "service", "services", "support", "team", "care", "help", "helpdesk", "desk",
+    "sales", "orders", "info", "admin", "noreply", "notifications", "accounts", "billing", "returns",
+    "delivery", "enquiries", "shop", "store", "office",
+})
+
+
 def _name(value: Any) -> str:
     """A person's full name as words ("priya raman"), from a name, a "Name <address>" or an
-    Instagram handle ("@priya.raman"); "" for one word, which anyone can share, and for "someone
-    on Instagram". A full name is the only evidence a conversation carries of who it is with."""
+    Instagram handle ("@priya.raman"): at least two words of two or more letters each, once titles
+    (Mr, Mrs, Ms, Miss, Dr, Mx) and single letters are dropped. "" for anything less — "Sam K",
+    "J. Smith", "Mr Khan" — which many people share; for a desk ("Customer Service"); and for
+    "someone on Instagram" (the review of DEC-073, note 4). A full name is the only evidence a
+    conversation carries of who it is with."""
     text = re.sub(r"<[^>]*>", " ", str(value or "")).strip().lstrip("@")
     words = re.findall(r"[^\W\d_]+", re.sub(r"[._-]+", " ", text).lower())
-    joined = " ".join(words)
-    return joined if len(words) >= 2 and not _NOBODY.match(joined) else ""
+    if _NOBODY.match(" ".join(words)) or _DESK & set(words):
+        return ""
+    named = [word for word in words if word not in _TITLES and len(word) >= 2]
+    return " ".join(named) if len(named) >= 2 else ""
 
 
 def list_kind(item: Any) -> str:
