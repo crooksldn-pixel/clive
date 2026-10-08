@@ -25,7 +25,7 @@ Quotation marks mark George's own words. The rest is as recorded from what he sa
 4. **Customer details stay private.** They never go into logs, URLs, attributes, telemetry or build requests. Every recorded event passes one redaction seam, `observability/timeline.scrub` (`docs/RECORDING.md`).
 5. **No pay-as-you-go billing.** The app refuses to start with an Anthropic API key in its environment (`assert_no_payg_credentials`).
 6. **Finished means on `clive/trunk` and green** on full acceptance at that exact SHA. Deploys come only from the trunk (DEC-058).
-7. **Every typed or spoken sentence is a model turn.** Nothing matches phrases in front of the model; taps stay deterministic (DEC-063). One exception is open: `web/today-say.js` (Parked).
+7. **Every typed or spoken sentence is a model turn.** Nothing matches phrases in front of the model; taps stay deterministic (DEC-063). One exception is recorded: `web/today-say.js`, the team page acting on "packed 2106" (DEC-071, ruling 30).
 8. **Never weaken** a test assertion, an approval, the gate, the kernel, secret scanning or the acceptance machinery (DEC-064).
 
 ## A turn, end to end
@@ -53,27 +53,27 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 <!-- map:parts -->
 | Package | Lines | State | Not loaded by the app | Owner doc |
 |---|---:|---|---|---|
-| (top-level modules) | 12,271 | live | `engineering_measures` | none |
+| (top-level modules) | 12,254 | live | `engineering_measures` | none |
 | `actions` | 3,051 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
-| `anticipation` | 1,501 | live | — | none |
-| `bench` | 2,300 | live | 5 modules | [`BENCH.md`](docs/BENCH.md) |
+| `anticipation` | 1,478 | live | — | none |
+| `bench` | 2,298 | live | 5 modules | [`BENCH.md`](docs/BENCH.md) |
 | `builds` | 1,739 | live | — | none |
 | `capabilities` | 759 | live | `surface` | none |
-| `clients` | 6,437 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
-| `connections` | 2,005 | live | — | [`CONNECTIONS.md`](docs/CONNECTIONS.md) |
+| `clients` | 6,274 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
+| `connections` | 1,997 | live | — | [`CONNECTIONS.md`](docs/CONNECTIONS.md) |
 | `context` | 1,211 | live | — | none |
 | `customers` | 1,596 | live | — | none |
 | `digest` | 19,012 | live | 14 modules | [`KNOWLEDGE_DIGESTER_V1.md`](docs/product-memory/KNOWLEDGE_DIGESTER_V1.md) |
 | `displays` | 2,363 | live | — | none |
 | `engineering_bridge` | 742 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
-| `families` | 10,246 | live | — | none |
+| `families` | 10,193 | live | — | none |
 | `kb` | 445 | live | — | [`OWNER_DECISIONS_2026-10-01.md`](docs/product-memory/OWNER_DECISIONS_2026-10-01.md) the voice spec |
 | `logging` | 195 | live | — | none |
 | `memory` | 586 | live | — | none |
 | `messaging` | 2,402 | live | — | [`WECOM.md`](docs/WECOM.md) WeCom; WhatsApp in WHATSAPP.md, Instagram DMs in INSTAGRAM_DMS.md |
 | `objectives` | 3,316 | live | — | none |
-| `observability` | 11,308 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
+| `observability` | 10,786 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
 | `orchestrator` | 10,626 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
 | `people` | 777 | live | — | [`TEAM.md`](docs/TEAM.md) |
 | `providers` | 1,029 | live | `anthropic_api` | none |
@@ -82,15 +82,14 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `remote_engineering` | 2,506 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
 | `research` | 1,884 | live | — | [`RESEARCH.md`](docs/RESEARCH.md) |
 | `returns` | 818 | live | — | none |
-| `routes` | 8,685 | live | — | none |
+| `routes` | 8,215 | live | — | none |
 | `scenes` | 2,579 | off (`CLIVE_SCENES` off, default) | — | [`GENERATIVE_UI_V1.md`](docs/product-memory/GENERATIVE_UI_V1.md) |
 | `secrets` | 960 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) |
-| `session` | 1,242 | live | — | none |
-| `shipping` | 335 | live | `fixture` | none |
+| `session` | 1,194 | live | — | none |
 | `skills` | 979 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
-| `speech` | 844 | live | — | none |
+| `speech` | 846 | live | — | none |
 | `support` | 1,693 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
-| `tools` | 15,136 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
+| `tools` | 15,135 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
 | `work` | 1,374 | live | — | [`TEAM.md`](docs/TEAM.md) |
 <!-- /map:parts -->
 
@@ -170,7 +169,6 @@ Production is as recorded by [`reports/deploy-66d3e05d.md`](reports/deploy-66d3e
 | `CROOKS_TEST_SESSION_ALWAYS` | off | off | not recorded |
 | `CROOKS_TTS_ENABLED` | on | on | not recorded |
 | `CROOKS_TTS_PREFETCH` | on | on | not recorded |
-| `CROOKS_WHISPER_ENABLED` | on | off | not recorded |
 | `CROOKS_WRITES_ENABLED` | off | off | on |
 | `CROOKS_WRITES_LOCAL_OWNER` | off | off | off |
 <!-- /map:switches -->
@@ -181,17 +179,14 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 
 | What | Why it is parked | The decision | Expires |
 |---|---|---|---|
-| **Split**: fork, focus, background, merge and cancel in `routes/branches.py`, plus the Split code in `web/app.js` | Retired 20 Sep (DEC-050) but never deleted. `web/alpha.css` hides it, and `splitOrb()` has no caller | Delete, once he confirms DEC-050 | 19 Oct |
 | **Scenes**: `app/scenes/` and `web/scenes*` | Generative UI V1 was approved 24 Sep (DEC-058), but `CLIVE_SCENES` is off and no page loads the renderer | His call: ten real questions, cards against scenes; keep the winner | 19 Oct |
-| **The Mac runtime**: `mac/` (the menu-bar app), `launchd/`, `install_launchd.py`, `whisper_server.py`, `clients/whisper.py` | The Mac is not a production or rollback host (DEC-058), and Whisper is off in production (DEC-022) | Delete, on his yes | 19 Oct |
 | **The experience recorder**: `observability/recorder.py`, `scripts/record.py` | Off; the interaction record does its job | Delete | 19 Oct |
 | **The returns stub**: `app/returns/`, `families/returns.py` | It says returns are not implemented, but CROOKS Returns is live (DEC-066) | Delete with PR #96 | 19 Oct |
-| **Easyship**: `app/shipping/`, `families/shipping.py` | Disconnected. Tracking is Ship24, and return labels are Parcel2Go through CROOKS Returns | Delete until he chooses a label provider | 19 Oct |
 | **`capabilities/surface.py`** | Nothing imports it, and nothing reads what changed between builds | Wire up "what's new since the last build", or delete it | 19 Oct |
-| **CROOKS Pad**: `android/`, `observability/pad.py`, `routes/pad.py` | The APK was never installed; the heartbeat has no other sender | Install it on the SM-T290, or archive it | 19 Oct |
-| **`web/today-say.js`** | Acts on "packed 2106" without the model, against DEC-063 | His call: write an exception, or send the words to the team's CLIVE | 19 Oct |
 | **`docs/product-memory/_incoming/`** (51 files) | Staging copies kept since 25 Sep "for the Director to remove" | Delete | 19 Oct |
-| **The venture engine**: branch `claude/venture-engine-v1-2026-09-29` | His direction of 29 Sep, never landed. Finish first (DEC-018) | Stays parked until the finish list is clear | 19 Oct |
+| **The venture engine**: branch `claude/venture-engine-v1-2026-09-29` | His direction of 29 Sep, never landed. Finish first (DEC-018) | Stays parked on its branch: "park venture engine for now" (DEC-071, ruling 42) | Parked by his ruling of 8 Oct; re-decided when he says |
+
+Taken out of this table by his rulings of 8 October (DEC-071). Deleted, and kept only in the history: Split (ruling 37), the Mac runtime and the menu-bar app (ruling 38), the local Whisper client (ruling 39), the CROOKS Pad (ruling 40) and the old Easyship code (ruling 24). `web/today-say.js` stays, as the recorded exception to rule 7 (ruling 30). Never parked, and staying: the engineering loop's scheduler, `orchestrator/scheduler.py`. Asked whether to delete it, he said NO (ruling 41).
 
 ## Where the rest lives
 
@@ -207,5 +202,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 4,142 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 4,168 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->

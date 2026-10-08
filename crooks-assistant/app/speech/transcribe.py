@@ -4,18 +4,20 @@ The pipeline's contract is that it never returns text it does not believe. Silen
 failure and a blocklisted artefact all come back as "no speech", because an assistant that
 answers a question nobody asked is worse than one that says it did not hear.
 
-And it returns what was SAID. Nothing tells a recogniser which words to expect and nothing
-rewrites the words it heard: no keyterms to Scribe, no prompt to Whisper, no fuzzy match onto
-the catalogue afterwards. All three were here, and between them "Clive" came out as "Plaid" —
+And it returns what was SAID. Nothing tells the recogniser which words to expect and nothing
+rewrites the words it heard: no keyterms to Scribe, no prompt to a local model, no fuzzy match
+onto the catalogue afterwards. All three were here, and between them "Clive" came out as "Plaid" —
 Scribe was handed the catalogue as keyterms and found one of them. Understanding the words is
 the model's job, with the tools that can look a product up (the owner's decision of 28
 September 2026). What is left after recognition is the one change that alters no word:
 surrounding whitespace is trimmed.
 
-Recognition has two engines and one rule: the tablet gets an answer. ElevenLabs Scribe runs
-first; whisper.cpp on this Mac catches every way Scribe can fail — no key, no credit, no
-network, no response in time — and the speaker never hears about it. The hallucination
-blocklist after recognition is engine-independent.
+Recognition is ElevenLabs Scribe and nothing else (DEC-022: no local speech fallback on the
+server). The local whisper.cpp fallback the Mac had was deleted on the owner's ruling of 8
+October (DEC-071, ruling 39). Every way Scribe can fail — no key, no credit, no network, no
+response in time — ends in one spoken sentence saying the owner cannot be heard, or, for an
+empty account, what brings it back; the reason goes to the log and the turn's record, never to
+the speaker. The hallucination blocklist after recognition (app/speech/heard.py) stays.
 """
 
 from __future__ import annotations
@@ -27,8 +29,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.clients.elevenlabs import ScribeClient, ScribeUnavailable
-from app.clients.whisper import Transcript, WhisperClient, WhisperUnavailable
 from app.speech.decode import AudioStats, DecodeError, decode
+from app.speech.heard import Transcript
 from app.speech.voice_reasons import LISTENING_CREDIT_SPOKEN
 
 log = logging.getLogger("crooks.transcribe")
@@ -36,6 +38,9 @@ log = logging.getLogger("crooks.transcribe")
 # Said aloud when the upload could not be turned into audio at all. Fixed, so the voice
 # synthesises it once and keeps it.
 DECODE_FAILED_REASON = "I could not make out that recording. Try once more."
+# Said aloud when Scribe could not hear the recording for any reason but an empty account. The
+# words production has always spoken in that case, unchanged by the fallback's going.
+UNHEARD_REASON = "My speech recognition is not running, so I cannot hear you right now."
 
 
 @dataclass(slots=True)
@@ -46,10 +51,14 @@ class SpeechResult:
     reason: str = ""  # populated when ok is False
     stats: AudioStats | None = None
     timings_ms: dict[str, float] = field(default_factory=dict)
-    # Which recogniser produced this text: "scribe_v2", "whisper_fallback" or "whisper".
+    # Which recogniser produced this text: Scribe's model ("scribe_v2"), or "none" when it
+    # could not hear the recording.
     engine: str = ""
+    # Whether another engine took the turn. There is no other engine since the local fallback
+    # was deleted (DEC-071, ruling 39), so it is always False; it stays because the turn's
+    # record carries it (app/routes/turn.py) and readers of older records find it there.
     fallback: bool = False
-    engine_detail: str = ""  # why the fallback happened; never contains a credential
+    engine_detail: str = ""  # why Scribe could not hear; never contains a credential
 
     def as_dict(self) -> dict:
         return {
@@ -68,77 +77,41 @@ class SpeechResult:
 class Transcriber:
     def __init__(
         self,
-        client: WhisperClient,
+        scribe: ScribeClient,
         *,
-        scribe: ScribeClient | None = None,
-        primary: str = "whisper",
-        whisper_enabled: bool = True,
         save_dir: Path | None = None,
         max_saved: int = 200,
     ) -> None:
-        self._client = client
-        # No Scribe client, or primary set to "whisper", means the local path exactly as it was.
         self._scribe = scribe
-        self._primary = "scribe" if (primary == "scribe" and scribe is not None) else "whisper"
-        # False on a host where whisper.cpp was never deployed. Rather than let every Scribe
-        # failure spend a connect-and-timeout on a port with nothing behind it, the fallback
-        # refuses immediately and says why — the caller sees WhisperUnavailable either way,
-        # so nothing downstream learns a new shape, it just stops waiting to be told.
-        self._whisper_enabled = whisper_enabled
         self._save_dir = save_dir
         self._max_saved = max_saved
 
-    @property
-    def primary(self) -> str:
-        return self._primary
-
-    async def _whisper(self, wav: bytes) -> Transcript:
-        if not self._whisper_enabled:
-            raise WhisperUnavailable(
-                "local speech recognition is not deployed on this host "
-                "(CROOKS_WHISPER_ENABLED=false); there is no fallback behind Scribe here."
-            )
-        # No initial prompt: a prompt of product names is a list of words to expect, and
-        # Whisper finds them whether or not they were said.
-        return await self._client.transcribe(wav)
-
-    def _unheard_reason(self, exc: WhisperUnavailable) -> str:
-        """What the owner hears when nothing could transcribe. An empty ElevenLabs account is
+    def _unheard_reason(self) -> str:
+        """What the owner hears when Scribe could not transcribe. An empty ElevenLabs account is
         said as what it is — and what brings it back — rather than as a broken recogniser."""
-        if self._primary == "scribe" and getattr(self._scribe, "failing_kind", "") == "credit":
+        if getattr(self._scribe, "failing_kind", "") == "credit":
             return LISTENING_CREDIT_SPOKEN
-        return exc.spoken
+        return UNHEARD_REASON
 
-    async def _recognise(self, wav: bytes, timings: dict[str, float]) -> tuple[Transcript, str, bool, str]:
-        """(transcript, engine, fell_back, why). Raises WhisperUnavailable only when the
-        fallback is down too — at which point there is genuinely nothing to say."""
-        if self._primary == "whisper":
-            t = time.perf_counter()
-            transcript = await self._whisper(wav)
-            timings["whisper"] = _ms(t)
-            return transcript, "whisper", False, ""
-
+    async def _recognise(self, wav: bytes, timings: dict[str, float]) -> tuple[Transcript | None, str]:
+        """(transcript, why). The transcript is None when Scribe could not hear the recording,
+        and `why` then says what went wrong, already scrubbed of the credential."""
         t = time.perf_counter()
         try:
             transcript = await self._scribe.transcribe(wav)
             timings["scribe"] = _ms(t)
-            return transcript, self._scribe.model, False, ""
+            return transcript, ""
         except ScribeUnavailable as exc:
             timings["scribe"] = _ms(t)
             # The kind and the detail are both already scrubbed of the credential.
-            log.warning("scribe unavailable (%s), falling back to whisper: %s", exc.kind, exc)
-            why = f"{exc.kind}: {exc}"[:200]
+            log.warning("scribe unavailable (%s): %s", exc.kind, exc)
+            return None, f"{exc.kind}: {exc}"[:200]
         except Exception as exc:  # noqa: BLE001
             # A bug in the Scribe path is still not a reason for the tablet to get an error.
             # Only the type is reported: an unexpected exception's message is not ours to trust.
             timings["scribe"] = _ms(t)
-            log.exception("unexpected error from scribe, falling back to whisper")
-            why = f"unexpected: {type(exc).__name__}"
-
-        t = time.perf_counter()
-        transcript = await self._whisper(wav)
-        timings["whisper"] = _ms(t)
-        return transcript, "whisper_fallback", True, why
+            log.exception("unexpected error from scribe")
+            return None, f"unexpected: {type(exc).__name__}"
 
     async def from_blob(self, blob: bytes, *, filename_hint: str = "") -> SpeechResult:
         timings: dict[str, float] = {}
@@ -183,26 +156,22 @@ class Transcriber:
             return SpeechResult(ok=False, reason=reason, stats=audio.stats, timings_ms=timings)
 
         t1 = time.perf_counter()
-        try:
-            transcript, engine, fell_back, why = await self._recognise(audio.as_wav(), timings)
-        except WhisperUnavailable as exc:
-            # Both engines are down. Spoken line for the tablet; the developer detail goes to
-            # the log, not the speaker.
-            log.error("no recogniser available: %s", exc)
+        transcript, why = await self._recognise(audio.as_wav(), timings)
+        if transcript is None:
+            # Nothing heard it. Spoken line for the tablet; the developer detail goes to the
+            # log and the record, not the speaker.
+            log.error("no recogniser available: %s", why)
             return SpeechResult(
                 ok=False,
-                reason=self._unheard_reason(exc),
+                reason=self._unheard_reason(),
                 stats=audio.stats,
                 timings_ms=timings,
                 engine="none",
-                fallback=self._primary == "scribe",
-                engine_detail=str(exc)[:200],
+                engine_detail=why,
             )
+        engine = self._scribe.model
         timings["transcribe"] = _ms(t1)
-        log.info(
-            "recognised via %s in %.0fms%s", engine, timings["transcribe"],
-            " (fallback)" if fell_back else "",
-        )
+        log.info("recognised via %s in %.0fms", engine, timings["transcribe"])
 
         if transcript.is_hallucination:
             log.info("filtered hallucination (%d chars)", len(transcript.text))
@@ -213,8 +182,6 @@ class Transcriber:
                 stats=audio.stats,
                 timings_ms=timings,
                 engine=engine,
-                fallback=fell_back,
-                engine_detail=why,
             )
 
         # Trimmed and nothing else: every word is the recogniser's, as it heard it.
@@ -225,8 +192,6 @@ class Transcriber:
             stats=audio.stats,
             timings_ms=timings,
             engine=engine,
-            fallback=fell_back,
-            engine_detail=why,
         )
 
 

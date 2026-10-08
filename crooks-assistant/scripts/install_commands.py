@@ -9,6 +9,9 @@ files rather than containing them.
     make commands            install (or refresh) the three
     make commands-remove     take them off again
 
+Both also take off a wrapper this script once wrote for a command that has since gone (RETIRED),
+so nothing it left on the PATH points at a deleted script.
+
 ~/.local/bin is used because it needs no sudo and is on the PATH of a default macOS zsh
 login shell. If it is not on yours, the command says the one line to add.
 """
@@ -30,15 +33,21 @@ BIN = Path.home() / ".local" / "bin"
 COMMANDS = {
     "crooks-update": ("scripts/update.py", ""),
     "crooks-status": ("scripts/status.py", ""),
-    # What CROOKS Control reads, and what its buttons run. On the PATH as well, because a
-    # document you can print is a document you can check when the app says something odd.
-    "crooks-control": ("scripts/control.py", ""),
     "crooks-watch": ("scripts/watch.py", ""),
     "crooks-test": ("scripts/experience.py", ""),
     "crooks-test-ui": ("scripts/experience.py", "--ui"),
     "crooks-test-live": ("scripts/experience.py", "--live"),
     "crooks-test-scenario": ("scripts/experience.py", "--scenario"),
 }
+
+# Commands `make commands` used to write and no longer does. A wrapper left behind on the PATH
+# points at a script that is gone, so `make commands` and `make commands-remove` both take it
+# off. Only a wrapper this script wrote, by its own first comment line; never a file of the same
+# name that someone else put there.
+RETIRED = (
+    "crooks-control",   # scripts/control.py, gone with the menu-bar app (DEC-071, ruling 38)
+)
+OURS = "# Written by `make commands` in "
 
 WRAPPER = """#!/bin/sh
 # Written by `make commands` in {root}. Points at the checkout rather than copying it, so a
@@ -52,8 +61,27 @@ def python_for(root: Path) -> Path:
     return venv if venv.exists() else Path(sys.executable)
 
 
+def retire(bin_dir: Path = BIN) -> list[Path]:
+    """Take off the retired wrappers this script once wrote. Returns what it removed."""
+    gone = []
+    for name in RETIRED:
+        target = bin_dir / name
+        if target.is_symlink() or not target.is_file():
+            continue
+        try:
+            ours = target.read_text(encoding="utf-8", errors="replace").splitlines()[1:2]
+        except OSError:
+            continue
+        if ours and ours[0].startswith(OURS):
+            target.unlink()
+            print(f"  ok     {target} removed: its script is gone")
+            gone.append(target)
+    return gone
+
+
 def install(root: Path = ROOT, bin_dir: Path = BIN) -> int:
     bin_dir.mkdir(parents=True, exist_ok=True)
+    retire(bin_dir)
     python = python_for(root)
     for name, (script, fixed) in COMMANDS.items():
         target = bin_dir / name
@@ -70,6 +98,7 @@ def install(root: Path = ROOT, bin_dir: Path = BIN) -> int:
 
 
 def remove(bin_dir: Path = BIN) -> int:
+    retire(bin_dir)
     for name in COMMANDS:
         target = bin_dir / name
         if target.exists():

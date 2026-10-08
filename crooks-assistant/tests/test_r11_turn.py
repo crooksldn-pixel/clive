@@ -195,9 +195,11 @@ async def commit(client, proposal_id: str, session_id: str):
 
 
 async def fork(client, session_id: str) -> str:
-    response = await client.post("/branches/fork", data={"session_id": session_id}, headers=PROXIED)
-    assert response.status_code == 200, response.text
-    return response.json()["branch_id"]
+    """A second branch of the conversation. Made directly (tests/second_half.py): the fork route
+    went with Split on the owner's ruling of 8 October (DEC-071, ruling 37)."""
+    from tests.second_half import second_half
+
+    return second_half(client.runtime.sessions.get_or_create(session_id))
 
 
 async def bind_note(client, session_id: str, **named) -> dict:
@@ -1165,23 +1167,18 @@ async def test_a_tab_sentence_about_another_order_moves_no_tab_of_the_open_one(d
     assert branch.tab_for("order", A) == "items" and branch.tab_for("order", B) != "items"
 
 
-async def test_a_closed_half_cannot_be_focused_and_the_other_half_said_out_loud_moves_nothing(desk):
-    """R9-I-tests3-I-03: closed-half and ambiguous navigation. The right half is merged away. A
-    stale tap on its chip used to make it the focused half again — the next sentence was then
-    answered on a half nobody could see, and anything it staged could never be applied. The
-    focus is refused now, as showing it and moving its trail already were, and the next sentence
-    lands on the half that is open. "The other half", said, is the model's and moves no focus."""
+async def test_a_closed_half_cannot_be_shown_and_the_other_half_said_out_loud_moves_nothing(desk):
+    """R9-I-tests3-I-03: closed-half and ambiguous navigation. The right half is closed. Showing
+    it and moving its trail are refused, and the next sentence lands on the half that is open.
+    "The other half", said, is the model's and moves no focus. (The merge that closed it and the
+    focus route that refused it went with Split on 8 October, DEC-071 ruling 37; the half is
+    closed directly here.)"""
     desk.model.steps = [show_order("1938")]
     await say(desk, "show me order 1938", "closed")
     session = desk.runtime.sessions.get("closed")
     left = session.focused_branch
     right = await fork(desk, "closed")
-    merged = await desk.post(f"/branches/{right}/merge", data={"session_id": "closed"}, headers=PROXIED)
-    assert merged.status_code == 200, merged.text
-    assert session.branches[right].status == "MERGED"
-
-    refused = await desk.post(f"/branches/{right}/focus", data={"session_id": "closed"}, headers=PROXIED)
-    assert refused.status_code == 409 and refused.json()["code"] == "branch_closed"
+    session.branches[right].status = "MERGED"
     assert session.focused_branch == left
     shown = await desk.post("/command", data={"session_id": "closed", "command": "branch.show", "branch_id": right}, headers=PROXIED)
     assert shown.json()["ok"] is False and shown.json()["code"] == "branch_closed"

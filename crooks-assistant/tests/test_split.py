@@ -15,21 +15,24 @@ session:
 * a half said what it was doing without saying which half it was;
 * and a half put aside could be told it was "working" by a turn that had already died.
 
-The gesture itself — two fingers that must never become a sentence — is asserted in the
-browser (scripts/browser/split.js), where fingers are.
+The owner's Split — the fork, focus, background, merge and cancel routes, the two-finger
+gesture and the half chips — was retired by DEC-050 and deleted on the owner's ruling of 8
+October (DEC-071, ruling 37), and with it the tests here that held only Split: what a fork
+inherits, that a forked half draws nothing of its parent, what a merge brings back, and the
+tablet's copy of the state words for its half chips. What stays holds CLIVE's own per-branch code, which DEC-050 keeps: each branch's workspace,
+headline, state and refusals, and that a branch put aside may prepare and never apply. The
+second branch those need is made directly (tests/second_half.py).
 """
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
-
 import pytest
 
 from app import commands
-from app.session.branch import BRANCH_STATES, Branch, Workflow, fork_from
+from app.session.branch import BRANCH_STATES, Branch, Workflow
 from app.session.models import Session
 from experience.harness import harness
+from tests.second_half import second_half
 from tests.test_actions_routes import PROXIED, FakeProvider, commit, configure
 
 
@@ -110,8 +113,7 @@ async def test_two_halves_asked_different_questions_hold_different_workspaces(st
     """
     left = await stage.ask("which orders are waiting to go out?", *WAITING_TO_GO_OUT,
                            reply="Three orders are waiting to go out.", session_id="split")
-    forked = await stage.client.post("/branches/fork", data={"session_id": "split"})
-    right_id = forked.json()["branch_id"]
+    right_id = second_half(stage.runtime.sessions.get("split"))
 
     right = await stage.ask("find emails needing replies", ("gmail_search", {"query": "", "days": 30}),
                             reply="Two people are waiting on a reply.", session_id="split", branch_id=right_id)
@@ -134,47 +136,6 @@ async def test_two_halves_asked_different_questions_hold_different_workspaces(st
     heads = [c.raw["changed"]["headline"] for c in (shown_left, shown_right)]
     assert heads[0]["title"] != heads[1]["title"], heads
     assert {h["area"] for h in heads} == {"ORDERS", "INBOX"}, heads
-
-
-async def test_a_forked_half_draws_nothing_of_its_parents_screen(stage):
-    """A fork used to rebuild its parent's record from memory. That is the defect: two cards,
-    identical, one under each chip."""
-    parent = await stage.open_order("1938", session_id="fork-draw")
-    assert parent.surface("order") is not None
-    forked = await stage.client.post("/branches/fork", data={"session_id": "fork-draw"})
-    child_id = forked.json()["branch_id"]
-
-    shown = await stage.touch("branch.show", session_id="fork-draw", branch_id=child_id)
-    assert shown.raw["changed"].get("empty") is True, shown.raw["changed"]
-    assert shown.surface_types == [], "the fresh half drew its parent's card"
-    assert "1938" in shown.answer, f"it must say what it starts FROM: {shown.answer!r}"
-    # And a way forward, as commands the tablet can post unchanged.
-    offer = shown.raw["changed"]["offer"]
-    assert offer and offer[0]["command"] == "open.entity" and offer[0]["ref"]
-    assert [o["command"] for o in offer[1:]] == ["open.area"] * 4
-
-
-def test_a_fork_inherits_what_its_parent_holds_and_none_of_what_it_shows():
-    parent = Branch(branch_id="br_a", session_id="s1")
-    parent.visit("order", "o1", "#1957", tab="items")
-    parent.set_id = "set_abc"
-    parent.workflow = Workflow(workflow_id="wf", set_id="set_abc", kind="orders", total=10, cursor=3, label="10 orders")
-    parent.shown([{"type": "order", "data": {}}], "1957 is Millie's.", "show me 1957")
-    parent.compose = {"compose_id": "cmp_1", "kind": "reply"}
-    parent.bind_voice("email.reply", label="Millie")
-
-    child = fork_from(parent)
-    assert child.entity == parent.entity and child.set_id == "set_abc"
-    assert [e["ref"] for e in child.recent_entities] == [e["ref"] for e in parent.recent_entities]
-    assert child.inherited["from"] == "br_a" and child.inherited["entity"]["ref"] == "o1"
-    # And nothing of the screen, nothing half-written, nothing armed, nothing appliable.
-    assert child.last_ui == [] and child.last_answer == "" and child.last_question == ""
-    assert child.compose is None and child.workspace is None and child.voice_context is None
-    assert child.task is None and child.recent_actions == []
-    # Its own trail, its own cursor, its own id.
-    assert child.branch_id != parent.branch_id and child.nav_index == 0 and len(child.nav) == 1
-    child.workflow.cursor += 1
-    assert parent.workflow.cursor == 3
 
 
 def test_a_half_that_holds_nothing_says_so_and_says_what_to_do():
@@ -215,8 +176,8 @@ def test_a_half_is_named_by_what_it_is_on():
 def test_a_half_that_holds_nothing_says_so_once_and_not_in_two_ways():
     """§26 · the band the visual pass caught: "EMPTY Orders".
 
-    A fork inherits its parent's working set and trail (`fork_from`, deliberately), so an
-    empty half's `detail` falls back to that set's label. On a half that is WORKING on the set
+    A branch with a working set and nothing on screen (a fork's, until Split went: DEC-071)
+    has `detail` fall back to that set's label. On a half that is WORKING on the set
     that is the right answer; on one that holds nothing it is a line saying at once that there
     is nothing here and that this is about today's orders. `words` carries one or the other,
     never both, and the tablet draws no detail beside a state word.
@@ -229,22 +190,6 @@ def test_a_half_that_holds_nothing_says_so_once_and_not_in_two_ways():
     assert head["detail"] == "Orders", "and so is the inherited label the trail needs"
     assert head["words"] == "Nothing yet", "but the GLASS says one thing, not both"
     assert "Orders" not in head["words"]
-
-
-def test_the_two_copies_of_the_state_words_cannot_drift():
-    """The tablet keeps a fallback copy of `SAID_ALOUD` for a Mac older than its own build.
-
-    Two copies of a translation is a defect waiting to happen, so they are held equal here:
-    the same keys, and the same words up to the stylesheet's uppercasing.
-    """
-    page = (Path(__file__).resolve().parents[1] / "web" / "app.js").read_text(encoding="utf-8")
-    found = re.search(r"const AREA_WORDS = \{([^}]*)\}", page)
-    assert found, "web/app.js no longer has an AREA_WORDS fallback"
-    tablet = dict(re.findall(r"(\w+): '([^']*)'", found.group(1)))
-    assert set(tablet) == set(Branch.SAID_ALOUD), (
-        f"the tablet says {sorted(tablet)}; the Mac says {sorted(Branch.SAID_ALOUD)}")
-    for token, said in Branch.SAID_ALOUD.items():
-        assert tablet[token].upper() == said.upper(), f"{token}: {tablet[token]!r} vs {said!r}"
 
 
 def test_the_headline_and_the_state_go_out_with_every_branch():
@@ -300,11 +245,10 @@ def test_nothing_a_half_says_about_itself_is_a_number_out_of_a_number():
 # ------------------------------------------------ the refusals a forked half used to get
 
 
-async def test_open_area_is_served_on_a_forked_half(stage):
+async def test_open_area_is_served_on_a_second_branch(stage):
     """`open.area ok=False code=landing_unavailable br_29a02563cf`, 00:25:48."""
     await stage.open_order("1938", session_id="fork-area")
-    forked = await stage.client.post("/branches/fork", data={"session_id": "fork-area"})
-    child_id = forked.json()["branch_id"]
+    child_id = second_half(stage.runtime.sessions.get("fork-area"))
 
     opened = await stage.touch("open.area", session_id="fork-area", branch_id=child_id, area="orders")
     assert opened.raw.get("ok") is True, opened.raw
@@ -349,15 +293,14 @@ async def test_a_landing_that_cannot_be_read_offers_the_tap_again(stage, monkeyp
                                   "label": "#1938", "words": "Open #1938"}, offer
 
 
-async def test_open_entity_on_a_forked_half_opens_what_its_parent_was_shown(stage):
+async def test_open_entity_on_a_second_branch_opens_what_the_conversation_was_shown(stage):
     """`open.entity ok=False code=not_held br_29a02563cf`, 00:25:53."""
     listed = await stage.ask("which orders are waiting to go out?", *WAITING_TO_GO_OUT, session_id="fork-entity")
     rows = listed.data("order_list").get("orders") or []
     assert rows, listed.surface_types
     ref = str(rows[0]["order_id"])
 
-    forked = await stage.client.post("/branches/fork", data={"session_id": "fork-entity"})
-    child_id = forked.json()["branch_id"]
+    child_id = second_half(stage.runtime.sessions.get("fork-entity"))
     opened = await stage.touch("open.entity", session_id="fork-entity", branch_id=child_id,
                               kind="order", ref=ref)
     assert opened.raw.get("ok") is True, opened.raw
@@ -393,8 +336,8 @@ def test_one_halfs_state_changes_never_touch_the_others():
     left = session.branch()
     left.visit("order", "o1", "#1957", tab="overview")
     left.workflow = Workflow(workflow_id="wf", set_id="set_a", kind="orders", total=10, cursor=2)
-    right = fork_from(left)
-    session.branches[right.branch_id] = right
+    right = session.branches[second_half(session)]
+    right.workflow = Workflow(workflow_id="wf_r", set_id="set_a", kind="orders", total=10, cursor=2)
 
     right.visit("customer", "c9", "Someone Else", tab="orders")
     right.mark(scroll=640)
@@ -412,7 +355,26 @@ def test_one_halfs_state_changes_never_touch_the_others():
     assert left.state() == "ACTIVE" and right.state() == "WORKING"
     assert left.recent_actions == []
     assert left.headline()["title"] != right.headline()["title"]
-    assert left.nav_index == 0 and len(left.nav) == 1 and len(right.nav) == 2
+    # Its own trail: the one visit made on it. (It was 2 when a fork started the second branch
+    # with a one-stop trail at its parent's place; the fork went with Split, DEC-071 ruling 37.)
+    assert left.nav_index == 0 and len(left.nav) == 1 and len(right.nav) == 1
+
+
+def test_the_halves_share_only_what_is_safe_to_share():
+    """Read caches and the issued-id ledger are the conversation's; a position, a proposal or
+    an approval is one half's. Asserted on the objects, because this is the rule the whole
+    file exists to keep. (The second half was made by a fork until the fork went with Split,
+    DEC-071 ruling 37; every assertion is as it was.)"""
+    session = Session(session_id="s1")
+    left = session.branch()
+    left.visit("order", "o1", "#1957")
+    session.issue("gid://shopify/Order/1957")
+    right = session.branches[second_half(session)]
+    assert "gid://shopify/Order/1957" in session.issued_ids, "one ledger for the conversation"
+    assert not hasattr(right, "issued_ids"), "and it is not branch state"
+    assert left.nav is not right.nav
+    assert left.recent_entities is not right.recent_entities
+    assert left.entity is not right.entity
 
 
 # --------------------------------------- a half put aside may prepare; it may never apply
@@ -435,8 +397,7 @@ async def test_a_half_put_aside_may_read_and_stage_and_can_never_apply(writes):
     session.issue(ORDER)
     session.epoch = 1
     here = session.branch()
-    aside = fork_from(here)
-    session.branches[aside.branch_id] = aside
+    aside = session.branches[second_half(session)]
     session.focused_branch = here.branch_id
     # The half is put aside, and it is the half that asks.
     aside.status = "BACKGROUND"
@@ -472,8 +433,7 @@ async def test_a_finished_aside_says_ready_and_gives_up_its_work_when_it_is_tapp
 
     session = writes.runtime.sessions.get_or_create("finished")
     here = session.branch()
-    aside = fork_from(here)
-    session.branches[aside.branch_id] = aside
+    aside = session.branches[second_half(session)]
     session.focused_branch = here.branch_id
     here.visit("order", "o1", "#1957")
     here.shown([{"type": "order", "data": {"order_number": "#1957"}}], "1957 is Millie's.", "order 1957")
@@ -495,57 +455,3 @@ async def test_a_finished_aside_says_ready_and_gives_up_its_work_when_it_is_tapp
     assert out.ok and [s.as_ui()["type"] for s in out.surfaces] == ["email_list"]
     assert out.answer == "4 threads need replies."
     assert out.changed["state"] == "READY" and out.changed["headline"]["area"] == "INBOX"
-
-
-# -------------------------------------------------------------------------- the merge
-
-
-@pytest.mark.usefixtures("owner_asking")   # the admitted owner calling a tool directly (round 8, F-A2-FIXTURE)
-async def test_a_merge_brings_state_and_never_a_transcript_or_an_unresolved_change(writes):
-    """Structured results and structured state; never a conversation, and never a change
-    somebody has not looked at. A proposal staged over there stays over there, exact, PENDING
-    and still bound to the half it was asked for in."""
-    from app.actions.models import ActionStatus
-    from app.tools.dispatch import dispatch
-    from tests.test_actions import ORDER, TOOL
-
-    configure(writes)
-    session = writes.runtime.sessions.get_or_create("merge")
-    session.issue(ORDER)
-    session.epoch = 1
-    keeper = session.branch()
-    other = fork_from(keeper)
-    session.branches[other.branch_id] = other
-    other.visit("customer", "c1", "Millie Rogers")
-    other.shown([{"type": "email_list", "data": {}}], "4 threads.", "who is waiting?")
-    other.remember_result("gmail_search", summary="gmail_search: 4 threads", ref="", ms=90.0)
-    session.acting_branch = other.branch_id
-    await dispatch(TOOL, {"order_id": ORDER, "note": "Exchange agreed"}, session=session, timeout_s=5)
-    staged_there = session.proposals[-1]
-
-    merged = (await writes.post(f"/branches/{other.branch_id}/merge",
-                                data={"session_id": "merge"})).json()["merged"]
-    assert merged["headline"]["title"] == "CUSTOMER · Millie Rogers" and merged["state"] == "ACTIVE"
-    assert merged["read"][0]["tool"] == "gmail_search"
-    assert "answer" not in merged and "question" not in merged and "last_ui" not in merged
-    assert merged["still_waiting"] == [staged_there.proposal_id], "the change is named, not moved"
-    assert staged_there.status is ActionStatus.PENDING
-    assert staged_there.branch_id == other.branch_id, "a change belongs to the half it was asked in"
-    assert writes.store.mutations == [], "a merge is not a gesture"
-
-
-def test_the_halves_share_only_what_is_safe_to_share():
-    """Read caches and the issued-id ledger are the conversation's; a position, a proposal or
-    an approval is one half's. Asserted on the objects, because this is the rule the whole
-    file exists to keep."""
-    session = Session(session_id="s1")
-    left = session.branch()
-    left.visit("order", "o1", "#1957")
-    session.issue("gid://shopify/Order/1957")
-    right = fork_from(left)
-    session.branches[right.branch_id] = right
-    assert "gid://shopify/Order/1957" in session.issued_ids, "one ledger for the conversation"
-    assert not hasattr(right, "issued_ids"), "and it is not branch state"
-    assert left.nav is not right.nav
-    assert left.recent_entities is not right.recent_entities
-    assert left.entity is not right.entity

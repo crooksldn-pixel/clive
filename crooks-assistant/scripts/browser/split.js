@@ -22,6 +22,11 @@
  * sideways; two fingers on the ask bar are never a sentence. The checks that needed two halves
  * (the second half's own nothing, two questions on two halves, switching halves, a half that
  * finished elsewhere saying READY) are retired with it; each is named where it was.
+ *
+ * [retire, 8 Oct 2026] Split's code was deleted on the owner's ruling of 8 October (DEC-071,
+ * ruling 37): its routes, its client code and the orb's divide. This file stays because what it
+ * checks is still live — Split stays off, a list draws with no half header, nothing scrolls
+ * sideways, and a second finger is never a sentence.
  */
 'use strict';
 

@@ -429,10 +429,11 @@ async def test_the_whole_of_navigation_happens_without_the_model(stage):
     ref = str(rows[0].get("order_id") or "")
     spoken_reads = len(stage.provider.calls) - before
 
-    fork = await stage.client.post("/branches/fork", data={"session_id": session_id, "label": "right"},
-                                   headers={"Tailscale-User-Login": "owner@example.com",
-                                            "X-Forwarded-For": "100.64.0.9"})
-    other = str(((fork.json().get("branch") or {}).get("branch_id")) or fork.json().get("branch_id") or "")
+    # A second branch, made directly (tests/second_half.py): the fork route went with Split on the
+    # owner's ruling of 8 October (DEC-071, ruling 37), and so did the focus route this ended with.
+    from tests.second_half import second_half
+
+    other = second_half(stage.runtime.sessions.get(session_id), label="right")
     at_start = len(stage.provider.calls)
 
     steps = [
@@ -447,9 +448,6 @@ async def test_the_whole_of_navigation_happens_without_the_model(stage):
         await stage.touch("branch.show", session_id=session_id, branch_id=other),
         await stage.touch("open.entity", session_id=session_id, kind="order", ref=ref, label="again"),
     ]
-    await stage.client.post(f"/branches/{other}/focus", data={"session_id": session_id},
-                            headers={"Tailscale-User-Login": "owner@example.com",
-                                     "X-Forwarded-For": "100.64.0.9"})
 
     asked = len(stage.provider.calls) - at_start
     assert asked == 0, (

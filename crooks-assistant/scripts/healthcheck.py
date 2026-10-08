@@ -7,7 +7,7 @@
 
 Written to be run by a person at a prompt, by a systemd timer, or by anything that reads an
 exit code. It invents no opinion of its own about whether the machine is well: "the
-essentials" are the three `scripts/control.py` already names — hearing, Claude, Shopify —
+essentials" are the three `scripts/launch_common.py` names — hearing, Claude, Shopify —
 because a second definition of healthy is a second thing to keep in step, and the first one
 to drift is the one nobody is looking at.
 
@@ -40,7 +40,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(HERE))
 
 import launch_common as lc  # noqa: E402
-from control import ESSENTIAL  # noqa: E402 — one definition of "essential", not two
+from launch_common import ESSENTIAL  # noqa: E402 — one definition of "essential", not two
 
 DOWN, UNHEALTHY, DEGRADED, OK, LIMITED = "down", "unhealthy", "degraded", "ok", "limited"
 

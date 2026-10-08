@@ -1,4 +1,4 @@
-"""Opus/WebM from the tablet's MediaRecorder to 16 kHz mono PCM for whisper.cpp.
+"""Opus/WebM from the tablet's MediaRecorder to 16 kHz mono PCM for the recogniser.
 
 Chrome on Android picks its own container, so nothing here assumes what arrived — PyAV probes
 the actual bytes. The stats returned are the M2 success test: if RMS sits on the noise floor,

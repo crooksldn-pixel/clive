@@ -415,7 +415,7 @@ async def test_the_key_appears_in_no_result_refusal_or_log_line(api, caplog):
 async def test_the_family_is_ready_with_a_key_and_says_how_to_connect_without_one(api):
     from app.families import load_all
 
-    load_all()          # the shipping families (app/families/shipping.py), as the runtime loads them
+    load_all()          # the delivery family (app/families/delivery.py), as the runtime loads them
     table = await families.states(None)
     assert table["parcel_tracking"]["state"] == "READY" and table["parcel_tracking"]["tools"] == ["track_parcel"]
     assert table["delivery_tracking"]["state"] == "READY"

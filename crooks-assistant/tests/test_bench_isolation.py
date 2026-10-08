@@ -8,7 +8,8 @@ writes possible". What is held here:
     any internet connection (loopback too, since a local proxy would carry it on), a host lookup, a
     real HTTP client of any kind (Shopify, Instagram, Ship24, CROOKS Returns, YouTube, GitHub, and
     whatever is added next, because they all build an httpx transport), Gmail's real service and
-    credentials, and the Shopify, ElevenLabs and Whisper client classes themselves;
+    credentials, and the Shopify and ElevenLabs client classes themselves (the Whisper client went
+    with the local recogniser, DEC-071 ruling 39);
   - below the socket class, the audit hook refuses every connect, send, port and lookup Python's
     socket module makes past loopback, loopback judged by address, never by a name's first characters;
   - no secret reads but the Max plan's own token from a token file; a key CLIVE makes for itself is
@@ -49,7 +50,6 @@ def test_every_way_out_is_refused_and_recorded():
     from app.clients.elevenlabs import ScribeClient
     from app.clients.gmail import GmailClient
     from app.clients.shopify import ShopifyClient
-    from app.clients.whisper import WhisperClient
     from experience.fixtures import FixtureShopify
 
     real_before = ShopifyClient("x.myshopify.com", "2025-07")      # built before the seal, like CLIVE's own at boot
@@ -69,7 +69,6 @@ def test_every_way_out_is_refused_and_recorded():
             lambda: ShopifyClient("x.myshopify.com", "2025-07"),
             lambda: GmailClient().service(),
             lambda: ScribeClient(),
-            lambda: WhisperClient("http://127.0.0.1:9"),
         ]
         for attempt in attempts:
             with pytest.raises(BenchIsolationError):

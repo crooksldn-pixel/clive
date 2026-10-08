@@ -7,8 +7,9 @@ speech path that leaves the Mac. Two consequences shape this module:
   memory only, and every message this module produces — log line, exception, health detail —
   goes through _scrub() so an accidental echo of the key becomes "[redacted]".
 - Nothing here may leave the tablet without an answer. Every failure is raised as one named
-  ScribeUnavailable with a `kind`, and app/speech/transcribe.py turns that into a whisper.cpp
-  fallback rather than an error on the screen.
+  ScribeUnavailable with a `kind`, and app/speech/transcribe.py turns that into one spoken
+  sentence rather than an error on the screen. There is no recogniser behind Scribe (DEC-022;
+  the local whisper.cpp fallback was deleted on 8 October, DEC-071 ruling 39).
 
 Nothing biases what Scribe hears. It used to be sent up to 99 `keyterms` from the shop's
 catalogue — product titles, set names, colour options, spoken aliases — and a recogniser told
@@ -25,8 +26,8 @@ import time
 import httpx
 
 from app.clients.elevenlabs_account import AccountCredit
-from app.clients.whisper import Transcript
 from app.secrets import keychain
+from app.speech.heard import Transcript
 from app.speech.voice_reasons import listening_reason
 
 log = logging.getLogger("crooks.scribe")
@@ -35,7 +36,7 @@ API_BASE = "https://api.elevenlabs.io/v1"
 
 # Failures that will not fix themselves within a turn or two: a missing or rejected key, an
 # account with no credit. Retrying those on every sentence buys nothing and costs the speaker a
-# round trip before the fallback starts, so they open a short cooldown instead.
+# round trip before being told, so they open a short cooldown instead.
 STICKY_KINDS = frozenset({"no_key", "rejected", "forbidden", "credit"})
 
 
@@ -45,13 +46,11 @@ def _says_no_credit(lowered_body: str) -> bool:
 
 
 class ScribeUnavailable(RuntimeError):
-    """Scribe cannot transcribe this recording. The caller falls back to whisper.cpp.
+    """Scribe cannot transcribe this recording. The caller says so, in one sentence.
 
     `kind` is the machine-readable shape of the failure (timeout, rejected, credit, …) and is
     what gets logged and reported; str(exc) is the human detail, already scrubbed."""
 
-    # Only used if the fallback is also down; the whisper message is the one normally spoken.
-    spoken = "My speech recognition is not available right now."
 
     def __init__(self, detail: str, *, kind: str) -> None:
         super().__init__(detail)
@@ -107,7 +106,7 @@ class ScribeClient:
     def _client(self) -> httpx.AsyncClient:
         if self._http is None or self._http.is_closed:
             # A route to ElevenLabs that does not even connect is known in five seconds; the
-            # read bound is the recogniser's, and whisper is waiting behind it.
+            # read bound is the recogniser's.
             self._http = httpx.AsyncClient(timeout=httpx.Timeout(self._timeout, connect=min(5.0, self._timeout)))
         return self._http
 
@@ -251,7 +250,7 @@ class ScribeClient:
         elif code in (401, 403) or "invalid_api_key" in lowered or "api key" in lowered:
             kind = "rejected" if code == 401 else "forbidden"
         elif code == 429 and ("concurrent" in lowered or "rate" in lowered or "busy" in lowered):
-            # A burst, not an empty account: whisper takes this one, Scribe the next.
+            # A burst, not an empty account: this one goes unheard, the next is Scribe's again.
             kind = "rate"
         elif code == 429:
             kind = "credit"

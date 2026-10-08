@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""crooks-update — bring this Mac up to date, in one word, safely.
+"""crooks-update — bring this server up to date, in one word, safely.
 
     crooks-update              fetch, fast-forward, install what changed, restart, verify
     crooks-update --check      say what WOULD happen and change nothing
     crooks-update --branch X   update a branch other than the one checked out
     crooks-update --test       run the offline suite after the fast-forward, before the restart
-    crooks-update --json       one JSON document instead of the lines, for CROOKS Control
+    crooks-update --json       one JSON document instead of the lines
 
 Eight stages, each of which reports itself and any of which stops the run:
 
@@ -15,7 +15,7 @@ Eight stages, each of which reports itself and any of which stops the run:
     4  pull      FAST-FORWARD ONLY — never a merge, never a rebase, never a reset
     5  deps      only when the dependency files actually changed
     6  tests     the offline suite, when --test asks for it — nothing restarts if it fails
-    7  restart   the backend and whisper-server, through launchd
+    7  restart   the service, through systemd
     8  verify    /health, read back, with the build id
 
 What it will not do, by construction:
@@ -24,19 +24,22 @@ What it will not do, by construction:
     here writes them)
   * discard local work: a dirty tree or a diverged branch STOPS the update and says so.
     There is no --force, and no reset.
-  * decide to update itself. This runs when George types it, and not otherwise; nothing in
-    CROOKS OS calls it. `crooks-control apply` is the same rule wearing a button: it runs
-    when George clicks it, and never on a timer or on a boot.
+  * decide to update itself. This runs when it is typed, and not otherwise; nothing in
+    CROOKS OS calls it.
 
---json prints one document and no lines. That document is the contract CROOKS Control
-renders — both SHAs, every stage, the local work that stopped it — and tests/test_control.py
-holds it to its shape, so the Swift side cannot drift from this side.
+--json prints one document and no lines — both SHAs, every stage, the local work that stopped
+it — through the same redactor every document leaves by, and tests/test_update.py holds it to
+its shape. It was the document the CROOKS Control menu-bar app drew; that app went with the Mac
+runtime on the owner's ruling of 8 October (DEC-071, ruling 38), and the document stays for
+whatever reads this command next.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -52,8 +55,8 @@ DEP_FILES = ("pyproject.toml", "uv.lock", "requirements.txt")
 NEVER_TOUCH = (".env", "logs", "reports", ".venv")
 
 OK, FAIL, SKIP = "  ok   ", "  FAIL ", "  --   "
-# The version of the --json document. CROOKS Control refuses a number it does not know
-# rather than rendering a field that has moved under it.
+# The version of the --json document. A reader refuses a number it does not know rather than
+# reading a field that has moved under it.
 CONTRACT = 1
 # The offline suite, exactly as `make test` runs it. --test runs it between the fast-forward
 # and the restart, so a build that does not pass here never becomes the running build.
@@ -61,8 +64,8 @@ TEST_COMMAND = (".venv/bin/pytest", "-q", "-m", "not live")
 TEST_TIMEOUT_S = 1800
 
 # What each stage said, in order, and whether to print it as it is said. A run collects both:
-# the lines are for the owner at the keyboard, and the same records are the JSON document's
-# "stages" for the app.
+# the lines are for whoever is at the keyboard, and the same records are the JSON document's
+# "stages".
 _LINES: list[dict] = []
 _QUIET = False
 _STATE_WORD = {OK: "ok", FAIL: "fail", SKIP: "skip"}
@@ -126,14 +129,14 @@ def _porcelain_path(line: str) -> str:
 
 def dirty_paths() -> list[str]:
     """Every path git calls changed here, tracked or not. Read once and passed around: the
-    plan the app renders and the refusal the update raises have to be the same answer."""
+    document's local work and the refusal the update raises have to be the same answer."""
     seen = (_porcelain_path(line) for line in git("status", "--porcelain").splitlines() if line.strip())
     return [path for path in seen if path]
 
 
 def blocking_changes(dirty: list[str]) -> list[str]:
     """The dirty paths that stop an update. Everything except NEVER_TOUCH: .env is the owner's
-    own configuration, logs/ and reports/ are what the Mac has written, .venv is built."""
+    own configuration, logs/ and reports/ are what the server has written, .venv is built."""
     return [d for d in dirty if not any(d == p or d.startswith(f"{p}/") or f"/{p}/" in d or d.endswith(f"/{p}") for p in NEVER_TOUCH)]
 
 
@@ -141,9 +144,9 @@ def stage_branch(wanted: str, dirty: list[str] | None = None) -> str:
     """The branch this update moves, and the one recovery this stage performs itself.
 
     A rollback checks out an older build and leaves the checkout with no branch attached.
-    That used to be a dead end: Update refused ("`git checkout <branch>` first"), Mark good
-    refused, and the only way forward was a Terminal — at exactly the moment the owner had
-    just recovered from a bad build by pressing a button. So when the checkout is detached
+    That used to be a dead end: Update refused ("`git checkout <branch>` first"), and the only
+    way forward was a second command — at exactly the moment a bad build had just been
+    recovered from. So when the checkout is detached
     on a build that is part of the wanted branch's history, which is what a rollback leaves,
     this stage comes forward onto the branch itself. It is a fast-forward of HEAD to a
     branch that already contains it; no work exists here to lose, because the dirty-tree
@@ -157,12 +160,12 @@ def stage_branch(wanted: str, dirty: list[str] | None = None) -> str:
         raise Stopped(f"There are local changes here ({listed}{'…' if len(blocking) > 5 else ''}). Commit or stash them; this command will not throw work away.")
     if branch == "HEAD":
         if not wanted:
-            raise Stopped("This checkout is on a build with no branch attached (a rollback leaves it that way), and no branch was named to come forward onto. Press Update in CROOKS Control, which names it.")
+            raise Stopped("This checkout is on a build with no branch attached (a rollback leaves it that way), and no branch was named to come forward onto. crooks-update --branch names it.")
         head = git("rev-parse", "HEAD")
         on_branch = subprocess.run(["git", "merge-base", "--is-ancestor", head, wanted], cwd=ROOT,
                                    capture_output=True, text=True).returncode == 0
         if not on_branch:
-            raise Stopped(f"This checkout is on a build that is not part of {wanted}, so nothing was moved. Press Roll back to return to the last known-good build, then Update.")
+            raise Stopped(f"This checkout is on a build that is not part of {wanted}, so nothing was moved.")
         moved = subprocess.run(["git", "checkout", "-q", wanted, "--"], cwd=ROOT, capture_output=True, text=True)
         if moved.returncode != 0:
             raise Stopped(f"This checkout could not be put back on {wanted}, so nothing was moved: {(moved.stderr or moved.stdout).strip()[:200]}")
@@ -230,14 +233,13 @@ def stage_deps(changed: list[str], *, check_only: bool) -> bool:
 def stage_tests(*, check_only: bool, enabled: bool) -> bool:
     """The offline suite, between the fast-forward and the restart.
 
-    Off unless asked for, because `crooks-update` is the two-minute command George types when
-    he wants the new code running and the suite is six of those minutes. CROOKS Control's
-    Update button asks for it: a click has no way to read a test failure afterwards, so the
-    failure has to arrive before anything restarts. A failure here means the code on disk has
-    moved and the running build has not — which is exactly what the rollback decision is for.
+    Off unless asked for, because `crooks-update` is the two-minute command typed when the new
+    code is wanted running and the suite is six of those minutes. When it is asked for, the
+    failure arrives before anything restarts: the code on disk has moved and the running build
+    has not.
     """
     if not enabled:
-        say(SKIP, "tests", "not asked for (crooks-update --test, or the Control app's Update)")
+        say(SKIP, "tests", "not asked for (crooks-update --test)")
         return False
     if check_only:
         say(SKIP, "tests", "would run " + " ".join(TEST_COMMAND))
@@ -251,85 +253,61 @@ def stage_tests(*, check_only: bool, enabled: bool) -> bool:
         raise Stopped(
             "The offline suite did not pass on the new code, so nothing was restarted:\n  "
             + "\n  ".join(tail[-6:])
-            + "\nThe running build is untouched. `crooks-control rollback` puts the checkout back."
+            + "\nThe running build is untouched; only the files on disk moved."
         )
     say(OK, "tests", tail[-1][:120] if tail else "passed")
     return True
 
 
-def mac_for(port: int):
-    """The machine this stage acts on, as (machine, supervisor): the Mac and its launchd, or
-    the server and its systemd. One function, so a test can hand the restart stage a machine
-    that is not one without also replacing the decision under test. The name is the Mac's,
-    from when it was the only one, and stays because tests replace it by name."""
-    import launch_common as lc
-
+def server_for(port: int):
+    """The machine this stage acts on, as (machine, supervisor): the server and its systemd.
+    One function, so a test can hand the restart stage a machine that is not one without also
+    replacing the decision under test. (The Mac and its launchd went on 8 October, DEC-071
+    ruling 38.)"""
     from scripts import service as svc
-
-    machine = svc.Machine.real(port)
-    if lc.is_macos():
-        return machine, svc.supervisor(machine, root=ROOT)
     from scripts import service_linux as linux
 
+    machine = svc.Machine.real(port)
     return machine, linux.supervisor(machine, root=ROOT)
 
 
-def lifecycle_module_for(supervisor):
-    """The module whose start/stop/restart know this supervisor. Decided by the supervisor
-    handed in, not by the host: a test that hands the Mac's launchd in on a Linux runner gets
-    the Mac's layer and the Mac's sentences."""
-    from scripts import service, service_linux
-
-    return service_linux if isinstance(supervisor, service_linux.Systemd) else service
-
-
-def _mac_module():
-    from scripts import service
-
-    return service
-
-
-# What the owner is told to do when the restart is the thing that failed. §5.2: the recovery
-# from a stopped appliance is a BUTTON. This stage used to end by telling him to open a
-# Terminal and run the installer once — printed at exactly the moment an owner has had his
-# code moved and his Mac left down, and carried verbatim into the `stop.reason` the app
-# draws. Since scripts/service.py can register and start the agents itself, there is nothing
-# left for a Terminal to do here, and nothing in this file names a shell command for it.
-PRESS_INSTEAD = (
-    "Your code IS updated; only the restart failed. In CROOKS Control, press Start; "
-    "if that does not bring it back, press Roll back."
-)
-# The server has no Control app window, but it has the same commands, and naming them is
-# what the no-terminal rule allows: the remedy is CROOKS OS's own command, not a shell recipe.
-START_INSTEAD = (
-    "Your code IS updated; only the restart failed. `crooks-control start` brings it back; "
-    "if that does not, `crooks-control rollback` puts the previous build back."
+# What is said when the restart is the thing that failed. Never an instruction to type an
+# installer: the lifecycle (scripts/service_linux.py) registers the service itself where systemd
+# does not have it, so what is left to say is where the reason is written down, and where the way
+# back is. It used to be `crooks-control rollback`, which went with the menu-bar app (DEC-071,
+# ruling 38); the way back on the server is the section of docs/DEPLOY_LINUX.md named here, and
+# `_run` adds the build to go back to, which only it knows. Not `make restart`: that runs this
+# same restart, which has just failed.
+RESTART_FAILED = (
+    "Your code IS updated; only the restart failed. The service's journal says why: "
+    "journalctl -u crooks-assistant.service -n 50. If it is the new build that will not start, "
+    'the answer is a rollback, not a retry: docs/DEPLOY_LINUX.md, "Putting the previous build back".'
 )
 
 
 def stage_restart(*, check_only: bool, port: int) -> None:
-    """Stage 7, and the only stage that is not the same code on both platforms — but the same
-    RULE on both. service.restart() through launchd on the Mac, service_linux.restart() through
-    systemd on the server: each registers the service first where the supervisor does not have
-    it, each is the very code the Control app's Restart button runs, so the typed command and
-    the button cannot leave the machine in two different states, and each succeeds only when
-    /health answers — never because launchctl or systemctl exited 0.
+    """Stage 7. service_linux.restart() through systemd: it registers the service first where
+    systemd does not have it, it is the very code `make restart` runs, so the two cannot leave
+    the server in two different states, and it succeeds only when /health answers — never
+    because systemctl exited 0.
     """
     import launch_common as lc
+
+    from scripts import service_linux
 
     what = " and ".join(lc.service_labels())
     if check_only:
         say(SKIP, "restart", f"would restart {what}")
         return
-    machine, supervisor = mac_for(port)
-    out = lifecycle_module_for(supervisor).restart(machine, supervisor, port=port)
+    machine, supervisor = server_for(port)
+    out = service_linux.restart(machine, supervisor, port=port)
     if not out["ok"]:
         problem = out.get("problem") or {}
         detail = str(problem.get("developer") or "")[:300]
         raise Stopped(
             (problem.get("human") or out.get("human") or "The services would not restart.")
             + (f"\n  {detail}" if detail else "")
-            + "\n" + (START_INSTEAD if lifecycle_module_for(supervisor) is not _mac_module() else PRESS_INSTEAD)
+            + "\n" + RESTART_FAILED
         )
     say(OK, "restart", out["human"])
 
@@ -357,11 +335,11 @@ def report(port: int) -> None:
 
 def _document(**fields) -> dict:
     """The --json document, with every key present whatever happened. A field that appears
-    only on the happy path is a field the app has to guess about."""
+    only on the happy path is a field a reader has to guess about."""
     doc = {
         "contract": CONTRACT, "command": "crooks-update", "ok": False, "check": False,
         "repo": "", "branch": "",
-        # The build on this Mac, the build being offered, and how far apart they are.
+        # The build on this server, the build being offered, and how far apart they are.
         "current": None, "candidate": None, "behind": 0, "ahead": 0, "fast_forward": False,
         # The owner's uncommitted work: what is here, what of it stops the update.
         "local_work": {"dirty": [], "blocking": [], "stops": False},
@@ -376,8 +354,8 @@ def _document(**fields) -> dict:
 
 def run(*, check: bool = False, branch: str = "", test: bool = False, quiet: bool = False) -> tuple[int, dict]:
     """The whole command, once, as (exit code, document). `quiet` prints nothing and is what
-    --json and CROOKS Control use; everything else is identical either way — one flow, so a
-    button cannot take a different path through this than the typed command does.
+    --json uses; everything else is identical either way — one flow, so the document cannot
+    take a different path through this than the typed command does.
 
     The quiet is put back afterwards whatever happened: a stage called on its own — by a
     test, or by another script — prints its line, and a run that swallowed the next caller's
@@ -426,7 +404,12 @@ def _run(*, check: bool, branch: str, test: bool, quiet: bool) -> tuple[int, dic
         doc["tested"] = stage_tests(check_only=check, enabled=test and (moved or (check and behind > 0)))
         if moved:
             stage = "restart"
-            stage_restart(check_only=check, port=port)
+            try:
+                stage_restart(check_only=check, port=port)
+            except Stopped as exc:
+                # The way back RESTART_FAILED points at needs the build to go back to: the one
+                # this run started from, in full, which only this function knows.
+                raise Stopped(f"{exc}\nThe build before this update: {head}") from None
             doc["restarted"] = not check
             stage = "verify"
             health = stage_verify(check_only=check, port=port)
@@ -440,7 +423,10 @@ def _run(*, check: bool, branch: str, test: bool, quiet: bool) -> tuple[int, dic
         doc["next"] = "blocked"
         if not quiet:
             print(f"{FAIL} {exc}")
-            print("\nNothing was changed. Fix the line above and run crooks-update again.")
+            # True only before the fast-forward. After it the code on disk HAS moved, and the
+            # stop's own sentence says what state it was left in; this line would contradict it.
+            if not doc["moved"]:
+                print("\nNothing was changed. Fix the line above and run crooks-update again.")
         return 1, doc
     except (OSError, subprocess.SubprocessError) as exc:
         doc["stop"] = {"stage": stage, "reason": f"{type(exc).__name__}: {exc}"}
@@ -465,17 +451,65 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true", help="say what would happen; change nothing")
     parser.add_argument("--branch", default="", help="the branch this checkout should be on")
     parser.add_argument("--test", action="store_true", help="run the offline suite after the fast-forward, before the restart")
-    parser.add_argument("--json", action="store_true", help="one JSON document instead of the lines; what CROOKS Control reads")
+    parser.add_argument("--json", action="store_true", help="one JSON document instead of the lines")
     args = parser.parse_args(argv)
     code, doc = run(check=args.check, branch=args.branch, test=args.test, quiet=args.json)
     if args.json:
         # A stopped git command quotes what it was doing, and a remote URL can carry a token
-        # in it. The document goes out through the same redactor the app's documents do —
-        # imported here rather than at the top, because control.py reads this module.
-        from scripts.control import redact
-
+        # in it. The document goes out through the redactor below.
         print(json.dumps(redact(doc), indent=2))
     return code
+
+
+# --------------------------------------------------------------------------- secrets
+#
+# Moved here from scripts/control.py, which went with the menu-bar app (DEC-071, ruling 38):
+# this command's --json document is the one that still leaves through it.
+
+# A key whose NAME says the value is a credential. The value goes; the key stays, so the shape
+# of the document does not change under its reader.
+SECRET_KEY_HINTS = ("token", "secret", "password", "passwd", "credential", "cookie", "authorization", "api_key", "apikey")
+# What a credential looks like whatever it is called. Shopify, Anthropic, Google, GitHub, Slack.
+SECRET_SHAPES = re.compile(
+    r"(shpat_|shpca_|shpss_|shppa_|sk-ant-[A-Za-z0-9-]*|sk-|ghp_|gho_|github_pat_|xoxb-|xoxp-|ya29\.|AIza)[A-Za-z0-9_\-]{6,}"
+)
+MASK = "[redacted]"
+
+
+def environment_secrets() -> list[str]:
+    """The values in this process's environment that are named like credentials. They are
+    never read from here for use — only so that a detail which happens to quote one is caught
+    before it is printed."""
+    found = []
+    for name, value in os.environ.items():
+        if len(value) >= 8 and any(hint in name.lower() for hint in ("token", "secret", "key", "password", "credential", "cookie")):
+            found.append(value)
+    return sorted(set(found), key=len, reverse=True)
+
+
+def redact(value, secrets: list[str] | None = None):
+    """Every document leaves through here. Nothing in CROOKS OS puts a secret in /health — the
+    keychain wrapper exists so that it cannot — but "nothing does" is a promise and this is a
+    test: a detail line quoting a token, a git remote with a token in the URL, an environment
+    variable echoed by a subprocess. All of them come out masked."""
+    secrets = environment_secrets() if secrets is None else secrets
+    if isinstance(value, dict):
+        out = {}
+        for key, inner in value.items():
+            if isinstance(inner, str) and any(hint in str(key).lower() for hint in SECRET_KEY_HINTS):
+                out[key] = MASK if inner else inner
+            else:
+                out[key] = redact(inner, secrets)
+        return out
+    if isinstance(value, list):
+        return [redact(item, secrets) for item in value]
+    if isinstance(value, str):
+        text = value
+        for secret in secrets:
+            if secret and secret in text:
+                text = text.replace(secret, MASK)
+        return SECRET_SHAPES.sub(MASK, text)
+    return value
 
 
 if __name__ == "__main__":

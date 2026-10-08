@@ -22,10 +22,9 @@ import pytest
 from app.clients.elevenlabs import ScribeClient, ScribeUnavailable
 from app.clients.elevenlabs_account import AccountCredit
 from app.clients.elevenlabs_tts import VoiceClient, VoiceUnavailable
-from app.clients.whisper import WhisperClient, WhisperUnavailable
 from app.routes.health import _health, _live, health
 from app.routes.speak import speak
-from app.speech.transcribe import Transcriber
+from app.speech.transcribe import UNHEARD_REASON, Transcriber
 from app.speech.voice_reasons import LISTENING_CREDIT_SPOKEN
 from tests.fake_credentials import elevenlabs_key
 
@@ -214,10 +213,7 @@ async def test_a_host_that_cannot_hear_says_the_credits_are_used_up(mock_http):
     from tests.test_decode import tone_pcm, webm_opus
 
     mock_http(lambda request: httpx.Response(401, json=QUOTA))
-    transcriber = Transcriber(
-        WhisperClient("http://fake"),
-        scribe=scribe(cooldown_s=300.0), primary="scribe", whisper_enabled=False,
-    )
+    transcriber = Transcriber(scribe(cooldown_s=300.0))
     result = await transcriber.from_blob(webm_opus(tone_pcm(1.0)))
     assert not result.ok
     assert result.reason == LISTENING_CREDIT_SPOKEN
@@ -228,9 +224,8 @@ async def test_a_host_that_cannot_hear_says_the_credits_are_used_up(mock_http):
 def test_a_scribe_that_is_not_out_of_credit_keeps_its_own_words():
     client = scribe()
     client.failing, client.last_error_kind = True, "server_error"
-    transcriber = Transcriber(WhisperClient("http://fake"), scribe=client, primary="scribe")
-    exc = WhisperUnavailable("down")
-    assert transcriber._unheard_reason(exc) == exc.spoken
+    transcriber = Transcriber(client)
+    assert transcriber._unheard_reason() == UNHEARD_REASON
 
 
 # ------------------------------------------------------- an empty account across a restart
@@ -430,15 +425,10 @@ def runtime_with(voice_client: VoiceClient, scribe_client: ScribeClient, tmp_pat
 
     return SimpleNamespace(
         build="test-build", uptime_s=1.0, manifest=None, order_cache=None,
-        settings=SimpleNamespace(
-            whisper_enabled=False, scribe_model="scribe_v2", whisper_model="small.en",
-            whisper_bin_dir=tmp_path / "whisper.cpp",
-        ),
-        transcriber=SimpleNamespace(primary="scribe"),
+        settings=SimpleNamespace(scribe_model="scribe_v2"),
         provider=SimpleNamespace(health=lambda: ok("claude")),
         shopify=SimpleNamespace(health=lambda: ok("store")),
         gmail=SimpleNamespace(health=lambda: (True, "profile")),
-        whisper=SimpleNamespace(health=lambda: ok("unused")),
         scribe=scribe_client,
         voice=voice_client,
         kb=SimpleNamespace(empty=False, files=["a.md"], chars=10),
@@ -568,13 +558,11 @@ def route_request(runtime: SimpleNamespace):
                     "app": SimpleNamespace(state=SimpleNamespace(runtime=runtime))})
 
 
-@pytest.mark.parametrize("whisper_enabled", [False, True])
-async def test_a_cached_health_shows_a_scribe_failure_since_it_was_filled(mock_http, tmp_path, whisper_enabled):
+async def test_a_cached_health_shows_a_scribe_failure_since_it_was_filled(mock_http, tmp_path):
     account = {"empty": False}
     mock_http(elevenlabs(account))
     scribe_client = scribe(cooldown_s=300.0)
     runtime = runtime_with(voice(cooldown_s=300.0), scribe_client, tmp_path)
-    runtime.settings.whisper_enabled = whisper_enabled
     request = route_request(runtime)
 
     healthy = await health(request, fresh=0)
@@ -593,11 +581,8 @@ async def test_a_cached_health_shows_a_scribe_failure_since_it_was_filled(mock_h
     assert down["speech"]["scribe_failure_kind"] == "credit"
     plainly_credit(down["speech"]["scribe_reason"])
     assert "credits are used up" in down["checks"]["speech"]["detail"]
-    if whisper_enabled:
-        # Whisper still hears: a slower assistant, not a deaf one.
-        assert down["checks"]["speech"]["ok"] is True and down["speech"]["effective"] == "whisper_fallback"
-    else:
-        assert down["checks"]["speech"]["ok"] is False and down["speech"]["effective"] == "none"
+    # Nothing behind Scribe since the local recogniser went (DEC-071, ruling 39): a deaf one.
+    assert down["checks"]["speech"]["ok"] is False and down["speech"]["effective"] == "none"
     # Changed deliberately on 2026-09-26, and the only existing assertion this repair changes.
     # It used to read `down["voice"]["ok"] is True, "the voice was not touched"`, which said
     # that an account refusing a transcription for credit tells the voice nothing. It tells it

@@ -189,19 +189,16 @@ async def next_walks_the_set(h: Harness) -> Result:
 
 
 async def halves_keep_their_own_trail(h: Harness) -> Result:
-    """The right half's Back must not move the left half's screen (D-3's other half)."""
+    """The right half's Back must not move the left half's screen (D-3's other half). The right
+    half is made directly (`Harness.second_branch`): the fork route went with Split on 8
+    October (DEC-071, ruling 37); each half keeping its own trail is still CLIVE's."""
     r = Result("nav_branch_isolation", "Two halves, two trails")
     session = "nav_halves"
     await h.touch("open.area", area="orders", scenario="nav_halves:left", session_id=session)
     left_deep = await h.open_order("1938", scenario="nav_halves:left_order", session_id=session)
     r.captures.append(left_deep)
-    fork = await h.client.post("/branches/fork", data={"session_id": session, "label": "right"},
-                               headers={"Tailscale-User-Login": "owner@example.com", "X-Forwarded-For": "100.64.0.9"})
-    body = fork.json() if fork.content else {}
-    other = str(((body.get("branch") or {}).get("branch_id")) or body.get("branch_id") or "")
-    r.checks.append(check("the orb divides", bool(other), f"branch_id={other!r}"))
-    if not other:
-        return r
+    other = h.second_branch(session, label="right")
+    r.checks.append(check("a second half is there", bool(other), f"branch_id={other!r}"))
 
     right_first = await h.open_order("1936", scenario="nav_halves:right", session_id=session, branch_id=other)
     r.captures.append(right_first)

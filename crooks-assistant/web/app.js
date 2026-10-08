@@ -822,7 +822,6 @@ function faultLabel(checks) {
   if (down('shopify')) return 'Shopify offline';
   if (down('gmail')) return 'Gmail offline';
   if (down('tts') || down('scribe')) return 'Voice fallback in use';
-  if (down('whisper')) return 'No offline recogniser';
   return 'Partly offline';
 }
 
@@ -861,13 +860,13 @@ function setService(name, ok) {
 
 // One health request in flight at a time, and never one that waits forever. Without both, a
 // pad on a bad link queues a poll every interval and releases them all at once when the link
-// returns — hundreds of requests in a second, seen on a second pad — and the Mac runs a
-// whisper inference for each.
+// returns — hundreds of requests in a second, seen on a second pad — and the server runs
+// its remote probes for each.
 let healthInFlight = false;
 const HEALTH_TIMEOUT_MS = 20000;   // the Mac's own checks give up at 6 s each
 
 async function pollHealth(fresh = false) {
-  // Not while a question is in flight: the Mac's checks run whisper and four remote probes,
+  // Not while a question is in flight: the server's checks run four remote probes,
   // and the answer is what the owner is waiting for.
   if (document.hidden || healthInFlight || (busy && !fresh)) return;
   healthInFlight = true;
@@ -927,7 +926,7 @@ async function pollHealth(fresh = false) {
   }
 }
 const HEALTH_NAMES = {
-  claude: 'Claude', speech: 'Hearing', scribe: 'ElevenLabs hearing', whisper: 'Offline hearing',
+  claude: 'Claude', speech: 'Hearing', scribe: 'ElevenLabs hearing',
   tts: 'Voice', shopify: 'Shopify', gmail: 'Gmail', knowledge_base: 'Knowledge', terminology: 'Product names',
   writes: 'Changes',
 };
@@ -989,7 +988,7 @@ function renderFamilies(families) {
 
 function renderHealthRows(checks) {
   clear(el.health);
-  const order = ['claude', 'speech', 'tts', 'shopify', 'gmail', 'writes', 'scribe', 'whisper', 'knowledge_base', 'terminology'];
+  const order = ['claude', 'speech', 'tts', 'shopify', 'gmail', 'writes', 'scribe', 'knowledge_base', 'terminology'];
   for (const key of order) {
     const c = checks[key];
     if (!c) continue;
@@ -2585,10 +2584,6 @@ function threadMoved(moved) {
 let branches = [];
 let focusedBranch = '';
 
-// Semantic states only. A background half says what it is doing in a word — the brief is
-// explicit that there are no fake percentages, because nothing here can compute one.
-const TASK_WORDS = { queued: 'queued', working: 'working', waiting: 'waiting', ready: 'ready', failed: 'failed' };
-
 function applyBranches(shape) {
   if (!shape || typeof shape !== 'object' || !Array.isArray(shape.branches)) return;
   branches = shape.branches;
@@ -2605,260 +2600,31 @@ function applyBranches(shape) {
   // Whose messages these are. A message about the other half stays where it is and stops
   // being drawn, which is the fix for the merge line that landed over the wrong workspace.
   if (window.CrooksNotify) window.CrooksNotify.focusBranch(focusedBranch);
-  const split = branches.length > 1 ? 1 : 0;
-  const which = branches.length > 1 && branches[1] && branches[1].branch_id === focusedBranch ? 1 : 0;
-  if (orb && typeof orb.setSplit === 'function') orb.setSplit(split, which);
   // What `busy` means changed with the focus: this half's turn, not the other's.
   syncBusy();
   T.record('branches', { count: branches.length, id: focusedBranch });
 }
 
-/* The word the GLASS says for the Mac's own area token. ORDERS, INBOX, SALES and PRODUCTS are
-   the shop's own words and pass through untouched. EMPTY and WORKSPACE are not words: they are
-   database states that reached the glass, and the Phase 5 visual pass caught a chip reading
-   "EMPTY To go out" — a control saying at once that it holds nothing and that it is about its
-   parent's working set. The Mac keeps its tokens (they are what `branch.headline` is asserted
-   on); the chip says something a person would say. */
-const AREA_WORDS = { EMPTY: 'NOTHING YET', WORKSPACE: 'THIS HALF' };
-
-/* Is there anything on that half worth folding back into this one? Every field here is one
-   the Mac sends with the branch; none of it is inferred from the screen.
-
-   WHY THIS DECIDES WHETHER MERGE IS DRAWN, and why the first answer written here was wrong.
-   The first version of this said a Merge over an empty half is §18 fake UI — "a control that
-   cannot succeed". That is false, and the live session says so in its own record:
-   `merge_close_tap.observed.merge_status: 200`, on a half whose `cards` array was empty.
-   `POST /branches/{id}/merge` folds an empty half back perfectly well; it returns a summary
-   with nothing in it, which is the truth. So §18 is not the reason.
-
-   The reason is §25 and §26. Divided, the owner has at most two distinct outcomes: stop
-   having two halves AND KEEP what the other one found (Merge), or stop having two halves and
-   LET IT GO (Close). When the other half holds nothing those are not two outcomes, they are
-   one — there is nothing to keep or let go of — and §25 says a control that does not earn
-   its space comes off the glass. §26 says which of the two words survives: "Merge" over a
-   half with nothing in it describes a fold that does not happen, and "Close" is simply true.
-
-   That is also F's §25 finding answered where it belongs. The gate measured Merge at x=590
-   and Close at x=664 on a 601 px screen — a 571 px strip carrying 807 px of controls, two of
-   them off the glass. §25's answer to a strip that does not fit is to remove a control, not
-   to shrink four, and this is the control that had nothing to do on the screen where the
-   strip was worst: the idle divided one.
-
-   So the rule is COUNT THE OUTCOMES, and the gate asserts it in that form
-   (`undivide_controls` in scripts/browser/replay.js): one control per distinct outcome, each
-   one hit-testable. Which means this function must never make Merge disappear from a half
-   that holds something — that would be the opposite defect, and the merge_close_tap replay
-   is the fixture that would catch it. */
-function holdsSomething(half) {
-  if (!half || typeof half !== 'object') return false;
-  if (String(half.state || '').toUpperCase() === 'READY') return true;          // work that finished
-  return Boolean(half.has_workspace || half.entity || half.set_id
-    || half.building || half.compose || half.workflow);
-}
-
-/* One half, as §17 asks for it: which half it is, what it is about, what it is DOING, and
-   whether it holds a workspace at all. Four facts, all four from the Mac. */
-function branchChip(half, index) {
-  const head = half.headline && typeof half.headline === 'object' ? half.headline : {};
-  const state = String(half.state || '').toLowerCase();
-  const word = TASK_WORDS[state] || (half.status === 'BACKGROUND' ? 'aside' : '');
-  const token = String(head.area || half.label || (index === 0 ? 'FIRST' : 'SECOND'));
-  const area = AREA_WORDS[token.toUpperCase()] || token;
-  // A half the Mac describes with a STATE rather than a place holds nothing identifiable, and
-  // a half that holds nothing must not also carry a task label. The visual pass caught the
-  // chip saying both: "EMPTY To go out" — it holds nothing, AND it is about its parent's
-  // working set. A fork inherits its parent's set and trail (app/session/branch.py:fork_from,
-  // deliberately) so `headline.detail` falls back to that set's label; that is the right
-  // answer for a half that is working on it, and no answer at all for one that is not.
-  const bare = Object.prototype.hasOwnProperty.call(AREA_WORDS, token.toUpperCase());
-  const chip = document.createElement('button');
-  chip.type = 'button';
-  chip.className = `branch-chip${state === 'ready' ? ' is-ready' : ''}${state === 'failed' ? ' is-failed' : ''}`;
-  chip.setAttribute('aria-pressed', half.branch_id === focusedBranch ? 'true' : 'false');
-  // WHICH half, before anything else. The Phase 3 session recorded six taps between two halves
-  // in nine seconds looking for the difference; "HALF 1" is the difference that never depends
-  // on what either half happens to hold.
-  const which = document.createElement('span');
-  which.className = 'branch-which';
-  which.textContent = `HALF ${index + 1}`;
-  chip.appendChild(which);
-  const name = document.createElement('span');
-  name.className = 'branch-area';
-  name.textContent = area;
-  chip.appendChild(name);
-  // The task, and only when it is a task rather than the state said twice, or the identity
-  // said twice — "NOTHING YET · nothing yet" is the same contradiction in the other order.
-  const detail = String(head.detail || '');
-  const says = detail.toLowerCase();
-  if (!bare && detail && says !== state && says !== area.toLowerCase() && says !== 'nothing yet') {
-    const what = document.createElement('span');
-    what.className = 'branch-detail';
-    what.textContent = detail;
-    chip.appendChild(what);
-  }
-  if (word) {
-    const doing = document.createElement('span');
-    doing.className = 'branch-state';
-    doing.textContent = word;
-    chip.appendChild(doing);
-  }
-  // Whether there is a SCREEN on that half, which is a different question from what it is
-  // DOING, and the one the owner was asking when he tapped a half and saw nothing. Not said
-  // when the identity line is already saying it: "NOTHING YET / no screen yet" is the
-  // contradiction this chip exists to have stopped making, in the other direction.
-  if (!half.has_workspace && !bare) {
-    const nothing = document.createElement('span');
-    nothing.className = 'branch-bare';
-    nothing.textContent = 'no screen yet';
-    chip.appendChild(nothing);
-  }
-  chip.dataset.branch = half.branch_id;
-  chip.dataset.head = head.title || '';
-  chip.setAttribute('aria-label',
-    `Half ${index + 1} of 2, ${head.title || area}${word ? `, ${word}` : ''}${half.has_workspace ? '' : ', nothing on it yet'}`);
-  chip.addEventListener('click', () => focusBranch(half.branch_id));
-  return chip;
-}
-
-/* Merge and Close, each with its destination RESOLVED BEFORE IT IS DRAWN (§6). The id is
-   closed over here, not looked up in a click handler — a control whose target is worked out
-   when the thumb lands is a control that can silently do nothing, which is what
-   `branchCommand(undefined, 'merge')` did: it returned on its first line. */
-function branchAct(label, verb, branchId, why) {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'branch-act';
-  button.dataset.action = verb;
-  button.dataset.branch = branchId;
-  button.textContent = label;
-  button.setAttribute('aria-label', why);
-  button.title = why;
-  button.addEventListener('click', () => branchCommand(branchId, verb));
-  return button;
-}
-
-/* The halves, named, and the way in. TWO HOMES, and which is which is the whole of the rule:
- *
- *   THE HALVES — both chips, Merge and Close — are ALWAYS in the branch band of `.app`
- *   (`#branch-zone`), in both modes. That is D-1's fix: the band is a row of `.app`, outside
- *   the stage `#talk` is positioned in, so the voice target cannot reach it and the chips need
- *   no z-index argument to be pressable.
- *
- *   THE INVITATION — one Split chip, while there is one half — is in the band on the idle
- *   screen, where there is room to say what it is for, and in the navigation rail beside Back
- *   and Next when cards are up.
- *
- * Two defects set that division, and it is the only shape that answers both. Drawing the
- * HALVES into the nav rail made it six heterogeneous controls wide — a landing, a trail step,
- * a list step, a set cursor and two branch chips — which at 601 CSS px RAN OFF THE RIGHT EDGE
- * and cut the second half's chip in half. (The collision gate cannot see that: it looks for
- * overlapping rectangles, not for a flex row whose last child is clipped by its own
- * container.) And holding the band open in context mode for the ONE chip cost the first
- * viewport 54px, which took three density fixtures past the screen-and-a-quarter ceiling
- * (tests/test_density.py) — a zone is not free, and this one is worth its space when there are
- * two halves in it and not when there is one chip.
- *
- * With one half there is always a chip, wherever it is: the feature must not depend on a
- * secret gesture.
+/* The branch band and the line above the cards. They drew the owner's Split — a chip for each
+ * half, Merge and Close, and which half the screen was — and Split was retired (DEC-050) and
+ * deleted on the owner's ruling of 8 October (DEC-071, ruling 37): no route makes a second half
+ * any more, so there is never anything to draw in them. The elements stay in the page's layout
+ * (web/index.html), hidden, so nothing around them moves.
  */
 function drawBranchBar() {
-  const inRail = branches.length < 2 && el.body.dataset.mode === 'context' && el.branchRail;
-  const host = inRail ? el.branchRail : el.branchBar;
-  if (!host) return;
-  for (const other of [el.branchBar, el.branchRail]) {
-    if (other && other !== host) { clear(other); other.hidden = true; }
+  for (const host of [el.branchBar, el.branchRail]) {
+    if (host) { clear(host); host.hidden = true; }
   }
-  clear(host);
-
-  // V0.5 retires user-facing Split. Concurrency remains an internal capability, but the
-  // owner no longer has to allocate CLIVE's attention by manufacturing "halves". Existing
-  // two-branch sessions are still rendered below so an in-flight legacy session is not
-  // stranded; a single normal session exposes no Split invitation or branch chrome.
-  if (branches.length < 2) {
-    host.hidden = true;
-    if (el.branchZone) el.branchZone.hidden = true;
-    drawBranchHead();
-    return;
-  }
-
-  host.hidden = false;
-  if (el.branchZone) el.branchZone.hidden = false;
-  // Two halves, divided visibly: a column each, a rule between them, and neither column able
-  // to push the other off the screen (`minmax(0,1fr)` in the stylesheet).
-  const halves = document.createElement('div');
-  halves.className = 'branch-halves';
-  branches.forEach((half, index) => {
-    if (index) {
-      const rule = document.createElement('span');
-      rule.className = 'branch-divide';
-      rule.setAttribute('aria-hidden', 'true');
-      halves.appendChild(rule);
-    }
-    halves.appendChild(branchChip(half, index));
-  });
-  host.appendChild(halves);
-
-  const other = branches.find((b) => b.branch_id !== focusedBranch) || null;
-  const otherId = other && other.branch_id ? other.branch_id : '';
-  const acts = document.createElement('div');
-  acts.className = 'branch-acts';
-  if (otherId) {
-    const name = ((other.headline || {}).area) || other.label || 'the other half';
-    // One control per distinct outcome (§25/§26 — the reasoning is above `holdsSomething`).
-    // Keep what the other half found, or let it go: two acts while it holds something, one
-    // act when it does not, and the word that is true either way is the one that is drawn.
-    if (holdsSomething(other)) {
-      acts.appendChild(branchAct('Merge', 'merge', otherId, `Fold ${name} back into this half`));
-    }
-    acts.appendChild(branchAct('Close', 'cancel', otherId, `Let ${name} go`));
-  }
-  if (acts.childNodes.length) host.appendChild(acts);
+  if (el.branchZone) el.branchZone.hidden = true;
   drawBranchHead();
 }
 
-// The line on the screen itself, above the cards: which half this is, and what it is doing.
-// The chips say it too, but they sit in a rail of eight other controls, and the owner's
-// question was about the SCREEN — two of them looked the same. Drawn only when the orb is
-// divided: with one half there is nothing to tell apart.
 function drawBranchHead() {
   const node = el.branchHead;
   if (!node) return;
-  const half = branches.find((b) => b.branch_id === focusedBranch) || branchState;
-  const head = half && half.headline && typeof half.headline === 'object' ? half.headline : null;
-  if (branches.length < 2 || !head) { node.textContent = ''; node.hidden = true; node.dataset.state = ''; return; }
-  clear(node);
-  /* The band says what the chip says, in the same words, from the same place. The Mac sends
-     `headline.words` for exactly this (app/session/branch.py SAID_ALOUD); AREA_WORDS below
-     is the fallback for a Mac older than this tablet build, and the two tables are held
-     equal by a test so they cannot drift.
-
-     A token that is a STATE rather than a place becomes one sentence and NO detail. This
-     band was drawing "EMPTY Orders" over a focused empty half — a line saying at once that
-     the half holds nothing and that it is about its parent's working set, which is the
-     §26 repetition and the §18 contradiction in six words. (A fork inherits its parent's
-     set and trail by design, app/session/branch.py fork_from, so `detail` falls back to
-     that set's label: the right answer for a half working on it, and no answer at all for
-     one that is not.) `.head-area` is uppercased by the stylesheet, so the Mac's sentence
-     case and this fallback's capitals render the same. */
-  const token = String(head.area || '');
-  const bare = Object.prototype.hasOwnProperty.call(AREA_WORDS, token.toUpperCase());
-  const area = document.createElement('span');
-  area.className = 'head-area';
-  area.textContent = bare ? (head.words || AREA_WORDS[token.toUpperCase()]) : token;
-  node.appendChild(area);
-  if (head.detail && !bare) {
-    const detail = document.createElement('span');
-    detail.className = 'head-detail';
-    detail.textContent = head.detail;
-    node.appendChild(detail);
-  }
-  const which = branches.findIndex((b) => b.branch_id === focusedBranch);
-  const side = document.createElement('span');
-  side.className = 'head-which';
-  side.textContent = which === 0 ? 'half 1 of 2' : 'half 2 of 2';
-  node.appendChild(side);
-  node.dataset.state = String(head.state || '').toLowerCase();
-  node.hidden = false;
+  node.textContent = '';
+  node.hidden = true;
+  node.dataset.state = '';
 }
 
 /* One way out of a half, as a control that either WORKS or SAYS WHY IT CANNOT. §6/D-6:
@@ -2981,50 +2747,6 @@ function offerBeside(words, changed) {
   T.record('render', { name: 'offer_beside', items: ['half_empty'] });
 }
 
-// Tapping a half is switching workspaces (§3D of the Phase 3 brief). Focusing it on the Mac
-// is half of that; the other half is drawing what THAT branch is looking at, which the Mac
-// holds per branch and hands back through `branch.show`.
-async function focusBranch(branchId) {
-  if (!branchId || branchId === focusedBranch) return;
-  const before = screenFingerprint();
-  const data = await branchCommand(branchId, 'focus');   // applyBranches swaps the decks
-  if (!data) return;
-  haptic(HAPTIC.start);
-  // `applyBranches` has already swapped this half's deck in, so its own cards are on the
-  // glass when the tablet still holds them; when it does not, the Mac's copy of that half's
-  // screen is asked for — and a half that holds nothing draws THAT, rather than leaving the
-  // other half's cards standing under a different chip.
-  const drawn = historyIndex >= 0 || await showBranchWorkspace(branchId);
-  if (!drawn) {
-    clear(el.cards);
-    renderStackChips();
-    el.answer.textContent = '';
-    el.heard.textContent = '';
-    setMode('orb');
-    // Not "this half is empty" — a half that holds nothing draws its own screen above
-    // (showBranchWorkspace, from the Mac's own words and its offer of ways out). Reaching
-    // here means the Mac did not answer for it at all.
-    notify('That half could not be read from the server.', { tone: 'bad', code: 'half_unreachable', branch: branchId });
-  }
-  drawBranchHead();
-  // Whether the SCREEN changed, not whether the focus did. A tap that moved the focus and
-  // left the glass identical is a defect, and this is the line that makes it visible in the
-  // timeline rather than only on the owner's face: the report could say no more than "focus
-  // changed with nothing redrawn", four times, without being able to say what the screen was.
-  T.record('branch_switch', {
-    id: branchId, name: screenFingerprint() === before ? 'same_screen' : 'redrawn',
-    detail: (data.branches || []).map((b) => (b.headline || {}).title || '').join(' | ').slice(0, 120),
-  });
-}
-
-// What is on the glass, in one short string: the header, and the cards in order with what
-// each is about. Compared before and after a switch, and never shown to anybody.
-function screenFingerprint() {
-  const cards = Array.from(document.querySelectorAll('#cards .card'))
-    .map((c) => `${c.dataset.type || ''}:${c.dataset.ref || ''}`).join(',');
-  return `${el.branchHead ? el.branchHead.textContent : ''}|${cards}`;
-}
-
 // What a branch is looking at, drawn. Filled in with the per-branch decks below.
 async function showBranchWorkspace(branchId) {
   const shown = await semanticCommand('branch.show', { branch_id: branchId });
@@ -3072,85 +2794,6 @@ async function restoreWorkspace() {
     const drawn = await showBranchWorkspace(focusedBranch);
     T.record('navigate', { nav: 'restore', name: drawn ? 'drawn' : 'nothing', id: focusedBranch });
   } catch { /* offline: the idle screen is the honest one */ }
-}
-
-// Every branch verb is one POST and one answer the page redraws itself from. The tablet
-// never decides that a half has moved, merged or closed.
-async function branchCommand(branchId, verb) {
-  if (!branchId && verb !== 'fork') return;
-  const form = new FormData();
-  form.append('session_id', sessionId);
-  const path = verb === 'fork' ? '/branches/fork' : `/branches/${encodeURIComponent(branchId)}/${verb}`;
-  try {
-    const response = await fetch(path, { method: 'POST', body: form, cache: 'no-store' });
-    const data = await response.json().catch(() => ({}));
-    T.record('branch_command', { action: verb, status: response.status, id: branchId || undefined });
-    if (!response.ok) { notify(String(data.detail || 'That is not possible just now.'), { tone: 'bad', code: 'branch_refused' }); return null; }
-    applyBranches(data);
-    if (verb === 'merge' && data.merged) {
-      const waiting = Array.isArray(data.merged.still_waiting) ? data.merged.still_waiting.length : 0;
-      // D-10. "Merged. 2 things it looked at came back." IS GONE, and so is every other way
-      // of saying `merged`: the orb visibly becoming one orb, the two chips becoming one and
-      // the deck gaining what came back are the notification. Three of the live session's
-      // five texted notifications were `divided` and two were `merged`; they are all zero
-      // now, and web/notify.js refuses either code outright (SCREEN_SHOWS).
-      //
-      // What the screen does NOT show is a change the other half had staged and nobody has
-      // authorised yet — it survived the merge and is still waiting for a gesture. That is a
-      // meaningful task outcome with nowhere else to live, so it stays, as a WARN with its
-      // own name, and only when there is one. On the session's own timeline, where zero
-      // proposals were ever staged, this says nothing at all.
-      if (waiting) {
-        notify(`${waiting} change${waiting === 1 ? '' : 's'} came back still waiting for you.`,
-          { tone: 'warn', code: 'merge_waiting', branch: focusedBranch });
-      }
-    }
-    if (verb === 'cancel' && Array.isArray(data.revoked) && data.revoked.length) {
-      settleProposals(data.revoked, 'revoked', 'Withdrawn');
-    }
-    return data;
-  } catch {
-    notify('The server did not answer.', { class: 'global', machine: true, tone: 'bad', code: 'backend_silent' });
-    return null;
-  }
-}
-
-// The gestures the orb itself carries. Two fingers pulled apart divide it; pinched together
-// they merge it. A tap on a half while it is divided is how the owner chooses which one he
-// is talking to. Everything a gesture does, the chips below do too — an eight-inch tablet on
-// a workbench should never have exactly one way to do a thing.
-// The spread and the pinch themselves are measured on the hold surfaces (onHoldMove), where
-// the fingers actually are. They used to be touch listeners on the orb zone, which the talk
-// overlay covers in orb mode — so in the one mode the owner would try the gesture, it fired
-// nothing. The Split chip and the gesture post the same command.
-async function splitOrb(how) {
-  if (branches.length > 1) return;
-  T.record('navigate', { nav: 'split', name: how });
-  const data = await branchCommand('', 'fork');
-  // D-10. "Divided. Tap a half to talk to it; the other keeps working." IS GONE. It was said
-  // three times in the live session, over a screen that had just visibly become two halves
-  // with two named chips under it. The haptic stays: it is the confirmation a thumb gets
-  // without looking, and it is not a message.
-  if (data) haptic(HAPTIC.done);
-}
-async function mergeOrb(how) {
-  const other = (branches.find((b) => b.branch_id !== focusedBranch) || {}).branch_id;
-  if (!other) return;
-  T.record('navigate', { nav: 'merge', name: how });
-  await branchCommand(other, 'merge');
-}
-
-function wireOrbGestures() {
-  const zone = el.orbZone;
-  if (!zone || !zone.addEventListener) return;
-  zone.addEventListener('click', (event) => {
-    if (branches.length < 2) return;
-    const box = zone.getBoundingClientRect ? zone.getBoundingClientRect() : null;
-    if (!box) return;
-    const half = event.clientX < box.left + box.width / 2 ? 0 : 1;
-    const wanted = branches[half];
-    if (wanted && wanted.branch_id !== focusedBranch) branchCommand(wanted.branch_id, 'focus');
-  });
 }
 
 // The half of the orb this screen belongs to, as the Mac last described it. Every /turn
@@ -4219,13 +3862,11 @@ function cancelTurnAndListen() {
   setTimeout(() => { if (holding && !busy && !recording) { setState('LISTENING'); startRecording(); } }, 60);
 }
 
-// V0.5 no longer lets a spread create user-visible Split state. Multi-touch still belongs to
-// the gesture machine (so it never becomes accidental speech), and a pinch can collapse an
-// already-existing legacy two-branch session. New concurrency is owned by CLIVE internally.
+// Multi-touch still belongs to the gesture machine, so a second finger never becomes
+// accidental speech. A spread or a pinch on the hold surfaces does nothing else: they divided
+// and merged the orb, and Split was deleted on the owner's ruling of 8 October (DEC-071).
 function onHoldMove(event) {
-  const moved = pointers.move({ pointerId: event.pointerId, x: event.clientX, y: event.clientY });
-  if (!moved) return;
-  if (moved.gesture === 'pinch' && branches.length > 1) mergeOrb('gesture');
+  pointers.move({ pointerId: event.pointerId, x: event.clientX, y: event.clientY });
 }
 
 function onHoldEnd(event) {
@@ -4770,7 +4411,6 @@ if (window.CrooksNotify) {
   });
 }
 
-wireOrbGestures();
 registerServiceWorker();
 checkReachable();
 acquireWakeLock();
@@ -5085,9 +4725,9 @@ el.talk.addEventListener('pointerdown', () => {
 /* ============================================================== compose · end */
 
 // ------------------------------------------------------------------ boot
-// After every declaration above. The Split control is on the idle screen from the first
-// frame — one chip while there is one half — and a reload asks the Mac for the screen it
-// still holds rather than starting from nothing.
+// After every declaration above. The branch band is held empty and hidden from the first
+// frame (Split was deleted on 8 October, DEC-071 ruling 37), and a reload asks the server for
+// the screen it still holds rather than starting from nothing.
 drawBranchBar();
 restoreWorkspace();
 

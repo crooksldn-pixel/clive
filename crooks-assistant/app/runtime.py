@@ -19,7 +19,6 @@ from app.clients.elevenlabs_account import AccountCredit
 from app.clients.elevenlabs_tts import VoiceClient
 from app.clients.gmail import GmailClient
 from app.clients.shopify import ShopifyClient
-from app.clients.whisper import WhisperClient
 from app.kb.loader import KnowledgeBase, build_system_prompt, load
 from app.logging.turnlog import TurnLog
 from app.providers.base import ClaudeProvider
@@ -39,7 +38,6 @@ class NoStaffAssistant(LookupError):
 class Runtime:
     settings: Settings
     sessions: SessionManager
-    whisper: WhisperClient
     scribe: ScribeClient
     voice: VoiceClient
     transcriber: Transcriber
@@ -153,7 +151,7 @@ class Runtime:
         await self._stop_retired()
         while self.retired_providers:
             await asyncio.sleep(0.05)
-        for client in (self.voice, self.scribe, self.whisper, self.shopify):
+        for client in (self.voice, self.scribe, self.shopify):
             close = getattr(client, "aclose", None)
             if close is not None:
                 try:
@@ -550,7 +548,6 @@ def build(settings: Settings | None = None) -> Runtime:
     settings.bench_audio_dir.mkdir(parents=True, exist_ok=True)
 
     sessions = get_manager(settings.session_idle_timeout_s)
-    whisper = WhisperClient(settings.whisper_url, model=settings.whisper_model)
     # Speaking and listening are two products on one ElevenLabs plan and one key, so what the
     # account says about its credit is one fact. Scribe is the only one of the two that probes
     # it; the voice reads the answer here rather than paying for a synthesis to find out.
@@ -587,13 +584,10 @@ def build(settings: Settings | None = None) -> Runtime:
         voice.apply(voice_id=chosen.get("voice_id", ""), voice_name=chosen.get("voice_name", ""),
                     model=chosen.get("model", ""), voice_settings=voice_prefs.voice_settings(chosen),
                     chosen_here=bool(chosen.get("voice_id")))
-    # The transcript is what was said: no term list biases either recogniser and nothing
-    # rewrites the words afterwards (app/speech/transcribe.py).
+    # The transcript is what was said: no term list biases the recogniser and nothing rewrites
+    # the words afterwards (app/speech/transcribe.py).
     transcriber = Transcriber(
-        whisper,
-        scribe=scribe,
-        primary=settings.stt_primary,
-        whisper_enabled=settings.whisper_enabled,
+        scribe,
         save_dir=settings.bench_audio_dir if settings.save_captures else None,
         max_saved=settings.max_saved_captures,
     )
@@ -656,17 +650,6 @@ def build(settings: Settings | None = None) -> Runtime:
     from app.anticipation.learning import install as install_learner
 
     install_learner(Learner(path=settings.log_dir / "anticipation" / "transitions.json"))
-
-    # The shipping provider (§20). Easyship is the provider this shop is going to use and it
-    # is NOT integrated, so what is installed is its adapter in the only state it can honestly
-    # be in: refusing, and naming both halves of what is missing. Installing it rather than
-    # nothing is what makes the capability row and the shipping context say "Easyship is not
-    # connected: CROOKS_EASYSHIP_TOKEN is unset and the client is not written" instead of the
-    # vaguer "no provider" — the owner can act on the first and not on the second.
-    from app.shipping import install as install_shipping
-    from app.shipping.easyship import EasyshipProvider
-
-    install_shipping(EasyshipProvider())
 
     shopify_tools.bind(shopify)
     from app.analytics.cache import OrderCache
@@ -821,7 +804,6 @@ def build(settings: Settings | None = None) -> Runtime:
         build=web_build_id(),
         settings=settings,
         sessions=sessions,
-        whisper=whisper,
         scribe=scribe,
         voice=voice,
         transcriber=transcriber,

@@ -16,7 +16,6 @@ import httpx
 import pytest
 
 from app.clients.elevenlabs import ScribeClient
-from app.clients.whisper import Transcript, WhisperClient
 from app.speech.transcribe import Transcriber
 from tests.fake_credentials import elevenlabs_key
 
@@ -163,14 +162,6 @@ async def test_no_speech_keeps_the_context_and_says_so_briefly(turning):
 # -------------------------------------------------------------------- the words, spoken
 
 
-class NoWhisper(WhisperClient):
-    def __init__(self) -> None:
-        super().__init__("http://fake")
-
-    async def transcribe(self, wav: bytes) -> Transcript:
-        raise AssertionError("Scribe answered; the fallback is not asked")
-
-
 async def test_what_scribe_heard_is_exactly_what_the_model_receives(turning):
     pytest.importorskip("av")
     from tests.test_decode import tone_pcm, webm_opus
@@ -185,7 +176,7 @@ async def test_what_scribe_heard_is_exactly_what_the_model_receives(turning):
     scribe = ScribeClient(cooldown_s=0.0)
     scribe._key = elevenlabs_key("every-turn")
     scribe._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    turning.runtime.transcriber = Transcriber(NoWhisper(), scribe=scribe, primary="scribe")
+    turning.runtime.transcriber = Transcriber(scribe)
 
     response = await turning.post(
         "/turn", data={"session_id": "m5"},

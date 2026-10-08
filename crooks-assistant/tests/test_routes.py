@@ -73,15 +73,15 @@ async def test_health_names_each_subsystem(client):
     body = (await client.get("/health")).json()
     assert body["status"] in {"ok", "degraded"}
     assert {
-        "claude", "scribe", "whisper", "speech", "tts", "shopify", "gmail", "knowledge_base",
+        "claude", "scribe", "speech", "tts", "shopify", "gmail", "knowledge_base",
     } <= body["checks"].keys()
-    # The catalogue term list is gone with the recogniser biasing it fed (28 September 2026).
-    assert "terminology" not in body["checks"]
+    # The catalogue term list is gone with the recogniser biasing it fed (28 September 2026),
+    # and the local recogniser's check with the recogniser (DEC-071, ruling 39).
+    assert "terminology" not in body["checks"] and "whisper" not in body["checks"]
     for name, check in body["checks"].items():
         # ok and detail are the contract every check keeps, and the tablet reads nothing else.
-        # Two checks add one optional field apiece: `whisper` says disabled=True where the host
-        # was never given a local recogniser, and `speech` says which redundancy world the
-        # reader is in. Anything beyond these is a check inventing its own shape.
+        # `speech` adds one optional field, saying there is no redundancy behind Scribe; anything
+        # beyond these is a check inventing its own shape.
         assert {"ok", "detail"} <= set(check), name
         assert set(check) <= {"ok", "detail", "disabled", "redundancy"}, name
     assert "version" in body and "uptime_s" in body
@@ -898,8 +898,9 @@ async def test_a_cancel_on_one_half_leaves_the_other_halfs_answer_spoken(client)
     runtime = app.state.runtime
     live = runtime.sessions.get_or_create("halves")
     left = live.branch().branch_id
-    forked = (await client.post("/branches/fork", data={"session_id": "halves"})).json()
-    right = forked["branch_id"]
+    from tests.second_half import second_half  # the fork route went with Split (DEC-071, ruling 37)
+
+    right = second_half(live)
     gate = asyncio.Event()
 
     async def slow_turn(session_id, text):

@@ -1,4 +1,14 @@
-"""The orb, divided: two halves that share what is safe and share nothing that is not."""
+"""A conversation's branch: its own place, and — where CLIVE keeps a second — two that share what is
+safe and share nothing that is not.
+
+The owner's Split, which divided the orb into halves through POST /branches/fork, focus,
+background, merge and cancel, was retired by DEC-050 and its routes were deleted on the owner's
+ruling of 8 October (DEC-071, ruling 37). The tests of those five routes went with them: the orb
+divides once, a new half starts where the old one is, focus, a merge's summary, a half with a
+change waiting cannot be put aside, cancelling one half, the last half cannot be cancelled. What
+is here holds what stays: the branch itself, its trail and marks, whose session it is, and the
+per-branch isolation CLIVE's own code keeps (tests/second_half.py makes the second branch).
+"""
 
 from __future__ import annotations
 
@@ -6,8 +16,9 @@ import re
 
 import pytest
 
-from app.session.branch import MAX_BRANCHES, Branch, Workflow
+from app.session.branch import Branch, Workflow
 from app.session.models import Session
+from tests.second_half import second_half
 
 
 @pytest.fixture()
@@ -92,87 +103,6 @@ async def client(monkeypatch):
             yield c
 
 
-async def test_the_orb_divides_once(client):
-    first = (await client.post("/branches/fork", data={"session_id": "br"})).json()
-    assert len(first["branches"]) == 2 and first["can_fork"] is False
-    second = await client.post("/branches/fork", data={"session_id": "br"})
-    assert second.status_code == 409 and second.json()["code"] == "too_many_branches"
-    assert MAX_BRANCHES == 2
-
-
-async def test_the_new_half_starts_where_the_old_one_is(client):
-    session = client.runtime.sessions.get("br")
-    parent = session.branch()
-    parent.visit("order", "o1", "#1938", tab="items")
-    parent.set_id = "set_abc"
-    body = (await client.post("/branches/fork", data={"session_id": "br"})).json()
-    child = session.branches[body["branch_id"]]
-    assert child.entity["ref"] == "o1" and child.set_id == "set_abc" and child.parent_id == parent.branch_id
-    child.visit("customer", "c9", "Someone Else")
-    assert parent.entity["ref"] == "o1", "and then goes its own way"
-
-
-async def test_focus_moves_the_owners_attention_and_nothing_else(client):
-    body = (await client.post("/branches/fork", data={"session_id": "br"})).json()
-    other = body["branch_id"]
-    moved = (await client.post(f"/branches/{other}/focus", data={"session_id": "br"})).json()
-    assert moved["focused"] == other
-    session = client.runtime.sessions.get("br")
-    assert len(session.branches) == 2, "both halves are still there"
-
-
-async def test_a_merge_brings_back_a_summary_not_a_transcript(client):
-    session = client.runtime.sessions.get("br")
-    body = (await client.post("/branches/fork", data={"session_id": "br"})).json()
-    other = session.branches[body["branch_id"]]
-    other.visit("customer", "c1", "Millie Rogers")
-    other.remember_result("shopify_customer_history", summary="shopify_customer_history: Millie Rogers", ref="c1", ms=120.0)
-    merged = (await client.post(f"/branches/{other.branch_id}/merge", data={"session_id": "br"})).json()
-    summary = merged["merged"]
-    assert summary["looked_at"][0]["ref"] == "c1"
-    assert summary["read"][0]["tool"] == "shopify_customer_history"
-    assert "answer" not in summary and "question" not in summary, "structure, not a conversation"
-    assert len(merged["branches"]) == 1
-
-
-async def test_a_half_with_a_change_waiting_cannot_be_put_aside(client):
-    from types import MappingProxyType
-
-    from app.actions.models import ActionProposal, ActionStatus
-
-    session = client.runtime.sessions.get("br")
-    body = (await client.post("/branches/fork", data={"session_id": "br"})).json()
-    other = body["branch_id"]
-    session.proposals.append(ActionProposal(
-        proposal_id="prop_x", session_id="br", epoch=session.epoch, tool_name="shopify_order_note_append",
-        operation="order_note_append", risk="AMBER", model_args=MappingProxyType({}), execution=MappingProxyType({}),
-        entity_kind="order", entity_ref="o1", entity_label="#1938", interaction="tap_commit", reversible=True,
-        before={}, expected_after={}, summary={}, fingerprint="f", created_at=0.0, expires_at=9e9,
-        status=ActionStatus.PENDING, branch_id=other,
-    ))
-    refused = await client.post(f"/branches/{other}/background", data={"session_id": "br"})
-    assert refused.status_code == 409 and refused.json()["code"] == "change_waiting"
-
-
-async def test_cancelling_one_half_leaves_the_other_alone(client):
-    session = client.runtime.sessions.get("br")
-    keeper = session.branch()
-    keeper.visit("order", "o1", "#1938")
-    body = (await client.post("/branches/fork", data={"session_id": "br"})).json()
-    other = body["branch_id"]
-    gone = (await client.post(f"/branches/{other}/cancel", data={"session_id": "br"})).json()
-    assert [b["branch_id"] for b in gone["branches"]] == [keeper.branch_id]
-    assert keeper.entity["ref"] == "o1", "the other half is exactly as it was"
-    assert session.branches[other].status == "CANCELLED"
-
-
-async def test_the_last_half_cannot_be_cancelled(client):
-    session = client.runtime.sessions.get("br")
-    only = session.branch().branch_id
-    refused = await client.post(f"/branches/{only}/cancel", data={"session_id": "br"})
-    assert refused.status_code == 409 and refused.json()["code"] == "last_branch"
-
-
 async def test_back_and_forward_restore_the_tab_and_the_scroll(client):
     session = client.runtime.sessions.get("br")
     branch = session.branch()
@@ -193,11 +123,14 @@ async def test_another_logins_session_gets_nothing_of_it(client):
     as_owner(client.runtime, logins="george@example.com, someone-else@example.com")
     session = client.runtime.sessions.get("br")
     session.login = "someone-else@example.com"
-    refused = await client.post(
-        "/branches/fork", data={"session_id": "br"},
-        headers={"Tailscale-User-Login": "george@example.com", "X-Forwarded-For": "100.64.0.9"},
-    )
+    asker = {"Tailscale-User-Login": "george@example.com", "X-Forwarded-For": "100.64.0.9"}
+    # Asked of the routes that stay (it was asked of the fork, deleted with Split: DEC-071).
+    refused = await client.get("/branches", params={"session_id": "br"}, headers=asker)
     assert refused.status_code == 403 and refused.json()["code"] == "wrong_session"
+    branch = session.branch().branch_id
+    for what in ("mark", "back", "forward"):
+        refused = await client.post(f"/branches/{branch}/{what}", data={"session_id": "br"}, headers=asker)
+        assert refused.status_code == 403 and refused.json()["code"] == "wrong_session", what
 
 
 # ------------------------------------------- a change belongs to where it was asked
@@ -210,9 +143,8 @@ async def test_a_staged_change_carries_the_branch_that_staged_it():
     and the line it pinned was `focused_branch`, which is NOT the branch that staged the
     change whenever the tablet addresses a half that is not on screen. A test that reads the
     implementation can only ever agree with it; this one drives the engine and looks at what
-    came out, and it is what makes the four properties below hold: a spoken "yes" matched
-    against the speaking half, `revoke_pending` withdrawing by half, `/branches/{id}
-    /background` refusing a half with a change waiting, and a BACKGROUND half never
+    came out, and it is what makes the properties below hold: a spoken "yes" matched against
+    the speaking half, `revoke_pending` withdrawing by half, and a BACKGROUND half never
     committing (the test directly beneath this one).
     """
     from app.actions import engine as engine_module
@@ -345,8 +277,7 @@ def test_nothing_in_a_branchs_words_is_a_number_out_of_a_number(session):
 
 async def test_the_half_being_talked_to_goes_quiet_and_the_one_aside_says_ready(client):
     session = client.runtime.sessions.get("br")
-    body = (await client.post("/branches/fork", data={"session_id": "br"})).json()
-    other = session.branches[body["branch_id"]]
+    other = session.branches[second_half(session)]
     other.status = "BACKGROUND"
     session.focused_branch = [b for b in session.branches if b != other.branch_id][0]
 

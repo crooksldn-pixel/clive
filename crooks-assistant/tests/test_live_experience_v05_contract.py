@@ -14,11 +14,20 @@ def test_v05_removes_user_facing_split_entry_points_but_keeps_internal_branch_su
     assert "split.textContent = 'Split';" not in source
     assert "splitOrb('gesture')" not in source
 
-    # Internal/legacy branch mechanics still exist so concurrency has not been deleted;
-    # V0.5 changes who manages it, not whether the runtime can represent it.
-    assert "async function splitOrb(" in source
-    assert "if (branches.length < 2) {" in source
-    assert "if (branches.length > 1)" in source
+    # Internal branch mechanics still exist so concurrency has not been deleted; V0.5 changed
+    # who manages it, not whether the runtime can represent it. The page still takes the
+    # branches the Mac describes and restores the focused one's workspace.
+    #
+    # Changed on the owner's ruling of 8 October (DEC-071, ruling 37): Split's own client
+    # code — splitOrb, mergeOrb, the orb's tap-a-half gesture, the branch chips — was deleted,
+    # so this no longer pins `async function splitOrb(` and its two `branches.length` guards
+    # as present. It pins them gone, and the branch handling that is still live as present.
+    assert "async function splitOrb(" not in source
+    assert "async function mergeOrb(" not in source
+    assert "function wireOrbGestures(" not in source
+    assert "function applyBranches(shape) {" in source
+    assert "async function restoreWorkspace() {" in source
+    assert "if (!focused || (!focused.has_workspace && branches.length < 2)) return;" in source
 
 
 def test_v05_ready_copy_no_longer_frames_clive_as_an_empty_command_prompt() -> None:

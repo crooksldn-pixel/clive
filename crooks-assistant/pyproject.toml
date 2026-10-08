@@ -57,5 +57,4 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
   "live: hits a live external API (Shopify/Gmail); skipped without credentials",
-  "macos: requires macOS-only facilities (Keychain, Core ML whisper build)",
 ]

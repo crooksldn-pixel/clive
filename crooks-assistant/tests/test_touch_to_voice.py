@@ -58,13 +58,9 @@ async def test_a_binding_does_not_leak_across_the_split(stage):
     catch a sentence spoken to the other."""
     session = "tv4"
     await stage.open_order("1938", session_id=session)
-    fork = await stage.client.post(
-        "/branches/fork", data={"session_id": session, "label": "right"},
-        headers={"Tailscale-User-Login": "owner@example.com", "X-Forwarded-For": "100.64.0.9"},
-    )
-    body = fork.json()
-    right_id = str((body.get("branch") or {}).get("branch_id") or body.get("branch_id") or "")
-    assert right_id, body
+    from tests.second_half import second_half  # the fork route went with Split (DEC-071, ruling 37)
+
+    right_id = second_half(stage.runtime.sessions.get(session), label="right")
     await stage.touch("voice.bind", family="order.add_note", session_id=session)
     before = len(stage.provider.calls)
     await stage.say("what about this one", session_id=session, branch_id=right_id)

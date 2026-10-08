@@ -1,10 +1,13 @@
-"""ElevenLabs Scribe as the primary recogniser, and whisper.cpp catching it when it falls.
+"""ElevenLabs Scribe, the one recogniser, and what the tablet is told when it falls.
 
 Nothing here touches the network or the Keychain: the HTTP layer is a transport double and the
 credential is injected. The rules these tests exist to hold are that the tablet gets an
-answer — every way Scribe can fail ends in a Whisper transcript — that the words come back as
-they were heard, with nothing biasing the recogniser and nothing rewriting them afterwards,
-and that the API key never reaches a log line, an exception or a health string.
+answer — every way Scribe can fail is named, scrubbed and ends in one spoken sentence, never a
+500 — that the words come back as they were heard, with nothing biasing the recogniser and
+nothing rewriting them afterwards, and that the API key never reaches a log line, an exception
+or a health string. Until 8 October every failure here ended in a whisper.cpp transcript; the
+local recogniser was deleted on the owner's ruling (DEC-071, ruling 39, and DEC-022), so the
+same failures now end in the sentence production has always spoken with nothing behind Scribe.
 """
 
 from __future__ import annotations
@@ -15,8 +18,7 @@ import httpx
 import pytest
 
 from app.clients.elevenlabs import ScribeClient, ScribeUnavailable
-from app.clients.whisper import Transcript, WhisperClient, WhisperUnavailable
-from app.speech.transcribe import Transcriber
+from app.speech.transcribe import UNHEARD_REASON, Transcriber
 
 av = pytest.importorskip("av")
 from tests.fake_credentials import elevenlabs_key  # noqa: E402
@@ -26,18 +28,6 @@ SECRET = elevenlabs_key("scribe")
 
 
 # --------------------------------------------------------------------------- doubles
-
-
-class FakeWhisper(WhisperClient):
-    def __init__(self, text: str = "the local one heard this", fail: bool = False) -> None:
-        super().__init__("http://fake")
-        self.text, self.fail, self.calls = text, fail, 0
-
-    async def transcribe(self, wav: bytes) -> Transcript:
-        self.calls += 1
-        if self.fail:
-            raise WhisperUnavailable("whisper-server is not running")
-        return Transcript(text=self.text, ms=9.0, model="small.en")
 
 
 @pytest.fixture()
@@ -70,8 +60,8 @@ def ok_transcript(text: str = "find the blue wash yard genes"):
     return handler
 
 
-def make(scribe_client, whisper=None, **kwargs) -> Transcriber:
-    return Transcriber(whisper or FakeWhisper(), scribe=scribe_client, primary="scribe", **kwargs)
+def make(scribe_client, **kwargs) -> Transcriber:
+    return Transcriber(scribe_client, **kwargs)
 
 
 def client(**kwargs) -> ScribeClient:
@@ -114,7 +104,7 @@ async def test_the_live_tablet_sentence_survives_the_whole_pipeline(mock_http):
     turned "what" into "White". Nothing rewrites the words now, not even the number."""
     raw = "Order one nine three zero and tell me what they, exactly what they ordered"
     mock_http(ok_transcript(raw))
-    t = Transcriber(FakeWhisper(), scribe=client(), primary="scribe")
+    t = Transcriber(client())
     result = await t.from_blob(webm_opus(tone_pcm(1.0)))
     assert result.ok
     assert result.raw_text == raw
@@ -135,7 +125,7 @@ async def test_silence_never_reaches_scribe(mock_http):
     assert holder["requests"] == [], "a recording with no signal was sent to a paid API"
 
 
-# --------------------------------------------------------------------------- fallback
+# --------------------------------------------------------------------------- when Scribe falls
 
 
 @pytest.mark.parametrize(
@@ -152,17 +142,16 @@ async def test_silence_never_reaches_scribe(mock_http):
         (httpx.Response(200, json={"nothing": "useful"}), "bad_response"),
     ],
 )
-async def test_every_scribe_failure_falls_back_to_whisper(mock_http, response, kind):
+async def test_every_scribe_failure_is_named_and_said_not_crashed(mock_http, response, kind):
     mock_http(lambda request: response)
-    whisper = FakeWhisper("the local one heard this")
-    result = await make(client(), whisper).from_blob(webm_opus(tone_pcm(1.0)))
-    assert result.ok, "the tablet must still get an answer"
-    assert result.engine == "whisper_fallback"
-    assert result.fallback is True
-    assert result.raw_text == "the local one heard this"
+    result = await make(client()).from_blob(webm_opus(tone_pcm(1.0)))
+    assert not result.ok
+    assert result.reason, "the tablet must still get an answer: a sentence it can say"
+    assert result.engine == "none"
+    assert result.fallback is False
+    assert result.raw_text == ""
     assert result.engine_detail.startswith(kind)
-    assert whisper.calls == 1
-    assert {"scribe", "whisper"} <= result.timings_ms.keys()
+    assert "scribe" in result.timings_ms
 
 
 @pytest.mark.parametrize(
@@ -173,19 +162,19 @@ async def test_every_scribe_failure_falls_back_to_whisper(mock_http, response, k
         (httpx.RemoteProtocolError("died mid-request"), "network"),
     ],
 )
-async def test_network_trouble_falls_back_to_whisper(mock_http, error, kind):
+async def test_network_trouble_is_named_and_said(mock_http, error, kind):
     def handler(request: httpx.Request) -> httpx.Response:
         raise error
 
     mock_http(handler)
     result = await make(client()).from_blob(webm_opus(tone_pcm(1.0)))
-    assert result.ok
-    assert result.engine == "whisper_fallback"
+    assert not result.ok and result.reason == UNHEARD_REASON
+    assert result.engine == "none"
     assert result.engine_detail.startswith(kind)
 
 
-async def test_missing_key_falls_back_without_a_request(mock_http):
-    """No key in the Keychain is not an outage — it is a Mac that listens to itself."""
+async def test_a_missing_key_is_named_without_a_request(mock_http):
+    """No key stored is not an outage to retry: nothing is sent, and the reason says which."""
     holder = mock_http(ok_transcript())
     c = ScribeClient(cooldown_s=0.0)
     c._key = None
@@ -197,31 +186,23 @@ async def test_missing_key_falls_back_without_a_request(mock_http):
         result = await make(c).from_blob(webm_opus(tone_pcm(1.0)))
     finally:
         keychain.get_optional = original
-    assert result.ok
-    assert result.engine == "whisper_fallback"
+    assert not result.ok
+    assert result.engine == "none"
     assert "no_key" in result.engine_detail
     assert holder["requests"] == []
 
 
-async def test_fallback_output_is_kept_as_heard_too(mock_http):
-    mock_http(lambda request: httpx.Response(401, text="nope"))
-    whisper = FakeWhisper("  find the blue wash yard genes ")
-    result = await make(client(), whisper).from_blob(webm_opus(tone_pcm(1.0)))
-    assert result.engine == "whisper_fallback"
-    assert result.text == "find the blue wash yard genes", "trimmed, and every word as heard"
-
-
-async def test_both_engines_down_is_spoken_not_crashed(mock_http):
+async def test_scribe_down_is_spoken_not_crashed(mock_http):
     mock_http(lambda request: httpx.Response(500, text="boom"))
-    result = await make(client(), FakeWhisper(fail=True)).from_blob(webm_opus(tone_pcm(1.0)))
+    result = await make(client()).from_blob(webm_opus(tone_pcm(1.0)))
     assert not result.ok
     assert "speech recognition" in result.reason
-    assert "whisper" not in result.reason.lower()
+    assert "boom" not in result.reason.lower() and "500" not in result.reason
     assert "elevenlabs" not in result.reason.lower()
     assert result.engine == "none"
 
 
-async def test_an_unexpected_error_still_falls_back(mock_http):
+async def test_an_unexpected_error_is_said_not_crashed(mock_http):
     """A bug in the Scribe path must not reach the tablet as a 500."""
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -229,19 +210,9 @@ async def test_an_unexpected_error_still_falls_back(mock_http):
 
     mock_http(handler)
     result = await make(client()).from_blob(webm_opus(tone_pcm(1.0)))
-    assert result.ok
-    assert result.engine == "whisper_fallback"
+    assert not result.ok and result.reason == UNHEARD_REASON
+    assert result.engine == "none"
     assert result.engine_detail == "unexpected: ZeroDivisionError"
-
-
-async def test_whisper_primary_never_calls_scribe(mock_http):
-    holder = mock_http(ok_transcript())
-    t = Transcriber(FakeWhisper(), scribe=client(), primary="whisper")
-    result = await t.from_blob(webm_opus(tone_pcm(1.0)))
-    assert result.ok
-    assert result.engine == "whisper"
-    assert result.fallback is False
-    assert holder["requests"] == []
 
 
 # --------------------------------------------------------------------------- cooldown
@@ -253,7 +224,7 @@ async def test_a_rejected_key_opens_a_cooldown_instead_of_retrying(mock_http):
     t = make(c)
     first = await t.from_blob(webm_opus(tone_pcm(1.0)))
     second = await t.from_blob(webm_opus(tone_pcm(1.0)))
-    assert first.engine == second.engine == "whisper_fallback"
+    assert first.engine == second.engine == "none"
     assert len(holder["requests"]) == 1, "a rejected key was retried on the next sentence"
     assert second.engine_detail.startswith("cooldown")
     assert c.cooling_down
@@ -300,7 +271,7 @@ async def test_no_secret_reaches_the_logs_or_the_error(mock_http, caplog):
     c = client()
     with caplog.at_level(logging.DEBUG):
         result = await make(c).from_blob(webm_opus(tone_pcm(1.0)))
-    assert result.ok and result.fallback
+    assert not result.ok and result.engine == "none"
     assert SECRET not in result.engine_detail
     assert "[redacted]" in result.engine_detail
     assert SECRET not in c.last_error

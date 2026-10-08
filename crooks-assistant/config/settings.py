@@ -45,16 +45,16 @@ class Settings(BaseSettings):
     shopify_auth_mode: str = "client_credentials"
 
     # --- speech ---
-    # Which recogniser runs first: "scribe" (ElevenLabs, the default) or "whisper" (local only).
-    # Whisper is the automatic fallback either way and is never switched off by this setting.
-    stt_primary: str = "scribe"
+    # ElevenLabs Scribe is the one recogniser (DEC-022). The local whisper.cpp fallback and its
+    # settings (CROOKS_STT_PRIMARY, CROOKS_WHISPER_*) were deleted on the owner's ruling of 8
+    # October (DEC-071, ruling 39); one left in an old .env is ignored, as every unknown key is.
     scribe_model: str = "scribe_v2"
     scribe_language: str = "eng"  # ISO-639-3, as the ElevenLabs API expects
-    scribe_timeout_s: float = 10.0   # Scribe answers in one to two seconds; past this, whisper takes the turn
+    scribe_timeout_s: float = 10.0   # Scribe answers in one to two seconds; past this it has not heard
     # No keyterms setting: nothing biases what Scribe hears (app/clients/elevenlabs.py). A
     # CROOKS_SCRIBE_KEYTERMS left in an old .env is ignored, as every unknown key is.
-    # After a rejected key or an exhausted account, stop calling Scribe for this long and go
-    # straight to Whisper, so a broken account does not add a round trip to every sentence.
+    # After a rejected key or an exhausted account, stop calling Scribe for this long, so a
+    # broken account does not add a round trip to every sentence.
     scribe_cooldown_s: float = 300.0
     elevenlabs_base_url: str = "https://api.elevenlabs.io/v1"
 
@@ -89,24 +89,6 @@ class Settings(BaseSettings):
     # release and that transcript is the one CLIVE answers. Off, /voice/live answers 503 and the
     # hold works exactly as before. On, each spoken question is a second speech-to-text use.
     live_transcript: bool = True
-
-    # Whether local speech recognition is deployed on this host at all. True everywhere the
-    # Mac runs: whisper.cpp is its automatic fallback and nothing about that changes. False on
-    # the Linux server, which has no Core ML, no model and no build toolchain, and where a
-    # permanently red whisper check would be a check nobody reads.
-    #
-    # False does four things and no more: /health reports whisper as DISABLED rather than
-    # FAILED, the Core ML probe is skipped, the absence does not make the host degraded, and
-    # the transcriber stops offering a fallback it does not have. It never hides a real
-    # failure — with no fallback behind it, Scribe going down makes speech UNHEALTHY here,
-    # where on the Mac the same outage is only slower.
-    whisper_enabled: bool = True
-    whisper_url: str = "http://127.0.0.1:8910"
-    whisper_model: str = "small.en"
-    whisper_bin_dir: Path = Path.home() / "tools" / "whisper.cpp"
-    # How much audio to keep either side of detected speech. whisper.cpp's default is 30 ms,
-    # which shaves the soft start of a first word; 200 ms keeps it.
-    whisper_vad_pad_ms: int = 200
 
     # --- Claude ---
     claude_model: str = "sonnet"

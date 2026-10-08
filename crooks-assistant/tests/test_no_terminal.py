@@ -15,25 +15,24 @@ one is written the following week. Seven were reachable when this was first run.
 
 WHAT IT MEASURES, EXACTLY
 
-Two things, and the split matters:
+Every string literal handed to `Stopped(...)` in scripts/update.py, and every owner-facing
+reason in the lifecycle layer, is extracted from the AST. These cannot be reached behaviourally
+without a git repository in seven different broken states, and a test that cannot reach them
+would report success while they sat there — which is precisely the §26 failure this phase is
+meant to avoid. So they are read from the source instead.
 
-  1. BEHAVIOURAL. The documents the control layer actually builds — status, actions, contract —
-     are built for real, and every string in them is checked. This is the strongest evidence
-     available without a Mac, because these are the literal bytes the Control app renders.
-
-  2. STATIC. Every string literal handed to `Stopped(...)` in scripts/update.py, and every
-     `stop` reason in scripts/control.py, is extracted from the AST. These cannot be reached
-     behaviourally without a git repository in seven different broken states, and a test that
-     cannot reach them would report success while they sat there — which is precisely the §26
-     failure this phase is meant to avoid. So they are read from the source instead, and this
-     comment is here so nobody later mistakes the static half for the behavioural half.
+There was a behavioural half as well: the documents scripts/control.py built for the CROOKS
+Control menu-bar app — status, actions, contract — built for real and read string by string.
+The app and that script went with the Mac runtime on the owner's ruling of 8 October (DEC-071,
+ruling 38), and so did that half.
 
 WHAT IS ALLOWED
 
-Naming `crooks-control <something>` is allowed. It is the same command the app's own button
-runs, the README documents it as the equivalent, and a sentence that offers BOTH ("press
-Update, or `crooks-control apply --yes`") is strictly more useful than one that offers only the
-button. What is forbidden is a sentence whose ONLY remedy is a shell.
+Naming a command beside a control is allowed: a sentence that offers BOTH ("press Update, or
+`crooks-control apply --yes`", as CROOKS Control's did) is strictly more useful than one that
+offers only the button. That app and its `crooks-control` went with the Mac runtime (DEC-071,
+ruling 38); the shape is still the one allowed, and the examples below still use it. What is
+forbidden is a sentence whose ONLY remedy is a shell.
 """
 
 from __future__ import annotations
@@ -144,55 +143,6 @@ def test_the_exemptions_do_let_the_two_good_shapes_through():
     assert not caught, "these were wrongly caught:\n" + "\n".join(repr(t) for t in caught)
 
 
-def _strings(value, path: str = "") -> list[tuple[str, str]]:
-    """Every string in a decoded document, with the path that reaches it."""
-    out: list[tuple[str, str]] = []
-    if isinstance(value, str):
-        out.append((path, value))
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            out.extend(_strings(item, f"{path}.{key}" if path else str(key)))
-    elif isinstance(value, (list, tuple)):
-        for i, item in enumerate(value):
-            out.extend(_strings(item, f"{path}[{i}]"))
-    return out
-
-
-# --------------------------------------------------------------------- behavioural
-
-@pytest.fixture(scope="module")
-def control():
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("_control_under_test", SCRIPTS / "control.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-@pytest.mark.parametrize("builder", ["actions_document", "contract_document"])
-def test_the_documents_the_app_draws_send_nobody_to_terminal(control, builder):
-    """The two documents that need no running backend, built for real and read string by string."""
-    document = getattr(control, builder)()
-    bad = [(where, text, hits) for where, text in _strings(document) if (hits := _offences(text))]
-    assert not bad, "\n".join(f"{where}: {hits} in {text!r}" for where, text, hits in bad)
-
-
-def test_the_status_document_sends_nobody_to_terminal_when_nothing_is_running(control):
-    """The RED path specifically: the sentence an owner reads when CROOKS OS is NOT up is the
-    single most important sentence in the product, because it is the only one he reads while
-    something is wrong — and it was the one that said "`make up`, or `make install`"."""
-    rolled = control.roll_up(
-        None,  # nothing answered on the loopback port
-        tablet_host=None,
-        session={"active": False},
-        mutation={"ready": False, "why": ""},
-        the_port=8765,
-    )
-    bad = [(where, text, hits) for where, text in _strings(rolled) if (hits := _offences(text))]
-    assert not bad, "\n".join(f"{where}: {hits} in {text!r}" for where, text, hits in bad)
-
-
 # -------------------------------------------------------------------------- static
 
 # The keys whose values a person reads. `note` is on this list because leaving it off is how
@@ -285,7 +235,7 @@ def three():
         probe.unlink()
 
 
-@pytest.mark.parametrize("name", ["update.py", "control.py", "service.py", "service_linux.py"])
+@pytest.mark.parametrize("name", ["update.py", "service.py", "service_linux.py"])
 def test_no_stop_reason_tells_the_owner_to_open_terminal(name):
     """The refusals. Unreachable behaviourally without a repository in seven broken states, so
     they are read out of the source — see this module's docstring on why that is deliberate."""

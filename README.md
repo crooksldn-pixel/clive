@@ -24,7 +24,9 @@ Changes reach `clive/trunk` only through a pull request whose exact head passed 
 
 - [`docs/repo/BOUNDARY.md`](docs/repo/BOUNDARY.md): what lives where, the rules that keep CLIVE
   and the theme apart, and the branch cleanup.
-- [`docs/phase6/`](docs/phase6/): the CROOKS OS appliance layer (Phase 6, September 2026).
+- [`docs/phase6/`](docs/phase6/): the CROOKS OS appliance layer (Phase 6, September 2026). Its Mac
+  half, the CROOKS Control menu-bar app and its `crooks-control` command, was retired on 8 October
+  (DEC-071, ruling 38); the server's way of doing the same is in `DEPLOY_LINUX.md`.
 - [`.claude/skills/`](.claude/skills/): pinned design skills for the builders, which CLIVE's
   knowledge digester also reads.
 - [`.github/workflows/acceptance.yml`](.github/workflows/acceptance.yml): the acceptance run on

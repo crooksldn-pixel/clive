@@ -390,7 +390,6 @@
     "files": [
       "crooks-assistant/scripts/status.py",
       "crooks-assistant/scripts/launch_common.py",
-      "crooks-assistant/scripts/control.py",
       "crooks-assistant/tests/test_health_key.py",
       "crooks-assistant/tests/test_local_cli.py"
     ],

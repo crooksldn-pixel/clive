@@ -28,9 +28,10 @@ from tests import fake_credentials as fake
 
 PROJECT = Path(__file__).resolve().parent.parent
 REPO = PROJECT.parent
+# The Swift helper of mac/CrooksControl was the second, until the menu-bar app went with the Mac
+# runtime (DEC-071, ruling 38).
 HELPERS = (
     PROJECT / "tests" / "fake_credentials.py",
-    PROJECT / "mac" / "CrooksControl" / "Tests" / "CrooksControlCoreTests" / "FakeCredentials.swift",
 )
 
 _START = r"(?<![A-Za-z0-9])"
@@ -91,9 +92,9 @@ def literals_in(path: Path) -> list[tuple[int, str]]:
 
 
 def guarded_files() -> list[Path]:
-    """Every test source and fixture in the repository, the shared helpers apart."""
-    roots = [PROJECT / "tests", PROJECT / "mac" / "CrooksControl" / "Tests",
-             *sorted((PROJECT / "android").glob("*/src/test"))]
+    """Every test source and fixture in the repository, the shared helpers apart. (The Swift and
+    Kotlin test trees went with the menu-bar app and the CROOKS Pad: DEC-071, rulings 38, 40.)"""
+    roots = [PROJECT / "tests"]
     return [path for root in roots for path in sorted(root.rglob("*"))
             if path.is_file() and "__pycache__" not in path.parts and path not in HELPERS]
 

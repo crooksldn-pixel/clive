@@ -15,7 +15,7 @@ pad's health say what is true.
 - R9-F-observability2-F-OBS2-01 (app/observability/timeline.py, visible.py, touch.py): a told name
   a page sends in an identifier's shape is withheld as the plain name is, in the findings and in
   every table of the report.
-- T1-04 (tests/test_pad.py _limited_to_liveness): the housekeeping check must be there, and is a
+- T1-04 (tests/test_health_liveness.py _limited_to_liveness): the housekeeping check must be there, and is a
   verdict, passing or failing, and nothing else.
 
 Every name, order and key here is invented; the keys are tests/fake_credentials.py's.
@@ -37,11 +37,11 @@ from app.observability.report import build_report, reconstruct
 from app.observability.timeline import read_events
 from scripts import watch
 from tests import fake_credentials as fake
-from tests.test_pad import (
+from tests.test_health_liveness import (
     SECRET_DETAIL,
     _limited_to_liveness,
     _production_with_a_failing_check,
-    client,  # noqa: F401 — the pad tests' app, lifespan and all
+    client,  # noqa: F401 — the health tests' app, lifespan and all
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -617,16 +617,7 @@ def test_the_route_gives_a_refused_caller_a_failing_housekeeping_check_as_a_verd
     assert shown["checks"]["housekeeping"] == {"ok": False}
 
 
-@pytest.fixture()
-def no_pad_after():
-    from app.observability import pad as pad_module
-
-    pad_module.reset()
-    yield
-    pad_module.reset()
-
-
-async def test_a_refused_caller_reads_a_failing_housekeeping_pass_as_a_verdict_only(client, no_pad_after):  # noqa: F811
+async def test_a_refused_caller_reads_a_failing_housekeeping_pass_as_a_verdict_only(client):  # noqa: F811
     from app.main import app
 
     await _production_with_a_failing_check(client)

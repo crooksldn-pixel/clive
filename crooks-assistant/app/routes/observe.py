@@ -224,26 +224,11 @@ async def telemetry(request: Request) -> Response:
     if not isinstance(events, list):
         return Response(status_code=204)
     received = 0
-    appliance = 0
     for item in events[:MAX_EVENTS]:
         if not isinstance(item, dict):
             continue
         kind = str(item.get("kind") or "")
         if not _KIND.match(kind):
-            continue
-        if kind.startswith("pad_"):
-            # The appliance's prefix, and this is not the appliance's door. The pad's events
-            # ride its own heartbeat (`app/routes/pad.py` -> `app/observability/pad.py`), where
-            # they are checked against a vocabulary, bounded, collapsed, rate-limited, and
-            # counted as accepted or refused on /health. Taken here they would be renamed
-            # `tablet_pad_*` by the emit below: a kind no producer emits, which the analyser
-            # files under the TABLET rather than the appliance because it matches the tablet
-            # prefix first, which section 17 of the report therefore never sees, and which the
-            # pad registry's counts know nothing about. One fact arriving by two doors under two
-            # names is worse than one door, so this door says no — out loud, because a page
-            # sending these is a producer that has the contract wrong and somebody has to be
-            # able to find out.
-            appliance += 1
             continue
         if kind == LIVE_TRANSCRIPT_KIND:
             fields = _live_transcript_fields(item)
@@ -252,9 +237,6 @@ async def telemetry(request: Request) -> Response:
         fields.setdefault("session_id", session_id or None)
         timeline.emit(f"tablet_{kind}", source="tablet", **fields)
         received += 1
-    if appliance:
-        log.warning("%s appliance event(s) were POSTed to /telemetry and refused: pad_* events "
-                    "belong on POST /pad/heartbeat", appliance)
     return Response(status_code=204, headers={"X-Crooks-Telemetry": str(received)})
 
 

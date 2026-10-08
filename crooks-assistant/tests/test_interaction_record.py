@@ -616,9 +616,10 @@ async def test_through_the_routes_every_turn_and_tap_is_recorded_and_the_tool_re
 
 async def test_recording_is_said_only_to_the_owner_and_never_turns_the_teams_telemetry_on(client, monkeypatch):
     """/health is public. Its `recording` goes to the owner's own devices only (a team member's or
-    a stranger's page gets liveness), a team member's turn never turns the page's telemetry on —
-    the door would only refuse its batches — and the pad's own heartbeat says recording, so the
-    appliance's bounded account is kept in the record too."""
+    a stranger's page gets liveness), and a team member's turn never turns the page's telemetry
+    on — the door would only refuse its batches. (The pad's heartbeat said recording too, so the
+    appliance's account was kept in the record; the CROOKS Pad and its heartbeat left the app on
+    the owner's ruling of 8 October, DEC-071 ruling 40.)"""
     from app.routes import health as health_module
     from app.routes import turn as turn_module
 
@@ -633,8 +634,6 @@ async def test_recording_is_said_only_to_the_owner_and_never_turns_the_teams_tel
     assert turn_module._writing_id(client.runtime.timeline) == record.active_id
     monkeypatch.setattr(turn_module, "_staff_request", lambda: True)
     assert turn_module._writing_id(client.runtime.timeline) is None, "a team member's page is never told"
-    beat = (await client.post("/pad/heartbeat", headers=PROXIED, json={"app_version": "0.4.2", "device_model": "SM-T290"})).json()
-    assert beat["recording"] is True
 
 
 def test_the_pages_free_text_is_kept_by_its_shape_in_the_record_and_as_before_in_a_test(tmp_path):

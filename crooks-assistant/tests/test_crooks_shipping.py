@@ -11,8 +11,8 @@ other half of the proof (tests/test_crooks_shipping_contract.py). What is held h
 - the read key alone reads, in a header, never in an address; no key is no request; a buy whose
   answer was lost is asked again with the SAME key; the server's buying authorisation is a
   refusal, not a bad key;
-- without keys the model is told once why shipping is unavailable, and the parked Easyship row
-  stops saying labels are disconnected once CLIVE Shipping is;
+- without keys the model is told once why shipping is unavailable (the parked Easyship row that
+  used to follow these keys was deleted on 8 October, DEC-071 ruling 24);
 - the Connections card asks for the two keys by their server settings' names and tests the read
   key with a read that changes nothing;
 - what the service wrote is scrubbed of anything shaped like a customer's detail, and what it
@@ -330,19 +330,14 @@ async def test_a_first_print_that_definitely_failed_is_printed_again_not_copied(
 # ------------------------------------------------------------------ what the model is told
 
 
-async def test_without_keys_the_model_is_told_once_and_the_parked_row_follows_clive_shipping(monkeypatch):
+async def test_without_keys_the_model_is_told_once_and_the_rows_follow_the_keys(monkeypatch):
+    """The parked Easyship row ("shipping_provider") followed these keys too, until it was deleted
+    on the owner's ruling of 8 October (DEC-071, ruling 24): there is no such row now."""
     from app.capabilities import families
     from app.families import load_all
-    from app.shipping import current, install
-    from app.shipping.easyship import EasyshipProvider
 
     load_all()
-    before = current()
-    install(EasyshipProvider())                         # as app/runtime.py installs it: never connected
-    try:
-        await _the_rows_follow_the_keys(monkeypatch, families)
-    finally:
-        install(before)
+    await _the_rows_follow_the_keys(monkeypatch, families)
 
 
 async def _the_rows_follow_the_keys(monkeypatch, families):
@@ -351,13 +346,13 @@ async def _the_rows_follow_the_keys(monkeypatch, families):
     assert table["shipping_reads"]["state"] == table["shipping_labels"]["state"] == "DISCONNECTED"
     lines = families.words({k: table[k] for k in ("shipping_reads", "shipping_labels")})
     assert lines == ["- DISCONNECTED — no CLIVE Shipping keys stored: Buying and printing labels, Reading shipping"]
-    assert table["shipping_provider"]["state"] == "DISCONNECTED"
+    assert "shipping_provider" not in table
     held = {sc.READ_KEY: READ}
     monkeypatch.setattr(keychain, "get_optional", lambda key: held.get(key))
     table = await families.states(None)
     assert table["shipping_reads"]["state"] == "READY"
     assert table["shipping_labels"]["detail"] == "no CLIVE Shipping write key stored"
-    assert table["shipping_provider"]["state"] == "READY", "the parked Easyship row no longer says labels are disconnected"
+    assert "shipping_provider" not in table
 
 
 async def test_a_change_is_blocked_on_a_server_without_the_write_key(monkeypatch):

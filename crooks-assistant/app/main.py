@@ -39,7 +39,6 @@ from app.routes import (
     media,
     objectives,
     observe,
-    pad,
     speak,
     support,
     today,
@@ -56,7 +55,7 @@ log = logging.getLogger("crooks")
 
 def configure_logging(log_dir: Path) -> None:
     """Every log line — stdout and file — passes through the redaction filter, and the file
-    rotates. Under launchd stdout goes to a file that would otherwise grow forever."""
+    rotates. Under a supervisor stdout goes to a file that would otherwise grow forever."""
     from logging.handlers import RotatingFileHandler
 
     fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)-22s %(message)s", "%H:%M:%S")
@@ -209,8 +208,8 @@ async def drain_timelines(runtime, *, timeout_s: float) -> bool:
 HOUSEKEEPING_S = 15 * 60
 # The whole stop, planned inside systemd's TimeoutStopSec (round 11, R9-A3b-F-04-SHUTDOWN and
 # CFG-02). deploy/systemd/crooks-assistant.service sends SIGINT and gives UNIT_STOP_S before SIGKILL
-# — the 30 s it has always given, which the Control app's own stop (scripts/service_linux.py)
-# waits on too:
+# — the 30 s it has always given, which `make restart`'s stop (scripts/service_linux.py) waits
+# on too:
 #
 #   uvicorn notices the signal   at its next tick and pauses once before the drain,
 #                                SHUTDOWN_UVICORN_TICKS_S together (0.1 s each, uvicorn/server.py)
@@ -719,7 +718,6 @@ app.include_router(command.router)
 app.include_router(context.router)
 app.include_router(media.router)
 app.include_router(observe.router)
-app.include_router(pad.router)
 app.include_router(support.router)
 app.include_router(objectives.router)
 app.include_router(displays.router)

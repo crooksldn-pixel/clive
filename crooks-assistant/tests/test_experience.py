@@ -253,11 +253,9 @@ async def test_neither_half_of_the_orb_inherits_the_others_list(stage):
     """
     session = "orb"
     await stage.open_order("1938", session_id=session)
-    forked = await stage.client.post(
-        "/branches/fork", data={"session_id": session},
-        headers={"Tailscale-User-Login": "owner@example.com", "X-Forwarded-For": "100.64.0.9"},
-    )
-    other = forked.json()["branch_id"]
+    from tests.second_half import second_half  # the fork route went with Split (DEC-071, ruling 37)
+
+    other = second_half(stage.runtime.sessions.get(session))
     listed = await stage.touch("open.area", area="email", session_id=session, branch_id=other)
     assert listed.raw.get("ok") is True, listed.raw
     held = stage.branch(session, other).workflow
@@ -291,13 +289,11 @@ async def test_the_session_records_which_half_a_turn_was_addressed_to(stage):
     """
     session = "stamp"
     await stage.open_order("1938", session_id=session)
-    forked = await stage.client.post(
-        "/branches/fork", data={"session_id": session},
-        headers={"Tailscale-User-Login": "owner@example.com", "X-Forwarded-For": "100.64.0.9"},
-    )
-    other = forked.json()["branch_id"]
+    from tests.second_half import second_half  # the fork route went with Split (DEC-071, ruling 37)
+
+    other = second_half(stage.runtime.sessions.get(session))
     live = stage.runtime.sessions.get(session)
-    # Focus stays where the fork left it; the turn is addressed to the other half.
+    # Focus stays where it was; the turn is addressed to the other half.
     live.focused_branch = [b for b in live.branches if b != other][0]
     await stage.open_order("1940", session_id=session, branch_id=other)
     assert live.acting_branch == other, live.acting_branch

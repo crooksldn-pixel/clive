@@ -1,13 +1,15 @@
-"""Internal reads: things the Mac can look up that are not model-facing tools.
+"""Internal reads: things CLIVE can look up that are not model-facing tools.
 
-§18 asks for "shipping/tracking context available internally" among the P1 background reads.
-That context does not come from a registered tool — there is no shipping tool, because there is
-no shipping provider (§20) — so it cannot travel through the read scheduler, which only knows
-registered tools. It travels here instead, through a table of named async functions.
+A closed table of named async functions, read-only by construction: nothing is dispatched by
+name from outside this module, and a name the table does not hold is a skipped prediction rather
+than an import (app/anticipation/engine.py refuses it).
 
-The table is closed and its contents are read-only by construction: each entry is a call into a
-package that has no mutation in it. Nothing is dispatched by name from outside this module, and
-a name the table does not hold is a skipped prediction rather than an import.
+The table is empty. Its one entry was the shipping context, read from the old Easyship boundary
+(app/shipping) for §18's "shipping/tracking context available internally"; that boundary was
+deleted on the owner's ruling of 8 October (DEC-071, ruling 24), now CLIVE Shipping carries
+labels and tracking as tools of its own (app/tools/shipping_tools.py). The table stays so that an
+internal read, if one is ever needed, has one closed place to be added and the engine's refusal
+of anything else is still tested.
 """
 
 from __future__ import annotations
@@ -19,17 +21,7 @@ from typing import Any
 log = logging.getLogger("crooks.anticipation")
 
 
-async def _shipping_status(args: dict[str, Any]) -> Any:
-    """The order's shipping state from whatever provider is connected — DISCONNECTED here."""
-    from app.shipping import context_for
-
-    context = await context_for(str(args.get("order_id") or ""))
-    return context.public()
-
-
-READS: dict[str, Callable[[dict[str, Any]], Awaitable[Any]]] = {
-    "shipping_status": _shipping_status,
-}
+READS: dict[str, Callable[[dict[str, Any]], Awaitable[Any]]] = {}
 
 
 def known(name: str) -> bool:

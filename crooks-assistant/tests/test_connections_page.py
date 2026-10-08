@@ -296,9 +296,8 @@ def test_each_connection_says_what_it_unlocks_from_the_registry_and_what_stops_w
 def test_what_the_voice_falls_back_to_is_said_for_this_server():
     voice = catalog.get("elevenlabs")
     speak = SimpleNamespace(voice_name="Derek")
-    with_whisper = SimpleNamespace(settings=SimpleNamespace(stt_primary="scribe", whisper_enabled=True), voice=speak)
-    without = SimpleNamespace(settings=SimpleNamespace(stt_primary="scribe", whisper_enabled=False), voice=speak)
-    assert "server's own recogniser" in service._without(with_whisper, voice)
+    # The server's own recogniser went on 8 October (DEC-071, ruling 39): there is one answer.
+    without = SimpleNamespace(settings=SimpleNamespace(), voice=speak)
     assert "can't hear you" in service._without(without, voice)
     assert service._what(without, voice) == "Hears you and speaks in Derek's voice."
 

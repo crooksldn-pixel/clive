@@ -2,7 +2,7 @@
 
 The one rule this file exists to keep: a scenario must go through the same code a person's
 voice goes through. `POST /turn` with a `text` body is not a shortcut around the application —
-it is the exact point the audio path arrives at once Scribe or whisper has finished, and
+it is the exact point the audio path arrives at once Scribe has finished, and
 everything after it (the affirmation check, the revocation of pending cards, the epoch, the
 branch, the model turn, the presenters, the timeline) is shared. So a scenario injects a
 transcript there, and nothing here reaches past the HTTP boundary to help it along.
@@ -536,6 +536,20 @@ class Harness:
     def branch(self, session_id: str = "s1", branch_id: str = "") -> Any:
         session = self.runtime.sessions.get_or_create(session_id)
         return session.branch(branch_id) if branch_id else session.branch()
+
+    def second_branch(self, session_id: str = "s1", *, label: str = "second") -> str:
+        """Add a second, ACTIVE branch beside the conversation's first and return its id; the
+        focus stays where it was. Made directly: the fork route that made it went with the
+        owner's Split on his ruling of 8 October (DEC-071, ruling 37), while each branch keeping
+        its own record and trail is CLIVE's own code, which DEC-050 keeps."""
+        from app.session.branch import Branch, new_branch_id
+
+        session = self.runtime.sessions.get_or_create(session_id)
+        first = session.branch()
+        child = Branch(branch_id=new_branch_id(), session_id=session.session_id,
+                       parent_id=first.branch_id, label=label)
+        session.branches[child.branch_id] = child
+        return child.branch_id
 
     # ---------------------------------------------------------------- capture
 

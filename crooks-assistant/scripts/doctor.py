@@ -4,10 +4,12 @@
 Runs on a bare Python with no dependencies installed, because its whole job is to tell you what
 is not installed yet.
 
-Two hosts, one command. On macOS it checks the Mac it always checked — Xcode, Homebrew,
-whisper.cpp with Core ML, the login Keychain, launchd — and none of that changed. On Linux it
-checks the production server instead: systemd, the encrypted-credential tooling, the writable
-secret directory's ownership and mode, the Claude CLI's own login under HOME, and the unit.
+One host. CROOKS OS runs on the Linux server, and on Linux this checks what the server needs:
+systemd, the encrypted-credential tooling, the writable secret directory's ownership and mode,
+the Claude CLI's own login under HOME, and the unit. The Mac's checks — Xcode, Homebrew,
+whisper.cpp with Core ML, launchd — went with the Mac runtime and the local recogniser on the
+owner's ruling of 8 October (DEC-071, rulings 38 and 39; DEC-058: the Mac is not a CROOKS OS
+host). On any other machine it says so, and checks what running the tests needs.
 
 Anything it cannot check it says so about, rather than reporting an absence as a pass.
 """
@@ -39,74 +41,9 @@ def row(status: str, name: str, detail: str) -> None:
     print(f"[{status}] {name:<22} {detail}")
 
 
-# The application parses this with pydantic, and the doctor must answer exactly what the
-# application would do — not something close. Measured against config.settings rather than
-# assumed: pydantic accepts this vocabulary, case-insensitively, and REJECTS anything else,
-# including an empty value. tests/test_linux_ops.py re-measures it against the real parser, so
-# if pydantic's vocabulary ever changes, that test fails rather than this drifting silently.
-TRUE_WORDS = {"true", "1", "yes", "on", "t", "y"}
-FALSE_WORDS = {"false", "0", "no", "off", "f", "n"}
-
-
-def env_file_value(name: str) -> str | None:
-    """One value from .env, read the way python-dotenv reads it — whitespace stripped and one
-    layer of matching quotes removed — because that is what reaches pydantic from a file. The
-    environment is NOT treated this way: os.environ is passed through untouched, and
-    `CROOKS_WHISPER_ENABLED=" false "` exported into the environment really is invalid.
-    """
-    env_file = REPO / ".env"
-    if not env_file.is_file():
-        return None
-    for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        if key.strip() != name:
-            continue
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        return value
-    return None
-
-
-def whisper_setting() -> str:
-    """"enabled", "disabled", or "invalid" — what the application would make of this host's
-    CROOKS_WHISPER_ENABLED.
-
-    Read by hand rather than through config.settings, because the doctor runs before the venv
-    exists — that is its whole job — and pydantic-settings is one of the things it checks for.
-    Three states and not two: a value the application cannot parse is not a third opinion about
-    whisper, it is a host whose backend will refuse to start, and saying "enabled" or "disabled"
-    about it would be inventing an answer the application never gives.
-    """
-    raw = os.environ.get("CROOKS_WHISPER_ENABLED")
-    if raw is None:
-        raw = env_file_value("CROOKS_WHISPER_ENABLED")
-        if raw is None:
-            return "enabled"  # unset: the Settings default, whisper_enabled = True
-    lowered = raw.lower()
-    if lowered in TRUE_WORDS:
-        return "enabled"
-    if lowered in FALSE_WORDS:
-        return "disabled"
-    return "invalid"
-
-
-def whisper_disabled() -> bool:
-    """Whether this host was deliberately configured without local speech. An unparseable value
-    is NOT disabled — it is reported separately as a blocking failure, and the whisper checks
-    still run, so an invalid line cannot quietly suppress them as well."""
-    return whisper_setting() == "disabled"
-
-
 def linux_checks(failures: int, warnings: int) -> tuple[int, int]:
     """The production server's own prerequisites: what supervises the assistant, what holds
-    its secrets, and whether the Claude CLI's login can still refresh itself.
-
-    Nothing here runs on the Mac, and nothing the Mac checks is repeated here.
-    """
+    its secrets, and whether the Claude CLI's login can still refresh itself."""
     print("─" * 74)
 
     systemctl = shutil.which("systemctl")
@@ -182,45 +119,18 @@ def main() -> int:
     failures = 0
     warnings = 0
 
-    mac = platform.system() == "Darwin"
     linux = platform.system() == "Linux"
-    row(OK if (mac or linux) else WARN, "operating system", f"{platform.system()} {platform.release()}")
+    row(OK if linux else WARN, "operating system", f"{platform.system()} {platform.release()}")
     if linux:
-        print("       Production host. whisper.cpp, Core ML, the Keychain and launchd are the")
-        print("       Mac's; this machine uses systemd, encrypted credentials and Scribe alone.")
-        print("       See docs/DEPLOY_LINUX.md for what is deliberately absent here.")
-    elif not mac:
+        print("       Production host: systemd, encrypted credentials, and ElevenLabs Scribe as")
+        print("       the one recogniser. See docs/DEPLOY_LINUX.md for what is deliberately absent.")
+    else:
         warnings += 1
         print(
-            "       The assistant targets macOS on Apple Silicon: whisper.cpp with Core ML,\n"
-            "       the Keychain and launchd are all macOS-specific. Everything else in this\n"
-            "       repository is portable and its tests run anywhere."
+            "       CROOKS OS runs on the Linux server, not here (DEC-058; the Mac runtime was\n"
+            "       retired on 8 October, DEC-071). Everything in this repository is portable\n"
+            "       and its tests run anywhere."
         )
-
-    if mac:
-        row(OK, "macOS version", run(["sw_vers", "-productVersion"]) or "unknown")
-        arch = platform.machine()
-        row(OK if arch == "arm64" else BAD, "architecture", arch)
-        if arch != "arm64":
-            failures += 1
-            print("       Not Apple Silicon — Core ML acceleration will not be available.")
-        row(OK, "cpu", run(["sysctl", "-n", "machdep.cpu.brand_string"]) or "unknown")
-
-        xcode = run(["xcode-select", "-p"])
-        row(OK if xcode else BAD, "xcode clt", xcode or "MISSING — run: xcode-select --install")
-        failures += 0 if xcode else 1
-
-        brew = shutil.which("brew")
-        if brew:
-            intel = brew.startswith("/usr/local")
-            row(WARN if intel else OK, "homebrew", f"{brew} ({run(['brew', '--version']) or ''})")
-            if intel:
-                warnings += 1
-                print("       Homebrew is on the Intel path — this shell may be running under")
-                print("       Rosetta and will build x86 binaries. Expect /opt/homebrew.")
-        else:
-            row(BAD, "homebrew", "MISSING — https://brew.sh")
-            failures += 1
 
     version = sys.version_info
     ok_python = version >= (3, 11)
@@ -230,19 +140,12 @@ def main() -> int:
         print("       Python 3.11+ is required (3.12 preferred). A system 3.9 on PATH shadows newer ones;")
         print("       create the venv with an explicit interpreter: python3.12 -m venv .venv")
     py312 = shutil.which("python3.12")
-    install_312 = "apt install python3.12-venv" if linux else "brew install python@3.12"
+    install_312 = "apt install python3.12-venv" if linux else "install Python 3.12"
     row(OK if py312 else WARN, "python3.12", py312 or f"not on PATH — {install_312} (make venv needs it)")
     warnings += 0 if py312 else 1
 
-    # cmake is here to build whisper.cpp. This host does not build it, so asking for it would
-    # be demanding a compiler for something it was decided not to compile.
-    tools = [("git", "apt install git")] if (linux and whisper_disabled()) else [
-        ("git", "apt install git"), ("ffmpeg", "apt install ffmpeg"),
-    ] if linux else [
-        ("git", "brew install git"),
-        ("cmake", "brew install cmake"),
-        ("ffmpeg", "brew install ffmpeg"),
-    ]
+    # git alone. cmake and ffmpeg were here to build and feed whisper.cpp, which is gone.
+    tools = [("git", "apt install git" if linux else "install git")]
     for name, hint in tools:
         path = shutil.which(name)
         row(OK if path else BAD, name, run([name, "--version"]) or f"MISSING — {hint}")
@@ -254,37 +157,12 @@ def main() -> int:
         failures += 1
         print("       Install it, then open a NEW shell — PATH is only updated for new shells.")
 
-    tailscale = shutil.which("tailscale") or (
-        "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-        if Path("/Applications/Tailscale.app/Contents/MacOS/Tailscale").exists() else None
-    )
-    row(OK if tailscale else WARN, "tailscale", tailscale or "not found — the tablet needs its HTTPS address (make up sets the route)")
+    tailscale = shutil.which("tailscale")
+    row(OK if tailscale else WARN, "tailscale", tailscale or "not found — the tablet needs its HTTPS address (make install sets the route)")
     warnings += 0 if tailscale else 1
 
     node = shutil.which("node")
     row(OK if node else WARN, "node", run(["node", "--version"]) or "not found — only the renderer tests need it (they skip)")
-
-    # An unparseable setting is a blocking failure, not a whisper opinion: pydantic rejects it,
-    # so the backend would refuse to start and every other row here would be describing a host
-    # that never comes up. Reported before the whisper rows, because it outranks them.
-    if whisper_setting() == "invalid":
-        row(BAD, "whisper setting", "CROOKS_WHISPER_ENABLED is set to a value the application cannot parse")
-        failures += 1
-        print("       The backend would refuse to start. Use true/1/yes/on or false/0/no/off;")
-        print("       an empty value is not a value. Unset it entirely to accept the default.")
-
-    if whisper_disabled():
-        # Deliberately absent, so it is reported as a decision and costs no warning. Two
-        # permanent warnings for a thing nobody intends to install is how a doctor gets
-        # skimmed, and then the real warning underneath gets skimmed with it.
-        row(OK, "whisper.cpp", "not deployed here (CROOKS_WHISPER_ENABLED=false) — Scribe hears; no local fallback")
-    else:
-        whisper_root = Path.home() / "tools" / "whisper.cpp"
-        whisper_bin = next((p for p in [whisper_root / "build" / "bin" / "whisper-server", whisper_root / "build" / "whisper-server"] if p.exists()), None)
-        vad = next((whisper_root / "models").glob("ggml-silero*.bin"), None) if (whisper_root / "models").exists() else None
-        row(OK if whisper_bin else WARN, "whisper.cpp", str(whisper_bin) if whisper_bin else "not built — make whisper-server prints the steps; ElevenLabs still hears without it")
-        row(OK if vad else WARN, "whisper vad model", vad.name if vad else "absent — cd ~/tools/whisper.cpp && sh ./models/download-vad-model.sh silero-v5.1.2")
-        warnings += (0 if whisper_bin else 1) + (0 if vad else 1)
 
     if linux:
         failures, warnings = linux_checks(failures, warnings)
@@ -332,24 +210,15 @@ def main() -> int:
             raise RuntimeError(str(exc)) from exc
         except keychain.SecretMissing:
             pass
-        # On the Mac the ElevenLabs key is optional: whisper.cpp hears and Android speaks if
-        # it is absent. On a host with whisper disabled there is nothing behind it — no key
-        # means the assistant cannot be spoken to at all — so it is required here, and saying
-        # otherwise would be repeating the Mac's reassurance on a machine it is not true of.
-        deaf_without_scribe = whisper_disabled()
-        optional_keys = {"claude_oauth_token", "shopify_static_token", "gmail_token", "elevenlabs_api_key", "local_cli_key"}
-        if deaf_without_scribe:
-            optional_keys.discard("elevenlabs_api_key")
+        # The ElevenLabs key is required: there is no local recogniser behind Scribe (DEC-022),
+        # so without it the assistant cannot be spoken to at all.
+        optional_keys = {"claude_oauth_token", "shopify_static_token", "gmail_token", "local_cli_key"}
 
         for key in keychain.KNOWN_KEYS:
             have = keychain.present(key)
             optional = key in optional_keys
             absent = {
-                "elevenlabs_api_key": (
-                    "NOT STORED — this host has no local recogniser; without it nothing can hear you"
-                    if deaf_without_scribe
-                    else "not stored (the Mac's own recogniser listens; the tablet speaks in its own voice)"
-                ),
+                "elevenlabs_api_key": "NOT STORED — there is no local recogniser; without it nothing can hear you",
                 "claude_oauth_token": "not stored (fine: the login you made with `claude` is what is used)",
                 "media_signing_key": "not stored — generate once: python scripts/provision_secrets.py media_signing_key --generate",
                 "local_cli_key": "not stored yet — the backend makes it when it starts; until then make test-session-* is refused",

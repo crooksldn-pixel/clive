@@ -48,4 +48,4 @@ make lint                                                    # ruff over app, co
 
 ## History
 
-The README of 7–8 September is kept unchanged at [`docs/history/README_MAC_ERA.md`](docs/history/README_MAC_ERA.md). It covers setting up on the Mac, CROOKS Control and the M0–M14 milestones. The Mac is no longer a production or rollback host (DEC-058).
+The README of 7–8 September is kept unchanged at [`docs/history/README_MAC_ERA.md`](docs/history/README_MAC_ERA.md). It covers setting up on the Mac, CROOKS Control and the M0–M14 milestones. The Mac is no longer a production or rollback host (DEC-058), and its runtime and CROOKS Control were deleted on 8 October (DEC-071, ruling 38); the history keeps them.

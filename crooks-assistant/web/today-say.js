@@ -16,6 +16,10 @@
  *     settings) is never tried: it comes back as `george`, and the page notes it for him.
  *   - Two jobs that fit equally: `pick`, and the person chooses. Never a guess.
  *
+ * This is the one recorded exception to "every typed or spoken sentence is a model turn"
+ * (DEC-063, MAP rule 7). Whether it was allowed was George's open question until 8 October,
+ * when he kept it (DEC-071, ruling 30).
+ *
  * No dependency on the page, so it runs under Node (tests/web/today-say.test.js).
  */
 (function (root, factory) {

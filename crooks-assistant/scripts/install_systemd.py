@@ -11,9 +11,8 @@ the background (which persists), and reads /health back.
     make uninstall   stop, disable and remove the unit
     make logs        follow it  (journalctl -u crooks-assistant -f)
 
-The counterpart of scripts/install_launchd.py, which does the same job on the Mac. Both are
-reached through the same `make` targets; the Makefile picks by platform, so the Mac's own
-deployment is untouched by anything here.
+This is the only installer: the Mac's launchd one went with the Mac runtime on the owner's
+ruling of 8 October (DEC-071, ruling 38; DEC-058, the Mac is not a CROOKS OS host).
 
 The unit runs as root for now, because the Claude Max login this machine holds lives in
 /root/.claude. docs/DEPLOY_LINUX.md says why that is temporary and what replaces it.
@@ -315,7 +314,7 @@ def _print_stages(out: dict) -> None:
 
 
 def restart(port: int) -> int:
-    """The same restart CROOKS Control's button and crooks-update run on this platform:
+    """The same restart crooks-update runs:
     scripts/service_linux.restart(), which restarts the service and then READS /HEALTH BACK.
     A `systemctl restart` that exits 0 for a service that dies on its first import is exactly
     the lie §26 is about, and it is what this used to print and call done."""
@@ -365,7 +364,7 @@ def main(argv: list[str] | None = None) -> int:
         print(rendered_unit())
         return 0
     if not lc.is_linux():
-        print("systemd is Linux only. On the Mac use: make install (launchd)")
+        print("systemd is Linux only, and CROOKS OS runs on the Linux server (DEC-058).")
         return 1
     from config.settings import get_settings
 

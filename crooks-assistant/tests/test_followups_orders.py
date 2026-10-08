@@ -8,7 +8,8 @@ Each test here names the finding it answers, and each failed on the code it was 
 * S2Ba/F-04 — with an order and a variant both given, the variant was never checked against the
   order's lines (read only to the first 20), so a variant of an unrelated product was stepped.
 * S2Bb-03 — /merge took the only live half, and /background brought a merged or cancelled half
-  back to life.
+  back to life. Its three tests went with those routes when Split was deleted on the owner's
+  ruling of 8 October (DEC-071, ruling 37).
 * S2b-04 — "forget the draft" on a draft already saved in Gmail said "Nothing was saved."
 * X1-03 — the order_by_voice scenario called its draft check exact and looked only at the lines,
   the postcode and the total.
@@ -28,11 +29,10 @@ import pytest
 
 from app.families import _sizes as sizes
 from app.families import order_create
-from tests import test_branches, test_r12_orders
+from tests import test_r12_orders
 from tests.test_r12_orders import THE_SENTENCE, card, order_node, rows, say, the_sentence, vid
 
 shop = test_r12_orders.shop
-client = test_branches.client
 
 # =========================================================== S2Ba/F-03: past the first page
 
@@ -239,51 +239,6 @@ async def test_f04_a_line_found_on_the_first_page_of_an_order_not_read_to_its_en
     assert not [i for i in body["ui"] if i["type"] == "workspace"]
     assert shop.runtime.sessions.get("g1").branch().workspace is None
     assert shop.store.mutations == []
-
-
-# ============================================================== S2Bb-03: halves that stay live
-
-
-async def _post(client, branch_id: str, what: str):
-    return await client.post(f"/branches/{branch_id}/{what}", data={"session_id": "br"})
-
-
-async def test_s2bb03_the_only_live_half_cannot_be_merged_and_stays_live_and_focused(client):
-    session = client.runtime.sessions.get("br")
-    only = session.branch()
-    refused = await _post(client, only.branch_id, "merge")
-    assert refused.status_code == 409 and refused.json()["code"] == "last_branch", refused.text
-    assert only.status == "ACTIVE" and session.focused_branch == only.branch_id
-
-
-@pytest.mark.parametrize("closed_by", ["merge", "cancel"])
-async def test_s2bb03_a_merged_or_cancelled_half_cannot_be_merged_or_put_aside(client, closed_by):
-    session = client.runtime.sessions.get("br")
-    keeper = session.branch()
-    other = (await client.post("/branches/fork", data={"session_id": "br"})).json()["branch_id"]
-    assert (await _post(client, other, closed_by)).status_code == 200
-    status = session.branches[other].status
-    assert status in ("MERGED", "CANCELLED")
-    for what in ("merge", "background"):
-        refused = await _post(client, other, what)
-        assert refused.status_code == 409 and refused.json()["code"] == "branch_closed", (what, refused.text)
-        assert session.branches[other].status == status, what
-    assert session.focused_branch == keeper.branch_id and keeper.status == "ACTIVE"
-
-
-async def test_s2bb03_no_sequence_of_background_focus_and_merge_brings_a_closed_half_back(client):
-    """Before: /background made a merged half BACKGROUND, and /focus then made it the ACTIVE,
-    focused half again."""
-    session = client.runtime.sessions.get("br")
-    keeper = session.branch()
-    other = (await client.post("/branches/fork", data={"session_id": "br"})).json()["branch_id"]
-    assert (await _post(client, other, "merge")).status_code == 200
-    for what in ("background", "focus", "merge", "background", "focus"):
-        await _post(client, other, what)
-        assert session.branches[other].status == "MERGED", what
-        assert session.focused_branch == keeper.branch_id, what
-    listed = (await client.get("/branches", params={"session_id": "br"})).json()
-    assert [b["branch_id"] for b in listed["branches"]] == [keeper.branch_id]
 
 
 # ======================================================= S2b-04: a saved draft, told truly

@@ -4,27 +4,20 @@ PY   := $(VENV)/bin/python
 PYTHON ?= $(shell command -v python3.12 || command -v python3.11 || command -v python3)
 PIP  := $(VENV)/bin/pip
 
-# Which supervisor this machine has. The targets below are the same words on both — `make
-# install`, `make status`, `make restart` — and only what sits behind them differs, so the
-# steps written down in the README and in docs/DEPLOY_LINUX.md are one set of steps.
-UNAME_S := $(shell uname -s)
-ifeq ($(UNAME_S),Linux)
+# CROOKS OS runs on the Linux server, supervised by systemd (docs/DEPLOY_LINUX.md). The Mac's
+# launchd branch went with the Mac runtime on the owner's ruling of 8 October (DEC-071, ruling
+# 38; DEC-058: the Mac is not a CROOKS OS host); on any other machine `make install` says so.
 INSTALLER := scripts/install_systemd.py
 LOGS      := journalctl -u crooks-assistant -f -n 40
 SECRETS   := scripts/provision_secrets.py --all
-else
-INSTALLER := scripts/install_launchd.py
-LOGS      := tail -n 40 -F logs/assistant.out.log logs/assistant.err.log logs/whisper.out.log logs/whisper.err.log
-SECRETS   := scripts/set_secrets.py --all
-endif
 
-.PHONY: help doctor venv up install uninstall status restart logs health dev bench test test-live experience experience-ui experience-live experience-list screens matrix tool-matrix lint chat acceptance accept write-check whisper-server secrets shopify gmail gmail-verify voice check test-session-start test-session-status test-session-stop test-session-report test-session-proposals test-session-screens record-start record-status record-stop record-list record-save-test bench-intelligence commands commands-remove update watch control control-app
+.PHONY: help doctor venv up install uninstall status restart logs health dev test test-live experience experience-ui experience-live experience-list screens matrix tool-matrix lint chat acceptance accept write-check secrets shopify gmail gmail-verify voice check test-session-start test-session-status test-session-stop test-session-report test-session-proposals test-session-screens record-start record-status record-stop record-list record-save-test bench-intelligence commands commands-remove update watch
 
 help:
 	@echo "The steps you take, in order. Every one is: open Terminal, cd into this folder, type the line."
 	@echo ""
-	@echo "First time on this Mac:"
-	@echo "  make doctor          check the Mac has everything; prints the fix for anything missing"
+	@echo "First time on the server:"
+	@echo "  make doctor          check the server has everything; prints the fix for anything missing"
 	@echo "  make venv            install the Python side (once)"
 	@echo "  make secrets         store the Shopify credentials and the ElevenLabs key (asks for each)"
 	@echo "  make shopify         prove Shopify works and the token cache is used"
@@ -33,19 +26,19 @@ help:
 	@echo "  make test-live       the two tests that touch the real store and inbox (needs credentials)"
 	@echo ""
 	@echo "Every day:"
-	@echo "  make up              run everything in this one window: backend, speech, HTTPS route"
-	@echo "  make install         or: have the Mac start it all at login, no window at all"
+	@echo "  make up              run it in this one window: the backend and its HTTPS route"
+	@echo "  make install         or: have systemd start it at boot, no window at all"
 	@echo "  make status          is it running, what /health says, the address for the tablet"
-	@echo "  make restart         restart the login-time services (after a git pull)"
-	@echo "  make uninstall       stop and remove the login-time services"
-	@echo "  make logs            follow the login-time services' output"
+	@echo "  make restart         restart the service (after a git pull)"
+	@echo "  make uninstall       stop and remove the service"
+	@echo "  make logs            follow the service's output"
 	@echo ""
 	@echo "When something needs looking at:"
 	@echo "  make health          is it well: one line and an exit code (V=1 every check)"
 	@echo "  make check           doctor + shopify + gmail-verify in one go"
 	@echo "  make gmail-verify    prove Gmail refreshes without a browser"
 	@echo "  make write-check     rehearse one change through the engine: TOOL=… ARGS='{json}' [COMMIT=1]"
-	@echo "  make voice           hear the voice on this Mac (one short ElevenLabs request)"
+	@echo "  make voice           hear the voice (one short ElevenLabs request)"
 	@echo "  make chat            ask questions by typing (cheaper than the tablet)"
 	@echo "  make acceptance      the 18-command Day 1 test; add SPOKEN=1 to score spoken runs"
 	@echo "  make accept          everything provable without the store: lint, Node, pytest, a server, latency, the page in Chromium"
@@ -59,8 +52,6 @@ help:
 	@echo "  make matrix          which operations are reachable by voice, by touch, and tested"
 	@echo "  make tool-matrix     every tool audited; writes docs/phase4/TOOL_MATRIX.md"
 	@echo "  make dev             the backend alone, with auto-reload, for working on the code"
-	@echo "  make whisper-server  speech recognition alone (prints build steps if not built yet)"
-	@echo "  make bench           choose the Whisper model from your tablet recordings"
 	@echo "  make lint            code style"
 	@echo ""
 	@echo "An hour with the tablet, written down (nothing restarts; the page joins within a poll):"
@@ -87,11 +78,6 @@ help:
 	@echo "  crooks-status        one screen: build, voice, Claude, Shopify, Gmail, orders, the tablet's address"
 	@echo "  crooks-watch         the live trace"
 	@echo "  make commands-remove take them off again"
-	@echo ""
-	@echo "CROOKS Control — the menu bar instead of Terminal (macOS 13 or later):"
-	@echo "  make control-app     build the app and put it in /Applications; then open it"
-	@echo "  make control         what the app shows, as JSON  (WHAT=status|plan|apply|rollback|mark-good|actions|contract)"
-	@echo "  crooks-control       the same command, on the PATH after make commands"
 
 doctor:
 	@$(PY) scripts/doctor.py 2>/dev/null || python3 scripts/doctor.py
@@ -125,12 +111,6 @@ health:
 
 dev:
 	$(PY) -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers --reload
-
-whisper-server:
-	$(PY) scripts/whisper_server.py
-
-bench:
-	$(PY) scripts/bench_whisper.py
 
 test:
 	$(VENV)/bin/pytest -q -m "not live"
@@ -191,12 +171,6 @@ commands-remove:
 
 update:
 	@$(PY) scripts/update.py $(if $(CHECK),--check,) $(if $(TEST),--test,) $(if $(JSON),--json,)
-
-control:
-	@$(PY) scripts/control.py $(if $(WHAT),$(WHAT),status) $(if $(YES),--yes,)
-
-control-app:
-	@sh mac/CrooksControl/build.sh --install
 
 watch:
 	@$(PY) scripts/watch.py $(SESSION) $(if $(V),--verbose,)

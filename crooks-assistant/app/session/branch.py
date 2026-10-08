@@ -1,10 +1,13 @@
 """Branch state: where the conversation is, per branch of it.
 
-The tablet's orb can divide in two (app/routes/branches.py). Each half is a branch: its own
+A conversation has a branch from its first question (app/routes/branches.py reads it): its
 current entity, working set, workflow and cursor, navigation stack, selected tab and scroll
-position, its own recent reads and its own pending changes. What they share is only what is
-safe to share — the read caches (app/memory), the source clients, the issued-id ledger — and
-never a mutable position, a proposal or an approval.
+position, its own recent reads and its own pending changes. A second branch is only ever made
+inside CLIVE: the owner's Split, which divided the orb into two halves, was retired by DEC-050 and
+its routes were deleted on the owner's ruling of 8 October (DEC-071, ruling 37). Where there is
+more than one branch, what they share is only what is safe to share — the read caches
+(app/memory), the source clients, the issued-id ledger — and never a mutable position, a
+proposal or an approval.
 
 The point of holding this is speed. "Next" is a cursor increment and one read of a member
 the Mac already knows the id of; it is not a question for the model. Nothing here is a
@@ -18,8 +21,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
-# Two branches at most. The orb divides once; it does not become a window manager.
-MAX_BRANCHES = 2
 # The five words a half's state can be, and the only five. ACTIVE means the owner can talk to
 # it and nothing is running; the other four are what it is doing. There is no percentage here
 # and there never will be: nothing on the Mac can compute one honestly, and a bar that guesses
@@ -426,8 +427,9 @@ class Branch:
     #: and WORKSPACE are database states, and the Phase 5 visual pass caught both of them on
     #: screen — a chip reading "EMPTY To go out", and the band above the cards reading
     #: "EMPTY Orders" over a focused empty half. The translation lives HERE, next to the
-    #: tokens, because `headline`'s promise is that both ends say the same thing: the tablet
-    #: keeps a copy only as the fallback for a Mac older than its own build.
+    #: tokens, because `headline`'s promise is that both ends say the same thing. The tablet
+    #: kept a copy for its half chips (`AREA_WORDS`) until Split's code was deleted (DEC-071,
+    #: ruling 37); the line is still what a branch's headline says.
     SAID_ALOUD: ClassVar[dict[str, str]] = {"EMPTY": "Nothing yet", "WORKSPACE": "This half"}
 
     def headline(self) -> dict[str, str]:
@@ -867,53 +869,3 @@ class Branch:
             "has_workspace": bool(self.last_ui or self.last_answer),
             "last_question": self.last_question, "last_at": self.last_at or None,
         }
-
-
-def fork_from(parent: Branch, *, label: str = "") -> Branch:
-    """The orb divides. One function, so what a half inherits is one contract with one test.
-
-    The child inherits what its parent HOLDS — the record it is on, the working set, the names
-    it has already resolved, the trail of what it has looked at — and NOTHING of what its
-    parent is SHOWING. That division is the whole of D-3. Cloning the parent's screen is what
-    produced two identical halves; withholding what the parent held is what made `open.area`
-    and `open.entity` refuse the clone with reasons its owner could not act on. So: context
-    yes, presentation no, and the child says plainly that it holds nothing yet.
-
-    Nothing that could be APPLIED crosses: no proposal, no composer, no half-written workspace,
-    no armed voice binding, no task. A change belongs to the half it was asked for in.
-    """
-    child = Branch(
-        branch_id=new_branch_id(), session_id=parent.session_id, parent_id=parent.branch_id,
-        label=str(label or "").strip()[:40] or "second",
-        entity=dict(parent.entity) if parent.entity else None,
-        set_id=parent.set_id, tab=parent.tab,
-        # A tab the owner chose on a record is context, like the record itself: it crosses,
-        # and from here the two halves move apart.
-        tabs=dict(parent.tabs),
-        # Where the new half's "back to the assistant" goes. The half starts where the old one
-        # is, and the PLACE it is in is part of what it holds; without this a half forked out
-        # of the inbox went home to orders. A value, not the stack: its own one-stop trail is
-        # built at the end of this function and the two halves never share one.
-        landing=parent.landing,
-    )
-    if parent.workflow is not None:
-        # The same set at the same place; advancing one cursor does not move the other.
-        from dataclasses import replace
-
-        child.workflow = replace(parent.workflow, workflow_id=f"{parent.workflow.workflow_id}b",
-                                 visited=list(parent.workflow.visited))
-    # What its parent had already seen. References, not permissions — the gate still reads
-    # `Session.issued_ids` — and exactly what the clone never received in the live session.
-    child.recent_entities = [dict(e) for e in parent.recent_entities[:MAX_RECENT]]
-    child.inherited = {
-        "from": parent.branch_id,
-        "entity": dict(parent.entity) if parent.entity else None,
-        "set_id": parent.set_id or "",
-        "area": parent.headline()["area"],
-    }
-    if parent.entity:
-        # Its own one-stop trail, so Back and Home have a floor of their own rather than
-        # walking a stack that belongs to the other half.
-        child.visit(parent.entity["kind"], parent.entity["ref"], parent.entity["label"], tab=parent.tab)
-    return child
-

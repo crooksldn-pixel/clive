@@ -13,10 +13,10 @@ router = APIRouter()
 
 VERSION = "0.1.0"
 
-# The checks are real work: a Shopify query, a Gmail profile, half a second of whisper
-# inference. The tablet polls; the settings sheet, the launcher and `make status` all ask.
-# Answering from a recent result for this long keeps that from becoming a constant hum on the
-# Mac and on the Shopify rate budget. `?fresh=1` skips it, for when someone is looking.
+# The checks are real work: a Shopify query, a Gmail profile, a Scribe probe. The tablet polls;
+# the settings sheet, the launcher and `make status` all ask. Answering from a recent result for
+# this long keeps that from becoming a constant hum on the server and on the Shopify rate budget.
+# `?fresh=1` skips it, for when someone is looking.
 CACHE_TTL_S = 90.0
 
 
@@ -35,7 +35,7 @@ async def health(request: Request, fresh: int = Query(default=0)) -> dict:
     state = request.app.state
     cached = getattr(state, "health_cache", None)
     if not fresh and cached and time.time() - cached[0] < CACHE_TTL_S:
-        return _guarded(request, {**_live(runtime, cached[1]), "observability": _observability(runtime, request), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)})
+        return _guarded(request, {**_live(runtime, cached[1]), "observability": _observability(runtime, request), "cached": True, "age_s": round(time.time() - cached[0], 1)})
     lock = getattr(state, "health_lock", None)
     if lock is None:
         lock = state.health_lock = asyncio.Lock()
@@ -44,10 +44,10 @@ async def health(request: Request, fresh: int = Query(default=0)) -> dict:
         # doubling the work.
         cached = getattr(state, "health_cache", None)
         if not fresh and cached and time.time() - cached[0] < CACHE_TTL_S:
-            return _guarded(request, {**_live(runtime, cached[1]), "observability": _observability(runtime, request), "pad": _pad(), "cached": True, "age_s": round(time.time() - cached[0], 1)})
+            return _guarded(request, {**_live(runtime, cached[1]), "observability": _observability(runtime, request), "cached": True, "age_s": round(time.time() - cached[0], 1)})
         result = await _health(runtime)
         state.health_cache = (time.time(), result)
-        return _guarded(request, {**result, "observability": _observability(runtime, request), "pad": _pad(), "cached": False, "age_s": 0.0})
+        return _guarded(request, {**result, "observability": _observability(runtime, request), "cached": False, "age_s": 0.0})
 
 
 # What /health says to a caller the owner rule refuses (the 2026-09-27 deploy review, round 8,
@@ -89,7 +89,7 @@ def _the_owners(request: Request | None) -> bool:
 def _liveness(out: dict) -> dict:
     """What a caller the owner rule refuses may read. proxy_identity keeps its detail because that
     string is only ever one of identity.served_without_proxy_headers's own fixed sentences (never an
-    exception's text; tests/test_pad.py holds it to them); housekeeping's detail can name a problem
+    exception's text; tests/test_health_liveness.py holds it to them); housekeeping's detail can name a problem
     a pass met, so it goes as a verdict only."""
     checks = out.get("checks") if isinstance(out.get("checks"), dict) else {}
     shown: dict[str, dict] = {}
@@ -145,16 +145,13 @@ def _live(runtime, result: dict) -> dict:
     checks = {**result["checks"], "tts": {"ok": ok, "detail": detail}}
     speech = result.get("speech")
     probe = getattr(runtime.scribe, "last_probe", None)
-    if speech is not None and speech.get("primary") == "scribe" and probe is not None:
+    if speech is not None and probe is not None:
         scribe_ok, scribe_detail = runtime.scribe.judged(probe)
         checks["scribe"] = {"ok": scribe_ok, "detail": scribe_detail}
-        whisper_enabled = runtime.settings.whisper_enabled
-        checks["speech"], effective = _speech_verdict(
-            "scribe", whisper_enabled, checks, runtime.settings, failing=_scribe_failing(runtime, "scribe"),
-        )
+        checks["speech"], effective = _speech_verdict(checks, runtime.settings, failing=_scribe_failing(runtime))
         speech = {
             **speech,
-            **_scribe_state(runtime, "scribe"),
+            **_scribe_state(runtime),
             "scribe_ok": scribe_ok,
             "effective": effective,
         }
@@ -167,72 +164,38 @@ def _live(runtime, result: dict) -> dict:
     }
 
 
-def _speech_verdict(
-    primary: str, whisper_enabled: bool, checks: dict, settings, *, failing: str = "",
-) -> tuple[dict, str]:
-    """checks["speech"] and the engine actually hearing, from the recogniser checks.
+def _speech_verdict(checks: dict, settings, *, failing: str = "") -> tuple[dict, str]:
+    """checks["speech"] and the engine actually hearing, from Scribe's check.
 
-    Speech recognition is two engines behind one job, so it gets a verdict of its own:
-    Scribe down while Whisper is up is a slower assistant, not a deaf one, and the tablet's
-    page should not read "degraded" as "cannot hear you".
-
-    Where there is no second engine, that reasoning inverts and this is the one place that
-    matters. On the Mac, Scribe going down is a slower assistant. On a host with whisper
-    disabled it is a deaf one, and `speech` says UNHEALTHY rather than borrowing the Mac's
-    answer. `redundancy` publishes which of the two worlds the reader is in, so the absence
-    of a fallback is a visible fact rather than something you have to already know.
+    Scribe is the only recogniser (DEC-022; the local fallback was deleted on 8 October,
+    DEC-071 ruling 39), so Scribe down is a deaf assistant and `speech` says UNHEALTHY.
+    `redundancy` publishes that there is nothing behind it, so the absence of a fallback is a
+    visible fact rather than something you have to already know.
 
     `failing` is the kind of Scribe's current failure; while it is set, the verdict says in
     plain words what happened and what brings it back."""
-    primary_check = "scribe" if primary == "scribe" else "whisper"
     why = f" ({listening_reason(failing)})" if failing else ""
-    # Whether whisper could actually take a turn: deployed here AND answering. On the Mac this
-    # is exactly checks["whisper"]["ok"], which is why nothing there changes.
-    whisper_usable = whisper_enabled and checks["whisper"]["ok"]
-    redundancy = "whisper" if whisper_enabled else "none"
-
-    if primary == "whisper" and not whisper_enabled:
-        # Configured to hear through an engine this host was never given. Neither setting is
-        # wrong by itself, so neither check catches it alone; the pair is the fault, and it is
-        # named rather than left to look like an ordinary whisper outage.
-        speech_ok, speech_effective = False, "none"
-        speech_detail = (
-            "MISCONFIGURED — CROOKS_STT_PRIMARY=whisper but CROOKS_WHISPER_ENABLED=false: "
-            "this host has no recogniser at all"
-        )
-    elif checks[primary_check]["ok"]:
-        expect = settings.scribe_model if primary == "scribe" else "whisper"
-        speech_ok, speech_effective = True, expect
-        speech_detail = f"{expect} (primary)"
-        if not whisper_enabled:
-            speech_detail += " · no local fallback on this host (by design)"
-    elif whisper_usable:
-        speech_ok, speech_effective = True, "whisper_fallback"
-        speech_detail = f"whisper_fallback — {primary_check} is unavailable{why}, answers still work"
+    if checks["scribe"]["ok"]:
+        speech_ok, speech_effective = True, settings.scribe_model
+        speech_detail = f"{settings.scribe_model} · no local fallback on this host (by design)"
     else:
         speech_ok, speech_effective = False, "none"
-        speech_detail = (
-            f"NO recogniser available{why} — nothing spoken can be heard"
-            if whisper_enabled
-            else f"NOT working: {primary_check} is down{why} and there is no local fallback"
-        )
-    return {"ok": speech_ok, "detail": speech_detail, "redundancy": redundancy}, speech_effective
+        speech_detail = f"NOT working: scribe is down{why} and there is no local fallback"
+    return {"ok": speech_ok, "detail": speech_detail, "redundancy": "none"}, speech_effective
 
 
-def _scribe_failing(runtime, primary: str) -> str:
+def _scribe_failing(runtime) -> str:
     """The kind of Scribe's failure while nothing has succeeded since — its latest attempt, or
-    else a probe that found the key or the account wrong; "" when well or not in use."""
-    if primary != "scribe":
-        return ""
+    else a probe that found the key or the account wrong; "" when well."""
     scribe = runtime.scribe
     return getattr(scribe, "unwell_kind", "") or getattr(scribe, "failing_kind", "") or ""
 
 
-def _scribe_state(runtime, primary: str) -> dict:
+def _scribe_state(runtime) -> dict:
     """Scribe's counters and, while it is failing with no success since, what happened in
     plain words."""
     scribe = runtime.scribe
-    failing = _scribe_failing(runtime, primary)
+    failing = _scribe_failing(runtime)
     return {
         "scribe_attempts": scribe.attempts,
         "scribe_successes": scribe.successes,
@@ -274,24 +237,6 @@ def _voice_block(runtime, ok: bool) -> dict:
     }
 
 
-def _pad(now: float | None = None) -> dict:
-    """Whether the CROOKS PAD is alive, read at ANSWER time and never from the cache.
-
-    It has to be outside the cached block for the same reason `observability` is, and for a
-    sharper one: `connected` is `now - last_seen < STALE_AFTER_S`, so a pad block frozen into a
-    ninety-second cache would keep saying connected for a minute and a half after the tablet
-    died — which is longer than the staleness window it is meant to enforce, and would make the
-    whole check a lie exactly when it matters. Computing it here costs a subtraction.
-
-    Reachability is NOT an input. This block says disconnected on a perfectly healthy Mac with a
-    perfectly good Tailscale route if no pad has posted a heartbeat recently, which is the point:
-    the control layer already knew about the route, and knew nothing whatever about the tablet.
-    """
-    from app.observability import pad as pad_module
-
-    return pad_module.current().status(now=now)
-
-
 def _observability(runtime, request: Request | None = None) -> dict:
     """Whether a test session is on, read at answer time rather than from the cached checks:
     the tablet turns its own telemetry on and off from this, within one poll."""
@@ -330,34 +275,12 @@ async def _health(runtime) -> dict:
             ok, detail = False, f"{type(exc).__name__}: {exc}"
         checks[name] = {"ok": ok, "detail": detail}
 
-    primary = runtime.transcriber.primary
-    whisper_enabled = runtime.settings.whisper_enabled
     running = [
         check("claude", runtime.provider.health()),
         check("shopify", runtime.shopify.health()),
         check("gmail", asyncio.to_thread(runtime.gmail.health)),
+        check("scribe", runtime.scribe.health()),
     ]
-    if whisper_enabled:
-        running.append(check("whisper", runtime.whisper.health()))
-    else:
-        # Not deployed here, and that is a decision rather than a failure. ok=True, so an
-        # absence nobody intends to fix cannot make the whole host read as degraded — a check
-        # that is permanently red is a check people stop reading, and then they stop reading
-        # the one beside it too. `disabled` is what anything branching on this should use.
-        # Nothing is being hidden: checks["speech"] below goes UNHEALTHY the moment the one
-        # remaining recogniser stops answering, which on this host is the whole of speech.
-        checks["whisper"] = {
-            "ok": True,
-            "disabled": True,
-            "detail": "disabled (CROOKS_WHISPER_ENABLED=false) — no local recogniser on this host",
-        }
-    if primary == "scribe":
-        running.append(check("scribe", runtime.scribe.health()))
-    else:
-        # Configured off. Don't call ElevenLabs, and don't report a subsystem nobody is using
-        # as broken — that is how a health page trains people to ignore it.
-        checks["scribe"] = {"ok": True, "detail": "not in use (CROOKS_STT_PRIMARY=whisper)"}
-
     await asyncio.gather(*running)
 
     # Instagram, read-only: whether a token is stored, how long it has left and whether its last
@@ -380,22 +303,8 @@ async def _health(runtime) -> dict:
     checks["tts"] = {"ok": ok, "detail": detail}
     settings = runtime.settings
 
-    # The plan's M3 failure check: Core ML build succeeds but the .mlmodelc is missing, and
-    # everything runs twice as slowly with no error. Say so here so it cannot go unnoticed.
-    if whisper_enabled and checks["whisper"]["ok"]:
-        bin_dir = settings.whisper_bin_dir
-        coreml = bin_dir / "models" / f"ggml-{settings.whisper_model}-encoder.mlmodelc"
-        checks["whisper"]["detail"] += (
-            " · Core ML encoder present" if coreml.exists()
-            else " · no Core ML encoder (fine for a Metal-only build; ~2x slower if built with Core ML)"
-        )
-
     # Speech recognition gets a verdict of its own — see _speech_verdict.
-    whisper_usable = whisper_enabled and checks["whisper"]["ok"]
-    redundancy = "whisper" if whisper_enabled else "none"
-    checks["speech"], speech_effective = _speech_verdict(
-        primary, whisper_enabled, checks, settings, failing=_scribe_failing(runtime, primary),
-    )
+    checks["speech"], speech_effective = _speech_verdict(checks, settings, failing=_scribe_failing(runtime))
 
     checks["knowledge_base"] = {
         "ok": not runtime.kb.empty,
@@ -419,8 +328,8 @@ async def _health(runtime) -> dict:
 
     return {
         # Degraded, not down: Shopify being unreachable should not make the page say the
-        # backend is offline, because Gmail and the knowledge base still work. Nor should
-        # ElevenLabs — speech falls back to the Mac and the answer still arrives.
+        # backend is offline, because Gmail and the knowledge base still work, and typing still
+        # reaches CLIVE when ElevenLabs cannot hear.
         "status": "ok" if all(c["ok"] for c in checks.values()) else "degraded",
         "version": VERSION,
         # Changes whenever the tablet page's files change on the Mac; the tablet reloads
@@ -430,18 +339,12 @@ async def _health(runtime) -> dict:
         "sessions": runtime.sessions.count(),
         # One line for "who is listening", so a spoken problem can be diagnosed at a glance.
         "speech": {
-            "primary": primary,
             "scribe_model": settings.scribe_model,
             "scribe_ok": checks["scribe"]["ok"],
-            # Usable, not merely "the probe passed": a disabled whisper reports its check as
-            # ok so the host is not degraded, and reporting that as whisper_ok here would be
-            # the one place that turns into a lie about what can hear you.
-            "whisper_ok": whisper_usable,
-            "whisper_enabled": whisper_enabled,
-            "redundancy": redundancy,
+            "redundancy": "none",
             "effective": speech_effective,
             # Set while Scribe's latest attempt failed with no success since, in plain words.
-            **_scribe_state(runtime, primary),
+            **_scribe_state(runtime),
         },
         # And one line for "who is speaking" — see _voice_block.
         "voice": _voice_block(runtime, ok),

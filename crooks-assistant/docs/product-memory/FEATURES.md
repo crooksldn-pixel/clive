@@ -14,7 +14,7 @@ This file tracks features that are approved, planned, building, testing, or ship
 | FEAT-006 | Derek TTS | NOT SHIPPED ON THE SERVER | V1 | The Derek voice is unavailable on the production server because the ElevenLabs credits are exhausted (2026-09-25). Restoring it is an owner spend decision. The honest wording and health for this outage are in the trunk, not yet deployed (FEAT-066). Was: SHIPPED, "Existing voice output" (2026-09-19 register, Mac-era runtime). |
 | FEAT-007 | Proposal/action/verification system | SHIPPED | V1 | Safety-critical; preserve semantics. |
 | FEAT-008 | Samsung browser/PWA client | SHIPPED / POLISH | V1 | Needs UX/UI refinement. Samsung verification on the Linux runtime is still outstanding. |
-| FEAT-009 | CROOKS Control Mac app | SHIPPED / POLISH | Phase 6 | Exists but still engineering-like. |
+| FEAT-009 | CROOKS Control Mac app | RETIRED | Phase 6 | Deleted on 2026-10-08 with the Mac runtime, by owner decision (DEC-071, ruling 38; the Mac is not a CROOKS OS host, DEC-058). The history keeps it. Was, 2026-09-19: SHIPPED / POLISH, "Exists but still engineering-like." |
 | FEAT-010 | Always-on Hetzner deployment | SHIPPED | NOW | Production `/opt/crooks-os` runs `clive/trunk` `ce791d03`, deployed 2026-09-25 after a green GitHub acceptance run on that exact SHA and an independent exact-SHA review with zero findings; deploys now come from the trunk. History: ratified at `1cf3a0f3…` on 2026-09-19 (DEC-048); mobile alpha `ca388cee` on 2026-09-23. Was, 2026-09-19: BUILDING, "Linux/systemd/Tailscale migration in review". |
 | FEAT-011 | Linux secret architecture | SHIPPED / HARDENING | NOW | Static and mutable secrets in use on the production host; Gmail OAuth provisioned 2026-09-24. Synthetic credentials in tests are assembled at runtime through one shared helper, never baselined (OWNER_DECISIONS_2026-09-25). New secret provisioning remains owner-gated. Was: TESTING, "Gmail OAuth still outstanding" (2026-09-23); "Static vs mutable secret handling under review" (2026-09-19). |
 | FEAT-012 | Tailscale private HTTPS runtime | SHIPPED | NOW | Tailnet-only HTTPS active and ratified (DEC-048). Was, 2026-09-19: TESTING, "Code path prepared; live activation pending". |
@@ -53,7 +53,7 @@ This file tracks features that are approved, planned, building, testing, or ship
 | FEAT-045 | CROOKS-managed Claude Code | CAPTURED | SOMEDAY | User no longer directly operates Claude Code. |
 | FEAT-046 | Product-memory auto-capture | CAPTURED | SOMEDAY | Detect/capture important product ideas. |
 | FEAT-047 | Native CROOKS Phone | CAPTURED | SOMEDAY | Mobile-first native client. |
-| FEAT-048 | CROOKS Pad hardened/native shell | CAPTURED | SOMEDAY | Dedicated tablet client. |
+| FEAT-048 | CROOKS Pad hardened/native shell | RETIRED | SOMEDAY | The Android shell (`android/`) and its heartbeat were removed from the app on 2026-10-08 by owner decision (DEC-071, ruling 40); the history keeps them. Was, 2026-09-19: CAPTURED, "Dedicated tablet client." |
 | FEAT-049 | Subscriber CROOKS OS | APPROVED | SOMEDAY | Configurable ecommerce/small-business product. |
 | FEAT-050 | Simple subscriber onboarding | APPROVED | SOMEDAY | Connect tools, auto-build business model. |
 | FEAT-051 | Multi-user subscriber permissions | CAPTURED | SOMEDAY | Role-based business operation. |

@@ -1,54 +1,37 @@
 # CROOKS OS on Linux
 
-The Mac is still the Mac. This describes the Ubuntu server that runs the same code as a
-service, so the assistant is up when the Mac is not, and says plainly which parts of the
-macOS deployment do not exist here and why that is deliberate.
+This is the Ubuntu server that runs CLIVE as a service: the *production* host
+`crooks-os-prod-1`, and the only host. The Mac is not a production or rollback host (DEC-058).
+Its runtime (`mac/`, the CROOKS Control menu-bar app, `launchd/`, `install_launchd.py`) and the
+local Whisper client were deleted on the owner's rulings of 8 October (DEC-071, rulings 38 and
+39). The repository's history keeps them.
 
-Everything below is the *production* host `crooks-os-prod-1`. Nothing here changes the Mac,
-and the Mac remains the rollback path: it has its own checkout, its own launchd agents, its
-own Keychain and its own Tailscale address, and none of them are touched by any of this.
-
----
-
-## What is different from the Mac, and why
-
-| | Mac | This server |
-|---|---|---|
-| Supervision | launchd LaunchAgents (`launchd/`) | systemd unit (`deploy/systemd/`) |
-| Starts at | login | boot |
-| Secrets | login Keychain | systemd encrypted credentials + a root-only 0600 directory |
-| Logs | `logs/*.log` + launchd's own files | `journalctl -u crooks-assistant` + the same `logs/assistant.log` |
-| Local speech fallback | whisper.cpp with Core ML | **not deployed** — see below |
-| Menu-bar app | CROOKS Control | not applicable; `crooks-control` on the command line still works |
-
-Both are reached through the same `make` targets. The Makefile picks by platform.
+| | This server |
+|---|---|
+| Supervision | systemd unit (`deploy/systemd/`), through the `make` targets |
+| Starts at | boot |
+| Secrets | systemd encrypted credentials + a root-only 0600 directory |
+| Logs | `journalctl -u crooks-assistant` + `logs/assistant.log` |
+| Speech | ElevenLabs Scribe, with no local fallback (below) |
 
 ---
 
-## Speech: there is no local fallback here, on purpose
+## Speech: there is no local fallback, on purpose
 
-On the Mac, ElevenLabs Scribe hears you and whisper.cpp is the automatic fallback when Scribe
-is slow, rate-limited or down. This server has no whisper.cpp: building it needs a toolchain
-and a model, and the Apple Neural Engine it was tuned for does not exist on this hardware.
+ElevenLabs Scribe is the one recogniser (DEC-022: no local speech fallback on the server). The
+whisper.cpp client that used to stand behind it on the Mac was deleted with its settings on 8
+October (DEC-071, ruling 39). `CROOKS_WHISPER_ENABLED` and `CROOKS_STT_PRIMARY`, if a server's
+`.env` still has them, are ignored, as every unknown key is.
 
-So the server is configured with `CROOKS_WHISPER_ENABLED=false`, and that setting does one
-thing: it tells the truth about the arrangement.
+* `/health` has no whisper check, and the absence of a fallback does **not** make the
+  top-level status `degraded`. A machine that was never given a fallback is not a broken
+  machine.
+* It does **not** hide a real failure. `checks["speech"]` tells the truth: Scribe working is
+  healthy, and **Scribe down is unhealthy**, because with nothing behind it the assistant is
+  deaf, and `/health` says so.
 
-* `/health` reports whisper as **disabled**, not failed — the distinction matters, because a
-  check that is permanently red is a check nobody reads.
-* It does **not** make the top-level status `degraded`. A machine that was never given a
-  fallback is not a broken machine.
-* It does **not** suppress a real failure. `checks["speech"]` still tells the truth: Scribe
-  working is healthy, and **Scribe down with no fallback is unhealthy** — on the Mac that
-  same outage would be a slower assistant, here it is a deaf one, and `/health` says so.
-* The Core ML probe is skipped, because there is nothing to probe.
-
-`checks["speech"]` carries `redundancy: "none"` on this host and `"whisper"` on the Mac, so
-the absence of a fallback is a visible fact about the deployment rather than something you
-have to know.
-
-If local speech is ever wanted here, build whisper.cpp, set `CROOKS_WHISPER_ENABLED=true`,
-and the behaviour returns to the Mac's exactly.
+`checks["speech"]` carries `redundancy: "none"`, so the absence of a fallback is a visible fact
+about the deployment rather than something you have to know.
 
 ---
 
@@ -202,9 +185,16 @@ crooks-status      # the same screen, from anywhere on the PATH
 crooks-update      # fetch, fast-forward, install what changed, restart, verify
 ```
 
-`crooks-update` runs the same eight stages it runs on the Mac; only stage 7 differs, and it
-restarts the systemd unit instead of kicking the launchd agents. It is still fast-forward
-only, still refuses on a dirty tree, and still has no `--force`.
+`crooks-update` runs eight stages; stage 7 restarts the systemd unit and reads `/health` back.
+It is fast-forward only, refuses on a dirty tree, and has no `--force`.
+
+`crooks-control`, the menu-bar app's command, went with the app on 8 October (DEC-071, ruling
+38). Each of its jobs has a home here: the state is `make status` or `crooks-status`; a restart
+that reads `/health` back is `make restart`; a new build on production is a deploy (below), which
+the release service ([RELEASE_SERVICE.md](RELEASE_SERVICE.md)) makes by itself once it is switched
+on; and the previous build goes back as "Putting the previous build back" says. A
+`~/.local/bin/crooks-control` left by an earlier `make commands` is taken off by running
+`make commands` again.
 
 ## Health
 
@@ -328,14 +318,32 @@ holds the cleaned record, and the original named in that line was flushed before
 above put it back. A later `gap record updated, but not confirmed on disk` means the same of an
 ordinary update; `gap record not updated` means the file was not replaced.
 
-## Rolling back to the Mac
+## Putting the previous build back
 
-Nothing to undo here, but if the server is to stop answering:
+When a new build will not run, the answer is a rollback, not a retry. What goes back depends on how
+the build arrived:
+
+- **A deploy, by hand or by the release service.** Its record, `reports/deploy-<sha8>.md`, names
+  the rollback target, captured before anything changed: the previous SHA and the unit as it was.
+  It also carries the lines that put both back. The release service runs them itself when its own
+  checks fail. A rollback it could not finish leaves `HALT` behind
+  ([RELEASE_SERVICE.md](RELEASE_SERVICE.md), "After a halt").
+- **`crooks-update`.** It moves the code and never the unit. When its restart fails it says so,
+  and names the build it started from ("The build before this update: …"). Check that build out
+  again and restart; `make restart` reads `/health` back:
+
+  ```bash
+  git checkout --detach <the SHA crooks-update named>
+  make restart
+  ```
+
+  The next `crooks-update --branch <branch>` comes forward from there by itself.
+
+## Taking the server down
+
+There is no other host to fall back to (DEC-058). If the server is to stop answering:
 
 ```bash
 make uninstall           # stop, disable, remove the unit
 tailscale serve reset    # drop the HTTPS route
 ```
-
-The Mac's own deployment was never touched: its checkout, its launchd agents, its Keychain
-and its Tailscale address are exactly as they were.
