@@ -191,7 +191,7 @@ class HeldBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     session_id: str = Field(min_length=1, max_length=200)
-    kind: Literal["order", "objective"]
+    kind: Literal["order", "objective", "email_thread"]   # an email since ruling 29 (DEC-071)
     ref: str = Field(min_length=1, max_length=200)
 
 

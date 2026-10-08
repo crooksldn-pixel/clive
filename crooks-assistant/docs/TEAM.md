@@ -7,6 +7,8 @@ The owner's decisions of 1 October 2026, given in the review session:
 - without his OK they may **mark orders packed, fulfil orders in Shopify, send email replies, and adjust stock from their counts**;
 - they see **everything but his own conversations with CLIVE**.
 
+And on 8 October (DEC-071, ruling 34): they may **send a draft he left**, on their own hold.
+
 ## Setting someone up
 
 1. **First, limit what the team can reach.** Tailscale's default access rules let every user reach every device on the tailnet: your Mac, the build server, and anything listening on them. Before inviting anyone, change the rules in the admin console (Access controls) so that:
@@ -46,6 +48,7 @@ Every change to the shop or the inbox comes up as a card, as it does for you. It
 Without your OK, they may:
 - **fulfil an order**, with its tracking number, and add tracking to one already fulfilled;
 - **draft and send a reply** in an email thread someone wrote to CROOKS;
+- **send a draft you left** in Gmail, exactly as you wrote it. CLIVE lists the drafts waiting and whose words each is; the card says *Words: George's* and *Sent by* them, and it goes only on their own hold. A draft another member of the team drafted with CLIVE is theirs or yours to send, and so is one whose words CLIVE cannot say (its record of its drafts unreadable, or one of its own drafts it has no record of): the card says the words are not known, and only you can send it;
 - **adjust stock** on a variant, up or down, to match what they counted.
 
 Packing an order, entering a count and finishing a job are steps on the work list itself. They change nothing in Shopify.

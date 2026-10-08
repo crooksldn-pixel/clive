@@ -6,7 +6,8 @@ which write tool to prepare for each member, with what arguments. The batch engi
 where the change does not apply, one card, one gesture, one proposal committed and proven
 per member, and a count. Nothing here sends anything.
 
-The first four: tags on and off orders, threads out of the inbox, drafts to customers. A
+The first four: tags on and off orders, threads out of the inbox (archived, or junked since
+ruling 27 of DEC-071), drafts to customers. A
 refund, a cancel, a fulfilment, a stock change stay single until this pattern has proved
 itself on the tablet; the shape below is ready for them.
 """
@@ -109,11 +110,15 @@ async def batch_order_tags_remove(set_id: str, tags: list) -> BatchPlan:
 # --------------------------------------------------------------------------- the inbox
 
 
+def _threads(n: int) -> str:
+    return f"{n} thread" if n == 1 else f"{n} threads"
+
+
 def _present_archive(batch) -> dict[str, Any]:
     if batch.undo_of:
         return {"title": "Put them all back in the inbox", "detail": "Each thread goes back where it was.", "confirm_label": "Undo all", "undone_title": "Back in the inbox"}
     return {
-        "title": f"Archive {len(batch.eligible)} threads",
+        "title": f"Archive {_threads(len(batch.eligible))}",
         "detail": "Each leaves the inbox and stays in All Mail and in search. Undo puts them all back.",
         "done_title": "Archived",
         "target": "Archive all",
@@ -132,6 +137,37 @@ def _present_archive(batch) -> dict[str, Any]:
 async def batch_email_archive(set_id: str) -> BatchPlan:
     ws = _set(set_id, kinds=("emails",))
     return BatchPlan(set_id=ws.set_id, child_tool="gmail_thread_archive", child_args=lambda ref: {"thread_id": ref}, label="archive", summary={"read_back": f"archive all {ws.count} threads"})
+
+
+# Ruling 27 (DEC-071): junk a set of threads on one card and one hold. Each thread is checked on its
+# own by gmail_thread_junk — still in the inbox, not already in Spam, and not from a customer of the
+# shop (nor from anyone the shop could not be asked about) — and a thread that fails a check is left
+# out with its reason before the card is shown. The tool is RED, so the batch is a hold however few.
+
+
+def _present_junk(batch) -> dict[str, Any]:
+    if batch.undo_of:
+        return {"title": "Not junk: put them all back in the inbox", "detail": "Each thread comes out of Spam and back to the inbox.", "confirm_label": "Undo all", "undone_title": "Back in the inbox"}
+    return {
+        "title": f"Junk {_threads(len(batch.eligible))}",
+        "detail": "Each moves to Spam. Gmail learns from it, so their next email may go to Spam too; Gmail empties Spam after 30 days. Undo puts them all back.",
+        "done_title": "Junked",
+        "target": "Junk all",
+    }
+
+
+@tool(
+    name="batch_email_junk",
+    description="Junk every thread in a working set of emails (≤50) still in the inbox; never a customer's.",
+    input_schema={"type": "object", "properties": {"set_id": {"type": "string", "description": "A set of emails."}}, "required": ["set_id"]},
+    tier=Tier.RED,
+    issued_id_args=("set_id",),
+    timeout_s=30.0,
+    batch=BatchSpec(operation="batch_email_junk", child_tool="gmail_thread_junk", set_kinds=("emails",), present=_present_junk, verb="Junked", noun="threads"),
+)
+async def batch_email_junk(set_id: str) -> BatchPlan:
+    ws = _set(set_id, kinds=("emails",))
+    return BatchPlan(set_id=ws.set_id, child_tool="gmail_thread_junk", child_args=lambda ref: {"thread_id": ref}, label="junk", summary={"read_back": f"junk all {ws.count} threads"})
 
 
 # --------------------------------------------------------------------------- drafts

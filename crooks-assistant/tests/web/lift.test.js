@@ -84,6 +84,34 @@ test('each screen says whether it is on and what it shows now, in the words the 
   assert.equal(L.overLine({ online: false }), 'Off · It goes up when it’s next on');
 });
 
+test('no tile attribute carries what a screen shows: an email\'s subject is said as text, never in an attribute', () => {
+  // The review of 8 October (BLOCKER): with an email on the Office TV, the tile's aria-label was built
+  // from stateLine and carried the email's subject. The tile is named by the screen and its state alone.
+  const subject = 'Re: Ana Fixture — order 1939 refund';
+  const office = { id: 'scr_0123456789ab', name: 'Office TV', online: true, showing: subject, beside: 'Autumn drop shoot' };
+  assert.equal(L.tileLabel(office), 'Office TV, on');
+  assert.equal(L.tileLabel({ id: 'scr_0123456789ac', name: 'Packing screen', online: false, showing: subject }), 'Packing screen, off');
+  assert.equal(L.tileLabel({ online: true }), 'Screen, on');
+  for (const s of [office, { name: 'Packing screen', online: false, showing: subject }]) {
+    assert.ok(!L.tileLabel(s).includes(subject) && !L.tileLabel(s).includes('Ana') && !L.tileLabel(s).includes('Autumn'), L.tileLabel(s));
+  }
+  // The page itself: every attribute lift.js sets is a fixed word, a number of its own making, an
+  // icon's own path, a screen's id, or the tile's label above. A new attribute built from anything
+  // else (what a screen shows, a lifted record's words) fails here first.
+  const source = fs.readFileSync(path.join(WEB, 'lift.js'), 'utf8');
+  const OWN = new Set(['String(stroke || 1.9)', 'd', 'tileLabel(s)', 'line.id']);
+  const attributes = [...source.matchAll(/\.setAttribute\('([a-z-]+)',\s*([^;]*)\);/g)];
+  assert.ok(attributes.length >= 15, attributes.length);
+  for (const [, name, value] of attributes) {
+    assert.ok(/^'[^']*'$/.test(value.trim()) || OWN.has(value.trim()), `${name} = ${value}`);
+  }
+  for (const [, key, value] of source.matchAll(/\.dataset\.([a-zA-Z]+) = ([^;]*);/g)) {
+    assert.ok(/^'[^']*'$/.test(value.trim()) || ['s.id', 'L.mode'].includes(value.trim()), `data-${key} = ${value}`);
+  }
+  assert.ok(source.includes("line.id = 'lift-state-' + s.id;"), 'the line a tile is described by is named by the screen\'s id alone');
+  assert.ok(!/setAttribute\([^)]*stateLine/.test(source), 'stateLine is said as text only');
+});
+
 test('what went where is said from CLIVE\'s own answer, on or off', () => {
   assert.equal(L.confirmation({ screen: 'Office TV', showing: 'Order #1938', on: true }), 'Order #1938 is on the Office TV.');
   assert.equal(L.confirmation({ screen: 'Packing screen', showing: 'Autumn drop shoot', on: false }),
@@ -111,13 +139,15 @@ test('the drop names the conversation and the record, and nothing else', () => {
 test('only a record a screen can show, with an id of its shape, is ever lifted', () => {
   assert.equal(L.screenable('order', 'gid://shopify/Order/1938'), true);
   assert.equal(L.screenable('objective', 'obj_0123abcd'), true);
+  // An email thread lifts since ruling 29 (DEC-071, 8 Oct): an email may go on a screen when he puts it there.
+  assert.equal(L.screenable('email_thread', '18f2a9c0b1d2e3f4'), true);
   for (const [kind, ref] of [['order', 'gid://shopify/Customer/7'], ['order', '1938'], ['order', ''], ['objective', 'obj_XYZ'],
-    ['objective', 'gid://shopify/Order/1'], ['email_thread', '18f2a9c0b1d2e3f4'], ['customer', 'gid://shopify/Customer/7']]) {
+    ['objective', 'gid://shopify/Order/1'], ['email_thread', 'gid://shopify/Order/1'], ['customer', 'gid://shopify/Customer/7']]) {
     assert.equal(L.screenable(kind, ref), false, `${kind} ${ref}`);
   }
-  // An email and a customer are held too, and say why they do not lift.
-  assert.equal(L.SAY.email_thread, 'A screen shows orders and objectives, not emails.');
-  assert.equal(L.SAY.customer, 'A screen shows orders and objectives, not customers.');
+  // A customer is held too, and says why it does not lift.
+  assert.equal(L.SAY.email_thread, undefined);
+  assert.equal(L.SAY.customer, 'A screen shows orders, objectives and emails, not customers.');
   for (const selector of ['[data-kind="order"][data-ref]', '.card[data-type="order"][data-ref]', '.card[data-type="order_workspace"][data-ref]',
     '[data-objective]', '[data-kind="email_thread"][data-ref]', '[data-kind="customer"][data-ref]']) {
     assert.ok(L.HOLDABLE.split(',').map((s) => s.trim()).includes(selector), selector);

@@ -242,6 +242,14 @@ _KNOWN_TOOLS = frozenset({
     # is saved and when it is run (the tools' own rule). Named without a mutation verb; named here one
     # by one, because this is an allow-list.
     "routine_list", "routine_note", "routine_run",
+    # [inbox, ruling 34 of DEC-071] The drafts waiting unsent in Gmail (app/tools/gmail_drafts.py):
+    # each one's recipient, subject, the start of its words and whose words they are, read from Gmail
+    # and CLIVE's own record of the drafts it made. A list and a read of each draft, nothing else:
+    # nothing is sent, saved or deleted through it. AMBER on its ToolSpec, because it names who each
+    # draft is to. Its thread ids are issued like any id a read returns, and the one change it leads
+    # to, gmail_send_draft, is a write with a complete definition, staged here like every other.
+    # Named without a mutation verb ("draft" is one); named here because this is an allow-list.
+    "gmail_unsent",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops

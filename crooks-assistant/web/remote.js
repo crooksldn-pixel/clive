@@ -104,7 +104,7 @@
     b.addEventListener('click', (event) => { if (event && event.stopPropagation) event.stopPropagation(); onTap(event); });
     return b;
   }
-  const KIND = { order: 'Order', list: 'List', objective: 'Objective', video: 'Video' };
+  const KIND = { order: 'Order', list: 'List', objective: 'Objective', video: 'Video', email: 'Email' };   // an email since ruling 29 (DEC-071)
 
   // ---- the controls, by what a pane shows -------------------------------------------------
   // Each kind of view draws its own controls. A kind not here gets the one control every pane

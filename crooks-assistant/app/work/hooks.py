@@ -21,6 +21,8 @@ EFFECTS = {
     "fulfillment_tracking_set": ("tracking_added", "order", False),
     "gmail_send_reply": ("replied", "email", True),
     "gmail_draft_reply": ("reply_drafted", "email", False),
+    # [inbox, ruling 34] A draft George left, sent on a team member's hold: it answers the thread.
+    "gmail_send_draft": ("draft_sent", "email", True),
     "inventory_set": ("stock_set", "variant", False),
 }
 # The engine names the undo of a change "<operation>_undo" (app/actions/engine.py stage_undo). An

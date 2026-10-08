@@ -49,8 +49,11 @@ def test_the_gmail_reads_are_two_and_every_other_gmail_tool_is_a_staged_write():
     writes = sorted(s.name for s in all_specs() if s.name.startswith("gmail_") and s.write is not None)
     # The composer's two (app/families/compose.py) change only the Mac's own copy of an email
     # nobody has prepared yet: no source is touched and neither can reach a Gmail write method.
-    assert reads == ["gmail_compose_fill", "gmail_compose_open", "gmail_find_in_email", "gmail_read_thread", "gmail_search"]
-    assert writes == ["gmail_draft_new", "gmail_draft_reply", "gmail_send_new", "gmail_send_reply", "gmail_thread_archive"]
+    # [inbox, DEC-071] gmail_unsent (ruling 34) lists the drafts waiting: a read of Gmail and of CLIVE's
+    # own record (app/tools/gmail_drafts.py). gmail_thread_junk (ruling 27) and gmail_send_draft
+    # (ruling 34) are staged writes like the rest.
+    assert reads == ["gmail_compose_fill", "gmail_compose_open", "gmail_find_in_email", "gmail_read_thread", "gmail_search", "gmail_unsent"]
+    assert writes == ["gmail_draft_new", "gmail_draft_reply", "gmail_send_draft", "gmail_send_new", "gmail_send_reply", "gmail_thread_archive", "gmail_thread_junk"]
     assert all(s.write.complete and s.write.mutation.startswith("gmail:") for s in all_specs() if s.name in writes)
     assert all(s.batch is None for s in all_specs() if s.name in reads), "a read is not a bulk change either"
 

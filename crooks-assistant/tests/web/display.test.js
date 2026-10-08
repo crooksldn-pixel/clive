@@ -1799,3 +1799,30 @@ test('a touched screen’s tick CLIVE could not save says so, draws nothing, and
   const ticks = pg.requests.filter((r) => r.url.endsWith('/remote/tick')).map((r) => r.body);
   assert.deepEqual(ticks, [{ pane: 1, item: 1, packed: true, version: 2 }, { pane: 1, item: 1, packed: true, version: 2 }], 'the same tick, asked twice');
 });
+
+// [inbox] Ruling 29 of DEC-071 (8 October): an email George put on this screen is drawn as the screen
+// draws records — its subject, who it is with, the newest message first so the latest is never cut
+// off, ours told apart — and every word goes on as text: markup in an email is shown, never run.
+function mail(at, v) {
+  return { kind: 'email', ref: '18f3a9c2b1d4e5f6', title: 'Where is my order?', at, by: 'clive', v,
+    email: { with: 'Ana Fixture', count: 5, waiting: true, earlier: 2, messages: [
+      { from: 'Ana Fixture', when: 'Wed, 7 Oct 2026 09:12:00 +0100', ours: false, body: 'My order has not arrived.\n<img src=x onerror=alert(1)>' },
+      { from: 'CROOKS', when: 'Wed, 7 Oct 2026 10:01:00 +0100', ours: true, body: 'It left on Monday.' },
+      { from: 'Ana Fixture', when: 'Thu, 8 Oct 2026 08:40:00 +0100', ours: false, body: 'Still nothing today.' },
+    ] } };
+}
+
+test('an email he put up is drawn newest first, ours told apart, its words as text and nothing run', async () => {
+  const { pg } = await upWith((at) => ({ version: 3, showing: mail(at, 3) }));
+  const ui = pg.els.ui;
+  assert.equal(ui.querySelectorAll('.cs-pane').length, 1);
+  assert.ok(ui.allText().includes('Where is my order?') && ui.allText().includes('With Ana Fixture') && ui.allText().includes('5 messages'));
+  assert.ok(ui.allText().includes('Waiting for our reply'));
+  const bodies = ui.querySelectorAll('.cs-mail-body').map((n) => n.textContent);
+  assert.deepEqual(bodies, ['Still nothing today.', 'It left on Monday.', 'My order has not arrived.\n<img src=x onerror=alert(1)>'], 'newest first, as written');
+  assert.equal(ui.querySelectorAll('img').length, 0, 'markup in an email is shown, never made');
+  const ours = ui.querySelectorAll('.is-ours');
+  assert.equal(ours.length, 1);
+  assert.ok(ours[0].allText().startsWith('Us · CROOKS'));
+  assert.ok(ui.allText().includes('2 earlier messages not shown.'), 'what is not up is said, not hidden');
+});

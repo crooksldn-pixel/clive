@@ -1,9 +1,11 @@
 """The owner's screens, from the conversation: put something on one, approve a new one, and read
 what was done.
 
-Three tools. `screen_show` puts an order's fulfilment slip or an objective (each one the
-conversation was shown: its id is an issued one, app/tools/gate.py), or a titled list, on a
-screen the owner named when he opened `/display` on it ("office screen", "bedroom screen").
+Three tools. `screen_show` puts an order's fulfilment slip, an objective or (ruling 29 of DEC-071,
+8 October) an email thread (each one the conversation was shown: its id is an issued one,
+app/tools/gate.py), or a titled list, on a screen the owner named when he opened `/display` on it
+("office screen", "bedroom screen"). An email goes up only when he puts it there: the tool is the
+owner's alone, and nothing puts one up by itself.
 The screen is named in full — a slip carries a customer's name and address, so it never goes to
 the nearest match — and a list is bounded before anything is done with it (the 2026-09-27
 deploy review, B-05). `screen_pair` approves a newly named screen with the six-digit code it
@@ -150,8 +152,8 @@ async def screen_list(order_id: str | None = None) -> dict[str, Any]:
 @tool(
     name=SHOW_TOOL,
     description=(
-        "Put an order's packing slip (order_id), objective (objective_id) or list (title, lines) "
-        "on the screen named in full; clear empties it. beside: next to what is up (two at most); "
+        "Put an order's packing slip (order_id), objective (objective_id), email thread (thread_id) or list "
+        "(title, lines) on the screen named in full; clear empties it. beside: next to what is up (two at most); "
         "replace: which of the two to swap."
     ),
     input_schema={
@@ -160,6 +162,7 @@ async def screen_list(order_id: str | None = None) -> dict[str, Any]:
             "screen": {"type": "string"},
             "order_id": {"type": "string"},
             "objective_id": {"type": "string"},
+            "thread_id": {"type": "string"},
             "title": {"type": "string", "maxLength": views.MAX_TITLE},
             "lines": {"type": "array", "maxItems": views.MAX_LINES, "items": {"type": "string", "maxLength": views.MAX_LINE}},
             "clear": {"type": "boolean"},
@@ -169,11 +172,11 @@ async def screen_list(order_id: str | None = None) -> dict[str, Any]:
         "required": ["screen"],
     },
     tier=Tier.AMBER,
-    issued_id_args=("order_id", "objective_id"),
+    issued_id_args=("order_id", "objective_id", "thread_id"),
 )
 async def screen_show(screen: str, order_id: str | None = None, objective_id: str | None = None,
                       title: str | None = None, lines: list[str] | None = None, clear: bool = False,
-                      beside: bool = False, replace: str | None = None) -> dict[str, Any]:
+                      beside: bool = False, replace: str | None = None, thread_id: str | None = None) -> dict[str, Any]:
     _owners_own()
     # Bounds first, before a screen is looked for or a line is looked at.
     if not isinstance(screen, str) or not screen.strip() or len(screen) > 200:
@@ -198,9 +201,9 @@ async def screen_show(screen: str, order_id: str | None = None, objective_id: st
         # Before an order is read for it (round 8, B-02); the store refuses it again.
         raise ToolError(f"The {target['name']} hasn't been approved yet. It shows a six-digit code: it is approved "
                         "only with the code the owner reads from it.")
-    chosen = [bool(order_id), bool(objective_id), bool(lines) or bool(title), bool(clear)]
+    chosen = [bool(order_id), bool(objective_id), bool(thread_id), bool(lines) or bool(title), bool(clear)]
     if sum(chosen) != 1:
-        raise ToolError("Say one thing to show: an order_id, an objective_id, a title with lines, or clear.")
+        raise ToolError("Say one thing to show: an order_id, an objective_id, a thread_id, a title with lines, or clear.")
     # Round 9: next to what is up, or in place of one of the two (never with clear: screen_off
     # takes one of them off).
     if replace is not None and replace not in _PANE:
@@ -225,6 +228,16 @@ async def screen_show(screen: str, order_id: str | None = None, objective_id: st
         except ObjectiveError as exc:
             raise ToolError(str(exc)) from None
         view = views.objective_view(obj.summary(), obj.items)
+    elif thread_id:
+        # [inbox, ruling 29] The thread as Gmail holds it now, read the way the conversation reads it.
+        from app.tools import gmail_tools
+
+        thread = await gmail_tools.gmail_read_thread(str(thread_id))
+        if not isinstance(thread, dict) or not thread.get("messages"):
+            raise ToolError("That email could not be read, so nothing went on the screen.")
+        view = views.email_view(thread)
+        if not view["email"]["messages"]:
+            raise ToolError("That thread has only a draft in it: nothing anybody sent, so nothing went on the screen.")
     else:
         view = views.list_view(title or "", list(lines or []))
     try:

@@ -82,6 +82,10 @@ STAGED_BY_THE_GRANTED_MODULES = {
     "batch_email_archive": ({"set_id": SET}, "test_batch"),
     "batch_email_drafts": ({"set_id": SET, "subject": "Your order", "body": "Hi"}, "test_batch"),
     "batch_email_send": ({"set_id": SET, "subject": "Your order", "body": "Hi"}, "test_batch"),
+    # [inbox] DEC-071, 8 Oct: junk (ruling 27), singly and on one card for a set; a draft sent as Gmail holds it (ruling 34).
+    "gmail_thread_junk": ({"thread_id": THREAD}, "test_inbox_junk"),
+    "batch_email_junk": ({"set_id": SET}, "test_inbox_junk"),
+    "gmail_send_draft": ({"thread_id": THREAD}, "test_staff_send_draft"),
 }
 ISSUED = frozenset({ORDER, THREAD, SET, VARIANT, HOODIE})
 

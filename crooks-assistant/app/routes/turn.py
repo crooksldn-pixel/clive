@@ -1788,6 +1788,21 @@ async def _provider_turn(runtime, session_id: str, prompt_text: str, branch):
         return await provider.turn(session_id, prompt_text)
 
 
+def _with_drafts_cleared(answer: str) -> str:
+    """[inbox, ruling 28] "CLIVE cleared N of its unused drafts." after the owner's answer, once —
+    never on a team member's. Never fails a turn."""
+    try:
+        from app.tools import gmail_drafts
+
+        if gmail_drafts.who_now() != "owner":
+            return answer
+        said = gmail_drafts.take_cleared_line()
+    except Exception as exc:  # noqa: BLE001 — a courtesy line is never worth a turn
+        log.warning("the drafts CLIVE cleared were not said (%s)", type(exc).__name__)
+        return answer
+    return f"{answer.rstrip()} {said}" if said else answer
+
+
 def _staff_request() -> bool:
     """Whether the door made this a team member's request (app/tools/authority.py STAFF)."""
     from app.tools import authority as tool_authority
@@ -2067,6 +2082,10 @@ async def _answer(
             branch.idle()
         glass: dict[str, Any] = {}
     else:
+        # [inbox, ruling 28] The drafts CLIVE cleared on its own clock since it last said so: told to
+        # the owner once, plainly, at the end of his next answer (app/tools/gmail_drafts.py).
+        if answer and not error_kind:
+            answer = _with_drafts_cleared(answer)
         if speak and answer:
             # Start the voice now: by the time the tablet has this JSON and asks /speak, the MP3
             # is already generating. The same request it would make anyway, just earlier. An

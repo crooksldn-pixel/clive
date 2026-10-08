@@ -113,6 +113,24 @@ class ActionLedger:
                 log.debug("ledger observer failed: %s", exc)
         return entry
 
+    def record_own(self, event: str, *, operation: str, **extra: Any) -> dict[str, Any]:
+        """[inbox, ruling 28] One line for a change CLIVE made on its own clock, with no card and no
+        proposal (its unused Gmail drafts taken away, app/tools/gmail_drafts.py): what, when, and
+        identities and counts only. Fields are copied by name from their own allow-list."""
+        entry = {
+            "ts": round(time.time(), 3),
+            "iso": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "event": event,
+            "operation": operation,
+            "caller": "clive",
+        }
+        for key, value in extra.items():
+            if key in _OWN_ALLOWED and value is not None:
+                entry[key] = value
+        entry = redact(entry)
+        self._append(entry)
+        return entry
+
     def _append(self, entry: dict[str, Any]) -> None:
         line = json.dumps(entry, ensure_ascii=False, default=str) + "\n"
         try:
@@ -135,6 +153,8 @@ class ActionLedger:
 
 
 _EXTRA_ALLOWED = frozenset({"reason", "ms", "payload_len", "detail", "deduplicated", "job", "facts"})
+# What a line of CLIVE's own (`record_own`) may carry: how many, which ids, and why in a fixed phrase.
+_OWN_ALLOWED = frozenset({"count", "ids", "reason"})
 
 # Called with (entry, proposal) after every line is written: the test-session timeline reads
 # the action lifecycle from here, so the two records can never disagree.

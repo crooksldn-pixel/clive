@@ -110,6 +110,9 @@ STORES: tuple[tuple[str, str, str, str | None, tuple[tuple[str, str], ...]], ...
     ("Instagram token state", "instagram.json", "app/clients/instagram.py", None,
      (("app/runtime.py", '"instagram.json"'), ("app/clients/instagram.py", "def _save_state"))),
     ("People cards", "people.json", "app/people/store.py", None, (("app/runtime.py", '"people.json"'),)),
+    # [inbox, ruling 28 of DEC-071] Which Gmail drafts CLIVE made, so it takes away only its own.
+    ("CLIVE's Gmail drafts", "gmail-drafts.json", "app/tools/gmail_drafts.py", None,
+     (("app/runtime.py", '"gmail-drafts.json"'), ("app/tools/gmail_drafts.py", "def note_made"))),
     ("Work list", "work/items/, routines.json, record.jsonl", "app/work/store.py", None,
      (("app/work/store.py", '"record.jsonl"'), ("app/work/store.py", '"routines.json"'))),
     # [routines, DEC-074] Named routines: saved steps started by name, beside the work list.

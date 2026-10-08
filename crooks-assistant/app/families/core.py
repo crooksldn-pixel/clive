@@ -61,7 +61,7 @@ FAMILIES = (
     CapabilityFamily(
         key="email_reads", label="Reading email", area="email",
         what="search the inbox, read a thread, find who is waiting on a reply",
-        tools=("gmail_search", "gmail_read_thread", "gmail_find_in_email", "email_query"),
+        tools=("gmail_search", "gmail_read_thread", "gmail_find_in_email", "email_query", "gmail_unsent"),
         state="READY", detail="ready",
     ),
     CapabilityFamily(
@@ -111,13 +111,19 @@ FAMILIES = (
     ),
     CapabilityFamily(
         key="email_sends", label="Sending email", area="email",
-        what="send a reply, or a new message to a customer",
-        operations=("gmail_send_reply", "gmail_send_new"), scopes=_GMAIL_COMPOSE, state="READY",
+        what="send a reply, or a new message to a customer, or a draft waiting in Gmail as it is",
+        operations=("gmail_send_reply", "gmail_send_new", "gmail_send_draft"), scopes=_GMAIL_COMPOSE, state="READY",
     ),
     CapabilityFamily(
         key="email_archive", label="Archiving a thread", area="email",
         what="take a thread out of the inbox once it is dealt with",
         operations=("gmail_thread_archive",), scopes=_GMAIL_MODIFY, state="READY",
+    ),
+    # Ruling 27 (DEC-071): junk, singly or a set at once on one hold; never a customer's thread.
+    CapabilityFamily(
+        key="email_junk", label="Junking a thread", area="email",
+        what="move a thread, or a set of threads at once, to Spam; never a customer's",
+        operations=("gmail_thread_junk",), scopes=_GMAIL_MODIFY, state="READY",
     ),
 )
 

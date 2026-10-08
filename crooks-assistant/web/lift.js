@@ -5,13 +5,15 @@
  * appearing' which you can drag and drop the item to display too."
  *
  * So: a still press on an order — its card, its row in a list, its workspace, the order an email
- * links to — or on an objective on the home lifts it under the finger, and a Displays tray rises
+ * links to — on an objective on the home, or (ruling 29 of DEC-071, 8 October: "Allow an email to
+ * be shown on a TV? Y") on an email thread, its card or its row, lifts it under the finger, and a
+ * Displays tray rises
  * with each of his approved screens: its name, whether it is on, and what it shows now. He drags it
  * onto a screen and lets go; that screen shows it, and the tray settles away saying what went
  * where. Letting go anywhere else puts it back. Letting go where it lifted leaves the tray open, to
  * tap a screen instead; and the context-menu key (or Shift+F10) on a focused item opens the same
- * tray from the keyboard. An email or a customer has no view a screen draws
- * (app/displays/views.py), so holding one lifts nothing and says so in a line.
+ * tray from the keyboard. A customer has no view a screen draws (app/displays/views.py), so
+ * holding one lifts nothing and says so in a line.
  *
  * The hold does not fight scrolling: it lifts only after HOLD_MS — about Android's own long press —
  * of a press that has stayed within a few pixels, so a thumb resting on a card before it scrolls
@@ -48,6 +50,8 @@
   const SAY_MS = 2800;              // the line said for something a screen cannot show
   const ORDER_REF = /^gid:\/\/shopify\/Order\/\d+$/;
   const OBJECTIVE_REF = /^obj_[0-9a-f]{8}$/;
+  // A Gmail thread's id, the shape the gate holds a thread id to (app/tools/gate.py _ID_KIND).
+  const THREAD_REF = /^[0-9a-f]{6,200}$/i;
   const SCREEN_ID = /^scr_[0-9a-f]{12}$/;
 
   // What can be held, as the renderers mark it (web/ui.js, web/alpha.js). The nearest one to the
@@ -62,10 +66,8 @@
   const FALLBACK_CONTROLS = 'button,[role="button"],[role="tab"],a[href],input,select,textarea,summary,label,.action-surface,.action-handle';
 
   const SAY = {
-    email_thread: 'A screen shows orders and objectives, not emails.',
-    customer: 'A screen shows orders and objectives, not customers.',
+    customer: 'A screen shows orders, objectives and emails, not customers.',
   };
-  const LINKED = ' Hold the linked order to put that up.';
 
   // Whether a press has wandered far enough to be a scroll, a flick or a selection.
   function wandered(press, x, y) {
@@ -101,6 +103,12 @@
     const what = up.length === 2 ? up[0] + ' and ' + up[1] : up[0] || '';
     if (s && s.online) return what ? 'On · Showing ' + what : 'On · Nothing up';
     return what ? 'Off · Showing ' + what : 'Off';
+  }
+  // A screen's tile as a screen reader names it: the screen's own name (George's label for it) and
+  // whether it is on. Never what it shows — that can be an email's subject (ruling 29), and no
+  // attribute is built from a record; the line beside it says what it shows, as text.
+  function tileLabel(s) {
+    return String((s && s.name) || 'Screen').slice(0, 60) + (s && s.online ? ', on' : ', off');
   }
   // The same, while the lifted thing is over it.
   function overLine(s) {
@@ -143,12 +151,13 @@
   }
   // Only a record a screen can show, with an id of that record's shape, is ever lifted.
   function screenable(kind, ref) {
-    return (kind === 'order' && ORDER_REF.test(ref)) || (kind === 'objective' && OBJECTIVE_REF.test(ref));
+    return (kind === 'order' && ORDER_REF.test(ref)) || (kind === 'objective' && OBJECTIVE_REF.test(ref))
+      || (kind === 'email_thread' && THREAD_REF.test(ref));
   }
 
   const rules = {
-    HOLD_MS, PRIME_MS, SLOP, PICK_PX, SWALLOW_MS, SETTLE_MS, HOLDABLE, SAY, LINKED,
-    wandered, release, hitTest, placeChip, stateLine, overLine, confirmation, refusal, bodyFor, orderWords, screenable,
+    HOLD_MS, PRIME_MS, SLOP, PICK_PX, SWALLOW_MS, SETTLE_MS, HOLDABLE, SAY,
+    wandered, release, hitTest, placeChip, stateLine, tileLabel, overLine, confirmation, refusal, bodyFor, orderWords, screenable,
     guardsFromStart,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = rules;
@@ -197,6 +206,7 @@
   }
   const TV = ['M4.5 5.5h15a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 16V7a1.5 1.5 0 0 1 1.5-1.5z', 'M9 20.5h6'];
   const BOX = ['M4 8.2 12 4l8 4.2v7.6L12 20l-8-4.2z', 'M4 8.2 12 12.4l8-4.2', 'M12 12.4V20'];
+  const MAIL = ['M4 6.5h16v11H4z', 'm4 7 8 6 8-6'];
   const GOAL = ['M12 3.5a8.5 8.5 0 1 0 0 17a8.5 8.5 0 1 0 0-17', 'M12 7.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9', 'M12 11.2a.8.8 0 1 0 0 1.6a.8.8 0 1 0 0-1.6'];
   const TICK = ['m5 12.5 4.5 4.5L19 7.5'];
   function text(node) { return node ? String(node.textContent || '').replace(/\s+/g, ' ').trim() : ''; }
@@ -233,9 +243,15 @@
       if (!screenable('order', ref)) return null;
       return { item, lift: Object.assign({ kind: 'order', ref }, describeOrder(item)) };
     }
-    const kind = item.matches(EMAILS) ? 'email_thread' : 'customer';
-    const linked = kind === 'email_thread' && item.querySelector('.link-strip.is-confident[data-kind="order"][data-ref]');
-    return { item, say: SAY[kind] + (linked ? LINKED : '') };
+    if (item.matches(EMAILS)) {
+      // [inbox, ruling 29] An email thread goes up when he puts it there: its card or its row, by
+      // the thread's own id. Its subject names the chip, as the card already shows it.
+      const ref = String(item.dataset.ref || '');
+      if (!screenable('email_thread', ref)) return null;
+      const title = text(item.querySelector('.card-title')) || text(item.querySelector('.row-main')) || 'Email';
+      return { item, lift: { kind: 'email_thread', ref, title: title.slice(0, 80), sub: 'Email' } };
+    }
+    return { item, say: SAY.customer };
   }
   function describeOrder(item) {
     const label = item.dataset.label
@@ -349,10 +365,14 @@
       const words = el('span', 'lift-text');
       words.appendChild(el('span', 'lift-name', String(s.name || 'Screen').slice(0, 60)));
       const line = el('span', 'lift-state', stateLine(s));
+      // What it shows is said by the line, as text, and read out as the tile's description: the
+      // tile's own attributes carry only the screen's name, its state and its id (tileLabel).
+      line.id = 'lift-state-' + s.id;
       words.appendChild(line);
       tile.appendChild(glyph);
       tile.appendChild(words);
-      tile.setAttribute('aria-label', String(s.name || 'Screen') + ', ' + stateLine(s).replace(' · ', ', '));
+      tile.setAttribute('aria-label', tileLabel(s));
+      tile.setAttribute('aria-describedby', line.id);
       tile.addEventListener('click', () => { if (P.lift && P.lift.mode === 'pick' && !P.lift.putting) put(s, tile); });
       U.list.appendChild(tile);
       L.tiles.push({ screen: s, el: tile, line, rect: null });
@@ -402,7 +422,7 @@
     const chip = el('div', 'lift-chip');
     chip.setAttribute('aria-hidden', 'true');
     const glyph = el('span', 'lift-chip-glyph');
-    glyph.appendChild(icon(what.kind === 'objective' ? GOAL : BOX, 1.8));
+    glyph.appendChild(icon(what.kind === 'objective' ? GOAL : what.kind === 'email_thread' ? MAIL : BOX, 1.8));
     const words = el('span', 'lift-chip-words');
     words.appendChild(el('span', 'lift-chip-title', what.title));
     if (what.sub) words.appendChild(el('span', 'lift-chip-sub', what.sub));

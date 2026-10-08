@@ -332,10 +332,13 @@ const DETAIL_WORDS = {
   // [flow, DEC-069] These PREPARE the card he sends with his hold: nothing is sent while they run.
   gmail_send_reply: ['Writing', 'the reply', true], gmail_send_new: ['Writing', 'the email', true],
   gmail_thread_archive: ['Archiving', 'the thread', true],
+  // [inbox, DEC-071] Junk (ruling 27), and sending a draft as Gmail holds it (ruling 34).
+  gmail_thread_junk: ['Junking', 'the thread', true], gmail_send_draft: ['Reading', 'the draft', true],
+  gmail_unsent: ['Checking', 'the drafts'],
   // Several at once. These STAGE a batch; the change itself goes through the confirmation
   // path afterwards, so the Mac does not call them writes and neither does this.
   batch_email_drafts: ['Drafting', 'the replies'], batch_email_send: ['Preparing', 'the replies'],
-  batch_email_archive: ['Preparing', 'the messages'], batch_order_tags_add: ['Preparing', "the orders' tags"],
+  batch_email_archive: ['Preparing', 'the messages'], batch_email_junk: ['Preparing', 'the messages'], batch_order_tags_add: ['Preparing', "the orders' tags"],
   batch_order_tags_remove: ['Preparing', "the orders' tags"],
   // The query layer, which answers without naming one shop read
   commerce_query: ['Reading', 'the shop'], commerce_summary: ['Summarising', 'the shop'],

@@ -839,6 +839,10 @@ def build(settings: Settings | None = None) -> Runtime:
     from app.work.store import work as work_store
 
     people_store.configure(Path(settings.objectives_dir).parent / "people.json")
+    # [inbox, ruling 28] CLIVE's record of the Gmail drafts it made, beside its other records.
+    from app.tools import gmail_drafts
+
+    gmail_drafts.configure(Path(settings.objectives_dir).parent / "gmail-drafts.json")
     work_store.configure(Path(settings.objectives_dir).parent / "work")
     work_tools.bind(runtime)
     runtime.staff_provider_factory = lambda person: _staff_provider(runtime, person)

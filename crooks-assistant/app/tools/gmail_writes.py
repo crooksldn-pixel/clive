@@ -2,7 +2,10 @@
 new email drafted or sent to an order's (or a customer's) address, a thread archived. Every
 one is a staged change on the action engine — the card on the tablet IS the email, printed
 whole, and a gesture on it is what sends. Nothing here reaches Gmail's write methods except
-through the engine's commit.
+through the engine's commit. (DEC-071's inbox rulings use these parts: junk, and a draft
+waiting in Gmail sent as it is, are app/tools/gmail_inbox.py; CLIVE taking away its own unsent
+drafts is app/tools/gmail_drafts.py — inside a held send here, or on its own clock there, and
+only ever a draft CLIVE's own record says it made.)
 
 The recipient is never the model's to choose: a reply goes to the person the message it
 answers came from (its Reply-To when it names one, otherwise its From), read from the
@@ -70,6 +73,10 @@ def bind(client: GmailClient | None, *, customer=None, policy=None) -> None:
     _client = client
     _customer = customer
     _policy = policy
+    # [inbox, ruling 28] CLIVE's record of its own drafts reads and tidies through the same client.
+    from app.tools import gmail_drafts
+
+    gmail_drafts.bind(client)
 
 
 def _g() -> GmailClient:
@@ -186,6 +193,17 @@ def _sha(text: str) -> str:
     return hashlib.sha256(str(text or "").replace("\r\n", "\n").strip().encode("utf-8")).hexdigest()[:16]
 
 
+def _draft_sha(body: str, headers: dict[str, str], message_id: str) -> str:
+    """[inbox, the review of 8 October] What a waiting draft would send, as one fingerprint: who it
+    goes to (To, Cc, Bcc), its subject and its words — and the message id Gmail gives the draft,
+    which Gmail changes on every save, so a change the words do not show (an attachment added, the
+    HTML part edited) is a change too. The card printed the draft as it then was; any change after it
+    was drawn makes the hold stale and nothing is sent. Header whitespace is not a change (Gmail
+    refolds long headers)."""
+    said = [" ".join(str(headers.get(name) or "").split()) for name in ("to", "cc", "bcc", "subject")]
+    return _sha("\n".join([str(message_id or ""), *said, str(body or "")]))
+
+
 # ----------------------------------------------------------------------- the thread
 
 
@@ -248,24 +266,31 @@ def _thread_fingerprint(ctx: dict[str, Any], token: str, sent_message_id: str = 
     return {"last": ctx["last"], "drafts": len(ours), "sent": 1 if sent else 0}
 
 
-async def _draft_text(draft_id: str) -> tuple[str, dict[str, str]]:
-    """A draft's body and headers, as Gmail holds them now."""
+async def _draft_read(draft_id: str) -> tuple[str, dict[str, str], str]:
+    """A draft's body, headers and Gmail message id (new on every save), as Gmail holds it now."""
     draft = await asyncio.to_thread(_g().get_draft, draft_id)
-    payload = (draft.get("message") or {}).get("payload") or {}
+    message = draft.get("message") or {}
+    payload = message.get("payload") or {}
     headers: dict[str, str] = {}
     for h in payload.get("headers") or []:
         headers.setdefault(str(h.get("name", "")).lower(), str(h.get("value", "")))
-    return _extract_body(payload, limit=MAX_BODY_CHARS * 2), headers
+    return _extract_body(payload, limit=MAX_BODY_CHARS * 2), headers, str(message.get("id") or "")
+
+
+async def _draft_text(draft_id: str) -> tuple[str, dict[str, str]]:
+    """A draft's body and headers, as Gmail holds them now."""
+    body, headers, _message_id = await _draft_read(draft_id)
+    return body, headers
 
 
 async def _observe_thread(execution: dict) -> Observed:
     ctx = await thread_context(str(execution["thread_id"]))
     fingerprint = _thread_fingerprint(ctx, str(execution["token"]), str(execution.get("sent_message_id") or ""), str(execution.get("drafted_message_id") or ""))
     if execution.get("draft_id"):
-        # The card printed the draft's text; the draft must still be that text when it goes.
+        # The card printed the draft's recipients, subject and text; the draft must still be all of
+        # them, unsaved since (its Gmail message id), when it goes.
         try:
-            body, _ = await _draft_text(str(execution["draft_id"]))
-            fingerprint["draft_sha"] = _sha(body)
+            fingerprint["draft_sha"] = _draft_sha(*await _draft_read(str(execution["draft_id"])))
         except (ToolError, GmailError):
             fingerprint["draft_sha"] = ""
     return Observed(fingerprint=fingerprint, entity=None)
@@ -304,8 +329,7 @@ async def _observe_token(execution: dict) -> Observed:
     fingerprint = await _token_state(str(execution["token"]), str(execution.get("sent_message_id") or ""), str(execution.get("drafted_draft_id") or ""))
     if execution.get("draft_id"):
         try:
-            body, _ = await _draft_text(str(execution["draft_id"]))
-            fingerprint["draft_sha"] = _sha(body)
+            fingerprint["draft_sha"] = _draft_sha(*await _draft_read(str(execution["draft_id"])))
         except (ToolError, GmailError):
             fingerprint["draft_sha"] = ""
     return Observed(fingerprint=fingerprint, entity=None)
@@ -547,13 +571,13 @@ async def _the_one_draft(ctx: dict[str, Any], where: str) -> dict[str, Any]:
     listed = await asyncio.to_thread(_g().list_drafts, f"rfc822msgid:{token.strip('<>')}")
     if len(listed) != 1:
         raise ToolError("That draft could not be found in Gmail.")
-    body, headers = await _draft_text(listed[0]["draft_id"])
+    body, headers, message_id = await _draft_read(listed[0]["draft_id"])
     to_name, to_email = parseaddr(headers.get("to", ""))
     if "@" not in to_email or headers.get("cc") or headers.get("bcc"):
         raise ToolError("That draft has no single recipient; fix it in Gmail or say what the email should say.")
     return {
         "draft_id": listed[0]["draft_id"], "token": token, "body": body, "to": to_email.strip().lower(), "to_name": to_name.strip(),
-        "subject": " ".join(str(headers.get("subject") or "").split()), "sha": _sha(body),
+        "subject": " ".join(str(headers.get("subject") or "").split()), "sha": _draft_sha(body, headers, message_id),
     }
 
 
@@ -590,12 +614,35 @@ async def _settle_send(execution: dict, sent: dict) -> None:
             if execution.get("thread_id"):
                 ctx = await thread_context(str(execution["thread_id"]))
                 if _thread_fingerprint(ctx, str(execution["token"]), str(execution.get("sent_message_id") or ""))["sent"]:
+                    await _after_sent(execution)
                     return
             elif (await _token_state(str(execution["token"]), str(execution.get("sent_message_id") or "")))["sent"]:
+                await _after_sent(execution)
                 return
         except (ToolError, GmailError) as exc:
             log.info("settle: %s", exc)
         await asyncio.sleep(SETTLE_POLL_S)
+
+
+# [inbox, ruling 28] What a proven send says after its success line about CLIVE's own drafts it
+# replaced, by the send's Message-ID: written by the settle step, read once by the proof.
+_AFTER_SENT_NOTES: dict[str, str] = {}
+
+
+async def _after_sent(execution: dict) -> None:
+    """The send is proven in Gmail. A draft it was (CLIVE's own, sent as Gmail held it) is settled in
+    CLIVE's record as sent, and CLIVE's own unsent drafts that the card said this reply replaces are
+    taken away — only those, and only now. Never raises: the send has happened whatever follows."""
+    from app.tools import gmail_drafts
+
+    try:
+        if execution.get("draft_id"):
+            gmail_drafts.note_gone(str(execution["token"]), gmail_drafts.SENT, "sent")
+        note = await gmail_drafts.replaced([str(d) for d in execution.get("replaces") or []])
+        if note:
+            _AFTER_SENT_NOTES[str(execution["token"])] = note
+    except Exception as exc:  # noqa: BLE001
+        log.warning("after a send, CLIVE's own drafts were not tidied (%s)", type(exc).__name__)
 
 
 async def _settle_draft(execution: dict, created: dict) -> None:
@@ -605,11 +652,15 @@ async def _settle_draft(execution: dict, created: dict) -> None:
 
     Nothing here can make an absent draft look present: if the poll never sees it, the proof
     runs on the same read it would have run on, and the change settles UNVERIFIED."""
+    from app.tools import gmail_drafts
+
     if created.get("message_id"):
         execution["drafted_message_id"] = str(created["message_id"])
     if created.get("draft_id"):
         execution["drafted_draft_id"] = str(created["draft_id"])
     if execution.get("delete"):
+        # [inbox, ruling 28] The undo of a draft CLIVE saved: it leaves CLIVE's record with it.
+        gmail_drafts.note_gone(str(execution.get("token") or ""), gmail_drafts.DELETED, "undone")
         return
     deadline = time.monotonic() + SETTLE_S
     while time.monotonic() < deadline:
@@ -617,12 +668,15 @@ async def _settle_draft(execution: dict, created: dict) -> None:
             if execution.get("thread_id"):
                 ctx = await thread_context(str(execution["thread_id"]))
                 if _thread_fingerprint(ctx, str(execution["token"]), "", str(execution.get("drafted_message_id") or ""))["drafts"] == 1:
-                    return
+                    break
             elif (await _token_state(str(execution["token"]), "", str(execution.get("drafted_draft_id") or "")))["drafts"] == 1:
-                return
+                break
         except (ToolError, GmailError) as exc:
             log.info("settle draft: %s", exc)
         await asyncio.sleep(SETTLE_POLL_S)
+    # [inbox, ruling 28] Gmail answered CLIVE's own create with a draft id: written down as CLIVE's,
+    # which is the only thing that ever lets CLIVE take a draft away again (app/tools/gmail_drafts.py).
+    await gmail_drafts.note_made(execution, created)
 
 
 def _verify_drafted(before: dict, observed: dict, execution: dict) -> tuple[bool, str]:
@@ -630,7 +684,7 @@ def _verify_drafted(before: dict, observed: dict, execution: dict) -> tuple[bool
 
 
 def _verify_sent(before: dict, observed: dict, execution: dict) -> tuple[bool, str]:
-    return bool(observed.get("sent")), ""
+    return bool(observed.get("sent")), _AFTER_SENT_NOTES.pop(str(execution.get("token") or ""), "")
 
 
 def _undo_draft(execution: dict) -> dict:
@@ -668,13 +722,20 @@ def _present_email(proposal) -> dict:
         facts.append({"label": "Recipient", "value": "not a Shopify customer — the address you gave", "tone": "warn"})
     if s.get("draft_used"):
         facts.append({"label": "Draft", "value": "the one waiting in Gmail, as it reads now"})
+    if s.get("words_line"):
+        # [inbox, ruling 34] A draft sent as Gmail holds it: whose words, and whose hold sends them.
+        facts.append({"label": "Words", "value": str(s["words_line"])})
+        facts.append({"label": "Sent by", "value": str(s.get("sender_line") or "")})
+    if s.get("replaces_line"):
+        # [inbox, ruling 28] CLIVE's own earlier draft in this thread, taken away once this goes.
+        facts.append({"label": "Earlier draft", "value": str(s["replaces_line"])})
     if sending:
         facts.append({"label": "From", "value": str(s.get("from_line") or "")})
     return {
         "title": str(s.get("title") or ("Send the email" if sending else "Save a draft")),
         "summary": "", "body": str(s.get("body") or ""), "facts": facts,
         "detail": "Sends now. It cannot be unsent." if sending else "Saved in Gmail drafts; nothing is sent until you say so.",
-        "done_title": ("Reply sent" if s.get("in_reply_to") else "Email sent") if sending else "Draft saved",
+        "done_title": ("Draft sent" if s.get("words_line") else "Reply sent" if s.get("in_reply_to") else "Email sent") if sending else "Draft saved",
         # [flow, DEC-069] The message card: the email as it would leave, its words editable on
         # the card, and the one gesture that sends it (app/presentation.py `_message_block`).
         "message": _message_words(proposal, s, sending=bool(sending)),
@@ -699,7 +760,8 @@ def _message_words(proposal, s: dict, *, sending: bool) -> dict:
     the same words. A send of the draft already waiting in Gmail is that draft as Gmail holds
     it, so its words are not edited here and it has no other way."""
     tool = str(getattr(proposal, "tool_name", "") or "")
-    reply = tool.endswith("_reply")
+    # A draft sent as Gmail holds it is a reply when its thread has someone's message to answer.
+    reply = tool.endswith("_reply") or bool(s.get("reply"))
     from_draft = bool(s.get("draft_used"))
     editable = [] if from_draft else (["body"] if reply else ["subject", "body"])
     other = None if from_draft else _OTHER_WAY.get(tool)
@@ -863,8 +925,38 @@ async def gmail_send_reply(thread_id: str, body: str = "", order_id: str = "") -
         raise ToolError("That was already sent.")
     if execution["draft_id"]:
         before["draft_sha"] = draft["sha"]
-    return _prepared_email(execution=execution, before=before, expected_after={**before, "drafts": 0, "sent": 1}, entity_ref=str(thread_id), ctx=ctx, customer=customer,
-                           sending=True, title="Send the reply", sender=sender, kind="send_reply")
+    whose = _gmail_whose(draft) if execution["draft_id"] else None
+    replaces = await _replaces(str(thread_id), execution)
+    prepared = _prepared_email(execution=execution, before=before, expected_after={**before, "drafts": 0, "sent": 1}, entity_ref=str(thread_id), ctx=ctx, customer=customer,
+                               sending=True, title="Send the reply", sender=sender, kind="send_reply")
+    if whose is not None and whose["asker"]:
+        # [inbox, ruling 34] The draft waiting in the thread, sent as Gmail holds it: whose words, whose hold.
+        prepared.summary.update(words_line=whose["words_line"], sender_line=whose["sender_line"])
+    return _with_replaces(prepared, replaces)
+
+
+async def _replaces(thread_id: str, execution: dict) -> list[dict[str, Any]]:
+    """[inbox, ruling 28] CLIVE's own unsent reply drafts in this thread that this reply replaces,
+    checked in Gmail now; their ids go with the change, so the commit takes away only those."""
+    from app.tools import gmail_drafts
+
+    found = await gmail_drafts.replaceable(thread_id, besides=str(execution.get("draft_id") or ""))
+    execution["replaces"] = [str(r["draft_id"]) for r in found]
+    return found
+
+
+def _gmail_whose(draft: dict[str, Any]) -> dict[str, str]:
+    from app.tools import gmail_drafts
+
+    return gmail_drafts.whose_draft(draft)
+
+
+def _with_replaces(prepared: Prepared, replaces: list[dict[str, Any]]) -> Prepared:
+    from app.tools import gmail_drafts
+
+    if replaces:
+        prepared.summary["replaces_line"] = gmail_drafts.replaces_line(replaces)
+    return prepared
 
 
 _NEW_SCHEMA = {
@@ -988,11 +1080,11 @@ async def gmail_send_new(subject: str = "", body: str = "", order_id: str = "", 
         listed = await asyncio.to_thread(client.list_drafts, f"in:draft to:{customer['email']}")
         ours = []
         for d in listed:
-            body_text, headers = await _draft_text(d["draft_id"])
+            body_text, headers, message_id = await _draft_read(d["draft_id"])
             token = headers.get("message-id", "").strip()
             to_name, to_email = parseaddr(headers.get("to", ""))
             if _MESSAGE_ID.match(token) and not headers.get("in-reply-to") and to_email.strip().lower() == customer["email"] and not headers.get("cc") and not headers.get("bcc"):
-                ours.append({"draft_id": d["draft_id"], "token": token, "subject": " ".join(str(headers.get("subject") or "").split()), "body": body_text, "to_name": to_name.strip(), "sha": _sha(body_text)})
+                ours.append({"draft_id": d["draft_id"], "token": token, "subject": " ".join(str(headers.get("subject") or "").split()), "body": body_text, "to_name": to_name.strip(), "sha": _draft_sha(body_text, headers, message_id)})
         who = customer.get("name") or customer["email"]
         if not ours:
             raise ToolError(f"There is no draft waiting for {who}. Say what the email should say.")
@@ -1064,3 +1156,10 @@ async def gmail_thread_archive(thread_id: str) -> Prepared:
         before={"inbox": True}, expected_after={"inbox": False}, entity_ref=str(thread_id), entity_label="thread",
         summary={"subject": subject, "from_line": f"{name} <{email}>" if name else email, "read_back": f"archive the thread {subject[:60]}".strip(), "pii": [v for v in (name, email, subject) if v], "ledger": {"kind": "archive"}},
     )
+
+
+# [inbox, DEC-071] Registered with this module: the read that lists the drafts waiting in Gmail and says
+# whose words each is (app/tools/gmail_drafts.py), and junk and a waiting draft sent as Gmail holds it
+# (app/tools/gmail_inbox.py). Imported last: each reads this module's own parts.
+from app.tools import gmail_drafts as _gmail_drafts  # noqa: E402, F401
+from app.tools import gmail_inbox as _gmail_inbox  # noqa: E402, F401

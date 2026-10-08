@@ -9,7 +9,8 @@
  * CDP touch events at measured pixels, as on the owner's tablet (601 × 889 at DPR 1.33) and phone
  * (390 × 844 at DPR 3); the mouse and the keyboard are Playwright's own. What is checked is what
  * George sees and what reaches CLIVE: the tray, the chip, the confirmation, the POST the drop makes
- * (and none when it is put back), and the TV at 1920 × 1080 drawing the order.
+ * (and none when it is put back), and the TV at 1920 × 1080 drawing the order — and, since ruling 29
+ * of DEC-071, an email he holds and drops there.
  *
  * Prints one JSON object: { ok, checks: [{name, ok, detail}], shots: [...] }.
  */
@@ -160,13 +161,15 @@ const shows = (list, name) => (list.find((s) => s.name === name) || {}).showing 
 const shownPosts = (t) => t.posts.filter((p) => /\/displays\/scr_[0-9a-f]{12}\/show$/.test(p.path));
 
 // A finger held still on a point until it lifts and the tray has risen, then drawn onto the named
-// screen's tile in steps; still down. Returns what was lifted and the tile it is over.
-async function dragOnto(t, from, name) {
+// screen's tile in steps; still down. Returns what was lifted and the tile it is over. `atRest`, when
+// given, is called with the named tile once the tray is at rest, before the finger moves.
+async function dragOnto(t, from, name, atRest) {
   await t.touch('touchStart', from.x, from.y);
   await sleep(640);
   const lifted = await tray(t);
   await sleep(420);
   const to = name ? await tile(t, name) : { x: from.x, y: 90 };
+  if (atRest) await atRest(to);
   for (let i = 1; i <= 10; i++) {
     await t.touch('touchMove', Math.round(from.x + ((to.x - from.x) * i) / 10), Math.round(from.y + ((to.y - from.y) * i) / 10));
     await sleep(24);
@@ -389,22 +392,76 @@ async function main() {
   await tab.touch('touchEnd');
   await sleep(300);
 
-  // An email has no view a screen draws: holding it lifts nothing and says so.
+  // An email goes up when he puts it there (ruling 29 of DEC-071, 8 October): held, it lifts as the
+  // thread, and dropped on the Office TV it is drawn there from CLIVE's own read of it.
   await ask(tab, 'show me the email about 1939', '#cards .card-email_thread');
+  const subject = await tab.page.evaluate(() => (document.querySelector('#cards .card-email_thread .card-title') || {}).textContent || '');
+  const threadRef = await tab.page.evaluate(() => (document.querySelector('#cards .card-email_thread') || { dataset: {} }).dataset.ref || '');
   const mail = await centre(tab, '#cards .card-email_thread .msg-latest');
-  await tab.touch('touchStart', mail.x, mail.y);
-  await sleep(700);
-  now = await tray(tab);
-  check('held, an email lifts nothing and says a screen shows orders and objectives', now.hidden && !now.chip && /^A screen shows orders and objectives, not emails\./.test(now.say), JSON.stringify(now));
-  await tab.shot('10-email');
-  check('and the scroll guard comes off with the line: nothing is lifted', (await tab.guards()) === 0, await tab.guards());
+  tab.posts.length = 0;
+  const email = await dragOnto(tab, mail, 'Office TV');
+  check('held, an email lifts as the thread, named by its subject', email.lifted.chip && email.lifted.chipTitle === subject.slice(0, 80) && email.over && email.over.over,
+    JSON.stringify({ email, subject }));
+  await tab.shot('10-email-over');
   await tab.touch('touchEnd');
-  await sleep(300);
+  now = await waitFor(tab, async () => { const s = await tray(tab); return s.done ? s : null; }, 8000) || await tray(tab);
+  check('dropped on the Office TV, the email is up there', now.done && now.words === `${subject} is on the Office TV.`, JSON.stringify(now));
+  const mailPosted = shownPosts(tab);
+  check('the drop names the conversation and the thread by its id, and nothing of the email',
+    mailPosted.length === 1 && JSON.stringify(Object.keys(JSON.parse(mailPosted[0].body)).sort()) === '["kind","ref","session_id"]'
+      && JSON.parse(mailPosted[0].body).kind === 'email_thread' && JSON.parse(mailPosted[0].body).ref === threadRef && /^[0-9a-f]{6,}$/i.test(threadRef),
+    JSON.stringify(mailPosted));
+  list = await screensNow(tab);
+  check('CLIVE says the Office TV shows the email', shows(list, 'Office TV') === subject, JSON.stringify(list));
+  const mailOnTv = await waitFor({}, () => tvPage.evaluate(() => {
+    const bodies = Array.from(document.querySelectorAll('#ui .cs-mail-body')).map((n) => n.textContent || '');
+    const title = (document.querySelector('#ui .cs-h1') || {}).textContent || '';
+    return bodies.length ? { bodies, title } : null;
+  }), 25000);
+  check('the TV at 1920 × 1080 draws the email, its subject and its words', mailOnTv && mailOnTv.title === subject && mailOnTv.bodies.every((b) => b.trim().length > 0),
+    JSON.stringify(mailOnTv));
+  const tvAttributes = await tvPage.evaluate(() => Array.from(document.querySelectorAll('#ui *')).flatMap((n) => Array.from(n.attributes).map((a) => a.value)).join(' '));
+  check('and no attribute on the TV page carries anything of the email', !tvAttributes.includes(subject) && !tvAttributes.includes(threadRef), tvAttributes.slice(0, 200));
+  await waitFor({}, () => tvPage.evaluate(() => { const s = document.getElementById('status'); return !s || s.hidden; }), 40000);
+  await sleep(1500);
+  if (OUT) {
+    await tvPage.screenshot({ path: path.join(OUT, 'lift-tv-1920-email.png') });
+    shots.push('lift-tv-1920-email.png');
+  }
+  await sleep(1200);
 
-  // An objective's card in the conversation is held like an order's.
+  // A customer has no view a screen draws: the customer the email names, held, lifts nothing and says
+  // so in a line, and the scroll guard comes off with the line (the check the email had before ruling
+  // 29, pointed at a customer's chip).
+  const who = await centre(tab, '#cards .card-email_thread .link-customer[data-kind="customer"][data-ref]');
+  check('the email names its customer in a chip that can be held', Boolean(who), JSON.stringify(who));
+  if (who) {
+    await tab.touch('touchStart', who.x, who.y);
+    await sleep(700);
+    now = await tray(tab);
+    check('held, a customer lifts nothing and says a screen shows orders, objectives and emails',
+      now.hidden && !now.chip && /^A screen shows orders, objectives and emails, not customers\./.test(now.say), JSON.stringify(now));
+    await tab.shot('10-customer');
+    check('and the scroll guard comes off with the line: nothing is lifted', (await tab.guards()) === 0, await tab.guards());
+    await tab.touch('touchEnd');
+    await sleep(300);
+  }
+
+  // An objective's card in the conversation is held like an order's. With the email up on the Office
+  // TV, the tablet's tile says so as text, and nothing in the tray carries it in an attribute (the
+  // review of 8 October: the tile's aria-label carried the subject).
   await ask(tab, 'show me the autumn drop shoot', '#cards .card-objective[data-objective]');
   const goalCard = await centre(tab, '#cards .card-objective[data-objective] .card-head');
-  const held = await dragOnto(tab, { x: goalCard.x - 100, y: goalCard.y }, 'Office TV');
+  let swept = null;
+  const held = await dragOnto(tab, { x: goalCard.x - 100, y: goalCard.y }, 'Office TV', async (at) => {
+    swept = await tab.page.evaluate(() => Array.from(document.querySelectorAll('.lift-tray, .lift-tray *, .lift-chip, .lift-chip *'))
+      .flatMap((n) => Array.from(n.attributes).map((a) => `${a.name}=${a.value}`)));
+    swept = { line: (at || {}).line || '', attributes: swept };
+  });
+  check('the tablet\'s Office TV tile says it shows the email, as text', swept && swept.line.includes(subject) && subject.length > 0, JSON.stringify(swept && swept.line));
+  check('and no attribute on the tablet\'s tray carries anything of the email',
+    swept && swept.attributes.length > 10 && !swept.attributes.some((a) => a.includes(subject) || a.includes(threadRef)),
+    JSON.stringify(swept && swept.attributes.filter((a) => /aria-label|describedby/.test(a))));
   check('an objective\'s card in the conversation lifts as that objective', held.lifted.chip && held.lifted.chipTitle === 'Autumn drop shoot' && held.over && held.over.over,
     JSON.stringify(held));
   await tab.shot('11-objective-card');

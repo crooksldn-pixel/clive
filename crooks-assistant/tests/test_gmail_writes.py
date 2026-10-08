@@ -681,6 +681,73 @@ async def test_a_draft_edited_in_gmail_after_the_card_makes_the_send_stale(box, 
     assert result.code == "stale" and box.sent == [], "the card is the email; an edited draft is a different email"
 
 
+@pytest.mark.parametrize("header, value", [
+    ("to", "Someone Else <someone.else@example.org>"), ("cc", "someone.else@example.org"),
+    ("bcc", "someone.else@example.org"), ("subject", "Re: Order 1930 — refund agreed"),
+])
+async def test_a_draft_readdressed_in_gmail_after_the_card_makes_the_send_stale(box, engine, session, header, value):
+    """[inbox] The review of 8 October (note 2): the card prints who the draft goes to and its subject
+    as well as its words. Changing only its To in Gmail after the card was drawn (same words, same
+    Message-ID) sent it to someone else, "verified". Recipients, subject and words are one
+    fingerprint now, on the reply path as on the others."""
+    _, draft = await stage(session, "gmail_draft_reply", thread_id=THREAD, body=BODY)
+    assert (await tap(engine, draft)).code == "verified"
+    session.epoch += 1
+    _, proposal = await stage(session, "gmail_send_reply", thread_id=THREAD)
+    assert proposal is not None and proposal.before["draft_sha"]
+    list(box.drafts.values())[0]["parsed"][header] = value
+    result = await hold(engine, proposal)
+    assert result.code == "stale" and box.sent == [] and not [c for c in box.calls if c[0] in ("send_draft", "send")]
+
+
+async def test_a_new_email_draft_readdressed_after_the_card_makes_the_send_stale(box, engine, session):
+    _, draft = await stage(session, "gmail_draft_new", order_id=ORDER, subject="Your CROOKS order 1930", body=BODY)
+    assert (await tap(engine, draft)).code == "verified"
+    session.epoch += 1
+    _, proposal = await stage(session, "gmail_send_new", order_id=ORDER)
+    assert proposal is not None and proposal.execution["draft_id"]
+    list(box.drafts.values())[0]["parsed"]["to"] = "Someone Else <someone.else@example.org>"
+    result = await hold(engine, proposal)
+    assert result.code == "stale" and box.sent == [] and not [c for c in box.calls if c[0] in ("send_draft", "send")]
+
+
+def resaved_in_gmail(box, draft_id: str = "") -> None:
+    """Gmail saves the draft again — an attachment added to it, or only its HTML part edited — so its
+    plain words and its headers read as they did, and Gmail has given it a new message id."""
+    draft_id = draft_id or list(box.drafts)[0]
+    d = box.drafts[draft_id]
+    old, d["message_id"] = d["message_id"], d["message_id"] + "-saved"
+    for messages in box.threads.values():
+        for m in messages:
+            if m["id"] == old:
+                m["id"] = d["message_id"]
+
+
+async def test_a_draft_saved_again_in_gmail_after_the_card_makes_the_reply_stale(box, engine, session):
+    """[inbox] The re-review of 8 October (note 1): an attachment added, or an edit to the HTML part
+    only, after the card was drawn changed nothing the fingerprint read. Gmail gives a draft a new
+    message id on every save, and the fingerprint pins it: the hold is stale and nothing is sent."""
+    _, draft = await stage(session, "gmail_draft_reply", thread_id=THREAD, body=BODY)
+    assert (await tap(engine, draft)).code == "verified"
+    session.epoch += 1
+    _, proposal = await stage(session, "gmail_send_reply", thread_id=THREAD)
+    assert proposal is not None and proposal.execution["draft_id"]
+    resaved_in_gmail(box)
+    result = await hold(engine, proposal)
+    assert result.code == "stale" and box.sent == [] and not [c for c in box.calls if c[0] in ("send_draft", "send")]
+
+
+async def test_a_new_email_draft_saved_again_after_the_card_makes_the_send_stale(box, engine, session):
+    _, draft = await stage(session, "gmail_draft_new", order_id=ORDER, subject="Your CROOKS order 1930", body=BODY)
+    assert (await tap(engine, draft)).code == "verified"
+    session.epoch += 1
+    _, proposal = await stage(session, "gmail_send_new", order_id=ORDER)
+    assert proposal is not None and proposal.execution["draft_id"]
+    resaved_in_gmail(box)
+    result = await hold(engine, proposal)
+    assert result.code == "stale" and box.sent == [] and not [c for c in box.calls if c[0] in ("send_draft", "send")]
+
+
 async def test_a_send_whose_message_id_gmail_rewrote_is_proven_by_the_id_gmail_gave_back(box, engine, session):
     box.rewrite_header = True
     _, proposal = await stage(session, "gmail_send_reply", thread_id=THREAD, body=BODY)

@@ -617,6 +617,9 @@ _TOOL_BINDINGS = (
     ("app.tools.analytics_tools", ("_cache", "_threads_for", "_replied", "_reply_state", "_own_address",
                                    "_inbox_for", "_sent_for")),
     ("app.tools.engineering_tools", ("_inbox", "_check_python")),
+    # [inbox, ruling 28 of DEC-071] CLIVE's record of its own drafts (`gmail_drafts.configure`) and the
+    # client it reads and tidies through, which `gmail_writes.bind` hands it.
+    ("app.tools.gmail_drafts", ("_path", "_client")),
 )
 # What `build` configures by changing a module's dictionary or list in place rather than rebinding
 # a name: the Instagram client's API version and state file (`instagram_tools.configure`), where

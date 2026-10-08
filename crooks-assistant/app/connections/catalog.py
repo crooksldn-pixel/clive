@@ -73,7 +73,7 @@ CONNECTIONS: tuple[Connection, ...] = (
         what="Reads your email, and drafts and sends the replies you approve.",
         fields=(), requires=("gmail_token",), family="email_reads",
         note="Set up at the server for now (make gmail). Sign in with Google comes next.",
-        unlocks=("email_reads", "email_drafts", "email_sends", "email_compose", "email_archive"),
+        unlocks=("email_reads", "email_drafts", "email_sends", "email_compose", "email_archive", "email_junk"),
         without="Without it CLIVE can't read or answer your email.",
         set_up_at="server",
     ),

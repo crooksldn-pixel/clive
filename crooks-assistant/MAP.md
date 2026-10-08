@@ -4,7 +4,7 @@ Read this before any code. The hand-written parts change only with a decision. T
 
 <!-- map:live -->
 **Production:** `b33ccbc2`, deployed 2026-10-03 17:48 UTC ([`reports/deploy-b33ccbc2.md`](reports/deploy-b33ccbc2.md)). **Before it:** `cac1a9e7` 2026-10-03 13:01 UTC ([`reports/deploy-cac1a9e7.md`](reports/deploy-cac1a9e7.md)); `66d3e05d` 2026-10-02 13:49 UTC ([`reports/deploy-66d3e05d.md`](reports/deploy-66d3e05d.md)).
-**Tools:** 97 tools — 66 reads, 26 writes, 5 bulk ([`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md)).
+**Tools:** 101 tools — 67 reads, 28 writes, 6 bulk ([`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md)).
 <!-- /map:live -->
 
 ## Where we started (7 September 2026)
@@ -53,21 +53,21 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 <!-- map:parts -->
 | Package | Lines | State | Not loaded by the app | Owner doc |
 |---|---:|---|---|---|
-| (top-level modules) | 12,726 | live | `engineering_measures` | none |
-| `actions` | 3,051 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
+| (top-level modules) | 12,737 | live | `engineering_measures` | none |
+| `actions` | 3,084 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,478 | live | — | none |
 | `bench` | 2,298 | live | 5 modules | [`BENCH.md`](docs/BENCH.md) |
 | `builds` | 1,739 | live | — | none |
 | `capabilities` | 759 | live | `surface` | none |
-| `clients` | 6,283 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
+| `clients` | 6,290 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
 | `connections` | 2,031 | live | — | [`CONNECTIONS.md`](docs/CONNECTIONS.md) |
 | `context` | 1,211 | live | — | none |
 | `customers` | 1,596 | live | — | none |
 | `digest` | 19,012 | live | 14 modules | [`KNOWLEDGE_DIGESTER_V1.md`](docs/product-memory/KNOWLEDGE_DIGESTER_V1.md) |
-| `displays` | 2,363 | live | — | none |
+| `displays` | 2,415 | live | — | none |
 | `engineering_bridge` | 742 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
-| `families` | 10,193 | live | — | none |
+| `families` | 10,199 | live | — | none |
 | `kb` | 446 | live | — | [`OWNER_DECISIONS_2026-10-01.md`](docs/product-memory/OWNER_DECISIONS_2026-10-01.md) the voice spec |
 | `logging` | 195 | live | — | none |
 | `memory` | 586 | live | — | none |
@@ -75,22 +75,22 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `objectives` | 3,316 | live | — | none |
 | `observability` | 10,789 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
 | `orchestrator` | 11,442 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
-| `people` | 780 | live | — | [`TEAM.md`](docs/TEAM.md) |
+| `people` | 785 | live | — | [`TEAM.md`](docs/TEAM.md) |
 | `providers` | 1,029 | live | `anthropic_api` | none |
 | `reads` | 1,451 | live | — | none |
 | `release` | 3,139 | live | 6 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
 | `remote_engineering` | 2,506 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
 | `research` | 1,884 | live | — | [`RESEARCH.md`](docs/RESEARCH.md) |
 | `returns` | 1,084 | live | — | [`RETURNS_EVENTS.md`](docs/RETURNS_EVENTS.md) its events, DEC-077 |
-| `routes` | 8,479 | live | — | none |
+| `routes` | 8,498 | live | — | none |
 | `scenes` | 2,579 | off (`CLIVE_SCENES` off, default) | — | [`GENERATIVE_UI_V1.md`](docs/product-memory/GENERATIVE_UI_V1.md) |
 | `secrets` | 965 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) |
 | `session` | 1,194 | live | — | none |
 | `skills` | 979 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
 | `speech` | 846 | live | — | none |
 | `support` | 1,693 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
-| `tools` | 15,261 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
-| `work` | 2,508 | live | — | [`TEAM.md`](docs/TEAM.md) |
+| `tools` | 16,289 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
+| `work` | 2,510 | live | — | [`TEAM.md`](docs/TEAM.md) |
 <!-- /map:parts -->
 
 ## Pages
@@ -117,6 +117,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | Screens | `displays.json` | `displays/store.py` | always |
 | Instagram token state | `instagram.json` | `clients/instagram.py` | always |
 | People cards | `people.json` | `people/store.py` | always |
+| CLIVE's Gmail drafts | `gmail-drafts.json` | `tools/gmail_drafts.py` | always |
 | Work list | `work/items/, routines.json, record.jsonl` | `work/store.py` | always |
 | Named routines | `work/named-routines.json` | `work/routines.py` | always |
 | Team access | `access.json` | `people/access.py` | always |
@@ -207,5 +208,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 4,455 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 4,461 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->

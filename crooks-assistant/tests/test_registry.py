@@ -517,11 +517,24 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # The ceiling is raised by exactly what was measured, leaving no headroom.
     # 57_276 is both of the above on one tree, rebased in the 8 October chain (claude/n3-routines on
     # claude/n3-focus): 55,895 before, 57,276 after, +1,381 measured on the merged tree.
-    assert total <= 57_276, f"the tool block is {total} bytes"
+    # 56_615 is the inbox rulings of DEC-071 (8 Oct; app/tools/gmail_inbox.py, gmail_drafts.py,
+    # batch_tools.py, display_tools.py; tests/test_inbox_junk.py, test_staff_send_draft.py,
+    # test_email_on_screen.py), +1,210 bytes measured on trunk 6f844183 (55,405 before, 56,615 after):
+    # gmail_thread_junk 309 (ruling 27: one thread to Spam, a held write), batch_email_junk 283 (the
+    # same for a set, on one card), gmail_unsent 217 (ruling 34: the drafts waiting and whose words
+    # each is, a read), gmail_send_draft 342 (ruling 34: one draft sent as Gmail holds it, a held
+    # write), and screen_show +59 (ruling 29: `thread_id`, an email on a screen; 686 before, 745
+    # after). Imported above through gmail_writes, which imports both. The ceiling is raised by exactly what was
+    # measured, leaving no headroom.
+    # 58_486 is the inbox rulings on the 8 October chain (claude/n3-inbox on claude/n3-routines):
+    # 57,276 before, 58,486 after, +1,210 measured on the merged tree.
+    assert total <= 58_486, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.
-    assert batch <= 2_300, f"the batch tools' schemas are {batch} bytes; the rules belong in the prompt"
+    # 2,562 adds the sixth, batch_email_junk (ruling 27 of DEC-071), 283 bytes measured (2,279
+    # before, 2,562 after): a set id, as batch_email_archive takes.
+    assert batch <= 2_562, f"the batch tools' schemas are {batch} bytes; the rules belong in the prompt"
     analytic = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith(("commerce_", "inventory_query")))
     # 5,000 held the four query-language tools. The fifth, `commerce_summary`, is 640 bytes
     # and is not query-language detail: it takes a task from a closed set of three, a period
