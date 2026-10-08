@@ -196,6 +196,7 @@ The dispatcher itself did not change.
 **The reviewer** (`app/orchestrator/reviewers/claude.py`, principal `claude-reviewer`). There is one detached process per review dispatch. It:
 1. exports the candidate's whole tree at the exact SHA from the dispatcher clone's git objects (`ls-tree` and `cat-file --batch`), into a review room of its own under `<runtime>/claude-review/<task>/<attempt>/dispatch.N/run.M/room/candidate/`, beside the packet as `REVIEW_PACKET.md`:
    - no attributes, filters or hooks apply;
+   - each file's and link's bytes must hash to the blob id the commit's tree names for it, since git does not check an object on an ordinary read; a corrupt or altered object in the clone refuses the export;
    - a symbolic link becomes a short note and is never followed;
    - a path with `..`, `.git` or an absolute root is refused;
 2. makes the room read-only (files 0444, folders 0555);

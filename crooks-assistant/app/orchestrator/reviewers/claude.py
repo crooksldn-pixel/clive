@@ -17,8 +17,9 @@ What it promises:
   candidate. Its launch is checked against the CLI's init event, as a builder's is, and refused otherwise.
 - **At the candidate and clean, verified.** The room's ``candidate/`` is the commit's whole tree at the exact
   SHA, written from git objects (no attributes, filters or hooks apply; a symbolic link becomes a short note
-  and is never followed), then made read-only. After the review every file is compared with the commit's
-  blobs again. A difference is an error, never a verdict.
+  and is never followed), each object's bytes checked against the id the commit's tree names for it, then made
+  read-only. After the review every file is compared with the commit's blobs again. A difference is an error,
+  never a verdict.
 - **On the owner's plan, never an API key.** The CLI gets an environment built from nothing, as builders do,
   plus ``CLAUDE_CODE_OAUTH_TOKEN`` from a private host-side file when one is configured (the builders' token by
   default). A token file holding an API key is refused, and so is a launch whose init event names any API-key
@@ -294,7 +295,11 @@ def _entry_bytes(mode: str, oid: str, blob: bytes | None) -> bytes:
 
 
 def export_candidate(repo: Path, sha: str, dest: Path) -> dict[str, str]:
-    """Write the commit's whole tree at ``sha`` into ``dest``; returns each written path's git blob id."""
+    """Write the commit's whole tree at ``sha`` into ``dest``; returns each written path's git blob id.
+
+    Every blob a file or a link is written from must hash to the id the commit's tree names for it (review of the
+    branch, N6): git does not check an object's bytes on an ordinary read, so a corrupt or altered object in the
+    dispatcher's clone would otherwise be reviewed as the candidate. A mismatch refuses the export."""
     entries = _tree_entries(repo, sha)
     by_oid: dict[str, list[tuple[str, tuple[str, ...]]]] = {}
     for mode, oid, parts in entries:
@@ -306,6 +311,9 @@ def export_candidate(repo: Path, sha: str, dest: Path) -> dict[str, str]:
     submodules = ((key, None) for key in by_oid if key.startswith("submodule:"))
     with contextlib.closing(_blobs(repo, [k for k in by_oid if not k.startswith("submodule:")])) as blobs:
         for key, blob in itertools.chain(blobs, submodules):
+            if blob is not None and git_blob_id(blob) != key:
+                raise RuntimeError(f"blob {key} does not hash to its id in the dispatcher's clone: the object is "
+                                   f"corrupt or altered, so candidate {sha} is not reviewed from it")
             for mode, parts in by_oid[key]:
                 data = _entry_bytes(mode, key.removeprefix("submodule:"), blob)
                 target = dest.joinpath(*parts)

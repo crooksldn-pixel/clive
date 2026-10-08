@@ -429,6 +429,27 @@ def test_the_room_is_the_commit_from_git_objects_links_are_notes_and_any_change_
     assert not room.exists()
 
 
+def _tamper(repo: Path, oid: str, data: bytes) -> None:
+    """Rewrite one loose object in place: its id stays, its bytes change (git does not check on an ordinary read)."""
+    import zlib
+
+    loose = repo / ".git" / "objects" / oid[:2] / oid[2:]
+    loose.chmod(0o644)
+    loose.write_bytes(zlib.compress(b"blob %d\0" % len(data) + data))
+
+
+@pytest.mark.parametrize("path, altered", [("pkg/hello.txt", b"hullo\n"), ("passwd-link", b"/etc/shadow")])
+def test_an_object_whose_bytes_are_not_its_tree_id_is_never_reviewed(tmp_path, path, altered):
+    # Review of the branch, N6: the room is checked against the commit's own blob ids as it is written, so a corrupt
+    # or altered object in the dispatcher's clone is refused, never reviewed (a file and a link alike).
+    repo, sha = _repo_with_traps(tmp_path)
+    oid = _git(repo, "rev-parse", f"{sha}:{path}")
+    _tamper(repo, oid, altered)
+    assert _git(repo, "cat-file", "blob", oid) == altered.decode().strip()   # what an unchecked export would write
+    with pytest.raises(RuntimeError, match=f"blob {oid} does not hash to its id"):
+        export_candidate(repo, sha, tmp_path / "room" / "candidate")
+
+
 @pytest.mark.parametrize("path", [b"../escape", b"a/../../b", b"/etc/passwd", b".git/config", b"x/.GIT/hooks",
                                   b"a//b", b"./a"])
 def test_a_tree_path_that_could_reach_outside_the_room_is_refused(path):
