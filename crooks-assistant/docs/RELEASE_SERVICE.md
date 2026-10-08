@@ -255,7 +255,7 @@ ln -sfn "/srv/clive-release/$SHA" /srv/clive-release/pin
 # Its own GitHub token (step 2 makes it), encrypted for this host, apart from CLIVE's credentials.
 install -d -m 0700 /etc/crooks-os/release /etc/crooks-os/release/waivers
 read -rs TOKEN && printf %s "$TOKEN" | systemd-creds encrypt --name=clive_release_github_token - \
-  /etc/crooks-os/release/clive_release_github_token.cred && unset TOKEN
+  /etc/crooks-os/release/clive_release_github_token.cred; unset TOKEN
 chmod 0600 /etc/crooks-os/release/clive_release_github_token.cred
 
 # The switches: shipped off, then on with George's rule, dry run kept (rulings 7 and 8).
