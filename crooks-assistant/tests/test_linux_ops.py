@@ -219,6 +219,23 @@ def test_the_makefile_installs_through_the_systemd_installer():
     assert "$(PY) $(INSTALLER)" in text
 
 
+def test_make_restart_on_the_server_reads_health_back_rather_than_trusting_systemctl():
+    """`make restart` is `$(INSTALLER) --restart`, and the systemd installer's restart goes
+    through scripts/service_linux.restart(), which restarts the unit and then reads /health
+    back. A bare `systemctl restart` exits 0 for a unit that dies on its first import, and
+    `make restart` would then call that done.
+
+    Ported unchanged from tests/test_control.py's `…one_mechanism_on_each_platform`, which
+    went with scripts/control.py and the menu-bar app (DEC-071, ruling 38); these three facts
+    were about the server, which stays."""
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "$(INSTALLER) --restart" in makefile
+
+    systemd_installer = (SCRIPTS / "install_systemd.py").read_text(encoding="utf-8")
+    assert "def restart" in systemd_installer and "systemctl" in systemd_installer
+    assert "svc.restart(" in systemd_installer, "make restart on the server goes through the one mechanism"
+
+
 def test_the_makefile_no_longer_hardcodes_the_mac_installer_in_a_target():
     text = (ROOT / "Makefile").read_text()
     for target in ("install:", "status:", "restart:", "uninstall:"):
