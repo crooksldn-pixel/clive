@@ -188,6 +188,10 @@ class Settings(BaseSettings):
     # The skills the installer adopted (app/skills/install.py), read by skill_list and skill_read
     # (app/tools/skill_tools.py) and never run. Git-ignored, beside the objectives.
     skills_dir: Path = REPO_ROOT / ".state" / "skills"
+    # Research George gives CLIVE (app/research, docs/RESEARCH.md): the server folder he can put
+    # files in (inbox/), the digester's quarantine and store for them, and one record per document
+    # with the proposals made from it. Git-ignored, beside the objectives.
+    research_dir: Path = REPO_ROOT / ".state" / "research"
 
     # --- engineering: CLIVE's build requests (app/engineering_bridge, app/tools/engineering_tools.py) ---
     # Whose loop builds what CLIVE files: "worker-01" polls clive/control/worker-01-inbox;

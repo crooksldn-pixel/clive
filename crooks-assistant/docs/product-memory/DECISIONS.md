@@ -1148,3 +1148,27 @@ He wants "the flow from actually asking a question to the action happening to be
 **Consequences:** the gesture table, the gate, staff authority and the proof are unchanged: a send to a customer is still RED and still the hold, and is proven by reading the sent message back. Which tool the model chooses is still the model's; it is told which one to use in the tools' descriptions and one sentence of the system prompt.
 
 **How a failure reads:** a send that provably did not go (Gmail refused it, or it never left) says "Not sent", why, and "Nothing was sent", on the card and in the voice, and offers "Try again": the same words, as they were on the card he held, prepared again as a new card to hold. A send whose outcome is not known (it may have gone) says to check Sent and never offers to send again. A change card on the screen is never swapped for a record the answer names beside it: that sentence is taken out instead.
+
+---
+
+## DEC-070 — George's research goes through the digester: each recommendation is a proposal weighed against the map, and he answers it on the Builds screen
+
+**Date:** 2026-10-08
+**Status:** ACTIVE. Built in the repository (`claude/n2-research`); live once deployed.
+**Source:** the owner on 7 October 2026, verbatim: "I've also done some ChatGPT research products on Clive overall, so stuff like integrations, product roadmap, feature roadmap, how to integrate connections easily, the human API, and I think it'd be good for a way to actually accept this research into part of the Clive design and philosophy and actually to make a better way of accepting it." What he approved, verbatim: "Your research goes through the digester. Each recommendation becomes a proposal checked against the map's rules (adopt, park or reject, with a reason), and you approve them on the Builds screen."
+
+**Decision:**
+- **One way in, by two doors.** He gives a research file (PDF, Word, Markdown, text, a saved web page, or a ChatGPT export) on the Builds screen's Research section, or puts it in `.state/research/inbox/` on the server. Both go through the digester as it stands: its quarantine (the `research` intake handler, used only by name), its safety scan and its documents adapter. A scan block stops the document before any model sees it. How it works is [`docs/RESEARCH.md`](../RESEARCH.md).
+- **Weighed against the map, not taken on trust.** Claude on the Max plan, with no tools, names each concrete recommendation with CLIVE's view (adopt, park or reject), a one-line reason, what building it would touch and what done looks like. Then CLIVE holds it to the repository's own design:
+  - a quote that is not in the research is dropped, and the document says so;
+  - a citation must be a rule, parked item, decision, idea or feature that exists; one backed by nothing is parked (DEC-017);
+  - one that needs protected paths is parked for him (Rule 8);
+  - the rules that never bend are checked again without the model, over the recommendation and its "done when". That check is advisory: it only moves a view towards reject, and his answer decides;
+  - a repeat of an idea, a feature or earlier research is linked, not asked again.
+- **His answer is an owner judgment.** Adopt, Park or Reject goes into the owner-judgment ledger (`app/builds/decisions.py`), bound to the proposal exactly as he saw it. A change of mind is a correction that keeps the first answer.
+- **Adopt files nothing by itself.** It prepares a build request through the existing filing path (`submit_engineering_request`) on a card, filed only on his hold. The request goes to the build loop's inbox in the public repository, in CLIVE's words only: the research's quote and file name stay in CLIVE's private record, which the request names by id.
+- **Research stays on the server.** `.state/research/` is git-ignored, and research is never committed.
+
+**Reason:** his words above. The digester and the owner-judgment ledger already existed; this wires research into both rather than building a second path.
+
+**Consequences:** no new authority. Adopt uses the existing filing path and his hold, and Park and Reject change nothing outside CLIVE's records. One new dependency, `pypdf>=6.19.0`, reads PDFs in a process of its own with a time and memory limit; installing it is a hand deploy, because `pyproject.toml` changed. Not built: the home's Builds row does not count research waiting on him, and ChatGPT share links are not fetched by URL.

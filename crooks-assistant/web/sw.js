@@ -75,6 +75,9 @@ const SHELL = [
   // The Builds screen: every build in plain words, and the decisions it needs (web/builds.js).
   '/static/builds.js',
   '/static/builds.css',
+  // Its Research section: research George gave CLIVE and his answers (web/research.js).
+  '/static/research.js',
+  '/static/research.css',
   // Customers: the order he meant, their story, a refund landing (web/customers.js).
   '/static/customers.js',
   '/static/customers.css',

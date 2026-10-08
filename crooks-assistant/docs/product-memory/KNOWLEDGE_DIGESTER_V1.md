@@ -96,5 +96,12 @@ The share of proposals the owner accepts; time from intake to working capability
   - the deceptive-character rules still stop the whole artifact, as do overflowed credentials, paths the scanner had to escape and artifacts with no skill folder;
   - four scanner false positives are fixed, each tested both ways: "e.g." now counts as an example cue; "do not tell the user they need to …" is no longer concealment; fake credentials in JavaScript and TypeScript test files are fixtures, as in Python and Go tests; and a SKILL.md `license:` line licenses its skill's folder for proposals.
   - All five collections now digest. The instruction-override rule is unchanged: its remaining hits (plain prose such as "the real task is", quotations carrying more than the phrase) are outside what its quotation test can safely excuse, so the skills they sit in are held for the owner.
+- **Status on 2026-10-08: research.** The owner's research (ChatGPT reports and chats, notes) has one way in, from the Builds screen or a folder on the server ([`docs/RESEARCH.md`](../RESEARCH.md)). A new intake handler, `research`, used only when named, takes a PDF, Word file, Markdown, text, saved page or ChatGPT export into quarantine as the Markdown it holds. PDF reading is pypdf's, outside this package, which stays standard library only. The scan and the documents adapter then run as for any document. After them, and outside the digester (`app/research/`), Claude on the Max plan names each concrete recommendation and weighs it against MAP.md's rules and Parked table, DECISIONS, IDEAS, FEATURES and CURRENT_TRUTH. That is the model-assisted understanding this section held for later, scoped to recommendations:
+  - quotes must be in what the scanner read;
+  - citations must exist;
+  - the rules are checked again without the model;
+  - repeats are linked through `relate`.
+
+  The owner answers each proposal with adopt, park or reject on the Builds screen, and each answer goes into the judgment ledger. Adopt prepares a build request behind his hold.
 - **Wave 5:** absorbers for each target with removal, measurement and the watchlist; digest proposals shown on the phone as Generative UI scenes; "digest this" through Build from CLIVE.
 - **Later:** model-assisted understanding through the model gateway, sandboxed browser digestion of live sites and apps, media, and earned autonomy for low-risk absorption classes.

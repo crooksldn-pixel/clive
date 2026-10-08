@@ -2,7 +2,7 @@
 
 **Purpose:** what is true now, in one place. Read [`MAP.md`](../../MAP.md) first; this file is its live state.
 **Status:** ACTIVE. Rewrite it whenever production, the trunk, the loop or an owner decision changes, and move what it said before into the history file.
-**As of:** 2026-10-07 (production is `b33ccbc2`; the trunk is three merged PRs ahead of it, none deployed).
+**As of:** 2026-10-08 (production is `b33ccbc2`; the trunk is fifteen merged PRs and four of the loop's own landings ahead of it, none recorded as deployed).
 
 Everything this file said before 5 October 2026 is kept word for word in [`docs/history/CURRENT_TRUTH_HISTORY.md`](../history/CURRENT_TRUTH_HISTORY.md), including the doctrine summary it used to carry. Decisions and their reasons are in [DECISIONS.md](./DECISIONS.md). How production is run and deployed is [`docs/DEPLOY_LINUX.md`](../DEPLOY_LINUX.md).
 
@@ -13,7 +13,7 @@ Everything this file said before 5 October 2026 is kept word for word in [`docs/
 | | SHA | What it is |
 |---|---|---|
 | **Production** (`crooks-os-prod-1`, `/opt/crooks-os`) | `b33ccbc2` | Live since **3 Oct, 17:48 UTC**. It is PR #95: the six notes of the post-deploy review of `cac1a9e7`, plus one found on the way. That review's verdict was **KEEP** (PR #95's description). The fixes: a voice's settings are never invented, and shipped, refunded or cancelled orders stay off the packing board. Deployed on **the owner's waiver** of the exact-SHA review. GitHub acceptance was green on the exact SHA (run `37128652668`). `/health` answered 200 with all 12 checks `ok` (build `83524b275b07`). `.env`, the unit and the drop-ins were unchanged. Record: [`reports/deploy-b33ccbc2.md`](../../reports/deploy-b33ccbc2.md). Rollback: `cac1a9e7` plus `/root/crooks-unit-before-b33ccbc2.main.service`. |
-| **Trunk** (`clive/trunk`) | head | `b33ccbc2` plus four merges on 7 Oct: PR #97 (docs only) and PRs #96, #98 and #99, which are not deployed ("Merged, not deployed" below). |
+| **Trunk** (`clive/trunk`) | head | `b33ccbc2` plus fifteen merged PRs on 7–8 Oct (#96 to #108, then WhatsApp and Instagram direct messages and research intake, the two PRs after #108) and four builds the loop landed itself on 7–8 Oct. None is recorded as deployed ("Merged, not deployed" below). |
 | **The loop** (clive-worker-01) | not recorded | See "The build loop" below. |
 
 The deploys before it, newest first:
@@ -47,14 +47,33 @@ CROOKS Returns is the owner's own returns and exchanges service, and it replaces
 
 ### Merged, not deployed
 
-Production stays on `b33ccbc2` until these are deployed. None of them changes `.env`, the unit, `deploy/` or the loop's code, so no re-pin follows.
+Production stays on `b33ccbc2` until these are deployed. It is the last deploy on record: whether `a68536c6` (the trunk after PR #99) was deployed on 7 Oct is not recorded. None of these changes `.env` or CLIVE's own unit. Two reach past the app: PR #101 adds the release service's own unit and timer under `deploy/release/`, not installed, and PR #102 changes the loop's code, which takes effect only at worker-01's re-pin.
 
 - **PR #96** (7 Oct): CROOKS Returns in CLIVE, and the design pass (the answer in full on the phone, Home, approval weights and "Not now", the dock on every tablet, colour). Both halves were reviewed SHIP before merging.
+- **PR #97** (7 Oct, docs only): one map (`MAP.md`), this file rewritten for what is live, DEC-062 to DEC-066 caught up, and the deploy records landed.
 - **PR #98** (7 Oct): CLIVE can list the installed skills and read one as guidance (`skill_list`, `skill_read`). It finishes the loop's `skill-read-runtime-tool-4` by hand, which stopped at its repair limit on 1 Oct. Reviewed SHIP twice; each note was fixed with a test.
 - **PR #99** (7 Oct): an objective's days left and the support investigator's dates count London's day, not UTC's, so they are right between midnight and 1am in summer time. It re-files the loop's `uk-midnight-clock-sweep-2` on today's trunk. Reviewed SHIP.
+- **PR #100** (8 Oct): this repository is CLIVE only. The old theme snapshot at its root is gone, and the steps that move the theme to its private repository and archive the old branches as tags are in `docs/repo/BOUNDARY.md`, ready to run.
+- **PR #101** (8 Oct, [DEC-067](./DECISIONS.md)): a release service that can deploy CLIVE and roll back by itself, without the Termius relay. It is built and switched off; nothing deploys until he names who holds deploy authority as `CLIVE_RELEASE_RULE`.
+- **PR #102** (8 Oct, [DEC-068](./DECISIONS.md)): the loop upgrade under "The build loop" below. It needs worker-01's re-pin before any of it is in force.
+- **PR #103** (8 Oct): the bench. It bulk-tests CLIVE with generated questions from six personas through the real turn against the fake shop, judged, and rated by him on an owner page.
+- **PR #104** (8 Oct): the real-looking personal details in tests, fixtures and screenshots are replaced with invented ones, now the repository is public.
+- **PR #105** (8 Oct): WeChat with the manufacturer and forwarder through WeCom. He reads it in English with the original one tap away, and a reply goes only on his hold. It is on once he stores the WeCom values on Connections.
+- **PR #106** (8 Oct): CLIVE Shipping. International orders by stage, a label bought on his hold at the service's own price check, and printing through the service's PrintNode. It is on once he stores its keys on Connections.
+- **PR #107** (8 Oct, [DEC-069](./DECISIONS.md)): ask for something and see only the answer, with words saying what CLIVE is doing meanwhile. A reply or new email is one card he can edit and hold to send, with no Save draft step.
+- **PR #108** (8 Oct): acceptance now runs every screen test in a real Chromium, and the screens he uses were walked at phone and tablet sizes and fixed.
+- **WhatsApp and Instagram direct messages** (8 Oct, the PR after #108): both work through the same message tools as WeChat. He reads them in English, and a reply goes only on his hold and only inside the app's 24-hour window. Each is on once he stores its keys; who WhatsApp is for, and on which number, is still his to decide (`docs/WHATSAPP.md`). Instagram shows the DMs that reach its webhook; Meta's API returns no one else's conversations until the app has Advanced Access (`docs/INSTAGRAM_DMS.md`).
+- **Research intake** (8 Oct, the PR after the WhatsApp one, [DEC-070](./DECISIONS.md)): George gives CLIVE research on the Builds screen or in the server's research folder, each recommendation is weighed against the map and put to him as Adopt, Park or Reject, and Adopt files a build request only on his hold. Reviewed SHIP; seven of its eight notes fixed with a test each, and the eighth (its rule check is advisory) said in `RESEARCH.md`. Its deploy is by hand: `pyproject.toml` now needs `pypdf>=6.19.0`.
+
+The loop landed four builds itself on 7–8 Oct, also not deployed:
+- **`retire-returns-stub`** (7 Oct): the old returns stub's four "not built" rows are gone, so CLIVE no longer tells him, or the model on every turn, that returns are not available while it can act on them through CROOKS Returns.
+- **`skill-installer-followups`** (7 Oct): the skill installer leaves to him any skill that asks for shell access or carries a stored permissions finding, its final move never overwrites, and a skill's licence text is made harmless when written.
+- **`deflake-reply-turn-enrichment`** (8 Oct, tests only): the 14 tests that use an order card's inbox wait for it the way the tablet does, so a slow test machine no longer fails them.
+- **`fixture-clock-dst-nights-2`** (8 Oct, tests only): the test shop's "today" is worked out on London's clock, so the tests hold on the clock-change nights (25 Oct 2026, 28 Mar 2027).
 
 ### The build loop
 
+- **Back at work on 7–8 Oct:** it landed the four builds listed under "Merged, not deployed". The counts in the next point stop at 7 Oct and are not updated here.
 - **Quiet since 1 Oct.** Since 25 Sep, the loop on clive-worker-01 has taken 65 requests:
   - 21 COMPLETE;
   - 40 BLOCKED: 17 at the repair-round limit, 10 reported blocked by their builder, 7 on a red GitHub run, 4 on workspace errors and 2 on failed checks;
@@ -94,5 +113,6 @@ DEC-062 to DEC-065 record the owner decisions of 26 Sep, 28 Sep, 30 Sep and 1 Oc
 
 - The loop's current pin.
 - The owner's phone check for `b33ccbc2`.
+- Whether `a68536c6` was deployed on 7 Oct: no deploy record says so.
 - Whether any item carried from 30 Sep has been settled outside the repository.
 - Whether the Ship24 and Instagram keys are stored in production. Without them, those reads say they are not connected.

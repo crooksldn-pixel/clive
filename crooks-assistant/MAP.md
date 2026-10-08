@@ -58,13 +58,13 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,501 | live | — | none |
 | `bench` | 2,300 | live | 5 modules | [`BENCH.md`](docs/BENCH.md) |
-| `builds` | 1,424 | live | — | none |
+| `builds` | 1,739 | live | — | none |
 | `capabilities` | 759 | live | `surface` | none |
 | `clients` | 6,437 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
 | `connections` | 2,005 | live | — | [`CONNECTIONS.md`](docs/CONNECTIONS.md) |
 | `context` | 1,211 | live | — | none |
 | `customers` | 1,596 | live | — | none |
-| `digest` | 18,960 | live | 19 modules | [`KNOWLEDGE_DIGESTER_V1.md`](docs/product-memory/KNOWLEDGE_DIGESTER_V1.md) |
+| `digest` | 19,012 | live | 14 modules | [`KNOWLEDGE_DIGESTER_V1.md`](docs/product-memory/KNOWLEDGE_DIGESTER_V1.md) |
 | `displays` | 2,363 | live | — | none |
 | `engineering_bridge` | 742 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
 | `families` | 10,246 | live | — | none |
@@ -80,8 +80,9 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `reads` | 1,451 | live | — | none |
 | `release` | 2,088 | live | 9 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
 | `remote_engineering` | 2,506 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
+| `research` | 1,884 | live | — | [`RESEARCH.md`](docs/RESEARCH.md) |
 | `returns` | 818 | live | — | none |
-| `routes` | 8,502 | live | — | none |
+| `routes` | 8,685 | live | — | none |
 | `scenes` | 2,579 | off (`CLIVE_SCENES` off, default) | — | [`GENERATIVE_UI_V1.md`](docs/product-memory/GENERATIVE_UI_V1.md) |
 | `secrets` | 960 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) |
 | `session` | 1,242 | live | — | none |
@@ -102,7 +103,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `/bench` | `bench.html` | 1: bench.js |
 | `/connections` | `connections.html` | 3: connections-view.js, connections-voice.js, connections.js |
 | `/display` | `display.html` | 2: dots.js, display.js |
-| `/` | `index.html` | 29: dots.js, startup.js, orb.js, audio-viz.js, live-voice.js, collide.js, touch.js, telemetry.js, notify.js, action-state.js, live-state.js, jobs.js, objective-touch.js, objective-number.js, objective-cards.js, customers.js, returns.js, messages.js, shipping.js, ui.js, app.js, horizon.js, distances.js, builds.js, alpha.js, remote.js, lift.js, edges.js, dots-app.js |
+| `/` | `index.html` | 30: dots.js, startup.js, orb.js, audio-viz.js, live-voice.js, collide.js, touch.js, telemetry.js, notify.js, action-state.js, live-state.js, jobs.js, objective-touch.js, objective-number.js, objective-cards.js, customers.js, returns.js, messages.js, shipping.js, ui.js, app.js, horizon.js, distances.js, builds.js, research.js, alpha.js, remote.js, lift.js, edges.js, dots-app.js |
 | no route (only `/static/scenes-gallery.html`) | `scenes-gallery.html` | 2: scenes.js, scene-fixtures.js |
 | `/today` | `today.html` | 6: orb.js, objective-touch.js, today-say.js, today-voice.js, today.js, today-owner.js |
 <!-- /map:pages -->
@@ -132,6 +133,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | Anticipation | `anticipation/transitions.json` | `anticipation/learning.py` | always |
 | Keys stored from the app | `<secret dir>/app/<key>.cred` | `secrets/vault.py` | always |
 | Digest store | `one folder per artifact` | `digest/store.py` | always |
+| Research | `research/: inbox/, received/, quarantine/, digests/, documents/` | `research/store.py` | always |
 | Release service | `status.json, deploys/, failed/, HALT` | `release/state.py` | `CLIVE_RELEASE_ENABLED` off (default) |
 | Bench sets and runs | `bench/questions/, bench/runs/` | `bench/runner.py` | CLI only |
 | Bench ratings | `bench/ratings.jsonl` | `bench/store.py` | always |
@@ -205,5 +207,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 3,369 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 4,151 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->

@@ -81,6 +81,7 @@ OWNER_DOCS: dict[str, tuple[str, str | None] | None] = {
     "reads": None,
     "release": ("docs/RELEASE_SERVICE.md", None),
     "remote_engineering": ("docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md", None),
+    "research": ("docs/RESEARCH.md", None),
     "returns": None,
     "routes": None,
     "scenes": ("docs/product-memory/GENERATIVE_UI_V1.md", None),
@@ -134,6 +135,8 @@ STORES: tuple[tuple[str, str, str, str | None, tuple[tuple[str, str], ...]], ...
     ("Keys stored from the app", "<secret dir>/app/<key>.cred", "app/secrets/vault.py", None,
      (("app/secrets/vault.py", '".cred"'),)),
     ("Digest store", "one folder per artifact", "app/digest/store.py", None, (("app/digest/store.py", "units.jsonl"),)),
+    ("Research", "research/: inbox/, received/, quarantine/, digests/, documents/", "app/research/store.py", None,
+     (("app/research/store.py", '".research.json"'),)),
     # Written by the release service on the server (/var/lib/clive-release), not by the running app.
     ("Release service", "status.json, deploys/, failed/, HALT", "app/release/state.py", "CLIVE_RELEASE_ENABLED",
      (("app/release/state.py", '"status.json"'), ("app/release/state.py", '"HALT"'))),
