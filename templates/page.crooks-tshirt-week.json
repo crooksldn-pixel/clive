@@ -1,0 +1,147 @@
+{
+  "sections": {
+    "tee-week": {
+      "type": "crooks-tee-week",
+      "blocks": {
+        "tee-01": {
+          "type": "tee",
+          "settings": {
+            "handle": "crooksburys-t-shirt",
+            "title": "Crooksbury’s",
+            "day": 1
+          }
+        },
+        "tee-02": {
+          "type": "tee",
+          "settings": {
+            "handle": "crooks-direct-t-shirt",
+            "title": "Crooks Direct",
+            "day": 1
+          }
+        },
+        "tee-03": {
+          "type": "tee",
+          "settings": {
+            "handle": "vctiml-t-shirt",
+            "title": "V.C.T.I.M.L",
+            "day": 2
+          }
+        },
+        "tee-04": {
+          "type": "tee",
+          "settings": {
+            "handle": "cucci-t-shirt",
+            "title": "Cucci",
+            "day": 2
+          }
+        },
+        "tee-05": {
+          "type": "tee",
+          "settings": {
+            "handle": "feral-t-shirt",
+            "title": "Feral",
+            "day": 3
+          }
+        },
+        "tee-06": {
+          "type": "tee",
+          "settings": {
+            "handle": "phantom-t-shirt",
+            "title": "Phantom",
+            "day": 3
+          }
+        },
+        "tee-07": {
+          "type": "tee",
+          "settings": {
+            "handle": "who-nose-t-shirt",
+            "title": "Who Nose?",
+            "day": 4
+          }
+        },
+        "tee-08": {
+          "type": "tee",
+          "settings": {
+            "handle": "national-crooks-t-shirt",
+            "title": "National Crooks",
+            "day": 4
+          }
+        },
+        "tee-09": {
+          "type": "tee",
+          "settings": {
+            "handle": "creggs-t-shirt",
+            "title": "Creggs",
+            "day": 5
+          }
+        },
+        "tee-10": {
+          "type": "tee",
+          "settings": {
+            "handle": "special-delivery-t-shirt",
+            "title": "Special Delivery",
+            "day": 5
+          }
+        },
+        "tee-11": {
+          "type": "tee",
+          "settings": {
+            "handle": "coco-crooks-t-shirt",
+            "title": "Coco Crooks",
+            "day": 6
+          }
+        },
+        "tee-12": {
+          "type": "tee",
+          "settings": {
+            "handle": "major-league-crooks-t-shirt",
+            "title": "Major League Crooks",
+            "day": 6
+          }
+        },
+        "tee-13": {
+          "type": "tee",
+          "settings": {
+            "handle": "getaway-clive-t-shirt",
+            "title": "Getaway Clive",
+            "day": 7
+          }
+        },
+        "tee-14": {
+          "type": "tee",
+          "settings": {
+            "handle": "world-wide-t-shirt",
+            "title": "World Wide",
+            "day": 7
+          }
+        }
+      },
+      "block_order": [
+        "tee-01",
+        "tee-02",
+        "tee-03",
+        "tee-04",
+        "tee-05",
+        "tee-06",
+        "tee-07",
+        "tee-08",
+        "tee-09",
+        "tee-10",
+        "tee-11",
+        "tee-12",
+        "tee-13",
+        "tee-14"
+      ],
+      "settings": {
+        "heading": "T-SHIRT WEEK",
+        "start_date": "2026-10-12",
+        "drop_hour": 18,
+        "image_base": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/",
+        "preview_day": "live"
+      }
+    }
+  },
+  "order": [
+    "tee-week"
+  ]
+}

@@ -1,0 +1,170 @@
+{{ 'crooks.css' | asset_url | stylesheet_tag }}
+{{ 'crooks-tee-week.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'crooks-tee-week.js' | asset_url }}" defer></script>
+
+{%- comment -%}
+  T-SHIRT WEEK. Two tees drop each day at 6pm, shown as a pair of case files;
+  days still to come are chained shut with a padlock and a countdown. The page
+  is drawn by crooks-tee-week.js from the JSON at the bottom of this section.
+
+  Each tee is a block: a product handle, a display name and a day (1 = Monday).
+  When a product is published to the online store its variant ids are passed
+  through, keyed "<colour handle>|<size>", and checkout goes live. While the
+  products are still drafts all_products returns nothing for them, so the page
+  runs as a preview: images come from the Files CDN by name and checkout is off.
+
+  The data block breaks the no-Liquid-in-<script> rule for the same reason the
+  FAQ's JSON-LD does: it is inert JSON, not executable code, and every
+  interpolated string goes through the `json` filter.
+
+  Preview any day by adding ?tw_day=1..7 to the URL (0 = before the week).
+{%- endcomment -%}
+
+{%- capture ctw_designs -%}
+  {%- for block in section.blocks -%}
+    {%- liquid
+      assign ctw_product = all_products[block.settings.handle]
+      unless forloop.first
+        echo ','
+      endunless
+    -%}
+    {"handle":{{ block.settings.handle | json }},"title":{{ block.settings.title | json }},"day":{{ block.settings.day | json }},"variants":{
+    {%- if ctw_product.id -%}
+      {%- assign ctw_count = 0 -%}
+      {%- for variant in ctw_product.variants -%}
+        {%- if variant.available -%}
+          {%- if ctw_count > 0 %},{% endif -%}
+          {{ variant.option1 | handleize | append: '|' | append: variant.option2 | json }}:{{ variant.id }}
+          {%- assign ctw_count = ctw_count | plus: 1 -%}
+        {%- endif -%}
+      {%- endfor -%}
+    {%- endif -%}
+    }}
+  {%- endfor -%}
+{%- endcapture -%}
+
+<div class="ctw" data-ctw data-crk-section="tee-week" {{ section.shopify_attributes }}>
+  <p class="ctw-strip">FREE UK SHIPPING ALL WEEK · SHIPS IN 2–3 DAYS</p>
+  <p class="ctw-sim" data-ref="sim" hidden></p>
+
+  <div class="ctw-wrap">
+    <div data-ref="count" hidden></div>
+
+    <h1 class="ctw-h1">{{ section.settings.heading | escape }}</h1>
+
+    <div class="ctw-deals" data-ref="deals"></div>
+    <nav class="ctw-days" aria-label="Days" data-ref="days"></nav>
+    <p class="ctw-dayhead" data-ref="dayhead"></p>
+
+    <div data-ref="stage">
+      <noscript><p class="ctw-noscript">Turn on JavaScript to open the case files.</p></noscript>
+    </div>
+
+    <section class="ctw-trust" aria-label="Delivery, returns and payment">
+      <div>
+        <h2>DELIVERY</h2>
+        <p>Free UK shipping all week. Every order ships within 2–3 days.</p>
+      </div>
+      <div>
+        <h2>RETURNS</h2>
+        <p>Free size swaps and easy returns within 14 days. Show a QR code at the drop-off, no printer needed.</p>
+        <p><a href="{{ pages.returns.url | default: '/pages/returns' }}">RETURNS DESK →</a></p>
+      </div>
+      <div>
+        <h2>PAYING</h2>
+        <p>Shop Pay, Apple Pay, Google Pay and all major cards.</p>
+      </div>
+      <div>
+        <h2>QUESTIONS</h2>
+        <p>Email <a href="mailto:crooksldn@gmail.com">crooksldn@gmail.com</a></p>
+      </div>
+    </section>
+  </div>
+
+  <div data-ref="bar" hidden></div>
+  <div data-ref="toast" role="status" aria-live="polite"></div>
+  <div data-ref="sheet" hidden></div>
+
+  <svg width="0" height="0" aria-hidden="true" focusable="false" style="position: absolute">
+    <defs>
+      <linearGradient id="ctw-shackle" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#6B6B78"/><stop offset=".45" stop-color="#E4E4EC"/><stop offset="1" stop-color="#5C5C68"/></linearGradient>
+      <linearGradient id="ctw-lockbody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B58BE0"/><stop offset=".45" stop-color="#7B4BA3"/><stop offset="1" stop-color="#3B1A57"/></linearGradient>
+    </defs>
+  </svg>
+
+  <script type="application/json" data-ctw-data>
+    {
+      "start": {{ section.settings.start_date | json }},
+      "dropHour": {{ section.settings.drop_hour | json }},
+      "price": 20,
+      "imageBase": {{ section.settings.image_base | json }},
+      "previewDay": {{ section.settings.preview_day | json }},
+      "smsLive": false,
+      "returnsUrl": {{ pages.returns.url | default: '/pages/returns' | json }},
+      "designs": [{{ ctw_designs }}]
+    }
+  </script>
+</div>
+
+{% schema %}
+{
+  "name": "Crooks — T-shirt Week",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "T-SHIRT WEEK" },
+    {
+      "type": "text",
+      "id": "start_date",
+      "label": "Monday of the week",
+      "info": "As YYYY-MM-DD. Day 1 drops on this date.",
+      "default": "2026-10-12"
+    },
+    {
+      "type": "range",
+      "id": "drop_hour",
+      "label": "Drop time (London, 24-hour)",
+      "min": 0,
+      "max": 23,
+      "step": 1,
+      "default": 18
+    },
+    {
+      "type": "text",
+      "id": "image_base",
+      "label": "Tee image folder",
+      "info": "Where the crooksldn-<design>-<colour>-t-shirt.png files live.",
+      "default": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/"
+    },
+    {
+      "type": "select",
+      "id": "preview_day",
+      "label": "Clock",
+      "info": "Leave on real time for customers. The other options pin the page to a day for checking it.",
+      "options": [
+        { "value": "live", "label": "Real time" },
+        { "value": "0", "label": "Before the week" },
+        { "value": "1", "label": "Monday" },
+        { "value": "2", "label": "Tuesday" },
+        { "value": "3", "label": "Wednesday" },
+        { "value": "4", "label": "Thursday" },
+        { "value": "5", "label": "Friday" },
+        { "value": "6", "label": "Saturday" },
+        { "value": "7", "label": "Sunday" }
+      ],
+      "default": "live"
+    }
+  ],
+  "blocks": [
+    {
+      "type": "tee",
+      "name": "Tee",
+      "settings": [
+        { "type": "text", "id": "handle", "label": "Product handle", "default": "crooksburys-t-shirt" },
+        { "type": "text", "id": "title", "label": "Name on the file", "default": "Crooksbury’s" },
+        { "type": "range", "id": "day", "label": "Day (1 = Monday)", "min": 1, "max": 7, "step": 1, "default": 1 }
+      ]
+    }
+  ],
+  "max_blocks": 21,
+  "presets": [{ "name": "Crooks — T-shirt Week" }]
+}
+{% endschema %}
