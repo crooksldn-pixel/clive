@@ -228,3 +228,63 @@ def test_the_interaction_record_says_which_rule_chose_the_screen_and_what_it_set
         assert turn["why"]["focus"] == {"rule": "change", "set_aside": ["customer", "email_list", "email_list", "order_list"]}
     finally:
         interactions.install(None)
+
+
+# ---- Two orders up (round 12's C3, 8 October): what he asked for stays.
+
+
+def _numbers(said) -> list[str]:
+    """The order numbers on the answer's order cards, in order."""
+    return [str(c["data"].get("order_number") or "") for c in said.ui if c.get("type") == "order"]
+
+
+async def _side_by_side(world, sid: str):
+    """"Put 1938 and 1940 side by side", read for read as round 12's walk scripts it
+    (tests/test_r12_browser.py): each order looked up by its number, then read. The scripted read
+    is of the order the turn's FIRST lookup found (experience/harness.py `_found_order`), so #1938
+    is read whole twice and #1940 is drawn as the line its own number's lookup returned: an order
+    asked for by its number and drawn without detail, which is the case rule 2 must keep."""
+    from experience.harness import order_reads
+
+    await world.open_order("1940", session_id=sid)
+    return await world.ask("put 1938 and 1940 side by side", *order_reads("1938"), *order_reads("1940"),
+                           session_id=sid, reply="Both are up.")
+
+
+def test_an_order_asked_for_by_its_number_is_never_a_find_even_drawn_as_its_line():
+    """Rule 2 sets aside the finds a record read in full was found by. An order asked for by its
+    own number is not one, drawn whole or as its line: "put 1938 and 1940 side by side"."""
+    read = {"type": "order", "data": {"order_id": "o1938", "detail": True}}
+    lines = {"type": "attention", "data": {"for": "o1938", "items": [{"title": "x"}]}}
+    asked = {"type": "order", "data": {"order_id": "o1940", "detail": False}}
+    found = {"type": "order", "data": {"order_id": "o1955", "detail": False}}
+    listing = {"type": "order_list", "data": {"orders": [{"order_id": "o1940"}]}}
+    why: dict = {}
+    kept = focus.answer_cards([read, lines, asked, found, listing], why, asked=frozenset({"o1938", "o1940"}))
+    assert kept == [read, lines, asked], [c["data"].get("order_id") for c in kept]
+    assert why == {"rule": "record", "set_aside": ["order", "order_list"]}
+
+
+def test_which_orders_a_turn_asked_for_by_their_own_id_or_number():
+    """Read from the calls the model made and what they returned, never from his words."""
+    from app.providers.base import ToolCall
+
+    def find(query: str, *ids: str, matched: str = "") -> ToolCall:
+        return ToolCall(name="shopify_find_order", args={"query": query}, ok=True,
+                        result={"query": query, "matched_on": matched, "orders": [{"order_id": i} for i in ids]})
+
+    calls = [
+        ToolCall(name="shopify_order_detail", args={"order_id": "o1938"}, ok=True, result={"order_id": "o1938"}),
+        find("1940", "o1940", matched="name:1940"),                      # by its number, found alone
+        find("Priya Raman", "o1941", matched="(customer_id:7)"),          # a search by a person
+        find("1950", "o1950", "o1951", matched="name:1950"),              # by number, but two came back
+        ToolCall(name="shopify_order_detail", args={"order_id": "o1960"}, ok=False, error="failed"),
+    ]
+    assert focus.records_asked_for(calls) == frozenset({"o1938", "o1940"})
+
+
+async def test_two_orders_asked_for_side_by_side_are_both_on_the_screen(world):
+    """Round 12's C3 in a real turn: both orders were asked for, by number, so neither is a
+    search result, and both cards are the answer — whichever of them is drawn as its line."""
+    said = await _side_by_side(world, "side")
+    assert sorted(_numbers(said)) == ["#1938", "#1940"], [c.get("type") for c in said.ui]

@@ -18,8 +18,10 @@ themselves and never over the words (MAP rule 7: nothing matches what was said),
 2. Otherwise, a RECORD read in full wins over the searches that found it: an order read whole,
    a thread opened, a customer's history, an objective, or a workspace composed over a record
    that a read this turn returned whole. The lists and the one-line finds that led there are set
-   aside; numbers and summaries stay beside the record. A workspace composed over a record that
-   only came up on a listing is not a record read in full: there the listings are the answer.
+   aside; numbers and summaries stay beside the record. An order asked for by its own id or
+   number is never one of those finds, even drawn as its line ("put 1938 and 1940 side by side":
+   `records_asked_for`). A workspace composed over a record that only came up on a listing is
+   not a record read in full: there the listings are the answer.
 3. Otherwise the answer IS the listings and the numbers ("how many orders today"), and every
    card stays.
 
@@ -93,8 +95,34 @@ def _beside_a_change(item: dict[str, Any], refs: set[str]) -> bool:
     return kind == "attention" and str(_data(item).get("for") or "") in refs
 
 
+def records_asked_for(calls: Any) -> frozenset[str]:
+    """The orders a read this turn asked for by the order's own id or number, whatever card
+    `present()` drew for each: one read whole (`shopify_order_detail`), or one looked up by its
+    number and found alone (`shopify_find_order` matched on `name:<number>`, one order back).
+    "Put 1938 and 1940 side by side" asks for both, and one of them may be drawn as its line
+    without detail: it is still what the answer is about, not a search that found something
+    else (rule 2). Read from the calls the model made and what they returned, never from his
+    words (MAP rule 7)."""
+    out: set[str] = set()
+    for call in calls or []:
+        result = getattr(call, "result", None)
+        if not getattr(call, "ok", False) or not isinstance(result, dict):
+            continue
+        name = str(getattr(call, "name", "") or "")
+        if name == "shopify_order_detail":
+            out.add(str(result.get("order_id") or ""))
+        elif name == "shopify_find_order" and str(result.get("matched_on") or "").startswith("name:"):
+            orders = [o for o in result.get("orders") or [] if isinstance(o, dict)]
+            if len(orders) == 1:
+                out.add(str(orders[0].get("order_id") or ""))
+    return frozenset(out - {""})
+
+
 def _found_on_the_way(item: dict[str, Any], kept_orders: set[str]) -> bool:
-    """Whether a card is one of the searches a record read in full was found by (rule 2)."""
+    """Whether a card is one of the searches a record read in full was found by (rule 2).
+    `kept_orders` is every order this answer is about: read in full, or asked for by its own
+    id or number (`records_asked_for`) — an order of those is never a find, drawn whole or as
+    its line."""
     kind, data = _kind(item), _data(item)
     if kind in ALWAYS or kind in TASK:
         return False
@@ -102,6 +130,8 @@ def _found_on_the_way(item: dict[str, Any], kept_orders: set[str]) -> bool:
         return True
     if kind in LISTINGS:
         return True
+    if kind == "order" and str(data.get("order_id") or "") in kept_orders:
+        return False
     if kind in ("order", "customer"):
         return not in_full(item)
     if kind == "attention":
@@ -110,11 +140,13 @@ def _found_on_the_way(item: dict[str, Any], kept_orders: set[str]) -> bool:
 
 
 def answer_cards(items: list[dict[str, Any]], why: dict[str, Any] | None = None, *,
-                 read_whole: frozenset[str] | None = None) -> list[dict[str, Any]]:
+                 read_whole: frozenset[str] | None = None,
+                 asked: frozenset[str] | None = None) -> list[dict[str, Any]]:
     """The cards this answer is about, in the order `present()` built them. `why`, when given,
     is told which rule decided and the kinds of the cards set aside (for the interaction record:
     app/observability/interactions.py). `read_whole` is `records_read_whole` of the cards before
-    a workspace was composed (see `in_full`)."""
+    a workspace was composed (see `in_full`). `asked` is `records_asked_for` of the turn's
+    calls: an order in it is never set aside as a find by rule 2."""
     cards = [item for item in items or [] if isinstance(item, dict)]
     if any(_kind(item) in TASK for item in cards):
         rule = CHANGE
@@ -123,7 +155,7 @@ def answer_cards(items: list[dict[str, Any]], why: dict[str, Any] | None = None,
     elif any(in_full(item, read_whole) for item in cards):
         rule = RECORD
         orders = {str(_data(item).get("order_id") or "") for item in cards if _kind(item) == "order" and in_full(item)}
-        kept = [item for item in cards if not _found_on_the_way(item, orders - {""})]
+        kept = [item for item in cards if not _found_on_the_way(item, (orders | set(asked or ())) - {""})]
     else:
         rule = LISTING
         kept = cards
