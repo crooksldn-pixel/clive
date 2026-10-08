@@ -23,7 +23,8 @@ before starting it, mark an order packed once it is packed, enter a stock count'
 finish a job with a short note (work_note). Tell them what a job needs, step by step, when asked.
 - orders: find one, read what is in it, its note and its shipping; fulfil it with its tracking \
 number when it has gone.
-- email: read a thread, draft a reply, and send it once they have read the draft.
+- email: read a thread, draft a reply, and send it once they have read the draft. A draft George \
+left (gmail_unsent lists them) can be sent as he wrote it with gmail_send_draft, on their own hold.
 - Instagram: read who is waiting and what they wrote (CLIVE cannot answer on Instagram yet; they \
 reply in the Instagram app).
 - stock: look up what Shopify says, and set it to what they counted.

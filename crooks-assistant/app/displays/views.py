@@ -1,6 +1,6 @@
 """What a screen shows, built from CLIVE's own records: an order as a fulfilment slip, an
-objective, or a titled list; or a YouTube video the owner asked for, by its id. Plain data; the
-screen draws it (web/display.js).
+objective, an email thread (ruling 29 of DEC-071: when George puts it there), or a titled list; or
+a YouTube video the owner asked for, by its id. Plain data; the screen draws it (web/display.js).
 
 Every field is bounded here, before it is kept (the 2026-09-27 deploy review, round 6, B-03):
 each string is cut before it is cleaned, so a very long value is never walked whole; every list
@@ -119,6 +119,43 @@ def objective_view(summary: dict[str, Any], items: list[dict[str, Any]] | None =
             "needs_you": few("needs_you", 6),
             "blocked_by": few("blocked_by", 6),
             "items": [{"text": _text(i.get("text")), "state": _text(i.get("state"), 20)} for i in open_items[:MAX_LINES]],
+        },
+    }
+
+
+# An email on a screen (ruling 29): the newest messages of the thread, as CLIVE read it from Gmail,
+# each bounded. Never a draft (nobody sent it), never an address where a name is known, and never
+# more of the thread than a room can read.
+MAX_EMAIL_MESSAGES = 4
+MAX_EMAIL_BODY = 1500
+
+
+def email_view(thread: dict[str, Any]) -> dict[str, Any]:
+    """An email thread as the room reads it: the subject, who it is with, and the newest messages,
+    each with who wrote it, when, whether it was ours, and its words — from gmail_read_thread's own
+    read of Gmail, never from the page or the model."""
+    raw = thread.get("messages") if isinstance(thread.get("messages"), list) else []
+    sent = [m for m in raw[-50:] if isinstance(m, dict) and not m.get("draft")]
+    theirs = [m for m in sent if not m.get("outbound")]
+    latest = sent[-1] if sent else {}
+    subject = _text((theirs[-1] if theirs else latest).get("subject"), MAX_TITLE)
+    messages = [{
+        "from": _text(m.get("from") or m.get("from_email"), 80),
+        "when": _text(m.get("date"), 60) or None,
+        "ours": m.get("outbound") is True,
+        # Line breaks are kept (a screen shows the email as it was written); each line is cut first.
+        "body": "\n".join(" ".join(line.split())[:MAX_LINE] for line in str(m.get("body") or "")[: MAX_EMAIL_BODY * 2].splitlines())[:MAX_EMAIL_BODY].strip(),
+    } for m in sent[-MAX_EMAIL_MESSAGES:]]
+    return {
+        "kind": "email",
+        "ref": _text(thread.get("thread_id"), MAX_ID),
+        "title": subject or "Email",
+        "email": {
+            "with": _text(theirs[-1].get("from") or theirs[-1].get("from_email"), 80) if theirs else None,
+            "count": _count(thread.get("message_count")),
+            "waiting": thread.get("awaiting_reply") is True,
+            "messages": messages,
+            "earlier": max(0, len(sent) - MAX_EMAIL_MESSAGES) or None,
         },
     }
 

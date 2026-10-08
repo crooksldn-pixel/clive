@@ -329,7 +329,8 @@ def test_the_team_cannot_call_it_or_confirm_it():
     assert TOOL not in staff.TOOLS and TOOL not in staff.WRITES and not staff.may_call(TOOL)
     assert OPERATION not in staff.OPERATIONS and OPERATION not in staff.OPERATIONS_WITH_UNDO
     assert not staff.may_commit(OPERATION) and not staff.may_commit(f"{OPERATION}_undo")
-    assert len(staff.OPERATIONS) == 5
+    # Six since 8 October: a draft George left, sent on a team member's own hold (ruling 34 of DEC-071).
+    assert len(staff.OPERATIONS) == 6
 
 
 def test_the_family_owns_it_and_a_missing_scope_withholds_it():

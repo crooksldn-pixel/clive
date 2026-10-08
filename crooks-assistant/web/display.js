@@ -811,6 +811,49 @@
     frag.appendChild(foot);
     return frag;
   }
+  // [inbox, ruling 29 of DEC-071] An email George put on this screen: its subject, who it is with,
+  // and the newest messages as they were written, newest first so the latest is never cut off.
+  // Every word is set as text; nothing on the page is built from them.
+  function renderEmail(P) {
+    const v = P.view, m = (v.email && typeof v.email === 'object') ? v.email : {};
+    const frag = document.createDocumentFragment();
+    const sub = [];
+    if (m.with) sub.push(el('span', '', 'With ' + m.with));
+    if (Number.isInteger(m.count)) sub.push(el('span', '', m.count + (m.count === 1 ? ' message' : ' messages')));
+    if (m.waiting === true) {
+      const waiting = el('span', 'cs-mail-wait', 'Waiting for our reply');
+      waiting.setAttribute('data-dot', 'need');
+      sub.push(waiting);
+    }
+    frag.appendChild(headBlock(v.title || 'Email', sub, null, P.two));
+    const list = el('div', 'cs-mail');
+    const shown = (Array.isArray(m.messages) ? m.messages : []).slice().reverse().slice(0, P.two || L.portrait ? 2 : 3);
+    for (const msg of shown) {
+      if (!msg || typeof msg !== 'object') continue;
+      const box = el('section', 'cs-panel cs-mail-msg' + (msg.ours === true ? ' is-ours' : ''));
+      box.setAttribute('data-dot', 'panel');
+      const head = el('div', 'cs-mail-head');
+      head.appendChild(el('span', 'cs-mail-from', msg.ours === true ? 'Us' + (msg.from ? ' · ' + msg.from : '') : (msg.from || 'Someone')));
+      if (msg.when) head.appendChild(el('span', 'cs-mail-when', dateWords(msg.when)));
+      box.appendChild(head);
+      box.appendChild(el('div', 'cs-mail-body', msg.body || ''));
+      list.appendChild(box);
+    }
+    if (!shown.length) list.appendChild(el('div', 'cs-empty', 'Nothing in this email to show'));
+    frag.appendChild(list);
+    const more = (Array.isArray(m.messages) ? m.messages.length : 0) - shown.length + (Number.isInteger(m.earlier) ? m.earlier : 0);
+    const foot = el('div', 'cs-foot');
+    foot.appendChild(el('div', 'cs-foot-l', (more > 0 ? more + (more === 1 ? ' earlier message not shown. ' : ' earlier messages not shown. ') : '')
+      + 'As of ' + timeOf(v.at) + '. Ask CLIVE to put it up again for the latest.'));
+    frag.appendChild(foot);
+    return frag;
+  }
+  // An email's Date header as a person reads it across a room: the day and time, or the header's
+  // own words when it cannot be read.
+  function dateWords(raw) {
+    const d = new Date(String(raw || ''));
+    return isNaN(d.getTime()) ? String(raw || '').slice(0, 40) : dateText(d) + ', ' + hhmm(d);
+  }
   // A video: where YouTube's player goes (the player itself lives beside the page, so that the
   // page can be drawn again without the video starting over: videoSync, below), and under it
   // its title, its channel and how long it is, and a word on how it is playing.
@@ -865,7 +908,7 @@
     box.setAttribute('data-pane', String(P.index));
     const v = P.view;
     box.appendChild(P.packed ? renderDone(P) : v.kind === 'order' ? renderOrder(P) : v.kind === 'objective' ? renderObjective(P)
-      : v.kind === 'video' ? renderVideo(P) : renderList(P));
+      : v.kind === 'video' ? renderVideo(P) : v.kind === 'email' ? renderEmail(P) : renderList(P));
     P.node = box;
     return box;
   }

@@ -40,6 +40,7 @@
     created: 'set up', claimed: 'took', released: 'gave back', packed: 'packed', counted: 'counted',
     done: 'finished', cancelled: 'cancelled', fulfilled: 'fulfilled', tracking_added: 'added tracking to',
     replied: 'replied to', reply_drafted: 'drafted a reply to', stock_set: 'set the stock of',
+    draft_sent: 'sent the draft waiting in',
     routine_set: 'set a routine:', routine_stopped: 'stopped a routine:', access_approved: 'let in',
     access_suspended: 'took access away from', person_added: 'added to the team:', flagged: 'asked George to:',
     fulfilled_undone: 'undid the fulfilment of', tracking_added_undone: 'undid the tracking on',
@@ -50,7 +51,7 @@
   };
   const OPERATION_WORDS = {
     fulfillment_create: 'Fulfil', fulfillment_tracking_set: 'Add tracking', gmail_draft_reply: 'Save the draft reply',
-    gmail_send_reply: 'Send the reply', inventory_set: 'Set the stock',
+    gmail_send_reply: 'Send the reply', inventory_set: 'Set the stock', gmail_send_draft: 'Send the draft',
   };
   // A step CLIVE took for them, said in the bar with its Undo.
   const STEP_WORDS = { claimed: 'took', released: 'gave back', packed: 'packed', counted: 'saved the count for', done: 'finished' };
@@ -862,10 +863,15 @@
       load();
     }
     if (hold) {
+      // [inbox, DEC-071 ruling 34] The Mac is told the moment the hold BEGINS, as the owner's tablet
+      // tells it (web/ui.js): it measures the hold from then, and a commit must come at least the
+      // hold's length after the arming. Arming only once the 900 ms were up made the tap that
+      // followed too soon, so a staff member's hold was refused as "not armed".
       const start = () => {
         go.classList.add('holding');
+        const arming = call('/actions/' + encodeURIComponent(proposalId) + '/arm', new URLSearchParams({ session_id: session }));
         timer = window.setTimeout(async () => {
-          const armed = await call('/actions/' + encodeURIComponent(proposalId) + '/arm', new URLSearchParams({ session_id: session }));
+          const armed = await arming;
           go.classList.remove('holding');
           if (!armed.ok) { result.className = 'result bad'; result.textContent = sentence(armed.detail); return; }
           nonce = armed.nonce;

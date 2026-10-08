@@ -111,13 +111,15 @@ test('the drop names the conversation and the record, and nothing else', () => {
 test('only a record a screen can show, with an id of its shape, is ever lifted', () => {
   assert.equal(L.screenable('order', 'gid://shopify/Order/1938'), true);
   assert.equal(L.screenable('objective', 'obj_0123abcd'), true);
+  // An email thread lifts since ruling 29 (DEC-071, 8 Oct): an email may go on a screen when he puts it there.
+  assert.equal(L.screenable('email_thread', '18f2a9c0b1d2e3f4'), true);
   for (const [kind, ref] of [['order', 'gid://shopify/Customer/7'], ['order', '1938'], ['order', ''], ['objective', 'obj_XYZ'],
-    ['objective', 'gid://shopify/Order/1'], ['email_thread', '18f2a9c0b1d2e3f4'], ['customer', 'gid://shopify/Customer/7']]) {
+    ['objective', 'gid://shopify/Order/1'], ['email_thread', 'gid://shopify/Order/1'], ['customer', 'gid://shopify/Customer/7']]) {
     assert.equal(L.screenable(kind, ref), false, `${kind} ${ref}`);
   }
-  // An email and a customer are held too, and say why they do not lift.
-  assert.equal(L.SAY.email_thread, 'A screen shows orders and objectives, not emails.');
-  assert.equal(L.SAY.customer, 'A screen shows orders and objectives, not customers.');
+  // A customer is held too, and says why it does not lift.
+  assert.equal(L.SAY.email_thread, undefined);
+  assert.equal(L.SAY.customer, 'A screen shows orders, objectives and emails, not customers.');
   for (const selector of ['[data-kind="order"][data-ref]', '.card[data-type="order"][data-ref]', '.card[data-type="order_workspace"][data-ref]',
     '[data-objective]', '[data-kind="email_thread"][data-ref]', '[data-kind="customer"][data-ref]']) {
     assert.ok(L.HOLDABLE.split(',').map((s) => s.trim()).includes(selector), selector);

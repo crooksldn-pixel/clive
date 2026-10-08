@@ -454,3 +454,21 @@ html,body{margin:0;height:100%;background:#060607;overflow:hidden}
 .cs-task{padding:26px 32px}
 .cs-tasks.is-three .cs-task{padding:20px 22px}
 .cs-two .cs-task,.cs-portrait .cs-task{padding:16px 18px}
+/* [inbox, ruling 29 of DEC-071] An email George put on the screen: the newest message first, each a
+   panel; ours tinted iOS blue so who said what reads across the room; the words as written. */
+.cs-mail{flex:1;min-height:0;display:flex;flex-direction:column;gap:20px;overflow:hidden}
+.cs-mail-msg{flex:0 1 auto;gap:10px;max-height:100%}
+.cs-mail-msg.is-ours{background:rgba(10,132,255,.12);box-shadow:inset 0 0 0 1px rgba(10,132,255,.34)}
+.cs-mail-head{display:flex;align-items:baseline;justify-content:space-between;gap:20px;font-size:26px;color:rgba(235,235,245,.64)}
+.cs-mail-from{font-weight:650;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cs-mail-msg.is-ours .cs-mail-from{color:#409cff}
+.cs-mail-when{flex:none}
+.cs-mail-body{min-height:0;overflow:hidden;font-size:32px;line-height:1.36;white-space:pre-wrap;overflow-wrap:anywhere;color:rgba(255,255,255,.92);
+  -webkit-mask-image:linear-gradient(180deg,#000 82%,transparent);mask-image:linear-gradient(180deg,#000 82%,transparent)}
+.cs-mail-wait{color:#409cff;font-weight:600}
+.cs-portrait .cs-mail{gap:12px}
+.cs-portrait .cs-mail-head{font-size:17px}
+.cs-portrait .cs-mail-body{font-size:21px}
+.cs-two .cs-mail{gap:12px}
+.cs-two .cs-mail-head{font-size:18px}
+.cs-two .cs-mail-body{font-size:22px}

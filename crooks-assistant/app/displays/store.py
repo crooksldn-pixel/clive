@@ -492,6 +492,9 @@ _SCREEN_ORDER_ITEM = frozenset({"title", "variant", "sku", "quantity", "to_send"
 _SCREEN_OBJECTIVE = frozenset({"deadline", "days_left", "doing", "next", "needs_you", "blocked_by", "items"})
 _SCREEN_OBJECTIVE_ITEM = frozenset({"text", "state"})
 _SCREEN_VIDEO = frozenset({"id", "channel", "duration_s", "live", "start"})
+# [inbox, ruling 29] An email thread George put on a screen (app/displays/views.py email_view).
+_SCREEN_EMAIL = frozenset({"with", "count", "waiting", "messages", "earlier"})
+_SCREEN_EMAIL_MESSAGE = frozenset({"from", "when", "ours", "body"})
 # The tailnet addresses a screen's key-holder has asked from (app/routes/displays.py), each at most
 # MAX_ADDRESS long and the latest MAX_ADDRESSES of them: a device on the tailnet has an IPv4 and an
 # IPv6 address and may ask by either (round 11, B-04, screen_device).
@@ -1342,6 +1345,11 @@ class DisplayStore:
             out["video"] = _only(view.get("video"), _SCREEN_VIDEO)
             if "player" in view:
                 out["player"] = cls._player(view)
+        elif kind == "email":
+            mail = _only(view.get("email"), _SCREEN_EMAIL)
+            if "messages" in mail:
+                mail["messages"] = _rows(mail["messages"], _SCREEN_EMAIL_MESSAGE)
+            out["email"] = mail
         if kind in ("order", "list"):
             if "ticked" in view:
                 out["ticked"] = _ticked(view)
@@ -1929,6 +1937,12 @@ class DisplayStore:
                 "deadline": str(goal.get("deadline") or "")[:40] or None,
                 "days_left": days if isinstance(days, int) and not isinstance(days, bool) else None,
             }
+        elif kind == "email":
+            # [inbox, ruling 29] The remote names the thread and how many messages are up; the words
+            # stay on the screen they were put on.
+            mail = view.get("email") if isinstance(view.get("email"), dict) else {}
+            shown = mail.get("messages") if isinstance(mail.get("messages"), list) else []
+            out["email"] = {"with": str(mail.get("with") or "")[:80] or None, "messages": len(shown)}
         elif kind == "video":
             clip = view.get("video") if isinstance(view.get("video"), dict) else {}
             ident = str(clip.get("id") or "")

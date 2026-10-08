@@ -101,7 +101,7 @@ async def test_holding_a_record_and_dropping_it_on_a_screen_works_with_fingers_a
     touch) today's orders, a flick that scrolls, a hold that lifts a row, the Displays tray, a drop
     on the Office TV, the Office TV's own page at 1920 x 1080 drawing the order; putting it back;
     the tray kept open to tap; a refusal and a slow answer said in the tray; a tap that still opens
-    the order; an order card dropped on the Packing screen; an email that says it cannot go up. On
+    the order; an order card dropped on the Packing screen; an email dropped on the Office TV and drawn there. On
     the phone (390 x 844), an objective from the home. With a mouse, and with the keyboard alone.
     And with reduced motion."""
     from app.displays import store as store_module

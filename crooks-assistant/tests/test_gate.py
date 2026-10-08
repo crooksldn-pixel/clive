@@ -305,7 +305,12 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     routines = {"routine_list", "routine_note", "routine_run"}
     assert routines <= gate._KNOWN_TOOLS and not any(gate._looks_like_mutation(name) for name in routines)
     assert not routines & gate._PII_TOOLS
-    assert len(gate._KNOWN_TOOLS) == 69, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
+    # [inbox] The drafts waiting in Gmail (app/tools/gmail_drafts.py, ruling 34 of DEC-071, 8 Oct): one
+    # read, AMBER on its ToolSpec, named without a mutation verb; its one change, gmail_send_draft,
+    # is a declared write at RED and so is staged, never on this list.
+    assert "gmail_unsent" in gate._KNOWN_TOOLS and not gate._looks_like_mutation("gmail_unsent")
+    assert "gmail_send_draft" not in gate._KNOWN_TOOLS and gate._looks_like_mutation("gmail_send_draft")
+    assert len(gate._KNOWN_TOOLS) == 70, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
                                           "screen_off and screen_remote, then screen_play and screen_video, "
                                           "then round 12's shopify_order_build, show_again and close_screen, "
                                           "then instagram_inbox, instagram_thread and instagram_comments, "
@@ -315,7 +320,8 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
                                           "then messages_recent, message_thread and message_contact, "
                                           "then shipments_open, shipment_find, shipment_tracking and shipping_events, "
                                           "then asked_for (DEC-073), "
-                                          "then routine_list, routine_note and routine_run")
+                                          "then routine_list, routine_note and routine_run, "
+                                          "then gmail_unsent")
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",

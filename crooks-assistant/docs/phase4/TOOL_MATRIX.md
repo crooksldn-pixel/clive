@@ -27,7 +27,7 @@ sentence reaches is what the model calls. Tests are read as syntax trees and nev
 here runs a tool, and nothing here can reach a mutation: the audit is a read of
 registries and of source text, so it is safe against a shop it may not touch.
 
-97 tools — 66 reads, 26 writes, 5 bulk.
+101 tools — 67 reads, 28 writes, 6 bulk.
 
 ## Tools
 
@@ -36,6 +36,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `asked_for` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
 | `batch_email_archive` | AMBER | yes | — | yes | — | batch | one proposal per member, through gmail_thread_archive | each member proven by gmail_thread_archive | the change's own card | — | — |
 | `batch_email_drafts` | AMBER | yes | — | yes | — | batch | one proposal per member, through gmail_draft_new | each member proven by gmail_draft_new | the change's own card | — | — |
+| `batch_email_junk` | RED | yes | — | yes | — | batch | one proposal per member, through gmail_thread_junk | each member proven by gmail_thread_junk | the change's own card | — | — |
 | `batch_email_send` | RED | yes | — | yes | — | batch | one proposal per member, through gmail_send_new | each member proven by gmail_send_new | the change's own card | — | — |
 | `batch_order_tags_add` | AMBER | yes | — | yes | — | batch | one proposal per member, through shopify_order_tags_add | each member proven by shopify_order_tags_add | the change's own card | — | — |
 | `batch_order_tags_remove` | AMBER | yes | — | yes | — | batch | one proposal per member, through shopify_order_tags_remove | each member proven by shopify_order_tags_remove | the change's own card | — | — |
@@ -53,9 +54,12 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `gmail_find_in_email` | AMBER | yes | yes | yes | none needed | read | — | — | — | gmail | — |
 | `gmail_read_thread` | AMBER | yes | yes | yes | none needed | read | — | — | presentation.py | gmail | — |
 | `gmail_search` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | gmail | read |
+| `gmail_send_draft` | RED | yes | yes | yes | gmail.compose | write | prepared from a fresh read, held as gmail_send_draft, tap_commit | a predicate over the re-read, after settling | the change's own card | gmail | — |
 | `gmail_send_new` | RED | yes | yes | yes | https://www.googleapis.com/auth/gmail.compose | write | prepared from a fresh read, held as gmail_send_new, tap_commit | a predicate over the re-read, after settling | the change's own card | gmail | staged, never applied |
 | `gmail_send_reply` | RED | yes | yes | yes | gmail.compose | write | prepared from a fresh read, held as gmail_send_reply, tap_commit | a predicate over the re-read, after settling | the change's own card | gmail | — |
 | `gmail_thread_archive` | AMBER | yes | yes | yes | gmail.modify | write | prepared from a fresh read, held as gmail_thread_archive, tap_commit | the re-read must equal what was expected | the change's own card | gmail | — |
+| `gmail_thread_junk` | RED | yes | yes | yes | gmail.modify | write | prepared from a fresh read, held as gmail_thread_junk, tap_commit | the re-read must equal what was expected | the change's own card | gmail | — |
+| `gmail_unsent` | AMBER | yes | yes | yes | none needed | read | — | — | — | gmail | — |
 | `instagram_comments` | AMBER | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `instagram_inbox` | AMBER | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `instagram_thread` | AMBER | yes | yes | yes | none needed | read | — | — | — | — | — |
@@ -138,6 +142,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `asked_for` | family:asked_for | test_asked_focus.py | — |
 | `batch_email_archive` | the model only | test_batch.py | — |
 | `batch_email_drafts` | the model only | test_batch.py | — |
+| `batch_email_junk` | the model only | test_inbox_junk.py | — |
 | `batch_email_send` | the model only | test_tool_boundary.py | — |
 | `batch_order_tags_add` | the model only | test_batch.py, test_council_fixes.py, test_decline.py | — |
 | `batch_order_tags_remove` | the model only | test_batch.py | — |
@@ -151,13 +156,16 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `gmail_compose_fill` | family:email_compose | test_compose.py, test_r13_compose_edit.py | — |
 | `gmail_compose_open` | family:email_compose | test_compose.py, test_compose_provenance.py | compose_dictated, compose_open, compose_send_instead, compose_send_spoken, compose_stage |
 | `gmail_draft_new` | command:a tapped control, family:email_compose | test_compose_provenance.py, test_gmail_writes.py | compose_send_instead, compose_send_spoken, compose_stage |
-| `gmail_draft_reply` | command:a tapped control, family:email_drafts | test_gmail_writes.py, test_reply_order_binding.py | — |
+| `gmail_draft_reply` | command:a tapped control, family:email_drafts | test_gmail_writes.py, test_reply_order_binding.py, test_staff_send_draft.py | — |
 | `gmail_find_in_email` | family:email_reads | test_gaps.py, test_tool_args_redaction.py | — |
 | `gmail_read_thread` | command:cursor:emails, family:email_reads | test_address.py, test_gmail_tools.py | — |
 | `gmail_search` | recipe:landing_inbox, family:email_reads | test_followups_reads.py, test_gmail_tools.py, test_interaction_record.py, test_read_dedupe.py, test_tool_args_redaction.py | graph_thread_to_order, landing_inbox, needs_reply |
+| `gmail_send_draft` | command:a tapped control, family:email_sends | test_inbox_browser.py, test_staff_send_draft.py | — |
 | `gmail_send_new` | command:a tapped control, family:email_compose | test_compose_provenance.py, test_gmail_writes.py, test_r13_new_email_order_content.py | compose_send_instead, compose_send_spoken |
 | `gmail_send_reply` | command:a tapped control, family:email_sends | test_gmail_writes.py, test_reply_order_binding.py, test_tool_boundary.py | — |
 | `gmail_thread_archive` | command:a tapped control, family:email_archive | test_gmail_writes.py | — |
+| `gmail_thread_junk` | command:a tapped control, family:email_junk | test_inbox_junk.py | — |
+| `gmail_unsent` | family:email_reads | test_inbox_browser.py, test_staff_send_draft.py | — |
 | `instagram_comments` | family:instagram | test_instagram.py | — |
 | `instagram_inbox` | family:instagram | test_instagram.py | — |
 | `instagram_thread` | family:instagram | test_instagram.py | — |
@@ -239,21 +247,21 @@ registries and of source text, so it is safe against a shop it may not touch.
 
 `commerce_capabilities`, `shopify_order_address`
 
-**no golden scenario reaches it (73)**
+**no golden scenario reaches it (77)**
 
-`asked_for`, `batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_draft_reply`, `gmail_find_in_email`, `gmail_read_thread`, `gmail_send_reply`, `gmail_thread_archive`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `interaction_review`, `message_contact`, `message_reply`, `message_thread`, `messages_recent`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `people_list`, `person_note`, `return_action`, `return_find`, `returns_open`, `returns_stats`, `routine_list`, `routine_note`, `routine_run`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `shipment_find`, `shipment_tracking`, `shipments_open`, `shipping_events`, `shipping_label_buy`, `shipping_label_print`, `shipping_label_reprint`, `shopify_checkout_link_send`, `shopify_find_customer`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_note_append`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `show_again`, `skill_list`, `skill_read`, `submit_engineering_request`, `track_parcel`, `work_list`, `work_note`
+`asked_for`, `batch_email_archive`, `batch_email_drafts`, `batch_email_junk`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_draft_reply`, `gmail_find_in_email`, `gmail_read_thread`, `gmail_send_draft`, `gmail_send_reply`, `gmail_thread_archive`, `gmail_thread_junk`, `gmail_unsent`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `interaction_review`, `message_contact`, `message_reply`, `message_thread`, `messages_recent`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `people_list`, `person_note`, `return_action`, `return_find`, `returns_open`, `returns_stats`, `routine_list`, `routine_note`, `routine_run`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `shipment_find`, `shipment_tracking`, `shipments_open`, `shipping_events`, `shipping_label_buy`, `shipping_label_print`, `shipping_label_reprint`, `shopify_checkout_link_send`, `shopify_find_customer`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_note_append`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `show_again`, `skill_list`, `skill_read`, `submit_engineering_request`, `track_parcel`, `work_list`, `work_note`
 
-**nothing but the model reaches it (5)**
+**nothing but the model reaches it (6)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`
+`batch_email_archive`, `batch_email_drafts`, `batch_email_junk`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`
 
-**no card is drawn from it (23)**
+**no card is drawn from it (24)**
 
-`close_screen`, `commerce_capabilities`, `engineering_status`, `gmail_find_in_email`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `interaction_review`, `message_contact`, `people_list`, `person_note`, `screen_list`, `screen_off`, `screen_pair`, `screen_show`, `screen_video`, `shopify_discount_check`, `shopify_order_address`, `skill_list`, `skill_read`, `track_parcel`, `work_list`, `work_note`
+`close_screen`, `commerce_capabilities`, `engineering_status`, `gmail_find_in_email`, `gmail_unsent`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `interaction_review`, `message_contact`, `people_list`, `person_note`, `screen_list`, `screen_off`, `screen_pair`, `screen_show`, `screen_video`, `shopify_discount_check`, `shopify_order_address`, `skill_list`, `skill_read`, `track_parcel`, `work_list`, `work_note`
 
-**no named error card (42)**
+**no named error card (43)**
 
-`asked_for`, `batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_aggregate`, `commerce_capabilities`, `commerce_query`, `commerce_summary`, `email_query`, `engineering_status`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `interaction_review`, `inventory_query`, `message_contact`, `message_reply`, `message_thread`, `messages_recent`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `people_list`, `person_note`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `show_again`, `skill_list`, `skill_read`, `submit_engineering_request`, `track_parcel`, `work_list`, `work_note`
+`asked_for`, `batch_email_archive`, `batch_email_drafts`, `batch_email_junk`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_aggregate`, `commerce_capabilities`, `commerce_query`, `commerce_summary`, `email_query`, `engineering_status`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `interaction_review`, `inventory_query`, `message_contact`, `message_reply`, `message_thread`, `messages_recent`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `people_list`, `person_note`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `show_again`, `skill_list`, `skill_read`, `submit_engineering_request`, `track_parcel`, `work_list`, `work_note`
 
 ## The rules the audit itself keeps
 

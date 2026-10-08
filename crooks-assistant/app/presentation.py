@@ -1515,9 +1515,10 @@ def _entity_line(proposal) -> str:
 
 
 # Which verified operations change where a thread LIVES, and therefore change a card the
-# tablet already has on screen. A closed table: the only thing that may claim a thread left
-# the inbox is the one operation that takes it out of the inbox.
-_INBOX_OUT = frozenset({"gmail_thread_archive"})
+# tablet already has on screen. A closed table: the only things that may claim a thread left
+# the inbox are the operations that take it out of the inbox — archived, or junked to Spam
+# (ruling 27, DEC-071); the tablet settles its deck the same way for either.
+_INBOX_OUT = frozenset({"gmail_thread_archive", "gmail_thread_junk"})
 
 
 def _thread_of(proposal) -> str:
@@ -1703,7 +1704,7 @@ def present_batch_state(batch, *, session: Session | None = None, code: str | No
             "all_verified": batch.all_verified,
             "summary": f"{verified} applied" + (f", {not_applied} not" if not_applied else ""),
             "counts": counts, "rows": rows,
-            "note": "" if verified == eligible else f"The {not_applied} marked not applied were left as they were. Ask for the change again for those, or check them in Shopify.",
+            "note": "" if verified == eligible else f"The {not_applied} marked not applied were left as they were. Ask for the change again for those, or check them in {'Gmail' if str(batch.child_tool).startswith('gmail_') else 'Shopify'}.",
         })]
     if status == "pending":
         return [_batch_card(batch, writes=writes)]

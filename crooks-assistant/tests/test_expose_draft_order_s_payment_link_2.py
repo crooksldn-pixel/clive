@@ -226,4 +226,9 @@ def test_the_tool_block_stays_within_its_budget():
     # and 56,786 with named routines (routine_list, routine_note, routine_run: +1,381, measured).
     # Both on one tree, rebased in the 8 October chain (routines on focus): 57,276 (55,895 before,
     # +1,381, measured on the merged tree).
-    assert total <= 57_276, f"the tool block is {total} bytes"
+    # then 56,615 with the inbox rulings of DEC-071 (gmail_thread_junk, batch_email_junk, gmail_unsent,
+    # gmail_send_draft and screen_show's thread_id: +1,210, measured on trunk 6f844183; tests/test_registry.py
+    # has them tool by tool).
+    # The inbox rulings on the 8 October chain (inbox on routines): 58,486 (57,276 before, +1,210,
+    # measured on the merged tree).
+    assert total <= 58_486, f"the tool block is {total} bytes"

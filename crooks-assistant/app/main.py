@@ -135,8 +135,14 @@ async def lifespan(app: FastAPI):
         await drain_timelines(app.state.runtime, timeout_s=SHUTDOWN_FLUSH_S)
         raise RuntimeError(f"CROOKS will not start with reports it cannot keep private: {problem}")
     keeper.start()
+    # [inbox, ruling 28] CLIVE takes away its own Gmail drafts left unused (app/tools/gmail_drafts.py),
+    # looking every few hours and only while changes are switched on.
+    from app.tools import gmail_drafts
+
+    gmail_drafts.start(lambda: bool(app.state.runtime.settings.writes_enabled))
     log.info("CROOKS Assistant ready (bind address is whatever uvicorn was started with)")
     yield
+    await gmail_drafts.stop()
     # Reached once uvicorn's graceful drain has ended, SHUTDOWN_GRACEFUL_S at the most (the budget
     # is set out above SHUTDOWN_WAIT_S). Nothing new is scheduled, a pass already running is asked
     # to stop — and ends at the next file it comes to, not only at its next step (round 11) — and

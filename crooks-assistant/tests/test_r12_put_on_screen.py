@@ -203,7 +203,7 @@ async def test_a_screen_that_is_gone_unknown_or_waiting_for_approval_is_refused(
 async def test_the_body_names_the_conversation_and_the_record_and_nothing_else(world, shop):  # noqa: F811 - the fixture is tests/test_screen_paths.py world
     """What a screen shows is built from CLIVE's own record, never from the page: a title, lines,
     clear, beside or another screen's name in the body is refused (422), and so is a kind a screen
-    has no view for — an email, a customer, a list."""
+    has no view for — a customer, a list. (An email thread has one since ruling 29 of DEC-071.)"""
     screens = world.screens
     tv = pair(screens, "Office TV")
     await looked_up(world)
@@ -211,7 +211,7 @@ async def test_the_body_names_the_conversation_and_the_record_and_nothing_else(w
     for extra in ({"title": "Wages"}, {"lines": ["a"]}, {"clear": True}, {"beside": True}, {"screen": "Office TV"}):
         answer = await drop(world, tv["id"], **extra)
         assert answer.status_code == 422, extra
-    for kind in ("email_thread", "customer", "list", "video"):
+    for kind in ("customer", "list", "video"):
         assert (await drop(world, tv["id"], kind=kind)).status_code == 422, kind
     for body in ({"kind": "order", "ref": ORDER}, {"session_id": "s1", "kind": "order"}, {"session_id": "s1", "kind": "order", "ref": ""}):
         answer = await world.client.post(f"/displays/{tv['id']}/show", json=body, headers=MINE)

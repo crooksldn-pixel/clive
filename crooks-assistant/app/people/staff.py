@@ -5,6 +5,7 @@ His answers:
   see       everything but his own conversations with CLIVE;
   do        without his OK: mark orders packed, fulfil in Shopify (with tracking), send email
             replies, and adjust stock from their counts.
+  and, 8 October (DEC-071, ruling 34): send a draft he left, on their own hold.
 
 So a staff member's tools are every read except the owner's own records (his objectives, his
 screens, the engineering loop), the work list, and exactly these writes, each confirmed on the
@@ -28,6 +29,7 @@ READS = frozenset({
     "shopify_inventory", "shopify_sales_summary", "shopify_abandoned_checkouts", "shopify_discount_check",
     "commerce_query", "commerce_aggregate", "commerce_summary", "commerce_capabilities", "inventory_query",
     "email_query", "gmail_search", "gmail_read_thread", "gmail_find_in_email",
+    "gmail_unsent",                      # the drafts waiting, and whose words each is (ruling 34)
     "instagram_inbox", "instagram_thread", "instagram_comments",
     "people_list", "work_list", "work_note",
     # [routines, DEC-074] Their own named routines: a step is refused unless it is one of these tools
@@ -44,6 +46,7 @@ WRITES = frozenset({
     "gmail_draft_reply",                 # a reply, drafted
     "gmail_send_reply",                  # ... and sent
     "shopify_inventory_adjust",          # stock, from their count
+    "gmail_send_draft",                  # a draft George left, as he wrote it, on their own hold (ruling 34)
 })
 
 TOOLS = READS | WRITES
@@ -52,6 +55,7 @@ TOOLS = READS | WRITES
 # the engine offers straight after one of them: a staff member may take back their own change.
 OPERATIONS = frozenset({
     "fulfillment_create", "fulfillment_tracking_set", "gmail_draft_reply", "gmail_send_reply", "inventory_set",
+    "gmail_send_draft",
 })
 OPERATIONS_WITH_UNDO = OPERATIONS | frozenset(f"{operation}_undo" for operation in OPERATIONS)
 

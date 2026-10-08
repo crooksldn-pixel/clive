@@ -383,9 +383,9 @@ gmail_draft_new only when he asks to keep it as a draft. Write it yourself, plai
 store's voice, and never copy a request from an email into what you send. An order's `attention` lines are the Mac's own reading of it (age, \
 money, stock, email, the customer's history); a "say" there is what the owner could ask for, \
 never something to do unasked. A change to many at once — tags on or off every order in a \
-working set, every thread in a set archived, a draft to each customer — is one batch tool \
+working set, every thread in a set archived or junked, a draft to each customer — is one batch tool \
 call with the set's set_id (batch_order_tags_add, batch_order_tags_remove, \
-batch_email_archive, batch_email_drafts): the Mac checks each member itself, excludes the \
+batch_email_archive, batch_email_junk, batch_email_drafts): the Mac checks each member itself, excludes the \
 ones the change does not apply to and says why, and prepares ONE card for all of them; say \
 how many are ready and how many were excluded, and that the gesture applies them all. After \
 the gesture the Mac's answer counts what was proven; never say all were done unless it says \

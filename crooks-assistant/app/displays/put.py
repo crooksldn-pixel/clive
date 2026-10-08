@@ -44,10 +44,11 @@ from app.routes.actions import session_matches
 from app.tools.display_tools import DROP_SCREEN, SHOW_TOOL
 from app.tools.gate import Disposition, classify
 
-# The kinds a screen shows that the owner can hold, and the screen_show argument each goes in.
-# An email or a customer has no view a screen draws (app/displays/views.py), so neither is here:
-# the page does not lift one, and this refuses one (422) before anything is looked at.
-ARGUMENT = {"order": "order_id", "objective": "objective_id"}
+# The kinds a screen shows that the owner can hold, and the screen_show argument each goes in. An
+# email thread is here since 8 October (ruling 29 of DEC-071: an email may go on a screen when he
+# puts it there). A customer has no view a screen draws (app/displays/views.py), so it is not: the
+# page does not lift one, and this refuses one (422) before anything is looked at.
+ARGUMENT = {"order": "order_id", "objective": "objective_id", "email_thread": "thread_id"}
 
 MAX_REF = 200
 
@@ -88,7 +89,7 @@ def _screen(screen_id: str) -> dict[str, Any]:
 
 
 def _not_issued(kind: str) -> Refused:
-    what = "That order wasn't" if kind == "order" else "That objective wasn't"
+    what = {"order": "That order wasn't", "email_thread": "That email wasn't"}.get(kind, "That objective wasn't")
     return Refused(403, "not_issued", f"{what} shown in this conversation, so it can't go on a screen from here. "
                                       "Ask CLIVE for it, then hold it again.")
 
@@ -132,7 +133,7 @@ async def _put(request: Request, screen_id: str, kind: str, ref: str, *, session
 
     argument = ARGUMENT.get(kind)
     if argument is None:
-        raise Refused(422, "not_screenable", "A screen shows orders and objectives.")
+        raise Refused(422, "not_screenable", "A screen shows orders, objectives and emails.")
     session = _conversation(request, session_id)
     screen = _screen(screen_id)
     args = {"screen": screen["name"], argument: str(ref)[:MAX_REF]}
