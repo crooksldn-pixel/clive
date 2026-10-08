@@ -618,9 +618,13 @@ def _from_result(name: str, result: dict[str, Any]) -> list[dict[str, Any]]:
         from app.analytics.present import build, working_set_items
         from app.families.landings import waits_in_inbox
 
+        drawn = build(result, tool=name)
         if name == "email_query" and waits_in_inbox(result):
-            return []   # [checker, 8 Oct 2026] the queue is the answer (`_family_cards`)
-        return build(result, tool=name) + working_set_items(result)
+            # [checker, 8 Oct 2026] The queue (`_family_cards`) replaces only the table of who
+            # wrote. The counts stay beside it — who wrote, who is waiting, who we answered —
+            # and so does the read's note (e.g. "senders are not matched to customers").
+            drawn = [item for item in drawn if item["type"] != "table"]
+        return drawn + working_set_items(result)
     if name in RETURNS_TOOLS:
         from app.returns import views as returns_views
 

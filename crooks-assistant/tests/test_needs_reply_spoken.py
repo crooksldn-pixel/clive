@@ -10,7 +10,10 @@ on the glass the moment the question was spoken instead of tapped. The browser g
 
 What it promises: the spoken question and the tapped Inbox draw the same queue, the waiting
 threads and no other, longest first; each row's thread is one this conversation was shown, so a
-tap opens it; and the table of who wrote is not drawn beside it.
+tap opens it; and the table of who wrote is not drawn beside it. The counts stay (review note N1,
+8 Oct): who wrote, who is waiting and who we answered, with the read's own note, so a broader
+question ("who emailed us this month, and have we answered them?") still gets its numbers, and
+"senders are not matched to customers" is still said when the order cache did not answer.
 """
 
 from __future__ import annotations
@@ -32,13 +35,47 @@ async def stage():
 
 async def test_the_spoken_question_draws_the_queue_and_only_the_queue(stage):
     said = await stage.ask(ASKED, INBOX, reply="Three people are waiting.", session_id="nr-voice")
-    assert said.surface_types == ["email_list"], said.surface_types
+    assert said.surface_types == ["metric_group", "email_list"], said.surface_types
     card = said.data("email_list")
     assert card.get("title") == "Waiting on a reply"
     rows = [t for t in card.get("threads") or [] if isinstance(t, dict)]
     waiting = {t.thread_id for t in data.world.needs_reply()}
     assert sorted(str(r.get("thread_id")) for r in rows) == sorted(waiting), (rows, waiting)
     assert card.get("count") == len(rows)
+
+
+async def test_the_counts_of_who_wrote_stay_beside_the_queue(stage):
+    """Review note N1: only the table goes. The counts card is the read's own, every number on it."""
+    said = await stage.ask(ASKED, INBOX, reply="Three people are waiting.", session_id="nr-counts")
+    assert "table" not in said.surface_types, said.surface_types
+    counts = said.data("metric_group")
+    shown = {m["key"]: (m["label"], m["value"]) for m in counts.get("metrics") or []}
+    assert list(shown) == ["people", "needs_reply", "replied"], shown
+    assert shown["needs_reply"] == ("waiting on us", str(len(data.world.needs_reply()))), shown
+    assert shown["people"][0] == "wrote to us" and int(shown["people"][1]) >= len(data.world.needs_reply()), shown
+    assert shown["replied"][0] == "we replied", shown
+
+
+def test_the_read_s_note_stays_on_the_counts_when_someone_waits():
+    """When the order cache did not answer, the inbox read says senders are not matched to
+    customers. That note is on the counts card, which stays beside the queue (review note N1)."""
+    from app.presentation import present
+    from app.providers.base import ToolCall
+
+    note = "the order cache did not answer, so senders are not matched to customers"
+    result = {"scope": "inbox", "set_id": "", "set_label": "The inbox", "kind": "inbox", "days": 30,
+              "counts": {"people": 2, "contacted": 2, "not_contacted": 0, "replied": 1, "needs_reply": 1, "unchecked": 0},
+              "rows": [{"customer_name": "A", "customer_email": "a@example.com", "needs_reply": True, "waiting_since": 1,
+                        "last_thread_id": "t-a", "last_subject": "Where is it", "replied": False, "checked": True, "emailed": True},
+                       {"customer_name": "B", "customer_email": "b@example.com", "needs_reply": False, "replied": True,
+                        "last_thread_id": "t-b", "last_subject": "Thanks", "checked": True, "emailed": True}],
+              "note": note, "sent_checked": "all"}
+    drawn = present([ToolCall(name="email_query", args={"days": 30}, ok=True, result=result)])
+    types = [item["type"] for item in drawn]
+    assert types == ["metric_group", "email_list"], types
+    counts = next(item["data"] for item in drawn if item["type"] == "metric_group")
+    assert counts["note"] == note, counts
+    assert [m["value"] for m in counts["metrics"]] == ["2", "1", "1"], counts
 
 
 async def test_the_spoken_queue_is_the_one_the_inbox_landing_draws(stage):
