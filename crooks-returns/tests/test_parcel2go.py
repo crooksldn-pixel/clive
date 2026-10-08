@@ -391,6 +391,33 @@ def test_courier_tracking_moves_the_return(psvc):
     assert [e["type"] for e in after["timeline"]][-2:] == ["in_transit", "delivered_to_us"]
 
 
+def test_the_timer_and_the_courier_are_named_as_the_source_in_clives_feed(psvc, p2g_server):
+    # Staff approve on the screen; the timer later collects the label; the courier's webhook
+    # says it was dropped off. CLIVE's event feed names each one's source, never none.
+    ret = request(psvc)
+    p2g_server.unreleased_reads = 1000  # paid, but not released while staff wait
+    done = psvc.execute(ret.id, "approve", {"postage_mode": "label_now"}, "Sam", "k1", source="ui")
+    assert done["return_doc"].status == Status.awaiting_label
+    p2g_server.unreleased_reads = 0
+    psvc.tick()  # the timer collects it and hands it to Shopify
+    collected = psvc.store.get(ret.id)
+    assert collected is not None and collected.status == Status.awaiting_shipment
+    line = (collected.postage.label_ref or "").split(":")[2]
+    c = TestClient(create_app(psvc.s, psvc))
+    body = {
+        "Id": "drop-1",
+        "Timestamp": "2026-10-04T10:15:00.123+00:00",
+        "Type": "Tracking",
+        "Payload": {"OrderLineId": int(line), "TrackingStage": "DroppedOff"},
+    }
+    assert c.post("/webhooks/parcel2go", json=signed(body)).json()["return"] == ret.id
+    events = c.get("/api/v1/events", headers={"Authorization": "Bearer read-key"}).json()
+    source = {e["type"]: e["source"] for e in events["events"] if e["return_id"] == ret.id}
+    assert source["approved"] == "ui"
+    assert source["label_bought"] == source["shipping_attached"] == "system"  # the timer
+    assert source["in_transit"] == "system"  # the courier's webhook
+
+
 def test_a_free_item_is_declared_at_its_shop_price(psvc, shop, p2g_server):
     # Couriers refuse a parcel worth £0 (Parcel2Go: "Please enter a value for your parcel").
     shop.orders["gid://shopify/Order/1939"].lines[0].unit_paid_pence = 0
