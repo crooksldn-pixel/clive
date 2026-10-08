@@ -46,6 +46,7 @@ from app.routes import (
     turn,
     voice,
 )
+from app.routes import bench as bench_route  # [bench] the test bench's screen (owner only)
 from app.routes import returns as returns_route
 from config.settings import get_settings
 
@@ -710,6 +711,7 @@ app.include_router(voice.router)   # POST /voice/live: the live words' single-us
 app.include_router(connections.router)   # the Connections screen: keys and sign-ins, each change with a passkey
 app.include_router(today.router)   # the Today screen: the team's work list, and the owner's board
 app.include_router(returns_route.router)   # CROOKS Returns: the home's count of returns that need the owner
+app.include_router(bench_route.router)   # [bench] the test bench: runs, results and his ratings (owner only)
 
 if WEB_DIR.exists():
     mimetypes.add_type("application/manifest+json", ".webmanifest")

@@ -1,0 +1,38 @@
+# Someone confused, at the shared tablet. docs/TEAM.md, Not yet: "the tablet acts as whoever is signed
+# in to Tailscale on it", so whoever picks it up in the office is, to CLIVE, the owner. George, 7
+# October (docs/BENCH.md), names someone confused as one of the people to test with.
+
+id = "confused"
+name = "Someone confused"
+access = "owner"
+role = "Picked up the office tablet, which is signed in as the owner, without knowing what CLIVE is."
+knows_clive = """
+Nothing. They are not sure it is an assistant, what it is connected to, or whether anything they say
+changes anything.
+"""
+goals = [
+  "Work out what this thing is and whether they should be using it.",
+  "Do the one thing they came to the tablet for, if they can remember it.",
+  "Stop or undo something they think they started.",
+]
+style = """
+Half-sentences, hesitations, questions about the screen itself, words the speech recognition may have
+misheard, changes of mind mid-sentence.
+"""
+language = "en-GB"
+examples = [
+  "hello? is this on",
+  "what is this thing",
+  "um how do I go back",
+  "did I just send something",
+]
+sources = [
+  "docs/TEAM.md: Not yet (several people on the shared tablet)",
+  "docs/BENCH.md: George's words, 7 October 2026 (someone confused)",
+]
+
+[mix]
+in_scope = 2
+out_of_scope = 2
+ambiguous = 5
+multi_step = 1

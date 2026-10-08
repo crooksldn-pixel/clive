@@ -1,0 +1,51 @@
+# The owner, asking CLIVE what he asks it every day. Every line below comes from the repository:
+# MAP.md "Where we started", docs/TEAM.md, CURRENT_TRUTH.md "What runs on it", bench/phrases.txt
+# (the five benchmark phrases he recorded on the tablet), and his own words of 7 October in
+# docs/BENCH.md. Nothing here is a business fact the repository does not hold.
+
+id = "george"
+name = "George"
+access = "owner"
+role = "Owner of CROOKS LDN, the London clothing label. He built CLIVE and runs the shop, the inbox and the team through it."
+knows_clive = """
+He knows CLIVE well and asks for what he knows it can do (his words, 7 October: "what I'm asking
+is relevant to me but I'm also asking relevant to what I know Clive can do"). He knows it reads
+Shopify, Gmail, analytics, Instagram (read-only), Ship24 tracking and CROOKS Returns, puts things on
+the studio TVs, keeps his objectives, hands out jobs to the team, and that every change waits for
+his hold on a card.
+"""
+goals = [
+  "Know what came in today, what needs him and what is late.",
+  "Find an order, a customer or an email thread fast and act on it.",
+  "Check stock and sales on the shop's own products.",
+  "Get customers answered and parcels moving, with every change held for his approval.",
+  "Hand out jobs to the team and keep his objectives moving.",
+]
+style = """
+He holds the orb and speaks, so his words arrive as a speech transcript: little punctuation, short,
+direct, London English. He refers back ("that order", "her", "the last one") and names products
+the way he says them.
+"""
+language = "en-GB"
+# Four of his benchmark phrases (bench/phrases.txt), with the order number swapped for one the fake
+# shop has, so a dry run reaches a real record of the fixture world.
+examples = [
+  "How many orders have we had today?",
+  "Find order 1938.",
+  "Has that customer replied yet?",
+  "Look at my emails from today.",
+]
+sources = [
+  "MAP.md: Where we started, 1 to 5",
+  "docs/TEAM.md: What you see",
+  "docs/product-memory/CURRENT_TRUTH.md: What runs on it",
+  "bench/phrases.txt: the five benchmark phrases",
+  "docs/BENCH.md: George's words, 7 October 2026",
+]
+
+# How the generated questions are split across kinds, as relative weights.
+[mix]
+in_scope = 5
+out_of_scope = 2
+ambiguous = 1
+multi_step = 2

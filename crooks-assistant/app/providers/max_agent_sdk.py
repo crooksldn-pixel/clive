@@ -190,8 +190,13 @@ class MaxAgentSDKProvider(ClaudeProvider):
         writes_enabled: bool = False,
         max_concurrent_turns: int = MAX_CONCURRENT_TURNS,
         withheld_by_family=None,
+        strict_mcp_config: bool = False,
     ) -> None:
         self._system_prompt = system_prompt
+        # [bench] True only for a bench run's assistants (app/bench/runner.py): the claude CLI then
+        # loads no MCP server from this machine's own configuration, only the one tool server
+        # registered below. Off, as CLIVE runs, the options are exactly what they always were.
+        self.strict_mcp_config = bool(strict_mcp_config)
         # Off: the write tools are not offered to the model at all, and are disallowed at the
         # SDK layer as well, so the assistant is the read-only one it always was.
         self._writes_enabled = writes_enabled
@@ -372,6 +377,8 @@ class MaxAgentSDKProvider(ClaudeProvider):
                 if self._auth_mode == "token"
                 else {}
             ),
+            # [bench] Named only when on, so CLIVE's own options are the call they always were.
+            **({"strict_mcp_config": True} if self.strict_mcp_config else {}),
         )
 
     def _hook_for(self, holder: _Holder):

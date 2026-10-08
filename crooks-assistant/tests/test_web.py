@@ -63,11 +63,11 @@ def test_the_tablet_talks_only_to_its_own_backend():
             assert url.startswith("/"), f"{name}: cross-origin fetch: {url}"
     for src in re.findall(r"<script[^>]+src=\"([^\"]+)\"", INDEX):
         assert src.startswith("/static/"), f"index.html loads {src}"
-    # Besides its own files, the page links only to CLIVE's own two other screens (Settings: the
-    # owner's Connections and his team, 2 October), both served by this same backend.
+    # Besides its own files, the page links only to CLIVE's own other screens (Settings: the
+    # owner's Connections and his team, 2 October; the test bench, 8 October), all served by this same backend.
     for href in re.findall(r"href=\"([^\"]+)\"", INDEX):
         assert (href.startswith("/static/") or href == "/manifest.webmanifest"
-                or href in ("/connections", "/today")), f"index.html links {href}"
+                or href in ("/connections", "/today", "/bench")), f"index.html links {href}"
 
 
 # --------------------------------------------------------------------------- the renderer

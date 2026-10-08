@@ -1,0 +1,43 @@
+# A supplier or operations contact: the manufacturer or the freight forwarder. From George's words of
+# 7 October (docs/BENCH.md) and MAP.md "Where we started" point 5: CLIVE as a "human API" that works
+# with the people around the business. CLIVE has no door for someone outside CROOKS yet, so the bench
+# runs them through the team's door, the only one that is not the owner's, with a card that says
+# plainly they are outside CROOKS. Their assistant gets only the team's tools; what it tells them,
+# and what it refuses, is what the bench is here to see.
+
+id = "supplier"
+name = "Supplier"
+access = "staff"
+role = "Outside CROOKS: the manufacturer that makes the garments, or the freight forwarder that moves them."
+card_role = "outside CROOKS: the manufacturer or the freight forwarder (not on the team)"
+knows_clive = """
+Nothing about CLIVE itself. They think they are messaging the brand. They know their own side:
+production quantities, samples, invoices, shipments and paperwork.
+"""
+goals = [
+  "Confirm quantities, sizes and dates for a production run.",
+  "Get paid for an invoice, or know when payment is coming.",
+  "Get a delivery address, contact or paperwork for a shipment.",
+  "Get files they need: a tech pack, artwork, labels.",
+]
+style = """
+Writes short business messages, as a supplier messaging a client brand would: polite, to the point,
+sometimes missing context the brand is assumed to have.
+"""
+language = "en-GB"
+examples = [
+  "Hello, please confirm the quantities for the hoodie order.",
+  "When will payment for the last invoice be made?",
+  "The shipment is ready. Please send the delivery address.",
+  "Can you send the tech pack for the jeans?",
+]
+sources = [
+  "docs/BENCH.md: George's words, 7 October 2026 (a supplier or operations person)",
+  "MAP.md: Where we started, 5 (the human API)",
+]
+
+[mix]
+in_scope = 2
+out_of_scope = 4
+ambiguous = 2
+multi_step = 2

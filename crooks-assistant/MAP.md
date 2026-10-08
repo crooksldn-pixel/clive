@@ -52,10 +52,11 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 <!-- map:parts -->
 | Package | Lines | State | Not loaded by the app | Owner doc |
 |---|---:|---|---|---|
-| (top-level modules) | 11,785 | live | `engineering_measures` | none |
+| (top-level modules) | 11,787 | live | `engineering_measures` | none |
 | `actions` | 3,039 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,501 | live | — | none |
+| `bench` | 2,300 | live | 5 modules | [`BENCH.md`](docs/BENCH.md) |
 | `builds` | 1,424 | live | — | none |
 | `capabilities` | 759 | live | `surface` | none |
 | `clients` | 4,930 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
@@ -73,12 +74,12 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `observability` | 11,297 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
 | `orchestrator` | 10,626 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
 | `people` | 745 | live | — | [`TEAM.md`](docs/TEAM.md) |
-| `providers` | 973 | live | `anthropic_api` | none |
+| `providers` | 980 | live | `anthropic_api` | none |
 | `reads` | 1,451 | live | — | none |
 | `release` | 2,088 | live | 9 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
 | `remote_engineering` | 2,506 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
 | `returns` | 818 | live | — | none |
-| `routes` | 8,009 | live | — | none |
+| `routes` | 8,197 | live | — | none |
 | `scenes` | 2,579 | off (`CLIVE_SCENES` off, default) | — | [`GENERATIVE_UI_V1.md`](docs/product-memory/GENERATIVE_UI_V1.md) |
 | `secrets` | 914 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) |
 | `session` | 1,242 | live | — | none |
@@ -95,6 +96,8 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 <!-- map:pages -->
 | Address | Page | Scripts it loads |
 |---|---|---|
+| `/bench/cards` | `bench-cards.html` | 2: ui.js, bench-cards.js |
+| `/bench` | `bench.html` | 1: bench.js |
 | `/connections` | `connections.html` | 3: connections-view.js, connections-voice.js, connections.js |
 | `/display` | `display.html` | 2: dots.js, display.js |
 | `/` | `index.html` | 27: dots.js, startup.js, orb.js, audio-viz.js, live-voice.js, collide.js, touch.js, telemetry.js, notify.js, action-state.js, live-state.js, jobs.js, objective-touch.js, objective-number.js, objective-cards.js, customers.js, returns.js, ui.js, app.js, horizon.js, distances.js, builds.js, alpha.js, remote.js, lift.js, edges.js, dots-app.js |
@@ -128,6 +131,8 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | Keys stored from the app | `<secret dir>/app/<key>.cred` | `secrets/vault.py` | always |
 | Digest store | `one folder per artifact` | `digest/store.py` | always |
 | Release service | `status.json, deploys/, failed/, HALT` | `release/state.py` | `CLIVE_RELEASE_ENABLED` off (default) |
+| Bench sets and runs | `bench/questions/, bench/runs/` | `bench/runner.py` | CLI only |
+| Bench ratings | `bench/ratings.jsonl` | `bench/store.py` | always |
 <!-- /map:stores -->
 
 ## Switches
@@ -197,5 +202,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 3,304 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 3,333 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->
