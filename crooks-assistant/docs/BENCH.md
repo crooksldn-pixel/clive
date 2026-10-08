@@ -82,6 +82,10 @@ A run cannot reach anything outside the fake shop (`app/bench/isolation.py`, hel
   is added next), Gmail's real service and credentials, and the Shopify, ElevenLabs and Whisper clients;
 - every secret reads as absent, except the Max plan's own token when a token file is given; a key CLIVE
   makes for itself while it runs stays in memory;
+- the assistants a run builds, the owner's and the team's, are strict about MCP servers
+  (`strict_mcp_config`): the claude CLI on worker-01 brings none of George's own MCP servers or claude.ai
+  connectors into a bench turn, only CLIVE's own tool server (the generator and the judge have no tools at
+  all). CLIVE's own assistants in production are unchanged;
 - the read-only latch goes down for the life of the process (`app/readonly.py`);
 - before every question the clients the tools hold are checked to be the fake shop's, and the build loop's
   filing is checked off. Anything else stops the run before it asks.

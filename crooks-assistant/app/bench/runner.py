@@ -7,9 +7,12 @@ George's questions, and the owner-door personas', carry the owner's Tailscale he
 carry their own login, which the door lets in as a member of the team the owner let in, so they reach
 their own assistant with only the team's tools (app/people, app/tools/authority.py).
 
-The model is George's Max plan, as CLIVE's own: the owner's provider is built exactly as
-app/runtime.py builds it, and each member of the team gets the assistant runtime.py makes for them.
-In a scripted run the harness's recording provider answers instead and no model is asked.
+The model is George's Max plan, as CLIVE's own: the owner's provider is built as app/runtime.py
+builds it, and each member of the team gets the assistant runtime.py makes for them, with one
+difference: a bench run's assistants are strict about MCP servers (`strict_mcp_config`), so the
+claude CLI on worker-01 brings none of George's own MCP servers or connectors into a bench turn,
+only CLIVE's own tool server. In a scripted run the harness's recording provider answers instead
+and no model is asked.
 
 What it promises:
 - The seal (app/bench/isolation.py) is on for the whole run, and the world is checked before every
@@ -105,7 +108,8 @@ def _let_the_team_in(people: list[persona_mod.Persona]) -> dict[str, str]:
 
 
 def _owner_provider(runtime: Any, concurrency: int):
-    """CLIVE's own assistant, built as app/runtime.py builds it, on this runtime's settings."""
+    """CLIVE's own assistant, built as app/runtime.py builds it, on this runtime's settings, and
+    strict about MCP servers: none from the host's own configuration."""
     from app.providers.max_agent_sdk import MaxAgentSDKProvider
 
     settings = runtime.settings
@@ -114,7 +118,17 @@ def _owner_provider(runtime: Any, concurrency: int):
         session_lookup=runtime.sessions.get_or_create, tool_timeout_s=settings.tool_timeout_s,
         cli_path=settings.claude_cli_path, writes_enabled=settings.writes_enabled,
         withheld_by_family=lambda: runtime.withheld_by_family(), max_concurrent_turns=concurrency,
+        strict_mcp_config=True,
     )
+
+
+def _strict_staff(factory: Any):
+    """The team's assistants as runtime.py makes them, each strict about MCP servers as the owner's is."""
+    def made(person: Any) -> Any:
+        provider = factory(person)
+        provider.strict_mcp_config = True
+        return provider
+    return made
 
 
 def offered_tools(runtime: Any) -> dict[str, list[str]]:
@@ -274,6 +288,7 @@ class Run:
         runtime.staff_providers.clear()
         if self.mode == "max":
             runtime.provider = _owner_provider(runtime, self.caps.concurrency)
+            runtime.staff_provider_factory = _strict_staff(runtime.staff_provider_factory)
             await runtime.provider.start()
             self.manifest["models"] = {"turns": f"max:{runtime.settings.claude_model}"}
         else:

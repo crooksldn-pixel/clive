@@ -225,3 +225,60 @@ def test_the_plans_model_is_given_no_tools_no_servers_and_nothing_from_this_mach
     monkeypatch.setattr("app.providers.max_agent_sdk.cli_logged_in", lambda path: False)
     with pytest.raises(RuntimeError, match="no Max-plan login"):
         MaxPlanModel(cli_path=str(cli)).options("the rubric")
+
+
+async def test_a_bench_runs_assistants_load_no_mcp_server_of_the_hosts_and_clives_own_are_unchanged(tmp_path, monkeypatch):
+    """Review note N5 (8 Oct): CLIVE's provider set no strict_mcp_config, so on worker-01 the claude CLI
+    could bring George's own MCP servers and connectors into a bench turn (their tools were still denied
+    by the gate, but that barrier was not the seal's). A bench run's assistants, the owner's and the
+    team's, are strict now; CLIVE's own, as app/runtime.py makes them, name nothing new."""
+    from app.bench.runner import fake_world
+    from app.people.store import people as people_store
+    from app.providers.max_agent_sdk import MaxAgentSDKProvider
+    from config.settings import get_settings
+
+    for name, folder in (("CROOKS_OBJECTIVES_DIR", "objectives"), ("CROOKS_SECRET_DIR", "secrets"), ("CROOKS_LOG_DIR", "logs")):
+        monkeypatch.setenv(name, str(tmp_path / folder))
+    get_settings.cache_clear()
+    started = []
+
+    async def start(self):                                                        # no claude CLI in the suite
+        started.append(self)
+
+    monkeypatch.setattr(MaxAgentSDKProvider, "start", start)
+    people = {p.id: p for p in persona.load(only=["george", "emily-and-the-packers"])}
+    chosen = [{"id": "q001", "persona": "george", "access": "owner", "category": "in_scope", "turns": ["hi"]},
+              {"id": "q002", "persona": "emily-and-the-packers", "access": "staff", "category": "in_scope", "turns": ["hi"]}]
+    question_set = {"set_id": "qs-20261008-0100-abcdef", "sha256": "abcdef", "questions": chosen}
+
+    def options(provider):
+        provider._auth_mode = "cli"                                               # the CLI's own login: no token read
+        return provider._options()
+
+    with Seal(latch=False, scratch=tmp_path) as seal:
+        run = Run(question_set, bench=Bench(tmp_path / "bench"), seal=seal, caps=Caps(concurrency=1), mode="max", people=people)
+        async with fake_world() as h:
+            clives_own = h.runtime.staff_provider_factory                          # as app/runtime.py made it
+            await run._prepare(h, chosen)
+            owner, card = h.runtime.provider, run.cards["emily-and-the-packers"]
+            staff = h.runtime.staff_provider(card)
+            assert started == [owner] and isinstance(staff, MaxAgentSDKProvider) and staff is not owner
+            assert options(owner).strict_mcp_config is True and options(staff).strict_mcp_config is True
+            theirs = clives_own(people_store.get(card))
+            assert theirs.strict_mcp_config is False and options(theirs).strict_mcp_config is False
+    plain = MaxAgentSDKProvider(system_prompt="sys")
+    assert plain.strict_mcp_config is False and options(plain).strict_mcp_config is False
+    # Not even named: CLIVE's own options are the call they were, whatever SDK the server has.
+    import claude_agent_sdk
+
+    named, real = [], claude_agent_sdk.ClaudeAgentOptions
+
+    def recorded(**kwargs):
+        named.append(set(kwargs))
+        return real(**kwargs)
+
+    monkeypatch.setattr(claude_agent_sdk, "ClaudeAgentOptions", recorded)
+    options(plain)
+    options(theirs)
+    options(owner)
+    assert ["strict_mcp_config" in n for n in named] == [False, False, True]
