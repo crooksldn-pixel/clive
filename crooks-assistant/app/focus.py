@@ -12,7 +12,9 @@ themselves and never over the words (MAP rule 7: nothing matches what was said),
 
 1. A CHANGE wins. A card waiting for his gesture, a step towards one (which variant), an email
    being written, a form being built: those are the screen, and nothing read on the way to them
-   is. "The reply to [a customer] and nothing else."
+   is. "The reply to [a customer] and nothing else." Two kinds of card stay beside it, because
+   they are about the change and not how it was found: the attention lines of the record the
+   change is to ("Chargeback open" beside a refund of that order), and a screen's remote.
 2. Otherwise, a RECORD read in full wins over the searches that found it: an order read whole,
    a thread opened, a customer's history, an objective, or a workspace composed over a record
    that a read this turn returned whole. The lists and the one-line finds that led there are set
@@ -81,6 +83,16 @@ def records_read_whole(items: list[dict[str, Any]]) -> frozenset[str]:
     return frozenset(refs - {""})
 
 
+def _beside_a_change(item: dict[str, Any], refs: set[str]) -> bool:
+    """Whether a card stays beside a change waiting for him (rule 1): the attention lines of the
+    record a change is to — the risk he reads before he holds it — and a screen's remote, which
+    is a control and not a search. `refs` is what the changes on the screen are to."""
+    kind = _kind(item)
+    if kind == "screen_remote":
+        return True
+    return kind == "attention" and str(_data(item).get("for") or "") in refs
+
+
 def _found_on_the_way(item: dict[str, Any], kept_orders: set[str]) -> bool:
     """Whether a card is one of the searches a record read in full was found by (rule 2)."""
     kind, data = _kind(item), _data(item)
@@ -106,7 +118,8 @@ def answer_cards(items: list[dict[str, Any]], why: dict[str, Any] | None = None,
     cards = [item for item in items or [] if isinstance(item, dict)]
     if any(_kind(item) in TASK for item in cards):
         rule = CHANGE
-        kept = [item for item in cards if _kind(item) in TASK or _kind(item) in ALWAYS]
+        refs = {str(_data(item).get("entity_ref") or "") for item in cards if _kind(item) in TASK} - {""}
+        kept = [item for item in cards if _kind(item) in TASK or _kind(item) in ALWAYS or _beside_a_change(item, refs)]
     elif any(in_full(item, read_whole) for item in cards):
         rule = RECORD
         orders = {str(_data(item).get("order_id") or "") for item in cards if _kind(item) == "order" and in_full(item)}

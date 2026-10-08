@@ -173,6 +173,24 @@ def test_an_order_read_whole_keeps_its_own_attention_and_drops_another_orders():
     assert focus.answer_cards([line, theirs, order, mine]) == [order, mine]
 
 
+def test_beside_a_change_its_own_records_attention_and_a_screens_remote_stay():
+    """Review note 4: a change wins the screen, but the risk lines of the record the change is to
+    are what he reads before he holds it ("Chargeback open" beside a refund of that order), and a
+    screen's remote is a control, not a search. Another order's lines are still set aside."""
+    change = {"type": "confirmation", "data": {"proposal_id": "p1", "entity_ref": "gid://shopify/Order/1940"}}
+    mine = {"type": "attention", "data": {"for": "gid://shopify/Order/1940", "items": [{"title": "Chargeback open"}]}}
+    theirs = {"type": "attention", "data": {"for": "gid://shopify/Order/1938", "items": [{"title": "Unpaid"}]}}
+    remote = {"type": "screen_remote", "data": {"screen_id": "scr_1"}}
+    order = {"type": "order", "data": {"order_id": "gid://shopify/Order/1940", "detail": True}}
+    listing = {"type": "order_list", "data": {"orders": [{"order_id": "gid://shopify/Order/1940"}]}}
+    why: dict = {}
+    kept = focus.answer_cards([listing, order, mine, theirs, remote, change], why)
+    assert kept == [mine, remote, change], [c["type"] for c in kept]
+    assert why == {"rule": "change", "set_aside": ["order_list", "order", "attention"]}
+    # A change to nothing named keeps no attention line at all.
+    assert focus.answer_cards([mine, {"type": "confirmation", "data": {"proposal_id": "p2"}}])[0]["type"] == "confirmation"
+
+
 def test_the_interaction_record_says_which_rule_chose_the_screen_and_what_it_set_aside(tmp_path):
     """"Look at our interaction" can say why the screen was only the reply: the rule, and the kinds
     of card it set aside as the searches that found it — kinds only, never what was on them."""
