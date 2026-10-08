@@ -1,0 +1,28 @@
+# The pinned UPSTREAM RELEASE ASSETS for .tooling/bin, in sha256sum(1) format, with paths
+# relative to the download directory .tooling/downloads. Check with:
+#   ( cd .tooling/downloads && sha256sum -c ../../crooks-assistant/docs/dev-environment/binary-assets.sha256 )
+#
+# This is the gate that runs BEFORE anything is extracted. binaries.sha256 checks what ended up
+# in .tooling/bin; this file checks what came off the network, so a substituted download is
+# rejected while it is still an inert file. Both are enforced and either mismatch stops the plan.
+#
+# Provenance of these digests, recorded 2026-09-19 during the ENV-REPRO-001 continuation:
+#   - Each asset was fetched once from the asset_url pinned in manifest.json and digested here.
+#   - Extracting each asset reproduced the corresponding digest in binaries.sha256 EXACTLY, for
+#     all nine installed binaries. binaries.sha256 was recorded by observing the builder at
+#     9a27bc441adad1e98e8a9ca257d1883246ee7eec, so the observation and the upstream release now
+#     agree: what is installed on the builder is what these releases contain.
+#   - Where the project publishes its own checksum file (manifest `upstream_checksums`), the
+#     digest below was also compared with it and matched: shfmt, gitleaks, trivy, uv.
+#   - shellcheck, fd, ast-grep and hyperfine publish no checksum file. Their digests are
+#     first-fetch observations, enforced here but NOT upstream-attested, and doctor prints one
+#     advisory line naming exactly those four rather than leaving the gap unsaid.
+
+8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  shellcheck-v0.11.0.linux.x86_64.tar.xz
+d9fbb2a9c33d13f47e7618cf362a914d029d02a6df124064fff04fd688a745ea  shfmt_v3.12.0_linux_amd64
+551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks_8.30.1_linux_x64.tar.gz
+c3c2bc79f838e780173fc8f18b337ec273e7ba17c7ff8f551be29fc3c19b7916  fd-v10.3.0-x86_64-unknown-linux-gnu.tar.gz
+936e67e9cb4bf7a422401a459ff14f3608d944d7500495553648f7c63a25929b  app-x86_64-unknown-linux-gnu.zip
+63ad53934062118f5b0be11785e0bb1603d4b91667d1921f2fd8df9a8712040a  hyperfine-v1.20.0-x86_64-unknown-linux-gnu.tar.gz
+2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a  trivy_0.74.0_Linux-64bit.tar.gz
+9ec303873e00deed44d1b2b52b85ab7aa55d849588d7242298748390eaea07ef  uv-x86_64-unknown-linux-gnu.tar.gz

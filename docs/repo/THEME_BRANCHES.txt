@@ -1,0 +1,20 @@
+# What move_theme.sh moves to the private repository crooksldn-pixel/crooksldn-theme. Every branch
+# here is on the theme's own line (its first commit is the 19 July theme import) and holds no CLIVE
+# code. The theme branch becomes the new repository's main, with its full history; each of the
+# others is kept there as an archive tag. Only with --delete-public are they deleted from clive.
+#
+# One branch per line, fields separated by single spaces:
+#   branch   sha (40 hex)   ref in crooksldn-theme   what it is (the rest of the line)
+
+claude/crooksldn-theme-init-bnen7a 7b454b604e6372fd21df287e6b1b8528a6126758 refs/heads/main the live theme's source: all theme work since July, the phone app (mobile/) and the returns desk
+claude/crooksldn-behavioral-audit-y5kdmp 9691e199adf607295e2060069931df07315d95bf refs/tags/archive/claude-crooksldn-behavioral-audit-y5kdmp 20-persona behavioural audit of the shop (27 Aug), research evidence
+claude/crooksldn-site-audit-eijmkd 1422649298cbbc25de9909af6bbf530c6bd639e4 refs/tags/archive/claude-crooksldn-site-audit-eijmkd three-run site audit of the staging theme (to 18 Aug), research evidence
+claude/order-confirmation-email-u2i9bw bb8346b7ae0aba11d89d612440b215275e729072 refs/tags/archive/claude-order-confirmation-email-u2i9bw a restyled Shopify order-confirmation notification (7 Aug)
+claude/repository-readme-2026-09-23 40e6bc6d0fa8328067e60e3a805f001d946e04fb refs/tags/archive/claude-repository-readme-2026-09-23 same commit as claude/shopify-theme-dev-setup-934mht
+claude/sample-room-sync-testing-txsis0 584f29bfd8e95ed6eced2c98f78d58e0fc1c0c96 refs/tags/archive/claude-sample-room-sync-testing-txsis0 50-persona test of the Base44 Sample Room app (27 Aug), research evidence
+claude/shopify-theme-chat-import-w809a7 518ab21c565bd2d79fe502bd610b5b00848c5259 refs/tags/archive/claude-shopify-theme-chat-import-w809a7 a 21 Aug theme CLAUDE.md, superseded by the theme branch's README, SPEC and NOTES
+claude/shopify-theme-dev-setup-934mht 40e6bc6d0fa8328067e60e3a805f001d946e04fb refs/tags/archive/claude-shopify-theme-dev-setup-934mht the 23 Sep theme-only README line (GitHub's default branch until George switches it)
+claude/theme-gauntlet-annadenning-hx102l a78eeb8f6e4649b3dfa03c0b397bae240f84cb67 refs/tags/archive/claude-theme-gauntlet-annadenning-hx102l buyer panel against annadenning.com (19 Aug), research evidence
+claude/theme-gauntlet-shopper-audit-bzlkea bd9af7035298840609899cf4120fb8b74875ec6b refs/tags/archive/claude-theme-gauntlet-shopper-audit-bzlkea 100-shopper audit, old live theme vs new staging theme (11-18 Aug), research evidence
+claude/theme-gauntlet-v2-buyers-1ebhak cd3c3c50a5e67e9b14cb9fe3364e4da6a38f8c5a refs/tags/archive/claude-theme-gauntlet-v2-buyers-1ebhak 20-journey buyer gauntlet and council verdict (20 Aug), research evidence
+experiment/flatlay-evidence-window 731218ffd21190165833ea9f8027aab687905a5f refs/tags/archive/experiment-flatlay-evidence-window theme experiment; its commit is on the theme branch as 63147742 (patch-identical)

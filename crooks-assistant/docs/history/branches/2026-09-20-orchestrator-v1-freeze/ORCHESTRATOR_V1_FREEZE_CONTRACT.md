@@ -1,0 +1,769 @@
+# CLIVE Engineering Orchestrator V1 — Freeze Contract
+
+**Status:** FREEZE CANDIDATE — normative contract, repository-only; no deployment authority  
+**Date:** 2026-09-20  
+**Canonical parent:** `claude/product-memory-foundation@9e59860a945ec339c69af8709cd0721f0a795327`  
+**Purpose:** collapse the approved Orchestrator direction, Symphony/ECC research, contract-trial findings and incident lessons into one implementable contract.
+
+The words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT** and **MAY** are normative.
+
+This contract governs Engineering Orchestrator V1 together with the normative companions `ORCHESTRATOR_V1_STATE_API.md`, `ORCHESTRATOR_V1_TRACEABILITY.md` and `ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md`. Older prose remains evidence and rationale, but where it conflicts with this freeze set after acceptance, the freeze set is authoritative for V1 implementation. Product safety decisions in `DECISIONS.md` remain superior.
+
+## 1. V1 objective
+
+V1 turns an authorised engineering task into an independently reviewed release candidate with durable state, immutable identity, bounded failure behaviour and low owner attention.
+
+V1 is a **deterministic control plane with model workers beneath it**. Models may plan, implement, diagnose and review. Models MUST NOT authoritatively mutate task state, approval state, release authority or production.
+
+V1 MUST preserve the existing single-worker bridge/watcher as the reliable fallback while the Orchestrator is built and proven.
+
+## 2. Explicit non-goals
+
+V1 does **not** include:
+
+- production deployment or promotion;
+- CROOKS/CLIVE business writes;
+- automatic infrastructure self-update;
+- new secrets, credential provisioning or connector grants;
+- account/global Claude configuration changes;
+- public/Funnel exposure;
+- arbitrary shell/admin control;
+- subscriber-facing agent dashboards;
+- autonomous product/taste decisions;
+- blanket self-improvement or overnight production changes.
+
+A later Privileged Action Broker / Deployment Controller is a separate authority domain.
+
+## 3. Authority model
+
+| Principal | MAY | MUST NOT |
+| --- | --- | --- |
+| Owner | set intent; grant material permissions; approve owner-gated release/privilege decisions | be required as routine message courier |
+| GPT Director | compile objective/scope; reconcile evidence; challenge plans; perform final independent review | mutate state DB directly; deploy; self-authorise owner gates |
+| Deterministic kernel | validate contracts; persist state; schedule; fence; admit results; dispatch reviews; enforce policy | make product judgement; infer approval from prose |
+| Evidence Collector (kernel component) | measure committed workspace identity read-only; copy/hash evidence from worker staging into kernel-owned immutable storage; create Candidate/Evidence records | execute candidate-controlled code to determine identity; run inside worker process group; accept worker prose as identity |
+| Architecture specialist (normally Opus) | propose plans/contracts; diagnose ambiguity; perform high-scrutiny technical review | grant itself scope, privileges or acceptance |
+| Implementation worker | modify one authorised attempt workspace and produce one candidate | accept/review itself; write controller DB; deploy; access unrelated business tools |
+| Independent reviewer | inspect exact candidate/evidence and submit findings/verdict through validated channel | modify the candidate it certifies |
+| Integrator | combine exact accepted SHAs in an isolated integration workspace | substitute branch heads; waive blocking findings |
+| Fable Experience Director | define/review substantial UX/interaction requirements where required | override owner intent, safety policy or current design authority |
+| Future deployment controller | install an explicitly authorised exact artifact and verify/rollback | act as engineering planner or accept its own update |
+
+Roles are responsibilities, not mandatory permanent daemons.
+
+## 4. Authoritative identity rules
+
+**Branches are labels. SHAs are authority.**
+
+Every execution-bearing record MUST bind:
+
+- repository identity;
+- task ID and immutable task revision;
+- product-memory SHA;
+- application/base SHA;
+- environment/toolchain manifest digest;
+- attempt ID;
+- workspace ID/path;
+- controller epoch;
+- monotonic fencing token;
+- candidate SHA, once one exists;
+- evidence-manifest digest;
+- reviewer identity and review subject SHA.
+
+The kernel MUST independently measure checkout `HEAD`, ancestry and cleanliness. Prompt text, worker self-report, branch name, screenshot or prose MUST NOT substitute for measured Git identity.
+
+A branch mismatch between declared routing metadata and actual checkout MUST block write-capable execution before any model is launched.
+
+## 5. State model
+
+Task, attempt, candidate, review, integration and delivery are separate records.
+
+### 5.1 Task lifecycle
+
+`PROPOSED -> PLANNED -> ASSIGNED -> BUILDING -> EVIDENCE_READY -> REVIEWING -> ACCEPTED`
+
+`ACCEPTED` is terminal for an individual task/candidate. Integration and release-candidate state are separate records; multiple accepted tasks may feed one integration. This prevents a task record from pretending to own a multi-candidate release.
+
+Side states:
+
+- `BLOCKED` — deterministic precondition/capability/authority problem; no automatic retry.
+- `ESCALATED` — requires higher-level diagnosis or owner/Director decision.
+- `REJECTED` — candidate failed review/acceptance; retained with reasons.
+- `FAILED` — execution failed within the approved task contract and retry/correction budget is exhausted.
+- `CANCELLED` — explicitly stopped; all active attempts fenced.
+- `SUPERSEDED` — replaced by a new task revision/objective.
+
+No state name implies deployment.
+
+### 5.2 Attempt lifecycle
+
+`CREATED -> STARTING -> RUNNING -> CANDIDATE_READY -> CLOSED`
+
+Terminal attempt dispositions:
+
+- `SUCCEEDED`
+- `FAILED`
+- `CANCELLED`
+- `FENCED`
+- `QUARANTINED`
+
+A task may have multiple attempts. Only one attempt may hold the authoritative lease for a task revision at a time.
+
+### 5.3 Finding lifecycle
+
+Every review/test finding has its own disposition:
+
+- `OPEN`
+- `RESOLVED`
+- `BLOCKED`
+- `OBSOLETE`
+
+A finding binds an explicit **subject kind** (`CANDIDATE` or `INTEGRATION`) and subject ID, exactly as review and evidence records do, and retains task/candidate lineage wherever a single source task owns it. Integration findings are therefore authoritative and queryable in their own right rather than depending on the next reviewer rediscovering them. A blocking finding is evaluated against its own subject: `candidate.accept` MUST evaluate blocking findings for that candidate and `integration.verify` MUST evaluate blocking findings for that integration. Where a rejected integration is corrected under `parent_integration_id`, unresolved findings are carried into the correction and MUST each reach an explicit `RESOLVED` or `OBSOLETE` disposition with a recorded reason before the correction can be VERIFIED.
+
+This closes contract gap CG-04: partial progress is represented without falsely calling the whole task complete, and it is represented for integrations as well as candidates.
+
+## 6. Durable store
+
+V1 is single-host. The authoritative store MUST be SQLite for frozen V1. Replacing it requires a new reviewed revision of this contract; implementation may not substitute another store under an informal architecture exception.
+
+Required SQLite settings/behaviour:
+
+- WAL journal mode;
+- `foreign_keys=ON`;
+- `synchronous=FULL` for authoritative state transitions;
+- bounded busy timeout;
+- explicit schema version;
+- migrations executed under exclusive controller authority;
+- integrity check at startup and before/after schema migration;
+- pre-migration online backup;
+- transactionally atomic state transition + transition-event append;
+- unique constraints for idempotency keys and authoritative lease ownership;
+- no direct model/worker database access.
+
+Database corruption or failed integrity check MUST stop scheduling and enter operator-visible `BLOCKED`; V1 MUST NOT guess-repair authoritative state.
+
+Before model-running V1 is enabled, a tested online-backup destination independent of the active DB file MUST exist. Backups are required before every schema migration and at controlled periodic intervals chosen to meet the declared recovery-point objective; backup integrity and restore are rehearsed in acceptance. Backups MUST never be restored while an older controller instance can still publish authoritative results. Restore increments the controller epoch, enters DRAINING/BLOCKED until reconciliation finishes, and invalidates all pre-restore leases.
+
+## 7. Single-controller authority and fencing
+
+V1 MUST run with one authoritative controller writer.
+
+On a single host:
+
+1. controller acquires an OS-level exclusive runtime lock;
+2. inside a DB transaction it increments and persists `controller_epoch`;
+3. all new leases/results bind that epoch;
+4. a second controller that cannot acquire the lock MUST fail closed or run read-only diagnostics only.
+
+Every lease acquisition increments a monotonic fencing token for its subject, and every review dispatch carries its own monotonic dispatch fencing token for its subject.
+
+Every heartbeat, candidate admission, **integration-result admission**, evidence admission, **review-result admission** and terminal execution result MUST present the current subject revision, the current controller epoch and the current fencing token of the exact execution record it claims to act under — the attempt's lease token for task and integration attempts, the dispatch token for review results. `ORCHESTRATOR_V1_STATE_API.md` §1A defines those three execution records and no execution result may be admitted without one.
+
+**Delivery updates are not execution-record admissions.** A delivery mutation MUST instead present the current controller epoch and the delivery idempotency key with the matching canonical request digest, and MUST follow §9 / `ORCHESTRATOR_V1_STATE_API.md` §4's persist-intent → perform/observe → persist-outcome protocol. A stale controller epoch or an idempotency-key/request-digest conflict is rejected without mutating authoritative delivery state.
+
+A stale token MUST be rejected even if the worker is still running and its output would otherwise pass tests. This applies identically to reviewers and integrators, and it applies **even when the subject SHA has not changed**: cancellation, expiry, replacement and epoch change each strip authority on their own, and candidate-mutation invalidation is an additional mechanism rather than the only one. Rejection uses reason code `FENCE_STALE` and is recorded as a transition event.
+
+PID identity alone is never authority and PID reuse is irrelevant to correctness.
+
+## 8. Leases and heartbeats
+
+A lease records:
+
+- subject kind (`TASK` or `INTEGRATION`), subject ID and subject revision;
+- attempt ID;
+- controller epoch;
+- fencing token;
+- acquired time;
+- heartbeat deadline;
+- workspace ID;
+- `owned_process_group_handle` — the durable identity of the **single** process group the attempt owns for its whole lifetime, committed before that group is created on `CREATED -> STARTING` and **never replaced while the attempt is live**, per `ORCHESTRATOR_V1_STATE_API.md` §3A.3. It is the cleanup handle only; whether the attempt ever reached `RUNNING` is the separate `attempt.running_process_group_identity` fact, and the two MUST NOT be conflated. It is a controller-allocated, attempt-bound identity rather than a recyclable OS process-group number, and §6 re-verifies ownership before signalling.
+
+Heartbeats prove liveness only. They MUST NOT extend scope or mark progress/success.
+
+One authoritative lease exists per `(subject kind, subject ID, subject revision)`, so an implementation attempt and an integration attempt never contend for the same lease. Review dispatches are not leases: several independent reviewers may run concurrently on one subject, so each review dispatch is fenced individually under its own dispatch token, bounded by the §19 reviewer-concurrency ceiling.
+
+Lease expiry does not by itself prove the process is dead. Before reassignment the controller MUST reconcile process/cgroup state, identifying the group from `owned_process_group_handle`. If the old process tree cannot be proven stopped, quarantine the workspace and block reassignment. A NULL handle is not an unknown: because the handle is committed before the group is forked, NULL proves no owned group was ever created, cleanup is proven, and quarantine MUST NOT be used for that case. The same rule applies to an expired review dispatch: expiry strips the dispatch's authority immediately, but it does not by itself prove the reviewer process is gone, and an unprovable reviewer process blocks the subject rather than triggering a silent re-dispatch. For a review dispatch the kernel owns — reviewer principal execution-ownership kind `KERNEL_OWNED` — the dispatch's own process-group handle is committed before the reviewer group is forked under the identical write-ahead rule, so NULL there also proves no group exists; whether the kernel owns the reviewer at all is read from the durable principal kind and never inferred from a NULL handle.
+
+Clock rules:
+
+- local timeout decisions SHOULD use a monotonic clock;
+- persisted wall-clock timestamps are for audit only;
+- worker-provided clocks are never authoritative.
+
+## 9. Idempotency and external effects
+
+Every retryable mutation MUST have a stable idempotency key.
+
+At minimum:
+
+- task intake;
+- attempt creation;
+- candidate registration;
+- evidence registration;
+- review request;
+- review result admission;
+- Git publication;
+- integration creation;
+- delivery/outbox publication.
+
+V1 MUST NOT claim exactly-once model execution. It guarantees at most one **authoritative admitted result** per fenced attempt, while duplicate underlying execution may occur after failures.
+
+If an external write may have succeeded but its response is lost, the controller MUST reconcile authoritative remote state before retrying. Blind replay after ambiguous success is forbidden.
+
+A lost response is not the only way an outcome goes unrecorded: the controller can also die between initiating an external effect and persisting what happened. The two MUST be indistinguishable after restart, and that is achieved by ordering rather than by hope — durable evidence that an external effect **may have been initiated** MUST be committed *before* the effect is initiated, never after it. For delivery that evidence is the `delivery` record's `attempt count`, whose increment `ORCHESTRATOR_V1_STATE_API.md` §3C requires to commit ahead of the effect; §21 step 10 then reconciles any such record to `UNKNOWN` before any further external effect. A controller MUST NOT infer from a `PENDING` record alone that no effect has occurred.
+
+## 10. Failure taxonomy and retry policy
+
+Failures are classified before retry.
+
+### 10.1 BLOCKED / no automatic retry
+
+Examples:
+
+- wrong branch/HEAD/base SHA;
+- dirty or ambiguous workspace;
+- missing permission/capability;
+- missing/expired authentication;
+- quota exhaustion requiring external action;
+- unavailable required reviewer;
+- unresolved authority conflict;
+- protected-path refusal;
+- disk/evidence high-watermark;
+- database integrity failure;
+- tool-roster mismatch;
+- unsafe credential/tool surface;
+- unknown external-effect outcome until reconciled.
+
+Persist exact evidence and notify once materially; restart MUST NOT reset this classification.
+
+### 10.2 RETRYABLE transport/provider failures
+
+Examples:
+
+- temporary network failure;
+- provider 429 with retry guidance;
+- provider 5xx;
+- remote Git/API transient failure where no ambiguous write remains.
+
+Default transport retry budget:
+
+- maximum 5 attempts per operation;
+- exponential backoff with jitter;
+- respect authoritative `Retry-After`;
+- maximum elapsed retry window 15 minutes;
+- then transition to `BLOCKED` or `ESCALATED` with reason.
+
+Provider auth failure is BLOCKED, not transport retry. Provider quota exhaustion is BLOCKED, not an excuse to silently downgrade model quality.
+
+### 10.3 Build/review correction budget
+
+Default:
+
+- one initial implementation attempt;
+- after evidence-backed rejection, at most one bounded same-contract correction;
+- a second substantive rejection or changed diagnosis triggers re-planning/escalation.
+
+A changed objective, authority, acceptance criterion or scope creates a new task revision.
+
+#### 10.3.1 Non-rejection attempt failure budget
+
+The correction budget above governs **evidence-backed rejection** only. An attempt that closes `FAILED` or `QUARANTINED` without ever producing a candidate — stall, timeout, orphaned process, crash, preflight failure — is governed by this separate budget, which exists because such an attempt may already have caused real side effects in its workspace and V1 explicitly does not guarantee exactly-once model execution (§9).
+
+Defaults, all persistent:
+
+- **automatic relaunches after a non-rejection attempt failure: zero.** `PROCESS_TIMEOUT`, `PROCESS_STALLED` and `PROCESS_ORPHANED` are classified BLOCKED by `ORCHESTRATOR_V1_STATE_API.md` §7, so the subject enters operator-visible BLOCKED with the exact reason persisted, and no model is relaunched automatically;
+- an attempt that closed `QUARANTINED` MUST NOT be relaunched at all until its workspace/process state is proven and released, and until then it continues to occupy its concurrency unit and lease under `ORCHESTRATOR_V1_STATE_API.md` §3D, so it blocks other work rather than silently yielding capacity. Releasing that occupancy is a cleanup fact and MUST NOT return the consumed attempt to this budget;
+- a controlled relaunch remains available through the existing authority-bearing path `BLOCKED -> task.plan -> attempt.assign`, which requires the blocker to be resolved and therefore cannot spin;
+- **absolute ceiling: at most 3 execution attempts per task revision in total**. The ceiling is an explicit guard on every `attempt.assign` path. When a non-rejection failure consumes the third attempt, the normal failure is first persisted as `BLOCKED`; the kernel then applies the already-legal `task.escalate` edge from `BLOCKED` to **`ESCALATED`**, and no further `attempt.assign` is admissible for that revision. `FAILED` is not used for this ceiling-exhaustion path;
+- **what the ceiling counts** is defined once, normatively, by `ORCHESTRATOR_V1_STATE_API.md` §3A.2, and this section MUST NOT restate it differently. In summary: it counts every non-terminal attempt and every attempt closed `SUCCEEDED`, `FAILED` or `QUARANTINED`, plus any attempt closed `CANCELLED`/`FENCED` that had reached `RUNNING`. An attempt closed `CANCELLED` or `FENCED` that **never reached `RUNNING`** launched no model process and MUST NOT consume the ceiling — otherwise restart fencing, which §21 step 3 performs on every single restart, would silently spend a budget whose whole purpose is to bound model relaunches, and a task could be starved of its three real attempts without one model ever having run. Deterministic preflight failure is unaffected and remains budget-consuming, because `ORCHESTRATOR_V1_STATE_API.md` §3A closes it `FAILED` or `QUARANTINED`, never `CANCELLED`/`FENCED`;
+- these counters are persisted and MUST survive controller restart, DB restore and epoch change. Restart MUST NOT reset them and MUST NOT reclassify a persisted BLOCKED reason into a retry. Because the count is recomputed from immutable committed `attempt` rows rather than held as a running total, restart and restore cannot decrement a legitimately consumed attempt either; a terminal disposition is written once and MUST NOT be rewritten.
+
+The total number of model relaunches arising from a non-rejection failure is therefore finite and stated, not left to implementer discretion. This is deliberately stricter than the §10.2 transport budget: the incident this rule exists to prevent is a deterministic failure being retried repeatedly as though it were transient.
+
+## 11. Workspace contract
+
+V1 worker attempts MUST live outside production and outside the canonical Builder checkout.
+
+Canonical shape:
+
+`/opt/crooks-workers/<task-id>/<attempt-id>/`
+
+For the first implementation phase, use a **standalone clone with its own .git metadata**, created from a builder-owned local source/mirror with `--no-hardlinks` or equivalent isolation. It MUST NOT be a linked worktree of production.
+
+Each attempt receives isolated:
+
+- checkout/Git metadata;
+- writable HOME/config location;
+- temp directory;
+- test DB;
+- browser profile;
+- ports;
+- artifact staging;
+- process group/cgroup — **exactly one** per attempt, created once before preflight under the write-once handle of `ORCHESTRATOR_V1_STATE_API.md` §3A.3, containing both the preflight processes and the model process, and never handed over to a second group while the attempt is live.
+
+Before launch the kernel MUST verify:
+
+- measured HEAD equals exact base SHA;
+- declared branch metadata is either absent or resolves consistently;
+- working tree clean;
+- Git common-dir is not production;
+- no foreign worker process owns the workspace;
+- effective tool/network/credential roster matches task policy;
+- measured environment/toolchain fingerprint equals the environment-manifest digest bound to the task revision; an exit-0 `doctor` or self-report cannot override a fingerprint mismatch.
+
+After cancellation/failure, the complete attempt process tree is terminated via that one dedicated cgroup/process group: TERM, bounded grace, then KILL. Because the same group has covered the attempt since before preflight, "complete attempt process tree" and "the owned group" are the same set of processes, and a preflight child that survived into `RUNNING` is inside it. Workspace reuse is forbidden until **that whole group** is verified empty — an emptiness proof over any narrower group does not satisfy this rule. The same proof is what releases the attempt's concurrency unit and lease under `ORCHESTRATOR_V1_STATE_API.md` §3D, so an attempt whose group cannot be proven empty holds its workspace and its execution capacity together rather than yielding one while keeping the other.
+
+No reset/clean/stash of owner work is permitted as a recovery mechanism.
+
+## 12. Capability, connector and secret isolation
+
+Engineering workers MUST receive only engineering capabilities required by the task.
+
+The launcher MUST assert the **effective** tool/MCP/plugin roster after launch. Prompt instructions and `--allowed-tools` alone are insufficient.
+
+Unexpected access to business connectors (Shopify, Gmail, Google Drive, Omnisend, Resend or similar) MUST fail the attempt closed before substantive execution. Worker-tool network egress is default-deny except destinations explicitly required by the task policy. Model-provider transport, candidate publication and controller APIs are host/kernel capabilities rather than permission for arbitrary worker-shell egress.
+
+Workers MUST NOT receive:
+
+- production service-control authority;
+- deployment credentials;
+- broad SSH credentials;
+- host-management sockets;
+- controller-state DB write access;
+- unrestricted repository push authority;
+- raw secrets unrelated to the exact task.
+
+If the current provider/runtime cannot present a sufficiently narrow effective roster, model-running V1 remains BLOCKED. This does not block repository-only deterministic kernel implementation.
+
+## 13. Structured authority grants
+
+Approvals that matter to execution MUST exist as structured `AuthorityGrant` records, not only prose.
+
+A grant binds:
+
+- grant ID;
+- owner/authority source;
+- task revision;
+- allowed action class;
+- resource/scope;
+- constraints;
+- expiry/revocation condition;
+- exact approval text/reference digest where relevant.
+
+The kernel enforces the structured boundary. A model cannot convert conversational prose into broader authority on its own. An expired or revoked grant is equivalent to no grant. Grant validity MUST be re-evaluated at every authority-bearing transition; revocation while an attempt is active immediately fences that attempt before any further authoritative result is admitted.
+
+This closes contract gap CG-06.
+
+## 14. Candidate and evidence protocol
+
+### 14.1 Candidate
+
+A Candidate record is created by the kernel-owned collector **immediately after an immutable commit exists and before evidence collection begins**. Creation-time fields bind:
+
+- task revision;
+- attempt;
+- base SHA;
+- candidate SHA;
+- complete changed-file set and diff digest;
+- measured workspace/environment identity.
+
+`evidence_manifest_digest` is nullable at Candidate creation and is populated only after the evidence manifest is durably stored and validated at the `EVIDENCE_READY` transition. Candidate existence therefore survives evidence-storage, outbox or delivery failure and is independently discoverable during reconciliation.
+
+A candidate cannot authoritatively define its own identity.
+
+### 14.2 Evidence manifest
+
+The collector creates a canonical JSON evidence manifest outside candidate-controlled source and computes its SHA-256 digest.
+
+Required fields:
+
+- schema version;
+- task/revision/attempt;
+- base and candidate SHA;
+- context/product-memory/environment digests;
+- provider/model/version/effort and measured launch identity;
+- commands, cwd, timestamps, exit status;
+- pass/fail/skip/deselected/timeout counts;
+- raw artifact/log digests and locations;
+- reproduction before/after;
+- changed tests/config;
+- security/performance/browser/device evidence as applicable;
+- known baseline failures;
+- limitations;
+- redaction status.
+
+Raw evidence is independently addressable and content-addressed where practical. Final evidence storage is kernel-owned and not writable by the worker; the worker may write only to attempt-local staging, which the collector measures and imports.
+
+Missing evidence is UNKNOWN, never PASS.
+
+This closes CG-01.
+
+### 14.3 Evidence invalidation
+
+V1 uses a deliberately strict rule: **any candidate SHA change invalidates candidate-bound evidence and review.**
+
+Evidence reuse across candidate changes is DEFERRED to V1.x until a machine-checkable input-closure system exists.
+
+This closes CG-02 without introducing a false-green optimisation.
+
+### 14.4 Candidate persistence vs delivery
+
+Candidate state is persisted independently from evidence completion and from result/outbox delivery. A candidate may exist with no evidence manifest yet, and may remain discoverable even if publication of the human/model handoff fails.
+
+Delivery has its own durable record and idempotency key.
+
+This closes CG-03.
+
+### 14.5 Candidate publication
+
+Remote candidate publication is a **kernel publication-adapter operation**, never a worker push. Attempt workspaces MUST have no usable remote push credential.
+
+The kernel reads the exact local candidate SHA from the quarantined/read-only post-build workspace, verifies it matches the Candidate record, and publishes that commit to a create-only namespaced ref such as `orchestrator/candidate/<task-id>/<candidate-id>` using a narrow kernel credential. The ref is for discoverability only; reviewers/integrators consume the immutable SHA, never the branch name. Corrections create new candidate IDs/refs; no candidate ref is force-updated.
+
+Unknown push outcomes use the §9 reconcile-before-retry rule.
+
+## 15. Review contract
+
+Reviewers receive:
+
+- immutable task revision;
+- exact base/candidate SHA;
+- exact diff;
+- evidence-manifest digest and raw evidence references;
+- changed tests/config;
+- known limitations;
+- applicable policy/context digest.
+
+Reviewer verdicts:
+
+- `ACCEPT`
+- `CHANGES_REQUIRED`
+- `BLOCKED`
+
+A reviewer may not silently patch the candidate it certifies. If it supplies code, it becomes an implementer for that new candidate and an independent reviewer must review the result.
+
+Review records bind exact candidate/evidence identities. Candidate mutation invalidates review automatically.
+
+Required reviews run concurrently, so a subject decision is frequently reachable before every reviewer has reported: one `CHANGES_REQUIRED` verdict or one blocking finding decides `candidate.reject`, and a failed gate decides `integration.reject`. The siblings that are still running MUST NOT simply be abandoned. `ORCHESTRATOR_V1_STATE_API.md` §3.1 requires every such transition to fence each remaining `review_dispatch` and stop its owned reviewer process group per §6, all before the subject transition commits. A fenced reviewer's later verdict is rejected with `FENCE_STALE` even though the subject SHA never changed. Whether that dispatch's required-review slot and reviewer-concurrency unit are also released in that commit depends on the cleanup proof, not on the fencing: a slot freed on the proven-empty path is reusable at once rather than being held by a review whose subject is already terminal, while a slot whose reviewer could not be proven gone stays occupied under `ORCHESTRATOR_V1_STATE_API.md` §3D.
+
+Whether §6 has a reviewer process group to stop is decided from the dispatch's durable reviewer-principal execution-ownership kind, never from a NULL process-group identity. A `KERNEL_OWNED` reviewer's group is named by a handle committed before the reviewer was forked, so it is stopped and proved empty before the subject transition commits; the slot and the §19 reviewer-concurrency unit are released only at that proof. An `EXTERNAL` reviewer has no kernel-owned process, is fenced only, that limitation is recorded, and — because there is no kernel-owned cleanup to prove — it is never quarantined and never holds a unit on cleanup grounds. Where a `KERNEL_OWNED` reviewer's group cannot be proven empty, the dispatch is `QUARANTINED` rather than `FENCED`, its slot and concurrency unit stay held under §3D until the release transition commits on proven emptiness, and the subject is BLOCKED rather than re-dispatched.
+
+Risk classification is deterministic and closed:
+
+| Risk class | Rule | Minimum gate |
+| --- | --- | --- |
+| `DOCUMENTARY_NONNORMATIVE` | prose/history only; cannot change executable config, tests, policy, authority, safety, acceptance or runtime behaviour | independent document review; exact-SHA doc/schema/link checks as applicable |
+| `MATERIAL` | any code, test, config, dependency, build, harness, normative policy/acceptance document, or behavior-affecting change not in a higher class | independent technical review + independent exact-SHA CI/reverification |
+| `EXPERIENCE` | meaningful UI/UX/interaction change | MATERIAL gates + Fable direction/post-build review + browser/accessibility/device evidence as required |
+| `SECURITY_CRITICAL` | auth, secrets, permissions, business-write semantics, controller/kernel, deployment, sandbox, credential or safety-boundary change | MATERIAL gates + independent security/architecture review + negative permission tests + owner gate where authority changes |
+
+Unclassified work is `MATERIAL`. Models may propose a class but the kernel/policy rules compute the authoritative class.
+
+Review independence requires at minimum: a distinct reviewer session/principal, a distinct review workspace/channel with no candidate write authority, immutable candidate/evidence inputs, and no access to the implementer's hidden reasoning/conversation. For MATERIAL and above, use a distinct model or provider where a verified equal-or-stronger reviewer is available; if unavailable, a separate high-quality session may review but the limitation is recorded and the GPT Director gate remains mandatory.
+
+Required review is risk-based under this closed table, not agent-count-based.
+
+## 16. Integration contract
+
+Integration has its own lifecycle: `CREATED -> INTEGRATING -> EVIDENCE_READY -> REVIEWING -> VERIFIED`, with side dispositions `REJECTED|BLOCKED|CANCELLED`.
+
+A `ReleaseCandidate` record is created only after a VERIFIED integration has passed the GPT Director gate. Individual source tasks remain ACCEPTED; they do not transition into integration/release states.
+
+For a single accepted candidate, V1 still creates an explicit identity-integration record so integrated evidence/review semantics are not skipped.
+
+Integrator inputs are exact accepted SHAs, never moving branch names.
+
+Integration records:
+
+- explicit target base SHA;
+- ordered accepted input SHAs;
+- conflicts;
+- integration-only edits;
+- integrated candidate SHA;
+- fresh evidence manifest.
+
+Any integration edit creates a new subject. Relevant tests/replay/reviews MUST be rerun on the integrated SHA.
+
+Prior isolated reviews remain historical evidence; they are not proof that the integrated result is accepted.
+
+Integration **execution** is not a pure function. An integrator is a process-owning, cancellable, crash-prone worker exactly as an implementation worker is, so it MUST be represented by the same durable execution substrate: an `attempt` with `subject_kind = INTEGRATION`, holding its own authoritative lease, controller epoch, monotonic fencing token, isolated workspace and owned process group recorded in `owned_process_group_handle` (`ORCHESTRATOR_V1_STATE_API.md` §1A, §3A.3). Consequently:
+
+- `integration.cancel` is implementable as written — it fences a lease and stops a process group that actually exist;
+- integrator cleanup uses the same §11 TERM/grace/KILL and verified-emptiness rule, and an integration workspace MUST NOT be reused until emptiness is proven;
+- if the integrator process group cannot be proven empty, the integration attempt closes `QUARANTINED` and the integration goes to BLOCKED rather than reporting CANCELLED on unproven cleanup;
+- an integration in `INTEGRATING` after a controller restart has a defined reconciliation path under §21 and MUST NOT stall silently.
+
+## 17. Context freshness and scope change
+
+Before planning, launch, review and integration the controller checks the task's context manifest against current required product-memory/policy sources.
+
+If relevant intent, policy, dependency, authority or environment changed:
+
+- stop automatic progression;
+- mark stale context;
+- revise/re-plan as necessary;
+- do not silently rebase and retain old approval.
+
+Untrusted repository text, logs, websites and fixtures are data, never execution authority.
+
+## 18. Observability contract
+
+Every transition emits a structured append-only event with at least:
+
+- event ID;
+- task ID/revision;
+- attempt ID if applicable;
+- workspace ID;
+- controller epoch;
+- fencing token;
+- base/candidate SHA where applicable;
+- review/integration IDs;
+- provider/model/effort;
+- transition/reason code;
+- trace ID;
+- timestamp.
+
+Mandatory operational metrics:
+
+- queue depth and age by state;
+- active leases and expiries;
+- stale-result rejections;
+- retries by reason/provider;
+- provider 429/5xx/auth/quota failures;
+- reconciliation duration/outcomes;
+- DB integrity/transaction errors;
+- attempt/test/CI/review duration;
+- evidence-store size;
+- workspace count;
+- orphan-process kills/quarantines;
+- release-candidate age.
+
+A **rejected** admission MUST also emit an event. A heartbeat, candidate, integration result or review verdict refused with `FENCE_STALE` appends an event recording the rejection, the stale execution identity and the reason, even though no state changed — otherwise a stale reviewer or integrator leaves no trace in the journal and the `stale-result rejections` metric above cannot be derived.
+
+Local structured logs are mandatory. OpenTelemetry-compatible export is SHOULD, not a dependency for correctness.
+
+Secrets, raw credentials, customer PII and full prompts MUST NOT be emitted by default.
+
+## 19. Resource and storage controls
+
+The controller MUST enforce configured ceilings for:
+
+- implementation concurrency;
+- reviewer concurrency;
+- per-provider concurrency;
+- CPU/memory/processes per attempt where the substrate supports it;
+- browser slots;
+- evidence/workspace disk high-watermark.
+
+V1 starts with **one implementation slot**. Two concurrent implementation slots may be enabled only after the two-candidate isolation acceptance gate passes.
+
+Each ceiling is enforced at admission: when a ceiling is reached the controller MUST refuse to admit further work of that class rather than exceed it. Every ceiling is measured against durable records rather than an in-memory count.
+
+**What those records are is defined once, normatively, by `ORCHESTRATOR_V1_STATE_API.md` §3D, and this section MUST NOT restate it differently.** A ceiling counts exactly the rows §3D says occupy that resource, which is ordinary non-terminal execution records **plus cleanup-unproven terminal records**:
+
+- the **reviewer-concurrency** ceiling is global and counts every `review_dispatch` in state `DISPATCHED` **and** every `review_dispatch` in state `QUARANTINED`, whose kernel-owned reviewer group has not yet been proven empty. A quarantined dispatch also continues to occupy its required-review slot, so no replacement for that slot is admissible and the unit is not available to a different subject either;
+- the **implementation-concurrency** and **integration-concurrency** ceilings count every non-terminal `attempt` row of the corresponding subject kind **and** every `attempt` row closed with disposition `QUARANTINED` whose `lease.owned_process_group_handle` has not yet been durably retired.
+
+Terminality MUST NOT be read as release. A record MUST NOT be treated as freeing its unit merely because its state or disposition is terminal, and enforcing any of these ceilings against non-terminal rows alone is a specification error: `ORCHESTRATOR_V1_STATE_API.md` §6 reaches a terminal record on both the proven-empty path and the unproven-cleanup path, so counting by terminality would release a unit while an owned kernel process may still be running and admit a second live process over the ceiling. Occupancy ends only at the §3D release transition, which requires an authoritative proof of emptiness and commits a cleanup-proven representation before the unit becomes available.
+
+At disk high-watermark, admit no new work until safe GC/recovery occurs.
+
+Accepted evidence and release-relevant manifests are retained according to explicit policy. Disposable failed workspaces may be GC'd only after their evidence/diagnostics are durably captured and they are not needed for reconciliation.
+
+## 20. Drain, upgrade and rollback
+
+The Orchestrator MUST support a deterministic `DRAINING` operational mode:
+
+- no new assignments;
+- reconciliation continues;
+- active attempts either finish under policy or are explicitly cancelled/fenced;
+- a cutover watermark is persisted.
+
+Before any Orchestrator binary/schema upgrade:
+
+1. enter drain;
+2. acquire exclusive controller authority;
+3. verify no ambiguous active effects;
+4. create state DB backup;
+5. verify schema compatibility;
+6. install versioned candidate through a separately authorised infrastructure action;
+7. run startup integrity check;
+8. increment controller epoch;
+9. reconcile DB/process/workspace/remote state;
+10. run deterministic smoke tests;
+11. resume scheduling only if all gates pass.
+
+Schema migrations are forward-only in V1. An older binary MUST refuse a newer unsupported schema. Unsafe downgrade fails closed.
+
+An ordinary engineering worker MUST NOT self-install the Orchestrator.
+
+## 21. Crash/restart reconciliation order
+
+On controller start/restart:
+
+1. acquire exclusive runtime lock;
+2. open DB and verify schema/integrity;
+3. increment controller epoch;
+4. enter implicit drain/no-dispatch mode;
+5. reconcile recorded active implementation attempts with cgroups/processes, identifying each owned group from `owned_process_group_handle` (`ORCHESTRATOR_V1_STATE_API.md` §3A.3). An attempt found in `STARTING` is reconciled here even though it never reached `RUNNING`: its recorded handle names any live preflight group, which is stopped per §6 before the attempt closes `FENCED`, and a NULL handle proves no group exists rather than leaving cleanup unknown. `QUARANTINED` is reserved for a group named by a non-NULL handle that cannot be proven stopped, and a `STARTING` attempt fenced this way does not consume the §10.3.1 ceiling because `running_process_group_identity` is NULL. An attempt left `CLOSED / QUARANTINED` here keeps occupying its implementation- or integration-concurrency unit and its lease under `ORCHESTRATOR_V1_STATE_API.md` §3D until a later pass proves that group empty and durably retires the handle, so restart never hands that capacity to another task;
+6. reconcile recorded active **integration attempts** with cgroups/processes and integration workspaces, on the same terms as step 5, including the `STARTING` preflight window and the same handle/discriminator separation; an integration left in `INTEGRATING` is reconciled here and never blind re-dispatched;
+7. reconcile workspaces and measured Git identity;
+8. reconcile **in-flight review dispatches**: for every non-terminal `review_dispatch`, first read the durable reviewer-principal execution-ownership kind — never the process-group identity — to decide whether the kernel owns the reviewer. For a `KERNEL_OWNED` dispatch, identify its owned group from the write-once handle committed before the reviewer was forked, stop it per §6 and prove it empty; a NULL handle proves no group was created, and a group that cannot be proven empty leaves the dispatch `QUARANTINED` — not `FENCED`, which is the cleanup-proven representation — with its required-review slot and §19 reviewer-concurrency unit still held under `ORCHESTRATOR_V1_STATE_API.md` §3D and the subject BLOCKED. For an `EXTERNAL` dispatch, fencing alone is the available semantics, the limitation is recorded, and no quarantine unit is held. Where this step, or any later reconciliation pass, authoritatively proves a `QUARANTINED` dispatch's owned group empty, it commits the §3D release transition `QUARANTINED -> FENCED`, and only that commit makes the slot and the concurrency unit reusable; the dispatch stays authority-terminal and no verdict from it becomes admissible. Then fence any dispatch that is expired or whose liveness cannot be proven, and for each required-review slot whose cleanup is proven **and whose §3D occupancy has been released** either create exactly one replacement dispatch under a new fencing token or block the subject — never both, and never leave the subject silently in `REVIEWING`. A slot still occupied by a cleanup-unproven quarantine gets neither a replacement nor a silent release: the subject is blocked. A crash between the reviewer-handle commit and the reviewer fork is therefore reconciled as a kernel-owned dispatch with no group, not as an external reviewer;
+9. reconcile candidate/evidence records;
+10. reconcile ambiguous remote publications, **including every `delivery` record left `PENDING`**: a PENDING delivery whose `attempt count` is non-zero is durable evidence that an external publication effect may already have been initiated, so it MUST be moved to `UNKNOWN` through `ORCHESTRATOR_V1_STATE_API.md` §3C **before any further external effect**, and `delivery.publish` MUST NOT replay it. A PENDING delivery with a zero `attempt count` initiated no effect and survives unchanged;
+11. fence obsolete leases, dispatches and results. A record whose owned process group is proven empty here — or which the §3A.3 write-ahead rule proves never created one, or whose reviewer principal is `EXTERNAL` — releases the required-review slot, reviewer-concurrency unit and execution slot it occupied in that same commit, and they are reusable at once. A record whose cleanup cannot be proven is fenced for authority but **keeps** its slot, unit and lease under `ORCHESTRATOR_V1_STATE_API.md` §3D: it takes the cleanup-unproven representation (`CLOSED / QUARANTINED` for an attempt, `QUARANTINED` for a dispatch) and its occupancy is released only by the §3D release transition, in this pass or a later one, on an authoritative proof of emptiness. Fencing MUST NOT be read as release, and restart MUST NOT release a unit that no proof of emptiness has retired;
+12. surface unresolved ambiguity as BLOCKED;
+13. only then enable dispatch.
+
+Steps 5, 6 and 8 together cover all three execution records of `ORCHESTRATOR_V1_STATE_API.md` §1A, and step 10 covers delivery, which is not an execution record.
+
+An **execution-bearing** subject state — one in which §3A or §3B admits a non-terminal execution record, derived mechanically there rather than listed by hand here — found with no non-terminal execution record is itself an unresolved ambiguity and MUST be surfaced as BLOCKED at step 12, through the subject's listed `task.block`/`integration.block` edge with reason code `EXECUTION_RECORD_MISSING` and never by blind re-dispatch. Under the matrices as written it derives to the `TASK` subject states `ASSIGNED`, `BUILDING`, `REVIEWING`, and the `INTEGRATION` subject states `INTEGRATING`, `REVIEWING`.
+
+`ASSIGNED` is in that set because step 3 increments the controller epoch on **every** restart, which terminally fences an attempt still in `CREATED` or `STARTING` without moving the subject. A task whose only attempt was fenced in that pre-`RUNNING` window would otherwise sit in `ASSIGNED` for ever: invisible to steps 5–8, holding no lease the scheduler would notice, and never re-dispatched. It is surfaced as BLOCKED here instead, and the fenced attempt does not consume the §10.3.1 execution-attempt ceiling.
+
+The dual inconsistency is a **live** execution record under a subject state *outside* that set — a `DISPATCHED` review under a `REJECTED` candidate, or a `RUNNING` attempt under a `BLOCKED` task. Reconciliation cannot repair that case by blocking the subject, because the subject has already left the set, so `ORCHESTRATOR_V1_STATE_API.md` §3.1 forbids it at the transition instead: every §3 edge out of an execution-bearing state MUST terminally fence its records, or atomically close them through the paired §3A/§3B edge, before it commits. Any such record found here is nevertheless fenced at step 11 and reported at step 12; it is a specification or implementation violation, never a normal state.
+
+Absence of a heartbeat, process or outbox is never enough by itself to conclude that work never completed.
+
+## 22. CI and provenance
+
+Worker-local evidence is necessary but insufficient for material candidates.
+
+Required CI/reverification policy is task-risk based, but CI MUST:
+
+- checkout exact candidate SHA;
+- run independently of the implementation worker's mutable workspace;
+- publish machine-readable results bound to that SHA;
+- prevent the implementer from marking itself accepted.
+
+Security-sensitive changes require negative permission/security tests.
+
+CodeQL/equivalent static analysis SHOULD be required for relevant code classes. SBOMs and external artifact attestations are REQUIRED only for releasable deployable artifacts, not every repository-only documentation or tiny test candidate.
+
+## 22A. Clean reconstruction claims
+
+Whenever a task or release claims that an environment/toolchain is reproducibly reconstructible, that claim MUST be proved on a disposable environment with no pre-existing target toolchain state.
+
+The reconstruction contract MUST include:
+
+- explicit approved egress policy and destination allow-list;
+- pinned release tags/asset URLs or equivalent immutable package identities;
+- pre-extraction/download integrity verification;
+- post-install/version/provenance verification;
+- a fresh environment fingerprint;
+- equality of the reconstructed fingerprint to the declared environment manifest;
+- evidence that pre-existing local tooling did not satisfy the test accidentally.
+
+A rerun on the already-provisioned Builder is not reconstruction evidence.
+
+## 23. Symphony/ECC reuse boundary
+
+V1 adopts commodity mechanisms, not external authority semantics.
+
+From Symphony, V1 retains:
+
+- authoritative assignment state;
+- deterministic per-task workspace;
+- bounded concurrency;
+- heartbeat/reconciliation;
+- stale completion rejection;
+- retry/backoff;
+- drain/cutover semantics;
+- continuous operator-visible status.
+
+CLIVE remains stricter through durable task revisions, exact SHA/evidence binding, independent review, structured authority grants, integration re-verification and owner-only release/privilege classes.
+
+From ECC/skills research, V1 selectively adopts/reimplements methodology and guards. It MUST NOT import the full ECC plugin/runtime/MCP/memory graph.
+
+## 24. Contract-trial gaps resolved by this freeze
+
+- **CG-01:** evidence manifest identity -> canonical JSON + SHA-256 + independently addressable raw artifacts.
+- **CG-02:** invalidation granularity -> strict full invalidation on candidate SHA change in V1; reuse deferred.
+- **CG-03:** candidate without result -> Candidate record is independent of Delivery record.
+- **CG-04:** partial BLOCKED state -> per-finding dispositions with an explicit subject kind, plus task-level BLOCKED.
+- **CG-05:** clean reconstruction -> resolved normatively by §22A and acceptance cases `EN-01`..`EN-04`.
+- **CG-06:** approval prose -> structured AuthorityGrant bound to task/scope.
+
+## 25. Owner-only decisions
+
+V1 engineering may decide deterministic implementation details that preserve this contract.
+
+Owner input is required only for:
+
+- material product/taste/strategy choices;
+- new permissions or privilege expansion;
+- new secrets/credential provisioning;
+- external spend;
+- connector/MCP grant changes;
+- CROOKS business-write authority;
+- public exposure;
+- production deployment/promotion;
+- explicit exception to an active safety contract.
+
+Routine DB schema details, retry code, tests, worker plumbing and non-privileged repository-only implementation do not require owner decisions if they stay inside this contract.
+
+## 26. Initial implementation phases
+
+### Phase 0 — repository-only deterministic kernel
+
+Implement and fault-test:
+
+- schema/store;
+- task/revision records;
+- legal transition engine;
+- controller epoch;
+- leases/fencing;
+- idempotency;
+- typed failure taxonomy;
+- event journal;
+- reconciliation engine with fake processes/remotes;
+- candidate/evidence record schemas.
+
+**No model launch. No external business call. No deployment.**
+
+### Phase 1 — one isolated worker adapter
+
+Only after Phase 0 acceptance **and** independent evidence that the live watcher/builder branch-identity mismatch is closed according to `WATCHER_BUILDER_IDENTITY_REMEDIATION.md`:
+
+- one implementation slot;
+- exact-base workspace creation;
+- process/cgroup ownership;
+- launch-roster assertion;
+- candidate/evidence collection;
+- no concurrency yet.
+
+### Phase 2 — independent review/CI
+
+Add exact-SHA review and independent CI evidence.
+
+### Phase 3 — integration
+
+Add exact-SHA Integrator and integrated re-verification.
+
+### Phase 4 — bounded concurrency
+
+Only after two-candidate isolation/resource/fencing acceptance succeeds.
+
+### Phase 5 — specialist routing
+
+Add evidence-based Opus/Sonnet/Fable routing and external GPT Director automation only after each adapter is independently verified.
+
+Production deployment remains outside V1 implementation authority.
+
+## 27. Freeze acceptance rule
+
+This specification is a candidate until the Owner adopts an exact candidate SHA in `DECISIONS.md`. A Director/authored document cannot re-sequence owner gates or promote itself to normative authority. Any sequencing change from active DEC-046/DEC-047 must be stated explicitly in that owner decision.
+
+The accepted freeze SHA is then recorded in a separate follow-up canonical product-memory commit, matching the existing harness-acceptance pattern; the recording commit does not alter the frozen contract content.
+
+This specification may be marked **FROZEN V1** only when:
+
+1. traceability matrix has no unexplained V1-relevant research item;
+2. state/API contract has no undefined authoritative transition or mutation path;
+3. acceptance/fault-injection matrix covers every MUST-level invariant;
+4. canonical current-truth/roadmap drift is reconciled;
+5. the existing bridge branch/checkout identity defect has an independently reviewed remediation path; the current plan is `WATCHER_BUILDER_IDENTITY_REMEDIATION.md`. Live closure of that defect is a hard prerequisite for Phase 1 model workers and any write-capable bridge round, but not for repository-only Phase 0;
+6. independent adversarial review finds no material missing control-plane/safety/recovery contract;
+7. the exact freeze commit SHA is recorded in canonical product memory.
+
+Implementation MUST bind to that exact frozen SHA.
