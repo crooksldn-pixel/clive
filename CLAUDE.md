@@ -1,8 +1,9 @@
 # CLAUDE.md
 
 This repository is CLIVE, George's business assistant (`crooks-assistant/`). The CROOKSLDN
-Shopify theme is not here: it lives in the private repository `crooksldn-pixel/crooksldn-theme`,
-and CLIVE work never touches it (`docs/repo/BOUNDARY.md`).
+Shopify theme is not part of CLIVE: it is moving to the private repository
+`crooksldn-pixel/crooksldn-theme`; until then, its source is the branch
+`claude/crooksldn-theme-init-bnen7a`. CLIVE work never touches it (`docs/repo/BOUNDARY.md`).
 
 For any work on CLIVE:
 

@@ -11,9 +11,9 @@ Changes reach `clive/trunk` only through a pull request whose exact head passed 
 
 ## What is not here
 
-- **The Shopify theme.** It lives in its own private repository, `crooksldn-pixel/crooksldn-theme`,
-  and ships to Shopify with the Shopify CLI from there. Its source was this repository's branch
-  `claude/crooksldn-theme-init-bnen7a`, which stays here only until it has been moved. The theme
+- **The Shopify theme.** It is moving to its own private repository,
+  `crooksldn-pixel/crooksldn-theme`, and will ship to Shopify with the Shopify CLI from there;
+  until then, its source is this repository's branch `claude/crooksldn-theme-init-bnen7a`. The theme
   files that sat at this repository's root until October 2026 were a stale 20 July snapshot,
   not the live theme, and they have been removed.
 - **The sister apps.** CROOKS Returns and CLIVE Shipping (one embedded Shopify app, CROOKS

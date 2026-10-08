@@ -73,6 +73,16 @@ def test_the_readme_and_claude_md_say_the_theme_lives_in_its_own_private_reposit
     assert "claude/compassionate-dirac-44hnee" in readme
 
 
+def test_the_readme_and_claude_md_say_the_theme_is_moving_not_that_it_has_moved():
+    """The private theme repository does not exist until move_theme.sh has run, so neither page
+    may say the theme lives there; both say where its source is until then."""
+    for name in ("README.md", "CLAUDE.md"):
+        text = " ".join((REPO / name).read_text(encoding="utf-8").split())
+        assert re.search(r"is moving to (its own|the) private repository,? `crooksldn-pixel/crooksldn-theme`", text), name
+        assert "until then, its source is" in text and "`claude/crooksldn-theme-init-bnen7a`" in text, name
+        assert not re.search(r"\blives in\b[^.]*crooksldn-theme", text), name
+
+
 # --- the lists --------------------------------------------------------------------------------
 
 
