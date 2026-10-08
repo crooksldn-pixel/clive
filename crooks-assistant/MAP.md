@@ -74,7 +74,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `messaging` | 2,402 | live | — | [`WECOM.md`](docs/WECOM.md) WeCom; WhatsApp in WHATSAPP.md, Instagram DMs in INSTAGRAM_DMS.md |
 | `objectives` | 3,316 | live | — | none |
 | `observability` | 10,786 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
-| `orchestrator` | 11,418 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
+| `orchestrator` | 11,442 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
 | `people` | 777 | live | — | [`TEAM.md`](docs/TEAM.md) |
 | `providers` | 1,029 | live | `anthropic_api` | none |
 | `reads` | 1,451 | live | — | none |
