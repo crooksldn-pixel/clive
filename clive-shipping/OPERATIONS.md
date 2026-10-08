@@ -2,11 +2,13 @@
 
 ## Merchant workflow
 
-The inbox now shows durable print badges, selection checkboxes, Not printed / Printing… / Printed / Print failed badges, and links to recent batches. Select ready shipments (up to 100), choose Buy labels, review each provider/service/current price and the total, then confirm. Purchased rows can be selected for a separate reviewed Print labels batch. The review lists their print order, matching the selected rows' visible inbox order. Excluded rows explain why they will not run.
+The inbox reads like Shopify's Orders: Order, Purchased (Shopify's order time in the store's time zone), Customer, Destination, Shipping (package under it), Status and Label (Not printed / Printing… / Printed / Print failed). Newest order first; on a phone the table becomes a list. Each row has a checkbox. Ticking one turns the list's header into the selection bar in place (the header box shows none, some or all; the count; Buy labels or Print labels; Clear), so nothing on the page moves. "Select all ready" asks the server for the current Ready list (up to 100). Buy labels reviews each order again (provider, service, current price, total) and names any that changed since they were selected (e.g. "17 ready to buy · 1 changed since you selected them (not included)"), then confirm. Print labels takes purchased rows only, in their visible order. Excluded rows explain why they will not run.
 
 Batch progress has independent per-order outcomes and survives browser reload. Open a recent batch to inspect purchased, sent, failed, skipped and uncertain rows. A failure does not roll back successful rows or retry an uncertain payment or print. There is deliberately no combined Buy & print action.
 
 An unpurchased shipment has inline HS code, origin and customs-description fields. Save uses the existing canonical product-facts and Shopify inventory-item update path, rechecks readiness and refreshes rates. HS codes are 6–10 ASCII digits; leading zeros are preserved, punctuation and padding are rejected. Existing provider-specific length checks remain. Shopify inventory items hold HS code/origin; CLIVE's existing product facts hold the merchant description and confirmed customs facts. Shopify-write problems remain visible through the existing warning mechanism. Purchased customs snapshots cannot be edited.
+
+"Not sure of the code? Describe it" finds a UK commodity code from plain English (e.g. "men's cotton hoodie") and what Shopify already says about the product. It walks the official UK Trade Tariff, asks one question at a time in the tariff's own words only when a fact decides the code, and shows a ten-digit code read back from the tariff (exists, declarable, in force) with its official description and the reasons. Use this code fills the field; nothing is saved until Save. A typed ten-digit code is checked on save and refused if the tariff doesn't have it; if the tariff can't be reached the code is kept, marked unchecked. How it was chosen (manual, or suggested then confirmed; the answers; who; when) is kept with the product's facts. Garments covered: jeans, jorts, shorts, joggers and other trousers, skirts, T-shirts, hoodies and jumpers; anything else is typed by hand. `SHIPPING_TARIFF_ENABLED=false` turns the finder and the check off.
 
 ## Print evidence
 
@@ -48,31 +50,8 @@ The endpoints use the same authenticated, shop-scoped staff dependency as existi
 
 Automated tests use fake postage providers and mocked PrintNode transport. They cover partial success, stale/held/cancelled/unauthorised/changed-price refusal, uncertain results and restart/concurrent-worker safety; durable print status and reprints; canonical customs persistence and historical immutability; independent PDF selection; and actual admin JavaScript selection/review/confirmation/progress/filter/reprint/customs interactions. No live postage or physical jobs are submitted.
 
-Final integrated checks: 429 Shipping tests passed; Ruff lint and formatting passed; inline JavaScript syntax and admin interaction tests passed. Pyright remains at the accepted baseline of 72 errors and one warning, with zero new diagnostic signatures.
+The V1 gate results are recorded in the release notes, `docs/V1_RELEASE.md`.
 
 ## Deployment (separate approval)
 
-No new environment variables are required. Existing provider, buying-authorisation and PrintNode settings remain in place. The additive table/index are created automatically on startup. Back up the live SQLite database before updating; use SQLite backup rather than copying an active WAL database.
-
-On the existing deployment checkout:
-
-```bash
-cd /opt/clive
-python3 - <<'PY'
-import sqlite3
-from datetime import datetime
-from pathlib import Path
-p = Path('clive-shipping/data/shipping.sqlite3')
-backup = p.with_name('shipping-before-operations-' + datetime.now().strftime('%Y%m%d-%H%M%S') + '.sqlite3')
-with sqlite3.connect(p) as source, sqlite3.connect(backup) as target:
-    source.backup(target)
-print(backup)
-PY
-git pull --ff-only origin codex/printnode-shipping
-cd crooks-returns
-docker compose build shipping
-docker compose up -d --no-deps shipping
-docker compose exec -T shipping python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8120/health').read().decode())"
-```
-
-After deployment, inspect an existing purchased shipment's badge, a non-purchasing batch review and an unpurchased product's customs fields. Physical fulfilment still requires the merchant to verify the printer output. Deployment is not performed by this change.
+Released with Returns as V1: the checklist, commands and rollback are in `docs/V1_RELEASE.md`. The batch tables and indexes are created automatically on startup. Back up the live SQLite database first (SQLite backup, not a copy of an active WAL database). After deployment, inspect an existing purchased shipment's badge, a non-purchasing batch review and an unpurchased product's customs fields. Physical fulfilment still requires the merchant to verify the printer output.

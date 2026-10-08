@@ -44,8 +44,15 @@ does. This page is the shared shape; the details are in `clive-shipping/shipping
 
 **Printing**
 - `print` sends a label to PrintNode the first time only. `reprint` needs `"confirm": true`.
+- Once any copy of the label has printed, `print` answers 409 `print_refused`; `reprint` is the deliberate way.
 - Neither can buy.
 - `sent_to_printer: true` means PrintNode accepted the job. The order is "Printing…" until PrintNode reports `done` (stage `printed`) or a failure (`print` says "Print failed", and print may be called again).
+
+**Return labels (Returns, Parcel2Go)**
+- The Parcel2Go order and the payment are recorded before paying. A lost pay reply is settled by reading the order; an "unpaid" read within 15 minutes of a payment sent is not believed, and the answer says when to try again. A clear refusal (e.g. not enough PrePay) can be retried at once.
+
+**A second label on one order**
+- If Shopify opens another fulfilment order for an order that already has a CLIVE label (moved location, an order edit), that shipment is in `attention` with the question `second_label` and can't be previewed or bought. Only a person confirms it in the admin (it really is a second parcel).
 
 **Payment**
 - Shipping never buys a new label unless the order's `displayFinancialStatus` allows it (see "Payment" below).
@@ -87,7 +94,7 @@ Needs a person (a purchase to reconcile, a Shopify update to retry, a cancellati
 
 Both `/events` feeds are each record's own history, flattened, oldest first, at most `limit` (default 200) per answer. Poll with `since=` the last `at` seen; while `has_more` is true, ask again at once. A page never ends part-way through one moment, so nothing is skipped. A `since` without a time zone is read as UTC. The record of what happened is the app's, not CLIVE's chat.
 
-- **Shipping:** `{at, shipment_id, order, type, what, actor, verified, detail}`. Types include:
+- **Shipping:** `{at, shipment_id, order, type, what, actor, source, verified, detail}`. `source` is `ui`, `api` (CLIVE) or `system` (the tick, PrintNode, the carrier). Types include:
   - `payment_blocking`, `payment_cleared`
   - `purchase_authorised`, `label_purchased`, `fulfilled`
   - `label_printed`, `label_reprinted`, `label_print_done`, `label_print_failed`, `label_print_view`
