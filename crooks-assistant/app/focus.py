@@ -12,8 +12,9 @@ themselves and never over the words (MAP rule 7: nothing matches what was said),
 
 1. A CHANGE wins. A card waiting for his gesture, a step towards one (which variant), an email
    being written, a form being built: those are the screen, and nothing read on the way to them
-   is. "The reply to [a customer] and nothing else." Two kinds of card stay beside it, because
-   they are about the change and not how it was found: the attention lines of the record the
+   is. "The reply to [a customer] and nothing else." The change comes first, on top of whatever
+   stays beside it (DEC-069). Two kinds of card stay beside it, because they are about the
+   change and not how it was found: the attention lines of the record the
    change is to ("Chargeback open" beside a refund of that order), and a screen's remote. And
    when the change is to a record he already had up as the turn began, that screen is his and
    not this turn's finds: the records on it this turn drew again stay beside the change (with
@@ -177,7 +178,8 @@ def answer_cards(items: list[dict[str, Any]], why: dict[str, Any] | None = None,
                  read_whole: frozenset[str] | None = None,
                  asked: frozenset[str] | None = None,
                  before: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-    """The cards this answer is about, in the order `present()` built them. `why`, when given,
+    """The cards this answer is about, in the order `present()` built them, except that under
+    rule 1 the change cards come first and what stays beside them follows. `why`, when given,
     is told which rule decided and the kinds of the cards set aside (for the interaction record:
     app/observability/interactions.py). `read_whole` is `records_read_whole` of the cards before
     a workspace was composed (see `in_full`). `asked` is `records_asked_for` of the turn's
@@ -190,8 +192,13 @@ def answer_cards(items: list[dict[str, Any]], why: dict[str, Any] | None = None,
         changes = [item for item in cards if _kind(item) in TASK]
         refs = {str(_data(item).get("entity_ref") or "") for item in changes} - {""}
         his = his_screen(changes, before)
-        kept = [item for item in cards if _kind(item) in TASK or _kind(item) in ALWAYS
-                or _beside_a_change(item, refs) or _was_up(item, his)]
+        beside = [item for item in cards if _kind(item) not in TASK and (
+            _kind(item) in ALWAYS or _beside_a_change(item, refs) or _was_up(item, his))]
+        # The change comes first (8 October, flow's second review, note 1): DEC-069's "the change
+        # card stays on top" holds when `carry` replaces his screen with this answer, as it does
+        # when it continues it. Otherwise a record he had up, drawn in full, would sit over the
+        # card he holds and push it below the fold of the 601x889 tablet.
+        kept = changes + beside
     elif any(in_full(item, read_whole) for item in cards):
         rule = RECORD
         orders = {str(_data(item).get("order_id") or "") for item in cards if _kind(item) == "order" and in_full(item)}
