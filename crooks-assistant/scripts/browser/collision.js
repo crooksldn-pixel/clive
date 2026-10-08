@@ -249,7 +249,10 @@ async function one(browser, vp) {
   });
   await page.route('**/speak', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: '{"ok":false,"kind":"no_key","reason":"no voice under test"}' }));
 
-  await page.goto(`${BASE}?dev=1`, { waitUntil: 'domcontentloaded' });
+  // [checker, 8 Oct 2026] Without the start-up (web/startup.js, since 29 Sep): it stays over the app
+  // until CLIVE says it is online, takes every tap but the dock's while it does, and its letters
+  // were measured as text over the order list's rows on a slow run. Its own pictures are visuals.js's.
+  await page.goto(`${BASE}?dev=1&startup=off`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(900);
   // The developer banner is a fixed strip over the top of the page that production never
   // shows. Leaving it in would be a collision this file invented.

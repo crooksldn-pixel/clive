@@ -108,7 +108,8 @@ async function fresh(browser) {
     osc.frequency.value = 220; osc.connect(gain); gain.connect(dest); osc.start();
     navigator.mediaDevices.getUserMedia = async () => { await ac.resume(); return dest.stream; };
   });
-  await page.goto(`${BASE}?dev=1`, { waitUntil: 'domcontentloaded' });
+  // [checker, 8 Oct 2026] Without the start-up, as collision.js: the states are replayed on the app.
+  await page.goto(`${BASE}?dev=1&startup=off`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1000);
   // The developer banner is a fixed strip production never shows. Leaving it would be a
   // collision this file invented.

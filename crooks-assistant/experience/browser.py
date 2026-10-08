@@ -118,6 +118,24 @@ def available() -> tuple[bool, str]:
     return True, ""
 
 
+@contextlib.contextmanager
+def _names_left_as_found():
+    """[checker, 8 Oct 2026] The browser run serves the fixture world inside this process, and every
+    personal string its reads return is noted for redaction (app/observability/timeline.py
+    `note_names`), for the rest of the process. Once the gates' model read for real, the replay gate
+    read the shop's own replies and "CROOKS" was left noted as a name: a later test's record wrote
+    "CROOKS-1938" as "[name]-1938". So a run puts the set back as it found it."""
+    from app.observability import timeline
+
+    with timeline._names_lock:
+        before = list(timeline._names)
+    try:
+        yield
+    finally:
+        timeline.forget_names()
+        timeline.note_names(before)
+
+
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -355,6 +373,11 @@ async def run_checks(*, scripts: tuple[Path, ...] | None = None) -> dict[str, An
     ok, why = available()
     if not ok:
         return {"skipped": True, "why": why, "checks": []}
+    with _names_left_as_found():
+        return await _run_checks(scripts)
+
+
+async def _run_checks(scripts: tuple[Path, ...] | None) -> dict[str, Any]:
     port = _free_port()
     server, task, _store = await serve_fixture_world(port)
     # The model, for the sentences the gates type (experience/gate_model.py): every sentence
