@@ -297,6 +297,44 @@ async def test_generate_run_judge_report_and_the_page_shows_it(bench_world, tmp_
                                         json={"run_id": run_id, "result_id": "q004", "score": 1})).status_code == 403
 
 
+# ------------------------------------------------------------------ where it keeps things
+
+
+def _modes(root: Path) -> dict[str, str]:
+    """Every folder and file under (and including) `root`, by its path from root's parent, to its mode."""
+    found = [root, *root.rglob("*")]
+    return {str(p.relative_to(root.parent)): oct(p.stat().st_mode & 0o777) for p in found}
+
+
+def test_every_bench_folder_is_0700_and_every_file_0600_whatever_the_umask(tmp_path):
+    """Review note N3 (8 Oct): mkdir's mode reached only the last folder it made, and only through the
+    umask, so bench/ and bench/runs/ were 0755: anyone on the machine could list the runs. Every folder is
+    0700 now, those an earlier version left open included, and every file 0600."""
+    import os
+
+    root = tmp_path / "data" / "bench"
+    (root / "runs").mkdir(parents=True, mode=0o755)                      # as an earlier version left them
+    os.chmod(root, 0o755)
+    os.chmod(root / "runs", 0o755)
+    set_id, run_id = "qs-20261008-0100-abcdef", "run-20261008-0101-ab12"
+    old = os.umask(0o022)
+    try:
+        bench = Bench(root)
+        bench.save_set({"set_id": set_id, "questions": []})
+        bench.save_manifest(run_id, {"run_id": run_id, "status": "finished"})
+        bench.add_result(run_id, {"result_id": "q001", "persona": "george"})
+        bench.add_verdict(run_id, {"result_id": "q001", "overall": 4})
+        bench.rate(run_id, "q001", 4, "fine", by="owner", judge=None)
+    finally:
+        os.umask(old)
+    modes = _modes(root)
+    folders = {"bench", "bench/questions", "bench/runs", f"bench/runs/{run_id}"}
+    assert {p: m for p, m in modes.items() if p in folders} == dict.fromkeys(folders, "0o700")
+    assert {p: m for p, m in modes.items() if p not in folders} == {
+        f"bench/questions/{set_id}.json": "0o600", "bench/ratings.jsonl": "0o600",
+        **{f"bench/runs/{run_id}/{name}": "0o600" for name in ("run.json", "results.jsonl", "judged.jsonl")}}
+
+
 # ------------------------------------------------------------------ the judge's verdicts, checked
 
 def test_a_verdict_is_kept_only_when_every_score_is_one_to_five_with_a_reason():

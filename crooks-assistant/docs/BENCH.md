@@ -165,8 +165,9 @@ bench/runs/<run id>/report.json      the report, and report.md
 bench/ratings.jsonl                  George's ratings (written by the screen)
 ```
 
-Folders are 0700 and files 0600. The fake shop holds no real customer, and arguments are redacted as the
-turn log redacts them.
+Every bench folder (`bench/` itself, `questions/`, `runs/` and each run's) is 0700 and every file 0600,
+set on every write whatever the umask. The fake shop holds no real customer, and arguments are redacted as
+the turn log redacts them.
 
 ## Rating on the screen
 

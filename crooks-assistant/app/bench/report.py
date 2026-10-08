@@ -223,6 +223,7 @@ def write(bench: Bench, run_id: str) -> dict[str, Any]:
     from app.bench.store import _write
 
     report = build(bench, run_id)
-    write_json(bench.run_dir(run_id) / "report.json", report)
-    _write(bench.run_dir(run_id) / "report.md", markdown(report))
+    folder = bench.folder(bench.run_dir(run_id))
+    write_json(folder / "report.json", report)
+    _write(folder / "report.md", markdown(report))
     return report

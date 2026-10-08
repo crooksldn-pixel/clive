@@ -21,7 +21,7 @@ PROXIES = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy"
 
 def _bench(*args: str, env: dict[str, str]) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, "-m", "app.bench", *args], cwd=ROOT, env=env, capture_output=True,
-                          text=True, timeout=300)
+                          text=True, timeout=300, umask=0o022)
 
 
 def test_a_dry_run_from_the_command_line_makes_a_set_a_run_and_a_report(tmp_path):
@@ -54,6 +54,12 @@ def test_a_dry_run_from_the_command_line_makes_a_set_a_run_and_a_report(tmp_path
     assert len(verdicts) == 8 and all("not_judged" in v for v in verdicts)        # a dry run scores nothing
     assert (run_dir / "report.md").read_text().startswith("# Bench run") and "# Bench run" in ran.stdout
     assert not (tmp_path / "not-the-run's").exists()                              # the shell's settings reached nothing
+    # Every folder it made is 0700 and every file 0600, under an ordinary umask (review note N3).
+    made_here = [data / "bench", *(data / "bench").rglob("*")]
+    assert {str(p.relative_to(data)): oct(p.stat().st_mode & 0o777) for p in made_here if p.is_dir()} == dict.fromkeys(
+        ["bench", "bench/questions", "bench/runs", f"bench/runs/{run_dir.name}"], "0o700")
+    assert {oct(p.stat().st_mode & 0o777) for p in made_here if p.is_file()} == {"0o600"}
+    assert {p.name for p in run_dir.iterdir()} >= {"run.json", "results.jsonl", "judged.jsonl", "report.json", "report.md"}
 
     again = _bench("report", "--data-dir", str(data), env=env)
     assert again.returncode == 0 and manifest["run_id"] in again.stdout

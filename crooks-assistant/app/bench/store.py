@@ -14,8 +14,9 @@ ignores). Under bench/:
 What it promises:
 - Ids are checked before they become paths: a set or run id is a fixed shape, and a result id is
   the question id the set gave it. Nothing a request sends is joined to a path unchecked.
-- Folders are 0700 and files 0600, as the objectives are: the fake shop holds no customer, but a
-  model's answer is still not for anyone else on the machine.
+- Every bench folder is 0700, bench/ itself, questions/, runs/ and each run's, and every file 0600, as
+  the objectives are: the fake shop holds no customer, but a model's answer is still not for anyone
+  else on the machine. Each folder is set on every write, whatever the umask, and whoever made it.
 - A line that is not JSON is skipped and counted, never fatal: one bad line does not hide a run.
 """
 
@@ -46,6 +47,9 @@ def root_for(settings: Any) -> Path:
 
 
 def _private_dir(path: Path) -> Path:
+    """`path` made if it is missing, and 0700. mkdir's own mode reaches only the last folder it makes,
+    cut by the umask, so the mode is set after; a bench folder's parents are made 0700 one by one
+    (Bench.folder)."""
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
         os.chmod(path, 0o700)
@@ -121,6 +125,14 @@ class Bench:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
 
+    def folder(self, path: Path) -> Path:
+        """Every folder from the bench's own down to `path`, made if missing and each 0700."""
+        path = Path(path)
+        current = _private_dir(self.root)
+        for part in path.relative_to(self.root).parts:
+            current = _private_dir(current / part)
+        return path
+
     # ---------------------------------------------------------------- question sets
 
     def set_path(self, set_id: str) -> Path:
@@ -130,7 +142,7 @@ class Bench:
 
     def save_set(self, question_set: dict[str, Any]) -> Path:
         path = self.set_path(question_set["set_id"])
-        write_json(path, question_set)
+        write_json(self.folder(path.parent) / path.name, question_set)
         return path
 
     def sets(self) -> list[str]:
@@ -171,7 +183,7 @@ class Bench:
         return read_json(self.run_dir(run_id) / "run.json")
 
     def save_manifest(self, run_id: str, manifest: dict[str, Any]) -> None:
-        write_json(self.run_dir(run_id) / "run.json", manifest)
+        write_json(self.folder(self.run_dir(run_id)) / "run.json", manifest)
 
     def results(self, run_id: str) -> list[dict[str, Any]]:
         """In the set's order: questions in flight together finish, and are written, in any order."""
@@ -179,7 +191,7 @@ class Bench:
         return sorted(rows, key=lambda r: (len(str(r.get("result_id") or "")), str(r.get("result_id") or "")))
 
     def add_result(self, run_id: str, row: dict[str, Any]) -> None:
-        append_jsonl(self.run_dir(run_id) / "results.jsonl", [row])
+        append_jsonl(self.folder(self.run_dir(run_id)) / "results.jsonl", [row])
 
     def judged(self, run_id: str) -> dict[str, dict[str, Any]]:
         """The latest verdict per result."""
@@ -190,7 +202,7 @@ class Bench:
         return out
 
     def add_verdict(self, run_id: str, row: dict[str, Any]) -> None:
-        append_jsonl(self.run_dir(run_id) / "judged.jsonl", [row])
+        append_jsonl(self.folder(self.run_dir(run_id)) / "judged.jsonl", [row])
 
     # ---------------------------------------------------------------- ratings
 
@@ -220,7 +232,7 @@ class Bench:
             "note": " ".join(str(note or "").split())[:MAX_NOTE], "by": str(by or "")[:120], "at": now(),
             "judge_overall": (judge or {}).get("overall"), "judge_version": (judge or {}).get("judge_version"),
         }
-        append_jsonl(self.ratings_path, [row])
+        append_jsonl(self.folder(self.root) / self.ratings_path.name, [row])
         return row
 
 
