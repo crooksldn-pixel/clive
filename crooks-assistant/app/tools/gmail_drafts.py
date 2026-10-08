@@ -37,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import inspect
 import json
 import logging
 import os
@@ -175,7 +176,10 @@ def who_now() -> str:
 
 
 async def _call(fn, *args, **kwargs):
-    return await asyncio.wait_for(asyncio.to_thread(fn, *args, **kwargs), timeout=CALL_TIMEOUT_S)
+    """One Gmail call, held to CALL_TIMEOUT_S: a client method (run off the loop) or one of
+    gmail_writes' own reads (`_draft_text`). A hung Gmail never holds a commit that has already sent."""
+    work = fn(*args, **kwargs) if inspect.iscoroutinefunction(fn) else asyncio.to_thread(fn, *args, **kwargs)
+    return await asyncio.wait_for(work, timeout=CALL_TIMEOUT_S)
 
 
 async def note_made(execution: dict[str, Any], created: dict[str, Any]) -> None:
@@ -190,7 +194,7 @@ async def note_made(execution: dict[str, Any], created: dict[str, Any]) -> None:
     try:
         from app.tools.gmail_writes import _draft_text
 
-        body, headers = await _draft_text(draft_id)
+        body, headers = await _call(_draft_text, draft_id)
         if str(headers.get("message-id") or "").strip() == str(execution.get("token") or ""):
             words = fingerprint(body)
     except Exception as exc:  # noqa: BLE001 — a record without a fingerprint is one never tidied
@@ -258,7 +262,7 @@ async def _still_ours(found: dict[str, Any]) -> tuple[str, str]:
     message = (draft or {}).get("message") or {}
     if str(message.get("id") or "") != str(found.get("message_id") or ""):
         return KEPT, "edited since CLIVE made it"
-    body, headers = await _draft_text(found["draft_id"])
+    body, headers = await _call(_draft_text, found["draft_id"])
     if str(headers.get("message-id") or "").strip() != str(found.get("token") or ""):
         return KEPT, "not CLIVE's Message-ID"
     if not found.get("words") or fingerprint(body) != found["words"]:
@@ -519,7 +523,7 @@ async def gmail_unsent() -> dict[str, Any]:
     out = []
     for d in listed[:MAX_LISTED]:
         try:
-            body, headers = await _draft_text(d["draft_id"])
+            body, headers = await _call(_draft_text, d["draft_id"])
         except Exception as exc:  # noqa: BLE001 — one unreadable draft is said as that, not guessed at
             log.info("a draft could not be read for the list (%s)", type(exc).__name__)
             out.append({"thread_id": d.get("thread_id") or "", "unreadable": True})

@@ -9,6 +9,7 @@ is a fake in memory; nothing reaches a network."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
@@ -262,6 +263,39 @@ async def test_a_403_when_checking_a_draft_is_not_taken_for_gone(box, engine, se
     assert not [c for c in box.calls if c[0] == "delete_draft"]
 
 
+# ------------------------------------------------------------- a hung Gmail read is bounded
+#
+# The review of 8 October (note 7): after a send, and after a draft was saved, CLIVE read the draft's
+# words from Gmail with no time limit, so a hung read held the commit after the email had gone. Every
+# read here runs inside `_call`, with its limit.
+
+
+async def hung(draft_id):
+    await asyncio.sleep(30)
+
+
+async def test_a_hung_read_after_a_send_never_holds_the_commit(box, engine, session, monkeypatch):
+    draft_id, _ = await saved_draft(box, engine, session)
+    _, send = await stage(session, "gmail_send_reply", thread_id=THREAD, body="Hi Daniel, it went out this morning.")
+    assert send.execution["replaces"] == [draft_id]
+    monkeypatch.setattr(gmail_writes, "_draft_text", hung)
+    monkeypatch.setattr(gmail_drafts, "CALL_TIMEOUT_S", 0.2)
+    result = await asyncio.wait_for(hold(engine, send), timeout=5)
+    assert result.code == "verified" and "could not be deleted just now" in result.spoken, result.spoken
+    assert draft_id in box.drafts and gmail_drafts.row(draft_id)["state"] == "waiting"
+
+
+async def test_a_hung_read_after_a_draft_is_saved_never_holds_the_commit(box, engine, session, monkeypatch):
+    monkeypatch.setattr(gmail_writes, "_draft_text", hung)
+    monkeypatch.setattr(gmail_drafts, "CALL_TIMEOUT_S", 0.2)
+    _, proposal = await stage(session, "gmail_draft_reply", thread_id=THREAD, body=BODY)
+    result = await asyncio.wait_for(tap(engine, proposal), timeout=5)
+    assert result.code == "verified"
+    (draft_id,) = list(box.drafts)
+    found = gmail_drafts.row(draft_id)
+    assert found["state"] == "waiting" and found["words"] == "", "its words could not be read back: written down, never tidied"
+
+
 async def test_a_record_without_the_words_fingerprint_is_never_tidied(box, engine, session):
     draft_id, _ = await saved_draft(box, engine, session)
     with gmail_drafts._lock:
@@ -292,8 +326,6 @@ async def test_the_clock_looks_only_while_changes_are_switched_on(monkeypatch):
     monkeypatch.setattr(gmail_drafts, "SWEEP_EVERY_S", 0.01)
     switched = {"on": False}
     gmail_drafts.start(lambda: switched["on"])
-    import asyncio
-
     await asyncio.sleep(0.05)
     assert seen == [], "changes off: CLIVE never looks"
     switched["on"] = True
