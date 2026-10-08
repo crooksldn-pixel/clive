@@ -616,6 +616,24 @@ async def test_with_github_away_the_screen_says_so(loop):
     assert "HTTP 503" in payload["summary"]
 
 
+async def test_the_board_carries_the_release_services_own_line_or_says_it_is_not_installed(loop, tmp_path,
+                                                                                         monkeypatch):
+    from app.release import state as release_state
+    from app.release import status as release_status
+    from app.release.host import SystemHost
+
+    monkeypatch.setenv("CLIVE_RELEASE_STATE_DIR", str(tmp_path / "release"))
+    payload = await read.current()
+    assert payload["release"] == {"installed": False, "state": "", "line": release_status.NOT_INSTALLED, "at": "",
+                                  "mode": ""}
+    release_state.write_status(SystemHost(), tmp_path / "release", state="rolled_back",
+                               line="Tried “X” and rolled back: /health after is not well.", at="2026-10-08T01:00:00Z",
+                               mode="live")
+    loop.down = True                       # the line is the server's own file, whatever GitHub says
+    payload = await read.current()
+    assert payload["release"]["state"] == "rolled_back" and payload["release"]["line"].startswith("Tried “X”")
+
+
 def test_the_builds_screen_under_node(tmp_path):
     """web/builds.js with the page's own code, drawing this board (tests/web/builds.test.js)."""
     node = shutil.which("node")

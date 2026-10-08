@@ -73,6 +73,7 @@ DEC-062 to DEC-065 record the owner decisions of 26 Sep, 28 Sep, 30 Sep and 1 Oc
 
 - The phone `/whoami` for `b33ccbc2`.
 - Whether a deploy still needs the exact-SHA review, or the waivers become the rule.
+  - The release service (DEC-067, [RELEASE_SERVICE.md](../RELEASE_SERVICE.md)) is built, not installed and switched off. It deploys nothing until he names that rule as `CLIVE_RELEASE_RULE`.
 - Whether the governed loop or direct builders are the normal way work lands.
 - Whether the team page may act on "packed 2106" without the model (`web/today-say.js`), as an exception to 28 Sep.
 - The parked items in MAP.md, each with its expiry date.
