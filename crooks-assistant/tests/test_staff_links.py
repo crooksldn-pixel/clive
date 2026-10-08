@@ -346,6 +346,29 @@ def test_past_what_a_phone_remembers_any_sign_in_it_does_not_know_is_a_copy(door
     _caught([first, held], t0 + 3 * (links.ROTATE_S + 60) + 600, t0)
 
 
+async def test_a_new_sign_in_goes_out_only_with_todays_quick_read_never_with_a_turn(door, monkeypatch):
+    """A turn's answer can take minutes. If it carried the new cookie, that cookie could land after a
+    newer one and put an honest phone back on a sign-in it had moved past, which reads as a copy. So
+    only Today's own read renews; a turn after the hour hands nothing out, and the read after it does."""
+
+    class Answer(FakeProvider):
+        async def turn(self, session_id, text):
+            return TurnResult(text="Done.", session_id=session_id)
+
+    door.runtime.staff_provider_factory = lambda person: Answer()
+    door.runtime.staff_providers.clear()
+    phone = await join(door)
+    clock = [links.time.time() + links.ROTATE_S + 1]
+    monkeypatch.setattr(links.time, "time", lambda: clock[0])
+    turned = await door.post("/turn", json={"text": "What's mine?", "session_id": "m1"}, headers=posting(phone))
+    assert turned.status_code == 200 and "set-cookie" not in turned.headers
+    for path in ("/today/claim", "/today/flag"):
+        assert "set-cookie" not in (await door.post(path, json={}, headers=posting(phone))).headers, path
+    assert links.check(phone, renew=False).set_cookie == ""
+    read = await door.get("/today/state", headers=signed_in(phone))
+    assert read.status_code == 200 and cookie_of(read) != phone
+
+
 async def test_george_sees_a_copied_phone_on_people_until_a_phone_of_theirs_joins_again(door, monkeypatch):
     clock = [links.time.time()]
     monkeypatch.setattr(links.time, "time", lambda: clock[0])

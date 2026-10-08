@@ -49,9 +49,11 @@ every phone needs a new link after 90 days.
 - **The phone's sign-in** is a cookie, `__Host-clive_team`: `HttpOnly; Secure; SameSite=Strict;
   Path=/`, no `Domain` (the `__Host-` prefix makes the browser enforce the last three). Its value is a
   phone id and a 32-byte secret; the server keeps the secret's hash. It is handed out again every hour
-  of use (rotation). The phone remembers every sign-in it was ever given and has moved past: the one a
-  rotation replaced, and any new one handed out that it dropped when another was shown back first
-  (the last 256, about ten working days of renewals). Each works for two more minutes after it was
+  of use (rotation), always with Today's own quick read (`/today/state`, every 30 seconds while the
+  page is on screen), never with an answer that can take minutes (a turn), so a new cookie cannot
+  land after a newer one. The phone remembers every sign-in it was ever given and has moved past: the
+  one a rotation replaced, and any new one handed out that it dropped when another was shown back
+  first (the last 256, about six weeks of eight-hour days). Each works for two more minutes after it was
   superseded (requests already on their way); any use of one after that means a copy exists, so that
   phone is signed out, for the copy and the real phone alike, and People says so in red under the
   person. Once a phone has had to forget some, any sign-in for it that it does not know counts as a

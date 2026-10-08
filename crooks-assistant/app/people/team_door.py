@@ -45,6 +45,8 @@ SIGNED_IN = frozenset({
     ("POST", "/today/counts"), ("POST", "/today/done"), ("POST", "/today/undo"), ("POST", "/today/flag"),
     ("POST", "/turn"),
 })
+# The one answer a phone's sign-in is renewed with: the page's own read, quick and every 30 seconds.
+RENEWS = "/today/state"
 # A card: read it, arm it, confirm it (web/today.js). The id is the engine's (app/actions/models.py).
 CARD_READ = re.compile(r"^/actions/prop_[0-9a-f]{12}$")
 CARD_STEP = re.compile(r"^/actions/prop_[0-9a-f]{12}/(?:arm|commit)$")
@@ -185,7 +187,9 @@ async def through(request: Request, call_next) -> Response:
         return _hardened(response, api=request.method == "POST")
     tool_authority.TOOL_AUTHORITY.reset(nobody)
     presented = request.cookies.get(links.COOKIE, "")
-    seen = links.check(presented)
+    # A new sign-in goes out only with Today's own quick read: a turn's answer can take minutes and
+    # could land after a newer cookie (app/people/links.py check).
+    seen = links.check(presented, renew=(request.method == "GET" and path == RENEWS))
     if seen.refused:
         refused = JSONResponse(status_code=401, content={"ok": False, "code": "signed_out", "detail": SIGNED_OUT})
         if presented:

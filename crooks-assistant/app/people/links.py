@@ -22,8 +22,9 @@ What it promises: nothing here is ever logged or put where the server would see 
 link, the code and the cookie cannot be rebuilt from the file; every refusal of a join looks the same
 except "wrong code", which only the holder of a real link can reach; a phone is someone only while
 their card is still active staff, and a phone or link refused because the card says they are off the
-team is ended there and then, so putting the card back brings neither back. What a phone may do is not decided here: the door gives it the
-team's own authority (app/people/team_door.py, app/tools/authority.py for_staff).
+team is ended there and then, so putting the card back brings neither back. What a phone may do is
+not decided here: the door gives it the team's own authority (app/people/team_door.py,
+app/tools/authority.py for_staff).
 """
 
 from __future__ import annotations
@@ -57,7 +58,8 @@ IDLE_S = 14 * 86400               # unused this long: signed out
 MAX_AGE_S = 90 * 86400            # and every phone needs a new link after this, used or not
 SEEN_EVERY_S = 300                # how often "last used" is written down
 KEEP_PENDING = 3
-# Superseded sign-ins remembered per phone: about ten working days of hourly renewals. Past that the
+# Superseded sign-ins remembered per phone: about six weeks of eight-hour days at one renewal an hour
+# (Today's own read, every 30 seconds while it is on screen, is what renews it). Past that the
 # phone stops telling a guess from an old copy and takes both as a copy (see `forgot` above): only the
 # owner's screen ever shows a phone's id, so a stranger cannot aim a guess at one.
 KEEP_GIVEN = 256
@@ -419,11 +421,14 @@ def clear_cookie_header() -> str:
     return f"{COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict"
 
 
-def check(value: str, *, now: float | None = None) -> Seen:
+def check(value: str, *, renew: bool = True, now: float | None = None) -> Seen:
     """Who the phone presenting this cookie is. Every request through the team door asks this. A new
-    sign-in is handed out once an hour of use (set_cookie); every one the phone moves past keeps
-    working for GRACE_S, and any use of one after that means a copy exists: the phone is signed out,
-    for the copy and the real phone alike, and George sees why on People."""
+    sign-in is handed out once an hour of use (set_cookie), and only when `renew`: the door renews
+    only with Today's own quick read, never with an answer that can take minutes (a turn), whose new
+    cookie could land after a newer one and put the phone back on a sign-in it had moved past. Every
+    one the phone moves past keeps working for GRACE_S, and any use of one after that means a copy
+    exists: the phone is signed out, for the copy and the real phone alike, and George sees why on
+    People."""
     now = time.time() if now is None else now
     match = COOKIE_VALUE.fullmatch(str(value or ""))
     if not match:
@@ -446,7 +451,7 @@ def check(value: str, *, now: float | None = None) -> Seen:
             _end_phone(phone, "expired", "", "not used for a fortnight, or older than 90 days", now)
             _save(data)
             return Seen(refused="signed_out")
-        verdict, fresh = _presented(phone, digest, now)
+        verdict, fresh = _presented(phone, digest, now, renew=renew)
         if verdict == "copy":
             _end_phone(phone, "signed_out", "", COPIED, now, copied=True)
             _save(data)
@@ -464,11 +469,11 @@ def check(value: str, *, now: float | None = None) -> Seen:
         return Seen(person_id=str(phone["person_id"]), phone_id=phone_id, set_cookie=handed)
 
 
-def _presented(phone: dict[str, Any], digest: str, now: float) -> tuple[str, str]:
+def _presented(phone: dict[str, Any], digest: str, now: float, *, renew: bool = True) -> tuple[str, str]:
     """(verdict, fresh secret to hand out or "") for the sign-in this phone's cookie carried, changing
     the phone's record in place. The verdict is one of:
       promoted  a sign-in just handed out, seen back: now the phone's own, and everything before it over
-      renewed   its own, and an hour of use is up: a new one goes out with this answer
+      renewed   its own, an hour of use is up and this answer may renew: a new one goes out with it
       current   its own
       grace     one it moved past less than GRACE_S ago: a request already on its way
       copy      one it moved past longer ago than that (or, once it has forgotten some, one it does
@@ -483,7 +488,7 @@ def _presented(phone: dict[str, Any], digest: str, now: float) -> tuple[str, str
         return "promoted", ""
     if _same(digest, str(phone.get("current") or "")):
         latest = max((float(p.get("at") or 0) for p in pending), default=0.0)
-        if now - float(phone.get("rotated_at") or 0) < ROTATE_S or now - latest < GRACE_S:
+        if not renew or now - float(phone.get("rotated_at") or 0) < ROTATE_S or now - latest < GRACE_S:
             return "current", ""
         fresh = secrets.token_urlsafe(32)
         kept = [*pending, {"hash": _digest(fresh), "at": now}]
