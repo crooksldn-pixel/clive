@@ -202,20 +202,26 @@ class Door:
             await asyncio.shield(self._task)
 
     async def _work(self) -> None:
-        while self._pending:
-            return_id = next(iter(self._pending))
-            types = self._pending.pop(return_id)
+        """Each return an event named, then the open returns; and round again while events rang
+        during those reads (`ring` starts no second task while this one runs), so none is left
+        waiting for the next ring."""
+        while True:
+            while self._pending:
+                return_id = next(iter(self._pending))
+                types = self._pending.pop(return_id)
+                try:
+                    ret = await crooks_returns.get_return(return_id)
+                except crooks_returns.ReturnsUnavailable as exc:
+                    self.counts[f"read_{exc.kind}"] += 1
+                    log.info("returns hook: a return could not be read again (%s)", exc.kind)
+                    continue
+                self._consider(return_id, types, ret)
             try:
-                ret = await crooks_returns.get_return(return_id)
+                await crooks_returns.OPEN.get()
             except crooks_returns.ReturnsUnavailable as exc:
-                self.counts[f"read_{exc.kind}"] += 1
-                log.info("returns hook: a return could not be read again (%s)", exc.kind)
-                continue
-            self._consider(return_id, types, ret)
-        try:
-            await crooks_returns.OPEN.get()
-        except crooks_returns.ReturnsUnavailable as exc:
-            log.info("returns hook: the open returns could not be read again (%s)", exc.kind)
+                log.info("returns hook: the open returns could not be read again (%s)", exc.kind)
+            if not self._pending:
+                return
 
     def _consider(self, return_id: str, types: set[str], ret: dict[str, Any]) -> None:
         """A notice, if the return as read needs him for a reason one of these events gives."""

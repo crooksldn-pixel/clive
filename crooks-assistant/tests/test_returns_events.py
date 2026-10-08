@@ -289,6 +289,35 @@ async def test_a_failure_the_service_recorded_is_a_problem_notice(door):
         "return_problem", "bad", "Return on #2132: Shopify didn't move the money.")
 
 
+async def test_an_event_that_rings_during_the_last_read_is_read_before_the_work_stops(door, monkeypatch):
+    """The open returns are being read, the last thing an event's work does, when the service rings
+    again: that ring starts no second task, so the running one goes round again and reads it."""
+    door.service.returns[OTHER].update(attention=["error"], last_error="Shopify did not process the return: refused")
+    real, reading, go = rc.OPEN.get, asyncio.Event(), asyncio.Event()
+
+    async def held_open(*args, **kwargs):
+        if not reading.is_set():
+            reading.set()
+            await go.wait()
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(rc.OPEN, "get", held_open)
+    door.service.calls.clear()
+    raw, headers = signed(event("requested"))
+    assert (await door.post(hooks.RETURNS_HOOK, content=raw, headers=headers)).status_code == 200
+    await asyncio.wait_for(reading.wait(), 5)  # A's return is read; now the open returns are
+    raw, headers = signed(event("process_failed", OTHER))
+    assert (await door.post(hooks.RETURNS_HOOK, content=raw, headers=headers)).status_code == 200
+    go.set()
+    await asyncio.wait_for(events.DOOR.settle(), 5)
+    assert asked(door.service, OTHER) == [f"GET /api/v1/returns/{OTHER}"], "the second ring's return was read"
+    assert events.DOOR._pending == {}, "nothing left waiting for a next ring"
+    said = await brief(door)
+    assert sorted((n["code"], n["words"]) for n in said["notices"]) == [
+        ("return_problem", "Return on #2132: Shopify didn't move the money."),
+        ("return_to_approve", "Return on #2131: waiting for your approval.")]
+
+
 async def test_no_notice_when_the_return_as_read_does_not_need_him_for_that_reason(door):
     # The service said the money failed, but by the time CLIVE reads it there is no error.
     await ring(door, event("process_failed", OTHER))
