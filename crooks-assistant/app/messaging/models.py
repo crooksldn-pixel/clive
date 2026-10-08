@@ -23,6 +23,12 @@ DIRECTIONS = ("in", "out")
 ORIGINS = ("contact", "clive", "person")
 STATUSES = ("received", "sent", "failed")
 TRANSLATION_STATES = ("done", "pending", "missing", "not_needed")
+# A translation not made within this long of the message being stored is not coming: a restart while
+# it ran (or while it waited its turn) leaves the message "pending", and nothing in the new process
+# is making it. Past this it reads as missing, and the store keeps it so when CLIVE next starts
+# (review note 4, 8 Oct). Translations run one at a time, each bounded to under a minute
+# (app/messaging/translate.py), so a quarter of an hour is far past any burst's queue.
+PENDING_LIMIT_S = 15 * 60
 
 
 def new_message_id() -> str:
@@ -64,6 +70,13 @@ class Message:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    def translation_now(self, now: float | None = None) -> str:
+        """Its translation state as the owner is told it: "pending" past PENDING_LIMIT_S is missing."""
+        moment = time.time() if now is None else now
+        if self.translation_state == "pending" and moment - self.stored_at > PENDING_LIMIT_S:
+            return "missing"
+        return self.translation_state
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Message:

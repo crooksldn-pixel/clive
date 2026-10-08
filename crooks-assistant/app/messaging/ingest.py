@@ -10,6 +10,9 @@ What it promises:
 - A message is stored before anything slow is tried, so a translation that fails or a nickname
   WeCom will not give never loses the message itself.
 - A message is translated once, when it arrives; failing that it says its translation is missing.
+  Nothing waits for a translation at shutdown: one a restart cuts off is left "pending", which
+  reads as missing once PENDING_LIMIT_S has passed and is kept so at the next start
+  (app/messaging/models.py, store.py `expire_pending`).
 - Failures are logged by kind and count only: no words, no names, no ids.
 - The tasks it starts are kept until they end, and at most MAX_RUNNING run at once; past that a
   callback is still stored by the next one that reads the channel (WeCom's cursor), so nothing is
@@ -46,7 +49,8 @@ def start(adapter: Adapter, inbound: Inbound) -> bool:
 
 
 async def settle() -> None:
-    """Wait for every callback being processed (the tests, and shutdown)."""
+    """Wait for every callback being processed. For the tests: nothing calls it at shutdown (see
+    the header on what a restart leaves)."""
     while _RUNNING:
         await asyncio.gather(*list(_RUNNING), return_exceptions=True)
 

@@ -90,6 +90,37 @@ def test_the_store_is_private_and_keeps_ninety_days(tmp_path):
     assert held.prune() == 1 and held.threads() == [] and held.cursor("wecom:kf:x") == "cursor-1"
 
 
+def test_a_translation_a_restart_cut_off_reads_missing_after_a_bounded_time_and_is_kept_so(tmp_path):
+    """Review note 4 (8 Oct): a restart while a translation ran left the message "pending", and the
+    card said "Translation still being made" for good. Now that reads as missing once PENDING_LIMIT_S
+    has passed, and the next start keeps it so; a recent one is left to finish."""
+    from app.messaging import views
+    from app.messaging.models import PENDING_LIMIT_S
+
+    now = [time.time()]
+    held = MessageStore(clock=lambda: now[0])
+    held.configure(tmp_path / "messaging")
+    thread = channel.kf_thread(wecom_world.KF, wecom_world.JESSICA)
+    for n, age in ((1, PENDING_LIMIT_S + 60), (2, 30)):
+        held.add(thread, Message(message_id=f"m_{n}", chat_id=thread.chat_id, direction="in", origin="contact",
+                                 text="样衣好了吗？", at=now[0] - age, language="zh", translation_state="pending",
+                                 stored_at=now[0] - age, remote_id=f"r{n}"))
+    cut_off, recent = held.messages(thread.chat_id)
+    assert views.message_view(cut_off, now=now[0]) == {"direction": "in", "by": "them", "at": views.when(cut_off.at),
+                                                       "original": "样衣好了吗？", "translation": "missing"}
+    assert views.message_view(recent, now=now[0])["translation"] == "still being made"
+    assert views.message_view(recent, now=now[0] + PENDING_LIMIT_S)["translation"] == "missing"
+    held.configure(tmp_path / "messaging")                    # CLIVE starts again
+    assert [m.translation_state for m in held.messages(thread.chat_id)] == ["missing", "pending"]
+    assert held.expire_pending() == 0
+    now[0] += PENDING_LIMIT_S
+    assert held.expire_pending() == 1
+    assert [m.translation_state for m in held.messages(thread.chat_id)] == ["missing", "missing"]
+    # The promises that were never kept are gone: nothing waits at shutdown, there is no retranslate.
+    assert not hasattr(translate, "retranslate") and "retranslate" not in (translate.__doc__ or "")
+    assert "shutdown)" not in (ingest.settle.__doc__ or "")
+
+
 # ------------------------------------------------------------------ what a callback stands for
 
 

@@ -45,7 +45,7 @@ def _clip(text: str) -> str:
     return text if len(text) <= MAX_CHARS else text[: MAX_CHARS - 1].rstrip() + "…"
 
 
-def message_view(message: Message) -> dict[str, Any]:
+def message_view(message: Message, *, now: float | None = None) -> dict[str, Any]:
     by = {"contact": "them", "clive": "CLIVE", "person": "someone in WeCom"}.get(message.origin, message.origin)
     out: dict[str, Any] = {"direction": message.direction, "by": by, "at": when(message.at)}
     if message.kind != "text" and not message.text:
@@ -59,11 +59,13 @@ def message_view(message: Message) -> dict[str, Any]:
         if message.status == "failed":
             out["status"] = f"not delivered: {message.fail_reason or 'WeCom did not say why'}"
         return out
-    if message.translation_state == "done":
+    # A translation still "pending" past PENDING_LIMIT_S is not coming (a restart cut it off): missing.
+    state = message.translation_now(now)
+    if state == "done":
         out["english"], out["original"], out["translation"] = _clip(message.english), _clip(message.text), MACHINE_TRANSLATION
-    elif message.translation_state in ("missing", "pending"):
+    elif state in ("missing", "pending"):
         out["original"] = _clip(message.text)
-        out["translation"] = "missing" if message.translation_state == "missing" else "still being made"
+        out["translation"] = "missing" if state == "missing" else "still being made"
     else:
         out["english"] = _clip(message.text)
     return out

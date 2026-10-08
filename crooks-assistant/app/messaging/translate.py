@@ -8,7 +8,8 @@ message is translated once, when it arrives, and kept beside the original.
 What it promises:
 - A translation is labelled MACHINE_TRANSLATION wherever it is shown, and the original is kept.
 - If the model is not there, says nothing, or fails, the original stays and the message says its
-  translation is missing; nothing is guessed. `retranslate` can be asked again later.
+  translation is missing; nothing is guessed, and it is not tried again. A translation a restart
+  cut off reads as missing once PENDING_LIMIT_S has passed (app/messaging/models.py).
 - The words go to the model and nowhere else: no log line, no telemetry. The model is told the
   message is a quotation to translate and never an instruction.
 - One translation at a time, each bounded by TIMEOUT_S, so a burst of messages cannot crowd out

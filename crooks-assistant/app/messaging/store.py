@@ -9,6 +9,8 @@ What it promises:
 - Messages are kept RETENTION_DAYS (90) and at most MAX_PER_THREAD per thread; older ones are
   pruned on each write and when CLIVE starts, and a thread with nothing left goes too.
 - A message is stored once: the channel's own id (or CLIVE's id for one it sent) is its key.
+- A translation left "pending" past PENDING_LIMIT_S (a restart cut it off) is kept as missing
+  when CLIVE starts, so the message never says "still being made" for good.
 - Nothing here logs a word, a name or an id.
 """
 
@@ -45,6 +47,7 @@ class MessageStore:
             if self._root is not None:
                 self._ensure()
                 self.prune()
+                self.expire_pending()
 
     @property
     def root(self) -> Path | None:
@@ -209,6 +212,29 @@ class MessageStore:
                     self._save(thread, messages)
                     return True
         return False
+
+    def expire_pending(self) -> int:
+        """Keep as missing every translation still "pending" past PENDING_LIMIT_S: nothing is making
+        it any more. Run when CLIVE starts. Returns how many it marked."""
+        marked = 0
+        with self._lock:
+            if self._root is None:
+                return 0
+            now = self.clock()
+            for path in (self._ensure() / "threads").glob("chat_*.json"):
+                held = self._load(path.stem)
+                if not held:
+                    continue
+                thread, messages = held
+                stuck = [m for m in messages if m.translation_state == "pending" and m.translation_now(now) == "missing"]
+                for message in stuck:
+                    message.translation_state, message.english, message.translation = "missing", "", ""
+                if stuck:
+                    marked += len(stuck)
+                    self._save(thread, messages)
+        if marked:
+            log.info("messaging: %d translation(s) a restart cut off are now marked missing", marked)
+        return marked
 
     # ------------------------------------------------------------------ cursors
 
