@@ -540,7 +540,10 @@ def _open_entity(ctx: Ctx) -> Outcome:
     }
     if not calls:
         changed["needs_read"] = {"kind": kind, "ref": ref, "set_kind": _SET_KIND.get(kind, "")}
-    return Outcome(answer=f"{label}.", calls=calls, changed=changed)
+    # [checker, 8 Oct 2026] A label that already ends a sentence (an email's subject is often a
+    # question) is said as it is: "…can I add to it?" was answered "…can I add to it?.".
+    said = str(label).rstrip()
+    return Outcome(answer=said if said.endswith((".", "?", "!", "…")) else f"{said}.", calls=calls, changed=changed)
 
 
 register(Command("open.entity", "Open a linked record", _open_entity, voice=False))

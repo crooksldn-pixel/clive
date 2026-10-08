@@ -710,8 +710,8 @@ def _recent_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:   # noqa: ARG0
         rest = f"Older emails from {RECENT_WHEN} were not read."
         if real:
             newest = real[0]
-            words = (f"{len(real)} thread{'s' if len(real) != 1 else ''} from people {among}; the newest is "
-                     f"{newest.get('from') or 'someone'} about {newest.get('subject') or 'no subject'}. {rest}")
+            words = _ended(f"{len(real)} thread{'s' if len(real) != 1 else ''} from people {among}; the newest is "
+                           f"{newest.get('from') or 'someone'} about {newest.get('subject') or 'no subject'}") + f" {rest}"
         else:
             words = f"Nothing from a person {among}. {rest}"
         note = f"Only the {RECENT_LIMIT} newest emails were read; older emails from {RECENT_WHEN} were not."
@@ -721,8 +721,15 @@ def _recent_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:   # noqa: ARG0
         return RecipeAnswer(answer=f"Nothing from a person in the inbox {RECENT_WHEN}.", calls=list(result.calls),
                             partial=result.partial, trace=trace)
     newest = real[0]
-    return RecipeAnswer(answer=f"{len(real)} threads from people {RECENT_WHEN}; the newest is {newest.get('from') or 'someone'} about {newest.get('subject') or 'no subject'}.",
+    return RecipeAnswer(answer=_ended(f"{len(real)} threads from people {RECENT_WHEN}; the newest is {newest.get('from') or 'someone'} about {newest.get('subject') or 'no subject'}"),
                         calls=list(result.calls), partial=result.partial, trace=trace)
+
+
+def _ended(words: str) -> str:
+    """[checker, 8 Oct 2026] A sentence that ends in a subject line ends once: "…can I add to it?",
+    never "…can I add to it?." (found walking the screens)."""
+    words = words.rstrip()
+    return words if words.endswith((".", "?", "!", "…")) else f"{words}."
 
 
 def _recent_surface(real: list[dict[str, Any]], note: str):

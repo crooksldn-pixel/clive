@@ -183,6 +183,20 @@ test('138 of 200, the pace, and the chart: a dot for each ten, the matrix faint,
   assert.equal(one(card, 'oc-work'), null);
 });
 
+// [checker, 8 Oct 2026] Found walking the screens: 4 of 40 hoodies at a slow pace drew a block of
+// days to come starting a month after today, with no Today, no deadline and no day counted on it.
+test('a pace that lands months after the deadline still draws today, the deadline and the days counted', () => {
+  const slow = SOLD.map((_, i) => (i % 7 === 0 ? 1 : 0));   // five sold in 29 days, two in the last 14
+  const card = hoodie({ number: { of: 'Loopback Hoodie', target: 40, since: '2026-09-01', unit: 'hoodies' } });
+  card.count = Object.assign(card.count, { per_day: slow, total: 5, pace: 0.14, lands: null, far: false, days_early: null });
+  const m = N.model(card);
+  assert.ok(N.standing(m, 40).lands > m.today + 90, 'the pace lands more than three months away');
+  const to = N.edge(m);
+  const from = N.firstShown(m, to);
+  assert.ok(from <= m.today - 6 && to > m.dIdx, JSON.stringify({ from, to, today: m.today, deadline: m.dIdx }));
+  assert.deepEqual(all(drawn(card), 'on-label').map(words), ['Today', '18 Oct']);
+});
+
 test('the design\'s homepage suggestion is not drawn: nothing here can act on the shop', () => {
   const card = drawn(hoodie());
   assert.ok(!/homepage|Hold to feature|Checked live|suggests/i.test(words(card)));

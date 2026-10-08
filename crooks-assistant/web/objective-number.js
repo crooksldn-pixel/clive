@@ -216,7 +216,11 @@
     if (m.dIdx !== null) ends.push(m.dIdx);
     if (s.lands !== null) ends.push(s.lands);
     const far = Math.max(...ends);
-    return Math.min(m.today + 120, far === m.today ? m.today + 8 : far + 3);
+    // [checker, 8 Oct 2026] Never further than a chart of the most columns can reach with the week
+    // before today still in it. This said `today + 120` against at most 90 columns, so a pace landing
+    // months after the deadline started the chart a month AFTER today: no day counted, no Today and
+    // no deadline on it, and a stray date under it ("4 of 40 sold" drawn as a block of days to come).
+    return Math.min(m.today + Math.min(120, maxCols() - (MIN_COLS - 1)), far === m.today ? m.today + 8 : far + 3);
   }
   const maxCols = () => (lite() ? MAX_COLS / 2 : MAX_COLS);
   // The first day a chart ending at `to` may start on: never past a week before today, never before

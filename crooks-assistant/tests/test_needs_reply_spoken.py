@@ -61,6 +61,18 @@ async def test_every_row_of_the_spoken_queue_opens_its_thread(stage):
         assert "email_thread" in opened.surface_types, opened.surface_types
 
 
+async def test_a_thread_whose_subject_is_a_question_is_said_once(stage):
+    """Walking the screens (8 Oct): Mia's thread opened as "Mia Jones — Order 1938 — can I add to
+    it?." — the full stop went after the question mark. A label that ends a sentence is said as is."""
+    said = await stage.ask(ASKED, INBOX, reply="Three people are waiting.", session_id="nr-said")
+    mia = next(r for r in said.data("email_list").get("threads") or [] if str(r.get("subject", "")).endswith("?"))
+    label = f"{mia.get('from_name') or 'Mia Jones'} — {mia['subject']}"
+    opened = await stage.touch("open.entity", session_id="nr-said", kind="email_thread", ref=str(mia["thread_id"]),
+                               label=label)
+    answer = str(opened.raw.get("answer") or "")
+    assert answer.endswith("?") and not answer.endswith("?."), answer
+
+
 async def test_nobody_waiting_leaves_the_read_layer_to_say_who_wrote():
     from app.families.landings import queue_for_model, waits_in_inbox
 
