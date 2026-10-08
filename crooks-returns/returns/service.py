@@ -95,6 +95,20 @@ def _after(stamp: str | None, since: datetime, *, slack_s: int) -> bool:
     return at >= since - timedelta(seconds=slack_s)
 
 
+def public_ref(ref: str | None) -> str | None:
+    """A label ref fit to show or log: a Parcel2Go ref without its access hash."""
+    if ref and ref.startswith("p2g:"):
+        return ":".join(ref.split(":")[:3])
+    return ref
+
+
+def redacted(ret: Return) -> dict[str, Any]:
+    """The whole return as JSON, its Parcel2Go access hash left out."""
+    doc = json.loads(ret.model_dump_json())
+    doc["postage"]["label_ref"] = public_ref(ret.postage.label_ref)
+    return doc
+
+
 class Notifier:
     """Signed webhooks to CLIVE. Delivery never blocks or fails an action."""
 
@@ -106,7 +120,7 @@ class Notifier:
         if not self.s.clive_webhook_url:
             return
         body = json.dumps(
-            {"event": event, "at": now().isoformat(), "return": json.loads(ret.model_dump_json())}
+            {"event": event, "at": now().isoformat(), "return": redacted(ret)}
         ).encode()
         sig = hmac.new(self.s.clive_webhook_secret.encode(), body, hashlib.sha256).hexdigest()
         try:
@@ -321,6 +335,7 @@ class ReturnsService:
                     "summary": self.summary(ret),
                 },
             )
+            self._stamp(ret, 0, "portal")
             self.store.save(ret)
         self.notifier.send("return.requested", ret)
         return ret
@@ -829,8 +844,14 @@ class ReturnsService:
         address["email"] = address.get("email") or (
             (order.email or order.customer_email) if order else None
         )
+
+        def record(ref: str, paying_since: datetime | None) -> None:
+            # Saved before the provider pays: a lost reply or a crash then settles this order.
+            ret.postage.label_ref, ret.postage.label_paying_since = ref, paying_since
+            self.store.save(ret)
+
         try:
-            label = self.labels.create(ret, address)
+            label = self.labels.create(ret, address, record)
         except LabelError as exc:
             if exc.ref:  # an order exists: keep it so a retry settles it, never buys twice
                 ret.postage.label_ref = exc.ref
@@ -1244,36 +1265,45 @@ class ReturnsService:
         for found in self.store.search(status=[Status.awaiting_label.value], limit=1000):
             if not (found.postage.label_ref or "").startswith("p2g:"):
                 continue
-            with self.store.lock:
-                ret = self._get(found.id)
-                if ret.status != Status.awaiting_label:
-                    continue
-                if ret.postage.label_file_id or ret.postage.qr_file_id:
-                    # Collected before; only handing it to Shopify failed.
-                    label = (
-                        self.label_link(ret.postage.label_file_id)
-                        if ret.postage.label_file_id
-                        else None
-                    )
-                    if self._attach(
-                        ret, "system", label_url=label, notify=self.s.shopify_notify_customer
-                    ):
-                        ret.status = Status.awaiting_shipment
-                elif collect is not None:
-                    try:
-                        label = collect(ret)
-                    except LabelError as exc:
-                        ret.last_error = str(exc)
-                        self.store.save(ret)
-                        continue
-                    self._label_ready(ret, "system", label)
-                else:
-                    continue
-                self.store.save(ret)
-            if ret.status == Status.awaiting_shipment:
+            try:
+                ret = self._collect_one(found.id, collect)
+            except Exception:
+                # One return's failure never holds up the others; it is tried next time.
+                log.exception("collecting the label for %s failed", found.id)
+                continue
+            if ret is not None and ret.status == Status.awaiting_shipment:
                 self.notifier.send("return.label", ret)
                 done.append(ret.id)
         return done
+
+    def _collect_one(self, rid: str, collect: Any) -> Return | None:
+        with self.store.lock:
+            ret = self._get(rid)
+            if ret.status != Status.awaiting_label:
+                return None
+            if ret.postage.label_file_id or ret.postage.qr_file_id:
+                # Collected before; only handing it to Shopify failed.
+                label = (
+                    self.label_link(ret.postage.label_file_id)
+                    if ret.postage.label_file_id
+                    else None
+                )
+                if self._attach(
+                    ret, "system", label_url=label, notify=self.s.shopify_notify_customer
+                ):
+                    ret.status = Status.awaiting_shipment
+            elif collect is not None:
+                try:
+                    label = collect(ret)
+                except LabelError as exc:
+                    ret.last_error = str(exc)
+                    self.store.save(ret)
+                    return None
+                self._label_ready(ret, "system", label)
+            else:
+                return None
+            self.store.save(ret)
+            return ret
 
     def tick(self) -> list[str]:
         """Collect bought labels and flag labels that are overdue. Run on a timer (or by
@@ -1502,7 +1532,7 @@ class ReturnsService:
 
     def staff(self, ret: Return) -> dict[str, Any]:
         """What CLIVE and staff see: everything, plus the derived flags that need attention."""
-        doc = json.loads(ret.model_dump_json())
+        doc = redacted(ret)  # Parcel2Go refs end with an access hash: never shown or sent
         overdue = bool(
             ret.status == Status.awaiting_label
             and ret.postage.label_due_at

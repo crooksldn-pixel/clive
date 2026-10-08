@@ -55,6 +55,9 @@ class FakeParcel2Go:
         self.unreleased_reads = 0
         self.order_reads = 0
         self.label_answers_html = False
+        # Parcel2Go can take a while to show a payment: GET /orders hides PaidDate this many
+        # times after the order was paid.
+        self.paid_date_lag = 0
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path, method = request.url.path, request.method
@@ -140,6 +143,11 @@ class FakeParcel2Go:
         if path == "/api/orders" and method == "GET":
             oid = request.url.params.get("orderId")
             self.order_reads += 1
+            if self.paid_date_lag and oid in self.paid:
+                self.paid_date_lag -= 1
+                return httpx.Response(
+                    200, json={"PaidDate": None, "TotalPrice": 2.39, "Items": [], "Links": {}}
+                )
             if self.unreleased_reads:
                 self.unreleased_reads -= 1
                 return httpx.Response(
@@ -533,3 +541,68 @@ def test_the_order_email_is_used_when_the_return_has_none(psvc, shop, p2g_server
     psvc.store.save(ret)
     approve(psvc, ret)
     assert p2g_server.orders[0]["Items"][0]["CollectionAddress"]["Email"] == "customer@example.com"
+
+
+# ------------------------------------------------------------------ a payment never repeated
+
+
+def test_a_payment_parcel2go_shows_late_is_never_paid_again(psvc, p2g_server):
+    """The reply to paywithprepay is lost and Parcel2Go doesn't show the payment at once. One
+    "unpaid" read straight after is not proof: nothing is paid again until it shows, or until
+    long enough has passed for "unpaid" to be true."""
+
+    ret = request(psvc)
+    p2g_server.lose_pay_response, p2g_server.paid_date_lag = True, 3
+    ret = approve(psvc, ret)
+    assert ret.status == Status.awaiting_label and ret.postage.label_paying_since is not None
+    p2g_server.lose_pay_response = False
+    soon = psvc.execute(ret.id, "label", {}, "staff", "k2")["return_doc"]
+    assert soon.status == Status.awaiting_label and "may still be going through" in soon.last_error
+    assert p2g_server.paid == ["26633"]  # never paid twice
+    p2g_server.paid_date_lag = 0  # Parcel2Go now shows it paid
+    done = psvc.execute(ret.id, "label", {}, "staff", "k3")["return_doc"]
+    assert done.status == Status.awaiting_shipment
+    assert p2g_server.paid == ["26633"] and len(p2g_server.orders) == 1
+
+
+def test_an_unpaid_order_is_paid_once_the_settle_window_has_passed(psvc, p2g_server):
+    """The pay request never reached Parcel2Go: after the window, "unpaid" is believed and the
+    same order is paid, once."""
+    from datetime import UTC, datetime, timedelta
+
+    ret = request(psvc)
+    p2g_server.refuse_pay = True  # nothing charged
+    ret = approve(psvc, ret)
+    p2g_server.refuse_pay = False
+    stored = psvc.store.get(ret.id)
+    stored.postage.label_paying_since = datetime.now(UTC) - timedelta(minutes=20)
+    psvc.store.save(stored)
+    done = psvc.execute(ret.id, "label", {}, "staff", "k2")["return_doc"]
+    assert done.status == Status.awaiting_shipment
+    assert p2g_server.paid == ["26633"] and len(p2g_server.orders) == 1
+
+
+def test_a_crash_after_paying_settles_the_same_order(psvc, p2g_server, clock, monkeypatch):
+    """The process dies after Parcel2Go took the money, before the return was saved: the order
+    was written down before paying, so the next approval settles it instead of buying again."""
+    from datetime import timedelta
+
+    from returns import parcel2go
+
+    ret = request(psvc)
+    real = parcel2go.Parcel2Go._pay
+
+    def paid_then_died(self, ref):
+        real(self, ref)
+        raise KeyboardInterrupt  # not an Exception: nothing after this runs or saves
+
+    monkeypatch.setattr(parcel2go.Parcel2Go, "_pay", paid_then_died)
+    with pytest.raises(KeyboardInterrupt):
+        approve(psvc, ret)
+    monkeypatch.setattr(parcel2go.Parcel2Go, "_pay", real)
+    saved = psvc.store.get(ret.id)
+    assert saved.postage.label_ref and saved.postage.label_ref.startswith("p2g:26633:")
+    clock.now = clock.now + timedelta(minutes=3)  # past Shopify's own settle window
+    done = approve(psvc, ret, key="k2")
+    assert done.status == Status.awaiting_shipment
+    assert len(p2g_server.orders) == 1 and p2g_server.paid == ["26633"]

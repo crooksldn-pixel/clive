@@ -296,7 +296,7 @@ class FakeLabels:
     def available(self) -> tuple[bool, str]:
         return (True, "") if self.ok else (False, "Click & Drop is not connected (test).")
 
-    def create(self, ret: Return, address: dict[str, Any]) -> Label:
+    def create(self, ret: Return, address: dict[str, Any], record=None) -> Label:
         if not self.ok:
             raise LabelError(self.available()[1])
         if ret.postage.label_ref:

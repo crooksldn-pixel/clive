@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from collections.abc import Callable
 from typing import Any, Protocol
 
 import httpx
@@ -26,6 +27,8 @@ class LabelError(RuntimeError):
     order exists with the provider, so a retry settles that one instead of buying another.
     `paid` is True when the provider confirmed the label is paid for (only collecting it
     failed), False when it confirmed it isn't, None when nobody knows yet."""
+
+    status: int | None = None  # the provider's HTTP status, when it answered one
 
     def __init__(self, message: str, ref: str | None = None, paid: bool | None = None) -> None:
         super().__init__(message)
@@ -53,9 +56,17 @@ def tracking_url(number: str) -> str:
     return f"https://www.royalmail.com/track-your-item#/tracking-results/{number}"
 
 
+# Called by a provider once its order exists and before it pays: (order ref, when payment is
+# being sent, or None when it was definitely refused). The service saves both at once, so a
+# crash or a lost reply leaves a record that settles that order and never buys another.
+Record = Callable[[str, "datetime | None"], None]
+
+
 class LabelPort(Protocol):
     def available(self) -> tuple[bool, str]: ...
-    def create(self, ret: Return, address: dict[str, Any]) -> Label: ...
+    def create(
+        self, ret: Return, address: dict[str, Any], record: Record | None = None
+    ) -> Label: ...
 
 
 class ClickAndDrop:
@@ -113,7 +124,7 @@ class ClickAndDrop:
             ]
         }
 
-    def create(self, ret: Return, address: dict[str, Any]) -> Label:
+    def create(self, ret: Return, address: dict[str, Any], record: Record | None = None) -> Label:
         ok, why = self.available()
         if not ok:
             raise LabelError(why)
@@ -158,5 +169,5 @@ class NoLabels:
     def available(self) -> tuple[bool, str]:
         return False, "Automatic labels are not set up."
 
-    def create(self, ret: Return, address: dict[str, Any]) -> Label:
+    def create(self, ret: Return, address: dict[str, Any], record: Record | None = None) -> Label:
         raise LabelError(self.available()[1])

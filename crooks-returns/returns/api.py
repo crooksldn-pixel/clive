@@ -35,7 +35,13 @@ def proxy_signature_ok(query: list[tuple[str, str]], secret: str) -> bool:
             grouped.setdefault(k, []).append(v)
     message = "".join(sorted(f"{k}={','.join(v)}" for k, v in grouped.items()))
     want = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
-    return bool(given) and hmac.compare_digest(want, given)
+    return bool(given) and same(want, given)
+
+
+def same(a: str, b: str) -> bool:
+    """A constant-time compare of what was sent with what is expected, for any characters
+    (compare_digest refuses non-ASCII text with an error, which answered 500)."""
+    return hmac.compare_digest(a.encode(), b.encode())
 
 
 def page(found: list[dict[str, Any]], limit: int) -> dict[str, Any]:
@@ -54,7 +60,7 @@ def page(found: list[dict[str, Any]], limit: int) -> dict[str, Any]:
 
 def webhook_ok(body: bytes, header: str, secret: str) -> bool:
     want = base64.b64encode(hmac.new(secret.encode(), body, hashlib.sha256).digest()).decode()
-    return bool(header) and hmac.compare_digest(want, header)
+    return bool(header) and same(want, header)
 
 
 def parcel2go_signature_ok(data: dict[str, Any], secret: str) -> bool:
@@ -65,7 +71,7 @@ def parcel2go_signature_ok(data: dict[str, Any], secret: str) -> bool:
     stamp = str(data.get("Timestamp") or "").replace("T", " ")[:19]
     message = f"{data.get('Id')}:{stamp}:{data.get('Type')}"
     want = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(want, str(data.get("Signature") or "").lower())
+    return same(want, str(data.get("Signature") or "").lower())
 
 
 def fail(exc: ActionError) -> HTTPException:
@@ -214,7 +220,7 @@ def build_routers(svc: ReturnsService) -> list[APIRouter]:
         return authorization[7:].strip()
 
     def can(kind: str, key: str) -> bool:
-        return any(hmac.compare_digest(key, k) for k in settings.keys(kind))
+        return any(same(key, k) for k in settings.keys(kind))
 
     def reader(authorization: str | None = Header(default=None)) -> None:
         if not can("read", bearer(authorization)):
@@ -323,7 +329,8 @@ def build_routers(svc: ReturnsService) -> list[APIRouter]:
                             "order": r.order_name,
                             "type": e.type,
                             "actor": e.actor,
-                            "source": e.source or None,
+                            # Unstamped events were the system's own (timer, webhooks).
+                            "source": e.source or "system",
                             "verified": e.verified,
                             "detail": e.detail,
                             "status_now": r.status.value,
@@ -376,8 +383,13 @@ def build_routers(svc: ReturnsService) -> list[APIRouter]:
 
     @misc.post("/webhooks/parcel2go")
     async def parcel2go_webhook(request: Request) -> dict[str, Any]:
-        data = await request.json()
-        if not parcel2go_signature_ok(data, settings.p2g_webhook_secret):
+        try:
+            data = await request.json()
+        except ValueError as exc:
+            raise HTTPException(400, "Not JSON.") from exc
+        if not isinstance(data, dict) or not parcel2go_signature_ok(
+            data, settings.p2g_webhook_secret
+        ):
             raise HTTPException(401, "Bad signature.")
         payload = data.get("Payload") or {}
         if data.get("Type") == "Tracking" and payload.get("OrderLineId"):

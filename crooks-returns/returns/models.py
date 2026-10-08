@@ -223,6 +223,9 @@ class PostageState(BaseModel):
     tracking_url: str | None = None
     label_file_id: str | None = None
     label_ref: str | None = None
+    # When a label payment was last sent: until Parcel2Go shows it, or long enough has passed,
+    # an "unpaid" read is not proof it wasn't taken (see parcel2go.PAY_SETTLE).
+    label_paying_since: datetime | None = None
     label_due_at: datetime | None = None
     # Parcel2Go: the service the customer picked (or that was booked), its drop-off network,
     # what the label cost us, and the QR code they show at the shop.
