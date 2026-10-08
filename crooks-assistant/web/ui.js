@@ -1630,23 +1630,29 @@
     const live = supported && status === 'pending' && Boolean(d.proposal_id) && !blocked;
     const label = live ? text(interaction.label, gestureLabel(kind)) : (blocked ? blockedLabel(blocked.code) : (supported ? settledLabel(status) : 'Needs a newer app build'));
     const surface = buildSurface(kind, label, text(interaction.target), live ? 'arming' : (blocked ? 'unavailable' : (supported ? status : 'unsupported')), live);
-    const facts = list(d.facts, 8).filter((f) => text(f.value));
+    // [flow, DEC-069] A message — an email today, WeCom/WhatsApp/Instagram next — is the message
+    // card: who it goes to, its words editable here, and this one gesture that sends it.
+    const message = d.message && typeof d.message === 'object' ? d.message : null;
+    const typing = { node: null };
+    const words = message ? messageBlock(message, typing, opts) : null;
+    const facts = list(d.facts, 8).filter((f) => text(f.value) && !(message && MESSAGE_SHOWN.indexOf(text(f.label)) !== -1));
     const footer = text(interaction.footer, 'nothing happens until you tap');
     const decline = declineButton(live, opts);   // design pass (3 Oct): "Not now"
+    const other = live && message ? otherWayButton(message) : null;
     const node = card('confirmation', [
       h('div', { class: 'card-head' }, [
         // Design pass: a proposed change is not an error. The red tier keeps its "!"; an ordinary
         // change carries a grey pencil (web/design.css).
         risk === 'red' ? h('div', { class: 'mark bad' }, h('span', { text: '!' })) : h('div', { class: 'mark quiet' }, PENCIL()),
         h('div', {}, [
-          kicker(blocked ? 'Prepared · cannot apply from here' : (risk === 'red' ? 'Proposed · needs care' : 'Proposed')),
+          kicker(blocked ? 'Prepared · cannot apply from here' : (message ? messageKicker(message) : (risk === 'red' ? 'Proposed · needs care' : 'Proposed'))),
           h('h2', { class: 'card-title', text: text(d.title, 'Confirm') }),
           h('p', { class: 'card-sub', text: text(d.entity, text(d.detail)) }),
         ]),
       ]),
       d.summary ? h('blockquote', { class: 'action-summary', text: text(d.summary) }) : null,
       // An email's whole text, when the change is an email: what the gesture sends, read here.
-      d.body ? h('blockquote', { class: 'action-summary action-body' }, h('p', { class: 'msg-body', text: text(d.body) })) : null,
+      words || (d.body ? h('blockquote', { class: 'action-summary action-body' }, h('p', { class: 'msg-body', text: text(d.body) })) : null),
       // What the gesture authorises, fact by fact, from the Mac. The owner reads this, not
       // the model's sentence, before moving a hand.
       facts.length ? h('dl', { class: 'facts' }, facts.map((f) => [h('dt', { text: text(f.label) }), h('dd', { class: text(f.tone) || null, text: text(f.value) })]).flat()) : null,
@@ -1655,11 +1661,20 @@
       // The reason a gesture would be refused is the one line the owner must read: body
       // size, not the 11 px caption.
       blocked ? h('p', { class: 'card-sub action-why', text: text(blocked.reason) }) : null,
-      actionFoot(h('p', { class: 'action-meta', text: live ? (num(d.ttl_s) !== null ? `Waits ${Math.round(d.ttl_s)} s · ${footer}` : capitalise(footer)) : '' }), decline),
-    ], Object.assign({ className: `tier-${risk} kind-${kind}` }, opts));
+      actionFoot(h('p', { class: 'action-meta', text: live ? (num(d.ttl_s) !== null ? `Waits ${Math.round(d.ttl_s)} s · ${footer}` : capitalise(footer)) : '' }), decline, other),
+    ], Object.assign({ className: `tier-${risk} kind-${kind}${message ? ' is-message' : ''}` }, opts));
     node.dataset.proposal = text(d.proposal_id);
     node.dataset.ref = text(d.entity_ref);
-    if (live) wireGesture(node, surface, kind, text(d.proposal_id), armedAfter, opts, num(d.ttl_s), (left) => `Waits ${left} s · ${footer}`);
+    // [flow, DEC-069] While words typed on the card are on their way to the Mac, the gesture waits:
+    // the hold only ever sends the words the Mac has prepared, which are the words on the card.
+    let gestureOpts = opts;
+    if (message) {
+      typing.node = node;
+      node.dataset.message = text(message.key);
+      if (words && words.querySelector && words.querySelector('.is-unsaved')) markTyping(node);
+      gestureOpts = Object.assign({}, opts, { blocked: () => (typeof opts.blocked === 'function' && Boolean(opts.blocked())) || node.dataset.typing === 'true' });
+    }
+    if (live) wireGesture(node, surface, kind, text(d.proposal_id), armedAfter, gestureOpts, num(d.ttl_s), (left) => `Waits ${left} s · ${footer}`);
     wireDecline(decline, node, surface, text(d.proposal_id), opts);
     return node;
   }
@@ -1675,9 +1690,68 @@
     if (!live || !opts || typeof opts.onDecline !== 'function') return null;
     return h('button', { class: 'action-decline', type: 'button', text: 'Not now' });
   }
-  function actionFoot(meta, decline) {
-    return decline ? h('div', { class: 'action-foot' }, [meta, decline]) : meta;
+  function actionFoot(meta, decline, other) {
+    return decline || other ? h('div', { class: 'action-foot' }, [meta, other || null, decline]) : meta;
   }
+
+  // ---- [flow, DEC-069] the message card's own parts (app/families/message.py has the contract).
+  // The fields are the composer's own (`field`): a keystroke posts the card's opaque key, the
+  // field's NAME and the characters to `message.stage`, after the same quiet, and the Mac prepares
+  // the message again and answers with the card, which takes this one's place. Nothing here is an
+  // argument of the change.
+  const CHANNEL_WORDS = { email: 'Email', wecom: 'WeCom', whatsapp: 'WhatsApp', instagram: 'Instagram' };
+  // The facts the message's own lines already say, so they are not said twice.
+  const MESSAGE_SHOWN = ['To', 'Subject'];
+  function messageKicker(m) {
+    const what = text(m.kind) === 'reply' ? 'Reply' : (CHANNEL_WORDS[text(m.channel)] || 'Message');
+    return `${what} · ${m.sending === false ? 'to keep as a draft' : 'ready to send'}`;
+  }
+  function markTyping(node, words) {
+    if (!node || !node.dataset) return;
+    node.dataset.typing = 'true';
+    const label = node.querySelector ? node.querySelector('.action-label') : null;
+    if (label) label.textContent = words || 'Updating the words…';
+  }
+  function messageBlock(m, typing, opts) {
+    const key = text(m.key);
+    const can = strings(m.editable, 2);
+    const settings = Object.assign({}, opts, {
+      onField: () => { if (typing.node) markTyping(typing.node); },
+    });
+    const edit = (name, label, value, extra) => field(Object.assign({
+      kind: 'text', name, label, value, compose_id: key, post: text(m.command, 'message.stage'),
+    }, extra), settings);
+    const rows = [fieldStatic({ name: 'to', label: 'To', value: text(m.to) })];
+    if (can.indexOf('subject') !== -1) rows.push(edit('subject', 'Subject', m.subject, { maxlength: 120, rows: 2 }));
+    else if (text(m.subject)) rows.push(fieldStatic({ name: 'subject', label: 'Subject', value: text(m.subject) }));
+    if (can.indexOf('body') !== -1) rows.push(edit('body', 'Message', m.body, { maxlength: 2000, rows: messageRows(m.body) }));
+    else rows.push(h('blockquote', { class: 'action-summary action-body' }, h('p', { class: 'msg-body', text: text(m.body) })));
+    if (text(m.sign_off)) rows.push(h('p', { class: 'message-sign-off', text: `Signed off “${text(m.sign_off)}” when it goes` }));
+    return h('div', { class: 'message-block', data: { channel: CHANNEL_WORDS[text(m.channel)] ? text(m.channel) : 'message' } }, rows);
+  }
+  // As tall as the words, within three and seven lines: a one-line reply in a seven-line box put
+  // the hold below the fold on the tablet's 800 px landscape screen. About 56 characters a line.
+  function messageRows(body) {
+    const lines = text(body).split('\n').reduce((n, line) => n + Math.max(1, Math.ceil(line.length / 56)), 0);
+    return Math.max(3, Math.min(7, lines + 1));
+  }
+  // The other way to prepare the same words — "Save as draft" on an email, "Send instead" on a
+  // draft. Quiet: it is never the step he has to go through. It names the command and the card's
+  // key; the Mac reads which tool that is from the write itself.
+  function otherWayButton(m) {
+    const other = m.other && typeof m.other === 'object' ? m.other : null;
+    if (!other || !text(other.label) || !text(other.args)) return null;
+    return h('button', {
+      class: 'action-other', type: 'button', text: text(other.label),
+      data: { command: text(m.command, 'message.stage'), args: text(other.args) },
+    });
+  }
+  // A keystroke the Mac would not take: the card says it is not ready, and the gesture stays
+  // waiting (web/app.js `composeFieldChanged` calls this before saying why beside the field).
+  function messageRefused(cardNode) {
+    if (cardNode && cardNode.dataset && cardNode.dataset.message) markTyping(cardNode, 'Not ready to send');
+  }
+  // ---- [flow] end
   function wireDecline(decline, node, surface, id, opts) {
     if (!decline || !id) return;
     decline.addEventListener('click', () => {
@@ -2092,7 +2166,17 @@
   function renderError(d, opts) {
     return card('error', [
       h('div', { class: 'card-head' }, [h('div', { class: 'mark bad' }, h('span', { text: '×' })), h('div', {}, [kicker(text(d.service, 'assistant')), h('h2', { class: 'card-title', text: text(d.title, 'Something went wrong') }), h('p', { class: 'card-sub', text: text(d.recovery) })])]),
+      againButton(d.again),
     ], opts);
+  }
+  // [flow, DEC-069] A message send that provably did not go offers its words again, as a new card
+  // to hold: one quiet button naming the message command and the card's opaque key, nothing else.
+  function againButton(again) {
+    const a = again && typeof again === 'object' ? again : null;
+    if (!a || text(a.command) !== 'message.stage' || !/^key=msg_[0-9a-f]{16}&again=1$/.test(text(a.args))) return null;
+    return h('div', { class: 'action-foot' }, [
+      h('button', { class: 'action-other', type: 'button', text: text(a.label, 'Try again'), data: { command: 'message.stage', args: text(a.args) } }),
+    ]);
   }
 
   // ---- the read layer's cards: figures the Mac formatted, drawn as text and bars.
@@ -4016,5 +4100,7 @@
     // The email workspace's own seams: a proven archive applied to the deck on screen, and
     // the unsaved-typing store a redraw must not delete (web/app.js, tests/web/email.test.js).
     settleThread, clearFieldDrafts, ageFieldDrafts, fieldDraft, FIELD_DRAFT_TTL_MS,
+    // [flow, DEC-069] The message card: an edit the Mac would not take (web/app.js).
+    messageRefused,
   };
 });

@@ -14,6 +14,16 @@ arrive together however fast the reads were.
 
 This module is the other half: a workspace that exists from the first moment and fills in.
 
+**Since 7 October 2026 (DEC-069) a turn's workspace is QUIET.** The owner, that day: "if you
+ask a question, sometimes you'll get shown irrelevant screens that just happened during a
+search process" — the customer's order count, somebody else's email, today's threads and
+today's orders, when all he wanted was the reply to that customer. So `POST /turn` begins its workspace with
+`quiet=True`: while CLIVE works the glass says what it is doing in words (the /state poll's
+running tool, web/app.js `DETAIL_WORDS`), and nothing a read found is staged until `complete`,
+which reconciles only what the answer is about (`app/focus.py`). The machinery below — shells,
+the header, a read's cards as it lands — is unchanged and still what a non-quiet workspace
+does; no caller begins one any more.
+
     identity         WHAT this workspace is, and the sections coming            ~0 ms
     first fact       the first read lands; its card takes the skeleton's place
     next section     the second read lands; its card is patched in beside it
@@ -274,6 +284,11 @@ class Workspace:
     actionable_ms: float | None = None
     complete_ms: float | None = None
     finished: bool = False
+    # [flow, 7 Oct — DEC-069] A turn's workspace is QUIET: while CLIVE works the owner sees
+    # progress words only, and nothing a read found reaches the glass until the answer says
+    # what it is about. The sections still keep their states (what is being read, what has
+    # landed), but no shell, no header and no read's card is staged before `complete`.
+    quiet: bool = False
 
     def __post_init__(self) -> None:
         if not self.started:
@@ -357,7 +372,7 @@ class Workspace:
         that learns of its second section only when that section's card lands keeps the cards
         as its identity and draws no header.
         """
-        if not self.sections or (not self.planned and (len(self.sections) < 2 or self.fact_ms is not None)):
+        if self.quiet or not self.sections or (not self.planned and (len(self.sections) < 2 or self.fact_ms is not None)):
             return []
         self.planned = True
         return self._record(self.ledger.stage([self._plan_item()], at_ms=at_ms))
@@ -434,6 +449,8 @@ class Workspace:
         wanted = [kind for kind in list(kinds)[:4] if kind in SHELL_WORDS]
         for kind in wanted:
             self.section(kind)
+        if self.quiet:
+            return []
         patches = self._plan_now(now)
         return patches + self._record(self.ledger.stage([shell_item(kind) for kind in wanted], at_ms=now))
 
@@ -452,10 +469,19 @@ class Workspace:
         section = self.section(kind)
         if section is not None and section.state == WAITING:
             section.state = LOADING
+        if self.quiet:
+            return []
         patches = self._plan_now(now)
         if self.ledger.has_real(kind):
             return patches
         return patches + self._record(self.ledger.stage([shell_item(kind)], at_ms=now))
+
+    def landed(self, tool: str) -> None:
+        """A read came back on a quiet workspace (DEC-069): its section is no longer being read.
+        Nothing is staged and no count is claimed — the card it drew may not be the answer."""
+        section = self.section(SHELL_OF_TOOL.get(str(tool or ""), ""))
+        if section is not None and section.state in (WAITING, LOADING):
+            section.state = READY
 
     def failed(self, tool: str, why: str = "") -> list[Patch]:
         """A read did not come back (§27). Its section says so — and only its section.
@@ -473,6 +499,8 @@ class Workspace:
         if section is not None and section.state not in (READY, EMPTY):
             section.state, section.value = ERROR, ""
             section.note = str(why or "That lookup failed")[:80]
+        if self.quiet:
+            return []
         patches = self._record(self.ledger.drop_shell(kind, at_ms=now))
         return patches + self._plan_now(now)
 
@@ -481,6 +509,10 @@ class Workspace:
         skeletons' places, or are added."""
         now = self.at_ms()
         self._observe(list(items))
+        if self.quiet:
+            # A search in progress never takes the screen (DEC-069): the section knows it has
+            # landed, and the card waits for the answer to say whether it is what it is about.
+            return []
         patches = self._plan_now(now)
         patches += self._record(self.ledger.stage(list(items), at_ms=now))
         self._measure(patches, now)
@@ -644,13 +676,17 @@ def _key(session_id: str, branch_id: str = "") -> str:
 
 
 def begin(session_id: str, *, turn_id: str = "", branch_id: str = "",
-          clock: Callable[[], float] | None = None) -> Workspace:
+          clock: Callable[[], float] | None = None, quiet: bool = False) -> Workspace:
     """A turn has started: a working shell, now, before anything has been read. What the
     shell holds is named by its sections as each read starts (`starting`); nothing guesses
-    from the words what is coming."""
+    from the words what is coming.
+
+    `quiet` (what `POST /turn` asks for since DEC-069): nothing reaches the glass until the
+    turn's own answer is reconciled in `complete` — the owner sees progress words, then only
+    what the answer is about."""
     workspace = Workspace(
         session_id=str(session_id or ""), turn_id=str(turn_id or ""), branch_id=str(branch_id or ""),
-        clock=clock or time.perf_counter,
+        clock=clock or time.perf_counter, quiet=bool(quiet),
     )
     _LIVE[_key(session_id, branch_id)] = workspace
     while len(_LIVE) > MAX_LIVE:
@@ -808,6 +844,11 @@ def observe(session: Any, name: str, result: Any) -> None:
     try:
         workspace = _landing_on(session)
         if workspace is None or workspace.finished or not isinstance(result, dict):
+            return
+        if workspace.quiet:
+            # Nothing of it goes on the glass before the answer (DEC-069), so it is not shaped:
+            # its section only learns that the read came back.
+            workspace.landed(str(name))
             return
         from app.presentation import present
         from app.providers.base import ToolCall

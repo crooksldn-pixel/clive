@@ -260,3 +260,31 @@ body.alpha .attn-line.calm .attn-dot{background:rgba(235,235,245,.45)}
 /* Solid, as the alpha sheet was made solid: the inbox behind it read as ghost text under every
    row (style.css gives `.sheet` a translucent glass). */
 body.alpha #settings.sheet{background:#111114;-webkit-backdrop-filter:none;backdrop-filter:none}
+
+/* ------------------------------------------------------------------ 10. The message card */
+/* [flow, DEC-069] A message he asked for is one card: who it goes to, the words — editable here —
+   and the hold that sends it (web/ui.js `messageBlock`). The fields are the composer's own. */
+.card-confirmation.is-message .message-block{display:flex;flex-direction:column;gap:2px;margin:10px 0 6px}
+.card-confirmation.is-message .message-block .field{margin:8px 0 0}
+.card-confirmation.is-message .message-block .field-input{font-size:16px;line-height:1.45;text-transform:none;letter-spacing:0}
+/* An address or a subject is shown as it is written: the sheet's capitalised field labels
+   (style.css `.field`) are for labels, never for what a card says a message goes to. */
+.card .field-value{text-transform:none;letter-spacing:normal}
+/* The foot of a message card: how long it waits on its own line, then the quiet other way and
+   Not now together at the end — on a phone the three side by side squeezed the line to a word
+   a row. */
+.card-confirmation.is-message .action-foot{flex-wrap:wrap;row-gap:2px}
+.card-confirmation.is-message .action-foot .action-meta{flex:1 1 100%}
+.card-confirmation.is-message .action-foot .action-other{margin-left:auto}
+.message-sign-off{margin:6px 0 0;font-size:13px;color:rgba(235,235,245,.6)}
+/* The other way — Save as draft, Send instead — is quiet: never the step he has to go through. */
+.action-other{
+  flex:none;min-height:44px;padding:0 14px;border:0;border-radius:22px;cursor:pointer;background:transparent;
+  font:inherit;font-size:15px;font-weight:600;color:rgb(var(--acc,10,132,255));-webkit-tap-highlight-color:transparent;
+}
+.action-other:active{transform:scale(.96);background:rgba(255,255,255,.08)}
+.action-other:focus-visible{outline:2px solid rgb(var(--acc,10,132,255));outline-offset:2px}
+.action-other[disabled]{opacity:.4;pointer-events:none}
+:is(.card-confirmation):has(.action-surface:not([data-state="arming"]):not([data-state="armed"]):not([data-state="holding"]):not([data-state="held"])) .action-other{display:none}
+/* While typed words are on their way to the Mac the hold waits, and looks it. */
+.card-confirmation[data-typing="true"] .action-surface{opacity:.5;pointer-events:none}

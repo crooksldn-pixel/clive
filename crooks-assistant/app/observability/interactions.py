@@ -667,9 +667,11 @@ def after_turn(*, session_id: str, turn_id: str, question: str, transcript: dict
                ui: list[dict[str, Any]], calls: list[Any] | None, screen_state: str, carry: list[str] | None,
                error_kind: str | None, abandoned: bool, timings: dict[str, float], branch: Any = None,
                claim: dict[str, Any] | None = None, withheld: int = 0, binding: Any = None,
-               scene: dict[str, Any] | None = None, session: Any = None) -> None:
+               scene: dict[str, Any] | None = None, session: Any = None,
+               focus: dict[str, Any] | None = None) -> None:
     """One turn, written down: called by /turn once its screen is decided. Never raises, and
-    with no record installed it is one check."""
+    with no record installed it is one check. `focus` is which rule chose the answer's cards
+    and the kinds it set aside (app/focus.py, DEC-069)."""
     record = _current
     if record is None:
         return
@@ -677,14 +679,14 @@ def after_turn(*, session_id: str, turn_id: str, question: str, transcript: dict
         _after_turn(record, session_id=session_id, turn_id=turn_id, question=question, transcript=transcript,
                     answer=answer, ui=ui, calls=calls, screen_state=screen_state, carry=list(carry or []),
                     error_kind=error_kind, abandoned=abandoned, timings=timings, branch=branch, claim=claim,
-                    withheld=withheld, binding=binding, scene=scene, session=session)
+                    withheld=withheld, binding=binding, scene=scene, session=session, focus=focus)
     except Exception as exc:  # noqa: BLE001 — the record never takes a turn down
         log.warning("the interaction record missed a turn: %s", type(exc).__name__)
 
 
 def _after_turn(record: InteractionRecord, *, session_id, turn_id, question, transcript, answer, ui, calls,
                 screen_state, carry, error_kind, abandoned, timings, branch, claim, withheld, binding, scene,
-                session) -> None:
+                session, focus=None) -> None:
     from app.observability import claims
 
     now = record.clock()
@@ -702,6 +704,11 @@ def _after_turn(record: InteractionRecord, *, session_id, turn_id, question, tra
     titles = [card_title(item) for item in cards[:MAX_CARDS]]
     why = decision(ui=cards, screen_state=screen_state, carry=carry, calls=calls, card_sources=drawn_by,
                    error_kind=error_kind, abandoned=abandoned, claim=claim, withheld=withheld, scene=scene)
+    if isinstance(focus, dict) and focus.get("rule"):
+        # [flow, DEC-069] Which rule chose the answer's cards, and the kinds of card it set aside
+        # as the searches that found them (app/focus.py). Card kinds only, never what was on them.
+        why["focus"] = {"rule": str(focus["rule"])[:12],
+                        "set_aside": [str(k)[:24] for k in (focus.get("set_aside") or [])][:12] or None}
     if any(str(item.get("type") or "") in _COMPOSED and not item.get("kept") for item in cards):
         composed = workspace_reason(used, session)
         if composed is not None:

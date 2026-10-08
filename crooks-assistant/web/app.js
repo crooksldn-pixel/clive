@@ -329,7 +329,8 @@ const DETAIL_WORDS = {
   objective_show: ['Reading', 'the objective'], objective_note: ['Updating', 'the objective'],
   // Changing the inbox
   gmail_draft_reply: ['Drafting', 'the reply', true], gmail_draft_new: ['Drafting', 'a new message', true],
-  gmail_send_reply: ['Sending', 'the reply', true], gmail_send_new: ['Sending', 'the message', true],
+  // [flow, DEC-069] These PREPARE the card he sends with his hold: nothing is sent while they run.
+  gmail_send_reply: ['Writing', 'the reply', true], gmail_send_new: ['Writing', 'the email', true],
   gmail_thread_archive: ['Archiving', 'the thread', true],
   // Several at once. These STAGE a batch; the change itself goes through the confirmation
   // path afterwards, so the Mac does not call them writes and neither does this.
@@ -4841,11 +4842,69 @@ function replaceComposeCard(oldNode, items) {
   return fresh;
 }
 
-async function composeFieldChanged(control) {
+// [flow, DEC-069] A message card takes ONE edit at a time (review of 8 Oct, note 2). While an
+// edit is on its way to the Mac, a later keystroke's edit waits here — the card's key and the
+// field's NAME, never the words — and goes once the first has its answer, from the field as it
+// then is, so what is sent is the latest. Two in flight let the second's answer land on a card
+// the first's answer had already replaced: it was never drawn, and the card stayed saying
+// "Updating the words…" with its hold blocked.
+const messageEdits = new Map();      // card key → names of its fields typed into meanwhile
+const MESSAGE_BUSY_TRIES = 25;       // "busy" (another screen's edit being prepared), a quiet apart
+
+// A field on the glass, by the card key and field name it posts. Single attribute selectors,
+// compared by hand, so a key cannot become a different selector.
+function fieldOnGlass(composeId, name) {
+  for (const node of el.cards.querySelectorAll(`[data-compose="${cssEscape(composeId)}"]`)) {
+    if (node.dataset && node.dataset.field === name && node.classList && node.classList.contains('field-input')) return node;
+  }
+  return null;
+}
+
+// The field as it is on the glass NOW. A timer set before a redraw holds the node the thumb typed
+// into, which that redraw took off the glass; the field that replaced it carries the same card key
+// and field name, and the same typed words (web/ui.js keeps them across the redraw). With nothing
+// in its place, the old node is still what was typed, as before.
+function liveField(control) {
+  if (!control || !control.dataset || (typeof el.cards.contains === 'function' && el.cards.contains(control))) return control;
+  return fieldOnGlass(control.dataset.compose || '', control.dataset.field || '') || control;
+}
+
+async function composeFieldChanged(target, tries) {
+  const control = liveField(target);
   const composeId = control.dataset.compose || '';
   const name = control.dataset.field || '';
   if (!composeId || !name) return;
   const card = composeCardFor(control);
+  const message = card && card.dataset ? String(card.dataset.message || '') : '';
+  if (message) {
+    if (messageEdits.has(message)) { messageEdits.get(message).add(name); return; }
+    messageEdits.set(message, new Set());
+  }
+  let busy = false;
+  try {
+    busy = await postFieldChange(control, card, composeId, name, tries || 0);
+  } finally {
+    if (message) messageEditAnswered(message, composeId, busy ? name : '', (tries || 0) + 1);
+  }
+}
+
+// The edit is answered: what was typed meanwhile goes now, from the field as it now is. Told
+// "busy", the same field goes again after a keystroke's quiet, a bounded number of times.
+function messageEditAnswered(message, composeId, busyName, tries) {
+  const waiting = messageEdits.get(message) || new Set();
+  messageEdits.delete(message);
+  const send = (name, count) => { const field = fieldOnGlass(composeId, name); if (field) composeFieldChanged(field, count); };
+  if (busyName) {
+    waiting.add(busyName);
+    setTimeout(() => { for (const name of waiting) send(name, name === busyName ? tries : 0); }, COMPOSE_DEBOUNCE_MS);
+    return;
+  }
+  for (const name of waiting) send(name, 0);
+}
+
+// One field's words to the Mac, and its answer drawn. True when the Mac answered "busy" and the
+// edit should go again (`messageEditAnswered`).
+async function postFieldChange(control, card, composeId, name, tries) {
   const caret = typeof control.selectionStart === 'number' ? control.selectionStart : null;
   const value = String(control.value === undefined ? '' : control.value);
   // Which command a keystroke in THIS field posts. The Mac put it on the card
@@ -4855,24 +4914,39 @@ async function composeFieldChanged(control) {
   // every field on the tablet posted before there was a second kind.
   const post = control.dataset.post || 'compose.field';
   const answered = await semanticCommand(post, { compose_id: composeId, field: name, value });
-  if (!answered) return;                                   // offline: the field keeps what was typed
+  if (!answered) return false;                             // offline: the field keeps what was typed
   // CONTROL-LOCAL: a rejected value is about the FIELD it was typed into. It used to be a
   // workspace line — a message about the screen, printed for something that happened inside
   // one control, 788px from the thumb that typed it.
-  if (!answered.ok) { notifyControl(String(answered.detail || 'That could not be applied.'), control, { tone: 'bad', code: 'field_refused' }); return; }
+  if (!answered.ok) {
+    // [flow, DEC-069] On a message card: an edit a later one overtook is not a fault (the later
+    // one is the card); "busy" is the edit before it still being prepared, so it goes again;
+    // any other refusal leaves the card saying it is not ready to send.
+    if (String(answered.code || '') === 'superseded') return false;
+    if (String(answered.code || '') === 'busy' && tries < MESSAGE_BUSY_TRIES) return true;
+    if (card && window.CrooksUI && typeof window.CrooksUI.messageRefused === 'function') window.CrooksUI.messageRefused(card);
+    notifyControl(String(answered.detail || 'That could not be applied.'), control, { tone: 'bad', code: 'field_refused' });
+    return false;
+  }
   settleWithdrawn(answered);
-  if (!Array.isArray(answered.ui) || !answered.ui.length || !card) return;
-  const fresh = replaceComposeCard(card, answered.ui);
-  if (!fresh) return;
+  // [flow, DEC-069] A message card as it is on the glass now: one redrawn while this was on its
+  // way (a sibling settling, the page restoring its deck) is replaced where it now stands. Only
+  // a message card, which has one edit in flight at a time, so this answer is the newest.
+  const moved = card && !card.parentNode && card.dataset && card.dataset.message;
+  const here = moved ? composeCardFor(fieldOnGlass(composeId, name)) : card;
+  if (!Array.isArray(answered.ui) || !answered.ui.length || !here) return false;
+  const fresh = replaceComposeCard(here, answered.ui);
+  if (!fresh) return false;
   T.record('compose_field', { name, status: String((answered.changed || {}).status || '') });
   // The owner is still typing into this field. Put the focus and the caret back, or the
   // second character of an address lands at the front of it.
   const again = fresh.querySelector(`[data-field="${name}"] .field-input`) || fresh.querySelector(`.field-input[data-field="${name}"]`);
-  if (!again) return;
+  if (!again) return false;
   try {
     again.focus({ preventScroll: true });
     if (caret !== null && typeof again.setSelectionRange === 'function') again.setSelectionRange(caret, caret);
   } catch { /* a browser that will not move the caret still has the value */ }
+  return false;
 }
 
 el.cards.addEventListener('input', (event) => {

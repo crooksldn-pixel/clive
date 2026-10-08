@@ -4,7 +4,7 @@ Read this before any code. The hand-written parts change only with a decision. T
 
 <!-- map:live -->
 **Production:** `b33ccbc2`, deployed 2026-10-03 17:48 UTC ([`reports/deploy-b33ccbc2.md`](reports/deploy-b33ccbc2.md)). **Before it:** `cac1a9e7` 2026-10-03 13:01 UTC ([`reports/deploy-cac1a9e7.md`](reports/deploy-cac1a9e7.md)); `66d3e05d` 2026-10-02 13:49 UTC ([`reports/deploy-66d3e05d.md`](reports/deploy-66d3e05d.md)).
-**Tools:** 89 tools — 59 reads, 25 writes, 5 bulk ([`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md)).
+**Tools:** 93 tools — 62 reads, 26 writes, 5 bulk ([`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md)).
 <!-- /map:live -->
 
 ## Where we started (7 September 2026)
@@ -39,7 +39,8 @@ routes/turn.py → session/ · system prompt (kb/loader: who CLIVE is, his voice
   → every tool call, through a PreToolUse hook: tools/gate.py GREEN/AMBER/RED · tools/authority.py owner or staff
   → tools/dispatch.py → reads: Shopify, Gmail, analytics, Instagram, Ship24, the screens
                       → writes: STAGED as a proposal in actions/engine.py, never executed here
-  → presentation.py + screen.py → cards (web/ui.js draws them); a scene too only if CLIVE_SCENES is on
+  → presentation.py + focus.py (only what the answer is about; words, not cards, while it works: DEC-069)
+    + screen.py → cards (web/ui.js draws them); a scene too only if CLIVE_SCENES is on
   → speech/speakable → POST /speak → the ElevenLabs voice
 he holds the card → POST /actions/{id}/arm → /commit → identity.py (Tailscale whois) → re-read → execute → verify → actions.jsonl
 every step → observability/timeline.scrub → the interaction record (logs/interactions/)
@@ -52,7 +53,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 <!-- map:parts -->
 | Package | Lines | State | Not loaded by the app | Owner doc |
 |---|---:|---|---|---|
-| (top-level modules) | 11,892 | live | `engineering_measures` | none |
+| (top-level modules) | 12,245 | live | `engineering_measures` | none |
 | `actions` | 3,039 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,501 | live | — | none |
@@ -66,13 +67,13 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `digest` | 18,960 | live | 19 modules | [`KNOWLEDGE_DIGESTER_V1.md`](docs/product-memory/KNOWLEDGE_DIGESTER_V1.md) |
 | `displays` | 2,363 | live | — | none |
 | `engineering_bridge` | 742 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
-| `families` | 9,816 | live | — | none |
-| `kb` | 443 | live | — | [`OWNER_DECISIONS_2026-10-01.md`](docs/product-memory/OWNER_DECISIONS_2026-10-01.md) the voice spec |
+| `families` | 10,197 | live | — | none |
+| `kb` | 444 | live | — | [`OWNER_DECISIONS_2026-10-01.md`](docs/product-memory/OWNER_DECISIONS_2026-10-01.md) the voice spec |
 | `logging` | 195 | live | — | none |
 | `memory` | 586 | live | — | none |
 | `messaging` | 1,396 | live | — | [`WECOM.md`](docs/WECOM.md) WeCom now; WhatsApp and Instagram plug in |
 | `objectives` | 3,316 | live | — | none |
-| `observability` | 11,297 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
+| `observability` | 11,308 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
 | `orchestrator` | 10,626 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
 | `people` | 777 | live | — | [`TEAM.md`](docs/TEAM.md) |
 | `providers` | 1,029 | live | `anthropic_api` | none |
@@ -80,7 +81,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `release` | 2,088 | live | 9 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
 | `remote_engineering` | 2,506 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
 | `returns` | 818 | live | — | none |
-| `routes` | 8,308 | live | — | none |
+| `routes` | 8,435 | live | — | none |
 | `scenes` | 2,579 | off (`CLIVE_SCENES` off, default) | — | [`GENERATIVE_UI_V1.md`](docs/product-memory/GENERATIVE_UI_V1.md) |
 | `secrets` | 940 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) |
 | `session` | 1,242 | live | — | none |
@@ -88,7 +89,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `skills` | 979 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
 | `speech` | 844 | live | — | none |
 | `support` | 1,693 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
-| `tools` | 14,964 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
+| `tools` | 15,004 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
 | `work` | 1,374 | live | — | [`TEAM.md`](docs/TEAM.md) |
 <!-- /map:parts -->
 
@@ -204,5 +205,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 3,353 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 3,367 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->

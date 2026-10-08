@@ -22,7 +22,7 @@ from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app import progressive, screen
+from app import focus, progressive, screen
 from app.actions import engine as action_engine
 from app.actions.grammar import AFFIRMATION_BLOCKED, affirmation_for, words_for
 from app.actions.grammar import FIXED_LINES as GRAMMAR_FIXED_LINES
@@ -319,9 +319,10 @@ async def _turn(request: Request, runtime, live, branch, *, text: str | None, au
     # `working`: the branch counts turns actually in flight, so WORKING on a chip is a fact
     # and not a note left behind by a turn that died.
     branch.begin_turn("working it out")
-    # The workspace starts NOW, not when the reads are done (§7, D-5): its sections go up as
-    # each read starts (app/tools/dispatch.py) and are collected by the tablet's /state poll.
-    progressive.begin(session_id, turn_id=turn_id, branch_id=branch.branch_id)
+    # The workspace starts NOW, and QUIET (DEC-069, 7 Oct): a search in progress never takes the
+    # screen. While the reads run the tablet's /state poll carries what CLIVE is doing, in
+    # words; the cards come with the answer, and only what the answer is about (app/focus.py).
+    progressive.begin(session_id, turn_id=turn_id, branch_id=branch.branch_id, quiet=True)
 
     await _ensure_provider_started(runtime)
 
@@ -1456,6 +1457,64 @@ def _stand_on_what_was_shown(branch, ui: list, named: frozenset[str] = frozenset
     branch.visit(kind, ref, label)
 
 
+# ------------------------------------------------ a list he asked for, walked as the Orders icon's is
+#
+# The checker's defect 1 (night of 7-8 Oct): since every sentence became the model's (28 Sep), a
+# list drawn for a sentence opened no walk — Next answered "There is no list open to move through"
+# — while the same list opened from the Orders icon could be walked. The answer's own list now
+# opens the walk the landing opens (app/families/landings.py `_open_workflow`), decided from the
+# cards the answer drew and never from the words (MAP rule 7).
+
+#: [flow] The cards that are a list of orders a walk can go through.
+_ORDER_LISTS = frozenset({"order_list", "summary_list"})
+
+
+def _walk_what_was_listed(runtime, session, branch, ui: list) -> None:
+    """When the answer's own screen holds one list of orders and no single record, Next and
+    Previous walk that list, as they walk the Orders icon's.
+
+    The set it walks is the one the read made when it made one (a summary's `set_id`), or one
+    made here from the rows the card drew — their ids were issued to this conversation by the
+    read that returned them, so the walk can open each. A list beside a record, two lists, or a
+    list of something other than orders opens nothing new. Never raises: a walk is a
+    convenience, never the answer."""
+    own = [item for item in ui or [] if isinstance(item, dict) and not item.get("kept")]
+    lists = [item for item in own if item.get("type") in _ORDER_LISTS and isinstance(item.get("data"), dict)
+             and not item["data"].get("empty")]
+    if len(lists) != 1 or _records_shown(own) or session is None or branch is None:
+        return
+    try:
+        set_id = _set_of_the_list(session, lists[0])
+        if not set_id:
+            return
+        from app.commands import Ctx
+        from app.families.landings import _open_workflow
+
+        _open_workflow(Ctx(runtime, session, branch), {}, kind="orders", operation="review", set_id=set_id)
+    except Exception as exc:  # noqa: BLE001 — a cursor is a convenience, never the answer
+        log.debug("could not open a walk on the answer's list: %s: %s", type(exc).__name__, exc)
+
+
+def _set_of_the_list(session, item: dict) -> str:
+    """The working set of orders a list card shows: its own, or one made from its rows."""
+    from app.analytics import sets as working_sets
+    from app.summaries import order_words
+
+    data = item["data"]
+    if data.get("set_id"):
+        held = working_sets.get(session, str(data["set_id"]))
+        return held.set_id if held is not None and held.kind == "orders" else ""
+    rows = [o for o in data.get("orders") or [] if isinstance(o, dict) and o.get("order_id")]
+    if item.get("type") != "order_list" or not rows:
+        return ""
+    made = working_sets.create(
+        session, kind="orders", members=[str(o["order_id"]) for o in rows], label=str(data.get("title") or "Orders"),
+        provenance={"tool": "answer", "step": "shown"},
+        labels={str(o["order_id"]): order_words(o.get("order_number")) for o in rows if order_words(o.get("order_number"))},
+    )
+    return made.set_id
+
+
 # ------------------------------------------------ "it's on your screen" held to the screen
 #
 # George, 29 September: "it can say stuff like confirmed order xyz on screen but there is
@@ -1499,6 +1558,12 @@ async def _hold_to_the_screen(answer: str, ui: list, *, session, branch, calls, 
     missing = named_in_claim - on_it
     if showing and not missing:
         return answer, ui, None
+    if any(item.get("type") in focus.TASK for item in showing):
+        # [flow, DEC-069] A change waiting for him IS the screen (app/focus.py rule 1). A claim
+        # naming a record beside it is taken out, never answered by drawing that record in the
+        # change card's place: the card he has to hold is not swapped for one he did not ask for.
+        kept = claims.without_the_claim(answer).removesuffix(claims.NOT_ON_SCREEN).strip()
+        return (kept or READY_ON_SCREEN), ui, claims.screen_claim(corrected=True, named=sorted(missing | (said - on_it)))
     # What this turn drew of its own — a record it read, not one kept up from the screen before.
     # A claim about another record never replaces it: "show me order 1940", #1940 read, and "Order
     # #1938 is on your screen" drew #1938 in #1940's place and put the cursor on it (the round-12
@@ -1522,6 +1587,11 @@ async def _hold_to_the_screen(answer: str, ui: list, *, session, branch, calls, 
         bookkeeping = [item for item in ui if item.get("type") in screen.BOOKKEEPING]
         return answer, drawn + bookkeeping, claims.screen_claim(drew=target[2] or target[0], named=sorted(missing))
     return claims.without_the_claim(answer), ui, claims.screen_claim(corrected=True, named=sorted(missing | (said - on_it)))
+
+
+#: [flow, DEC-069] What an answer that was only a claim says instead, when the screen is the
+#: change waiting for him: true, because the change card is on it.
+READY_ON_SCREEN = "It's ready on your screen."
 
 
 def _what_is_up(own: list) -> str:
@@ -1926,11 +1996,24 @@ async def _answer(
     scene = None
     # [recording] Which rule of app/screen.py decided the screen, for the interaction record.
     carry_why: list[str] = []
+    # [flow, DEC-069] Which rule chose the answer's cards out of everything the turn read
+    # (app/focus.py), for the interaction record.
+    focus_why: dict[str, Any] = {}
+    # The records the model read, kept where a tap finds them, BEFORE the cards are drawn: a
+    # card offers a write only over a record the Mac is already holding (app/workspace.py
+    # `_still_held`), so drawn first, the first answer about a customer had no "Email <name>",
+    # and asking a second time did. Kept whether or not this answer is still wanted: reads are
+    # facts, and Back onto that order later need not ask the shop again.
+    _keep_what_was_read(calls)
     if not abandoned:
         # What the screen shows beside the answer: cards chosen from the tool results, never
-        # from the prose. See app/presentation.py for the vocabulary and the bounds.
+        # from the prose. See app/presentation.py for the vocabulary and the bounds. Only what
+        # the answer is about (DEC-069): a change wins, a record read in full wins over the
+        # searches that found it, and an error is never set aside. Beside a change to a record
+        # he already had up, what he had up and this turn read again stays: it is his screen.
         ui = present([c for c in (calls or []) if getattr(c, "proposal_id", None) not in withheld] if withheld else calls,
-                     session=session, error_kind=error_kind, writes=rail)
+                     session=session, error_kind=error_kind, writes=rail, focus=True, focus_why=focus_why,
+                     before=screen.showing(branch) if branch is not None else None)
         # The same turn as a validated scene, when CLIVE_SCENES is on: planned from these
         # reads, carried as its own field and changing nothing else. Off, nothing here runs.
         scene = _turn_scene(question or str((transcript or {}).get("text") or ""), answer, calls, session_id)
@@ -1972,8 +2055,9 @@ async def _answer(
         # new; no `shown`, so tapping the half does not redraw it; no cursor, so "cancel it"
         # and a tapped Add a note act on what the newer answer showed and not on the order
         # this one read; and no reconciliation, because the live workspace on this half is
-        # the newer turn's. What it read is still kept where a replay finds it — reads are
-        # facts, and Back onto that order later need not ask the shop again.
+        # the newer turn's. What it read is still kept where a replay finds it (above, before
+        # any card was drawn) — reads are facts, and Back onto that order later need not ask the
+        # shop again.
         # The newer turn's answer says what happens to the screen; this one leaves it alone.
         screen_state = screen.SCREEN_KEPT
         timings["workspace"] = (time.perf_counter() - started) * 1000
@@ -1981,7 +2065,6 @@ async def _answer(
             if seq is not None:
                 branch.end_turn()
             branch.idle()
-        _keep_what_was_read(calls)
         glass: dict[str, Any] = {}
     else:
         if speak and answer:
@@ -2020,6 +2103,9 @@ async def _answer(
                 branch.idle()
             if not error_kind:
                 _stand_on_what_was_shown(branch, ui, named)
+                # [flow] A list he asked for is walked with Next and Previous, as the Orders
+                # icon's list is (the checker's defect 1).
+                _walk_what_was_listed(runtime, session, branch, ui)
             # A control on a card that listens for words binds the half's cursor, not the card
             # it sits on (web/app.js `primeAction` posts the branch's entity). So only the card
             # that IS the cursor keeps one; every other card's chip primes its words and binds
@@ -2039,7 +2125,6 @@ async def _answer(
         for call in calls or []:
             if branch is not None and getattr(call, "ok", False):
                 branch.remember_result(call.name, summary=_call_summary(call), ref=_call_ref(call), ms=float(getattr(call, "duration_ms", 0.0) or 0.0))
-        _keep_what_was_read(calls)
         # The turn's own cards, reconciled against what the progressive workspace already put
         # on the glass (§7, §25). A card that is unchanged is NOT redrawn — the whole point —
         # and one that gained its rail or an enrichment is patched in place. The numbers come
@@ -2110,7 +2195,7 @@ async def _answer(
         session_id=session_id, turn_id=turn_id, question=question, transcript=transcript, answer=answer, ui=ui,
         calls=calls, screen_state=screen_state, carry=carry_why, error_kind=error_kind, abandoned=abandoned,
         timings=timings, branch=branch, claim=on_screen_claim, withheld=len(withheld), binding=binding, scene=scene,
-        session=session,
+        session=session, focus=focus_why or None,
     )
     payload = {
         "session_id": session_id,

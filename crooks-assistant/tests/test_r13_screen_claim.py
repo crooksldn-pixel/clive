@@ -150,11 +150,23 @@ async def test_a_change_staged_by_an_answer_replaced_while_its_claim_is_read_is_
     withdrawn, never shown, and nothing reaches the shop."""
     sid = "late-change"
     reached, release = await _held_claim(desk, monkeypatch, sid)
-    desk.model.steps = [reads_then_says(notes(B, "Fragile"), "The note is ready. Order 1938 is on your screen."),
-                        show_order("1940")]
+    # DEC-069 (7 Oct): a change waiting for him IS the screen, so a claim beside it is taken out
+    # and the shop is never read to draw the record it names — that read is no longer where this
+    # answer waits. Until 7 Oct the wait was the claim's read (`reached`); the same window is now
+    # held open in the answer itself, after the note is prepared and before the words come back.
+    prepared, go_on = asyncio.Event(), asyncio.Event()
+
+    async def note_then_wait(session, calls, text):
+        await notes(B, "Fragile")(session, calls, text)
+        prepared.set()
+        await go_on.wait()
+        return "The note is ready. Order 1938 is on your screen."
+
+    desk.model.steps = [note_then_wait, show_order("1940")]
     older = asyncio.create_task(say(desk, "add a note to 1940 saying fragile", sid))
-    await asyncio.wait_for(reached.wait(), 5)
+    await asyncio.wait_for(prepared.wait(), 5)
     await say(desk, "show me order 1940", sid)
+    go_on.set()
     release.set()
     late = await asyncio.wait_for(older, 5)
 
@@ -162,6 +174,29 @@ async def test_a_change_staged_by_an_answer_replaced_while_its_claim_is_read_is_
     assert proposal.entity_ref == B and proposal.status.value == "REVOKED"
     assert late["ui"] == []
     assert desk.runtime.sessions.get(sid).branch().entity["ref"] == B
+    assert desk.store.mutations == []
+    assert not reached.is_set(), "the shop was read to draw a record beside the change card"
+
+
+async def test_a_claim_beside_a_change_waiting_for_him_is_taken_out_and_the_change_stays_the_screen(desk, monkeypatch):
+    """DEC-069: the note on #1940 is prepared and the answer says "Order 1938 is on your screen".
+    The change card is what he has to hold, so it stays the screen: #1938 is not read and not drawn
+    in its place, the false sentence is not spoken, and the note is still waiting."""
+    sid = "claim-beside-change"
+    reached, release = await _held_claim(desk, monkeypatch, sid)
+    release.set()
+    desk.model.steps = [reads_then_says(notes(B, "Fragile"), "The note is ready. Order 1938 is on your screen.")]
+    body = await say(desk, "add a note to 1940 saying fragile", sid)
+
+    (proposal,) = desk.runtime.sessions.get(sid).proposals
+    assert proposal.status.value == "PENDING"
+    # The turn's own screen is the change; #1940, which he was looking at, is kept up beside it
+    # (app/screen.py carries the half's screen under a change about what it shows). #1938 is not.
+    own = [i["type"] for i in body["ui"] if i["type"] != "context_stack" and not i.get("kept") and not i.get("refreshed")]
+    assert own == ["confirmation"], records(body)
+    assert orders_on(body) <= {B}, records(body)
+    assert "1938 is on your screen" not in body["answer"] and body["answer"] == "The note is ready.", body["answer"]
+    assert not reached.is_set(), "the shop was read to draw a record beside the change card"
     assert desk.store.mutations == []
 
 
