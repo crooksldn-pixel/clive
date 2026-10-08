@@ -71,12 +71,12 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `memory` | 586 | live | — | none |
 | `objectives` | 3,316 | live | — | none |
 | `observability` | 11,297 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
-| `orchestrator` | 10,503 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
+| `orchestrator` | 10,623 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
 | `people` | 745 | live | — | [`TEAM.md`](docs/TEAM.md) |
 | `providers` | 973 | live | `anthropic_api` | none |
 | `reads` | 1,451 | live | — | none |
 | `release` | 2,088 | live | 9 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
-| `remote_engineering` | 2,477 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
+| `remote_engineering` | 2,506 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
 | `returns` | 818 | live | — | none |
 | `routes` | 8,009 | live | — | none |
 | `scenes` | 2,579 | off (`CLIVE_SCENES` off, default) | — | [`GENERATIVE_UI_V1.md`](docs/product-memory/GENERATIVE_UI_V1.md) |
@@ -197,5 +197,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 3,161 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 3,304 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->
