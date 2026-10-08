@@ -634,6 +634,8 @@ _TOOL_CONFIG = (
     ("app.connections.passkeys", ("_CONFIG",)),
     ("app.connections.ledger", ("_CONFIG",)),
     ("app.people.access", ("_CONFIG", "_CACHE")),
+    # [staff-links] where the staff links and the phones that joined by one are kept (`staff_links.configure`).
+    ("app.people.links", ("_CONFIG", "_CACHE")),
     ("app.work.tools", ("_RUNTIME",)),
     ("app.speech.voice_prefs", ("_CONFIG",)),
     ("app.clients.crooks_returns", ("_SETTINGS",)),
