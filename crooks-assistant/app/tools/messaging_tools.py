@@ -34,6 +34,7 @@ import secrets
 import time
 from typing import Any
 
+from app.actions.engine import SENT_THROUGH
 from app.actions.models import Observed, Prepared
 from app.capabilities.families import CapabilityFamily, register
 from app.clients import wecom as wecom_client
@@ -376,8 +377,8 @@ def _theirs(thread, translated: str) -> tuple[str, str]:
         observe=_observe, execute=_execute, present=_present, verify=_verify, settle=_settle,
         # His hold: RED and irreversible make it hold_to_arm at staging (app/actions/grammar.py).
         interaction="hold_to_arm", op_class="irreversible", reversible=False, precondition_keys=("last_in", "sent"),
-        # WeCom's word for a WeChat reply; every proposal names its own app as `service` in its summary,
-        # which is what the owner is told (app/actions/engine.py `service_name`).
+        # WeCom's word for a WeChat reply; every proposal names its own app as `sent_through` in its
+        # summary, which is what the owner is told (app/actions/engine.py `service_name`).
         service=wecom_client.NAME, says_failure=True,
         spoken_success="Sent to {to}.",
         spoken_failure="I couldn't confirm the message went. Check {service} before sending it again.",
@@ -423,7 +424,7 @@ async def message_reply(chat_id: str, english: str, translated: str = "") -> Pre
         summary={
             "to": who, "to_line": to_line(thread, person, who),
             "spoken_to": (who.split() or ["them"])[0], "on": on, "route": thread.route, "text": text,
-            "app": words, "service": "WeCom" if thread.channel == "wecom" else app,
+            "app": words, SENT_THROUGH: "WeCom" if thread.channel == "wecom" else app,
             "theirs": LANGUAGE_WORDS.get(language, "") if theirs else "",
             "linked": person is not None, "window": views.reply_window(thread),
             "read_back": f"send {who} a message on {words}",

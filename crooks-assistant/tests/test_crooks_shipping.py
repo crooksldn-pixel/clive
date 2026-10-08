@@ -372,6 +372,53 @@ async def test_a_change_is_blocked_on_a_server_without_the_write_key(monkeypatch
     assert (await runtime.write_status("shipping_label_print")).state == "ready"
 
 
+async def test_a_refused_buy_says_clive_shipping_refused_it_never_the_carrier(monkeypatch, keys):
+    """[channels] The card's summary keeps the carrier and service as `service` ("Royal Mail · Tracked
+    48"); who refused is the write's own name. Once the engine named the app of a message from any
+    summary's `service`, a refused buy read "Royal Mail · Tracked 48 refused that"."""
+    from app.actions import engine as engine_module
+    from app.actions.engine import ActionEngine
+    from app.actions.ledger import NullLedger
+    from app.presentation import present_action
+    from app.session.models import Session
+    from app.tools import registry
+    from app.tools.dispatch import dispatch
+
+    ready = summary() | {"label": None, "print_status": None, "can_buy": True}
+    stale = {"detail": {"message": "This order changed since you saw the price. Nothing was bought.", "code": "stale"}}
+
+    def handler(request):
+        if request.method == "POST" and request.url.path.endswith("/preview"):
+            return httpx.Response(200, json={"will": ["Buy the Royal Mail label."], "basis": "b1_abc",
+                                             "money": {"shipping_minor": 1179, "currency": "GBP"},
+                                             "service": {"carrier": "Royal Mail", "name": "Tracked 48"}})
+        if request.method == "POST" and request.url.path.endswith("/buy"):
+            return httpx.Response(409, json=stale)
+        return httpx.Response(200, json=ready)
+
+    seen = answering(monkeypatch, handler)
+    engine = ActionEngine(ledger=NullLedger())
+    monkeypatch.setattr(engine_module, "_engine", engine)
+    session = Session(session_id="s1")
+    session.epoch = 1
+    session.issue(SID)
+    text = await dispatch(shipping_tools.BUY, {"shipment_id": SID}, session=session, timeout_s=10)
+    assert text.startswith("PROPOSED"), text
+    proposal = session.proposals[-1]
+    assert proposal.summary["service"] == "Royal Mail · Tracked 48"
+    _, code = engine.arm(proposal.proposal_id, "s1")
+    assert code == ""
+    proposal.armed_at -= 1.0
+    result = await engine.commit(proposal.proposal_id, "s1", caller="owner@example.com",
+                                 spec_lookup=registry.get, nonce=proposal.arm_nonce)
+    assert [r.url.path.rsplit("/", 1)[-1] for r in seen if r.method == "POST"] == ["preview", "buy"]
+    assert result.code == "refused"
+    assert result.spoken.startswith("CLIVE Shipping refused that: This order changed since you saw the price")
+    assert "Royal Mail" not in result.spoken
+    (card,) = present_action(result)
+    assert card["data"]["service"] == "shipping" and card["data"]["recovery"].startswith("CLIVE Shipping refused it")
+
+
 # ------------------------------------------------------------------ Connections
 
 

@@ -426,6 +426,20 @@ async def test_a_send_whatsapp_refuses_is_said_in_its_words_and_nothing_is_recor
     assert store.outgoing(thread.chat_id, proposal.execution["client_id"]) is None
 
 
+async def test_a_reply_names_its_app_by_its_own_summary_key_never_service(meta, owner):
+    """[channels] The app a reply goes through is the summary's `sent_through`: a summary's `service`
+    is another write's own business (a label buy's carrier, tests/test_crooks_shipping.py)."""
+    thread = _wrote()
+    session = _session(thread)
+    await dispatch("message_reply", {"chat_id": thread.chat_id, "english": "Hello."}, session=session, timeout_s=10)
+    proposal = session.proposals[-1]
+    assert proposal.summary[engine_module.SENT_THROUGH] == "WhatsApp" and "service" not in proposal.summary
+    write = registry.get("message_reply").write
+    assert engine_module.service_name("message_reply", write, proposal) == "WhatsApp"
+    proposal.summary["service"] = "Royal Mail · Tracked 48"                     # never read for the app
+    assert engine_module.service_name("message_reply", write, proposal) == "WhatsApp"
+
+
 async def test_a_send_whose_answer_never_came_back_is_not_called_sent_and_names_whatsapp(meta, owner, engine):
     thread = _wrote()
     session = _session(thread)
