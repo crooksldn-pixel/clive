@@ -620,6 +620,8 @@ _TOOL_CONFIG = (
     ("app.work.tools", ("_RUNTIME",)),
     ("app.speech.voice_prefs", ("_CONFIG",)),
     ("app.clients.crooks_returns", ("_SETTINGS",)),
+    # [shipping] The address CLIVE Shipping is reached at (`crooks_shipping.configure`), as Returns'.
+    ("app.clients.crooks_shipping", ("_SETTINGS",)),
     ("app.tools.skill_tools", ("_CONFIG",)),
     # [loop upgrade, 7 Oct] the build server's private channel the Builds screen reads (engineering_private.configure)
     ("app.engineering_bridge.private", ("_STATE",)),

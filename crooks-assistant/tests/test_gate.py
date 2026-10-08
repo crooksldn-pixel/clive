@@ -293,14 +293,21 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     messaging = {"messages_recent", "message_thread", "message_contact"}
     assert messaging <= gate._KNOWN_TOOLS and not any(gate._looks_like_mutation(name) for name in messaging)
     assert "message_reply" not in gate._KNOWN_TOOLS and gate._looks_like_mutation("message_reply")
-    assert len(gate._KNOWN_TOOLS) == 61, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
+    # CLIVE Shipping (app/tools/shipping_tools.py, 2026-10-07): four reads of the owner's shipping
+    # service, GREEN on their ToolSpecs, named without a mutation verb; its three changes (a label
+    # bought, printed, printed again) are declared writes and so are staged, never on this list.
+    shipping = {"shipments_open", "shipment_find", "shipment_tracking", "shipping_events"}
+    assert shipping <= gate._KNOWN_TOOLS and not any(gate._looks_like_mutation(name) for name in shipping)
+    assert not {"shipping_label_buy", "shipping_label_print", "shipping_label_reprint"} & gate._KNOWN_TOOLS
+    assert len(gate._KNOWN_TOOLS) == 65, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
                                           "screen_off and screen_remote, then screen_play and screen_video, "
                                           "then round 12's shopify_order_build, show_again and close_screen, "
                                           "then instagram_inbox, instagram_thread and instagram_comments, "
                                           "then people_list, person_note, work_list and work_note, "
                                           "then skill_list and skill_read, then track_parcel, then interaction_review, "
                                           "then returns_open, return_find and returns_stats, "
-                                          "then messages_recent, message_thread and message_contact")
+                                          "then messages_recent, message_thread and message_contact, "
+                                          "then shipments_open, shipment_find, shipment_tracking and shipping_events")
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",
@@ -319,6 +326,8 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
         "return_id",
         # [messaging] A WeChat/WeCom conversation, which message_reply must act on (app/tools/messaging_tools.py).
         "chat_id",
+        # A CLIVE Shipping order, which a label is bought or printed for (app/tools/shipping_tools.py).
+        "shipment_id",
     }
     assert gate._ID_KIND["objective_id"].pattern == r"^obj_[0-9a-f]{8}$"
     assert (gate._MAX_LIMIT, gate._MAX_DAYS) == (50, 365)

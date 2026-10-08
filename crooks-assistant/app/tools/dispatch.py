@@ -51,7 +51,9 @@ _ID_KEYS = ("order_id", "customer_id", "thread_id", "message_id", "variant_id", 
             "return_id",
             # [messaging] A WeChat/WeCom conversation (app/tools/messaging_tools.py), which
             # message_thread, message_contact and message_reply must act on.
-            "chat_id")
+            "chat_id",
+            # [shipping] CLIVE Shipping (app/tools/shipping_tools.py): an order a label is bought or printed for.
+            "shipment_id")
 # Result keys whose values are a person's details. Remembered so the turn log can scrub them.
 # `username` is an Instagram handle, which is always a person's (app/tools/instagram_tools.py).
 _PII_KEYS = ("customer_name", "customer_email", "name", "from", "from_email", "email", "displayName", "zip", "company", "phone",

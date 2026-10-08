@@ -92,6 +92,9 @@ KEY_OF: dict[str, tuple[str, ...]] = {
     # [messaging] WeChat and WeCom (app/messaging/views.py `card`): one card for the recent
     # conversations ("recent"), one per conversation opened ("thread:<chat_id>"), patched when asked again.
     "messages": ("key",),
+    # [shipping] CLIVE Shipping (app/tools/shipping_views.py `card`): one card per stage asked for, one
+    # per order, one per window of what changed, each patched when asked again.
+    "shipping": ("key",),
 }
 
 # A product or an inventory card is about a product, and the query that found it is not its

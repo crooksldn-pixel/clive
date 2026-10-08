@@ -266,7 +266,13 @@ async def test_the_standing_capability_line_is_paid_for_once_per_turn_and_stays_
     # 1,074 is WeChat through WeCom (app/tools/messaging_tools.py): "- DISCONNECTED — no WeCom keys
     # stored: WeChat messages, WeChat replies", +71 characters measured (998 before, 1,069 after, the
     # two families sharing one line), said only on a server with no WeCom keys stored.
-    assert len(block) <= 1_074, f"{len(block)} chars on every model turn:\n{block}"
+    # 899 is the block re-measured exactly when CLIVE Shipping (app/tools/shipping_tools.py) was
+    # rebased onto messaging (8 Oct), on the trunk where the four returns-stub rows are retired:
+    # "- DISCONNECTED — no CLIVE Shipping keys stored: Buying and printing labels, Reading
+    # shipping", +93 characters measured (806 before, 899 after, every tool module imported), said
+    # only on a server with no shipping keys. Once the read key is stored both families are READY,
+    # and so is the parked Easyship row (app/families/shipping.py), whose own line then goes too.
+    assert len(block) <= 899, f"{len(block)} chars on every model turn:\n{block}"
 
     # The instruction appears once, at the head, and never on a line.
     assert block.count("Do not attempt") == 1, block

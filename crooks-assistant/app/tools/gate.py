@@ -220,6 +220,15 @@ _KNOWN_TOOLS = frozenset({
     # never on this list. The owner's alone (no staff set names them). Named here one by one,
     # because this is an allow-list.
     "messages_recent", "message_thread", "message_contact",
+    # [shipping] CLIVE Shipping, the owner's own international shipping service
+    # (app/tools/shipping_tools.py, through app/clients/crooks_shipping.py): the orders by stage, one
+    # order in full, its carrier tracking read from Shopify now, and what changed. Each is a GET (or
+    # the service's read-key tracking read) on its /api/v1 with the read key, and nothing else:
+    # nothing bought, printed or staged. GREEN: the service's rows name no customer. The owner's
+    # alone: no staff member's set and no service work names them. Its three changes (a label
+    # bought, printed, printed again) are writes with complete definitions, so they are staged here
+    # like every other and never on this list. Named here one by one, because this is an allow-list.
+    "shipments_open", "shipment_find", "shipment_tracking", "shipping_events",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops
@@ -260,6 +269,9 @@ _ID_KIND = {
     "return_id": re.compile(r"^ret_[0-9a-f]{6,40}$"),
     # [messaging] A conversation in CLIVE's messages (app/messaging/models.py chat_id_for).
     "chat_id": re.compile(r"^chat_[0-9a-f]{12,40}$"),
+    # [shipping] An order in CLIVE Shipping (its service's new_id: "shp_" and hex), as
+    # shipments_open or shipment_find issued it: what a label is bought or printed for.
+    "shipment_id": re.compile(r"^shp_[0-9a-f]{6,40}$"),
 }
 
 

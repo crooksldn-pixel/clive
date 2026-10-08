@@ -577,6 +577,7 @@ def load() -> None:
     import app.tools.messaging_tools  # noqa: F401
     import app.tools.returns_tools  # noqa: F401
     import app.tools.ship24_tools  # noqa: F401
+    import app.tools.shipping_tools  # noqa: F401
     import app.tools.shopify_tools  # noqa: F401
     import app.tools.shopify_writes  # noqa: F401
     import app.tools.show_again  # noqa: F401
@@ -994,6 +995,8 @@ def _error_ui(name: str) -> str:
         return "gmail"
     if name.startswith(("returns_", "return_")):
         return "returns"
+    if name in ("shipments_open", "shipment_find", "shipment_tracking") or name.startswith("shipping_"):
+        return "shipping"
     return ""
 
 

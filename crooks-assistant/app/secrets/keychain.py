@@ -82,6 +82,12 @@ KNOWN_KEYS = (
     "wecom_kf_secret",
     "wecom_callback_token",
     "wecom_encoding_aes_key",
+    # CLIVE Shipping, the owner's international shipping service (app/clients/crooks_shipping.py):
+    # the keys its .env lists for CLIVE (SHIPPING_CLIVE_READ_KEYS, SHIPPING_CLIVE_WRITE_KEYS). The
+    # read key reads orders, prices and tracking; the write key is sent only with a label bought or
+    # printed on the owner's card. No PrintNode key: printing is the service's own.
+    "crooks_shipping_read_key",
+    "crooks_shipping_write_key",
     # Reads the CROOKS Instagram account's messages and comments (app/clients/instagram.py): a
     # long-lived Instagram User access token, renewed by the application before its 60 days run
     # out. The app id and secret are the Meta app's, kept for exchanging a new short-lived token

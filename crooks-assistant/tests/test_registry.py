@@ -141,6 +141,7 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
         messaging_tools,
         returns_tools,
         ship24_tools,
+        shipping_tools,
         shopify_tools,
         shopify_writes,
         show_again,
@@ -477,7 +478,16 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # the Chinese). Imported above because app/runtime.py offers them. With no WeCom keys stored their
     # families are DISCONNECTED and none is offered at all (runtime.withheld_by_family). The ceiling
     # is raised by exactly what was measured, leaving no headroom.
-    assert total <= 53_212, f"the tool block is {total} bytes"
+    #
+    # 55_325 is CLIVE Shipping, the owner's international shipping service
+    # (app/tools/shipping_tools.py, tests/test_crooks_shipping.py), +2,113 bytes measured (53,212
+    # before, 55,325 after, re-measured on the chain after messaging, 8 Oct): shipments_open 370,
+    # shipment_find 325, shipment_tracking 299 and shipping_events 296 (four reads, the owner's
+    # alone), and shipping_label_buy 290, shipping_label_print 266 and shipping_label_reprint 267
+    # (three staged writes, each taking only a shipment_id). Imported above because app/runtime.py
+    # offers them. With no CLIVE Shipping key stored their families are DISCONNECTED. The ceiling is
+    # raised by exactly what was measured, leaving no headroom.
+    assert total <= 55_325, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

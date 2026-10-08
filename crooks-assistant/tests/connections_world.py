@@ -12,6 +12,7 @@ and every service answered by a stand-in, then puts each connection in a state t
   GitHub       set at the server, GitHub refuses the token (needs a new one)
   Ship24       not connected
   CROOKS Returns not connected
+  CLIVE Shipping not connected
   YouTube      not connected
 
 and one passkey, on an iPhone. That passkey's key is handed to the browser's virtual

@@ -148,16 +148,23 @@ def test_no_return_mutation_is_registered_anywhere():
     which calls that service's actions after the owner's approval and never Shopify. So the
     check is now exact rather than absent: that one operation, sent to CROOKS Returns, and the
     four returns tools by name, and no reviewed Shopify mutation whose document names a return,
-    a reverse delivery or a reverse fulfilment."""
+    a reverse delivery or a reverse fulfilment.
+
+    The families' writes (app/families/*) are loaded first, as tests/test_registry.py loads them, so
+    a return write registered by a family fails this run alone as it would in the whole suite."""
     import app.tools.batch_tools  # noqa: F401
     import app.tools.gmail_writes  # noqa: F401
     import app.tools.returns_tools  # noqa: F401
     import app.tools.shopify_writes  # noqa: F401
     from app.clients import crooks_returns
     from app.clients.shopify import REVIEWED_MUTATIONS
+    from app.families import load_all
     from app.tools import registry
 
+    load_all()
     specs = registry.all_specs()
+    family_writes = {"checkout_link_send", "discount_code_create", "draft_order_complete", "store_credit_credit"}
+    assert family_writes <= {s.write.operation for s in specs if s.write is not None}, "the families' writes are in"
     operations = {s.write.operation for s in specs if s.write is not None}
     operations |= {s.batch.operation for s in specs if s.batch is not None}
     for word in ("return", "exchange", "replacement", "resend"):

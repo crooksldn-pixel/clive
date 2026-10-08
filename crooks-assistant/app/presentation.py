@@ -105,11 +105,17 @@ UI_TYPES = frozenset({
     # in full, in English with each original one tap away. Built by app/messaging/views.py `card` from
     # the read's own result; drawn by web/messages.js.
     "messages",
+    # [shipping] CLIVE Shipping, the owner's international shipping service (app/tools/shipping_tools.py):
+    # the orders by stage, one order's payment, label, print and carrier, or what changed. Built by
+    # app/tools/shipping_views.py `card` from the read's own result; drawn by web/shipping.js.
+    "shipping",
 })
 # [messaging] The messaging reads, each drawn as the "messages" card (app/messaging/views.py).
 MESSAGING_TOOLS = frozenset({"messages_recent", "message_thread"})
 # The CROOKS Returns reads, each drawn as the "returns" card (app/returns/views.py).
 RETURNS_TOOLS = frozenset({"returns_open", "return_find", "returns_stats"})
+# [shipping] The CLIVE Shipping reads, each drawn as the "shipping" card (app/tools/shipping_views.py).
+SHIPPING_TOOLS = frozenset({"shipments_open", "shipment_find", "shipment_tracking", "shipping_events"})
 MAX_BATCH_ROWS = 50
 ANALYTIC_TOOLS = frozenset({"commerce_aggregate", "commerce_query", "inventory_query", "email_query"})
 # The read tools that put a workspace on the owner's screen (app/families/_workspace.py).
@@ -591,6 +597,10 @@ def _from_result(name: str, result: dict[str, Any]) -> list[dict[str, Any]]:
         from app.messaging import views as messaging_views
 
         return [_ui("messages", messaging_views.card(name, result))]
+    if name in SHIPPING_TOOLS:
+        from app.tools import shipping_views
+
+        return [_ui("shipping", shipping_views.card(name, result))]
     if name == "shopify_order_detail":
         return [_ui("order", _order(result, detail=True))]
     if name == "shopify_find_order":
@@ -1269,6 +1279,8 @@ def _tool_error(call: ToolCall, session: Session | None) -> dict[str, Any]:
         service, title = "gmail", "Email unavailable"
     elif name.startswith(("returns_", "return_")):
         service, title = "returns", "CROOKS Returns unavailable"
+    elif name in SHIPPING_TOOLS or name.startswith("shipping_"):
+        service, title = "shipping", "CLIVE Shipping unavailable"   # [shipping]
     else:
         service, title = "assistant", "Lookup failed"
     if blocked:
@@ -1436,6 +1448,8 @@ def present_action(result, *, session: Session | None = None, writes: dict[str, 
 def _service_of(proposal) -> str:
     if _service_name(proposal) == "CROOKS Returns":
         return "returns"
+    if _service_name(proposal) == "CLIVE Shipping":
+        return "shipping"   # [shipping]
     return "gmail" if str(proposal.tool_name or "").startswith("gmail_") else "shopify"
 
 
@@ -1601,6 +1615,11 @@ def present_proposal_state(
             from app.returns import views as returns_views
 
             items.append(_ui("returns", returns_views.card("return_find", {"returns": [proposal.entity]})))
+        elif isinstance(proposal.entity, dict) and proposal.entity_kind == "shipment":
+            # [shipping] The order as CLIVE Shipping now holds it, from the proving re-read.
+            from app.tools import shipping_views
+
+            items.append(_ui("shipping", shipping_views.card("shipment_find", {"shipments": [proposal.entity]})))
         elif isinstance(proposal.entity, dict) and proposal.entity.get("kind") == "email" and proposal.entity.get("body"):
             e = proposal.entity
             items.append(_ui("email_draft", {

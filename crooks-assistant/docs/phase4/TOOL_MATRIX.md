@@ -27,7 +27,7 @@ sentence reaches is what the model calls. Tests are read as syntax trees and nev
 here runs a tool, and nothing here can reach a mutation: the audit is a read of
 registries and of source text, so it is safe against a shop it may not touch.
 
-86 tools — 58 reads, 23 writes, 5 bulk.
+93 tools — 62 reads, 26 writes, 5 bulk.
 
 ## Tools
 
@@ -81,6 +81,13 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `screen_remote` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
 | `screen_show` | AMBER | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `screen_video` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
+| `shipment_find` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | shipping | — |
+| `shipment_tracking` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | shipping | — |
+| `shipments_open` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | shipping | — |
+| `shipping_events` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | shipping | — |
+| `shipping_label_buy` | AMBER | yes | yes | yes | — | write | prepared from a fresh read, held as shipping_label_buy, hold_to_arm | a predicate over the re-read, after settling | the change's own card | shipping | — |
+| `shipping_label_print` | AMBER | yes | yes | yes | — | write | prepared from a fresh read, held as shipping_label_print, swipe_commit | a predicate over the re-read, after settling | the change's own card | shipping | — |
+| `shipping_label_reprint` | AMBER | yes | yes | yes | — | write | prepared from a fresh read, held as shipping_label_reprint, swipe_commit | a predicate over the re-read, after settling | the change's own card | shipping | — |
 | `shopify_abandoned_checkouts` | AMBER | yes | yes | yes | read_orders | read | — | — | presentation.py | shopify | read |
 | `shopify_checkout_link_send` | RED | yes | yes | yes | gmail.compose | write | prepared from a fresh read, held as checkout_link_send, tap_commit | a predicate over the re-read, after settling | the change's own card | shopify | — |
 | `shopify_customer_history` | AMBER | yes | yes | yes | none needed | read | — | — | presentation.py | shopify | read |
@@ -172,6 +179,13 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `screen_remote` | family:screens | test_displays.py | — |
 | `screen_show` | family:screens | test_displays.py, test_r13_screens.py, test_screens_r10.py, test_tool_boundary.py | — |
 | `screen_video` | family:screens | test_r11_screens_server.py, test_screen_video.py | — |
+| `shipment_find` | family:shipping_reads | test_crooks_shipping_contract.py | — |
+| `shipment_tracking` | family:shipping_reads | test_crooks_shipping_contract.py | — |
+| `shipments_open` | family:shipping_reads | test_crooks_shipping_contract.py | — |
+| `shipping_events` | family:shipping_reads | test_crooks_shipping_contract.py | — |
+| `shipping_label_buy` | family:shipping_labels | test_crooks_shipping.py, test_crooks_shipping_contract.py | — |
+| `shipping_label_print` | family:shipping_labels | test_crooks_shipping.py, test_crooks_shipping_contract.py | — |
+| `shipping_label_reprint` | family:shipping_labels | test_crooks_shipping.py, test_crooks_shipping_contract.py | — |
 | `shopify_abandoned_checkouts` | family:abandoned_checkouts | test_abandoned.py, test_followups_reads.py, test_r11_families.py | abandoned_checkouts, abandoned_window |
 | `shopify_checkout_link_send` | command:a tapped control, family:checkout_link | test_customers_checkout.py | — |
 | `shopify_customer_history` | command:cursor:customers, family:customer_reads | test_context.py, test_customers_history.py, test_n_plus_one.py | customer_history, linked_entities, nav_home_landing, store_credit_give, store_credit_not_on_this_store |
@@ -217,9 +231,9 @@ registries and of source text, so it is safe against a shop it may not touch.
 
 `commerce_capabilities`, `shopify_order_address`
 
-**no golden scenario reaches it (62)**
+**no golden scenario reaches it (69)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_draft_reply`, `gmail_find_in_email`, `gmail_read_thread`, `gmail_send_reply`, `gmail_thread_archive`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `interaction_review`, `message_contact`, `message_reply`, `message_thread`, `messages_recent`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `people_list`, `person_note`, `return_action`, `return_find`, `returns_open`, `returns_stats`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `shopify_checkout_link_send`, `shopify_find_customer`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_note_append`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `show_again`, `skill_list`, `skill_read`, `submit_engineering_request`, `track_parcel`, `work_list`, `work_note`
+`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_draft_reply`, `gmail_find_in_email`, `gmail_read_thread`, `gmail_send_reply`, `gmail_thread_archive`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `interaction_review`, `message_contact`, `message_reply`, `message_thread`, `messages_recent`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `people_list`, `person_note`, `return_action`, `return_find`, `returns_open`, `returns_stats`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `shipment_find`, `shipment_tracking`, `shipments_open`, `shipping_events`, `shipping_label_buy`, `shipping_label_print`, `shipping_label_reprint`, `shopify_checkout_link_send`, `shopify_find_customer`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_note_append`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `show_again`, `skill_list`, `skill_read`, `submit_engineering_request`, `track_parcel`, `work_list`, `work_note`
 
 **nothing but the model reaches it (5)**
 

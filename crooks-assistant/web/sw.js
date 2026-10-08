@@ -84,6 +84,9 @@ const SHELL = [
   // [messaging] WeChat and WeCom conversations, the original one tap away.
   '/static/messages.js',
   '/static/messages.css',
+  // CLIVE Shipping: the international orders, one order in full, what changed.
+  '/static/shipping.js',
+  '/static/shipping.css',
   // The design pass of 3 Oct: the answer in full, Home, approval weights, the dock (web/design.css).
   '/static/design.css',
   '/manifest.webmanifest',
