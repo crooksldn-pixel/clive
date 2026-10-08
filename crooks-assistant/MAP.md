@@ -89,7 +89,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `skills` | 979 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
 | `speech` | 846 | live | — | none |
 | `support` | 1,693 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
-| `tools` | 16,282 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
+| `tools` | 16,289 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
 | `work` | 2,510 | live | — | [`TEAM.md`](docs/TEAM.md) |
 <!-- /map:parts -->
 
