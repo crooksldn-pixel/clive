@@ -260,6 +260,90 @@ def test_the_cookie_rotates_and_a_replaced_one_used_late_signs_the_phone_out(doo
         assert links.check(nonsense, now=t0).refused
 
 
+def _value(header: str) -> str:
+    return header.split("=", 1)[1].split(";", 1)[0]
+
+
+def _joined_at(t0: float) -> str:
+    token, code, _ = links.make("mia", by="owner", now=t0)
+    return _value(links.redeem(token, code, address="a", kind="iPhone", now=t0).cookie)
+
+
+def _caught(cookies, at, t0):
+    """Every one of these is refused, the phone is signed out as a copy, and George sees it on People."""
+    for cookie in cookies:
+        assert links.check(cookie, now=at).refused == "signed_out", cookie
+    board = links.summary(now=at)["mia"]
+    assert board["phones"][0]["state"] == "signed_out" and board["phones"][0]["why"] == links.COPIED
+    assert board["copied"] == {"kind": "iPhone", "at": links._iso(at)}
+
+
+def test_a_copy_renewed_twice_while_the_real_phone_sleeps_is_caught_when_the_real_phone_returns(door):
+    """The review's first case: a copy of the cookie is used past two renewals (overnight, say), so the
+    real phone's cookie is two sign-ins old when it comes back. That is a copy's tell: both are out."""
+    t0 = 1_800_000_000.0
+    real = _joined_at(t0)
+    thief = real
+    for hour in (1, 2):
+        handed = links.check(thief, now=t0 + hour * (links.ROTATE_S + 60)).set_cookie
+        assert handed, hour
+        thief = _value(handed)
+        assert links.check(thief, now=t0 + hour * (links.ROTATE_S + 60) + 10).person_id == "mia"
+    back = t0 + 2 * (links.ROTATE_S + 60) + 600
+    _caught([real, thief], back, t0)
+
+
+def test_a_copy_that_renews_first_and_empties_the_waiting_list_is_caught_by_the_real_phones_new_cookie(door):
+    """The review's second case: the copy and the real phone are each handed a new sign-in, the copy
+    shows its own back first (which drops the real phone's from the waiting list), and the real phone
+    then uses the one it was given. It was given it, so it is known: a copy exists, both are out."""
+    t0 = 1_800_000_000.0
+    real = _joined_at(t0)
+    due = t0 + links.ROTATE_S
+    thief = _value(links.check(real, now=due).set_cookie)
+    mine = _value(links.check(real, now=due + links.GRACE_S + 1).set_cookie)
+    assert thief != mine
+    assert links.check(thief, now=due + links.GRACE_S + 5).person_id == "mia"           # the copy's is seen first
+    assert links.check(mine, now=due + links.GRACE_S + 30).person_id == "mia"           # on its way: within the grace
+    _caught([mine, thief], due + 2 * links.GRACE_S + 10, t0)
+
+
+def test_past_what_a_phone_remembers_any_sign_in_it_does_not_know_is_a_copy(door, monkeypatch):
+    """`given` is bounded. A guess at a phone that has forgotten nothing is refused and changes nothing;
+    once it has had to forget, a sign-in it does not know can only be an old one: a copy."""
+    monkeypatch.setattr(links, "KEEP_GIVEN", 2)
+    t0 = 1_800_000_000.0
+    first = _joined_at(t0)
+    phone_id = first.split(".")[0]
+    guess = f"{phone_id}.{'A' * 43}"
+    assert links.check(guess, now=t0 + 5).refused == "signed_out"
+    assert links.check(first, now=t0 + 6).person_id == "mia"                            # a guess ended nothing
+    held = first
+    for hour in (1, 2, 3):
+        held = _value(links.check(held, now=t0 + hour * (links.ROTATE_S + 60)).set_cookie)
+        assert links.check(held, now=t0 + hour * (links.ROTATE_S + 60) + 1).person_id == "mia"
+    assert links.check(held, now=t0 + 3 * (links.ROTATE_S + 60) + 2).person_id == "mia"
+    _caught([first, held], t0 + 3 * (links.ROTATE_S + 60) + 600, t0)
+
+
+async def test_george_sees_a_copied_phone_on_people_until_a_phone_of_theirs_joins_again(door, monkeypatch):
+    clock = [links.time.time()]
+    monkeypatch.setattr(links.time, "time", lambda: clock[0])
+    phone = await join(door)
+    clock[0] += links.ROTATE_S
+    renewed = _value(links.check(phone).set_cookie)
+    clock[0] += 1
+    assert links.check(renewed).person_id == "mia"
+    clock[0] += links.GRACE_S + 1
+    assert links.check(phone).refused == "signed_out"
+    board = (await door.get("/today/state", headers=PROXIED)).json()["links"]["mia"]
+    assert board["copied"]["kind"] and board["copied"]["at"] and phone not in json.dumps(board)
+    assert (await door.get("/today/state", headers=signed_in(renewed))).status_code == 401
+    clock[0] += 60
+    await join(door, address="203.0.113.5")
+    assert (await door.get("/today/state", headers=PROXIED)).json()["links"]["mia"]["copied"] is None
+
+
 def test_a_phone_unused_for_a_fortnight_or_older_than_ninety_days_is_signed_out(door):
     t0 = 1_800_000_000.0
     token, code, _ = links.make("mia", by="owner", now=t0)

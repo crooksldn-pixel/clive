@@ -426,7 +426,7 @@
 
   function joined(state, person) {
     const entry = (state.links || {})[person.person_id] || {};
-    return { phones: (entry.phones || []).filter((p) => p.state === 'active'), link: entry.link || null };
+    return { phones: (entry.phones || []).filter((p) => p.state === 'active'), link: entry.link || null, copied: entry.copied || null };
   }
 
   function day(stamp) {
@@ -503,6 +503,18 @@
     return item;
   }
 
+  // A phone signed out because a copy of its sign-in was used (app/people/links.py): said in red, as
+  // something that went wrong, until a phone of theirs joins again.
+  function copiedRow(person, copied) {
+    if (!copied) return null;
+    const item = el('div', 'flag sub');
+    const box = el('div', 'flag-words');
+    box.append(el('span', 'row-small bad', `Their ${copied.kind} was signed out ${day(copied.at)}: someone used a copy of its sign-in. ` +
+      `If ${firstOf(person.name)} still needs CLIVE, make a new staff link.`));
+    item.append(box);
+    return item;
+  }
+
   function linkRow(person, link) {
     if (!link) return null;
     const words = {
@@ -548,7 +560,7 @@
       const item = el('div', 'flag');
       const words = el('div', 'flag-words');
       const status = person.access || (person.login ? 'pending' : '');
-      const { phones, link } = joined(state, person);
+      const { phones, link, copied } = joined(state, person);
       words.append(el('span', 'row-big', person.name), el('span', 'row-small', [person.role, where(person, status, phones)].filter(Boolean).join('. ')));
       item.append(words);
       if (person.active !== false && state.links_ready) {
@@ -562,6 +574,8 @@
       }
       group.append(item);
       for (const phone of phones) group.append(phoneRow(person, phone));
+      const copy = copiedRow(person, copied);
+      if (copy) group.append(copy);
       const waiting = linkRow(person, link);
       if (waiting) group.append(waiting);
     }

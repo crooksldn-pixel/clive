@@ -15,6 +15,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -23,7 +24,21 @@ from experience.browser import CHROMIUM, ROOT, _free_port, _stop, available, ser
 
 SCRIPT = ROOT / "scripts" / "browser" / "staff_links.js"
 # Every check the script makes must be made: a run that stopped early is not a pass.
-EXPECTED_CHECKS = 25
+EXPECTED_CHECKS = 26
+
+
+def _copied_an_hour_ago(links, person_id):
+    """Their iPhone joined two hours ago, was handed a new sign-in an hour later, and then the one it
+    replaced was used again: a copy, so it was signed out (app/people/links.py check), as People shows."""
+    def value(header):
+        return header.split("=", 1)[1].split(";", 1)[0]
+
+    t = time.time() - 2 * links.ROTATE_S
+    token, code, _ = links.make(person_id, by="owner", now=t)
+    first = value(links.redeem(token, code, address="192.0.2.1", kind="iPhone", now=t).cookie)
+    renewed = value(links.check(first, now=t + links.ROTATE_S).set_cookie)
+    assert links.check(renewed, now=t + links.ROTATE_S + 1).person_id == person_id
+    assert links.check(first, now=t + links.ROTATE_S + links.GRACE_S + 60).refused == "signed_out"
 
 
 def _harness():
@@ -50,6 +65,7 @@ async def test_joining_by_staff_link_on_a_phone_in_a_real_browser(tmp_path, monk
         runtime.settings = runtime.settings.model_copy(update={"team_host": "team.example.test"})
         links.configure(state_dir=tmp_path / "team" / "secret")
         people.note({"name": "Ana Fixture", "kind": "staff", "role": "packing"})
+        _copied_an_hour_ago(links, "mia")
         token, code, _ = links.make("ana-fixture", by="owner")
         other, other_code, _ = links.make("kit", by="owner")
         shots = os.environ.get("STAFF_LINK_SHOTS", "")

@@ -47,8 +47,14 @@ every phone needs a new link after 90 days.
 - **The phone's sign-in** is a cookie, `__Host-clive_team`: `HttpOnly; Secure; SameSite=Strict;
   Path=/`, no `Domain` (the `__Host-` prefix makes the browser enforce the last three). Its value is a
   phone id and a 32-byte secret; the server keeps the secret's hash. It is handed out again every hour
-  of use (rotation); the one it replaced works for two more minutes (requests already on their way),
-  and after that, its use means a copy exists, so that phone is signed out.
+  of use (rotation). The phone remembers every sign-in it was ever given and has moved past: the one a
+  rotation replaced, and any new one handed out that it dropped when another was shown back first
+  (the last 256, about ten working days of renewals). Each works for two more minutes after it was
+  superseded (requests already on their way); any use of one after that means a copy exists, so that
+  phone is signed out, for the copy and the real phone alike, and People says so in red under the
+  person. Once a phone has had to forget some, any sign-in for it that it does not know counts as a
+  copy too, so no number of renewals hides an old one. A sign-in it was never given (a guess) is
+  refused and changes nothing.
 - **The door.** A request is the team door's when Caddy marked it (`X-Clive-Door: team`) or it is
   addressed to `CROOKS_TEAM_HOST`. Either is enough, and both only ever narrow what it may reach. The
   door takes Tailscale's headers and CLIVE's local command key off it, so nothing behind can read an
@@ -79,7 +85,7 @@ the server.
 | Guessing the code of a real link | 5 wrong codes lock the invite for good; at most 10 failed joins per address per 15 minutes and 200 in all, then joining waits | brute force |
 | Using a link twice, or after it is cancelled or expired, or after the person is taken off | Single-use; cancelled when a new one is made or access is taken away; refused if the card is no longer active staff | lifecycle |
 | A link and code reaching someone else | The code is never in the message with the link; joining with a new link signs out the person's other phone; George sees every phone and when it was last used, and signs it out | revocation |
-| A stolen cookie | `HttpOnly` (no script can read it); rotated hourly; a replaced cookie used after two minutes signs the phone out; 14 days idle and 90 days in all | rotation and replay |
+| A stolen cookie | `HttpOnly` (no script can read it); rotated hourly; any sign-in the phone has moved past, used after two minutes, signs the phone out for both holders and shows on People; 14 days idle and 90 days in all | rotation and replay; a copy renewed twice while the real phone sleeps; a copy whose renewal empties the waiting list; past what a phone remembers |
 | Another site making a signed-in phone act (CSRF) | `SameSite=Strict`; every POST through the door must carry an `Origin` of the door's own host, and a `Sec-Fetch-Site` other than same-origin is refused | CSRF |
 | The link in logs, URLs or referrers | Token in the `#fragment`; the code only in a POST body; nothing of either, nor the cookie, is ever logged; the server stores hashes | logs checked after a whole join |
 | A team member doing more than the team may | The phone carries the same staff authority as a Tailscale team member: `app/people/staff.py`'s tools and writes, the commit route's `staff_refusal`, their own assistant | the staff tool set, unchanged |
@@ -97,8 +103,13 @@ the server.
 3. **The team's reach is the team's reach.** Through this door a team member can do exactly what they
    could on Tailscale: read orders, customers' details and the inbox, fulfil, reply to email and
    adjust stock on their own confirmation. This door does not narrow that; DEC-062's rules do.
-4. **A cookie stolen and used before the real phone next opens CLIVE** works until the next rotation
-   meets the real phone (at most an hour of use), then both are signed out and George sees it.
+4. **A copied cookie works until the real phone and the copy have both been used since the next
+   hourly renewal.** The renewal goes to whichever of them asks first; from then on, the first time
+   either uses a sign-in the other has moved past (more than two minutes after it was replaced), the
+   phone is signed out for both, and George sees "Their iPhone was signed out …: someone used a copy
+   of its sign-in" on People. If the real phone is not opened at all, the copy keeps working until it
+   is, until George signs that phone out, or until 90 days pass; People shows when the phone was last
+   used, and an unfamiliar "last used" is the sign.
 5. **Being online is the point.** The door is on the public internet: denial of service (flooding
    joins so real ones wait 15 minutes, or load on the server) is possible, as for any public site.
    Caddy and the per-address limit absorb the casual kind.
@@ -111,9 +122,12 @@ the server.
 8. **The link stays in that phone's browser history**, as any opened link does (no page of CLIVE's
    rewrites the address bar). Once used, locked or run out it is worth nothing.
 9. **Phones change cookie jars.** On an iPhone, a link opened inside Instagram's or Facebook's own
-   browser, or a home-screen icon added after joining, keeps its own cookies, so the phone shows as not
-   signed in there. The join page says to open the link in Safari or Chrome; otherwise George makes a
-   new link.
+   browser keeps its own cookies, so the phone shows as not signed in there. The join page says to open
+   the link in Safari or Chrome; otherwise George makes a new link. **Not yet checked on a real
+   iPhone:** whether a home-screen icon added after joining starts with a copy of Safari's sign-in.
+   If it does, Safari and the icon are two holders of one sign-in, and the first renewal one of them
+   uses signs the phone out as a copy (risk 4 working as meant, on an honest phone). Step 6 below is
+   the check; until it is done, tell the team to use CLIVE from one place only.
 
 ## Server steps (once, on crooks-os-prod-1)
 
@@ -155,3 +169,19 @@ the server.
    - `curl -si -H 'Tailscale-User-Login: <George's login>' https://team.crooksldn.com/objectives` → `404`.
 5. **Then a real join:** George makes a link for himself as a test person on People, opens it on a
    phone on mobile data, enters the code, sees Today, and signs that phone out on People.
+6. **One check on a real iPhone: does a home-screen icon copy Safari's sign-in?** (risk 9). George,
+   with the test person of step 5 and an iPhone:
+   1. People → **Make a staff link** for the test person. Open the link in **Safari** on the iPhone,
+      type the code: Today opens.
+   2. In Safari: the Share button → **Add to Home Screen** → **Add**.
+   3. Open CLIVE from the new home-screen icon.
+      - It shows "This phone isn't signed in to CLIVE": the icon keeps its own cookies. Risk 9 holds as
+        written; nothing more to check. Close it and carry on in Safari.
+      - It opens on Today, signed in: the icon started with a copy of Safari's sign-in. Go on.
+   4. Keep the icon open on Today, with the screen awake, for 65 minutes (Today asks CLIVE every 30
+      seconds while it is on screen, so its sign-in is renewed by itself after the hour).
+   5. Switch to Safari, where the Today tab is still open (it asks CLIVE as soon as it is shown).
+   6. Safari lands on "This phone isn't signed in to CLIVE", and People shows, in red under the test
+      person, "Their iPhone was signed out …: someone used a copy of its sign-in". That confirms a
+      home-screen icon trips the copy check. Tell the team: open CLIVE from Safari only, never from a
+      home-screen icon, and make the test person a new link if they still need it.

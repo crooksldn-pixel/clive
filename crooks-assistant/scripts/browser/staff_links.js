@@ -18,6 +18,8 @@
  *   - the same link a second time does not work;
  *   - George sees the phone on People, sees a new link and its code the way his passkey would show
  *     them, and signs the phone out; the phone is back at the join page;
+ *   - a phone signed out because a copy of its sign-in was used is said on People, in red, under its
+ *     person (the harness made Mia's so, an hour before);
  *   - nothing scrolls sideways, nothing to tap is smaller than a thumb, and no page error.
  * Prints one JSON object: { ok, checks: [{ name, ok, detail }], shots }.
  */
@@ -207,6 +209,13 @@ async function george(browser) {
   check('George sees the phone that joined, by staff link, with Sign out', /Ana Fixture/.test(people)
     && /Can use CLIVE on their phone, by staff link/.test(people) && /iPhone, joined today/.test(people)
     && Boolean(await page.$('#owner-people .flag.sub .pill:has-text("Sign out")')), people.slice(0, 400));
+  const copied = await page.$('#owner-people .row-small.bad');
+  const copiedWords = copied ? (await copied.textContent()).trim() : '';
+  const copiedColour = copied ? await copied.evaluate((n) => getComputedStyle(n).color) : '';
+  check("George sees, in red under Mia, that her iPhone was signed out because a copy of its sign-in was used",
+    /^Their iPhone was signed out (?:today \d\d:\d\d|\d{1,2} [A-Z][a-z]{2}): someone used a copy of its sign-in\. If Mia still needs CLIVE, make a new staff link\.$/.test(copiedWords)
+    && copiedColour === 'rgb(255, 138, 128)' && Boolean(await page.$('#owner-people .flag:has-text("Mia") + .flag.sub .row-small.bad')),
+    `${copiedWords} :: ${copiedColour}`);
   check('everyone on the team can be given a staff link', (await page.$$('#owner-people .pill:has-text("staff link")')).length >= 3);
   check('People fits the phone and every target is a thumb\'s size', await fits(page) && (await smallTargets(page)).length === 0,
     (await smallTargets(page)).join(', '));

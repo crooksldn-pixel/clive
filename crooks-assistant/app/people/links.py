@@ -10,8 +10,13 @@ directory, 0600), because a line here lets someone in, as a passkey does:
            tells them (HMAC with a salt of its own).
   phones   one per phone that joined: whose, when, when last used, and the hashes of its sign-in
            (the cookie's secret): the current one, the ones just handed out and not yet seen back
-           (pending), and the one it replaced (retired), which works for GRACE_S more and after that
-           means a copy exists, so the phone is signed out.
+           (pending), and every one it was ever given and has moved past (given: a replaced current
+           one, and pendings dropped when another was seen back), each kept with when it was
+           superseded. A superseded one works for GRACE_S more, for requests already on their way;
+           used after that it means a copy exists, so the phone is signed out, for whoever holds it,
+           and George sees why on People. `given` keeps the last KEEP_GIVEN; once it has had to
+           forget any (`forgot`), every sign-in the phone does not know counts as a copy too, so no
+           number of renewals by a copy outlives the tell.
 
 What it promises: nothing here is ever logged or put where the server would see it in a URL; the
 link, the code and the cookie cannot be rebuilt from the file; every refusal of a join looks the same
@@ -25,6 +30,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -50,6 +56,12 @@ IDLE_S = 14 * 86400               # unused this long: signed out
 MAX_AGE_S = 90 * 86400            # and every phone needs a new link after this, used or not
 SEEN_EVERY_S = 300                # how often "last used" is written down
 KEEP_PENDING = 3
+# Superseded sign-ins remembered per phone: about ten working days of hourly renewals. Past that the
+# phone stops telling a guess from an old copy and takes both as a copy (see `forgot` above): only the
+# owner's screen ever shows a phone's id, so a stranger cannot aim a guess at one.
+KEEP_GIVEN = 256
+GIVEN_HEX = 32                    # of each superseded hash, kept: 128 bits, enough to know it again
+COPIED = "a copy of this phone's sign-in was used"
 KEEP_ENDED_S = 30 * 86400         # ended links and phones stay on the owner's screen this long
 
 # Joins that fail, counted in memory (a restart clears them; the per-link count is on disk).
@@ -61,6 +73,7 @@ CODE = re.compile(r"^[0-9]{6}$")
 PHONE_ID = re.compile(r"^p[0-9a-f]{16}$")
 COOKIE_VALUE = re.compile(r"^(p[0-9a-f]{16})\.([A-Za-z0-9_-]{43})$")
 
+log = logging.getLogger("crooks.team")
 _LOCK = threading.RLock()
 _CONFIG: dict[str, Any] = {"state_dir": None}
 _CACHE: dict[str, Any] = {"signature": None, "data": None}
@@ -293,9 +306,27 @@ def _end_invites(data: dict[str, Any], person_id: str, state: str, now: float) -
     return ended
 
 
-def _end_phone(phone: dict[str, Any], state: str, by: str, why: str, now: float) -> None:
+def _end_phone(phone: dict[str, Any], state: str, by: str, why: str, now: float, *, copied: bool = False) -> None:
     phone.update(state=state, ended_at=now, ended_by=str(by or ""), why=str(why or "")[:120],
-                 current="", pending=[], retired="")
+                 current="", pending=[], given=[], forgot=False, copied=bool(copied))
+
+
+def _supersede(phone: dict[str, Any], hashes: list[str], now: float) -> None:
+    """These sign-ins of the phone's are over as of now: remembered, so a later use is known for a copy."""
+    given = [g for g in phone.get("given") or [] if isinstance(g, dict)]
+    given += [{"hash": h[:GIVEN_HEX], "at": now} for h in hashes if h]
+    if len(given) > KEEP_GIVEN:
+        phone["forgot"] = True
+        given = given[-KEEP_GIVEN:]
+    phone["given"] = given
+
+
+def _superseded_at(phone: dict[str, Any], digest: str) -> float | None:
+    """When this sign-in stopped being the phone's own, if the phone was ever given it."""
+    tag = digest[:GIVEN_HEX]
+    found = [float(g.get("at") or 0) for g in phone.get("given") or []
+             if isinstance(g, dict) and _same(tag, str(g.get("hash") or ""))]
+    return max(found) if found else None
 
 
 # ------------------------------------------------------------------ joining
@@ -355,8 +386,8 @@ def redeem(token: str, code: str, *, address: str, kind: str = "phone", now: flo
         secret = secrets.token_urlsafe(32)
         data["phones"][phone_id] = {
             "person_id": person.person_id, "state": "active", "kind": str(kind or "phone")[:40], "joined_at": now,
-            "last_seen": now, "rotated_at": now, "current": _digest(secret), "pending": [], "retired": "",
-            "retired_at": 0}
+            "last_seen": now, "rotated_at": now, "current": _digest(secret), "pending": [], "given": [],
+            "forgot": False}
         _save(data)
     return Joined(person.person_id, person.name, cookie_header(f"{phone_id}.{secret}"))
 
@@ -373,8 +404,9 @@ def clear_cookie_header() -> str:
 
 def check(value: str, *, now: float | None = None) -> Seen:
     """Who the phone presenting this cookie is. Every request through the team door asks this. A new
-    sign-in is handed out once an hour of use (set_cookie); the one it replaces keeps working for
-    GRACE_S, and used after that it means a copy exists: the phone is signed out."""
+    sign-in is handed out once an hour of use (set_cookie); every one the phone moves past keeps
+    working for GRACE_S, and any use of one after that means a copy exists: the phone is signed out,
+    for the copy and the real phone alike, and George sees why on People."""
     now = time.time() if now is None else now
     match = COOKIE_VALUE.fullmatch(str(value or ""))
     if not match:
@@ -393,26 +425,16 @@ def check(value: str, *, now: float | None = None) -> Seen:
             _end_phone(phone, "expired", "", "not used for a fortnight, or older than 90 days", now)
             _save(data)
             return Seen(refused="signed_out")
-        changed, handed = False, ""
-        pending = [p for p in phone.get("pending") or [] if isinstance(p, dict)]
-        promoted = next((p for p in pending if _same(digest, str(p.get("hash") or ""))), None)
-        if promoted is not None:
-            phone.update(retired=phone.get("current") or "", retired_at=now, current=promoted["hash"], pending=[],
-                         rotated_at=now)
-            changed = True
-        elif _same(digest, str(phone.get("current") or "")):
-            latest = max((float(p.get("at") or 0) for p in pending), default=0.0)
-            if now - float(phone.get("rotated_at") or 0) >= ROTATE_S and now - latest >= GRACE_S:
-                fresh = secrets.token_urlsafe(32)
-                phone["pending"] = [*pending, {"hash": _digest(fresh), "at": now}][-KEEP_PENDING:]
-                handed, changed = cookie_header(f"{phone_id}.{fresh}"), True
-        elif _same(digest, str(phone.get("retired") or "")):
-            if now - float(phone.get("retired_at") or 0) > GRACE_S:
-                _end_phone(phone, "signed_out", "", "a copy of this phone's sign-in was used", now)
-                _save(data)
-                return Seen(refused="signed_out")
-        else:
+        verdict, fresh = _presented(phone, digest, now)
+        if verdict == "copy":
+            _end_phone(phone, "signed_out", "", COPIED, now, copied=True)
+            _save(data)
+            log.warning("team door: %s; that phone is signed out", COPIED)
             return Seen(refused="signed_out")
+        if verdict == "unknown":
+            return Seen(refused="signed_out")
+        changed = verdict in ("promoted", "renewed")
+        handed = cookie_header(f"{phone_id}.{fresh}") if fresh else ""
         if now - float(phone.get("last_seen") or 0) >= SEEN_EVERY_S:
             phone["last_seen"] = now
             changed = True
@@ -421,23 +443,59 @@ def check(value: str, *, now: float | None = None) -> Seen:
         return Seen(person_id=str(phone["person_id"]), phone_id=phone_id, set_cookie=handed)
 
 
+def _presented(phone: dict[str, Any], digest: str, now: float) -> tuple[str, str]:
+    """(verdict, fresh secret to hand out or "") for the sign-in this phone's cookie carried, changing
+    the phone's record in place. The verdict is one of:
+      promoted  a sign-in just handed out, seen back: now the phone's own, and everything before it over
+      renewed   its own, and an hour of use is up: a new one goes out with this answer
+      current   its own
+      grace     one it moved past less than GRACE_S ago: a request already on its way
+      copy      one it moved past longer ago than that (or, once it has forgotten some, one it does
+                not know): a copy exists
+      unknown   never this phone's: refused, and nothing changes (a guess at someone else's phone)"""
+    pending = [p for p in phone.get("pending") or [] if isinstance(p, dict)]
+    promoted = next((p for p in pending if _same(digest, str(p.get("hash") or ""))), None)
+    if promoted is not None:
+        dropped = [str(p.get("hash") or "") for p in pending if p is not promoted]
+        _supersede(phone, [str(phone.get("current") or ""), *dropped], now)
+        phone.update(current=promoted["hash"], pending=[], rotated_at=now)
+        return "promoted", ""
+    if _same(digest, str(phone.get("current") or "")):
+        latest = max((float(p.get("at") or 0) for p in pending), default=0.0)
+        if now - float(phone.get("rotated_at") or 0) < ROTATE_S or now - latest < GRACE_S:
+            return "current", ""
+        fresh = secrets.token_urlsafe(32)
+        kept = [*pending, {"hash": _digest(fresh), "at": now}]
+        _supersede(phone, [str(p.get("hash") or "") for p in kept[:-KEEP_PENDING]], now)
+        phone["pending"] = kept[-KEEP_PENDING:]
+        return "renewed", fresh
+    superseded = _superseded_at(phone, digest)
+    if superseded is None:
+        return ("copy" if phone.get("forgot") else "unknown"), ""
+    return ("grace" if now - superseded <= GRACE_S else "copy"), ""
+
+
 # ------------------------------------------------------------------ what George sees
 
 def summary(now: float | None = None) -> dict[str, dict[str, Any]]:
-    """Per person: their phones (kind, joined, last used, signed in or why not) and their link (open
-    until when, tries left, or how it ended). Never a hash, a token or a code."""
+    """Per person: their phones (kind, joined, last used, signed in or why not), their link (open until
+    when, tries left, or how it ended), and `copied`: the phone of theirs signed out because a copy of
+    its sign-in was used (kind, when), until a phone of theirs joins again. Never a hash, a token or a
+    code."""
     now = time.time() if now is None else now
     out: dict[str, dict[str, Any]] = {}
     with _LOCK:
         data = _load()
         for phone_id, phone in sorted(data["phones"].items(), key=lambda kv: -float(kv[1].get("joined_at") or 0)):
-            entry = out.setdefault(str(phone.get("person_id") or ""), {"phones": [], "link": None})
+            entry = out.setdefault(str(phone.get("person_id") or ""), {"phones": [], "link": None, "copied": None})
             entry["phones"].append({
                 "phone_id": phone_id, "kind": str(phone.get("kind") or "phone"), "state": str(phone.get("state") or ""),
                 "joined_at": _iso(phone.get("joined_at")), "last_seen": _iso(phone.get("last_seen")),
                 "ended_at": _iso(phone.get("ended_at")), "why": str(phone.get("why") or "")})
+        for person_id, phones in _by_person(data["phones"]).items():
+            out[person_id]["copied"] = _copied(phones)
         for invite in sorted(data["invites"].values(), key=lambda i: float(i.get("made_at") or 0)):
-            entry = out.setdefault(str(invite.get("person_id") or ""), {"phones": [], "link": None})
+            entry = out.setdefault(str(invite.get("person_id") or ""), {"phones": [], "link": None, "copied": None})
             state = str(invite.get("state") or "")
             if state == "open" and now >= float(invite.get("expires_at") or 0):
                 state = "expired"
@@ -445,6 +503,25 @@ def summary(now: float | None = None) -> dict[str, dict[str, Any]]:
                              "expires_at": _iso(invite.get("expires_at")),
                              "tries_left": max(0, MAX_CODE_TRIES - int(invite.get("tries") or 0))}
     return out
+
+
+def _by_person(phones: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    out: dict[str, list[dict[str, Any]]] = {}
+    for phone in phones.values():
+        out.setdefault(str(phone.get("person_id") or ""), []).append(phone)
+    return out
+
+
+def _copied(phones: list[dict[str, Any]]) -> dict[str, str] | None:
+    """The person's phone signed out for a copy, while no phone of theirs has joined since."""
+    copied = [p for p in phones if p.get("copied")]
+    if not copied:
+        return None
+    last = max(copied, key=lambda p: float(p.get("ended_at") or 0))
+    ended = float(last.get("ended_at") or 0)
+    if any(float(p.get("joined_at") or 0) > ended for p in phones):
+        return None
+    return {"kind": str(last.get("kind") or "phone"), "at": _iso(ended)}
 
 
 def phones_signed_in(person_id: str) -> int:
