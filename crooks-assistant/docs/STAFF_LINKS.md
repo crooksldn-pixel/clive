@@ -166,11 +166,22 @@ the server.
    site went, and do not change how CLIVE binds.
 3. **CLIVE's `.env`:** add `CROOKS_TEAM_HOST=team.crooksldn.com`, then `systemctl restart
    crooks-assistant`. Without it, CLIVE refuses to make a link ("the team's address is not set").
-4. **Check from outside the tailnet** (mobile data):
-   - `curl -si https://team.crooksldn.com/today` → `200` and the page;
-   - `curl -si https://team.crooksldn.com/today/state` → `401` `signed_out`;
-   - `curl -si https://team.crooksldn.com/connections` → `404`; `curl -si https://team.crooksldn.com/health` → `404`;
-   - `curl -si -H 'Tailscale-User-Login: <George's login>' https://team.crooksldn.com/objectives` → `404`.
+4. **Check from outside the tailnet** (mobile data). Each line is one command and the answer it
+   must get (`tests/test_staff_links.py` runs every one of them through the door, so this list and
+   CLIVE cannot drift apart).
+   - The team's page, through both fences:
+     - `curl -si https://team.crooksldn.com/today` → `200` and the page;
+     - `curl -si https://team.crooksldn.com/today/state` → `401` `signed_out`;
+     - `curl -si -H "Tailscale-User-Login: <George's login>" https://team.crooksldn.com/today/state` → `401` `signed_out` (his login means nothing here).
+   - Caddy's fence (paths the site never forwards, so Caddy answers):
+     - `curl -si https://team.crooksldn.com/connections` → `404`;
+     - `curl -si https://team.crooksldn.com/health` → `404`;
+     - `curl -si -H "Tailscale-User-Login: <George's login>" https://team.crooksldn.com/objectives` → `404`.
+   - CLIVE's own door (paths Caddy does forward, which CLIVE itself must refuse):
+     - `curl -si -X POST -H 'Origin: https://team.crooksldn.com' -H "Tailscale-User-Login: <George's login>" https://team.crooksldn.com/today/assign` → `404`;
+     - `curl -si -X POST -H 'Origin: https://team.crooksldn.com' https://team.crooksldn.com/today/people` → `404`;
+     - `curl -si https://team.crooksldn.com/actions/states` → `404`;
+     - `curl -si https://team.crooksldn.com/static/app.js` → `404`.
 5. **Then a real join:** George makes a link for himself as a test person on People, opens it on a
    phone on mobile data, enters the code, sees Today, and signs that phone out on People.
 6. **One check on a real iPhone: does a home-screen icon copy Safari's sign-in?** (risk 9). George,

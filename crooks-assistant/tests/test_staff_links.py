@@ -507,6 +507,58 @@ async def test_every_route_but_the_teams_page_is_not_found_through_the_door(door
             assert answer.status_code == 404, (method, owners)
 
 
+def _server_checks():
+    """docs/STAFF_LINKS.md server step 4, as (method, path, headers, status, code) per curl line, and
+    the paths the documented Caddy site forwards (its `@team path` matcher)."""
+    import shlex
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parent.parent / "docs" / "STAFF_LINKS.md").read_text(encoding="utf-8")
+    step = text.split("4. **Check from outside the tailnet**", 1)[1].split("5. **Then a real join", 1)[0]
+    forwarded = re.search(r"@team path ([^\n]+)", text).group(1).split()
+    checks = []
+    for command, status, code in re.findall(r"`(curl [^`]+)` → `(\d{3})`(?: `([a-z_]+)`)?", step):
+        words = shlex.split(command.replace("<George's login>", OWNER).replace("team.crooksldn.com", HOST))
+        method, headers, url = "GET", {}, ""
+        for flag, value in zip(words, words[1:] + [""], strict=True):
+            if flag == "-X":
+                method = value
+            elif flag == "-H":
+                name, _, said = value.partition(":")
+                headers[name.strip()] = said.strip()
+            elif flag.startswith("https://"):
+                url = flag
+        checks.append((method, "/" + url.split("://", 1)[1].split("/", 1)[1], headers, int(status), code))
+    return checks, forwarded
+
+
+def _caddy_forwards(path: str, forwarded: list[str]) -> bool:
+    return any(path == p or (p.endswith("*") and path.startswith(p[:-1])) for p in forwarded)
+
+
+async def test_the_server_checks_in_the_docs_test_clives_own_door_and_get_what_they_say(door):
+    """The review's N4: step 4's checks had only paths Caddy never forwards, which test Caddy and not
+    CLIVE. Every documented check on a path Caddy forwards is run here through the door and must get
+    exactly the answer the docs promise; the rest must be Caddy's own 404; and CLIVE's door is checked
+    on the server with an owner step carrying George's login, a team-page owner step, a route next to
+    the cards', and a file the team's pages do not load."""
+    checks, forwarded = _server_checks()
+    assert len(checks) >= 10, checks
+    clives = []
+    for method, path, headers, status, code in checks:
+        if not _caddy_forwards(path, forwarded):
+            assert status == 404, (method, path)                                        # Caddy's `respond 404`
+            continue
+        answer = await door.request(method, path, headers={**DOOR, **headers})
+        assert answer.status_code == status, (method, path, answer.status_code)
+        if code:
+            assert answer.json()["code"] == code, (method, path)
+        if status == 404:
+            clives.append((method, path, "Tailscale-User-Login" in headers))
+    assert {("POST", "/today/assign", True), ("POST", "/today/people", False), ("GET", "/actions/states", False),
+            ("GET", "/static/app.js", False)} <= set(clives), clives
+
+
 async def test_without_a_phone_signed_in_only_the_pages_and_the_join_answer(door):
     for method, path in sorted(team_door.SIGNED_IN):
         answer = await door.request(method, path, headers=POST)
