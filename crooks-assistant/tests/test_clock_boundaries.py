@@ -25,6 +25,30 @@ the day before the application's. Three pick a customer's order by its day (test
 tests/customers_world.py counted its days back from the day of collection too. Both worlds are
 now built on the day the application is on. Two product paths were wrong in that hour whatever
 the suite did: an objective's days left and the support investigator's days were UTC's.
+
+The two nights the clocks change are walked too, because London's day is then 25 or 23 hours
+long and the fixture used to measure how far through it NOW was on the wall clock — on the
+spring night, today's orders were stamped up to 47 minutes after NOW, out of order. The autumn
+night (25 October 2026, the clocks go back at 01:00 UTC):
+
+    2026-10-24T22:59:30Z   the last half-minute of London's day
+    2026-10-24T23:00:30Z   London's midnight, in BST
+    2026-10-25T00:59:30Z   01:59:30 BST, the last half-minute before the clocks go back
+    2026-10-25T01:00:30Z   01:00:30 GMT, the repeated hour
+    2026-10-25T01:59:30Z   the end of the repeated hour
+
+and the spring night (28 March 2027, the clocks go forward at 01:00 UTC):
+
+    2027-03-27T23:59:30Z   the last half-minute of London's day
+    2027-03-28T00:00:30Z   London's midnight, in GMT
+    2027-03-28T00:59:30Z   the last half-minute before the clocks go forward
+    2027-03-28T01:00:30Z   02:00:30 BST, just after the missing hour
+    2027-03-28T01:15:00Z   and 01:30:30Z, while the wall clock still runs an hour ahead of
+                           the time London's day has really lasted
+
+Both nights are weekends, so the count of working days walks only the first eight instants. And
+the first seconds after each of the four London midnights are walked, because stamps are whole
+seconds and today's three orders have to fit in the ones that have begun.
 """
 
 from __future__ import annotations
@@ -58,8 +82,36 @@ def _night(day: int, month: int) -> list[datetime]:
 # The night the acceptance run failed (BST), and a night in January (GMT).
 SUMMER = _night(24, 9)
 WINTER = _night(14, 1)
-INSTANTS = SUMMER + WINTER
+# The two nights the clocks change, as UTC instants: the clocks go back at 01:00 UTC on
+# 25 October 2026, and forward at 01:00 UTC on 28 March 2027.
+AUTUMN = [
+    datetime(2026, 10, 24, 22, 59, 30, tzinfo=UTC),
+    datetime(2026, 10, 24, 23, 0, 30, tzinfo=UTC),
+    datetime(2026, 10, 25, 0, 59, 30, tzinfo=UTC),
+    datetime(2026, 10, 25, 1, 0, 30, tzinfo=UTC),
+    datetime(2026, 10, 25, 1, 59, 30, tzinfo=UTC),
+]
+SPRING = [
+    datetime(2027, 3, 27, 23, 59, 30, tzinfo=UTC),
+    datetime(2027, 3, 28, 0, 0, 30, tzinfo=UTC),
+    datetime(2027, 3, 28, 0, 59, 30, tzinfo=UTC),
+    datetime(2027, 3, 28, 1, 0, 30, tzinfo=UTC),
+    datetime(2027, 3, 28, 1, 15, 0, tzinfo=UTC),
+    datetime(2027, 3, 28, 1, 30, 30, tzinfo=UTC),
+]
+INSTANTS = SUMMER + WINTER + AUTUMN + SPRING
 IDS = [instant.strftime("%Y-%m-%dT%H:%M:%SZ") for instant in INSTANTS]
+# Both nights the clocks change are weekends, so a count of working days walks the other two.
+WORKING_INSTANTS = SUMMER + WINTER
+WORKING_IDS = [instant.strftime("%Y-%m-%dT%H:%M:%SZ") for instant in WORKING_INSTANTS]
+# London's midnight on each of the four nights, and how far past it the clock is held.
+MIDNIGHTS = [
+    datetime(2026, 9, 24, 23, 0, tzinfo=UTC),
+    datetime(2026, 10, 24, 23, 0, tzinfo=UTC),
+    datetime(2026, 1, 15, 0, 0, tzinfo=UTC),
+    datetime(2027, 3, 28, 0, 0, tzinfo=UTC),
+]
+PAST_MIDNIGHT = [0, 0.5, 1, 2.5, 3, 10]
 # The shop's and the owner's calendar, said here rather than read from the code under test.
 LONDON = ZoneInfo("Europe/London")
 
@@ -138,7 +190,32 @@ def test_todays_orders_are_placed_today_apart_and_newest_first(instant, world_at
     # The inbox's messages of today are folded into the part of the day that has happened.
     for thread in data.world.threads:
         for message in thread.messages:
-            assert data._local(message.days_ago, message.hour) <= now, (message.message_id, now)
+            assert data._local(message.days_ago, message.hour).astimezone(UTC) <= now.astimezone(UTC), (message.message_id, now)
+
+
+@pytest.mark.parametrize("seconds", PAST_MIDNIGHT, ids=[f"+{s}s" for s in PAST_MIDNIGHT])
+@pytest.mark.parametrize("midnight", MIDNIGHTS, ids=[m.strftime("%Y-%m-%dT%H:%M:%SZ") for m in MIDNIGHTS])
+def test_todays_orders_in_the_first_seconds_of_the_day(midnight, seconds, world_at):
+    """The first seconds of London's day, on all four nights. Stamps are whole seconds, and the
+    half of the elapsed day the orders used to be spread over put two or three of them in one
+    second. At midnight exactly nothing of today is before now, so all three are midnight; after
+    it each is in today and before now, newest first, and from past two seconds they are apart.
+    """
+    assert midnight.astimezone(LONDON).time() == time(0), "the premise: this is London's midnight"
+    instant = midnight + timedelta(seconds=seconds)
+    now = world_at(instant)
+    expected = data.world.today()
+    placed = [_instant(order.placed_at()) for order in expected]
+    if seconds == 0:
+        assert placed == [midnight] * len(placed), f"at London's midnight the orders are {placed}"
+        return
+    assert all(midnight <= p < now for p in placed), f"{seconds}s past {midnight}: {placed}"
+    assert placed == sorted(placed, reverse=True), f"not newest first: {[o.name for o in expected]} {placed}"
+    if seconds > 2:
+        assert len(set(placed)) == len(placed), f"{seconds}s past midnight, today's orders share a second: {placed}"
+    for order in expected:
+        for fulfillment in data.order_node(order)["fulfillments"]:
+            assert midnight <= _instant(fulfillment["createdAt"]) <= now, (order.name, fulfillment["createdAt"], now)
 
 
 @pytest.mark.parametrize("instant", INSTANTS, ids=IDS)
@@ -239,7 +316,7 @@ def test_a_deadline_tomorrow_is_one_day_away_at_every_instant(instant, tmp_path,
     assert made.summary()["days_left"] == 1, f"at {instant:%H:%M:%S} UTC, deadline {tomorrow}"
 
 
-@pytest.mark.parametrize("instant", INSTANTS, ids=IDS)
+@pytest.mark.parametrize("instant", WORKING_INSTANTS, ids=WORKING_IDS)
 def test_a_support_finding_names_the_shops_day_at_every_instant(instant):
     """What the investigator tells the owner, and the draft tells the customer: the day a stamp
     fell on, and how many working days have passed since, are London's. Read in UTC, an order
