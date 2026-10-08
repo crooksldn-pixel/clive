@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import stat
+from dataclasses import asdict
 from types import SimpleNamespace
 
 import pytest
@@ -112,6 +113,41 @@ def test_an_unreadable_file_is_said_and_never_taken_for_no_routines(folder):
     with pytest.raises(RoutineError, match="could not be read"):
         book.save("owner", "Monday check", [])
     assert (folder / FILE).read_text() == "{not json", "nothing was written over what could not be read"
+
+
+def _old(**step_fields):
+    """A routine as the file holds it, with one step's fields as given."""
+    made = NamedRoutine("nr_0000beef", "Old", "owner", [Step("shopify_list_orders", "Today's orders", {"days": 1}, "read")])
+    kept = json.loads(json.dumps({"routines": [asdict(made)]}))
+    kept["routines"][0]["steps"][0].update(step_fields)
+    return kept
+
+
+@pytest.mark.parametrize("body", [
+    [], None, {"routines": {}}, {"routines": None}, {"routines": [], "more": 1}, {"routines": ["x"]},
+    _old(kind="magic"), _old(args=["days", 1]), _old(tool=""), _old(say=None), _old(extra=True),
+])
+async def test_a_file_of_another_shape_or_with_one_bad_entry_is_said_and_never_written_over(folder, body):
+    """[], null, {"routines": {}} and one malformed step: never read as "no routines" or as the
+    routine without that step, so nothing a save, an edit or a run would write goes over it."""
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / FILE
+    path.write_text(json.dumps(body))
+    with pytest.raises(RoutineError, match="could not be read"):
+        book.of("owner")
+    with pytest.raises(RoutineError, match="could not be read"):
+        book.save("owner", "Monday check", [])
+    with owner(), pytest.raises(ToolError, match="could not be read"):
+        await routine_tools.routine_list()
+    book.ran("owner", "nr_0000beef")
+    assert json.loads(path.read_text()) == body, "nothing was written over what could not be read"
+
+
+def test_a_file_exactly_as_it_is_kept_is_read(folder):
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / FILE).write_text(json.dumps(_old()))
+    (old,) = book.of("owner")
+    assert old.name == "Old" and old.steps == [Step("shopify_list_orders", "Today's orders", {"days": 1}, "read")]
 
 
 def test_a_change_that_does_not_read_back_is_an_error(folder, monkeypatch):

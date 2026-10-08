@@ -20,7 +20,9 @@ What a routine is, and what it promises:
 
 Kept beside the work list (the same folder, the same private atomic write and the same lock as
 store.py): work/named-routines.json, 0600, written whole and read back after every change so a
-change is proved, never assumed. Nothing here sends, stages or reads anything outside this file.
+change is proved, never assumed. A file that is not exactly what this writes (not JSON, or JSON of
+another shape, or with one routine or step that does not parse) is said to be unreadable and is
+never written over. Nothing here sends, stages or reads anything outside this file.
 """
 
 from __future__ import annotations
@@ -117,26 +119,34 @@ def clean_say(text: Any) -> str:
     return said
 
 
+_STEP_KEYS = frozenset(Step.__dataclass_fields__)
+_ROUTINE_TEXT = ("created_at", "created_via", "changed_at", "last_ran_at")
+
+
 def _step_from(data: Any) -> Step | None:
-    if not isinstance(data, dict):
+    """One step exactly as `_keep` writes it, or None: a step that is not is never half-read."""
+    if not isinstance(data, dict) or set(data) != _STEP_KEYS:
         return None
-    args = data.get("args") if isinstance(data.get("args"), dict) else {}
-    kind = str(data.get("kind") or "read")
-    tool = str(data.get("tool") or "")
-    if not tool or kind not in KINDS:
+    tool, say, args, kind = data["tool"], data["say"], data["args"], data["kind"]
+    if not isinstance(tool, str) or not tool or not isinstance(say, str) or not isinstance(args, dict) or kind not in KINDS:
         return None
-    return Step(tool=tool, say=str(data.get("say") or ""), args=args, kind=kind)
+    return Step(tool=tool, say=say, args=args, kind=kind)
 
 
 def _routine_from(data: Any) -> NamedRoutine | None:
-    if not isinstance(data, dict) or not _ID.fullmatch(str(data.get("routine_id") or "")):
+    """One routine exactly as `_keep` writes it, every step with it, or None."""
+    if not isinstance(data, dict) or set(data) != set(NamedRoutine.__dataclass_fields__):
         return None
-    steps = [s for s in (_step_from(d) for d in data.get("steps") or []) if s is not None]
-    known = {k: v for k, v in data.items() if k in NamedRoutine.__dataclass_fields__ and k != "steps"}
-    try:
-        return NamedRoutine(**known, steps=steps)
-    except TypeError:
+    if not _ID.fullmatch(str(data["routine_id"])) or not isinstance(data["name"], str) or not data["name"]:
         return None
+    if not isinstance(data["who"], str) or not _WHO.fullmatch(data["who"]) or not isinstance(data["steps"], list):
+        return None
+    if any(not isinstance(data[k], str) for k in _ROUTINE_TEXT) or type(data["runs"]) is not int:
+        return None
+    steps = [_step_from(d) for d in data["steps"]]
+    if any(s is None for s in steps):
+        return None
+    return NamedRoutine(**{k: v for k, v in data.items() if k != "steps"}, steps=steps)
 
 
 class RoutineBook:
@@ -159,8 +169,15 @@ class RoutineBook:
             # Unknown is RED: a file that cannot be read is said, never read as "no routines",
             # which the next save would then write over.
             raise RoutineError("the saved routines could not be read on this server") from exc
-        items = data.get("routines") if isinstance(data, dict) else None
-        return [r for r in (_routine_from(d) for d in items or []) if r is not None]
+        # The same for a file that is JSON but not what `_keep` writes: `[]`, `null`, a routine or
+        # a step that does not parse. Read as "none", or with the bad one left out, the next save
+        # (or `ran`) would write over what is there; it is said instead, and left as it is.
+        if not isinstance(data, dict) or set(data) != {"routines"} or not isinstance(data["routines"], list):
+            raise RoutineError("the saved routines could not be read on this server")
+        routines = [_routine_from(d) for d in data["routines"]]
+        if any(r is None for r in routines):
+            raise RoutineError("the saved routines could not be read on this server")
+        return routines
 
     def _keep(self, routines: list[NamedRoutine]) -> None:
         body = {"routines": [asdict(r) for r in routines]}
