@@ -259,23 +259,61 @@ async def _observe(execution: dict) -> Observed:
     return Observed(fingerprint=fingerprint(d), entity=views.detail(d))
 
 
-async def _settle(_execution: dict, _sent: dict) -> None:
-    """Nothing to wait for. Declared so that a change whose answer never came back (a timeout, or a
-    503 after the courier may have been paid) is never written off as "nothing was changed" on one
-    re-read: the engine says it could not confirm it, and to look at the order."""
-    return None
-
-
 # What each send answered, by its idempotency key, for the proof that follows it: the engine hands
 # the proof the order as re-read, and the service's own verdict is here.
 _OUTCOMES: OrderedDict[str, dict[str, Any]] = OrderedDict()
 MAX_OUTCOMES = 64
+# Who the service records a change from CLIVE as (shipping/api.py: "{actor} (CLIVE)"), and the entry
+# each change leaves on the order's history (its /events types).
+OURS = f"{client.ACTOR} (CLIVE)"
+LEAVES = {BUY: "label_purchased", PRINT: "label_printed", REPRINT: "label_reprinted"}
+# How far back, past the change's own two waits, its entry is looked for: two clocks a little apart.
+LOST_LOOKBACK_S = 300
 
 
 def _remember(key: str, outcome: dict[str, Any]) -> None:
     _OUTCOMES[key] = outcome
     while len(_OUTCOMES) > MAX_OUTCOMES:
         _OUTCOMES.popitem(last=False)
+
+
+async def _newest_is_ours(shipment_id: str, kind: str, waited_s: float) -> bool | None:
+    """Whether the order's newest `kind` entry (a label bought, printed, copied) is CLIVE's: True or
+    False from its history, None when the history could not be read."""
+    cursor = _iso(datetime.now(UTC) - timedelta(seconds=2 * waited_s + LOST_LOOKBACK_S))
+    found: list[dict[str, Any]] = []
+    try:
+        for _ in range(MAX_EVENT_PAGES):
+            page = await client.events(since=cursor, limit=200)
+            batch = [e for e in page.get("events") or [] if isinstance(e, dict)]
+            found += [e for e in batch if e.get("shipment_id") == shipment_id and e.get("type") == kind]
+            if not (page.get("has_more") and batch):
+                break
+            cursor = str(batch[-1].get("at") or cursor)
+    except client.ShippingUnavailable:
+        return None
+    newest = max(found, key=lambda e: str(e.get("at") or ""), default=None)
+    return newest is not None and newest.get("actor") == OURS
+
+
+def _settle_for(operation: str):
+    waited_s = client.BUY_TIMEOUT_S if operation == BUY else client.PRINT_TIMEOUT_S
+
+    async def settle(execution: dict, _sent: dict) -> None:
+        """Nothing to wait for. Declared so that a change whose answer never came back (a timeout, or
+        a 503 after the courier may have been paid) is never written off as "nothing was changed" on
+        one re-read: the engine says it could not confirm it, and to look at the order.
+
+        When the answer never came back, the engine calls this before its one re-read, and the
+        order's own history says whose the change is, as CROOKS Returns' proof does: a label the
+        Shipping screen bought or printed meanwhile is not CLIVE's to claim."""
+        key = str(execution.get("idempotency_key") or "")
+        if not key or key in _OUTCOMES:
+            return None
+        _remember(key, {"lost": True, "ours": await _newest_is_ours(str(execution["shipment_id"]), LEAVES[operation],
+                                                                     waited_s)})
+        return None
+    return settle
 
 
 async def _send(execution: dict, call) -> dict[str, Any]:
@@ -290,12 +328,15 @@ async def _send(execution: dict, call) -> dict[str, Any]:
     return answer
 
 
-def _lost(observed: dict, before: dict, moved: bool, what: str) -> tuple[bool, str]:
-    """The answer never came back (the engine settled it by looking)."""
-    if moved:
-        return True, f"CLIVE lost {client.NAME}'s answer, but the order now shows the {what}."
-    return False, (f"CLIVE lost {client.NAME}'s answer, and the order doesn't show the {what}. Look at it in Shipping "
-                   "before asking again.")
+def _lost(out: dict[str, Any] | None, moved: bool, what: str) -> tuple[bool, str]:
+    """The answer never came back (the engine settled it by looking). CLIVE's only when the order
+    shows the change AND its newest entry of that kind is by "George (CLIVE)"; otherwise, whatever
+    the order shows, unverified with one note, true whether the label is missing, someone else's, or
+    its history could not be read."""
+    if moved and (out or {}).get("ours") is True:
+        return True, f"CLIVE lost {client.NAME}'s answer, but the order's history shows the {what} as CLIVE's."
+    return False, (f"CLIVE lost {client.NAME}'s answer and can't see the {what} as CLIVE's on the order. Look at it "
+                   "in Shipping before asking again.")
 
 
 def _order_of(d: dict[str, Any]) -> str:
@@ -338,8 +379,8 @@ def verify_buy(before: dict, observed: dict, execution: dict) -> tuple[bool, str
     """Proven when the order, read back, shows the label the service says it bought."""
     out = _OUTCOMES.get(str(execution.get("idempotency_key") or ""))
     bought = bool(observed.get("bought"))
-    if out is None:
-        return _lost(observed, before, bought and not before.get("bought"), "label")
+    if out is None or out.get("lost"):
+        return _lost(out, bought and not before.get("bought"), "label")
     if out.get("refused"):
         return False, f"{client.NAME} refused it: {out['refused']}"
     if not bought:
@@ -408,7 +449,7 @@ def _days(service: dict[str, Any]) -> str:
         execute=_execute_buy,
         present=_present_buy,
         verify=verify_buy,
-        settle=_settle,
+        settle=_settle_for(BUY),
         interaction="hold_to_arm",
         # Money leaves: the owner's hold (app/actions/grammar.py: AMBER and money is hold to arm).
         op_class="money",
@@ -495,8 +536,8 @@ def _verify_print(reprint: bool):
         out = _OUTCOMES.get(str(execution.get("idempotency_key") or ""))
         counted = "reprints" if reprint else "prints"
         moved = observed.get(counted, 0) > before.get(counted, 0) and observed.get("print") in ("printing", "printed")
-        if out is None:
-            return _lost(observed, before, moved, "print")
+        if out is None or out.get("lost"):
+            return _lost(out, moved, "copy" if reprint else "print")
         if out.get("refused"):
             return False, f"{client.NAME} refused it: {out['refused']}"
         if not out["sent"]:
@@ -583,7 +624,7 @@ def _print_spec(reprint: bool) -> WriteSpec:
         execute=_execute_print(reprint),
         present=_present_print(reprint),
         verify=_verify_print(reprint),
-        settle=_settle,
+        settle=_settle_for(name),
         # No money and no customer: the owner's swipe (AMBER and irreversible), as every change is.
         interaction="swipe_commit",
         op_class="irreversible",

@@ -257,6 +257,64 @@ async def test_printing_is_the_services_printnode_once_then_a_confirmed_copy(wor
     assert [e.actor for e in world.store.get(world.shop, ready.id).timeline if e.type == "label_reprinted"] == ["George (CLIVE)"]
 
 
+def _answers_lost(world, monkeypatch, ending: str, first) -> None:
+    """Every POST to …{ending} loses its answer, both CLIVE's request and the one asked again with
+    the same key; `first(transport, request)` runs before the first is lost (the request landing,
+    or the Shipping screen acting instead of it)."""
+    calls: list[str] = []
+
+    class Losing(httpx.ASGITransport):
+        async def handle_async_request(self, request):
+            if request.method == "POST" and request.url.path.endswith(ending):
+                calls.append(request.url.path)
+                await first(self, request, len(calls))
+                raise httpx.ReadTimeout("the answer was lost on the way back", request=request)
+            return await super().handle_async_request(request)
+
+    monkeypatch.setattr(sc, "http_client", lambda timeout_s: httpx.AsyncClient(
+        transport=Losing(app=world.reached), timeout=timeout_s))
+
+
+@pytest.mark.parametrize("whose", ["clive", "the Shipping screen"])
+@pytest.mark.parametrize("tool", [shipping_tools.BUY, shipping_tools.PRINT])
+async def test_a_lost_answer_is_clives_only_when_the_orders_history_says_so(world, monkeypatch, tool, whose):
+    """Both answers lost, and the order re-read shows a label (or a print): it is CLIVE's, and said as
+    done, only when the order's newest entry of that kind is by "George (CLIVE)". The Shipping screen
+    acting meanwhile, as George himself, is not CLIVE's change: unverified, and George is told to look."""
+    ready = shipping_service.ready_order(world.s, world)
+    session = _session()
+    sender = Mock()
+    sender.print_pdf.side_effect = range(7000, 7100)
+    if tool == shipping_tools.PRINT:
+        _, buy = await _stage(session, shipping_tools.BUY, ready.id)
+        assert (await _approve(world, buy, hold=True)).code == "verified"
+        shipping_service.real_label(world.s, world, ready.id)
+        world.app.state.operations.physical.provider = sender
+        session.epoch += 1
+    _, proposal = await _stage(session, tool, ready.id)
+    basis = dict(proposal.execution).get("basis")
+
+    async def first(transport, request, n):
+        if whose == "clive":
+            await httpx.ASGITransport.handle_async_request(transport, request)   # it lands; its answer is lost
+        elif n == 1 and tool == shipping_tools.BUY:
+            world.svc.buy(world.shop, ready.id, basis, "George", "shipping-screen-buy")
+        elif n == 1:
+            world.app.state.operations.physical.print_label(world.shop, ready.id, "George", "shipping-screen-print")
+
+    _answers_lost(world, monkeypatch, "/buy" if tool == shipping_tools.BUY else "/print", first)
+    result = await _approve(world, proposal, hold=tool == shipping_tools.BUY)
+    what = "label" if tool == shipping_tools.BUY else "print"
+    if whose == "clive":
+        assert result.code == "verified", result.spoken
+        assert f"the order's history shows the {what} as CLIVE's" in result.spoken
+    else:
+        assert result.code == "unverified", result.spoken
+        assert f"CLIVE lost CLIVE Shipping's answer and can't see the {what} as CLIVE's on the order" in result.spoken
+        assert "Label bought" not in result.spoken and "Sent the label" not in result.spoken
+    assert len(world.provider.charges) == 1 and sender.print_pdf.call_count == (tool == shipping_tools.PRINT)
+
+
 def test_clive_waits_for_a_print_longer_than_the_service_waits_on_printnode(service_code):
     """The service's print asks PrintNode twice in turn (the printer, then the job), each with its own
     wait. CLIVE's wait covers both and the label's own work after them, so a slow print that works is
