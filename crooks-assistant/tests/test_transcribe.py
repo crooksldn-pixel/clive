@@ -162,7 +162,7 @@ async def test_the_log_never_carries_what_was_said(caplog):
 
     caplog.set_level(logging.INFO, logger="crooks")
     caplog.set_level(logging.INFO)
-    t = Transcriber(FakeWhisper("find the blue wash yard genes for daniel sear"))
+    t = Transcriber(FakeWhisper("find the blue wash yard genes for daniel stub"))
     result = await t.from_blob(webm_opus(tone_pcm(1.0)))
     assert result.ok
     assert "daniel" not in caplog.text.lower() and "yard genes" not in caplog.text.lower()
