@@ -499,14 +499,17 @@ class ShippingService:
         }
         if given.get("method") == "suggested" and given.get("code") == hs:
             out["method"] = "suggested, then confirmed"
+            # What the browser says it asked: kept as context, bounded, never trusted for
+            # `verified` (only the tariff read below sets that).
+            inputs, answers, reasons = given.get("inputs"), {}, given.get("reasons")
+            inputs = inputs if isinstance(inputs, dict) else {}
+            answers = inputs["answers"] if isinstance(inputs.get("answers"), dict) else {}
+            reasons = reasons if isinstance(reasons, list) else []
             out["inputs"] = {
-                "text": str((given.get("inputs") or {}).get("text") or "")[:200],
-                "answers": {
-                    str(k)[:20]: str(v)[:40]
-                    for k, v in ((given.get("inputs") or {}).get("answers") or {}).items()
-                },
+                "text": str(inputs.get("text") or "")[:200],
+                "answers": {str(k)[:20]: str(v)[:40] for k, v in list(answers.items())[:8]},
             }
-            out["reasons"] = [str(r)[:200] for r in (given.get("reasons") or [])[:8]]
+            out["reasons"] = [str(r)[:200] for r in reasons[:12]]
         if self.commodity is None or len(hs) != 10:
             out["note"] = (
                 "Not checked: a six or eight digit HS code."

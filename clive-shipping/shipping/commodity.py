@@ -110,7 +110,17 @@ class UkTradeTariff:
         body = self._get(f"/headings/{heading}")
         if body is None:
             return []
-        nodes = [
+        try:
+            nodes = self._nodes(body)
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise TariffUnavailable("The UK Trade Tariff sent an unexpected answer.") from exc
+        with self._lock:
+            self._cache[heading] = (time.monotonic(), nodes)
+        return nodes
+
+    @staticmethod
+    def _nodes(body: dict[str, Any]) -> list[TariffNode]:
+        return [
             TariffNode(
                 code=str(a.get("goods_nomenclature_item_id") or ""),
                 suffix=str(a.get("producline_suffix") or "80"),
@@ -122,9 +132,6 @@ class UkTradeTariff:
             for i in body.get("included") or []
             if i.get("type") == "commodity" and (a := i.get("attributes") or {})
         ]
-        with self._lock:
-            self._cache[heading] = (time.monotonic(), nodes)
-        return nodes
 
     def commodity(self, code: str) -> TariffEntry | None:
         """The official entry for a ten-digit code, or None when the tariff has no such
@@ -134,7 +141,16 @@ class UkTradeTariff:
         body = self._get(f"/commodities/{code}")
         if body is None or body["data"].get("type") != "commodity":
             return None
-        a = body["data"].get("attributes") or {}
+        try:
+            return self._entry(body, code)
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise TariffUnavailable("The UK Trade Tariff sent an unexpected answer.") from exc
+
+    def _entry(self, body: dict[str, Any], code: str) -> TariffEntry:
+        a = body["data"].get("attributes")
+        if not isinstance(a, dict) or not a.get("goods_nomenclature_item_id"):
+            # Not "no such code": an answer we can't read says nothing either way.
+            raise TariffUnavailable("The UK Trade Tariff sent an unexpected answer.")
         included = body.get("included") or []
         heading = next((i for i in included if i.get("type") == "heading"), None)
         ancestors = sorted(
@@ -142,14 +158,17 @@ class UkTradeTariff:
             key=lambda x: int(x.get("number_indents") or 0),
         )
         path = (
-            [str((heading or {}).get("attributes", {}).get("description") or "")]
+            [str(((heading or {}).get("attributes") or {}).get("description") or "")]
             + [str(x.get("description") or "") for x in ancestors]
             + [str(a.get("description") or "")]
         )
-        ends = a.get("validity_end_date")
-        in_force = not ends or str(ends) > datetime.now(UTC).isoformat()
+        today = datetime.now(UTC).date().isoformat()
+        starts, ends = a.get("validity_start_date"), a.get("validity_end_date")
+        in_force = (not starts or str(starts)[:10] <= today) and (
+            not ends or str(ends)[:10] >= today  # in force on its last day
+        )
         return TariffEntry(
-            code=str(a.get("goods_nomenclature_item_id") or code),
+            code=str(a["goods_nomenclature_item_id"]),
             description=str(a.get("description") or ""),
             path=[p for p in path if p],
             declarable=bool(a.get("declarable")),
@@ -172,6 +191,7 @@ class Facts:
     gender: str | None = None  # men, women
     denim: bool | None = None
     corduroy: bool | None = None
+    rollneck: bool | None = None  # a roll, polo or turtle neck: the tariff has a line for some
     why: dict[str, str] = field(default_factory=dict)
 
     def set(self, name: str, value: Any, why: str) -> None:
@@ -181,15 +201,19 @@ class Facts:
 
 
 class CommodityClassifier(Protocol):
-    def facts(self, text: str, answers: dict[str, str]) -> Facts: ...
+    def facts(self, text: str, answers: dict[str, str], context: str = "") -> Facts:
+        """`text` is the merchant's own words; `context` what Shopify says about the product
+        (title, variant, type), read only for what the merchant's words leave open."""
+        ...
 
 
-GARMENTS = [  # (words, garment, implied facts with the reason)
+GARMENTS = [  # (words, garment, implied facts with the reason); shorts before jeans
     (r"jorts?", "shorts", {"denim": (True, "jorts are denim shorts")}),
-    (r"jeans?", "trousers", {"denim": (True, "jeans are denim")}),
+    (r"(?:jean|denim) shorts?", "shorts", {"denim": (True, "jean shorts are denim")}),
     (r"shorts?", "shorts", {}),
+    (r"jeans?", "trousers", {"denim": (True, "jeans are denim")}),
     (r"joggers?|jogging bottoms|sweatpants|track ?pants|trackies", "trousers", {}),
-    (r"trousers?|pants|chinos?|cargos?|slacks", "trousers", {}),
+    (r"trousers?|chinos?|cargos?|slacks", "trousers", {}),
     (r"skirts?", "skirt", {"gender": ("women", "skirts are women's garments in the tariff")}),
     (r"t-?shirts?|tees?", "tshirt", {
         "construction": ("knitted", "a T-shirt is knitted jersey (heading 6109)"),
@@ -198,9 +222,15 @@ GARMENTS = [  # (words, garment, implied facts with the reason)
         "construction": ("knitted", "hoodies and sweatshirts are knitted (heading 6110)"),
     }),
 ]  # fmt: skip
+# Words that make it another garment than the ones above (underwear, swimwear, a dress, a
+# jacket...): never read as trousers, shorts or a T-shirt; the merchant enters it by hand.
+NOT_COVERED = (
+    r"boxers?|briefs|underwear|undershorts|trunks|lingerie|swim\w*|bikinis?|dress(?:es)?"
+    r"|jackets?|coats?|blazers?|suits?|gilets?|overalls|dungarees|pyjamas?|pajamas?"
+)
 FIBRES = [
     (r"cotton", "cotton"),
-    (r"polyester|nylon|polyamide|acrylic|synthetic", "synthetic"),
+    (r"polyester|nylon|polyamide|acrylic|elastane|spandex|lycra|synthetic", "synthetic"),
     (r"viscose|rayon|modal|lyocell|tencel", "artificial"),
     (r"cashmere", "cashmere"),
     (r"wool|merino|lambswool", "wool"),
@@ -217,42 +247,74 @@ def _has(pattern: str, text: str) -> bool:
     return re.search(rf"(?<![a-z]){pattern}(?![a-z])", text) is not None
 
 
+def _fibre(words: str) -> tuple[str, str] | None:
+    """The fibre it is mostly made of, only when the words settle it: one fibre named, or a
+    composition whose largest share is one fibre ("80% polyester 20% cotton"). Two fibres
+    without shares leave it open, so the question is asked."""
+    named: dict[str, int | None] = {}
+    for pattern, fibre in FIBRES:
+        for m in re.finditer(rf"(?<![a-z])(?:{pattern})(?![a-z])", words):
+            share = re.search(r"(\d{1,3})\s*%\s*$", words[: m.start()]) or re.match(
+                r"\s*(\d{1,3})\s*%", words[m.end() :]
+            )
+            pct = int(share.group(1)) if share else None
+            if fibre not in named or (pct or 0) > (named[fibre] or 0):
+                named[fibre] = pct
+    if len(named) == 1:
+        fibre = next(iter(named))
+        return fibre, f"{fibre} in the description"
+    shares = sorted(((p, f) for f, p in named.items() if p is not None), reverse=True)
+    if len(named) > 1 and len(shares) == len(named) and shares[0][0] > shares[1][0]:
+        return shares[0][1], f"{shares[0][0]}% {shares[0][1]} in the composition"
+    return None
+
+
 class RuleClassifier:
     """Plain words to tariff facts, by rules that only ever claim what the words say (or what
-    a garment is by definition: jeans are denim, a T-shirt is knitted)."""
+    a garment is by definition: jeans are denim, a T-shirt is knitted). The merchant's own
+    words come first; what Shopify says about the product only fills what they leave open."""
 
-    def facts(self, text: str, answers: dict[str, str]) -> Facts:
+    def facts(self, text: str, answers: dict[str, str], context: str = "") -> Facts:
         f = Facts()
         for name, value in answers.items():  # what the merchant chose wins over anything read
             if name in ("garment", "construction", "fibre", "gender") and value:
                 f.set(name, value, "you said")
             elif name in ("denim", "corduroy") and value in ("yes", "no"):
                 f.set(name, value == "yes", "you said")
-        words = text.lower()
-        for pattern, garment, implied in GARMENTS:
-            if _has(pattern, words):
-                f.set("garment", garment, f'"{re.search(pattern, words).group(0)}"')  # type: ignore[union-attr]
-                for name, (value, why) in implied.items():
-                    f.set(name, value, why)
-                break
-        for pattern, fibre in FIBRES:
-            if _has(pattern, words):
-                f.set("fibre", fibre, f"{fibre} in the description")
-                break
-        for pattern, gender in GENDERS:
-            if _has(pattern, words):
-                f.set("gender", gender, f"{gender}'s in the description")
-                break
-        if _has("unisex", words):
-            f.set("gender", "unisex", "unisex in the description")
-        if _has(r"jersey|knit(?:ted)?|fleece", words):
-            f.set("construction", "knitted", "knitted fabric in the description")
-        if _has(r"woven|denim|twill|canvas|corduroy|cord", words):
-            f.set("construction", "woven", "woven fabric in the description")
+        other_garment = False
+        for words, where in ((text.lower(), ""), (context.lower(), " (from the product)")):
+            if not words:
+                continue
+            if f.garment is None and not other_garment:
+                if _has(NOT_COVERED, words):
+                    other_garment = True
+                else:
+                    for pattern, garment, implied in GARMENTS:
+                        if m := re.search(rf"(?<![a-z])(?:{pattern})(?![a-z])", words):
+                            f.set("garment", garment, f'"{m.group(0)}"{where}')
+                            for name, (value, why) in implied.items():
+                                f.set(name, value, why)
+                            break
+            if fibre := _fibre(words):
+                f.set("fibre", fibre[0], fibre[1] + where)
+            for pattern, gender in GENDERS:
+                if _has(pattern, words):
+                    f.set("gender", gender, f"{gender}'s in the description{where}")
+                    break
+            if _has("unisex", words):
+                f.set("gender", "unisex", f"unisex in the description{where}")
+            if _has(r"jersey|knit(?:ted)?|fleece", words):
+                f.set("construction", "knitted", f"knitted fabric in the description{where}")
+            if _has(r"woven|denim|twill|canvas|corduroy|needle ?cord", words):
+                f.set("construction", "woven", f"woven fabric in the description{where}")
+            if _has("denim", words):
+                f.set("denim", True, f"denim in the description{where}")
+            if _has(r"corduroy|needle ?cord", words):
+                f.set("corduroy", True, f"corduroy in the description{where}")
+            if _has(r"(?:turtle|roll|polo|mock) ?necks?", words):
+                f.set("rollneck", True, f"a roll, polo or turtle neck{where}")
         if f.denim:
             f.set("construction", "woven", "denim is woven")
-        if _has(r"corduroy|cord", words):
-            f.set("corduroy", True, "corduroy in the description")
         if f.gender == "unisex":
             # Chapters 61 and 62, note 9: a garment that can't be identified as men's or women's
             # is classified with women's (read from the UK Trade Tariff chapter notes).
@@ -373,6 +435,7 @@ def _fits(value: Any, known: Any) -> bool:
 class Navigator:
     def __init__(self, tariff: CommodityTariffSource) -> None:
         self.tariff = tariff
+        self.assumed: list[str] = []  # lines passed over without asking, shown as reasons
 
     def walk(self, heading: str, f: Facts) -> tuple[str | None, Question | None, list[str]]:
         """Down the official tree from the heading to one line. Returns (code, None, path) when a
@@ -385,7 +448,7 @@ class Navigator:
             children = self._children(nodes, start, depth)
             if not children:
                 return None, None, path
-            pick, question = self._choose(children, f)
+            pick, question = self._choose(children, f, self.assumed)
             if question is not None:
                 return None, question, path
             if pick is None:
@@ -414,7 +477,7 @@ class Navigator:
 
     @staticmethod
     def _choose(
-        children: list[tuple[int, TariffNode]], f: Facts
+        children: list[tuple[int, TariffNode]], f: Facts, assumed: list[str]
     ) -> tuple[tuple[int, TariffNode] | None, Question | None]:
         claimed = [(c, claim(c[1].description)) for c in children]
         named = [(c, cl) for c, cl in claimed if cl is not None]
@@ -433,7 +496,13 @@ class Navigator:
             return None, None
         if dim == "special":
             # Workwear, batik prints, hand-made: not ordinary clothing unless the merchant says
-            # so; the chosen path shows "Other" for them to see before confirming.
+            # so; the chosen path shows "Other" and the reasons say what was passed over.
+            if others:
+                assumed.append(
+                    "assumed not: "
+                    + "; ".join(c[1].description.lower() for c, _ in named)
+                    + " (if it is, enter the code by hand)"
+                )
             return (others[0] if others else None), None
         if dim == "weave":
             weave = "denim" if f.denim else "corduroy" if f.corduroy else None
@@ -466,6 +535,13 @@ class Navigator:
         for c, (_, value) in named:
             if value != "*" and _fits(value, known):
                 return c, None
+        if dim == "garment" and any(value == "rollneck" for _, (_, value) in named):
+            if f.rollneck:
+                return None, None  # turns on how fine and light the knit is: not asked here
+            assumed.append(
+                "assumed not: a lightweight fine knit roll, polo or turtleneck jumper"
+                " (if it is, enter the code by hand)"
+            )
         star = [c for c, (_, value) in named if value == "*"]
         if star:  # "Of other textile materials": any fibre not named beside it
             return star[0], None
@@ -484,7 +560,9 @@ class CommodityAssistant:
         self.tariff = tariff
         self.classifier = classifier or RuleClassifier()
 
-    def suggest(self, text: str, answers: dict[str, str] | None = None) -> Suggestion:
+    def suggest(
+        self, text: str, answers: dict[str, str] | None = None, context: str = ""
+    ) -> Suggestion:
         answers = dict(answers or {})
         if answers.get("weave"):  # one question sets denim/corduroy
             weave = answers.pop("weave")
@@ -492,7 +570,7 @@ class CommodityAssistant:
             answers["corduroy"] = "yes" if weave == "corduroy" else "no"
         inputs = {"text": text, "answers": answers}
         try:
-            f = self.classifier.facts(text, answers)
+            f = self.classifier.facts(text, answers, context)
         except Exception:  # an optional classifier failing must not block anything
             log.exception("commodity classifier failed")
             return Suggestion(
@@ -510,11 +588,20 @@ class CommodityAssistant:
                 "T-shirts and hoodies. Enter this one by hand, or describe it as one of those.",
                 inputs=inputs,
             )
+        navigator = Navigator(self.tariff)
         try:
-            code, question, path = Navigator(self.tariff).walk(heading, f)
+            code, question, path = navigator.walk(heading, f)
             if question is not None:
                 return Suggestion("question", question=question, inputs=inputs)
-            entry = self.tariff.commodity(code) if code else None
+            if code is None:
+                return Suggestion(
+                    "manual",
+                    "CLIVE can't decide this one: the tariff's lines turn on something it doesn't "
+                    "ask (" + (" › ".join(path) or f"heading {heading}") + "). Enter the code by "
+                    "hand.",
+                    inputs=inputs,
+                )
+            entry = self.tariff.commodity(code)
         except TariffUnavailable as exc:
             return Suggestion("manual", f"{exc} Enter the code by hand.", inputs=inputs)
         if entry is None or not entry.declarable or not entry.in_force:
@@ -527,7 +614,7 @@ class CommodityAssistant:
             "candidate",
             code=entry.code,
             entry=entry,
-            reasons=[_reason(f, name, why) for name, why in f.why.items()],
+            reasons=[_reason(f, name, why) for name, why in f.why.items()] + navigator.assumed,
             inputs=inputs,
         )
 
@@ -535,7 +622,8 @@ class CommodityAssistant:
         """A typed or suggested code, read back from the UK Trade Tariff (None: no such current,
         declarable line). Raises TariffUnavailable when it can't be read."""
         entry = self.tariff.commodity(code)
-        return entry if entry and entry.declarable and entry.in_force else None
+        ok = entry and entry.code == code and entry.declarable and entry.in_force
+        return entry if ok else None
 
 
 WORDS = {"men": "men's", "women": "women's", "tshirt": "T-shirt", "sweatshirt": "jersey/hoodie"}

@@ -446,8 +446,8 @@ def build_admin_router(
                     line.product_type,
                     line.customs_description,
                 ]
-        text = " ".join(x for x in [body.text, *known] if x)[:400]
-        out = svc.commodity.suggest(text, body.answers)
+        context = " ".join(x for x in known if x)[:400]
+        out = svc.commodity.suggest(body.text[:400], body.answers, context)
         result: dict[str, Any] = {"state": out.state, "message": out.message}
         if out.question is not None:
             result["question"] = {

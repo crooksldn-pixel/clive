@@ -135,6 +135,51 @@ def test_something_it_cannot_classify_is_handed_back(helper):
     assert wool.state == "manual" and wool.code is None
 
 
+def test_a_blend_is_classified_by_the_fibre_that_predominates(helper):
+    blend = ask(helper, "80% polyester 20% cotton men's hoodie")
+    assert blend.state == "candidate" and "Of cotton" not in blend.entry.path
+    assert any("80% synthetic" in r for r in blend.reasons)
+    # Two fibres without their shares: which one predominates is asked, never assumed.
+    q = ask(helper, "knitted polyester cotton men's joggers")
+    assert q.state == "question" and q.question.fact == "fibre"
+    stretch = ask(helper, "95% cotton 5% elastane men's jeans")
+    assert stretch.code == ask(helper, "Men's cotton jeans").code
+
+
+def test_jean_shorts_are_shorts_not_jeans(helper):
+    shorts = ask(helper, "men's cotton jean shorts")
+    assert shorts.code == ask(helper, "jorts", gender="men", fibre="cotton").code
+    assert shorts.code != ask(helper, "Men's cotton jeans").code
+
+
+def test_the_merchants_words_decide_over_the_product_title(helper):
+    out = helper.suggest("men's cotton hoodie", {}, "Washed Joggers")
+    assert out.state == "candidate" and out.code == ask(helper, "men's cotton hoodie").code
+    # The title is read only for what the merchant's words leave open.
+    filled = helper.suggest("cotton", {}, "Express Tee T-Shirt")
+    assert filled.code == ask(helper, "Cotton T-shirt").code
+    assert any("from the product" in r for r in filled.reasons)
+
+
+def test_other_garments_with_familiar_words_are_handed_back(helper):
+    for words in ("boxer shorts", "cotton T-shirt dress", "men's cotton jean jacket",
+                  "swim shorts", "cotton sweatshirt dress"):  # fmt: skip
+        assert ask(helper, words).state == "manual", words
+
+
+def test_a_drawcord_is_not_corduroy(helper):
+    q = ask(helper, "men's cotton joggers with draw cord")
+    assert q.state == "question" and q.question.fact == "construction"
+
+
+def test_lines_passed_over_without_asking_are_named(helper):
+    crew = ask(helper, "men's cotton crew neck jumper")
+    assert crew.state == "candidate"
+    assert any("turtleneck" in r and "by hand" in r for r in crew.reasons)
+    roll = ask(helper, "men's cotton turtleneck jumper")  # turns on a fine, light knit
+    assert roll.state == "manual" and "can't decide" in roll.message
+
+
 def test_every_reachable_code_is_a_current_declarable_line():
     for code, entry in COMMODITIES.items():
         a = entry["data"]["attributes"]
@@ -155,7 +200,7 @@ def test_tariff_unavailable_means_manual_never_a_guess(helper, official):
 
 def test_a_failing_classifier_means_manual(official):
     class Broken(RuleClassifier):
-        def facts(self, text, answers):
+        def facts(self, text, answers, context=""):
             raise RuntimeError("model offline")
 
     tariff = UkTradeTariff(
@@ -173,6 +218,34 @@ def test_codes_are_strings_with_their_leading_zeros(helper, official):
     assert entry is not None and entry.code == "0101210000"
     assert spaced("0101210000") == "0101 21 00 00"
     assert helper.check("6203999999") is None  # not in the tariff
+
+
+def test_an_answer_in_an_unexpected_shape_is_unavailable_not_no_such_code(helper, official):
+    official.extra["6109100010"] = {"data": {"type": "commodity", "attributes": None}}
+    with pytest.raises(TariffUnavailable):
+        helper.check("6109100010")
+    official.extra["6109100010"] = {"data": {"type": "commodity", "attributes": {
+        "goods_nomenclature_item_id": "6109100010", "declarable": True}},
+        "included": [{"type": "heading", "attributes": None}, {"type": "commodity"}]}  # fmt: skip
+    with pytest.raises(TariffUnavailable):
+        helper.check("6109100010")
+
+
+def test_a_code_is_in_force_on_its_last_day_and_must_be_the_code_asked(helper, official):
+    from copy import deepcopy
+    from datetime import UTC, datetime, timedelta
+
+    today = datetime.now(UTC).date()
+    entry = deepcopy(COMMODITIES["6109100010"])
+    entry["data"]["attributes"]["validity_end_date"] = f"{today.isoformat()}T23:59:59.000Z"
+    official.extra["6109100010"] = entry
+    assert helper.check("6109100010") is not None
+    entry["data"]["attributes"]["validity_end_date"] = (today - timedelta(days=1)).isoformat()
+    assert helper.check("6109100010") is None
+    other = deepcopy(COMMODITIES["6109100010"])
+    other["data"]["attributes"]["goods_nomenclature_item_id"] = "6109100090"
+    official.extra["6109100010"] = other
+    assert helper.check("6109100010") is None
 
 
 # ------------------------------------------------- confirming, through the one path
@@ -301,6 +374,23 @@ def test_a_suggestion_edited_by_hand_is_recorded_as_manual(svc):
     )
     evidence = json.loads(svc.store.fact(SHOP, "product", q.subject, "hs_classification"))
     assert evidence["method"] == "manual"  # the code saved is not the one suggested
+
+
+def test_evidence_in_an_unexpected_shape_is_bounded_not_a_crash(svc):
+    (s,) = svc.store.shipments(SHOP)
+    q = asked(s)
+    given = {"method": "suggested", "code": "6109100010", "inputs": ["x"], "reasons": "why"}
+    svc.answer(
+        SHOP,
+        s.id,
+        "customs",
+        q.subject,
+        {"hs_code": "6109100010", "description": "Cotton T-shirt", "classification": given},
+        "Sam",
+    )
+    evidence = json.loads(svc.store.fact(SHOP, "product", q.subject, "hs_classification"))
+    assert evidence["inputs"] == {"text": "", "answers": {}} and evidence["reasons"] == []
+    assert evidence["verified"] is True  # from the tariff read, never from the browser
 
 
 def test_no_lookup_configured_means_manual_entry_as_before(store, provider, clock):
