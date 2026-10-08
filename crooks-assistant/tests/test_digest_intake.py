@@ -53,7 +53,7 @@ from tests.fake_credentials import credential_url, password
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "digest_intake.py"
 TAKEN_AT = "2026-09-26T10:00:00+00:00"
-HANDLERS = ("archive", "directory", "file", "git", "package", "url")
+HANDLERS = ("archive", "directory", "file", "git", "package", "research", "url")
 MIT = (
     "MIT License\n\nCopyright (c) 2026 Example\n\n"
     "Permission is hereby granted, free of charge, to any person obtaining a copy\n"

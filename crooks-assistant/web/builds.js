@@ -14,6 +14,8 @@
  *
  * Under the heading, the release service's one line about deploys (app/release/status.py), as it
  * wrote it: what it last did, or that it is off or not installed. Read only; nothing here deploys.
+ * Under that, the Research section (web/research.js, 8 Oct): the research George gave CLIVE and his
+ * answers to what it recommends; it reads and draws itself, and this file only places it.
  *
  * A build that waits on George carries its question: two or three answers, each saying what happens
  * next, the recommended one marked with why. A tap picks an answer and a second tap on the button
@@ -364,7 +366,9 @@
     const groups = list(p.groups);
     if (!groups.length) add(host, el('p', 'bd-empty', 'The build loop has nothing filed. Ask CLIVE to build something and it shows here.'));
     for (const g of groups) {
-      const section = el('section', 'bd-group');
+      // [research] The group that waits on him is marked (a fixed class, never the payload's word), so the
+      // Research section (web/research.js) can sit straight after it: what needs him comes first.
+      const section = el('section', g.key === 'needs_you' ? 'bd-group is-needs-you' : 'bd-group');
       add(section, el('h2', 'bd-h2', g.title));
       const rows = el('div', 'bd-list');
       const builds = list(g.builds);
@@ -472,6 +476,9 @@
       else if (node.removeAttribute) node.removeAttribute('open');
     }
     S.drawn = drawn;
+    // [research] The Research section (web/research.js) goes under the heading: the research he gave
+    // CLIVE and the recommendations that wait on his answer. It reads and draws itself.
+    if (globalThis.CliveResearch && typeof globalThis.CliveResearch.place === 'function') globalThis.CliveResearch.place(U.scroll);
     const h1 = U.scroll.querySelector ? U.scroll.querySelector('.bd-h1') : null;
     if (h1) h1.setAttribute('id', 'bd-title');
     U.flash.textContent = S.flash || '';

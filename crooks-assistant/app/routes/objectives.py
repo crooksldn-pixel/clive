@@ -218,6 +218,14 @@ async def gaps() -> dict:
     return record.report()
 
 
+# [research] The Builds screen's Research section (app/routes/research.py): the owner's research, its
+# proposals and his answers, at /objectives/research. Included here, before /{objective_id} would take
+# the path, so the routes carry this router's owner-only rule.
+from app.routes import research as _research  # noqa: E402
+
+router.include_router(_research.router)
+
+
 @router.get("/{objective_id}", response_model=None)
 async def read_objective(objective_id: str) -> dict | JSONResponse:
     try:

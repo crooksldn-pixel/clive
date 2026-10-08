@@ -5114,6 +5114,20 @@ window.CliveAlpha = {
   sessionId() { return sessionId; },
 };
 
+// [research] The one door web/research.js uses into this file: a card another screen's tap had the Mac
+// stage on this conversation (an adopted research proposal's build request, app/builds/research.py),
+// drawn exactly as a row's own button draws its card. Nothing is applied by drawing it: the card still
+// waits for his gesture. Returns whether anything was drawn.
+window.CliveCards = {
+  show(payload) {
+    if (!payload || !Array.isArray(payload.ui) || !payload.ui.length || !window.CrooksUI) return false;
+    if (payload.branch) noteBranch(payload.branch);
+    const drawn = drawTapAnswer(payload.ui, 'Research');
+    if (drawn && payload.answer) el.answer.textContent = String(payload.answer);
+    return drawn;
+  },
+};
+
 // ------------------------------------------------------------------ the ask bar
 /* The phone's one bar, drawn by web/alpha.js as `#ask-bar`: a tap types, a hold speaks.
  *

@@ -31,6 +31,10 @@ it by itself: the build loop cannot read the ledger yet. Such a build stays in N
 "waiting to be acted on", until the build moves on (a new try filed, a new stop), which is a new
 question. An answer that asks for nothing to be done ("Leave it for now", "Drop it", "Keep things as
 they are") is true the moment it is recorded, and the build leaves his list.
+
+The same ledger keeps his answers to research (8 Oct 2026, app/research, app/builds/research.py): each
+recommendation CLIVE drew from research he gave is a proposal (`research:<artifact>:<n>:<digest>`)
+answered Adopt, Park or Reject, with an action id under RESEARCH_PREFIX so no build reads it as its own.
 """
 
 from __future__ import annotations
@@ -61,6 +65,10 @@ LEDGER_NAME = "owner-judgments.jsonl"
 SOURCE = "clive:builds-screen"
 ACTION_PREFIX = "build-decision:"
 REVIEW_LIMIT, OWNER_GATE = "review_limit", "owner_gate"
+# [research] A recommendation from research George gave CLIVE (app/research/review.py): adopt, park
+# or reject, on the Builds screen's Research section. Its action id names the research, never a build.
+RESEARCH = "research"
+RESEARCH_PREFIX = "research-decision:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,10 +103,20 @@ ANSWERS: dict[str, tuple[Answer, ...]] = {
         Answer("later", "Decide later", "Nothing changes. It stays stopped and off your list until you pick it up.",
                OwnerDecision.DEFERRED, ReasonCode.NOT_NOW),
     ),
+    # [research] Adopting prepares the build request on a card; nothing is filed until he holds it.
+    RESEARCH: (
+        Answer("adopt", "Adopt", "Prepares a build request for the build loop. Nothing is filed until you hold its card.",
+               OwnerDecision.APPROVED, ReasonCode.ACCEPTED_AS_PROPOSED),
+        Answer("park", "Park", "Kept with your research for later. Nothing is built.",
+               OwnerDecision.DEFERRED, ReasonCode.NOT_NOW),
+        Answer("reject", "Reject", "Not for CLIVE. It stays in the research record, marked rejected.",
+               OwnerDecision.DECLINED, ReasonCode.OTHER_BOUNDED),
+    ),
 }
 
 # What his answer leaves the build saying on the screen; one that asks for action says ANSWERED.
-AFTER = {"drop": "Dropped by you", "later": "Left for now", "keep": "Kept as it is"}
+AFTER = {"drop": "Dropped by you", "later": "Left for now", "keep": "Kept as it is",
+         "adopt": "Adopted", "park": "Parked", "reject": "Rejected"}
 
 
 class DecisionError(Exception):
@@ -217,7 +235,7 @@ def card(item: dict[str, Any], why: dict[str, Any], *, tries: int = 1, stops: in
 def answer_of(record: JudgmentRecord) -> Answer | None:
     """Which answer a judgment on a build is, from its decision and reason code."""
     parts = record.proposal_id.split(":")
-    kind = parts[3] if len(parts) > 3 and parts[0] == "build" else ""
+    kind = parts[3] if len(parts) > 3 and parts[0] == "build" else RESEARCH if parts[0] == RESEARCH else ""
     return next((a for a in ANSWERS.get(kind, ()) if a.decision == record.decision and a.reason == record.reason_code), None)
 
 
@@ -330,7 +348,8 @@ def decide(owner_ledger: OwnerLedger, question: dict[str, Any], answer_key: str,
         record = JudgmentRecord(
             judgment_id=f"jdg_{uuid.uuid4().hex[:20]}",
             task_id=question["task_id"],
-            action_id=f"{ACTION_PREFIX}{question['request_id']}",
+            # [research] a research question names its own action id (RESEARCH_PREFIX); a build's is its request.
+            action_id=question.get("action_id") or f"{ACTION_PREFIX}{question['request_id']}",
             proposal_id=question["proposal_id"],
             proposal_fingerprint=question["fingerprint"],
             decision=answer.decision,
