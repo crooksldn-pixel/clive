@@ -13,8 +13,8 @@ what the Mac does with that call: whether a card reaches the glass, whether a pr
 and what the model is told.
 
 The golden world has the case in it already: Mia Jones has two recent orders, #1938 (today) and
-#1912 (six weeks ago), and a thread about each. Reading #1938 shows the conversation both orders
-and both threads, so every id below is one the gate has seen issued — nothing is granted to the
+#1912 (six weeks ago), and a thread about each. Reading #1938, and the rest of its card, shows
+the conversation both orders and both threads, so every id below is one the gate has seen issued — nothing is granted to the
 test from outside the conversation:
 
 * her thread about #1938 is not the thread for a reply about #1912, and her thread about #1912
@@ -46,8 +46,14 @@ async def stage():
 async def _shown_mias_orders(h, session: str) -> None:
     """"Show me order 1938", and the two reads Claude makes for it. The order read carries her
     history and her email, which is how the conversation comes to hold both orders and both
-    threads."""
+    threads.
+
+    The model's own read waits only MODEL_BUDGET_S for her history and inbox; on a busy machine
+    the inbox can miss that, and then they reach the conversation through the rest of the card,
+    collected as the tablet collects it. Either way every id is one this conversation was shown."""
     await h.open_order("1938", session_id=session)
+    _, extension = await h.enrich(ORDER_1938, session_id=session)
+    assert extension.get("pending") == [], extension
     held = h.runtime.sessions.get(session).issued_ids
     assert {ORDER_1938, ORDER_1912, HER_1938_THREAD, HER_1912_THREAD} <= set(held), sorted(held)
 
