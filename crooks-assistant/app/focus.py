@@ -277,11 +277,12 @@ def _given(args: Any) -> frozenset[str]:
 
 def _reads_named(said: Asked, drawn: list[tuple[dict[str, Any], Any]]) -> list[Any]:
     """The reads this turn that the lists `said` names, among the reads that drew a card (`drawn`:
-    each card with the call that drew it). A list named by a tool that ran once is that read. When
-    it ran more than once, the words pick it out: the reads whose own words were all named, the
-    most of them first; failing that, the reads sharing the most words with what was named; and
-    none when nothing was shared — a search the model ran on the way is never brought in by
-    naming another read of the same tool (the review of DEC-073, note 2)."""
+    each card with the call that drew it). A tool named bare is its one read, or, when it ran more
+    than once, its reads that were given no words. A tool named with words is the read of it that
+    shares them — whether it ran once or several times: the reads whose own words were all named
+    first, then the one sharing the most; and none when no read shares a word. A search the model
+    ran on the way is never brought in by naming another read of the same tool, nor by naming a
+    read that never ran (the review of DEC-073, note 2, and its re-review, note R1)."""
     calls: list[Any] = []
     for _, call in drawn:
         if not any(call is seen for seen in calls):
@@ -289,12 +290,13 @@ def _reads_named(said: Asked, drawn: list[tuple[dict[str, Any], Any]]) -> list[A
     picked: list[Any] = []
     for name, words in said.lists:
         mine = [call for call in calls if getattr(call, "name", "") == name]
-        if len(mine) > 1:
-            given = [(call, _given(getattr(call, "args", None))) for call in mine]
-            pool = [(call, own) for call, own in given if own <= words] or [(call, own) for call, own in given if own & words]
-            best = max((len(own & words) for _, own in pool), default=0)
-            mine = [call for call, own in pool if len(own & words) == best]
-        picked.extend(mine)
+        if not words:
+            picked.extend(mine if len(mine) == 1 else [call for call in mine if not _given(getattr(call, "args", None))])
+            continue
+        shared = [(call, own) for call, own in ((call, _given(getattr(call, "args", None))) for call in mine) if own & words]
+        pool = [(call, own) for call, own in shared if own <= words] or shared
+        best = max((len(own & words) for _, own in pool), default=0)
+        picked.extend(call for call, own in pool if len(own & words) == best)
     return picked
 
 

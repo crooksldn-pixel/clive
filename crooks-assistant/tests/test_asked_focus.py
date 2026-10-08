@@ -104,6 +104,18 @@ async def test_today_s_emails_and_the_reply_and_not_the_search_that_found_her_th
     assert len(searched) == 1 and "cap" not in searched[0] and "newer_than:1d" in searched[0], searched
 
 
+async def test_a_list_named_by_words_its_one_read_does_not_share_is_not_that_read(world):
+    """The re-review's note R1: only the "cap" search ran, and the model named today's inbox by
+    words that search was never given. The search is how her thread was found, not what he asked
+    to see: the reply alone, as DEC-069 shows it."""
+    said = await world.ask("show me the email reply to priya", ("gmail_search", {"query": "cap"}),
+                           ("gmail_send_reply", {"thread_id": PRIYAS_THREAD, "body": "Hi Priya, yes: the black cap is the adjustable one."}),
+                           _asked(records=[PRIYAS_THREAD], lists=["gmail_search newer_than:1d"]),
+                           session_id="one-search-misnamed", reply="Here's the reply to Priya.")
+    assert all(c.get("ok") for c in said.raw["tool_calls"]), said.raw["tool_calls"]
+    assert _kinds(said) == ["confirmation"], _kinds(said)
+
+
 async def test_asked_for_one_order_today_s_orders_read_on_the_way_stay_off(world):
     """The other half of his sentence: asked for one order, today's orders the model read to find it
     are not what he asked for and are not about that order as a whole: they stay off."""
