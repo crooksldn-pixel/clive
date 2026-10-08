@@ -576,8 +576,10 @@ def test_a_stop_after_paying_never_makes_or_pays_a_second_order(
         settings, Store(settings.db_path), shop, p2g, RecordingNotifier(settings), clock=clock
     )
     kept = restarted.store.get(ret.id)
+    assert kept is not None
     assert kept.postage.label_ref and kept.postage.label_ref.startswith("p2g:26633:")
-    assert "never pays twice" in kept.last_error  # what staff see if it stays like this
+    # What staff see if it stays like this.
+    assert kept.last_error and "never pays twice" in kept.last_error
     ret = approve(restarted, kept, key="k2")
     assert ret.status == Status.awaiting_shipment
     assert p2g_server.paid == ["26633"] and len(p2g_server.orders) == 1
