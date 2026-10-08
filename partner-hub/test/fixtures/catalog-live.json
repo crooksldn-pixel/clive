@@ -1,0 +1,5647 @@
+{
+ "capturedAt": "2026-10-08",
+ "note": "Active products from the live store, in PartnerHubCatalog shape. Prices are from the live catalogue where captured (tees, socks, sweats, jeans, windbreaker, sets) and otherwise 0.00.",
+ "products": [
+  {
+   "id": "gid://shopify/Product/fixture-v2-baggies",
+   "handle": "v2-baggies",
+   "title": "GREY CONVICT SWEATS",
+   "productType": "Joggers",
+   "tags": [
+    "550gsm",
+    "baggy",
+    "convict",
+    "fleece",
+    "grey",
+    "joggers"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/IMG-1202_c93e927c-2c68-4041-b43d-2e7f571e8a20.png?v=1788189059"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Size",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53075854197079",
+      "title": "XS",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 79,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53075854229847",
+      "title": "S",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 35,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53075854262615",
+      "title": "M",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54273366851927",
+      "title": "L",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53075854328151",
+      "title": "XL",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-v1-hoodie",
+   "handle": "v1-hoodie",
+   "title": "GREY CONVICT HOODIE",
+   "productType": "Hoodies",
+   "tags": [
+    "550gsm",
+    "baggy",
+    "convict",
+    "fleece",
+    "grey",
+    "hoodie"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-grey-convict-fleece-hoodie_892e8e2e-338d-4e90-8e84-d175e4bcb5ad.png?v=1788190419"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Size",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53075854360919",
+      "title": "XS",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 38,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53075854393687",
+      "title": "S",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 34,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53075854426455",
+      "title": "M",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53075854459223",
+      "title": "L",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 3,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53075854491991",
+      "title": "XL",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-crooks-express-t-shirt",
+   "handle": "crooks-express-t-shirt",
+   "title": "CROOKS EXPRESS TEE",
+   "productType": "T-Shirts",
+   "tags": [
+    "black",
+    "cotton",
+    "tee",
+    "white"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-black-graphic-tee.png?v=1788188192"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Colour",
+     "position": 1
+    },
+    {
+     "name": "Size",
+     "position": 2
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53099604246871",
+      "title": "White / XS",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": -3,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "White"
+       },
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53099604279639",
+      "title": "White / S",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 9,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "White"
+       },
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53099604312407",
+      "title": "White / M",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": -3,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "White"
+       },
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53099604345175",
+      "title": "White / L",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "White"
+       },
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53099604377943",
+      "title": "White / XL",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 1,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "White"
+       },
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53099604410711",
+      "title": "Black / XS",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 8,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "Black"
+       },
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53099604443479",
+      "title": "Black / S",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 12,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "Black"
+       },
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53099604476247",
+      "title": "Black / M",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 7,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "Black"
+       },
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53099604509015",
+      "title": "Black / L",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 7,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "Black"
+       },
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53099604541783",
+      "title": "Black / XL",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "Black"
+       },
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-black-joggers",
+   "handle": "black-joggers",
+   "title": "BLACK CONVICT SWEATS",
+   "productType": "Joggers",
+   "tags": [
+    "550gsm",
+    "baggy",
+    "black",
+    "convict",
+    "fleece",
+    "joggers"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/IMG-1254.png?v=1788279082"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Size",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53455028453719",
+      "title": "XS",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 5,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53455028486487",
+      "title": "S",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53455028519255",
+      "title": "M",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53455028552023",
+      "title": "L",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 5,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53455028584791",
+      "title": "XL",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-black-socks",
+   "handle": "black-socks",
+   "title": "BLACK/BLUE MOTIONTEC™️ SOCKS",
+   "productType": "Socks",
+   "tags": [
+    "accessories",
+    "black",
+    "blue",
+    "motiontec",
+    "socks"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/blacksock.png?v=1784542125"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Quantity",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53455222964567",
+      "title": "1pc",
+      "sku": null,
+      "price": "6.00",
+      "inventoryQuantity": 394,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Quantity",
+        "value": "1pc"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53455222997335",
+      "title": "3pc",
+      "sku": null,
+      "price": "15.00",
+      "inventoryQuantity": 193,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Quantity",
+        "value": "3pc"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53455223030103",
+      "title": "6pc",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 99,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Quantity",
+        "value": "6pc"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53455945335127",
+      "title": "12pc",
+      "sku": null,
+      "price": "45.00",
+      "inventoryQuantity": 20,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Quantity",
+        "value": "12pc"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-white-socks",
+   "handle": "white-socks",
+   "title": "WHITE/RED MOTIONTEC™️ SOCKS",
+   "productType": "Socks",
+   "tags": [
+    "accessories",
+    "motiontec",
+    "red",
+    "socks",
+    "white"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-white-red-motiontec-socks.webp?v=1785769861"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Quantity",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53456567238999",
+      "title": "1pc",
+      "sku": null,
+      "price": "6.00",
+      "inventoryQuantity": 90,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Quantity",
+        "value": "1pc"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456567271767",
+      "title": "3pc",
+      "sku": null,
+      "price": "15.00",
+      "inventoryQuantity": 46,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Quantity",
+        "value": "3pc"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456567304535",
+      "title": "6pc",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 19,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Quantity",
+        "value": "6pc"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456567337303",
+      "title": "12pc",
+      "sku": null,
+      "price": "45.00",
+      "inventoryQuantity": 10,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Quantity",
+        "value": "12pc"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-convict-hoodie-1",
+   "handle": "convict-hoodie-1",
+   "title": "BLACK CONVICT HOODIE",
+   "productType": "Hoodies",
+   "tags": [
+    "550gsm",
+    "baggy",
+    "black",
+    "convict",
+    "fleece",
+    "hoodie"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-black-baggy-fleece-hoodie.png?v=1788192310"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Size",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53456777970007",
+      "title": "XS",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 11,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456778002775",
+      "title": "S",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456778035543",
+      "title": "M",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456778068311",
+      "title": "L",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456778101079",
+      "title": "XL",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-crx-garms-t-shirt",
+   "handle": "crx-garms-t-shirt",
+   "title": "CRX GARMS T-SHIRT",
+   "productType": "T-Shirts",
+   "tags": [
+    "black",
+    "cotton",
+    "tee",
+    "white"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-black-crx-garms-t-shirt.png?v=1788187442"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Colour",
+     "position": 1
+    },
+    {
+     "name": "Size",
+     "position": 2
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53456466346327",
+      "title": "Black / XS",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "Black"
+       },
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456466379095",
+      "title": "Black / S",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "Black"
+       },
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456466411863",
+      "title": "Black / M",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "Black"
+       },
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456466444631",
+      "title": "Black / L",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "Black"
+       },
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456466477399",
+      "title": "Black / XL",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "Black"
+       },
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456515432791",
+      "title": "White / XS",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "White"
+       },
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456515465559",
+      "title": "White / S",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "White"
+       },
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456515498327",
+      "title": "White / M",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "White"
+       },
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456515531095",
+      "title": "White / L",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "White"
+       },
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456515563863",
+      "title": "White / XL",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "White"
+       },
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-og-jeans",
+   "handle": "og-jeans",
+   "title": "OG JEANS",
+   "productType": "Jeans",
+   "tags": [
+    "baggy",
+    "blue",
+    "denim",
+    "jeans",
+    "stacked"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-og-baggy-denim-jeans_ea4a51a6-44dd-409c-b1dc-6c0ae2156781.png?v=1788187446"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Size",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53456578347351",
+      "title": "XS",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 20,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456578380119",
+      "title": "S",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 19,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456578412887",
+      "title": "M",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 40,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456578445655",
+      "title": "L",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 20,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456578478423",
+      "title": "XL",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 9,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-hydrocuff-windbreaker",
+   "handle": "hydrocuff-windbreaker",
+   "title": "HYDROCUFF WINDBREAKER",
+   "productType": "Outerwear",
+   "tags": [
+    "black",
+    "outerwear",
+    "water-reactive",
+    "windbreaker"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-hydrocuff-black-windbreaker.png?v=1788187448"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Size",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53456826433879",
+      "title": "XS",
+      "sku": null,
+      "price": "85.00",
+      "inventoryQuantity": 22,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456826466647",
+      "title": "S",
+      "sku": null,
+      "price": "85.00",
+      "inventoryQuantity": 21,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456826499415",
+      "title": "M",
+      "sku": null,
+      "price": "85.00",
+      "inventoryQuantity": 15,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456826532183",
+      "title": "L",
+      "sku": null,
+      "price": "85.00",
+      "inventoryQuantity": 6,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456826564951",
+      "title": "XL",
+      "sku": null,
+      "price": "85.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-crxst-rz-t-shirt",
+   "handle": "crxst-rz-t-shirt",
+   "title": "CRXST★RZ T-SHIRT",
+   "productType": "T-Shirts",
+   "tags": [
+    "black",
+    "cotton",
+    "tee",
+    "white"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/IMG-3994.png?v=1786198496"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Colour",
+     "position": 1
+    },
+    {
+     "name": "Size",
+     "position": 2
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53456984146263",
+      "title": "Black / XS",
+      "sku": "CRKTRSBLKXS",
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "Black"
+       },
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456984113495",
+      "title": "White / XS",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "White"
+       },
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456984179031",
+      "title": "Black / S",
+      "sku": "CRKTRSBLKS",
+      "price": "25.00",
+      "inventoryQuantity": -2,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "Black"
+       },
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456984211799",
+      "title": "Black / M",
+      "sku": "CRKTRSBLKM",
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "Black"
+       },
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456984244567",
+      "title": "Black / L",
+      "sku": "CRKTRSBLKL",
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "Black"
+       },
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456984277335",
+      "title": "Black / XL",
+      "sku": "CRKTRSBLKXL",
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "Black"
+       },
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456984310103",
+      "title": "White / S",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "White"
+       },
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456984342871",
+      "title": "White / M",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "White"
+       },
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456984375639",
+      "title": "White / L",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "White"
+       },
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53456984408407",
+      "title": "White / XL",
+      "sku": null,
+      "price": "25.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "CONTINUE",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Colour",
+        "value": "White"
+       },
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-grey-wash-yard-jeans",
+   "handle": "grey-wash-yard-jeans",
+   "title": "GREY WASH YARD JEANS",
+   "productType": "Jeans",
+   "tags": [
+    "14oz",
+    "denim",
+    "grey",
+    "jeans",
+    "new",
+    "straight",
+    "yard"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-grey-wash-straight-jeans.png?v=1788188131"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Size",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53639819231575",
+      "title": "XS",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 16,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639819264343",
+      "title": "S",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 2,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639819297111",
+      "title": "M",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639819329879",
+      "title": "L",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 2,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639819362647",
+      "title": "XL",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 2,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-blue-wash-yard-jeans",
+   "handle": "blue-wash-yard-jeans",
+   "title": "BLUE WASH YARD JEANS",
+   "productType": "Jeans",
+   "tags": [
+    "14oz",
+    "blue",
+    "denim",
+    "jeans",
+    "new",
+    "straight",
+    "yard"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-blue-wash-denim-jeans_33cac148-f3ca-448a-8c9a-30ff0047564d.png?v=1788194148"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Size",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53639822344535",
+      "title": "XS",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 15,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639822377303",
+      "title": "S",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 14,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639822410071",
+      "title": "M",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 12,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639822442839",
+      "title": "L",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 5,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639822475607",
+      "title": "XL",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-blue-wash-yard-jorts",
+   "handle": "blue-wash-yard-jorts",
+   "title": "BLUE WASH YARD JORTS",
+   "productType": "Denim Shorts",
+   "tags": [
+    "14oz",
+    "baggy",
+    "blue",
+    "denim",
+    "jorts",
+    "new",
+    "yard"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-blue-wash-denim-jorts.png?v=1786031414"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Size",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53639824900439",
+      "title": "XS",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 17,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639824933207",
+      "title": "S",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 19,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639824965975",
+      "title": "M",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 3,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639824998743",
+      "title": "L",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 11,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639825031511",
+      "title": "XL",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 2,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-grey-wash-yard-jorts",
+   "handle": "grey-wash-yard-jorts",
+   "title": "GREY WASH YARD JORTS",
+   "productType": "Denim Shorts",
+   "tags": [
+    "14oz",
+    "baggy",
+    "denim",
+    "grey",
+    "jorts",
+    "new",
+    "yard"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-grey-wash-denim-jorts.png?v=1788194813"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Size",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53639835582807",
+      "title": "XS",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 18,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639835615575",
+      "title": "S",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 12,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639835648343",
+      "title": "M",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 10,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639835681111",
+      "title": "L",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 10,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53639835713879",
+      "title": "XL",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 1,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-charcoal-cellblock-crewneck",
+   "handle": "charcoal-cellblock-crewneck",
+   "title": "CHARCOAL CELLBLOCK CREWNECK",
+   "productType": "Sweatshirts",
+   "tags": [
+    "450gsm",
+    "cellblock",
+    "charcoal",
+    "fleece",
+    "new",
+    "relaxed",
+    "sweatshirt"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-charcoal-fleece-crewneck.png?v=1788188137"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Size",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53936235217239",
+      "title": "XS",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 6,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53936235250007",
+      "title": "S",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 5,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53936235282775",
+      "title": "M",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53936235315543",
+      "title": "L",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 1,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53936235348311",
+      "title": "XL",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-charcoal-cellblock-shorts",
+   "handle": "charcoal-cellblock-shorts",
+   "title": "CHARCOAL CELLBLOCK SHORTS",
+   "productType": "Shorts",
+   "tags": [
+    "450gsm",
+    "cellblock",
+    "charcoal",
+    "fleece",
+    "new",
+    "relaxed",
+    "shorts"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-charcoal-cellblock-fleece-shorts.png?v=1788194049"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Size",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/53936234856791",
+      "title": "XS",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 26,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53936234889559",
+      "title": "S",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 27,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53936234922327",
+      "title": "M",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 14,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53936234955095",
+      "title": "L",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 11,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/53936234987863",
+      "title": "XL",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-pink-crsdr-joggers",
+   "handle": "pink-crsdr-joggers",
+   "title": "PINK CONVICT SWEATS",
+   "productType": "Joggers",
+   "tags": [
+    "550gsm",
+    "baggy",
+    "convict",
+    "fleece",
+    "joggers",
+    "new",
+    "pink"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-pink-baggy-fleece-sweatpants_e1020e28-42e0-4ce6-91ba-bb233d129028.png?v=1788194052"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Size",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/54032414900567",
+      "title": "XS",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 10,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54032414933335",
+      "title": "S",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 3,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54032414966103",
+      "title": "M",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54032414998871",
+      "title": "L",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 2,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54032415031639",
+      "title": "XL",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-pink-crsdr-hoodie",
+   "handle": "pink-crsdr-hoodie",
+   "title": "PINK CONVICT HOODIE",
+   "productType": "Hoodies",
+   "tags": [
+    "550gsm",
+    "baggy",
+    "convict",
+    "fleece",
+    "hoodie",
+    "new",
+    "pink"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-pink-baggy-fleece-hoodie_dbe1c469-06d0-44ca-b26b-7a8ca1bc9b1d.png?v=1788192584"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Size",
+     "position": 1
+    },
+    {
+     "name": "Variant",
+     "position": 2
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/54032693330263",
+      "title": "XS / V2",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 10,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       },
+       {
+        "name": "Variant",
+        "value": "V2"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54032693297495",
+      "title": "XS / V1",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 19,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       },
+       {
+        "name": "Variant",
+        "value": "V1"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54032693395799",
+      "title": "S / V2",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       },
+       {
+        "name": "Variant",
+        "value": "V2"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54032693363031",
+      "title": "S / V1",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 19,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       },
+       {
+        "name": "Variant",
+        "value": "V1"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54032693461335",
+      "title": "M / V2",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       },
+       {
+        "name": "Variant",
+        "value": "V2"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54032693428567",
+      "title": "M / V1",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 8,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       },
+       {
+        "name": "Variant",
+        "value": "V1"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54032693526871",
+      "title": "L / V2",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       },
+       {
+        "name": "Variant",
+        "value": "V2"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54032693494103",
+      "title": "L / V1",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       },
+       {
+        "name": "Variant",
+        "value": "V1"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54032693592407",
+      "title": "XL / V2",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       },
+       {
+        "name": "Variant",
+        "value": "V2"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54032693559639",
+      "title": "XL / V1",
+      "sku": null,
+      "price": "60.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       },
+       {
+        "name": "Variant",
+        "value": "V1"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-cellblock-set",
+   "handle": "cellblock-set",
+   "title": "CELLBLOCK SET",
+   "productType": "Sets",
+   "tags": [
+    "450gsm",
+    "cellblock",
+    "charcoal",
+    "fleece",
+    "set"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-charcoal-fleece-crewneck-sweatshirt.png?v=1788186092"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Charcoal Cellblock Crewneck (Size)",
+     "position": 1
+    },
+    {
+     "name": "Charcoal Cellblock Shorts (Size)",
+     "position": 2
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/54377205825879",
+      "title": "XS / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 6,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377205858647",
+      "title": "XS / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 6,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377205891415",
+      "title": "XS / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 6,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377205924183",
+      "title": "XS / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 6,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377205956951",
+      "title": "XS / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377205989719",
+      "title": "S / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 5,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206022487",
+      "title": "S / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 5,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206055255",
+      "title": "S / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 5,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206088023",
+      "title": "S / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 5,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206120791",
+      "title": "S / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206153559",
+      "title": "M / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206186327",
+      "title": "M / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206219095",
+      "title": "M / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206251863",
+      "title": "M / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206284631",
+      "title": "M / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206317399",
+      "title": "L / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 1,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "L"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206350167",
+      "title": "L / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 1,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "L"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206382935",
+      "title": "L / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 1,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "L"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206415703",
+      "title": "L / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 1,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "L"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206448471",
+      "title": "L / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 1,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "L"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206481239",
+      "title": "XL / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "XL"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206514007",
+      "title": "XL / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "XL"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206546775",
+      "title": "XL / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "XL"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206579543",
+      "title": "XL / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "XL"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54377206612311",
+      "title": "XL / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Charcoal Cellblock Crewneck (Size)",
+        "value": "XL"
+       },
+       {
+        "name": "Charcoal Cellblock Shorts (Size)",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-grey-set",
+   "handle": "grey-set",
+   "title": "GREY SET",
+   "productType": "Sets",
+   "tags": [
+    "550gsm",
+    "convict",
+    "fleece",
+    "grey",
+    "set"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-grey-convict-fleece-hoodie_892e8e2e-338d-4e90-8e84-d175e4bcb5ad.png?v=1788190419"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Grey Convict Hoodie (Size)",
+     "position": 1
+    },
+    {
+     "name": "Grey Convict Sweats (Size)",
+     "position": 2
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/54835549471063",
+      "title": "XS / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 38,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549503831",
+      "title": "XS / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 35,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549536599",
+      "title": "XS / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549569367",
+      "title": "XS / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549602135",
+      "title": "XS / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549634903",
+      "title": "S / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 34,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549667671",
+      "title": "S / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 34,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549700439",
+      "title": "S / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549733207",
+      "title": "S / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549765975",
+      "title": "S / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549798743",
+      "title": "M / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549831511",
+      "title": "M / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549864279",
+      "title": "M / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549897047",
+      "title": "M / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549929815",
+      "title": "M / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549962583",
+      "title": "L / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 3,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "L"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835549995351",
+      "title": "L / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 3,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "L"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835550028119",
+      "title": "L / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "L"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835550060887",
+      "title": "L / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "L"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835550093655",
+      "title": "L / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "L"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835550126423",
+      "title": "XL / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "XL"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835550159191",
+      "title": "XL / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "XL"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835550191959",
+      "title": "XL / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "XL"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835550224727",
+      "title": "XL / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "XL"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835550257495",
+      "title": "XL / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Grey Convict Hoodie (Size)",
+        "value": "XL"
+       },
+       {
+        "name": "Grey Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-pink-set",
+   "handle": "pink-set",
+   "title": "PINK SET",
+   "productType": "Sets",
+   "tags": [
+    "550gsm",
+    "convict",
+    "fleece",
+    "pink",
+    "set"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/IMG-1164_eeb13fb3-138a-414f-b226-cd59dc2e3dcf.png?v=1788194055"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Pink Convict Hoodie (Size)",
+     "position": 1
+    },
+    {
+     "name": "Pink Convict Hoodie (Variant)",
+     "position": 2
+    },
+    {
+     "name": "Pink Convict Sweats (Size)",
+     "position": 3
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/54835561496919",
+      "title": "XS / V1 / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 10,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V1"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835561529687",
+      "title": "XS / V1 / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 3,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V1"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835561562455",
+      "title": "XS / V1 / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V1"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835561595223",
+      "title": "XS / V1 / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 2,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V1"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835561627991",
+      "title": "XS / V1 / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V1"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835561660759",
+      "title": "XS / V2 / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 10,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V2"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835561693527",
+      "title": "XS / V2 / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 3,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V2"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835561726295",
+      "title": "XS / V2 / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V2"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835561759063",
+      "title": "XS / V2 / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 2,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V2"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835561791831",
+      "title": "XS / V2 / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V2"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835561824599",
+      "title": "S / V1 / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 10,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V1"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835561857367",
+      "title": "S / V1 / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 3,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V1"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835561890135",
+      "title": "S / V1 / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V1"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835561922903",
+      "title": "S / V1 / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 2,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V1"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835561955671",
+      "title": "S / V1 / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V1"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835561988439",
+      "title": "S / V2 / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V2"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835562021207",
+      "title": "S / V2 / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 3,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V2"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835562053975",
+      "title": "S / V2 / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V2"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835562086743",
+      "title": "S / V2 / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 2,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V2"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835562119511",
+      "title": "S / V2 / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V2"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835562152279",
+      "title": "M / V1 / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 8,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V1"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835562185047",
+      "title": "M / V1 / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 3,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V1"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835562217815",
+      "title": "M / V1 / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V1"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835562250583",
+      "title": "M / V1 / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 2,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V1"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835562283351",
+      "title": "M / V1 / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V1"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835562316119",
+      "title": "M / V2 / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V2"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835562348887",
+      "title": "M / V2 / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V2"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835562381655",
+      "title": "M / V2 / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V2"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835562414423",
+      "title": "M / V2 / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V2"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835562447191",
+      "title": "M / V2 / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Pink Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Pink Convict Hoodie (Variant)",
+        "value": "V2"
+       },
+       {
+        "name": "Pink Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-black-set",
+   "handle": "black-set",
+   "title": "BLACK SET",
+   "productType": "Sets",
+   "tags": [
+    "550gsm",
+    "black",
+    "convict",
+    "fleece",
+    "set"
+   ],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-black-piping-hoodie.png?v=1788194195"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Black Convict Hoodie (Size)",
+     "position": 1
+    },
+    {
+     "name": "Black Convict Sweats (Size)",
+     "position": 2
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/54835567296855",
+      "title": "XS / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 5,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567329623",
+      "title": "XS / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567362391",
+      "title": "XS / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567395159",
+      "title": "XS / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 5,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567427927",
+      "title": "XS / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 4,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "XS"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567460695",
+      "title": "S / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567493463",
+      "title": "S / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567526231",
+      "title": "S / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567558999",
+      "title": "S / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567591767",
+      "title": "S / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "S"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567624535",
+      "title": "M / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567657303",
+      "title": "M / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567690071",
+      "title": "M / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567722839",
+      "title": "M / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567755607",
+      "title": "M / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "M"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567788375",
+      "title": "L / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "L"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567821143",
+      "title": "L / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "L"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567853911",
+      "title": "L / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "L"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567886679",
+      "title": "L / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "L"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567919447",
+      "title": "L / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "L"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567952215",
+      "title": "XL / XS",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "XL"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835567984983",
+      "title": "XL / S",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "XL"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835568017751",
+      "title": "XL / M",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "XL"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835568050519",
+      "title": "XL / L",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "XL"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/54835568083287",
+      "title": "XL / XL",
+      "sku": null,
+      "price": "110.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": true,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Black Convict Hoodie (Size)",
+        "value": "XL"
+       },
+       {
+        "name": "Black Convict Sweats (Size)",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-major-league-crooks-cap-cream",
+   "handle": "major-league-crooks-cap-cream",
+   "title": "MAJOR LEAGUE CROOKS CAP (CREAM)",
+   "productType": "",
+   "tags": [],
+   "status": "ACTIVE",
+   "featuredMedia": null,
+   "options": [
+    {
+     "name": "Title",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/55221326020951",
+      "title": "Default Title",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 48,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Title",
+        "value": "Default Title"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "gid://shopify/Product/fixture-double-agent-puffa",
+   "handle": "double-agent-puffa",
+   "title": "DOUBLE-AGENT PUFFA",
+   "productType": "",
+   "tags": [],
+   "status": "ACTIVE",
+   "featuredMedia": {
+    "preview": {
+     "image": {
+      "url": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/1a0b9830-b3ca-4332-a7b0-b17607cb5060.png?v=1790957038"
+     }
+    }
+   },
+   "options": [
+    {
+     "name": "Size",
+     "position": 1
+    }
+   ],
+   "variants": {
+    "pageInfo": {
+     "hasNextPage": false,
+     "endCursor": null
+    },
+    "nodes": [
+     {
+      "id": "gid://shopify/ProductVariant/55222276456791",
+      "title": "XS",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 8,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XS"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/55222276489559",
+      "title": "S",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 8,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "S"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/55222276522327",
+      "title": "M",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 0,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "M"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/55222276555095",
+      "title": "L",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 2,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "L"
+       }
+      ]
+     },
+     {
+      "id": "gid://shopify/ProductVariant/55222276587863",
+      "title": "XL",
+      "sku": null,
+      "price": "0.00",
+      "inventoryQuantity": 1,
+      "inventoryPolicy": "DENY",
+      "requiresComponents": false,
+      "inventoryItem": {
+       "tracked": true
+      },
+      "selectedOptions": [
+       {
+        "name": "Size",
+        "value": "XL"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

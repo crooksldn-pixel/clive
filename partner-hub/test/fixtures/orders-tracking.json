@@ -1,0 +1,6 @@
+{
+ "capturedAt": "2026-10-08",
+ "note": "Live PartnerHubOrdersTracking shapes: the hub's existing send CROOKS-1869 (cancelled in Shopify on 2 Sep, still 'preparing' in the hub) and a Royal Mail order fulfilled on 8 Oct (customer order number, ids and tracking number replaced).",
+ "cancelled": {"__typename":"Order","id":"gid://shopify/Order/8220345303383","name":"CROOKS-1869","cancelledAt":"2026-09-02T18:35:45Z","displayFulfillmentStatus":"UNFULFILLED","fulfillments":[]},
+ "royalMail": {"__typename":"Order","id":"gid://shopify/Order/8300000000001","name":"CROOKS-9001","cancelledAt":null,"displayFulfillmentStatus":"FULFILLED","fulfillments":[{"id":"gid://shopify/Fulfillment/7600000000001","status":"SUCCESS","displayStatus":"FULFILLED","createdAt":"2026-10-08T12:15:15Z","deliveredAt":null,"inTransitAt":null,"estimatedDeliveryAt":null,"trackingInfo":[{"company":"Royal Mail","number":"VU000000001GB","url":"https://www.royalmail.com/portal/rm/track?trackNumber=VU000000001GB"}]}]}
+}

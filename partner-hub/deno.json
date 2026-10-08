@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["deno.ns", "dom", "esnext"]
+  },
+  "nodeModulesDir": "none",
+  "exclude": ["node_modules", "base44"]
+}

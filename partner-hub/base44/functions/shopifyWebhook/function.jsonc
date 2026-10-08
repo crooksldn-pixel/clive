@@ -1,0 +1,4 @@
+{
+  "name": "shopifyWebhook",
+  "entry": "entry.ts"
+}

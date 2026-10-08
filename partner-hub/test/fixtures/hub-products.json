@@ -1,0 +1,1776 @@
+{
+ "capturedAt": "2026-10-08",
+ "note": "Product records from the Partner Hub (catalogue only, public data).",
+ "products": [
+  {
+   "id": "6a96f914400821333fe5f342",
+   "handle": "v2-baggies",
+   "name": "GREY CONVICT SWEATS",
+   "type": "sweats",
+   "sizeCategory": "top",
+   "available": true,
+   "sortOrder": 3.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/IMG-1202_c93e927c-2c68-4041-b43d-2e7f571e8a20.png?v=1788189059",
+   "priceGbp": 60.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53075854197079",
+     "label": "XS",
+     "size": "XS",
+     "stock": 73.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53075854229847",
+     "label": "S",
+     "size": "S",
+     "stock": 45.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53075854262615",
+     "label": "M",
+     "size": "M",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54273366851927",
+     "label": "L",
+     "size": "L",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53075854328151",
+     "label": "XL",
+     "size": "XL",
+     "stock": 0.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"waist\":\"76.2cm\",\"inseam\":\"73.7cm\",\"leg opening\":\"45.7cm\"},{\"size\":\"S\",\"waist\":\"81.3cm\",\"inseam\":\"76.2cm\",\"leg opening\":\"48.3cm\"},{\"size\":\"M\",\"waist\":\"86.4cm\",\"inseam\":\"77.5cm\",\"leg opening\":\"50.8cm\"},{\"size\":\"L\",\"waist\":\"91.4cm\",\"inseam\":\"80.0cm\",\"leg opening\":\"53.3cm\"},{\"size\":\"XL\",\"waist\":\"96.5cm\",\"inseam\":\"81.3cm\",\"leg opening\":\"55.9cm\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f343",
+   "handle": "v1-hoodie",
+   "name": "GREY CONVICT HOODIE",
+   "type": "sweats",
+   "sizeCategory": "top",
+   "available": true,
+   "sortOrder": 2.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-grey-convict-fleece-hoodie_892e8e2e-338d-4e90-8e84-d175e4bcb5ad.png?v=1788190419",
+   "priceGbp": 60.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53075854360919",
+     "label": "XS",
+     "size": "XS",
+     "stock": 29.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53075854393687",
+     "label": "S",
+     "size": "S",
+     "stock": 35.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53075854426455",
+     "label": "M",
+     "size": "M",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53075854459223",
+     "label": "L",
+     "size": "L",
+     "stock": 2.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53075854491991",
+     "label": "XL",
+     "size": "XL",
+     "stock": 2.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"chest\":\"116.8cm\",\"length\":\"58.4cm\",\"inner arm\":\"47cm\",\"fits height\":\"~5'4\\\" and under\"},{\"size\":\"S\",\"chest\":\"121.9cm\",\"length\":\"61cm\",\"inner arm\":\"49.5cm\",\"fits height\":\"~5'5\\\"–5'7\\\"\"},{\"size\":\"M\",\"chest\":\"127cm\",\"length\":\"63.5cm\",\"inner arm\":\"52.1cm\",\"fits height\":\"~5'8\\\"–5'10\\\"\"},{\"size\":\"L\",\"chest\":\"129.5cm\",\"length\":\"64.8cm\",\"inner arm\":\"54.6cm\",\"fits height\":\"~5'11\\\"–6'1\\\"\"},{\"size\":\"XL\",\"chest\":\"132.1cm\",\"length\":\"66cm\",\"inner arm\":\"57.2cm\",\"fits height\":\"~6'2\\\" and up\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f344",
+   "handle": "crooks-express-t-shirt",
+   "name": "CROOKS EXPRESS TEE",
+   "type": "tee",
+   "sizeCategory": "top",
+   "available": true,
+   "sortOrder": 13.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-black-graphic-tee.png?v=1788188192",
+   "priceGbp": 25.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53099604246871",
+     "label": "White / XS",
+     "size": "XS",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53099604279639",
+     "label": "White / S",
+     "size": "S",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53099604312407",
+     "label": "White / M",
+     "size": "M",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53099604345175",
+     "label": "White / L",
+     "size": "L",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53099604377943",
+     "label": "White / XL",
+     "size": "XL",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53099604410711",
+     "label": "Black / XS",
+     "size": "XS",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53099604443479",
+     "label": "Black / S",
+     "size": "S",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53099604476247",
+     "label": "Black / M",
+     "size": "M",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53099604509015",
+     "label": "Black / L",
+     "size": "L",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53099604541783",
+     "label": "Black / XL",
+     "size": "XL",
+     "stock": 5.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"chest\":\"100.3cm\",\"length\":\"67.3cm\",\"shoulder\":\"49.5cm\"},{\"size\":\"S\",\"chest\":\"105.4cm\",\"length\":\"69.8cm\",\"shoulder\":\"52.1cm\"},{\"size\":\"M\",\"chest\":\"110.5cm\",\"length\":\"72.4cm\",\"shoulder\":\"54.6cm\"},{\"size\":\"L\",\"chest\":\"115.6cm\",\"length\":\"74.9cm\",\"shoulder\":\"57.1cm\"},{\"size\":\"XL\",\"chest\":\"119.4cm\",\"length\":\"76.2cm\",\"shoulder\":\"59.7cm\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f345",
+   "handle": "black-joggers",
+   "name": "BLACK CONVICT SWEATS",
+   "type": "sweats",
+   "sizeCategory": "top",
+   "available": true,
+   "sortOrder": 1.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-black-baggy-sweatpants.png?v=1788192105",
+   "priceGbp": 60.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53455028453719",
+     "label": "XS",
+     "size": "XS",
+     "stock": 19.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53455028486487",
+     "label": "S",
+     "size": "S",
+     "stock": 29.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53455028519255",
+     "label": "M",
+     "size": "M",
+     "stock": 25.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53455028552023",
+     "label": "L",
+     "size": "L",
+     "stock": 14.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53455028584791",
+     "label": "XL",
+     "size": "XL",
+     "stock": 5.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"waist\":\"76.2cm\",\"inseam\":\"73.7cm\",\"leg opening\":\"45.7cm\"},{\"size\":\"S\",\"waist\":\"81.3cm\",\"inseam\":\"76.2cm\",\"leg opening\":\"48.3cm\"},{\"size\":\"M\",\"waist\":\"86.4cm\",\"inseam\":\"77.5cm\",\"leg opening\":\"50.8cm\"},{\"size\":\"L\",\"waist\":\"91.4cm\",\"inseam\":\"80.0cm\",\"leg opening\":\"53.3cm\"},{\"size\":\"XL\",\"waist\":\"96.5cm\",\"inseam\":\"81.3cm\",\"leg opening\":\"55.9cm\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f346",
+   "handle": "large-duffle-bag",
+   "name": "BALLISTIC NYLON DUFFLE",
+   "type": "accessories",
+   "sizeCategory": "onesize",
+   "available": false,
+   "sortOrder": 17.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-large-black-duffle-bag.png?v=1786031562",
+   "priceGbp": 18.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53284472717655",
+     "label": "LARGE",
+     "size": "ONE",
+     "stock": 69.0
+    }
+   ],
+   "measurementsJson": ""
+  },
+  {
+   "id": "6a96f914400821333fe5f347",
+   "handle": "black-socks",
+   "name": "BLACK/BLUE MOTIONTEC™️ SOCKS",
+   "type": "accessories",
+   "sizeCategory": "onesize",
+   "available": false,
+   "sortOrder": 19.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/blacksock.png?v=1784542125",
+   "priceGbp": 6.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53455222964567",
+     "label": "1pc",
+     "size": "ONE",
+     "stock": 397.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53455222997335",
+     "label": "3pc",
+     "size": "ONE",
+     "stock": 194.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53455223030103",
+     "label": "6pc",
+     "size": "ONE",
+     "stock": 100.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53455945335127",
+     "label": "12pc",
+     "size": "ONE",
+     "stock": 20.0
+    }
+   ],
+   "measurementsJson": ""
+  },
+  {
+   "id": "6a96f914400821333fe5f348",
+   "handle": "white-socks",
+   "name": "WHITE/RED MOTIONTEC™️ SOCKS",
+   "type": "accessories",
+   "sizeCategory": "onesize",
+   "available": false,
+   "sortOrder": 23.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-white-red-motiontec-socks.webp?v=1785769861",
+   "priceGbp": 6.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53456567238999",
+     "label": "1pc",
+     "size": "ONE",
+     "stock": 91.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456567271767",
+     "label": "3pc",
+     "size": "ONE",
+     "stock": 48.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456567304535",
+     "label": "6pc",
+     "size": "ONE",
+     "stock": 20.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456567337303",
+     "label": "12pc",
+     "size": "ONE",
+     "stock": 10.0
+    }
+   ],
+   "measurementsJson": ""
+  },
+  {
+   "id": "6a96f914400821333fe5f349",
+   "handle": "convict-hoodie-1",
+   "name": "BLACK CONVICT HOODIE",
+   "type": "sweats",
+   "sizeCategory": "top",
+   "available": true,
+   "sortOrder": 0.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-black-baggy-fleece-hoodie.png?v=1788192310",
+   "priceGbp": 60.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53456777970007",
+     "label": "XS",
+     "size": "XS",
+     "stock": 13.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456778002775",
+     "label": "S",
+     "size": "S",
+     "stock": 6.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456778035543",
+     "label": "M",
+     "size": "M",
+     "stock": 9.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456778068311",
+     "label": "L",
+     "size": "L",
+     "stock": 1.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456778101079",
+     "label": "XL",
+     "size": "XL",
+     "stock": 0.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"chest\":\"116.8cm\",\"length\":\"58.4cm\",\"inner arm\":\"47cm\",\"fits height\":\"~5'4\\\" and under\"},{\"size\":\"S\",\"chest\":\"121.9cm\",\"length\":\"61cm\",\"inner arm\":\"49.5cm\",\"fits height\":\"~5'5\\\"–5'7\\\"\"},{\"size\":\"M\",\"chest\":\"127cm\",\"length\":\"63.5cm\",\"inner arm\":\"52.1cm\",\"fits height\":\"~5'8\\\"–5'10\\\"\"},{\"size\":\"L\",\"chest\":\"129.5cm\",\"length\":\"64.8cm\",\"inner arm\":\"54.6cm\",\"fits height\":\"~5'11\\\"–6'1\\\"\"},{\"size\":\"XL\",\"chest\":\"132.1cm\",\"length\":\"66cm\",\"inner arm\":\"57.2cm\",\"fits height\":\"~6'2\\\" and up\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f34a",
+   "handle": "crx-garms-t-shirt",
+   "name": "CRX GARMS T-SHIRT",
+   "type": "tee",
+   "sizeCategory": "top",
+   "available": true,
+   "sortOrder": 14.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-black-crx-garms-t-shirt.png?v=1788187442",
+   "priceGbp": 25.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53456466346327",
+     "label": "XS / Black",
+     "size": "XS",
+     "stock": 93.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456466379095",
+     "label": "S / Black",
+     "size": "S",
+     "stock": 95.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456466411863",
+     "label": "M / Black",
+     "size": "M",
+     "stock": 98.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456466444631",
+     "label": "L / Black",
+     "size": "L",
+     "stock": 100.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456466477399",
+     "label": "XL / Black",
+     "size": "XL",
+     "stock": 100.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456515432791",
+     "label": "XS / White",
+     "size": "XS",
+     "stock": 98.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456515465559",
+     "label": "S / White",
+     "size": "S",
+     "stock": 100.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456515498327",
+     "label": "M / White",
+     "size": "M",
+     "stock": 100.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456515531095",
+     "label": "L / White",
+     "size": "L",
+     "stock": 100.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456515563863",
+     "label": "XL / White",
+     "size": "XL",
+     "stock": 100.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"chest\":\"100.3cm\",\"length\":\"67.3cm\",\"shoulder\":\"49.5cm\"},{\"size\":\"S\",\"chest\":\"105.4cm\",\"length\":\"69.8cm\",\"shoulder\":\"52.1cm\"},{\"size\":\"M\",\"chest\":\"110.5cm\",\"length\":\"72.4cm\",\"shoulder\":\"54.6cm\"},{\"size\":\"L\",\"chest\":\"115.6cm\",\"length\":\"74.9cm\",\"shoulder\":\"57.1cm\"},{\"size\":\"XL\",\"chest\":\"119.4cm\",\"length\":\"76.2cm\",\"shoulder\":\"59.7cm\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f34b",
+   "handle": "og-jeans",
+   "name": "OG JEANS",
+   "type": "denim",
+   "sizeCategory": "bottom",
+   "available": true,
+   "sortOrder": 16.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-og-baggy-denim-jeans_ea4a51a6-44dd-409c-b1dc-6c0ae2156781.png?v=1788187446",
+   "priceGbp": 60.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53456578347351",
+     "label": "XS",
+     "size": "XS",
+     "stock": 16.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456578380119",
+     "label": "S",
+     "size": "S",
+     "stock": 24.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456578412887",
+     "label": "M",
+     "size": "M",
+     "stock": 32.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456578445655",
+     "label": "L",
+     "size": "L",
+     "stock": 11.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456578478423",
+     "label": "XL",
+     "size": "XL",
+     "stock": 5.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"waist\":\"76.2cm\",\"inseam\":\"73.7cm\",\"leg opening\":\"45.7cm\"},{\"size\":\"S\",\"waist\":\"81.3cm\",\"inseam\":\"76.2cm\",\"leg opening\":\"48.3cm\"},{\"size\":\"M\",\"waist\":\"86.4cm\",\"inseam\":\"77.5cm\",\"leg opening\":\"50.8cm\"},{\"size\":\"L\",\"waist\":\"91.4cm\",\"inseam\":\"80.0cm\",\"leg opening\":\"53.3cm\"},{\"size\":\"XL\",\"waist\":\"96.5cm\",\"inseam\":\"81.3cm\",\"leg opening\":\"55.9cm\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f34c",
+   "handle": "hyrdocuff-windbreaker",
+   "name": "HYRDOCUFF WINDBREAKER",
+   "type": "sweats",
+   "sizeCategory": "top",
+   "available": true,
+   "sortOrder": 12.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-hydrocuff-black-windbreaker.png?v=1788187448",
+   "priceGbp": 85.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53456826433879",
+     "label": "XS",
+     "size": "XS",
+     "stock": 22.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456826466647",
+     "label": "S",
+     "size": "S",
+     "stock": 24.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456826499415",
+     "label": "M",
+     "size": "M",
+     "stock": 16.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456826532183",
+     "label": "L",
+     "size": "L",
+     "stock": 6.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456826564951",
+     "label": "XL",
+     "size": "XL",
+     "stock": 1.0
+    }
+   ],
+   "measurementsJson": ""
+  },
+  {
+   "id": "6a96f914400821333fe5f34d",
+   "handle": "crxst-rz-t-shirt",
+   "name": "CRXST★RZ T-SHIRT",
+   "type": "tee",
+   "sizeCategory": "top",
+   "available": true,
+   "sortOrder": 15.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/IMG-3994.png?v=1786198496",
+   "priceGbp": 25.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53456984146263",
+     "label": "Black / XS",
+     "size": "XS",
+     "stock": 10.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456984113495",
+     "label": "White / XS",
+     "size": "XS",
+     "stock": 9.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456984179031",
+     "label": "Black / S",
+     "size": "S",
+     "stock": 9.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456984211799",
+     "label": "Black / M",
+     "size": "M",
+     "stock": 10.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456984244567",
+     "label": "Black / L",
+     "size": "L",
+     "stock": 10.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456984277335",
+     "label": "Black / XL",
+     "size": "XL",
+     "stock": 9.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456984310103",
+     "label": "White / S",
+     "size": "S",
+     "stock": 10.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456984342871",
+     "label": "White / M",
+     "size": "M",
+     "stock": 10.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456984375639",
+     "label": "White / L",
+     "size": "L",
+     "stock": 10.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53456984408407",
+     "label": "White / XL",
+     "size": "XL",
+     "stock": 10.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"chest\":\"100.3cm\",\"length\":\"67.3cm\",\"shoulder\":\"49.5cm\"},{\"size\":\"S\",\"chest\":\"105.4cm\",\"length\":\"69.8cm\",\"shoulder\":\"52.1cm\"},{\"size\":\"M\",\"chest\":\"110.5cm\",\"length\":\"72.4cm\",\"shoulder\":\"54.6cm\"},{\"size\":\"L\",\"chest\":\"115.6cm\",\"length\":\"74.9cm\",\"shoulder\":\"57.1cm\"},{\"size\":\"XL\",\"chest\":\"119.4cm\",\"length\":\"76.2cm\",\"shoulder\":\"59.7cm\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f34e",
+   "handle": "cb1-wash-jeans",
+   "name": "GREY WASH YARD JEANS",
+   "type": "denim",
+   "sizeCategory": "bottom",
+   "available": true,
+   "sortOrder": 10.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-grey-wash-straight-jeans.png?v=1788188131",
+   "priceGbp": 60.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53639819231575",
+     "label": "XS",
+     "size": "XS",
+     "stock": 21.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639819264343",
+     "label": "S",
+     "size": "S",
+     "stock": 18.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639819297111",
+     "label": "M",
+     "size": "M",
+     "stock": 11.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639819329879",
+     "label": "L",
+     "size": "L",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639819362647",
+     "label": "XL",
+     "size": "XL",
+     "stock": 3.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"waist\":\"76.2cm\",\"inseam\":\"73.7cm\",\"leg opening\":\"45.7cm\"},{\"size\":\"S\",\"waist\":\"81.3cm\",\"inseam\":\"76.2cm\",\"leg opening\":\"48.3cm\"},{\"size\":\"M\",\"waist\":\"86.4cm\",\"inseam\":\"77.5cm\",\"leg opening\":\"50.8cm\"},{\"size\":\"L\",\"waist\":\"91.4cm\",\"inseam\":\"80.0cm\",\"leg opening\":\"53.3cm\"},{\"size\":\"XL\",\"waist\":\"96.5cm\",\"inseam\":\"81.3cm\",\"leg opening\":\"55.9cm\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f34f",
+   "handle": "cb2-wash-jeans",
+   "name": "BLUE WASH YARD JEANS",
+   "type": "denim",
+   "sizeCategory": "bottom",
+   "available": true,
+   "sortOrder": 8.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-blue-wash-denim-jeans_33cac148-f3ca-448a-8c9a-30ff0047564d.png?v=1788194148",
+   "priceGbp": 60.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53639822344535",
+     "label": "XS",
+     "size": "XS",
+     "stock": 20.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639822377303",
+     "label": "S",
+     "size": "S",
+     "stock": 21.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639822410071",
+     "label": "M",
+     "size": "M",
+     "stock": 16.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639822442839",
+     "label": "L",
+     "size": "L",
+     "stock": 8.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639822475607",
+     "label": "XL",
+     "size": "XL",
+     "stock": 2.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"waist\":\"76.2cm\",\"inseam\":\"73.7cm\",\"leg opening\":\"45.7cm\"},{\"size\":\"S\",\"waist\":\"81.3cm\",\"inseam\":\"76.2cm\",\"leg opening\":\"48.3cm\"},{\"size\":\"M\",\"waist\":\"86.4cm\",\"inseam\":\"77.5cm\",\"leg opening\":\"50.8cm\"},{\"size\":\"L\",\"waist\":\"91.4cm\",\"inseam\":\"80.0cm\",\"leg opening\":\"53.3cm\"},{\"size\":\"XL\",\"waist\":\"96.5cm\",\"inseam\":\"81.3cm\",\"leg opening\":\"55.9cm\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f350",
+   "handle": "cb1-wash-jorts",
+   "name": "BLUE WASH YARD JORTS",
+   "type": "denim",
+   "sizeCategory": "bottom",
+   "available": true,
+   "sortOrder": 9.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-blue-wash-denim-jorts.png?v=1786031414",
+   "priceGbp": 50.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53639824900439",
+     "label": "XS",
+     "size": "XS",
+     "stock": 17.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639824933207",
+     "label": "S",
+     "size": "S",
+     "stock": 21.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639824965975",
+     "label": "M",
+     "size": "M",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639824998743",
+     "label": "L",
+     "size": "L",
+     "stock": 12.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639825031511",
+     "label": "XL",
+     "size": "XL",
+     "stock": 1.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"waist\":\"76.2cm\",\"hip\":\"101.6cm\",\"thigh\":\"69.8cm\",\"leg opening\":\"58.4cm\",\"length\":\"54.5cm\"},{\"size\":\"S\",\"waist\":\"81.3cm\",\"hip\":\"106.7cm\",\"thigh\":\"72.4cm\",\"leg opening\":\"61.0cm\",\"length\":\"56.5cm\"},{\"size\":\"M\",\"waist\":\"86.4cm\",\"hip\":\"111.8cm\",\"thigh\":\"74.9cm\",\"leg opening\":\"63.5cm\",\"length\":\"58.5cm\"},{\"size\":\"L\",\"waist\":\"91.4cm\",\"hip\":\"116.8cm\",\"thigh\":\"77.5cm\",\"leg opening\":\"66.0cm\",\"length\":\"60.5cm\"},{\"size\":\"XL\",\"waist\":\"96.5cm\",\"hip\":\"121.9cm\",\"thigh\":\"80.0cm\",\"leg opening\":\"68.6cm\",\"length\":\"62.5cm\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f351",
+   "handle": "cb2-wash-jorts",
+   "name": "GREY WASH YARD JORTS",
+   "type": "denim",
+   "sizeCategory": "bottom",
+   "available": true,
+   "sortOrder": 11.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-grey-wash-denim-jorts.png?v=1788194813",
+   "priceGbp": 50.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53639835582807",
+     "label": "XS",
+     "size": "XS",
+     "stock": 19.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639835615575",
+     "label": "S",
+     "size": "S",
+     "stock": 14.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639835648343",
+     "label": "M",
+     "size": "M",
+     "stock": 12.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639835681111",
+     "label": "L",
+     "size": "L",
+     "stock": 11.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53639835713879",
+     "label": "XL",
+     "size": "XL",
+     "stock": 1.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"waist\":\"76.2cm\",\"hip\":\"101.6cm\",\"thigh\":\"69.8cm\",\"leg opening\":\"58.4cm\",\"length\":\"54.5cm\"},{\"size\":\"S\",\"waist\":\"81.3cm\",\"hip\":\"106.7cm\",\"thigh\":\"72.4cm\",\"leg opening\":\"61.0cm\",\"length\":\"56.5cm\"},{\"size\":\"M\",\"waist\":\"86.4cm\",\"hip\":\"111.8cm\",\"thigh\":\"74.9cm\",\"leg opening\":\"63.5cm\",\"length\":\"58.5cm\"},{\"size\":\"L\",\"waist\":\"91.4cm\",\"hip\":\"116.8cm\",\"thigh\":\"77.5cm\",\"leg opening\":\"66.0cm\",\"length\":\"60.5cm\"},{\"size\":\"XL\",\"waist\":\"96.5cm\",\"hip\":\"121.9cm\",\"thigh\":\"80.0cm\",\"leg opening\":\"68.6cm\",\"length\":\"62.5cm\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f352",
+   "handle": "charcoal-cellblock-crewneck",
+   "name": "CHARCOAL CELLBLOCK CREWNECK",
+   "type": "sweats",
+   "sizeCategory": "top",
+   "available": true,
+   "sortOrder": 6.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-charcoal-fleece-crewneck.png?v=1788188137",
+   "priceGbp": 50.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53936235217239",
+     "label": "XS",
+     "size": "XS",
+     "stock": 10.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53936235250007",
+     "label": "S",
+     "size": "S",
+     "stock": 8.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53936235282775",
+     "label": "M",
+     "size": "M",
+     "stock": 14.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53936235315543",
+     "label": "L",
+     "size": "L",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53936235348311",
+     "label": "XL",
+     "size": "XL",
+     "stock": 4.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"chest\":\"109.2cm\",\"length\":\"65.4cm\",\"shoulder\":\"47.0cm\",\"sleeve\":\"62.2cm\"},{\"size\":\"S\",\"chest\":\"114.3cm\",\"length\":\"67.3cm\",\"shoulder\":\"49.5cm\",\"sleeve\":\"63.5cm\"},{\"size\":\"M\",\"chest\":\"119.4cm\",\"length\":\"69.2cm\",\"shoulder\":\"52.1cm\",\"sleeve\":\"64.8cm\"},{\"size\":\"L\",\"chest\":\"124.5cm\",\"length\":\"71.1cm\",\"shoulder\":\"54.6cm\",\"sleeve\":\"66.0cm\"},{\"size\":\"XL\",\"chest\":\"129.5cm\",\"length\":\"73.0cm\",\"shoulder\":\"57.1cm\",\"sleeve\":\"67.3cm\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f353",
+   "handle": "charcoal-cellblock-shorts",
+   "name": "CHARCOAL CELLBLOCK SHORTS",
+   "type": "sweats",
+   "sizeCategory": "bottom",
+   "available": true,
+   "sortOrder": 7.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-charcoal-cellblock-fleece-shorts.png?v=1788194049",
+   "priceGbp": 45.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/53936234856791",
+     "label": "XS",
+     "size": "XS",
+     "stock": 29.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53936234889559",
+     "label": "S",
+     "size": "S",
+     "stock": 30.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53936234922327",
+     "label": "M",
+     "size": "M",
+     "stock": 17.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53936234955095",
+     "label": "L",
+     "size": "L",
+     "stock": 13.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/53936234987863",
+     "label": "XL",
+     "size": "XL",
+     "stock": 4.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"fits waist\":\"71.1cm\",\"length\":\"49.5cm\",\"leg opening\":\"58.4cm\"},{\"size\":\"S\",\"fits waist\":\"76.2cm\",\"length\":\"52.1cm\",\"leg opening\":\"63.5cm\"},{\"size\":\"M\",\"fits waist\":\"81.3cm\",\"length\":\"54.6cm\",\"leg opening\":\"68.6cm\"},{\"size\":\"L\",\"fits waist\":\"86.4cm\",\"length\":\"57.1cm\",\"leg opening\":\"73.7cm\"},{\"size\":\"XL\",\"fits waist\":\"91.4cm\",\"length\":\"59.7cm\",\"leg opening\":\"78.7cm\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f354",
+   "handle": "pink-crsdr-joggers",
+   "name": "PINK CONVICT SWEATS",
+   "type": "sweats",
+   "sizeCategory": "top",
+   "available": true,
+   "sortOrder": 5.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-pink-baggy-fleece-sweatpants_e1020e28-42e0-4ce6-91ba-bb233d129028.png?v=1788194052",
+   "priceGbp": 60.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/54032414900567",
+     "label": "XS",
+     "size": "XS",
+     "stock": 16.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54032414933335",
+     "label": "S",
+     "size": "S",
+     "stock": 15.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54032414966103",
+     "label": "M",
+     "size": "M",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54032414998871",
+     "label": "L",
+     "size": "L",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54032415031639",
+     "label": "XL",
+     "size": "XL",
+     "stock": 0.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"waist\":\"76.2cm\",\"inseam\":\"73.7cm\",\"leg opening\":\"45.7cm\"},{\"size\":\"S\",\"waist\":\"81.3cm\",\"inseam\":\"76.2cm\",\"leg opening\":\"48.3cm\"},{\"size\":\"M\",\"waist\":\"86.4cm\",\"inseam\":\"77.5cm\",\"leg opening\":\"50.8cm\"},{\"size\":\"L\",\"waist\":\"91.4cm\",\"inseam\":\"80.0cm\",\"leg opening\":\"53.3cm\"},{\"size\":\"XL\",\"waist\":\"96.5cm\",\"inseam\":\"81.3cm\",\"leg opening\":\"55.9cm\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f355",
+   "handle": "pink-crsdr-hoodie",
+   "name": "PINK CONVICT HOODIE",
+   "type": "sweats",
+   "sizeCategory": "top",
+   "available": true,
+   "sortOrder": 4.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-pink-baggy-fleece-hoodie_dbe1c469-06d0-44ca-b26b-7a8ca1bc9b1d.png?v=1788192584",
+   "priceGbp": 60.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/54032693330263",
+     "label": "XS / V2",
+     "size": "XS",
+     "stock": 10.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54032693297495",
+     "label": "XS / V1",
+     "size": "XS",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54032693395799",
+     "label": "S / V2",
+     "size": "S",
+     "stock": 9.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54032693363031",
+     "label": "S / V1",
+     "size": "S",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54032693461335",
+     "label": "M / V2",
+     "size": "M",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54032693428567",
+     "label": "M / V1",
+     "size": "M",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54032693526871",
+     "label": "L / V2",
+     "size": "L",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54032693494103",
+     "label": "L / V1",
+     "size": "L",
+     "stock": 2.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54032693592407",
+     "label": "XL / V2",
+     "size": "XL",
+     "stock": 1.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54032693559639",
+     "label": "XL / V1",
+     "size": "XL",
+     "stock": 1.0
+    }
+   ],
+   "measurementsJson": "[{\"size\":\"XS\",\"chest\":\"116.8cm\",\"length\":\"58.4cm\",\"inner arm\":\"47cm\",\"fits height\":\"~5'4\\\" and under\"},{\"size\":\"S\",\"chest\":\"121.9cm\",\"length\":\"61cm\",\"inner arm\":\"49.5cm\",\"fits height\":\"~5'5\\\"–5'7\\\"\"},{\"size\":\"M\",\"chest\":\"127cm\",\"length\":\"63.5cm\",\"inner arm\":\"52.1cm\",\"fits height\":\"~5'8\\\"–5'10\\\"\"},{\"size\":\"L\",\"chest\":\"129.5cm\",\"length\":\"64.8cm\",\"inner arm\":\"54.6cm\",\"fits height\":\"~5'11\\\"–6'1\\\"\"},{\"size\":\"XL\",\"chest\":\"132.1cm\",\"length\":\"66cm\",\"inner arm\":\"57.2cm\",\"fits height\":\"~6'2\\\" and up\"}]"
+  },
+  {
+   "id": "6a96f914400821333fe5f356",
+   "handle": "cellblock-set",
+   "name": "CELLBLOCK SET",
+   "type": "set",
+   "sizeCategory": "top",
+   "available": false,
+   "sortOrder": 20.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-charcoal-fleece-crewneck-sweatshirt.png?v=1788186092",
+   "priceGbp": 85.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/54377205825879",
+     "label": "XS / XS",
+     "size": "XS",
+     "stock": 10.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377205858647",
+     "label": "XS / S",
+     "size": "XS",
+     "stock": 10.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377205891415",
+     "label": "XS / M",
+     "size": "XS",
+     "stock": 10.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377205924183",
+     "label": "XS / L",
+     "size": "XS",
+     "stock": 10.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377205956951",
+     "label": "XS / XL",
+     "size": "XS",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377205989719",
+     "label": "S / XS",
+     "size": "S",
+     "stock": 8.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206022487",
+     "label": "S / S",
+     "size": "S",
+     "stock": 8.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206055255",
+     "label": "S / M",
+     "size": "S",
+     "stock": 8.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206088023",
+     "label": "S / L",
+     "size": "S",
+     "stock": 8.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206120791",
+     "label": "S / XL",
+     "size": "S",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206153559",
+     "label": "M / XS",
+     "size": "M",
+     "stock": 14.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206186327",
+     "label": "M / S",
+     "size": "M",
+     "stock": 14.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206219095",
+     "label": "M / M",
+     "size": "M",
+     "stock": 14.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206251863",
+     "label": "M / L",
+     "size": "M",
+     "stock": 13.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206284631",
+     "label": "M / XL",
+     "size": "M",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206317399",
+     "label": "L / XS",
+     "size": "L",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206350167",
+     "label": "L / S",
+     "size": "L",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206382935",
+     "label": "L / M",
+     "size": "L",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206415703",
+     "label": "L / L",
+     "size": "L",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206448471",
+     "label": "L / XL",
+     "size": "L",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206481239",
+     "label": "XL / XS",
+     "size": "XL",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206514007",
+     "label": "XL / S",
+     "size": "XL",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206546775",
+     "label": "XL / M",
+     "size": "XL",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206579543",
+     "label": "XL / L",
+     "size": "XL",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54377206612311",
+     "label": "XL / XL",
+     "size": "XL",
+     "stock": 4.0
+    }
+   ],
+   "measurementsJson": ""
+  },
+  {
+   "id": "6a96f914400821333fe5f357",
+   "handle": "grey-set",
+   "name": "GREY SET",
+   "type": "set",
+   "sizeCategory": "top",
+   "available": false,
+   "sortOrder": 21.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-grey-convict-fleece-hoodie_892e8e2e-338d-4e90-8e84-d175e4bcb5ad.png?v=1788190419",
+   "priceGbp": 110.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549471063",
+     "label": "XS / XS",
+     "size": "XS",
+     "stock": 29.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549503831",
+     "label": "XS / S",
+     "size": "XS",
+     "stock": 29.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549536599",
+     "label": "XS / M",
+     "size": "XS",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549569367",
+     "label": "XS / L",
+     "size": "XS",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549602135",
+     "label": "XS / XL",
+     "size": "XS",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549634903",
+     "label": "S / XS",
+     "size": "S",
+     "stock": 35.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549667671",
+     "label": "S / S",
+     "size": "S",
+     "stock": 35.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549700439",
+     "label": "S / M",
+     "size": "S",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549733207",
+     "label": "S / L",
+     "size": "S",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549765975",
+     "label": "S / XL",
+     "size": "S",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549798743",
+     "label": "M / XS",
+     "size": "M",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549831511",
+     "label": "M / S",
+     "size": "M",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549864279",
+     "label": "M / M",
+     "size": "M",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549897047",
+     "label": "M / L",
+     "size": "M",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549929815",
+     "label": "M / XL",
+     "size": "M",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549962583",
+     "label": "L / XS",
+     "size": "L",
+     "stock": 2.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835549995351",
+     "label": "L / S",
+     "size": "L",
+     "stock": 2.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835550028119",
+     "label": "L / M",
+     "size": "L",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835550060887",
+     "label": "L / L",
+     "size": "L",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835550093655",
+     "label": "L / XL",
+     "size": "L",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835550126423",
+     "label": "XL / XS",
+     "size": "XL",
+     "stock": 2.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835550159191",
+     "label": "XL / S",
+     "size": "XL",
+     "stock": 2.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835550191959",
+     "label": "XL / M",
+     "size": "XL",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835550224727",
+     "label": "XL / L",
+     "size": "XL",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835550257495",
+     "label": "XL / XL",
+     "size": "XL",
+     "stock": 0.0
+    }
+   ],
+   "measurementsJson": ""
+  },
+  {
+   "id": "6a96f914400821333fe5f358",
+   "handle": "pink-set",
+   "name": "PINK SET",
+   "type": "set",
+   "sizeCategory": "top",
+   "available": false,
+   "sortOrder": 22.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/IMG-1164_eeb13fb3-138a-414f-b226-cd59dc2e3dcf.png?v=1788194055",
+   "priceGbp": 110.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561496919",
+     "label": "XS / V1 / XS",
+     "size": "XS",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561529687",
+     "label": "XS / V1 / S",
+     "size": "XS",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561562455",
+     "label": "XS / V1 / M",
+     "size": "XS",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561595223",
+     "label": "XS / V1 / L",
+     "size": "XS",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561627991",
+     "label": "XS / V1 / XL",
+     "size": "XS",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561660759",
+     "label": "XS / V2 / XS",
+     "size": "XS",
+     "stock": 10.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561693527",
+     "label": "XS / V2 / S",
+     "size": "XS",
+     "stock": 10.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561726295",
+     "label": "XS / V2 / M",
+     "size": "XS",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561759063",
+     "label": "XS / V2 / L",
+     "size": "XS",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561791831",
+     "label": "XS / V2 / XL",
+     "size": "XS",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561824599",
+     "label": "S / V1 / XS",
+     "size": "S",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561857367",
+     "label": "S / V1 / S",
+     "size": "S",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561890135",
+     "label": "S / V1 / M",
+     "size": "S",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561922903",
+     "label": "S / V1 / L",
+     "size": "S",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561955671",
+     "label": "S / V1 / XL",
+     "size": "S",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835561988439",
+     "label": "S / V2 / XS",
+     "size": "S",
+     "stock": 9.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562021207",
+     "label": "S / V2 / S",
+     "size": "S",
+     "stock": 9.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562053975",
+     "label": "S / V2 / M",
+     "size": "S",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562086743",
+     "label": "S / V2 / L",
+     "size": "S",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562119511",
+     "label": "S / V2 / XL",
+     "size": "S",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562152279",
+     "label": "M / V1 / XS",
+     "size": "M",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562185047",
+     "label": "M / V1 / S",
+     "size": "M",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562217815",
+     "label": "M / V1 / M",
+     "size": "M",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562250583",
+     "label": "M / V1 / L",
+     "size": "M",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562283351",
+     "label": "M / V1 / XL",
+     "size": "M",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562316119",
+     "label": "M / V2 / XS",
+     "size": "M",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562348887",
+     "label": "M / V2 / S",
+     "size": "M",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562381655",
+     "label": "M / V2 / M",
+     "size": "M",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562414423",
+     "label": "M / V2 / L",
+     "size": "M",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562447191",
+     "label": "M / V2 / XL",
+     "size": "M",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562479959",
+     "label": "L / V1 / XS",
+     "size": "L",
+     "stock": 2.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562512727",
+     "label": "L / V1 / S",
+     "size": "L",
+     "stock": 2.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562545495",
+     "label": "L / V1 / M",
+     "size": "L",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562578263",
+     "label": "L / V1 / L",
+     "size": "L",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562611031",
+     "label": "L / V1 / XL",
+     "size": "L",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562643799",
+     "label": "L / V2 / XS",
+     "size": "L",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562676567",
+     "label": "L / V2 / S",
+     "size": "L",
+     "stock": 4.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562709335",
+     "label": "L / V2 / M",
+     "size": "L",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562742103",
+     "label": "L / V2 / L",
+     "size": "L",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562774871",
+     "label": "L / V2 / XL",
+     "size": "L",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562807639",
+     "label": "XL / V1 / XS",
+     "size": "XL",
+     "stock": 1.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562840407",
+     "label": "XL / V1 / S",
+     "size": "XL",
+     "stock": 1.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562873175",
+     "label": "XL / V1 / M",
+     "size": "XL",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562905943",
+     "label": "XL / V1 / L",
+     "size": "XL",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562938711",
+     "label": "XL / V1 / XL",
+     "size": "XL",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835562971479",
+     "label": "XL / V2 / XS",
+     "size": "XL",
+     "stock": 1.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835563004247",
+     "label": "XL / V2 / S",
+     "size": "XL",
+     "stock": 1.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835563037015",
+     "label": "XL / V2 / M",
+     "size": "XL",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835563069783",
+     "label": "XL / V2 / L",
+     "size": "XL",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835563102551",
+     "label": "XL / V2 / XL",
+     "size": "XL",
+     "stock": 0.0
+    }
+   ],
+   "measurementsJson": ""
+  },
+  {
+   "id": "6a96f914400821333fe5f359",
+   "handle": "black-set",
+   "name": "BLACK SET",
+   "type": "set",
+   "sizeCategory": "top",
+   "available": false,
+   "sortOrder": 18.0,
+   "imageUrl": "https://cdn.shopify.com/s/files/1/1004/1078/6135/files/crooksldn-black-piping-hoodie.png?v=1788194195",
+   "priceGbp": 110.0,
+   "variants": [
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567296855",
+     "label": "XS / XS",
+     "size": "XS",
+     "stock": 13.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567329623",
+     "label": "XS / S",
+     "size": "XS",
+     "stock": 13.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567362391",
+     "label": "XS / M",
+     "size": "XS",
+     "stock": 13.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567395159",
+     "label": "XS / L",
+     "size": "XS",
+     "stock": 13.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567427927",
+     "label": "XS / XL",
+     "size": "XS",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567460695",
+     "label": "S / XS",
+     "size": "S",
+     "stock": 6.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567493463",
+     "label": "S / S",
+     "size": "S",
+     "stock": 6.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567526231",
+     "label": "S / M",
+     "size": "S",
+     "stock": 6.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567558999",
+     "label": "S / L",
+     "size": "S",
+     "stock": 6.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567591767",
+     "label": "S / XL",
+     "size": "S",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567624535",
+     "label": "M / XS",
+     "size": "M",
+     "stock": 9.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567657303",
+     "label": "M / S",
+     "size": "M",
+     "stock": 9.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567690071",
+     "label": "M / M",
+     "size": "M",
+     "stock": 9.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567722839",
+     "label": "M / L",
+     "size": "M",
+     "stock": 9.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567755607",
+     "label": "M / XL",
+     "size": "M",
+     "stock": 5.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567788375",
+     "label": "L / XS",
+     "size": "L",
+     "stock": 1.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567821143",
+     "label": "L / S",
+     "size": "L",
+     "stock": 1.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567853911",
+     "label": "L / M",
+     "size": "L",
+     "stock": 1.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567886679",
+     "label": "L / L",
+     "size": "L",
+     "stock": 1.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567919447",
+     "label": "L / XL",
+     "size": "L",
+     "stock": 1.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567952215",
+     "label": "XL / XS",
+     "size": "XL",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835567984983",
+     "label": "XL / S",
+     "size": "XL",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835568017751",
+     "label": "XL / M",
+     "size": "XL",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835568050519",
+     "label": "XL / L",
+     "size": "XL",
+     "stock": 0.0
+    },
+    {
+     "variantId": "gid://shopify/ProductVariant/54835568083287",
+     "label": "XL / XL",
+     "size": "XL",
+     "stock": 0.0
+    }
+   ],
+   "measurementsJson": ""
+  }
+ ]
+}

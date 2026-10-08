@@ -1,9 +1,10 @@
 # CROOKS LDN — Shopify theme and CLIVE
 
-This repository (`crooksldn-pixel/clive`, renamed from `Shopify-theme` on 2026-09-19) holds two things for CROOKS LDN (`5wn03t-nm.myshopify.com`):
+This repository (`crooksldn-pixel/clive`, renamed from `Shopify-theme` on 2026-09-19) holds three things for CROOKS LDN (`5wn03t-nm.myshopify.com`):
 
 1. **The Shopify theme**, at the repository root (`layout/`, `templates/`, `sections/`, `blocks/`, `snippets/`, `assets/`, `config/`, `locales/`): the storefront code, pulled from the live "Horizon" theme. Its workflow is unchanged and is described under [Shopify theme](#shopify-theme) below.
-2. **CLIVE** (*Computer Language Interface Virtual Environment*): the operational assistant for the business, in `crooks-assistant/` on the application branches listed below. It is not on this default theme branch. It began as the CROOKS Assistant, a voice assistant (a FastAPI backend on the owner's Mac, and since 2026-09-19 on a Linux server) that reads the Shopify store and the Gmail inbox and proposes changes the owner applies. The product identity is now CLIVE: a persistent intent-to-execution operational layer in which models propose and deterministic, evidence-checked capabilities execute, with human authority over every consequential action.
+2. **The Partner Hub functions**, in [`partner-hub/`](partner-hub/README.md): the Base44 backend functions that connect the influencer portal (`crooks-partner-hub.base44.app`) to Shopify. They create gifted orders after a live stock check, sync tracking back, and serve an API for CLIVE ([`partner-hub/CLIVE_API.md`](partner-hub/CLIVE_API.md)). They are deployed to Base44, not to the theme.
+3. **CLIVE** (*Computer Language Interface Virtual Environment*): the operational assistant for the business, in `crooks-assistant/` on the application branches listed below. It is not on this default theme branch. It began as the CROOKS Assistant, a voice assistant (a FastAPI backend on the owner's Mac, and since 2026-09-19 on a Linux server) that reads the Shopify store and the Gmail inbox and proposes changes the owner applies. The product identity is now CLIVE: a persistent intent-to-execution operational layer in which models propose and deterministic, evidence-checked capabilities execute, with human authority over every consequential action.
 
 ## Where the truth lives
 

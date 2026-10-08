@@ -1,0 +1,6 @@
+// Lets `npx base44 functions deploy` find the generated functions in
+// ./functions. Deploy ONLY functions (see ../README.md); this folder holds
+// no entities or site, so never run a full `base44 deploy` or `--force` here.
+{
+  "name": "CROOKS Partner Hub"
+}

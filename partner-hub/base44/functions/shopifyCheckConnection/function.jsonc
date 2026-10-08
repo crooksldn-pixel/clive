@@ -1,0 +1,4 @@
+{
+  "name": "shopifyCheckConnection",
+  "entry": "entry.ts"
+}

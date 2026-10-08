@@ -1,0 +1,18 @@
+{
+  "name": "crooks-partner-hub-functions",
+  "private": true,
+  "type": "module",
+  "description": "Base44 backend functions that connect the CROOKS Partner Hub to Shopify.",
+  "scripts": {
+    "check": "deno check src/ test/",
+    "test": "deno test --allow-env --allow-read --allow-net test/",
+    "build": "node scripts/build.mjs",
+    "smoke": "deno run --allow-env --allow-read --allow-net scripts/smoke.ts",
+    "graphql": "deno run --allow-read scripts/print-graphql.ts",
+    "verify": "npm run check && npm test && npm run build && npm run smoke"
+  },
+  "devDependencies": {
+    "deno": "2.9.6",
+    "esbuild": "0.25.9"
+  }
+}
