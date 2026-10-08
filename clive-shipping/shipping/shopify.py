@@ -402,7 +402,11 @@ class GraphQLShopify:
                 )
             except httpx.HTTPError as exc:
                 raise ShopifyError(f"Shopify could not be reached: {exc}") from exc
-            if r.status_code == 429 or r.status_code >= 500:
+            if r.status_code >= 500 and document.lstrip().startswith("mutation"):
+                # It may have been done: never sent again blind. The caller reads Shopify back
+                # (fulfil re-reads the order before trying again).
+                raise ShopifyError(f"Shopify answered {r.status_code}; it may have been done.")
+            if r.status_code == 429 or r.status_code >= 500:  # 429: refused, safe to repeat
                 time.sleep(0.5 * 2**attempt)
                 continue
             if r.status_code != 200:

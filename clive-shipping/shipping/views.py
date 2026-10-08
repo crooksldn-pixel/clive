@@ -12,7 +12,7 @@ the same thing:
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from shipping import contacts, readiness, tracking
@@ -33,12 +33,14 @@ QUESTION_PHRASES = {
     "provider_unavailable": "Provider unavailable",
     "on_hold": "On hold in Shopify",
     "payment": "Payment not taken",
+    "second_label": "Already has a label",
 }
 # Not something the merchant fills in: these name the problem instead of counting details.
 # The first one present names the badge, so payment (the most basic) comes first.
-NOT_DETAILS = ("payment", "no_rates", "provider_unavailable", "address", "on_hold")
+NOT_DETAILS = ("payment", "second_label", "no_rates", "provider_unavailable", "address", "on_hold")
 PROBLEM_TONES = {
     "payment": "critical",
+    "second_label": "critical",
     "no_rates": "critical",
     "provider_unavailable": "caution",
     "address": "warning",
@@ -151,12 +153,13 @@ def shipping_text(s: Shipment) -> str:
 def placed_at(s: Shipment) -> datetime:
     """When the customer ordered (Shopify's createdAt), for newest-first lists as in Shopify's
     Orders; when CLIVE first saw it, for records from before that was kept."""
+    at = s.created_at
     if s.order_created_at:
         try:
-            return datetime.fromisoformat(s.order_created_at.replace("Z", "+00:00"))
+            at = datetime.fromisoformat(s.order_created_at.replace("Z", "+00:00"))
         except ValueError:
             pass
-    return s.created_at
+    return at if at.tzinfo else at.replace(tzinfo=UTC)  # naive and aware never compared
 
 
 def customer_of(s: Shipment) -> str:
@@ -391,6 +394,9 @@ TIMELINE = {
 def payment_view(s: Shipment) -> dict[str, Any]:
     state = payment(s.payment_status)
     bought = s.label is not None
+    if bought and not s.payment_status:
+        # Bought before CLIVE kept the payment status: unknown is not "changed".
+        return {"label": "Not recorded", "tone": "neutral", "note": "", "reason": ""}
     note = (
         "label purchase blocked"
         if not state.allows_purchase and not bought

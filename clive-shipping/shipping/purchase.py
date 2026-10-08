@@ -623,6 +623,18 @@ class Purchases:
                     op.last_error = "Confirmed unpaid twice; this provider order is never paid."
                     self._save_op(op)
                     s = self._get(op.shop, op.shipment_id)
+                    if s.status not in (S.reconciliation_required, S.purchasing):
+                        # Shopify is already fulfilled with this label (or tried): the provider
+                        # contradicting its own paid reply is for a person to settle, once.
+                        s.last_error = None
+                        self._alert(
+                            s,
+                            f"{self._who(op)} now says this label isn't paid, after accepting "
+                            "the payment. Check the provider account before using the label; "
+                            "CLIVE won't pay for it again.",
+                        )
+                        self.store.save(s)
+                        return
                     s.last_error = (
                         "You weren't charged: the provider confirms the payment "
                         "didn't go through. Buy again when you're ready."

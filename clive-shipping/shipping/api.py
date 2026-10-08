@@ -93,6 +93,16 @@ def page(found: list[dict[str, Any]], limit: int) -> dict[str, Any]:
     return {"events": head, "has_more": len(found) > len(head)}
 
 
+def source_of(e: Any) -> str:
+    """Where a change came from, as Returns says it: api (CLIVE), system (the timer, PrintNode,
+    the carrier) or ui (staff on the Shipping screen)."""
+    if e.actor.endswith("(CLIVE)"):
+        return "api"
+    if e.actor in ("system", "PrintNode") or e.type.startswith("carrier_"):
+        return "system"
+    return "ui"
+
+
 def summary(s: Shipment, printed: dict[str, Any] | None) -> dict[str, Any]:
     st = views.status_of(s)
     q = s.quote
@@ -274,6 +284,7 @@ def build_api_router(
                             "type": e.type,
                             "what": views.TIMELINE.get(e.type, e.type),
                             "actor": e.actor,
+                            "source": source_of(e),
                             "verified": e.verified,
                             "detail": e.detail,
                         }

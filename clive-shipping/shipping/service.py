@@ -223,8 +223,10 @@ class ShippingService:
         s.package = packages.plan(self.store, cfg, s.lines, s.package)
         s.duties = self._duties(cfg, s)
         # Every reason at once: an unpaid order still shows its missing weight or HS code.
-        s.questions = self._payment_questions(s) + readiness.questions(
-            self.store, shop, s.lines, s.package is not None, s.destination
+        s.questions = (
+            self._payment_questions(s)
+            + self._second_label(s)
+            + readiness.questions(self.store, shop, s.lines, s.package is not None, s.destination)
         )
         if s.questions:
             s.quote = None
@@ -307,6 +309,37 @@ class ShippingService:
                 self._event(s, "payment_blocking", "system", {"payment": now.status or None})
             elif was is not None:
                 self._event(s, "payment_cleared", "system", {"payment": now.status})
+
+    def _second_label(self, s: Shipment) -> list[Question]:
+        """Shopify can close a fulfilment order and open another for the same parcel (moved to
+        another location, an order edit) after a label was bought: never offer to pay again
+        for it until a person says it really is another parcel."""
+        if s.second_label_confirmed_by:
+            return []
+        earlier = [
+            x
+            for x in self.store.shipments(s.shop)
+            if x.order_id == s.order_id
+            and x.id != s.id
+            and x.money_may_have_moved
+            and x.status != S.voided
+        ]
+        if not earlier:
+            return []
+        label = earlier[0].label
+        what = (
+            " ".join(p for p in (label.provider, label.tracking_number or "") if p) if label else ""
+        )
+        return [
+            Question(
+                kind="second_label",
+                subject="order",
+                text=f"{s.order_name} already has a label from CLIVE"
+                + (f" ({what})" if what else "")
+                + ". Shopify now shows another parcel for it. If it really is a second parcel, "
+                "confirm it; otherwise don't buy, and check the order in Shopify.",
+            )
+        ]
 
     @staticmethod
     def _payment_questions(s: Shipment) -> list[Question]:
@@ -391,6 +424,16 @@ class ShippingService:
         s = self._get(shop, sid)
         if s.status not in PRE_PURCHASE:
             raise ActionError("This order is past the point of changing its details.")
+        if kind == "second_label":
+            if value.get("confirm") is not True:
+                raise ActionError("Confirm that this is a second parcel to go on.", 422)
+
+            def confirm(x: Shipment) -> None:
+                x.second_label_confirmed_by = actor
+                self._event(x, "second_label_confirmed", actor, {})
+
+            self._commit(s, confirm)
+            return self._prepare_after_answer(shop, sid)
         if kind == "package":
             cfg = self.store.config(shop)
             try:

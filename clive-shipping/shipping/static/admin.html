@@ -287,7 +287,8 @@ function purchasedText(iso, tz) {
   if (!iso) return "—";
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return "—";
-  const zone = tz || "Europe/London";
+  let zone = tz || "Europe/London";
+  try { new Intl.DateTimeFormat("en-GB", { timeZone: zone }); } catch { zone = "Europe/London"; }  // a zone this browser doesn't know
   const day = (d) => new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
   const time = new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit" }).format(at);
   const days = Math.round((Date.parse(day(new Date())) - Date.parse(day(at))) / 86400000);
@@ -339,15 +340,26 @@ function inboxTable(rows, pick) {
 
 // The selection bar sits in the list's own header and keeps its height whether or not anything
 // is selected, so ticking the first row moves nothing.
+// At most this many in one bulk action (the server refuses more).
+const PICK_MAX = 100;
+const pickedState = (eligible) => {
+  const chosen = eligible.filter((r) => state.selected.has(r.id)).length;
+  const full = Math.min(eligible.length, PICK_MAX);
+  return { chosen, all: full > 0 && chosen >= full, some: chosen > 0 && chosen < full };
+};
+
 function bulkBar(pick) {
   const rows = visibleInboxRows();
   const eligible = rows.filter((r) => r[pick.flag]);
   const chosen = eligible.filter((r) => state.selected.has(r.id));
-  const all = eligible.length && chosen.length === eligible.length;
+  const { all } = pickedState(eligible);
   const head = `<input type="checkbox" id="pick-all" class="pick" aria-label="Select all ${esc(pick.noun)} orders shown" ${all ? "checked" : ""} ${eligible.length ? "" : "disabled"}>`;
-  const text = chosen.length ? `${chosen.length} selected` : `${eligible.length} ${pick.noun}`;
-  const more = chosen.length && chosen.length < Math.min(eligible.length, 100)
-    ? `<span class="wide-only"><s-button variant="tertiary" data-action="select-stage">Select all ${eligible.length} ${esc(pick.noun)}</s-button></span>` : "";
+  const text = chosen.length
+    ? `${chosen.length} selected${chosen.length >= PICK_MAX ? ` (up to ${PICK_MAX} at a time)` : ""}`
+    : `${eligible.length} ${pick.noun}`;
+  const selectAll = eligible.length > PICK_MAX ? `Select the first ${PICK_MAX} ${esc(pick.noun)}` : `Select all ${eligible.length} ${esc(pick.noun)}`;
+  const more = chosen.length && !all
+    ? `<span class="wide-only"><s-button variant="tertiary" data-action="select-stage">${selectAll}</s-button></span>` : "";
   const acts = chosen.length
     ? `${more}<s-button variant="primary" data-action="${pick.action}">${esc(pick.label)}</s-button><s-button variant="tertiary" data-action="clear-selection">Clear</s-button>`
     : (eligible.length ? `<s-button variant="tertiary" data-action="select-stage">Select all ${esc(pick.noun)}</s-button>` : "");
@@ -360,10 +372,8 @@ function refreshSelection() {
   const bar = document.getElementById("bulk-bar");
   if (!pick || !bar) return renderInbox();
   bar.innerHTML = bulkBar(pick);
-  const eligible = visibleInboxRows().filter((r) => r[pick.flag]);
-  const chosen = eligible.filter((r) => state.selected.has(r.id)).length;
   const head = document.getElementById("pick-all");
-  if (head) head.indeterminate = chosen > 0 && chosen < eligible.length;
+  if (head) head.indeterminate = pickedState(visibleInboxRows().filter((r) => r[pick.flag])).some;
   document.querySelectorAll("input[data-select]").forEach((x) => { x.checked = state.selected.has(x.dataset.select); });
 }
 
@@ -430,11 +440,7 @@ function renderInbox() {
   const recent = (ib.batches || []).length ? `<s-section heading="Recent bulk operations">${ib.batches.map(b => `<s-link href="${BASE}/admin?batch=${esc(b.id)}">${esc(b.kind === 'buy' ? 'Label purchase' : 'Label print')} · ${esc(b.state)} · ${esc(new Date(b.created_at).toLocaleString('en-GB'))}</s-link><br>`).join('')}</s-section>` : '';
   page("International shipping", slots, top + filters + body + recent);
   const head = document.getElementById("pick-all");
-  if (head && pick) {
-    const eligible = rows.filter((r) => r[pick.flag]);
-    const chosen = eligible.filter((r) => state.selected.has(r.id)).length;
-    head.indeterminate = chosen > 0 && chosen < eligible.length;
-  }
+  if (head && pick) head.indeterminate = pickedState(rows.filter((r) => r[pick.flag])).some;
 }
 
 // ------------------------------------------------------------------ one shipment
@@ -447,7 +453,7 @@ function questionForm(q, i) {
       ? `<s-paragraph color="subdued">Used for your other ${esc(q.choices[0] || "products")}: ${esc(q.suggestion)}. Check it before saving.</s-paragraph>` : "";
     fields = `${hint}<s-grid gridTemplateColumns="1fr 2fr" gap="base">
       <s-text-field id="${id}-hs" label="HS code" placeholder="e.g. 6109.10" value="${esc(usedCode(id, q.subject) || "")}"></s-text-field>
-      <s-text-field id="${id}-desc" label="Customs description" value="${esc(usedText(id, q.subject) || q.choices[0] || "")}"></s-text-field>
+      <s-text-field id="${id}-desc" label="Customs description" value="${esc(q.choices[0] || "")}"></s-text-field>
     </s-grid>${codeFinder(id, q.subject, q.choices[0] || "")}`;
     if (q.suggestion) save = `<s-button data-action="use-suggestion" data-q="${i}">Use ${esc(q.suggestion)}</s-button>` + save;
   } else if (q.kind === "origin") {
@@ -460,6 +466,8 @@ function questionForm(q, i) {
     fields = `<s-number-field id="${id}-grams" label="Weight of one item" suffix="g" min="1" max="30000" step="1" inputMode="numeric"></s-number-field>`;
   } else if (q.kind === "package") {
     fields = packageFields(id);
+  } else if (q.kind === "second_label") {
+    save = `<s-button data-action="answer" data-q="${i}">It's a second parcel</s-button>`;
   } else {
     save = q.kind === "address" && state.shipment.order_admin_id
       ? `<s-button href="shopify://admin/orders/${esc(state.shipment.order_admin_id)}" target="_top">Open the order in Shopify</s-button>`
@@ -624,7 +632,7 @@ function renderShipment() {
 
   // Products
   if (!d.label && acts.has("refresh")) {
-    main += `<s-section heading="Edit product customs"><s-stack gap="base">${d.products.map((p,i) => `<s-stack gap="small-200"><s-text type="strong">${esc(p.title)} · ${esc(p.variant)}</s-text><s-grid gridTemplateColumns="1fr 1fr 2fr" gap="base"><s-text-field id="customs-${i}-hs" label="HS / commodity code" value="${esc(usedCode(`customs-${i}`, p.subject) || p.hs_code_value || '')}"></s-text-field><s-text-field id="customs-${i}-origin" label="Country of origin" value="${esc(p.origin || '')}"></s-text-field><s-text-field id="customs-${i}-desc" label="Customs description" value="${esc(p.description || usedText(`customs-${i}`, p.subject) || '')}"></s-text-field></s-grid>${codeFinder(`customs-${i}`, p.subject, p.title)}<s-button data-action="edit-customs" data-line="${i}">Save product customs</s-button></s-stack>`).join('')}<s-text color="subdued">Saved through the product's existing Shopify customs and CLIVE knowledge records for future orders. Purchased declarations stay unchanged.</s-text></s-stack></s-section>`;
+    main += `<s-section heading="Edit product customs"><s-stack gap="base">${d.products.map((p,i) => `<s-stack gap="small-200"><s-text type="strong">${esc(p.title)} · ${esc(p.variant)}</s-text><s-grid gridTemplateColumns="1fr 1fr 2fr" gap="base"><s-text-field id="customs-${i}-hs" label="HS / commodity code" value="${esc(usedCode(`customs-${i}`, p.subject) || p.hs_code_value || '')}"></s-text-field><s-text-field id="customs-${i}-origin" label="Country of origin" value="${esc(p.origin || '')}"></s-text-field><s-text-field id="customs-${i}-desc" label="Customs description" value="${esc(p.description || '')}"></s-text-field></s-grid>${codeFinder(`customs-${i}`, p.subject, p.title)}<s-button data-action="edit-customs" data-line="${i}">Save product customs</s-button></s-stack>`).join('')}<s-text color="subdued">Saved through the product's existing Shopify customs and CLIVE knowledge records for future orders. Purchased declarations stay unchanged.</s-text></s-stack></s-section>`;
   }
 
   main += `<s-section heading="Products" padding="none"><s-table>
@@ -943,7 +951,6 @@ function codeFinder(target, subject, words) {
 }
 // A code chosen with "Use" stays in the form across redraws (until saved or started again).
 const usedCode = (target, subject) => finder[target]?.subject === subject ? finder[target].used?.code : null;
-const usedText = (target, subject) => finder[target]?.subject === subject && finder[target].used ? finder[target].text : null;
 function finderResult(target) {
   const r = finder[target]?.result;
   if (!r) return "";
@@ -1073,9 +1080,8 @@ const ACTIONS = {
   }),
   "hs-use": (el) => {
     const t = el.dataset.target, c = finder[t].result.candidate;
-    const hs = document.getElementById(`${t}-hs`), desc = document.getElementById(`${t}-desc`);
+    const hs = document.getElementById(`${t}-hs`);  // the description stays the merchant's words
     if (hs) hs.value = c.code;
-    if (desc && !desc.value) desc.value = finder[t].text;
     finder[t].used = { method: "suggested", code: c.code, inputs: c.inputs, reasons: c.reasons };
     toast(`${c.spaced} is in the form. Save to confirm it.`);
   },
@@ -1086,7 +1092,7 @@ const ACTIONS = {
     state.inbox = await loadInbox();
     const pick = bulkPick(state.inbox);
     state.selected.clear();
-    if (pick) visibleInboxRows().filter(r => r[pick.flag]).slice(0, 100).forEach(r => state.selected.add(r.id));
+    if (pick) visibleInboxRows().filter(r => r[pick.flag]).slice(0, PICK_MAX).forEach(r => state.selected.add(r.id));
     renderInbox();
   }),
   'clear-selection': () => {state.selected.clear(); refreshSelection();},
@@ -1201,9 +1207,10 @@ const ACTIONS = {
     else if (q.kind === "weight") value = { grams: Number(val(`${id}-grams`)) };
     else if (q.kind === "package") value = { name: val(`${id}-name`), length_cm: Number(val(`${id}-l`)),
       width_cm: Number(val(`${id}-w`)), height_cm: Number(val(`${id}-h`)), empty_weight_g: Number(val(`${id}-g`)) };
+    else if (q.kind === "second_label") value = { confirm: true };
     await withButton(el, async () => {
       await shipmentAction("/answer", { kind: q.kind, subject: q.subject, value });
-      toast("Saved. CLIVE won't ask again for this product.");
+      toast(q.kind === "second_label" ? "Confirmed: a second parcel. Check the price before buying." : "Saved. CLIVE won't ask again for this product.");
     });
   },
   "use-suggestion"(el) {
@@ -1369,13 +1376,16 @@ document.addEventListener("change", (ev) => {
   }
   if (ev.target.id === "pick-all") {
     const pick = bulkPick(state.inbox);
-    const eligible = visibleInboxRows().filter((r) => pick && r[pick.flag]).slice(0, 100);
-    if (ev.target.checked) eligible.forEach((r) => state.selected.add(r.id)); else state.selected.clear();
+    const eligible = visibleInboxRows().filter((r) => pick && r[pick.flag]);
+    // Like Shopify: none → all (up to the limit); some or all → none.
+    if (ev.target.checked && !pickedState(eligible).chosen) eligible.slice(0, PICK_MAX).forEach((r) => state.selected.add(r.id));
+    else state.selected.clear();
     refreshSelection(); return;
   }
   if (ev.target.dataset?.select) {
     const id = ev.target.dataset.select;
-    if (ev.target.checked) state.selected.add(id); else state.selected.delete(id);
+    if (ev.target.checked && state.selected.size >= PICK_MAX) ev.target.checked = false;  // the bar says the limit
+    else if (ev.target.checked) state.selected.add(id); else state.selected.delete(id);
     refreshSelection(); return;
   }
 });

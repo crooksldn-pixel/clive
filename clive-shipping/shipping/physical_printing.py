@@ -162,6 +162,13 @@ class PhysicalPrinting:
         failed = sum(1 for p in mine if not p.get("reprint") and intent_state(p) == "failed")
         identity = f"reprint:{key}" if reprint else ("first" if not failed else f"first:{failed}")
         intent_key = hashlib.sha256(f"{sid}:{doc.artifact_id}:{identity}".encode()).hexdigest()
+        same = self.store.print_intent_by_key(shop, intent_key)  # this very first print: replays
+        if not reprint and any(
+            p["id"] != (same or {}).get("id") and intent_state(p) != "failed" for p in mine
+        ):
+            # A reprint printed (or is printing) after the first one failed: "print" from a stale
+            # tab or CLIVE is not another copy. Reprint is the deliberate way.
+            raise PrintError("This label has already been sent to the printer. Use Reprint.", 409)
         result = self._send(
             shop,
             intent_key,

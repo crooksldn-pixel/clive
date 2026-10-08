@@ -229,6 +229,8 @@ def test_events_say_what_changed_on_which_order(api, ready, clock):
     assert "label_purchased" in types and all(e["order"] == s.order_name for e in events)
     bought = next(e for e in events if e["type"] == "label_purchased")
     assert bought["verified"] and bought["what"] == "Label purchased"
+    assert bought["source"] == "api"  # as in Returns: where each change came from
+    assert all(e["source"] in ("api", "system", "ui") for e in events)
 
 
 def test_events_page_oldest_first_and_paging_skips_nothing(api, ready, clock):
