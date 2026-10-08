@@ -15,6 +15,8 @@
 #   - It never touches GitHub's default branch, a line whose "requires" path is not yet on
 #     clive/trunk, or any branch that must be kept (see KEPT below), whatever the list says.
 #   - Without --apply it changes nothing: it prints what it would do and why.
+#   - It never prints a credential: user:password@ or token@ in the remote's address is shown
+#     as ***@.
 #   - Running it again is safe: a branch already archived (gone, tag in place) is reported as
 #     done, and a tag already pushed is not pushed again.
 #
@@ -42,13 +44,15 @@ NS="refs/archive-branches-run"
 KEPT='^(clive/trunk|clive/control/.*|clive/evidence/.*|clive/engineering-state|crooks-ai-bridge|claude/compassionate-dirac-44hnee|claude/crooksldn-theme-init-bnen7a|claude/venture-engine-v1-2026-09-29|claude/n2-.*)$'
 
 die() { echo "archive_branches: $*" >&2; exit 2; }
+# Never print a credential: whatever sits before the @ of an address's host is shown as ***.
+shown() { printf '%s' "$1" | sed -E 's#([A-Za-z][A-Za-z0-9+.-]*://)[^/[:space:]]*@#\1***@#g'; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --apply) APPLY=1 ;;
     --list) [ $# -ge 2 ] || die "--list needs a file"; LIST="$2"; shift ;;
     --remote) [ $# -ge 2 ] || die "--remote needs a name or URL"; REMOTE="$2"; REMOTE_GIVEN=1; shift ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^$/p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
   shift
@@ -58,7 +62,7 @@ git rev-parse --git-dir >/dev/null 2>&1 || die "run this inside a clone of crook
 [ -f "$LIST" ] || die "no list at $LIST"
 if [ "$REMOTE_GIVEN" = 0 ]; then
   url="$(git remote get-url "$REMOTE" 2>/dev/null)" || die "this clone has no remote called $REMOTE"
-  echo "$url" | grep -Eq 'crooksldn-pixel/clive(\.git)?/?$' || die "$REMOTE is $url, not crooksldn-pixel/clive; pass --remote to choose"
+  echo "$url" | grep -Eq 'crooksldn-pixel/clive(\.git)?/?$' || die "$REMOTE is $(shown "$url"), not crooksldn-pixel/clive; pass --remote to choose"
 fi
 
 WORK="$(mktemp -d)"
@@ -90,11 +94,11 @@ dupe="$(awk '{print $4}' "$WORK/lines" | sort | uniq -d | head -1)"
 [ -z "$dupe" ] || die "two branches would share the tag $dupe"
 
 # --- what the remote holds now ----------------------------------------------------------------
-snapshot() { git ls-remote "$REMOTE" 'refs/heads/*' 'refs/tags/archive/*' > "$WORK/remote" || die "cannot read $REMOTE"; }
+snapshot() { git ls-remote "$REMOTE" 'refs/heads/*' 'refs/tags/archive/*' > "$WORK/remote" || die "cannot read $(shown "$REMOTE")"; }
 remote_sha() { awk -v r="$1" '$2 == r { print $1 }' "$WORK/remote"; }
 snapshot
 default="$(git ls-remote --symref "$REMOTE" HEAD | awk '/^ref:/ { sub("refs/heads/", "", $2); print $2 }')"
-git fetch --quiet --no-tags "$REMOTE" "+refs/heads/*:$NS/heads/*" || die "cannot fetch from $REMOTE"
+git fetch --quiet --no-tags "$REMOTE" "+refs/heads/*:$NS/heads/*" || die "cannot fetch from $(shown "$REMOTE")"
 
 # --- the plan ---------------------------------------------------------------------------------
 : > "$WORK/todo"; : > "$WORK/report"

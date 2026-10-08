@@ -12,6 +12,11 @@
 #     listed branch is kept there as the tag on its line. Everything pushed is read back from the
 #     theme repository and must be at the listed SHA (main may have moved on from it since).
 #   - It refuses to push anywhere it can see is public: the theme repository must be private.
+#     Every form git accepts for a github.com address is checked (https, http, ssh, git@host:,
+#     with or without user@ or credentials, www. or .git, a remote name or an insteadOf alias).
+#     An address that names github.com but no owner/repo stops the run: it never pushes unchecked.
+#   - It never prints a credential: user:password@ or token@ in any address is shown as ***@,
+#     in its own messages and in git's.
 #   - It touches a branch only if it is still at the SHA on its line.
 #   - Without --apply it changes nothing: it prints what it would do.
 #   - Only with --delete-public (and --apply) does it delete the listed branches from clive, each
@@ -47,6 +52,27 @@ NS="refs/move-theme-run"
 
 die() { echo "move_theme: $*" >&2; exit 2; }
 
+# Never print a credential: whatever sits before the @ of an address's host is shown as ***.
+redact() { sed -E 's#([A-Za-z][A-Za-z0-9+.-]*://)[^/[:space:]]*@#\1***@#g'; }
+shown() { printf '%s' "$1" | redact; }
+
+# The owner/repo of a github.com address in any form git accepts, or nothing. User, credentials,
+# www., a port, .git and a trailing / are dropped; anything else (another host, a deeper path)
+# gives nothing, and the caller then refuses an address that still mentions github.com.
+github_slug() {
+  printf '%s\n' "$1" | tr '[:upper:]' '[:lower:]' | sed -nE '
+    s#^(https?|ssh|git\+ssh|ssh\+git|git)://([^/]*@)?(www\.)?github\.com(:[0-9]+)?/#/#
+    t path
+    s#^([^/:]*@)?(www\.)?github\.com:#/#
+    t path
+    d
+    :path
+    s#/+$##
+    s#\.git$##
+    s#^/([a-z0-9][a-z0-9-]*/[a-z0-9._-]+)$#\1#p'
+}
+mentions_github() { printf '%s' "$1" | grep -qi 'github\.com'; }
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --apply) APPLY=1 ;;
@@ -54,7 +80,7 @@ while [ $# -gt 0 ]; do
     --list) [ $# -ge 2 ] || die "--list needs a file"; LIST="$2"; shift ;;
     --public) [ $# -ge 2 ] || die "--public needs a URL"; PUBLIC="$2"; shift ;;
     --theme) [ $# -ge 2 ] || die "--theme needs a URL"; THEME="$2"; shift ;;
-    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^$/p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
   shift
@@ -65,13 +91,27 @@ git rev-parse --git-dir >/dev/null 2>&1 || die "run this inside a clone of crook
 [ -f "$LIST" ] || die "no list at $LIST"
 if [ -z "$PUBLIC" ]; then
   PUBLIC="$(git remote get-url origin 2>/dev/null)" || die "this clone has no origin; pass --public"
-  echo "$PUBLIC" | grep -Eq 'crooksldn-pixel/clive(\.git)?/?$' || die "origin is $PUBLIC, not crooksldn-pixel/clive; pass --public"
+  echo "$PUBLIC" | grep -Eq 'crooksldn-pixel/clive(\.git)?/?$' || die "origin is $(shown "$PUBLIC"), not crooksldn-pixel/clive; pass --public"
 fi
 if [ -z "$THEME" ]; then
-  echo "$PUBLIC" | grep -Eq 'crooksldn-pixel/clive(\.git)?/?$' || die "cannot work out the theme repository from $PUBLIC; pass --theme"
+  echo "$PUBLIC" | grep -Eq 'crooksldn-pixel/clive(\.git)?/?$' || die "cannot work out the theme repository from $(shown "$PUBLIC"); pass --theme"
   THEME="$(echo "$PUBLIC" | sed -E 's#crooksldn-pixel/clive(\.git)?/?$#crooksldn-pixel/crooksldn-theme.git#')"
 fi
 [ "$PUBLIC" != "$THEME" ] || die "the public and the theme repository are the same"
+PUBLIC_SHOWN="$(shown "$PUBLIC")"
+THEME_SHOWN="$(shown "$THEME")"
+
+# Which GitHub repository the theme goes to: from the address as given, or as git will really
+# reach it (a remote name or an insteadOf alias expanded). Decided before anything talks to a
+# remote; an address on github.com that does not say which repository stops here.
+slug=""
+for url in "$THEME" "$(git ls-remote --get-url "$THEME" 2>/dev/null || true)"; do
+  [ -z "$slug" ] || break
+  slug="$(github_slug "$url")"
+  if [ -z "$slug" ] && mentions_github "$url"; then
+    die "$(shown "$url") is on github.com but does not say which repository (owner/repo), so it cannot be checked for privacy; pass --theme https://github.com/<owner>/<repo>.git"
+  fi
+done
 
 WORK="$(mktemp -d)"
 cleanup() {
@@ -79,6 +119,14 @@ cleanup() {
   rm -rf "$WORK"
 }
 trap cleanup EXIT
+
+# Run a git command that talks to a remote, with its error output redacted.
+remote_git() {
+  local status=0
+  git "$@" 2> "$WORK/git.err" || status=$?
+  redact < "$WORK/git.err" >&2
+  return "$status"
+}
 
 # --- read and check the list ------------------------------------------------------------------
 : > "$WORK/lines"
@@ -102,11 +150,8 @@ done < "$LIST"
 [ -z "$(awk '{print $3}' "$WORK/lines" | sort | uniq -d)" ] || die "two branches have the same target"
 
 # --- the theme repository must exist, be readable, and be private ----------------------------
-git ls-remote "$THEME" > "$WORK/theme" 2>"$WORK/theme.err" || {
-  cat "$WORK/theme.err" >&2
-  die "cannot read $THEME. Create the EMPTY private repository crooksldn-pixel/crooksldn-theme first."
-}
-slug="$(echo "$THEME" | sed -nE 's#^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)([^/]+/[^/]+)$#\2#p' | sed -E 's#\.git$##')"
+remote_git ls-remote "$THEME" > "$WORK/theme" || \
+  die "cannot read $THEME_SHOWN. Create the EMPTY private repository crooksldn-pixel/crooksldn-theme first."
 if [ -n "$slug" ]; then
   # Asked without credentials: GitHub answers 200 for a public repository and 404 for a private one.
   code="$(curl -s -o /dev/null -w '%{http_code}' "https://api.github.com/repos/$slug" || true)"
@@ -116,21 +161,21 @@ if [ -n "$slug" ]; then
     *) die "could not check that $slug is private (GitHub answered '$code'); check it in its Settings, then run again" ;;
   esac
 else
-  echo "The theme repository $THEME is not on github.com; not checking its visibility."
+  echo "The theme repository $THEME_SHOWN is not on github.com; not checking its visibility."
 fi
 
 # --- what clive holds now ---------------------------------------------------------------------
-git ls-remote "$PUBLIC" 'refs/heads/*' > "$WORK/public" || die "cannot read $PUBLIC"
-default="$(git ls-remote --symref "$PUBLIC" HEAD | awk '/^ref:/ { sub("refs/heads/", "", $2); print $2 }')"
+remote_git ls-remote "$PUBLIC" 'refs/heads/*' > "$WORK/public" || die "cannot read $PUBLIC_SHOWN"
+default="$(remote_git ls-remote --symref "$PUBLIC" HEAD | awk '/^ref:/ { sub("refs/heads/", "", $2); print $2 }')"
 sha_in() { awk -v r="$2" '$2 == r { print $1 }' "$WORK/$1"; }
 fetch_specs=""
 while read -r branch _ _; do
   [ -z "$(sha_in public "refs/heads/$branch")" ] || fetch_specs="$fetch_specs +refs/heads/$branch:$NS/public/$branch"
 done < "$WORK/lines"
 # shellcheck disable=SC2086
-[ -z "$fetch_specs" ] || git fetch --quiet --no-tags "$PUBLIC" $fetch_specs || die "cannot fetch the theme branches from $PUBLIC"
+[ -z "$fetch_specs" ] || remote_git fetch --quiet --no-tags "$PUBLIC" $fetch_specs || die "cannot fetch the theme branches from $PUBLIC_SHOWN"
 if [ -n "$(sha_in theme refs/heads/main)" ]; then
-  git fetch --quiet --no-tags "$THEME" "+refs/heads/main:$NS/theme/main" || die "cannot fetch main from $THEME"
+  remote_git fetch --quiet --no-tags "$THEME" "+refs/heads/main:$NS/theme/main" || die "cannot fetch main from $THEME_SHOWN"
 fi
 
 # A line is in the theme repository when its target is at its SHA, or, for main, when main has
@@ -166,7 +211,7 @@ echo "Theme list: $n branches. Already in the theme repository: $(wc -l < "$WORK
 awk '{ printf "to push   %s  %s -> %s\n", substr($2, 1, 8), $1, $3 }' "$WORK/push"
 
 if [ "$APPLY" = 0 ]; then
-  echo "Dry run: nothing was changed. Run again with --apply to push to $THEME."
+  echo "Dry run: nothing was changed. Run again with --apply to push to $THEME_SHOWN."
   [ "$refused" = 0 ] || exit 1
   exit 0
 fi
@@ -174,14 +219,14 @@ fi
 # --- push, then read everything back ----------------------------------------------------------
 failed=0
 while read -r branch sha target; do
-  if ! git -c push.negotiate=false push --quiet --no-verify "$THEME" "$sha:$target"; then
+  if ! remote_git -c push.negotiate=false push --quiet --no-verify "$THEME" "$sha:$target"; then
     echo "FAILED    $branch: the push to $target was refused (if GitHub named a secret, stop: George rotates it first)"
     failed=$((failed + 1))
   fi
 done < "$WORK/push"
-git ls-remote "$THEME" > "$WORK/theme" || die "cannot read $THEME back"
+remote_git ls-remote "$THEME" > "$WORK/theme" || die "cannot read $THEME_SHOWN back"
 if [ -n "$(sha_in theme refs/heads/main)" ]; then
-  git fetch --quiet --no-tags "$THEME" "+refs/heads/main:$NS/theme/main" || die "cannot fetch main from $THEME"
+  remote_git fetch --quiet --no-tags "$THEME" "+refs/heads/main:$NS/theme/main" || die "cannot fetch main from $THEME_SHOWN"
 fi
 : > "$WORK/held"
 while read -r branch sha target; do
@@ -203,13 +248,13 @@ if [ "$DELETE_PUBLIC" = 1 ]; then
     elif [ "$branch" = "$default" ]; then
       echo "REFUSED   $branch: it is clive's default branch on GitHub; make clive/trunk the default, then run again"
       refused=$((refused + 1))
-    elif git -c push.negotiate=false push --quiet --no-verify --force-with-lease="refs/heads/$branch:$sha" "$PUBLIC" ":refs/heads/$branch"; then
+    elif remote_git -c push.negotiate=false push --quiet --no-verify --force-with-lease="refs/heads/$branch:$sha" "$PUBLIC" ":refs/heads/$branch"; then
       deleted=$((deleted + 1))
     else
       echo "FAILED    $branch: the delete from clive was refused"; failed=$((failed + 1))
     fi
   done < "$WORK/held"
-  git ls-remote "$PUBLIC" 'refs/heads/*' > "$WORK/public" || die "cannot read $PUBLIC back"
+  remote_git ls-remote "$PUBLIC" 'refs/heads/*' > "$WORK/public" || die "cannot read $PUBLIC_SHOWN back"
   while read -r branch sha target; do
     if [ -n "$(sha_in public "refs/heads/$branch")" ] && [ "$branch" != "$default" ]; then
       echo "FAILED    $branch: still on clive after the delete"; failed=$((failed + 1))

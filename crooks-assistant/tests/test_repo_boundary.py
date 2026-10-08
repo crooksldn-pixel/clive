@@ -11,8 +11,9 @@ proved here first, on scratch repositories, never on GitHub:
 - archive_branches.sh changes nothing without --apply, tags before it deletes, refuses a branch
   that moved, GitHub's default branch and a kept branch, waits for a "requires" path on trunk,
   and is safe to run twice;
-- move_theme.sh pushes the theme as main with its history, refuses a public theme repository,
-  deletes from clive only with --delete-public and never the default branch;
+- move_theme.sh pushes the theme as main with its history, refuses a public theme repository
+  whatever form its github.com address takes (and refuses one it cannot check), never prints a
+  credential, deletes from clive only with --delete-public and never the default branch;
 - the documents imported into docs/history/branches/ are byte-for-byte what MANIFEST.txt says.
 """
 
@@ -25,6 +26,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
+
+from tests.fake_credentials import github_token
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPTS = REPO / "scripts" / "repo"
@@ -297,6 +300,78 @@ def test_a_public_theme_repository_is_refused_before_anything_is_pushed(world, t
     private = _move(world, "--apply", env=redirect, theme=url)
     assert private.returncode == 0, private.stdout + private.stderr
     assert _refs(world["theme"])["refs/heads/main"] == world["ids"]["theme"]
+
+
+def _github(world: dict, tmp_path: Path, url: str, answer: int) -> tuple[dict, Path]:
+    """git reaches `url` as the scratch theme repository, and curl answers GitHub's API with
+    `answer` and writes down what it was asked."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    asked = tmp_path / "curl.log"
+    curl = bin_dir / "curl"
+    curl.write_text(f'#!/bin/sh\necho "$@" >> "{asked}"\nprintf {answer}\n', encoding="utf-8")
+    curl.chmod(curl.stat().st_mode | stat.S_IEXEC)
+    return ({"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "GIT_CONFIG_COUNT": "1",
+             "GIT_CONFIG_KEY_0": f"url.{world['theme']}.insteadOf", "GIT_CONFIG_VALUE_0": url}, asked)
+
+
+def _with_credential() -> tuple[str, str]:
+    token = github_token("boundary-move-theme")
+    return token, f"https://x-access-token:{token}@github.com/crooksldn-pixel/crooksldn-theme.git"
+
+
+@pytest.mark.parametrize("url", [
+    "credentialed",
+    "http://www.github.com/crooksldn-pixel/crooksldn-theme",
+    "https://WWW.GitHub.com/crooksldn-pixel/crooksldn-theme.git/",
+    "ssh://git@github.com/crooksldn-pixel/crooksldn-theme.git",
+    "ssh://git@github.com:22/crooksldn-pixel/crooksldn-theme.git",
+    "git@github.com:crooksldn-pixel/crooksldn-theme.git",
+])
+def test_every_form_of_a_github_address_is_checked_and_a_public_one_is_refused(world, tmp_path, url):
+    token = ""
+    if url == "credentialed":
+        token, url = _with_credential()
+    env, asked = _github(world, tmp_path, url, 200)
+    done = _move(world, "--apply", env=env, theme=url)
+    assert done.returncode == 2 and "crooksldn-pixel/crooksldn-theme is PUBLIC" in done.stderr
+    assert "https://api.github.com/repos/crooksldn-pixel/crooksldn-theme" in asked.read_text()
+    assert _refs(world["theme"]) == {}
+    if token:
+        assert token not in asked.read_text() and token not in done.stdout + done.stderr
+
+
+def test_a_credentialed_address_is_never_printed_even_when_the_move_goes_through(world, tmp_path):
+    token, url = _with_credential()
+    env, _ = _github(world, tmp_path, url, 404)
+    dry = _move(world, env=env, theme=url)
+    done = _move(world, "--apply", env=env, theme=url)
+    assert dry.returncode == 0 and done.returncode == 0, done.stdout + done.stderr
+    assert _refs(world["theme"])["refs/heads/main"] == world["ids"]["theme"]
+    for run in (dry, done):
+        assert token not in run.stdout + run.stderr
+    assert "https://***@github.com/crooksldn-pixel/crooksldn-theme.git" in dry.stdout
+
+
+@pytest.mark.parametrize("url", [
+    "https://github.com/crooksldn-pixel/crooksldn-theme/tree/main",
+    "https://github.com.example.invalid/crooksldn-pixel/crooksldn-theme.git",
+    "https://example.invalid/github.com/crooksldn-pixel/crooksldn-theme.git",
+])
+def test_an_address_on_github_that_names_no_repository_stops_the_run_before_any_push(world, tmp_path, url):
+    env, asked = _github(world, tmp_path, url, 404)
+    done = _move(world, "--apply", env=env, theme=url)
+    assert done.returncode == 2 and "does not say which repository" in done.stderr
+    assert not asked.exists() and _refs(world["theme"]) == {}
+
+
+def test_a_credentialed_origin_is_never_printed(world):
+    token, _ = _with_credential()
+    _git(world["work"], "remote", "set-url", "origin", f"https://x-access-token:{token}@github.com/someone/else.git")
+    for script in (MOVE, ARCHIVE):
+        done = _run(script, world["work"], "--list", str(world["themes"] if script == MOVE else world["archive"]))
+        assert done.returncode == 2 and "https://***@github.com/someone/else.git" in done.stderr
+        assert token not in done.stdout + done.stderr
 
 
 # --- the imported history ---------------------------------------------------------------------
