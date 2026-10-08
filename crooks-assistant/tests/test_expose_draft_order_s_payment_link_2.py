@@ -220,5 +220,6 @@ def test_the_tool_block_stays_within_its_budget():
     # tool), and 55,457 with WhatsApp and Instagram on the same messaging tools (+132, measured),
     # then 55,405 once rebased on trunk 4c39bba5, whose flow turn had taken it to 55,273 (+132, measured),
     # and 55,915 with the model naming what he asked to see (asked_for, DEC-073: +510, measured on
-    # trunk 6f844183, 55,405 before, 55,915 after).
-    assert total <= 55_915, f"the tool block is {total} bytes"
+    # trunk 6f844183, 55,405 before, 55,915 after), then 55,895 with its lists named by the read
+    # that drew them (-20, measured on claude/n3-focus: 55,915 before, 55,895 after).
+    assert total <= 55_895, f"the tool block is {total} bytes"

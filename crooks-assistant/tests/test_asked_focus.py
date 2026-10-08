@@ -64,13 +64,44 @@ def _asked(*, records=(), lists=()) -> tuple[str, dict]:
 async def test_today_s_orders_and_open_1940_shows_the_list_and_the_order(world):
     """What he asked for always shows: both parts of the ask, the list and the record."""
     said = await world.ask("show me today's orders and open 1940", ("shopify_list_orders", {"days": 1}),
-                           ("shopify_order_detail", {"order_id": O1940}), _asked(records=["1940"], lists=["orders"]),
+                           ("shopify_order_detail", {"order_id": O1940}), _asked(records=["1940"], lists=["shopify_list_orders"]),
                            session_id="two-part", reply="Three today; 1940 is open.")
     assert not said.unmakeable, said.unmakeable
     kinds = _kinds(said)
     assert kinds[0] == "order_list" and "order" in kinds, kinds
     assert _cards(said)[0]["data"]["orders"], "today's orders are on it"
     assert _numbers(said) == ["#1940"], kinds
+
+
+async def test_today_s_orders_and_1940_and_not_the_search_for_another_customer_s_orders(world):
+    """The review's note 2: a list is named by the read that drew it, so naming today's orders
+    does not bring in a search the model ran for somebody else's orders on the way."""
+    said = await world.ask("show me today's orders and open 1940", ("shopify_list_orders", {"days": 1}),
+                           ("shopify_find_order", {"query": "Mia Jones"}), ("shopify_order_detail", {"order_id": O1940}),
+                           _asked(records=["1940"], lists=["shopify_list_orders"]),
+                           session_id="two-part-search", reply="Three today; 1940 is open.")
+    assert all(c.get("ok") for c in said.raw["tool_calls"]), said.raw["tool_calls"]
+    # One list on the screen, today's: it has David's and Priya's orders on it, which the search
+    # for Mia's could not.
+    lists = [c["data"] for c in _cards(said) if c["type"] in ("order_list", "order_match")]
+    assert len(lists) == 1, _kinds(said)
+    assert {"#1939", "#1940"} <= {o.get("order_number") for o in lists[0].get("orders") or []}, lists
+    assert _numbers(said) == ["#1940"], _kinds(said)
+
+
+async def test_today_s_emails_and_the_reply_and_not_the_search_that_found_her_thread(world):
+    """"Today's emails, and reply to Priya": today's inbox, named by its read, and the reply. The
+    "cap" search that found her thread is how the model got there, and stays off."""
+    said = await world.ask("show me today's emails and reply to priya", ("gmail_search", {"query": "cap"}),
+                           ("gmail_search", {"query": "newer_than:1d"}),
+                           ("gmail_send_reply", {"thread_id": PRIYAS_THREAD, "body": "Hi Priya, yes: the black cap is the adjustable one."}),
+                           _asked(records=[PRIYAS_THREAD], lists=["gmail_search newer_than:1d"]),
+                           session_id="inbox-and-reply", reply="Today's email, and the reply to Priya.")
+    assert all(c.get("ok") for c in said.raw["tool_calls"]), said.raw["tool_calls"]
+    kinds = _kinds(said)
+    assert kinds[0] == "confirmation" and _cards(said)[0]["data"]["entity_ref"] == PRIYAS_THREAD, kinds
+    searched = [c["data"]["query"].split() for c in _cards(said) if c["type"] == "email_list"]
+    assert len(searched) == 1 and "cap" not in searched[0] and "newer_than:1d" in searched[0], searched
 
 
 async def test_asked_for_one_order_today_s_orders_read_on_the_way_stay_off(world):
@@ -223,7 +254,7 @@ async def test_two_orders_asked_for_side_by_side_are_both_on_the_screen(world):
 async def test_a_list_he_asked_for_out_loud_is_still_walked_with_next(world):
     """The spoken list walk (`app/routes/turn.py` `_walk_what_was_listed`) is decided from the
     answer's cards: today's orders, named as asked, are still one list he can walk."""
-    said = await world.ask("show me today's orders", ("shopify_list_orders", {"days": 1}), _asked(lists=["orders"]),
+    said = await world.ask("show me today's orders", ("shopify_list_orders", {"days": 1}), _asked(lists=["shopify_list_orders"]),
                            session_id="walk-asked", reply="Today's orders.")
     assert _kinds(said) == ["order_list"], _kinds(said)
     workflow = said.raw["branch"]["workflow"]
@@ -253,6 +284,9 @@ INBOX = {"type": "email_list", "data": {"threads": [{"thread_id": MIAS_THREAD, "
 TODAY = {"type": "order_list", "data": {"orders": [{"order_id": O1938}, {"order_id": O1939}]}}
 FOUND = {"type": "customer", "data": {"customer_id": data.DAVID.customer_id, "name": "David Replica"}}
 NUMBERS = {"type": "metric_group", "data": {"metrics": [{"label": "Orders", "value": "4"}]}}
+# The read that drew today's orders, named as the list he asked for.
+LISTED = ToolCall(name="shopify_list_orders", args={"days": 1}, ok=True, result={})
+TODAY_S_ORDERS = frozenset({("shopify_list_orders", frozenset())})
 
 
 def test_an_unasked_card_shows_only_when_it_is_a_record_about_the_same_customer_order_or_thread():
@@ -304,15 +338,15 @@ def test_one_person_s_messages_are_about_them_and_everyone_s_are_not():
 
 
 def test_a_change_stays_on_top_and_an_error_is_never_set_aside():
-    said = focus.Asked(records=frozenset(), lists=frozenset({"orders"}))
+    said = focus.Asked(records=frozenset(), lists=TODAY_S_ORDERS)
     change = {"type": "confirmation", "data": {"proposal_id": "p1", "entity_ref": O1940}}
     error = {"type": "error", "data": {"service": "gmail"}}
-    kept = focus.answer_cards([TODAY, HER_EMAIL, change, error], said=said)
+    kept = focus.answer_cards([TODAY, HER_EMAIL, change, error], said=said, drawn=[(TODAY, LISTED)])
     assert kept == [change, TODAY, error], [c["type"] for c in kept]
 
 
 def test_what_the_model_names_that_nothing_drew_leaves_today_s_rules_to_decide():
-    said = focus.Asked(records=frozenset({"9999"}), lists=frozenset({"returns"}))
+    said = focus.Asked(records=frozenset({"9999"}), lists=frozenset({("returns_open", frozenset())}))
     cards = [INBOX, HIS_EMAIL, ORDER_1939, NUMBERS]
     why: dict = {}
     assert focus.answer_cards(cards, why, said=said) == focus.answer_cards(cards)
@@ -322,17 +356,39 @@ def test_what_the_model_names_that_nothing_drew_leaves_today_s_rules_to_decide()
 def test_a_list_he_asked_for_is_not_the_subject_of_everything_on_its_rows():
     """Asked for today's orders only: an order the model opened on the way is not added for being
     one of its rows — that is the inferred card he does not want."""
-    said = focus.Asked(records=frozenset(), lists=frozenset({"orders"}))
-    assert focus.answer_cards([TODAY, ORDER_1939, LINES_1939, HIS_EMAIL], said=said) == [TODAY]
+    said = focus.Asked(records=frozenset(), lists=TODAY_S_ORDERS)
+    assert focus.answer_cards([TODAY, ORDER_1939, LINES_1939, HIS_EMAIL], said=said, drawn=[(TODAY, LISTED)]) == [TODAY]
+
+
+def test_a_list_is_named_by_its_read_and_the_words_pick_out_which_one():
+    """Two searches of the same tool: the words named pick out the read; a tool named bare, when
+    both of its reads had words, picks out neither; a tool that ran once is that read. A "nearly
+    fits" find is no list of orders."""
+    inbox = {"type": "email_list", "data": {"threads": [{"thread_id": MIAS_THREAD}]}}
+    caps = {"type": "email_list", "data": {"threads": [{"thread_id": PRIYAS_THREAD}]}}
+    drawn = [(inbox, ToolCall(name="gmail_search", args={"query": "newer_than:1d", "days": 1}, ok=True, result={})),
+             (caps, ToolCall(name="gmail_search", args={"query": "cap"}, ok=True, result={}))]
+
+    def shown(*lists: str) -> list[dict]:
+        said = focus.asked_by_the_model([ToolCall(name="asked_for", args={}, ok=True, result={"records": [], "lists": list(lists)})])
+        return focus.answer_cards([inbox, caps], said=said, drawn=drawn)
+
+    assert shown("gmail_search newer_than:1d") == [inbox]
+    assert shown("gmail_search cap") == [caps]
+    assert shown("gmail_search newer_than:1d", "gmail_search cap") == [inbox, caps]
+    assert shown("gmail_search") == focus.answer_cards([inbox, caps]), "named bare, neither is picked out"
+    assert focus.answer_cards([inbox], said=focus.Asked(frozenset(), frozenset({("gmail_search", frozenset())})),
+                              drawn=drawn[:1]) == [inbox]
+    assert focus.list_kind({"type": "order_match", "data": {"rows": []}}) == ""
 
 
 def test_what_the_model_said_is_read_from_its_calls_and_not_from_his_words():
     said = focus.asked_by_the_model([
         ToolCall(name="shopify_list_orders", args={}, ok=True, result={"orders": []}),
-        ToolCall(name="asked_for", args={}, ok=True, result={"records": ["#1940", "gid://shopify/Order/1938"], "lists": ["orders"]}),
+        ToolCall(name="asked_for", args={}, ok=True, result={"records": ["#1940", "gid://shopify/Order/1938"], "lists": ["shopify_list_orders"]}),
         ToolCall(name="asked_for", args={}, ok=False, error="refused"),
     ])
-    assert said == focus.Asked(records=frozenset({"1940", "1938"}), lists=frozenset({"orders"}))
+    assert said == focus.Asked(records=frozenset({"1940", "1938"}), lists=TODAY_S_ORDERS)
     assert focus.asked_by_the_model([ToolCall(name="shopify_list_orders", args={}, ok=True, result={})]) is None
 
 
@@ -342,9 +398,10 @@ async def test_the_tool_keeps_ids_and_list_kinds_and_changes_nothing():
     spec = registry.get("asked_for")
     assert spec.tier is gate.Tier.GREEN and spec.write is None and spec.batch is None
     assert "asked_for" in gate._KNOWN_TOOLS and not gate._looks_like_mutation("asked_for")
-    out = await asked_for.asked_for(records=["#1940", "Priya Raman", "c28cf65d31fe6cbb", "#1940"], lists=["orders", "everything"])
-    assert out == {"records": ["#1940", "c28cf65d31fe6cbb"], "lists": ["orders"],
-                   "note": "Only ids and order numbers are kept; a name is not one."}
+    out = await asked_for.asked_for(records=["#1940", "Priya Raman", "c28cf65d31fe6cbb", "#1940"], lists=["shopify_list_orders", "everything"])
+    assert out == {"records": ["#1940", "c28cf65d31fe6cbb"], "lists": ["shopify_list_orders"],
+                   "note": "Only ids and order numbers are kept; a name is not one. "
+                           "A list is named by the read that drew it: its tool name, then the words you gave it."}
     assert await asked_for.asked_for() == {"records": [], "lists": []}
 
 
@@ -352,10 +409,11 @@ def test_cards_of_every_shape_are_read_and_a_failure_leaves_today_s_rules(monkey
     """A count where a list of rows usually is (a returns card's number of returns, a customer's
     number of orders) is no rows; and if choosing by what he asked for ever failed, DEC-069's rules
     would decide rather than the turn."""
-    said = focus.Asked(records=frozenset({DAVIDS_THREAD}), lists=frozenset({"returns"}))
+    said = focus.Asked(records=frozenset({DAVIDS_THREAD}), lists=frozenset({("returns_stats", frozenset())}))
     stats = {"type": "returns", "data": {"view": "stats", "returns": 4, "rows": "none"}}
     count = {"type": "customer", "data": {"customer_id": data.DAVID.customer_id, "orders": 2, "history": {"recent": 3}}}
-    assert focus.answer_cards([HIS_EMAIL, stats, count], said=said) == [HIS_EMAIL, stats]
+    drawn = [(stats, ToolCall(name="returns_stats", args={}, ok=True, result={}))]
+    assert focus.answer_cards([HIS_EMAIL, stats, count], said=said, drawn=drawn) == [HIS_EMAIL, stats]
 
     def broken(*_a, **_k):
         raise ValueError("boom")

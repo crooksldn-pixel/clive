@@ -503,7 +503,11 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # kinds. What it buys is "show me today's orders and open 1940" showing both, and a customer's
     # email showing what is about them and nobody else's. When to call it is one sentence of the
     # system prompt. The ceiling is raised by exactly what was measured, leaving no headroom.
-    assert total <= 55_915, f"the tool block is {total} bytes"
+    # 55_895 is the same tool once its lists are named by the read that drew them rather than by
+    # kind (the review of DEC-073, note 2: naming today's emails brought in the search that found a
+    # customer's thread), -20 bytes measured on claude/n3-focus (55,915 before, 55,895 after):
+    # asked_for 490, its closed list of kinds gone and one example of a named read in its place.
+    assert total <= 55_895, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

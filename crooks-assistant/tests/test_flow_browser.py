@@ -125,7 +125,7 @@ def _slow_provider(runtime, davids_chat: str = ""):
 
     provider.will(TWO_PART_QUESTION, ("shopify_list_orders", {"days": 1}),
                   ("shopify_order_detail", {"order_id": data.BY_NAME["#1940"].order_id}),
-                  ("asked_for", {"records": ["1940"], "lists": ["orders"]}), reply="Three today, and 1940 is open.")
+                  ("asked_for", {"records": ["1940"], "lists": ["shopify_list_orders"]}), reply="Three today, and 1940 is open.")
     provider.will(HIS_EMAIL_QUESTION, *_his_email_turn(davids_chat), reply="He asked where 1939 is. It went Royal Mail.")
     return provider
 
