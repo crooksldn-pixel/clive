@@ -98,8 +98,9 @@ WhatsApp messages?"), and Test on Connections says each part is ready.
 - **Replies are free.** Since 1 July 2025 Meta charges per message, and a non-template message
   sent while the 24-hour window is open costs nothing. CLIVE sends nothing else.
 - **The 24-hour window.** A reply is possible only within 24 hours of the person's last message;
-  each message they send opens it again. Outside it CLIVE refuses before making a card, and
-  WhatsApp's own refusal (131047) is said the same way if the window closed meanwhile.
+  each message they send opens it again. Outside it CLIVE refuses before making a card, checks
+  again at his hold and refuses there, before anything goes, if it closed in between; WhatsApp's
+  own refusal (131047) is said the same way.
 - **Templates** (starting a conversation, or after 24 hours) are charged per message and need
   Meta's approval. Not used (section 1, point 4).
 - **4,096 characters** per text. CLIVE's own limit (600 characters of English, 600 of their

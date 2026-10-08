@@ -301,6 +301,25 @@ async def test_a_reply_instagram_would_not_take_is_refused_before_any_card(graph
     assert expected in text, text
 
 
+async def test_a_card_held_after_the_24_hours_ran_out_is_refused_before_instagram_is_asked(graph, owner, engine):
+    """[channels] Review note 6: the window is checked again at the hold, by CLIVE, before any send."""
+    thread = _wrote(hours_ago=23.5)
+    session = _session(thread)
+    text = await dispatch("message_reply", {"chat_id": thread.chat_id, "english": "Hello."}, session=session, timeout_s=10)
+    assert text.startswith("PROPOSED"), text
+    held = store.thread(thread.chat_id)
+    held.last_in_at -= 3600
+    store._save(held, store.messages(thread.chat_id))
+    proposal = session.proposals[-1]
+    armed, why = engine.arm(proposal.proposal_id, session.session_id)
+    assert armed is not None and not why
+    engine.test_clock.now += 1.0
+    result = await engine.commit(proposal.proposal_id, session.session_id, caller=OWNER, spec_lookup=_lookup,
+                                 nonce=proposal.arm_nonce)
+    assert result.code == "refused" and result.spoken.startswith("Instagram refused that: It is more than 24 hours")
+    assert graph.sent == [] and not [r for r in graph.calls if r.method == "POST"]
+
+
 async def test_instagram_saying_the_window_closed_at_send_is_its_refusal_and_nothing_is_recorded(graph, owner, engine):
     thread = _wrote()
     graph.refuse[("graph.instagram.com", "me/messages")] = (

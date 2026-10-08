@@ -90,7 +90,8 @@ http://127.0.0.1:8000/hooks/instagram`. From outside the tailnet `curl -si <the 
    included, or why it could not be read) and `message_thread`. That read takes at most 6 seconds,
    four conversations at a time, inside the tool's own 10; a slower Instagram is said beside the
    conversations CLIVE already had, never a failed tool.
-4. **Answered** with `message_reply`, within 24 hours of their last message, at most 1,000 bytes
+4. **Answered** with `message_reply`, within 24 hours of their last message (checked when the card
+   is made and again at his hold, before anything goes), at most 1,000 bytes
    (Instagram's limit): English alone to someone who writes English, theirs first otherwise. Only
    his hold sends it. "Sent" only on Instagram's `message_id`. Instagram echoes every message the
    account sends, CLIVE's included; when that echo reaches the door before the send's own answer,

@@ -450,6 +450,23 @@ async def test_a_reply_whatsapp_would_not_take_is_refused_in_plain_words_before_
     assert expected in text, text
 
 
+async def test_a_card_made_inside_the_24_hours_and_held_after_them_is_refused_before_anything_goes(meta, owner, engine):
+    """[channels] Review note 6: CLIVE checks the window again at the hold, not only Meta."""
+    thread = _wrote(hours_ago=23.5)
+    session = _session(thread)
+    text = await dispatch("message_reply", {"chat_id": thread.chat_id, "english": "Hello."}, session=session, timeout_s=10)
+    assert text.startswith("PROPOSED"), text
+    held = store.thread(thread.chat_id)
+    held.last_in_at -= 3600                                  # an hour passes before the hold: 24h30
+    store._save(held, store.messages(thread.chat_id))
+    proposal = session.proposals[-1]
+    result = await _hold(engine, proposal, session)
+    assert result.code == "refused" and result.spoken.startswith("WhatsApp refused that: It is more than 24 hours")
+    assert result.spoken.endswith("Nothing was changed.")
+    assert meta.sent == [] and not [r for r in meta.calls if r.method == "POST"]
+    assert store.outgoing(thread.chat_id, proposal.execution["client_id"]) is None
+
+
 async def test_a_send_whatsapp_refuses_is_said_in_its_words_and_nothing_is_recorded(meta, owner, engine):
     thread = _wrote()
     session = _session(thread)

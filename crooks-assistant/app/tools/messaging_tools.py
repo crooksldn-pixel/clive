@@ -261,6 +261,14 @@ class NotConnected(RuntimeError):
     refused = True
 
 
+class NotSendable(RuntimeError):
+    """[channels] Checked again at the hold, the app would not take this reply now (the 24 hours ran
+    out between the card and the hold, review note 6): said in the channel's words, nothing sent."""
+
+    plain_words = True
+    refused = True
+
+
 def _fingerprint(chat_id: str, client_id: str) -> dict[str, Any]:
     """The thread reduced to what the proof needs: their latest message (a new one since the card
     was prepared makes it stale) and whether OUR message is recorded as sent. No words, no names."""
@@ -282,6 +290,7 @@ async def _execute(execution: dict) -> dict:
     channel = adapters.get(thread.channel)
     if channel is None or not channel.configured():
         raise NotConnected(f"{APP_WORDS.get(thread.channel, thread.channel)} is not connected on this server any more.")
+    await _still_sendable(channel, thread)
     remote_id = await channel.send(thread, str(execution["text"]), client_id=str(execution["client_id"]))
     theirs = str(execution.get("translated", execution.get("chinese", "")) or "")
     language = str(execution.get("language") or ("zh" if theirs else "en"))
@@ -291,6 +300,19 @@ async def _execute(execution: dict) -> dict:
         chinese=theirs if language == "zh" else "", translated=theirs if language != "zh" else "",
         translation_state="not_needed", status="sent", remote_id=str(remote_id), client_id=str(execution["client_id"])))
     return {"msg_id": str(remote_id), "done": True}
+
+
+async def _still_sendable(channel, thread) -> None:
+    """[channels] The card's check made again at the hold, CLIVE's own and not only the app's: a card
+    made at 23h50 and held at 24h10 is refused here, before anything goes. A check that can't be
+    made is a refusal too: nothing has been sent yet."""
+    try:
+        why = await channel.why_not(thread)
+    except Exception as exc:  # noqa: BLE001 - a channel's own refusal, in its words
+        app = APP_WORDS.get(thread.channel, thread.channel)
+        raise NotSendable(str(exc) if getattr(exc, "plain_words", False) else f"{app} could not be asked") from None
+    if why:
+        raise NotSendable(why)
 
 
 async def _settle(_execution: dict, _sent: dict) -> None:
