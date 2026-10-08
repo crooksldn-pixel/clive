@@ -175,7 +175,7 @@
   }
 
   const HEADS = { done: 'Deployed', rolled_back: 'Rolled back', halted: 'Stopped part way', refused: 'Not deployed',
-    dry_run: 'Dry run', expired: 'Not deployed', not_started: 'Not deployed' };
+    dry_run: 'Dry run', expired: 'Not deployed', not_started: 'Not deployed', lapsed: 'Approval expired' };
 
   function progressNode(p, on) {
     const o = on || {};

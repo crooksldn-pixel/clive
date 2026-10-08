@@ -16,7 +16,7 @@
 .dn-eyebrow{margin:0 0 4px;font-size:13px;font-weight:600;letter-spacing:.01em;color:rgb(var(--acc,10,132,255))}
 .dn-card.is-rolled_back .dn-eyebrow,.dn-card.is-halted .dn-eyebrow,.dn-card.is-refused .dn-eyebrow,
 .dn-card.is-expired .dn-eyebrow,.dn-card.is-not_started .dn-eyebrow{color:#ff8a80}
-.dn-card.is-done .dn-eyebrow,.dn-card.is-dry_run .dn-eyebrow{color:#8fa3c0}
+.dn-card.is-done .dn-eyebrow,.dn-card.is-dry_run .dn-eyebrow,.dn-card.is-lapsed .dn-eyebrow{color:#8fa3c0}
 .dn-title{margin:0;font-size:20px;font-weight:700;line-height:1.25;letter-spacing:-.01em;color:#fff;overflow-wrap:anywhere}
 .dn-meta{margin:6px 0 0;font-size:13px;line-height:1.4;color:rgba(235,235,245,.6)}
 .dn-changes{margin:12px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}

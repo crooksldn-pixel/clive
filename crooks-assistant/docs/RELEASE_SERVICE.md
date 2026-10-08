@@ -436,8 +436,11 @@ lines with the new SHA, after its own review. Nothing else changes.
 5. **Kept.** Once the service says done and the CLIVE answering is the new build, the page asks
    `/whoami` itself and hands its token to `POST /release/kept`, which looks in CLIVE's own journal
    for `whoami: id=<check> through=tailscale owner=true refusal=none` since the deploy was done. Found,
-   the deploy is kept (recorded in `objectives/release-kept/<sha>.json`) and the card says "Deployed and
-   kept". Any owner page of CLIVE does this as it opens; the tab he approved from reopens the Builds
+   the deploy is kept (recorded in `objectives/release-kept/<sha>.json` with the approval that deploy
+   answered, so a check after an earlier deploy of the same version never keeps a later one) and the
+   card says "Deployed and kept". An approval that expired with no deploy of its own says what the
+   service's record shows since (the version deployed another way, say), and "Nothing was deployed"
+   only when it shows nothing. Any owner page of CLIVE does this as it opens; the tab he approved from reopens the Builds
    screen on it. The release record pushed to GitHub still lists the phone check as outstanding: CLIVE
    cannot write the service's record.
 

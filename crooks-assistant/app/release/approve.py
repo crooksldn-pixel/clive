@@ -18,6 +18,7 @@ writes one file in its own state folder, and the release service checks everythi
     latest(...)   the latest approval CLIVE wrote, for the progress it shows
     keep(...)     after the deploy, his phone's /whoami line found in this service's own journal, by
                   the build that was deployed: the deploy is kept (DEPLOY_LINUX.md), and recorded here
+                  with the approval that deploy answered, so it keeps that deploy and no later one
 
 What it promises: an approval is for one SHA and one deploy, and expires in minutes; a refused,
 stale or expired one writes nothing; a deploy is "kept" only once the journal holds the very line the
@@ -258,9 +259,10 @@ def keep(sha: str, check: str, *, process_sha: str, release: dict[str, Any], fol
     deploy was done, asked of the build that was deployed. Recorded in `folder`; returns the record."""
     if not _SHA.fullmatch(sha or "") or not _CHECK.fullmatch(check or ""):
         raise Refused(400, "bad_request", "That check isn't one /whoami gives. Reload the page.")
-    done = _done_at(release, sha)
-    if done is None:
+    found = _done(release, sha)
+    if found is None:
         raise Refused(409, "not_deployed", "The release service hasn't said this version was deployed.")
+    done, approval = found
     if process_sha != sha:
         raise Refused(409, "not_this_build", "CLIVE isn't running the new build yet, so it can't be kept yet.")
     found = (journal or journal_has)(whoami_line(check), done)
@@ -269,16 +271,18 @@ def keep(sha: str, check: str, *, process_sha: str, release: dict[str, Any], fol
                                                  "got through. Not kept yet.")
     if not found:
         raise Refused(409, "not_in_journal", "Your phone's check isn't in CLIVE's journal yet. Not kept yet.")
-    record = {"sha": sha, "kept_at": iso(now), "check": check, "how": whoami_line(check)}
+    # The approval that deploy answered: kept is this deploy's, never a later deploy of the same version's.
+    record = {"sha": sha, "approval": approval, "kept_at": iso(now), "check": check, "how": whoami_line(check)}
     if not _write(Path(folder) / f"{sha}.json", (json.dumps(record, indent=1) + "\n").encode("utf-8")):
         raise Refused(500, "not_written", "Your phone got through, but CLIVE couldn't record that it was kept.")
     return record
 
 
-def _done_at(release: dict[str, Any], sha: str) -> float | None:
-    """When the release service says the deploy of `sha` was done, from its status (app/release/status.py)."""
+def _done(release: dict[str, Any], sha: str) -> tuple[float, str] | None:
+    """(when the release service says the deploy of `sha` was done, the approval it answered, "" for none),
+    from its status (app/release/status.py); None when it says no such thing."""
     deploy = release.get("deploy") if isinstance(release, dict) else None
     if not isinstance(deploy, dict) or deploy.get("sha") != sha or deploy.get("end") != "done":
         return None
-    at = next((step.get("at") for step in deploy.get("steps") or [] if step.get("stage") == "done"), None)
-    return _epoch(at)
+    at = _epoch(next((step.get("at") for step in deploy.get("steps") or [] if step.get("stage") == "done"), None))
+    return None if at is None else (at, str(deploy.get("approval") or ""))

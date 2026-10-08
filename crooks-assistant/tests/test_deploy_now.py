@@ -564,7 +564,8 @@ def test_progress_follows_his_approval_stage_by_stage_then_kept():
     assert old["line"] == "Deployed. CLIVE is restarting onto the new build…" and not old["keep_check"]
     new = offer.progress(mine, {**release, "deploy": record}, kept=None, process_sha=TRUNK, now=_epoch("2026-10-08T01:03:00Z"))
     assert new["keep_check"] and [s["state"] for s in new["stages"]][-2:] == ["lit", "now"]
-    kept = offer.progress(mine, {**release, "deploy": record}, kept={"kept_at": "2026-10-08T01:03:10Z"},
+    kept = offer.progress(mine, {**release, "deploy": record},
+                          kept={"kept_at": "2026-10-08T01:03:10Z", "approval": "a" * 32},
                           process_sha=TRUNK, now=_epoch("2026-10-08T01:04:00Z"))
     assert kept["final"] and kept["line"] == "Deployed and kept: your phone got through on the new build."
     assert [s["state"] for s in kept["stages"]] == ["lit"] * 6
@@ -572,6 +573,67 @@ def test_progress_follows_his_approval_stage_by_stage_then_kept():
     other = offer.progress(_approval("b" * 32), {**release, "deploy": record}, kept=None, process_sha=TRUNK,
                            now=_epoch("2026-10-08T01:00:05Z"))
     assert other["line"] == "Approved. Starting the release service…"
+
+
+def test_kept_is_this_deploys_never_an_earlier_deploy_of_the_same_version(monkeypatch, tmp_path):
+    """Review note 3: approval A deployed and kept TRUNK; production went back by hand; approval B
+    deployed TRUNK again. A's kept record must not make B's deploy "Deployed and kept"."""
+    steps = [("started", "2026-10-08T02:00:10Z"), ("checks", "2026-10-08T02:00:11Z"),
+             ("installing", "2026-10-08T02:00:30Z"), ("health", "2026-10-08T02:01:30Z"), ("done", "2026-10-08T02:02:00Z")]
+    record = status.deploy_of(state.deploy_record(sha=TRUNK, title=TITLE, approval="b" * 32, steps=steps, end="done"))
+    release = {**READY, "state": "deployed", "deploy": record}
+    earlier = {"sha": TRUNK, "approval": "a" * 32, "kept_at": "2026-10-08T01:03:10Z", "check": "ab12cd34"}
+    shown = offer.progress(_approval("b" * 32, "2026-10-08T02:00:00Z"), release, kept=earlier, process_sha=TRUNK,
+                           now=_epoch("2026-10-08T02:03:00Z"))
+    assert shown["final"] is False and shown["keep_check"] is True and shown["kept_at"] == ""
+    assert shown["line"] == "Deployed. Checking that your phone gets through on the new build…"
+    assert [s["state"] for s in shown["stages"]][-1] == "now"
+    # His phone's check after THIS deploy is recorded with B, and that keeps it.
+    monkeypatch.setattr(approve, "journal_has", lambda line, since: since == _epoch("2026-10-08T02:02:00Z"))
+    kept = approve.keep(TRUNK, "cd34ab12", process_sha=TRUNK, release=release, folder=tmp_path, now=_epoch(
+        "2026-10-08T02:03:05Z"))
+    assert kept["approval"] == "b" * 32 and approve.kept_record(tmp_path, TRUNK)["approval"] == "b" * 32
+    shown = offer.progress(_approval("b" * 32, "2026-10-08T02:00:00Z"), release,
+                           kept=approve.kept_record(tmp_path, TRUNK), process_sha=TRUNK, now=_epoch("2026-10-08T02:04:00Z"))
+    assert shown["final"] and shown["line"] == "Deployed and kept: your phone got through on the new build."
+
+
+@pytest.mark.parametrize("deploy,process,said,end", [
+    (("", "done", "2026-10-08T01:20:00Z"), LIVE,
+     "Your approval has expired. The release service's record shows this version deployed at 01:20 UTC, not on this "
+     "approval.", "lapsed"),
+    (("", "rolled_back", "2026-10-08T01:20:00Z"), LIVE,
+     "Your approval has expired. The release service's record shows this version tried at 01:20 UTC and rolled back "
+     "(/health after is not well), not on this approval.", "lapsed"),
+    ((OTHER, "done", "2026-10-08T01:20:00Z"), LIVE,
+     "Your approval has expired. The release service's latest record is of another version, 33333333: deployed at "
+     "01:20 UTC.", "lapsed"),
+    (None, TRUNK, "Your approval expired before the release service started it (an approval lasts ten "
+     "minutes). CLIVE runs this version now all the same: it was deployed another way.", "lapsed"),
+    (("", "done", "2026-10-08T00:30:00Z"), LIVE, "Your approval expired before the release service started it "
+     "(an approval lasts ten minutes). Nothing was deployed.", "expired"),
+    (None, LIVE, "Your approval expired before the release service started it (an approval lasts ten "
+     "minutes). Nothing was deployed.", "expired"),
+])
+def test_an_expired_approval_says_what_the_services_record_shows(deploy, process, said, end):
+    """Review note 3: a host waiver may deploy the version after his approval expired; the card then says
+    what the release service's record shows, never "Nothing was deployed"."""
+    release = {**READY, "state": "waiting", "at": "2026-10-08T00:55:00Z"}
+    if deploy is not None:
+        sha, how, at = deploy
+        steps = [("started", at), ("checks", at), ("installing", at), ("health", at), (how, at)]
+        release = {**release, "state": "deployed" if how == "done" else "rolled_back", "sha": sha or TRUNK,
+                   "deploy": status.deploy_of(state.deploy_record(
+                       sha=sha or TRUNK, title=TITLE, approval="", steps=steps, end=how,
+                       reason="" if how == "done" else "/health after is not well"))}
+    shown = offer.progress(_approval("a" * 32), release, kept=None, process_sha=process,
+                           now=_epoch("2026-10-08T01:30:00Z"))
+    assert (shown["end"], shown["line"], shown["final"]) == (end, said, True)
+    assert ("Nothing was deployed" in shown["line"]) is (end == "expired")
+    # The service's status unreadable: no record to go on, so no "Nothing was deployed" either.
+    unread = offer.progress(_approval("a" * 32), {**READY, "state": "", "line": status.UNREADABLE, "deploy": None},
+                            kept=None, process_sha=LIVE, now=_epoch("2026-10-08T01:30:00Z"))
+    assert (unread["end"], unread["line"]) == ("lapsed", f"{offer.EXPIRED} {status.UNREADABLE}")
 
 
 # ------------------------------------------------------------------ CLIVE's half: the routes

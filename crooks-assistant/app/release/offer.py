@@ -294,7 +294,9 @@ def _stages(reached: dict[str, str], end: str, kept: bool, checking: bool) -> li
 
 def progress(approval: dict[str, Any] | None, release: dict[str, Any], *, kept: dict[str, Any] | None,
              process_sha: str, now: float) -> dict[str, Any] | None:
-    """The deploy George's latest approval started, as far as it has gone, in words; None without one."""
+    """The deploy George's latest approval started, as far as it has gone, in words; None without one.
+    `kept` (app/release/approve.py kept_record) keeps it only when it names this very approval: a phone
+    check after an earlier deploy of the same version never keeps this one (review note 3)."""
     if not approval:
         return None
     deploy = release.get("deploy") if isinstance(release.get("deploy"), dict) else None
@@ -304,16 +306,16 @@ def progress(approval: dict[str, Any] | None, release: dict[str, Any], *, kept: 
            "given_at": approval["given_at"], "end": "", "line": "", "keep_check": False, "kept_at": "",
            "final": False}
     if ours is None:
-        return _not_started(out, approval, release, now)
+        return _not_started(out, approval, release, now, process_sha)
     reached = {step["stage"]: step["at"] for step in ours.get("steps") or []}
     end = ours.get("end") or ""
     reason = ours.get("reason") or ""
-    is_kept = kept is not None and end == "done"
+    is_kept = kept is not None and end == "done" and kept.get("approval") == approval["approval"]
     checking = end == "done" and not is_kept and process_sha == approval["sha"]
     out.update(end=end, stages=_stages(reached, end, is_kept, checking), started_at=reached.get("started", ""))
     if end == "done":
         out["final"] = is_kept
-        out["kept_at"] = str((kept or {}).get("kept_at") or "")
+        out["kept_at"] = str((kept or {}).get("kept_at") or "") if is_kept else ""
         out["keep_check"] = checking
         out["line"] = ("Deployed and kept: your phone got through on the new build." if is_kept else
                        "Deployed. Checking that your phone gets through on the new build…" if checking else
@@ -338,8 +340,9 @@ def progress(approval: dict[str, Any] | None, release: dict[str, Any], *, kept: 
     return out
 
 
-def _not_started(out: dict[str, Any], approval: dict[str, Any], release: dict[str, Any], now: float) -> dict[str, Any]:
-    """His approval, before the release service has started a deploy for it."""
+def _not_started(out: dict[str, Any], approval: dict[str, Any], release: dict[str, Any], now: float,
+                 process_sha: str) -> dict[str, Any]:
+    """His approval, with no deploy of its own on the release service's record."""
     out["stages"] = _stages({}, "", False, False)
     looked_after = (release.get("sha") == approval["sha"] and release.get("state") == "waiting"
                     and (release.get("at") or "") > approval["given_at"])
@@ -349,11 +352,48 @@ def _not_started(out: dict[str, Any], approval: dict[str, Any], release: dict[st
         out.update(end="not_started", final=now - approval["given"] > 60,
                    line=f"The release service looked and didn't deploy it. {release.get('line') or ''}".strip())
     elif now > approval["expires"]:
-        out.update(end="expired", final=True, line="Your approval expired before the release service started it "
-                                                   "(an approval lasts ten minutes). Nothing was deployed.")
+        end, line = _expired(approval, release, process_sha)
+        out.update(end=end, final=True, line=line)
     elif now - approval["given"] > 60:
         out["line"] = ("Approved. The release service hasn't started yet; without its instant trigger it starts "
                        "within five minutes.")
     else:
         out["line"] = "Approved. Starting the release service…"
     return out
+
+
+EXPIRED = "Your approval expired before the release service started it (an approval lasts ten minutes)."
+_ENDED = {"done": "deployed at {at}", "rolled_back": "tried at {at} and rolled back ({why})",
+          "halted": "tried at {at} and stopped part way ({why})", "refused": "refused at {at} ({why})",
+          "dry_run": "tried in dry run at {at}", "": "being deployed now (started at {at})"}
+
+
+def _clock(at: str) -> str:
+    return f"{at[11:16]} UTC" if re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", at or "") else "a moment it didn't say"
+
+
+def _ended(deploy: dict[str, Any]) -> str:
+    """A deploy on the service's record, in words: how it ended, when, and why."""
+    end = deploy.get("end") or ""
+    steps = {step["stage"]: step["at"] for step in deploy.get("steps") or []}
+    at = steps.get(end) or steps.get("started") or ""
+    return _ENDED.get(end, _ENDED[""]).format(at=_clock(at), why=deploy.get("reason") or "it didn't say why")
+
+
+def _expired(approval: dict[str, Any], release: dict[str, Any], process_sha: str) -> tuple[str, str]:
+    """(end, line) for his approval past its life with no deploy of its own on the service's record: what
+    that record shows since he gave it. "Nothing was deployed" only when the record holds no deploy begun
+    since then and this version is not running (review note 3: a host waiver may have deployed it)."""
+    deploy = release.get("deploy") if isinstance(release.get("deploy"), dict) else None
+    started = next((step["at"] for step in (deploy or {}).get("steps") or [] if step["stage"] == "started"), "")
+    if deploy and started >= approval["given_at"]:
+        if deploy.get("sha") == approval["sha"]:
+            return "lapsed", (f"Your approval has expired. The release service's record shows this version "
+                              f"{_ended(deploy)}, not on this approval.")
+        return "lapsed", (f"Your approval has expired. The release service's latest record is of another version, "
+                          f"{str(deploy.get('sha') or '')[:8]}: {_ended(deploy)}.")
+    if not release.get("state"):
+        return "lapsed", f"{EXPIRED} {release.get('line') or 'The release service could not be read.'}"
+    if process_sha == approval["sha"] or (release.get("state") == "up_to_date" and release.get("sha") == approval["sha"]):
+        return "lapsed", f"{EXPIRED} CLIVE runs this version now all the same: it was deployed another way."
+    return "expired", f"{EXPIRED} Nothing was deployed."

@@ -133,6 +133,13 @@ test('the progress: six stages from the fixed table, the line as CLIVE wrote it'
   const kept = D.progressNode(progress({ end: 'done', final: true, kept_at: '2026-10-08T01:03:00Z', line: 'Deployed and kept: your phone got through on the new build.' }),
     { now: new Date('2026-10-08T01:03:00Z') });
   assert.equal(kept.querySelector('.dn-eyebrow').allText(), 'Deployed and kept');
+  // Review note 3: an approval that lapsed while the version was deployed another way is not "Not deployed".
+  const lapsed = D.progressNode(progress({ end: 'lapsed', final: true, started_at: '', line: 'Your approval has expired. The release service’s record shows this version deployed at 01:20 UTC, not on this approval.' }), {});
+  assert.equal(lapsed.querySelector('.dn-eyebrow').allText(), 'Approval expired');
+  assert.equal(lapsed.className, 'dn-card is-progress is-lapsed');
+  assert.match(lapsed.querySelector('.dn-line').allText(), /deployed at 01:20 UTC, not on this approval\.$/);
+  const expired = D.progressNode(progress({ end: 'expired', final: true, line: 'Nothing was deployed.' }), {});
+  assert.equal(expired.querySelector('.dn-eyebrow').allText(), 'Not deployed');
   const odd = D.progressNode(progress({ stages: [{ key: 'x', label: 'X', state: 'exploded' }] }), {});
   assert.equal(all(odd, 'dn-stage')[0].className, 'dn-stage is-dim', 'a state not in the table is drawn dim');
 });
