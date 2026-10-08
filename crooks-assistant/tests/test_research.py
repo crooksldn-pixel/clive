@@ -153,6 +153,53 @@ def test_a_word_file_keeps_its_headings_lists_and_tables():
         convert.convert("empty.docx", b"PK\x05\x06" + b"\0" * 18)
 
 
+def _zipped(name: str, data: bytes) -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(name, data)
+    return out.getvalue()
+
+
+def _empty_paragraphs(size: int) -> bytes:
+    """A Word file's text that is `size` bytes of empty paragraphs after one real one: tiny once zipped."""
+    w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    head = f'<?xml version="1.0"?><w:document xmlns:w="{w}"><w:body><w:p><w:r><w:t>CLIVE should show when each key was last checked.</w:t></w:r></w:p>'.encode()
+    return head + b"<w:p/>" * ((size - len(head)) // 6) + b"</w:body></w:document>"
+
+
+def test_a_small_file_that_unpacks_large_is_refused_before_it_is_parsed():
+    """Review note 2: a part unpacked from a file (a Word file's text, a ChatGPT export's JSON) is read to
+    8 MB, and an export's values are counted before json.loads makes them, so a small download can't
+    cost the app a gigabyte."""
+    bomb = _zipped("word/document.xml", _empty_paragraphs(12 << 20))
+    assert len(bomb) < 64 << 10
+    with pytest.raises(convert.ConvertError, match="text unpacks to more than 8 MB, more than CLIVE reads from one file"):
+        convert.convert("report.docx", bomb)
+    export = _zipped("conversations.json", b"[" + b"[]," * (4 << 20) + b"[]]")
+    with pytest.raises(convert.ConvertError, match="conversations.json unpacks to more than 8 MB"):
+        convert.convert("chatgpt-export.zip", export)
+    values = b"[" + b"[]," * 300_000 + b"[]]"          # under 8 MB, but 600,002 values
+    assert len(values) < 1 << 20
+    with pytest.raises(convert.ConvertError, match="holds more than research chats come to"):
+        convert.convert("conversations.json", values)
+
+
+def test_a_word_file_is_read_as_it_streams():
+    """Review note 2: one paragraph at a time, never the whole file as a tree (which took 16 MB here)."""
+    import tracemalloc
+
+    xml = _empty_paragraphs(1 << 20)
+    data = _zipped("word/document.xml", xml)
+    tracemalloc.start()
+    try:
+        out = convert.convert("report.docx", data)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert out.files[0][1].strip() == "CLIVE should show when each key was last checked."
+    assert peak < 5 * len(xml), f"{peak / 2**20:.1f} MB to read {len(xml) / 2**20:.1f} MB of text"
+
+
 def test_a_pdf_is_read_page_by_page():
     out = convert.convert("report.pdf", _pdf(["CLIVE should show when each key was last checked.", "This is a test fixture."]))
     text = out.files[0][1]

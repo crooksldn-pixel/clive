@@ -9,11 +9,13 @@ later shown.
 
 What it promises:
 - Reading only. Nothing in a file is run: a PDF is parsed by pypdf (the one dependency, loaded
-  only for a PDF), a Word file is unzipped and its XML read with the standard library (any
-  DOCTYPE or ENTITY refused before parsing), a saved page is read for the words it shows (its
-  scripts and styles dropped unread), a ChatGPT export is read as JSON.
-- Bounded: the file, each part unzipped, the pages read, the text made and the conversations
-  taken. Past a bound it says so in words (ConvertError), or notes what it left out.
+  only for a PDF), a Word file is unzipped and its XML read with the standard library as it
+  streams, one paragraph or table at a time (any DOCTYPE or ENTITY refused before parsing), a
+  saved page is read for the words it shows (its scripts and styles dropped unread), a ChatGPT
+  export is read as JSON.
+- Bounded: the file, each part unzipped, the values in a ChatGPT export, the pages read, the text
+  made and the conversations taken. Past a bound it says so in words (ConvertError), or notes
+  what it left out.
 - Every section it makes stays under SECTION_CHARS, so no part of a long file is cut off by the
   adapter's own limit on one section: a page or a long run of paragraphs becomes its own heading.
 - What it cannot read it says plainly; it never returns an empty document as if it were one.
@@ -29,11 +31,24 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import PurePosixPath
 from xml.etree import ElementTree
+from xml.parsers import expat
 
 MAX_FILE_BYTES = 25 << 20        # one file George gives
-MAX_UNZIPPED_BYTES = 64 << 20    # one part read out of a Word file or a ChatGPT export zip
 MAX_PAGES = 500                  # pages read from one PDF
 MAX_TEXT_CHARS = 1_500_000       # Markdown made from one file (the adapter reads 2 MB a file)
+# A Word file's text (word/document.xml) or a ChatGPT export's JSON, unpacked (review note 2, 8 Oct).
+# 8 MB already holds more text than CLIVE takes from one file: Word writes about 5 bytes of XML for
+# each character of an ordinary paragraph with its fonts, sizes and revision marks (measured 8 Oct:
+# 8 MB of them carried the 1,500,000 characters of MAX_TEXT_CHARS), and an export shaped like
+# ChatGPT's, of 25 chats of 60 long messages each, came to 2.8 MB. At this bound the worst Word file (8 MB of empty paragraphs, a 12 KB download) cost 2.8 s
+# of CPU and 16 MB, read as it streams; built as a whole tree it took 126 MB (64 MB of it: 1 GB).
+MAX_PART_BYTES = 8 << 20
+# Values in a ChatGPT export, counted before it is parsed: every value but the first in a list or an
+# object follows a comma, and every list or object opens with a bracket, so commas plus brackets bound
+# how many objects json.loads can make. An export runs at about 32,000 a megabyte (measured 8 Oct), so
+# about 255,000 at MAX_PART_BYTES; 500,000 is twice that. At the bound the worst JSON measured (short
+# strings) cost 32 MB and 0.1 s; 8 MB of empty lists, unbounded, cost 217 MB.
+MAX_JSON_VALUES = 500_000
 MAX_CONVERSATIONS = 25           # conversations taken from one ChatGPT export
 SECTION_CHARS = 12_000           # under the adapter's 16,000-character section body
 
@@ -48,6 +63,10 @@ _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _SPACE = re.compile(r"[ \t ]+")
 _BLANKS = re.compile(r"\n{3,}")
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+_ONE_AT_A_TIME = ("Give the research chats one at a time instead: export the report as PDF, Word or Markdown, "
+                  "or save the shared chat's page.")
 
 
 class ConvertError(Exception):
@@ -146,23 +165,81 @@ def _docx(data: bytes, notes: list[str]) -> str:
         info = archive.getinfo("word/document.xml")
     except (zipfile.BadZipFile, KeyError, OSError):
         raise ConvertError("That Word file couldn't be opened: it has no document inside it.") from None
-    xml = _bounded_read(archive, info)
-    root = _parse_xml(xml)
-    body = root.find(f"{_W}body")
-    if body is None:
-        raise ConvertError("That Word file has no body to read.")
-    lines: list[str] = []
-    for block in body:
+    xml = _bounded_read(archive, info, f"That Word file's text unpacks to more than {MAX_PART_BYTES >> 20} MB, more than "
+                                       "CLIVE reads from one file. Split it, or export it as PDF or Markdown.")
+    _refuse_declarations(xml)
+    return _chunked_markdown(_WordBody().read(xml))
+
+
+class _WordBody:
+    """A Word file's document.xml, read as it streams: each paragraph or table directly in the body is
+    built as a small tree, turned into its Markdown line(s) and let go, so memory holds one block at a
+    time however many blocks the file has (review note 2, 8 Oct)."""
+
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+        self.depth = 0
+        self.has_body = False
+        self.in_body = False
+        self.block: ElementTree.TreeBuilder | None = None
+
+    def read(self, xml: bytes) -> list[str]:
+        parser = self.parser()
+        try:
+            parser.Parse(xml, True)
+        except expat.ExpatError:
+            raise ConvertError("That Word file's text couldn't be read.") from None
+        if not self.has_body:
+            raise ConvertError("That Word file has no body to read.")
+        return self.lines
+
+    def parser(self):
+        parser = expat.ParserCreate(namespace_separator="}")
+        parser.buffer_text = True
+        parser.StartElementHandler = self.start
+        parser.EndElementHandler = self.end
+        parser.CharacterDataHandler = self.data
+        return parser
+
+    def start(self, name: str, attrs: dict[str, str]) -> None:
+        self.depth += 1
+        tag = _clark(name)
+        if self.depth == 2 and tag == f"{_W}body":
+            self.has_body = self.in_body = True
+        elif self.depth == 3 and self.in_body:
+            self.block = ElementTree.TreeBuilder()
+        if self.block is not None:
+            self.block.start(tag, {_clark(k): v for k, v in attrs.items()})
+
+    def end(self, name: str) -> None:
+        if self.block is not None:
+            self.block.end(_clark(name))
+            if self.depth == 3:
+                self.take(self.block.close())
+                self.block = None
+        elif self.depth == 2:
+            self.in_body = False
+        self.depth -= 1
+
+    def data(self, text: str) -> None:
+        if self.block is not None:
+            self.block.data(text)
+
+    def take(self, block) -> None:
         if block.tag == f"{_W}p":
             line = _paragraph(block)
             if line:
-                lines.append(line)
+                self.lines.append(line)
         elif block.tag == f"{_W}tbl":
             for row in block.iter(f"{_W}tr"):
                 cells = [" ".join(_runs(p) for p in cell.iter(f"{_W}p")).strip() for cell in row.iter(f"{_W}tc")]
                 if any(cells):
-                    lines.append("| " + " | ".join(cells) + " |")
-    return _chunked_markdown(lines)
+                    self.lines.append("| " + " | ".join(cells) + " |")
+
+
+def _clark(name: str) -> str:
+    """expat's "uri}local" as ElementTree's "{uri}local"."""
+    return "{" + name if "}" in name else name
 
 
 def _paragraph(p) -> str:
@@ -263,8 +340,7 @@ def _chatgpt(data, notes: list[str]) -> str:
     if len(conversations) > MAX_CONVERSATIONS:
         raise ConvertError(
             f"That ChatGPT export holds {len(conversations)} chats: the whole account, not one piece of research. "
-            "Give the research chats one at a time instead: export the report as PDF, Word or Markdown, "
-            "or save the shared chat's page.")
+            + _ONE_AT_A_TIME)
     out: list[str] = []
     empty = 0
     for convo in conversations:
@@ -312,6 +388,11 @@ def _thread(convo: dict) -> list[tuple[str, str]]:
 
 
 def _json(data: bytes, name: str):
+    """A ChatGPT export's JSON, refused in words before it is parsed when it is bigger, or holds more
+    values, than research chats come to (review note 2, 8 Oct)."""
+    if len(data) > MAX_PART_BYTES or data.count(b",") + data.count(b"{") + data.count(b"[") > MAX_JSON_VALUES:
+        raise ConvertError(f"{_short(name)} holds more than research chats come to, most likely the whole account. "
+                           + _ONE_AT_A_TIME)
     try:
         return json.loads(data.decode("utf-8-sig"))
     except (UnicodeDecodeError, ValueError):
@@ -324,31 +405,30 @@ def _from_zip(data: bytes) -> bytes:
         names = [n for n in archive.namelist() if PurePosixPath(n).name == "conversations.json"]
         if not names:
             raise ConvertError("That zip isn't a ChatGPT export: there is no conversations.json in it.")
-        return _bounded_read(archive, archive.getinfo(sorted(names, key=len)[0]))
+        return _bounded_read(archive, archive.getinfo(sorted(names, key=len)[0]),
+                             f"Its conversations.json unpacks to more than {MAX_PART_BYTES >> 20} MB: more than research "
+                             "chats come to, most likely the whole account. " + _ONE_AT_A_TIME)
     except zipfile.BadZipFile:
         raise ConvertError("That zip couldn't be opened.") from None
 
 
-def _bounded_read(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes:
+def _bounded_read(archive: zipfile.ZipFile, info: zipfile.ZipInfo, too_big: str) -> bytes:
+    """One part of a zip, unpacked to MAX_PART_BYTES at most; past that, `too_big` says why not."""
     if info.flag_bits & 0x1:
         raise ConvertError("That file is locked with a password, so CLIVE can't read it.")
-    if info.file_size > MAX_UNZIPPED_BYTES:
-        raise ConvertError(f"Part of that file unpacks to {info.file_size >> 20} MB, past the {MAX_UNZIPPED_BYTES >> 20} MB CLIVE reads.")
+    if info.file_size > MAX_PART_BYTES:
+        raise ConvertError(too_big)
     with archive.open(info) as handle:
-        data = handle.read(MAX_UNZIPPED_BYTES + 1)
-    if len(data) > MAX_UNZIPPED_BYTES:
-        raise ConvertError(f"Part of that file unpacks past the {MAX_UNZIPPED_BYTES >> 20} MB CLIVE reads.")
+        data = handle.read(MAX_PART_BYTES + 1)
+    if len(data) > MAX_PART_BYTES:
+        raise ConvertError(too_big)
     return data
 
 
-def _parse_xml(xml: bytes):
+def _refuse_declarations(xml: bytes) -> None:
     head = xml[:4096].upper()
     if b"<!DOCTYPE" in head or b"<!ENTITY" in xml.upper():
         raise ConvertError("That Word file declares its own XML entities, which CLIVE doesn't read.")
-    try:
-        return ElementTree.fromstring(xml)
-    except ElementTree.ParseError:
-        raise ConvertError("That Word file's text couldn't be read.") from None
 
 
 def _text(data: bytes) -> str:
