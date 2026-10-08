@@ -82,7 +82,7 @@ OWNER_DOCS: dict[str, tuple[str, str | None] | None] = {
     "release": ("docs/RELEASE_SERVICE.md", None),
     "remote_engineering": ("docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md", None),
     "research": ("docs/RESEARCH.md", None),
-    "returns": None,
+    "returns": ("docs/RETURNS_EVENTS.md", "its events, DEC-077"),
     "routes": None,
     "scenes": ("docs/product-memory/GENERATIVE_UI_V1.md", None),
     "secrets": ("docs/DEPLOY_LINUX.md", None),

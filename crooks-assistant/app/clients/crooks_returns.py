@@ -385,10 +385,19 @@ class OpenReturns:
     watermark: str = ""
     failed: ReturnsUnavailable | None = None
     failed_at: float = 0.0
+    touched: float = 0.0     # [returns-events] when the service last said something changed
     _lock: asyncio.Lock | None = None
 
     def forget(self) -> None:
         self.rows, self.read_at, self.whole_at, self.watermark = {}, 0.0, 0.0, ""
+        self.failed, self.failed_at, self.touched = None, 0.0, 0.0
+
+    def touch(self) -> None:
+        """[returns-events] The service rang CLIVE's door (app/returns/events.py): something changed,
+        so the next read asks it, by what changed, however recently it was asked. A read already
+        out when it rang began before the change, so its answer is not kept as fresh either."""
+        self.touched = self.clock()
+        self.read_at = 0.0
         self.failed, self.failed_at = None, 0.0
 
     def _held(self, max_age_s: float) -> tuple[list[dict[str, Any]], float] | None:
@@ -398,7 +407,7 @@ class OpenReturns:
         if self.failed is not None and now - self.failed_at < max_age_s:
             f = self.failed
             raise ReturnsUnavailable(str(f), kind=f.kind, status=f.status, key=f.key)
-        if self.read_at and now - self.read_at < max_age_s:
+        if self.read_at and now - self.read_at < max_age_s and self.read_at >= self.touched:
             return self._sorted(), self.read_at
         return None
 

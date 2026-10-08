@@ -75,6 +75,10 @@ HELP = {
         "Same command: paste what follows RETURNS_CLIVE_WRITE_KEYS= (one key). CLIVE sends it only "
         "with a returns action you approved on its card."
     ),
+    "crooks_returns_hook_secret": (
+        "Same command: paste what follows RETURNS_CLIVE_WEBHOOK_SECRET=. CROOKS Returns signs the events "
+        "it posts to CLIVE's /hooks/returns with it."
+    ),
     "wecom_corp_id": (
         "WeCom admin console (work.weixin.qq.com) -> My Company (我的企业) -> the CorpID at the bottom. "
         "It starts ww."

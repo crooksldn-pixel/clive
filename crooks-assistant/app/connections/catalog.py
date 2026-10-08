@@ -126,6 +126,11 @@ CONNECTIONS: tuple[Connection, ...] = (
             Field("crooks_returns_write_key", "Write key", env="RETURNS_CLIVE_WRITE_KEYS",
                   hint="Same command: paste what follows RETURNS_CLIVE_WRITE_KEYS=. CLIVE uses it only for an "
                        "action you approve on its card."),
+            # [returns-events] The secret CROOKS Returns signs its events with (app/returns/events.py,
+            # DEC-077). Optional: without it CLIVE asks the service while you use it, as before.
+            Field("crooks_returns_hook_secret", "Events secret (optional)", env="RETURNS_CLIVE_WEBHOOK_SECRET",
+                  hint="Same command: paste what follows RETURNS_CLIVE_WEBHOOK_SECRET=. With it, CROOKS Returns "
+                       "tells CLIVE the moment a return changes."),
         ),
         requires=("crooks_returns_read_key", "crooks_returns_write_key"), family="returns_reads",
         unlocks=("returns_reads", "returns_actions"),

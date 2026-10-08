@@ -530,7 +530,8 @@ async def test_every_route_the_app_serves_is_the_owners_unless_it_is_named_publi
                 assert response.json()["code"] == code, (path, response.json())
         checked.append(path)
     # [channels] One door per channel since 8 Oct: WeCom, WhatsApp, Instagram.
-    assert hooks_seen == HOOK_PATHS == frozenset({"/hooks/wecom", "/hooks/whatsapp", "/hooks/instagram"})
+    # [returns-events] And CROOKS Returns' doorbell, 8 Oct (DEC-077).
+    assert hooks_seen == HOOK_PATHS == frozenset({"/hooks/wecom", "/hooks/whatsapp", "/hooks/instagram", "/hooks/returns"})
     # The pad's two routes left this list with the CROOKS Pad (DEC-071, ruling 40).
     for must in ("/turn", "/command", "/telemetry", "/objectives", "/displays", "/tools",
                  "/speak", "/support/investigate", "/openapi.json", "/media/shopify/scr_000000000000/scr_000000000000"):
