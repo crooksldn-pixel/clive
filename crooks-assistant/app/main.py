@@ -48,6 +48,7 @@ from app.routes import (
 from app.routes import bench as bench_route  # [bench] the test bench's screen (owner only)
 from app.routes import hooks as hooks_route
 from app.routes import returns as returns_route
+from app.routes import returns_hook as returns_hook_route  # [returns-events] DEC-077
 from config.settings import get_settings
 
 log = logging.getLogger("crooks")
@@ -727,6 +728,7 @@ app.include_router(today.router)   # the Today screen: the team's work list, and
 app.include_router(returns_route.router)   # CROOKS Returns: the home's count of returns that need the owner
 app.include_router(bench_route.router)   # [bench] the test bench: runs, results and his ratings (owner only)
 app.include_router(hooks_route.router)   # [messaging] the public doors for messages coming in (/hooks/wecom, whatsapp, instagram)
+app.include_router(returns_hook_route.router)   # [returns-events] CROOKS Returns' doorbell, /hooks/returns (DEC-077)
 
 if WEB_DIR.exists():
     mimetypes.add_type("application/manifest+json", ".webmanifest")

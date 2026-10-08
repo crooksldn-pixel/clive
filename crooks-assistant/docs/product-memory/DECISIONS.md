@@ -1267,3 +1267,20 @@ He wants "the flow from actually asking a question to the action happening to be
 - **The re-pin's own review stays GPT for now.** `root-repin.sh` on clive-worker-01 runs its own exact-SHA review of the loop's code through the OpenAI API. It lives outside the repository and is not changed here.
   - The re-pin that brings this in is reviewed by it as before, so the OpenAI key stays on clive-worker-01 for that script. Once the unit drops `--gpt-api-key-file`, the loop no longer reads the key.
   - **The owner's open call:** keep GPT for re-pin reviews only (a few a month), or move that review to Claude too. Moving it means bringing `root-repin.sh` into the repository, so the change to it is itself reviewed, and then swapping its review call.
+
+---
+
+## DEC-077 — CROOKS Returns rings CLIVE's public door for each event it records; CLIVE reads the return itself before it tells George
+
+**Date:** 2026-10-08
+**Status:** ACTIVE. Built on branches `claude/n3-returns-events` (CLIVE) and `claude/n3-service-events` (the service). Live once both are deployed and set up ([`docs/RETURNS_EVENTS.md`](../RETURNS_EVENTS.md)).
+**Source:** the owner's ruling 20 of 8 October ([DEC-071](#dec-071--the-owners-rulings-of-8-october-43-questions-answered)): "Returns events reach CLIVE through that address?" (hooks.crooksldn.com, ruling 19) "Y".
+
+**Decision:**
+- **The service rings.** CROOKS Returns writes one outbox row for each event a return records, in the same transaction as the return. A thread of its own posts each row to `RETURNS_CLIVE_WEBHOOK_URL` (`https://hooks.crooksldn.com/hooks/returns`). The post carries the event's id, its type, the return's id, when it happened, and when it was sent, and nothing of the customer. It is signed with HMAC-SHA256 over the raw body. A post that does not get a 2xx is retried with backoff for a day. It is never on the request path and never fails the person acting. With no URL set, nothing is written and no thread starts. The service's old post of the whole return, which carried the customer's details and was never received, is gone.
+- **CLIVE's door is as strict as the WeCom door.** `/hooks/returns` is on the same exact-path list (`app/routes/hooks.py` `HOOK_PATHS`) and carries no authority. It caps the body at 4 KB before reading it. It needs a stored secret and checks the signature in constant time before decoding the body. It accepts exactly the five fields, `sent_at` within five minutes, and an event id it has not seen. Anything else is an empty 403. The secret is stored on the Connections screen with the returns keys (`crooks_returns_hook_secret`). It is optional: without it CLIVE asks the service as before.
+- **The doorbell, then the truth.** An event marks the open returns stale and reads them again through the API, so the home's row and the next returns card are fresh. If the event can make a return need George (one to approve, delivered back unchecked, a decision on one received, a label overdue or failed, money that did not move, an approval or cancel that failed), CLIVE reads that return. Only if that read says it needs him for that reason does the home show a notice that stays until he dismisses it. The notice names the order, never the customer, is shown once per device, and goes when the open returns say it is resolved.
+
+**Reason:** his ruling. Polling once a minute only while someone is looking meant a return to approve, or a refund Shopify refused, waited until he next opened CLIVE and the minute had passed.
+
+**Consequences:** no new authority and no change to any approval: an event can only make CLIVE read. Nothing customer-identifying is logged, on either side of the door. The notices live in memory, so after a restart the home's row still says what needs him, from the API. A phone push outside CLIVE is not built. Deploy order: CLIVE and the secret, then the public address, then the service. Shipping's events are not part of this.

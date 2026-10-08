@@ -55,7 +55,8 @@ def _closed_to_the_public(client):  # noqa: F811
 
 async def test_the_hook_paths_are_exactly_one():
     # [channels] Exactly one per channel: WhatsApp and Instagram joined WeCom on 8 Oct.
-    assert HOOK_PATHS == frozenset({"/hooks/wecom", "/hooks/whatsapp", "/hooks/instagram"})
+    # [returns-events] And CROOKS Returns' doorbell, 8 Oct (DEC-077; tests/test_returns_events.py).
+    assert HOOK_PATHS == frozenset({"/hooks/wecom", "/hooks/whatsapp", "/hooks/instagram", "/hooks/returns"})
 
 
 async def test_wecoms_url_check_is_answered_with_the_decrypted_echo(client, world):  # noqa: F811

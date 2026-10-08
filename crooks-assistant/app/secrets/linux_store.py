@@ -88,6 +88,8 @@ STATIC_KEYS = frozenset({
     # Read by app/clients/crooks_returns.py for each call and never written by the application.
     "crooks_returns_read_key",
     "crooks_returns_write_key",
+    # [returns-events] Read by app/returns/events.py for each event and never written by the application.
+    "crooks_returns_hook_secret",
     # [messaging] Read by app/clients/wecom.py for each call and never written by the application.
     "wecom_corp_id",
     "wecom_agent_id",

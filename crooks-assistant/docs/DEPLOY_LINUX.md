@@ -47,7 +47,7 @@ it?**
 
 `elevenlabs_api_key`, `shopify_client_id`, `shopify_client_secret`, `shopify_static_token`,
 `claude_oauth_token`, `youtube_api_key`, `ship24_api_key`, `crooks_returns_read_key`, `crooks_returns_write_key`,
-`crooks_shipping_read_key`, `crooks_shipping_write_key`.
+`crooks_returns_hook_secret`, `crooks_shipping_read_key`, `crooks_shipping_write_key`.
 
 `youtube_api_key` is optional. It is a YouTube Data API v3 key that CLIVE uses to search YouTube
 when the owner asks for a video on a screen ("play the Heat trailer on the TV"). Without it, a
@@ -64,6 +64,10 @@ returns service, lists for CLIVE (`grep CLIVE /opt/clive/crooks-returns/.env`:
 sends the second only with an action the owner approved on its card (app/clients/crooks_returns.py);
 without them, returns read as not connected. Where the service answers is the setting
 `CROOKS_RETURNS_BASE_URL` (default `https://returns.crooksldn.com`).
+`crooks_returns_hook_secret` is optional too: the value of the service's
+`RETURNS_CLIVE_WEBHOOK_SECRET`, with which CLIVE checks the events the service posts to
+`/hooks/returns` ([`RETURNS_EVENTS.md`](RETURNS_EVENTS.md), DEC-077). Without it, CLIVE asks the
+service as before.
 
 `crooks_shipping_read_key` and `crooks_shipping_write_key` are optional too, and normally pasted on
 the Connections screen. They are the keys CLIVE Shipping, the owner's own international shipping

@@ -10,6 +10,10 @@
  *   onOrder(list)    under an order's money: each return on it, where it stands and what it needs.
  *   brief()          GET /returns/brief, the counts behind the home's row (app/routes/returns.py):
  *                    how many returns need him and why, never who. briefNow() is the last answer.
+ *   announce(list)   [returns-events] what just happened that needs him, from the brief's `notices`
+ *                    (CROOKS Returns rang CLIVE's door: app/returns/events.py, DEC-077): each shown
+ *                    once on this device, through web/notify.js, until he dismisses it. A return to
+ *                    approve is a Note, one that needs his look a Check, a failure Failed.
  *
  * Dots that mean something: blue is something for him to answer (a return to approve), iOS
  * orange is something waiting on him that has gone past its time or needs his look (a label
@@ -247,10 +251,63 @@
     } catch {
       return last;
     }
+    if (last) announce(last.notices);   // [returns-events]
     return last;
   }
   function briefNow() { return last; }
   function seed(value) { last = value && typeof value === 'object' ? value : null; }
 
-  return { body, title, sub, onOrder, row, brief, briefNow, seed };
+  // ------------------------------------------------------------------ [returns-events] notices
+  // What the Mac's notices are allowed to be: its own handle, one of three names, a tone each name
+  // decides here (never the Mac's), and its words. Shown once on this device: the handles shown are
+  // kept in this browser (the last 50), so a reload or the next poll never says it twice.
+  const NOTICE_ID = /^rn_[0-9a-f]{24}$/;
+  const NOTICE_TONE = { return_to_approve: 'info', return_needs_you: 'warn', return_problem: 'bad' };
+  const SEEN_KEY = 'clive.returns.notices';
+  const MAX_SAID = 3;
+  let seen = null;
+  // The row each name has on screen and the sentences it holds: a notice of the same kind joins the
+  // row that is still up, rather than web/notify.js folding it in and keeping only the newest words.
+  const up = {};
+
+  function seenIds() {
+    if (seen) return seen;
+    seen = new Set();
+    try {
+      const kept = JSON.parse((root.localStorage && root.localStorage.getItem(SEEN_KEY)) || '[]');
+      if (Array.isArray(kept)) for (const id of kept) if (NOTICE_ID.test(text(id))) seen.add(text(id));
+    } catch { /* a private window keeps nothing: this page still says each once */ }
+    return seen;
+  }
+  function keepSeen() {
+    try { root.localStorage.setItem(SEEN_KEY, JSON.stringify(Array.from(seenIds()).slice(-50))); } catch { /* as above */ }
+  }
+
+  function announce(notices) {
+    const say = root.CrooksNotify;
+    if (!say || typeof say.show !== 'function') return [];
+    const fresh = list(notices, 10).filter((n) => NOTICE_ID.test(text(n.id)) && NOTICE_TONE[text(n.code)]
+      && text(n.words).trim() && !seenIds().has(text(n.id)));
+    const shown = [];
+    for (const code of Object.keys(NOTICE_TONE)) {
+      const mine = fresh.filter((n) => text(n.code) === code);
+      if (!mine.length) continue;
+      const before = up[code];
+      const still = before && typeof say.list === 'function' && say.list().some((e) => e.id === before.id);
+      const all = (still ? before.words : []).concat(mine.map((n) => text(n.words).trim()))
+        .filter((w, i, every) => every.indexOf(w) === i);
+      const words = all.slice(0, MAX_SAID);
+      if (all.length > MAX_SAID) words.push(`And ${all.length - MAX_SAID} more.`);
+      if (still && typeof say.dismiss === 'function') say.dismiss(before.id);
+      const drawn = say.show({ class: 'workspace', code, tone: NOTICE_TONE[code], text: words.join(' '), persist: true });
+      if (!drawn) continue;   // refused or nowhere to draw it: asked again at the next brief
+      up[code] = { id: drawn.id, words: all };
+      for (const n of mine) seenIds().add(text(n.id));
+      shown.push(code);
+    }
+    if (shown.length) keepSeen();
+    return shown;
+  }
+
+  return { body, title, sub, onOrder, row, brief, briefNow, seed, announce };
 });

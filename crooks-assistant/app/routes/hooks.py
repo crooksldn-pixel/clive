@@ -1,5 +1,6 @@
 """The public doors for messages coming in: GET and POST /hooks/wecom, /hooks/whatsapp and
-/hooks/instagram, one per channel.
+/hooks/instagram, one per channel. ([returns-events] /hooks/returns, CROOKS Returns' doorbell, is on
+the same list and has its own route: app/routes/returns_hook.py.)
 
 Why it exists: WeCom and Meta deliver a message by calling an address on the internet, so CLIVE
 needs one address per channel the public can reach. Everything else CLIVE serves stays behind the
@@ -49,7 +50,10 @@ router = APIRouter()
 # The only paths the door in app/main.py lets through without an owner or a member of the team.
 # Exact paths, never prefixes: /hooks/wecom/x and /hooks/other stay behind the door.
 CHANNEL_OF = {"/hooks/wecom": "wecom", "/hooks/whatsapp": "whatsapp", "/hooks/instagram": "instagram"}
-HOOK_PATHS = frozenset(CHANNEL_OF)
+# [returns-events] CROOKS Returns' doorbell (DEC-077): not a message channel, so its own route
+# (app/routes/returns_hook.py), with the same door: exact path, no authority, an empty 403.
+RETURNS_HOOK = "/hooks/returns"
+HOOK_PATHS = frozenset(CHANNEL_OF) | {RETURNS_HOOK}
 
 
 def is_hook(path: str) -> bool:

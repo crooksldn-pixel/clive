@@ -5,6 +5,11 @@ tool reads (app/clients/crooks_returns.py OpenReturns), so opening the home asks
 most once a minute, and only while someone has CLIVE open: nothing polls on a timer. It answers
 counts and words, never a customer's name. Not connected, it says so and the home draws nothing.
 
+[returns-events] When CROOKS Returns rings CLIVE's door (app/returns/events.py, DEC-077) the cache is
+stale at once, so the next brief is fresh; and `notices` carries what just happened that needs
+him (a return to approve, a label that failed, money that did not move), only while the open
+returns as read still say so, each by order number and never by customer.
+
 The owner's alone: behind the door's owner rule like every route that is not the team's
 (app/main.py, app/people/staff.py ROUTES), and asked for it again here (require_principal).
 """
@@ -17,7 +22,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from app.clients import crooks_returns as client
-from app.returns import views
+from app.returns import events, views
 from app.routes.actions import require_principal
 
 router = APIRouter(prefix="/returns", dependencies=[Depends(require_principal)])
@@ -34,7 +39,8 @@ async def brief() -> JSONResponse:
                         "words": "", "problem": str(exc)})
     said = views.brief(rows, now=datetime.now(UTC))
     checked = datetime.fromtimestamp(at, UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
-    return _answer({"connected": True, "available": True, **said, "checked_at": checked})
+    return _answer({"connected": True, "available": True, **said, "checked_at": checked,
+                    "notices": events.DOOR.notices(rows)})   # [returns-events]
 
 
 def _answer(payload: dict) -> JSONResponse:

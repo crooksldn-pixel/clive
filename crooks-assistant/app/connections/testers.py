@@ -222,6 +222,12 @@ async def _returns(values: dict[str, str], settings: Any) -> Outcome:
 
     base = crooks_returns.clean_base(getattr(settings, "returns_base_url", "") or crooks_returns.DEFAULT_BASE_URL)
     host = base.split("://", 1)[-1]
+    # [returns-events] The events secret (DEC-077), when given: long enough to sign with.
+    hook = values.get(EVENTS_SECRET, "")
+    if hook and len(hook) < 32:
+        return Outcome(False, "The events secret is too short to sign with. Make one with openssl rand -hex 32, set it "
+                              "as RETURNS_CLIVE_WEBHOOK_SECRET in /opt/clive/crooks-returns/.env, restart the service, "
+                              "and paste the same here.", fix="key")
     async with http_client() as client:
         health = await client.get(f"{base}/health", headers={"Accept": "application/json"})
         if health.status_code != 200:
@@ -251,7 +257,24 @@ async def _returns(values: dict[str, str], settings: Any) -> Outcome:
         if answer.status_code != 200:
             return Outcome(False, crooks_returns.refusal(answer).args[0], fix="retry")
     return Outcome(True, "CROOKS Returns accepted the read key. The write key is checked the first time you approve "
-                         "an action.", who=host)
+                         "an action." + _returns_events(hook, said), who=host)
+
+
+# [returns-events] The events secret's Connections key (app/returns/events.py SECRET_KEY, DEC-077).
+EVENTS_SECRET = "crooks_returns_hook_secret"
+
+
+def _returns_events(hook: str, health: dict[str, Any]) -> str:
+    """[returns-events] Whether events can reach CLIVE, from what the service's /health says it does
+    (`clive.webhook`: whether it has an address to post to). Nothing when it does not say."""
+    sends = (health.get("clive") or {}).get("webhook")
+    if hook and sends is False:
+        return (" CROOKS Returns isn't sending its events yet: set RETURNS_CLIVE_WEBHOOK_URL="
+                "https://hooks.crooksldn.com/hooks/returns in /opt/clive/crooks-returns/.env and restart it.")
+    if not hook and sends is True:
+        return (" CROOKS Returns is sending its events, but CLIVE has no events secret to check them with: paste "
+                "what follows RETURNS_CLIVE_WEBHOOK_SECRET= as the events secret.")
+    return ""
 
 
 async def _wecom(values: dict[str, str], settings: Any) -> Outcome:

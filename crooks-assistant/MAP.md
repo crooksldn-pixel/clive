@@ -53,15 +53,15 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 <!-- map:parts -->
 | Package | Lines | State | Not loaded by the app | Owner doc |
 |---|---:|---|---|---|
-| (top-level modules) | 12,254 | live | `engineering_measures` | none |
+| (top-level modules) | 12,256 | live | `engineering_measures` | none |
 | `actions` | 3,051 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,478 | live | — | none |
 | `bench` | 2,298 | live | 5 modules | [`BENCH.md`](docs/BENCH.md) |
 | `builds` | 1,739 | live | — | none |
 | `capabilities` | 759 | live | `surface` | none |
-| `clients` | 6,274 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
-| `connections` | 1,997 | live | — | [`CONNECTIONS.md`](docs/CONNECTIONS.md) |
+| `clients` | 6,283 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
+| `connections` | 2,025 | live | — | [`CONNECTIONS.md`](docs/CONNECTIONS.md) |
 | `context` | 1,211 | live | — | none |
 | `customers` | 1,596 | live | — | none |
 | `digest` | 19,012 | live | 14 modules | [`KNOWLEDGE_DIGESTER_V1.md`](docs/product-memory/KNOWLEDGE_DIGESTER_V1.md) |
@@ -81,10 +81,10 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `release` | 2,088 | live | 9 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
 | `remote_engineering` | 2,506 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
 | `research` | 1,884 | live | — | [`RESEARCH.md`](docs/RESEARCH.md) |
-| `returns` | 818 | live | — | none |
-| `routes` | 8,215 | live | — | none |
+| `returns` | 1,084 | live | — | [`RETURNS_EVENTS.md`](docs/RETURNS_EVENTS.md) its events, DEC-077 |
+| `routes` | 8,293 | live | — | none |
 | `scenes` | 2,579 | off (`CLIVE_SCENES` off, default) | — | [`GENERATIVE_UI_V1.md`](docs/product-memory/GENERATIVE_UI_V1.md) |
-| `secrets` | 960 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) |
+| `secrets` | 965 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) |
 | `session` | 1,194 | live | — | none |
 | `skills` | 979 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
 | `speech` | 846 | live | — | none |
@@ -205,5 +205,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 4,303 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 4,306 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->

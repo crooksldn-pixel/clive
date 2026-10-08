@@ -72,6 +72,9 @@ KNOWN_KEYS = (
     # returns; the write key is sent only with an action the owner approved on its card.
     "crooks_returns_read_key",
     "crooks_returns_write_key",
+    # [returns-events] The secret CROOKS Returns signs the events it posts to /hooks/returns with
+    # (RETURNS_CLIVE_WEBHOOK_SECRET in its .env; app/returns/events.py). Read at each event.
+    "crooks_returns_hook_secret",
     # [messaging] George's own WeCom app (app/clients/wecom.py): its CorpID and AgentID (not secret,
     # shown on the Connections card), the app's Secret, a WeChat customer-service Secret when 微信客服
     # has one of its own, and the callback Token and EncodingAESKey that sign and seal what WeCom
