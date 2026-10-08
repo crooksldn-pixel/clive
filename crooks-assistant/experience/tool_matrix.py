@@ -86,6 +86,8 @@ SCREEN_CHANGERS: dict[str, str] = {
     "screen_video": "plays, pauses, mutes, skips or sets the volume of a screen's video",
     "screen_pair": "approves a newly named screen, which then leaves its pairing code",
     "close_screen": "closes what is on the owner's own screen and goes back to the orb",
+    # [focus, DEC-073]
+    "asked_for": "names what the owner asked to see, which chooses the cards beside the answer",
 }
 
 # Where a citation may come from.
@@ -566,6 +568,7 @@ def load() -> None:
     import app.families  # noqa: F401
     import app.people.tools  # noqa: F401
     import app.tools.analytics_tools  # noqa: F401
+    import app.tools.asked_for  # noqa: F401
     import app.tools.batch_tools  # noqa: F401
     import app.tools.close_screen  # noqa: F401
     import app.tools.display_tools  # noqa: F401

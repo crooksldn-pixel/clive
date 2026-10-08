@@ -206,6 +206,9 @@ def present(
     progressive hydration; a section in it says "Reading…" rather than claiming to be empty.
     """
     items: list[dict[str, Any]] = []
+    # [focus, DEC-073] Each card with the read that drew it: a list he asked for is named by its
+    # read (app/focus.py `_reads_named`). Held here, never on the card the tablet is sent.
+    drawn: list[tuple[dict[str, Any], ToolCall]] = []
     errors: dict[str, dict[str, Any]] = {}
     calls = _with_redraws(list(calls or []))
     capabilities = writes.get("capabilities") if isinstance(writes, dict) and isinstance(writes.get("capabilities"), dict) else {}
@@ -252,6 +255,7 @@ def present(
                 # Archive is the row action the list already carries, on the thread itself.
                 item["data"]["actions"] = _email_actions(item["data"], capabilities, row_actions.get("email_thread"))
             items.append(item)
+            drawn.append((item, call))
             if item["type"] == "order" and item["data"].get("detail"):
                 # What the order needs, read on the Mac, as its own card after the order.
                 attention = _attention_items(call.result)
@@ -285,10 +289,12 @@ def present(
     items = [i for i in items if i["type"] == "workspace"] + [i for i in items if i["type"] != "workspace"]
     if focus:
         # [flow, DEC-069] Only what the answer is about: the searches that found it stay off
-        # the glass and off the context stack.
-        from app.focus import answer_cards, records_asked_for
+        # the glass and off the context stack. [focus, DEC-073] What the model said he asked for
+        # (`asked_for`) decides first, when it names a card this turn drew.
+        from app.focus import answer_cards, asked_by_the_model, records_asked_for
 
-        items = answer_cards(items, focus_why, read_whole=read_whole, asked=records_asked_for(calls), before=before)
+        items = answer_cards(items, focus_why, read_whole=read_whole, asked=records_asked_for(calls), before=before,
+                             said=asked_by_the_model(calls), drawn=drawn)
     if session is not None:
         _remember(items, session)
         # §18, as a SWEEP rather than one renderer at a time. After `_remember`, which is

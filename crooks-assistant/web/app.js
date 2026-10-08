@@ -355,6 +355,8 @@ const DETAIL_WORDS = {
   show_again: ['Bringing back', 'what you had open'],
   // Round 12, the second pass: "close that", "put it away" (app/tools/close_screen.py).
   close_screen: ['Clearing', 'your screen'],
+  // [focus, DEC-073] The model naming what he asked to see, so the screen shows that (app/tools/asked_for.py).
+  asked_for: ['Choosing', 'what to show'],
   // [recording] CLIVE reading back what it drew and did (app/tools/interaction_tools.py).
   interaction_review: ['Looking back', 'at what you saw'],
   // CROOKS Returns (app/tools/returns_tools.py): reading returns, and an action prepared for his approval.

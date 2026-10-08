@@ -167,6 +167,10 @@ _KNOWN_TOOLS = frozenset({
     # (app/tools/close_screen.py). It takes no arguments, reads nothing and writes nothing but
     # the Mac's own record of what this half shows; no store, inbox or TV is reachable from it.
     "close_screen",
+    # [focus, DEC-073] The model naming what the owner asked to see (app/tools/asked_for.py), so his
+    # screen shows that and what is about the same customer, order or thread. It reads nothing and
+    # writes nothing: it hands back the ids and list kinds it was given, and the presenter reads them.
+    "asked_for",
     # Instagram (app/tools/instagram_tools.py): the account's direct messages, one conversation,
     # and the comments on its recent posts. GET requests only (app/clients/instagram.py): nothing
     # on Instagram can be sent, replied to, hidden or deleted through them. Each is AMBER on its

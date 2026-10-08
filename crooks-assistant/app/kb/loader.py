@@ -175,7 +175,8 @@ touched. Use it. Ask only when there are two candidates.
 - His screen keeps the record he is working on while you change it. Never say something is on \
 his screen unless a read drew it or it was already there. To put back what this conversation \
 showed before ("pull that up again", "show me the order again", "bring back the draft"), call \
-show_again; to take it away ("close that", "put it away"), call close_screen.
+show_again; to take it away ("close that", "put it away"), call close_screen. When he asks to \
+see something, name it with asked_for alongside your reads.
 - When he asks what is on his screen, why a screen is or is not showing something ("why aren't \
 you showing me bulk actions?" is about bulk actions), or to look at our interaction, call \
 interaction_review and answer from what it says was drawn and why, never from memory. Name the \

@@ -33,11 +33,39 @@ What it never sets aside, whatever the rule: an error (a failure is always said 
 adds those after this has run, so they cannot reach it), any change card (rule 1 keeps them
 all), and the tablet's bookkeeping. Nothing here reads, stages or invents: it only chooses among
 cards `present()` already built from what the tools returned.
+
+What he ASKED for comes before all three (DEC-073, his ruling 25 of 8 October): "asking to see
+todays orders and to show a specific order s different to asking to see a specific order and
+seeing the specific order + todays orders ... clive can infer but inferring needs stronger
+relation". When the model says what he asked to see (`asked_for`, app/tools/asked_for.py — the
+model knows what he asked; nothing here reads his words), the cards are chosen by `_as_asked`:
+
+- every card he asked for shows, a list and a record together ("today's orders and open 1940"). A
+  list is named by the read that drew it (`_reads_named`), never by its kind: naming today's
+  emails is not naming the "cap" search that found a customer's thread;
+- a card he did not ask for shows only when it is a record in its own right (never a search, a
+  list or a one-line find) about the same customer, order or thread as what he asked for or the
+  change being made: the same id, order number, email address or full name (`about`). A card
+  added for that carries it on to the next only by its ids and order numbers, never by an email
+  address or a name on it, and a thread is about its linked customer or else its first inbound
+  sender, never everyone who wrote on it (the review of DEC-073, note 3). That customer's tracking or Instagram message beside their email stays;
+  other people's emails today, and today's orders when he asked about one customer, do not;
+- beside a change, a customer's record he did not name is never added: "it showed [a customer]'s
+  total orders as a customer" was his 7 October complaint about the reply;
+- a change waiting for his hold still comes first, the records he had up still stay beside a
+  change to one of them, and errors are still never set aside.
+
+When the model says nothing, or names nothing this turn drew, the three rules above decide.
 """
 
 from __future__ import annotations
 
+import logging
+import re
+from dataclasses import dataclass
 from typing import Any
+
+log = logging.getLogger("crooks.focus")
 
 # The cards that are a change, or the thing a change is being made from: rule 1.
 TASK = frozenset({"confirmation", "batch_action", "variant_picker", "email_compose", "workspace"})
@@ -174,10 +202,389 @@ def _found_on_the_way(item: dict[str, Any], kept_orders: set[str]) -> bool:
     return False
 
 
+# ------------------------------------------------------------- what he asked for (DEC-073)
+
+ASKED = "asked"
+# The model's word for what he asked to see (app/tools/asked_for.py ASKED_TOOL).
+ASKED_TOOL = "asked_for"
+# The kind of list each card is, card by card: a list he asked for is not the subject of the records
+# on its rows. A "nearly fits" find (`order_match`) is a search's answer, not a list of orders.
+_LIST_OF = {
+    "order_list": "orders", "email_list": "emails", "customer_list": "customers",
+    "sales_summary": "numbers", "metric_group": "numbers", "ranking": "numbers", "table": "numbers",
+    "comparison": "numbers", "trend": "numbers", "variant_matrix": "products", "product": "products",
+    "inventory": "products",
+}
+# The cards drawn as one view of a list or one record, by their `view` (web/messages.js,
+# web/shipping.js, web/returns.js): the record's view, and the list kind every other view is.
+_ONE_VIEW = {"messages": ("thread", "messages"), "shipping": ("one", "shipments"), "returns": ("one", "returns")}
+
+_GID = re.compile(r"^gid://shopify/[a-z]+/([\w-]+)")
+# An order number as it is written: "1940", "#1940", "CROOKS-1940".
+_NUMBER = re.compile(r"^#?(?:[a-z]+-)?(\d{3,7})$")
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+# What a conversation is called when the app gave no name (app/messaging/contacts.py `name_for`):
+# a phrase about nobody in particular, never a person's name.
+_NOBODY = re.compile(r"^(?:someone on|a wecom member)\b")
+
+
+@dataclass(frozen=True)
+class Asked:
+    """What the model said he asked to see: records by id or number, and lists by the read that
+    drew them, as the read tool's name and the words named with it (`_words`)."""
+
+    records: frozenset[str]
+    lists: frozenset[tuple[str, frozenset[str]]]
+
+
+def asked_by_the_model(calls: Any) -> Asked | None:
+    """What the model said he asked for this turn (`asked_for`), from what the tool handed back —
+    or None when it said nothing. Read from the turn's calls, never from his words (MAP rule 7)."""
+    records: set[str] = set()
+    lists: set[tuple[str, frozenset[str]]] = set()
+    said = False
+    for call in calls or []:
+        result = getattr(call, "result", None)
+        if getattr(call, "name", "") != ASKED_TOOL or not getattr(call, "ok", False) or not isinstance(result, dict):
+            continue
+        said = True
+        records |= {_norm(r) for r in result.get("records") or [] if isinstance(r, str)}
+        for named in result.get("lists") or []:
+            name, _, words = str(named).strip().partition(" ") if isinstance(named, str) else ("", "", "")
+            if name:
+                lists.add((name, _words(words)))
+    return Asked(frozenset(records - {""}), frozenset(lists)) if said else None
+
+
+_WORD = re.compile(r"[\w@.+-]+")
+
+
+def _words(value: Any) -> frozenset[str]:
+    """Words compared without case or punctuation: "newer_than:1d" is newer_than and 1d."""
+    found = (word.strip(".-+") for word in _WORD.findall(str(value or "").lower()))
+    return frozenset(word for word in found if word)
+
+
+def _given(args: Any) -> frozenset[str]:
+    """The words a read was given: its text and number arguments, not their names or yes/no."""
+    out: set[str] = set()
+    for value in args.values() if isinstance(args, dict) else []:
+        for one in value if isinstance(value, list) else [value]:
+            if isinstance(one, (str, int, float)) and not isinstance(one, bool):
+                out |= _words(one)
+    return frozenset(out)
+
+
+def _reads_named(said: Asked, drawn: list[tuple[dict[str, Any], Any]]) -> list[Any]:
+    """The reads this turn that the lists `said` names, among the reads that drew a card (`drawn`:
+    each card with the call that drew it). A tool named bare is its one read, or, when it ran more
+    than once, its reads that were given no words. A tool named with words is the read of it that
+    shares them — whether it ran once or several times: the reads whose own words were all named
+    first, then the one sharing the most; and none when no read shares a word, or when two reads
+    given different words share them equally — a tie says neither (the same read made twice is one
+    read). A search the model ran on the way is never brought in by naming another read of the same
+    tool, nor by naming a read that never ran (the review of DEC-073, note 2, and its re-review,
+    notes R1 and R2)."""
+    calls: list[Any] = []
+    for _, call in drawn:
+        if not any(call is seen for seen in calls):
+            calls.append(call)
+    picked: list[Any] = []
+    for name, words in said.lists:
+        mine = [call for call in calls if getattr(call, "name", "") == name]
+        if not words:
+            picked.extend(mine if len(mine) == 1 else [call for call in mine if not _given(getattr(call, "args", None))])
+            continue
+        shared = [(call, own) for call, own in ((call, _given(getattr(call, "args", None))) for call in mine) if own & words]
+        pool = [(call, own) for call, own in shared if own <= words] or shared
+        best = max((len(own & words) for _, own in pool), default=0)
+        top = [(call, own) for call, own in pool if len(own & words) == best]
+        if len({own for _, own in top}) == 1:
+            picked.extend(call for call, _ in top)
+    return picked
+
+
+def _norm(value: Any) -> str:
+    """One id or order number however it was written: a gid's own id, an order's number."""
+    text = str(value or "").strip().lower()
+    found = _GID.match(text) or _NUMBER.match(text)
+    return found.group(1) if found else text
+
+
+# Titles, dropped before a name is counted: "Mr Khan" is one name, not two.
+_TITLES = frozenset({"mr", "mrs", "ms", "miss", "dr", "mx"})
+# Words that make a sender a desk rather than a person: "Customer Service", "Returns Team".
+_DESK = frozenset({
+    "customer", "customers", "service", "services", "support", "team", "care", "help", "helpdesk", "desk",
+    "sales", "orders", "info", "admin", "noreply", "notifications", "accounts", "billing", "returns",
+    "delivery", "enquiries", "shop", "store", "office",
+})
+
+
+def _name(value: Any) -> str:
+    """A person's full name as words ("priya raman"), from a name, a "Name <address>" or an
+    Instagram handle ("@priya.raman"): at least two words of two or more letters each, once titles
+    (Mr, Mrs, Ms, Miss, Dr, Mx) and single letters are dropped. "" for anything less — "Sam K",
+    "J. Smith", "Mr Khan" — which many people share; for a desk ("Customer Service"); and for
+    "someone on Instagram" (the review of DEC-073, note 4). A full name is the only evidence a
+    conversation carries of who it is with."""
+    text = re.sub(r"<[^>]*>", " ", str(value or "")).strip().lstrip("@")
+    words = re.findall(r"[^\W\d_]+", re.sub(r"[._-]+", " ", text).lower())
+    if _NOBODY.match(" ".join(words)) or _DESK & set(words):
+        return ""
+    named = [word for word in words if word not in _TITLES and len(word) >= 2]
+    return " ".join(named) if len(named) >= 2 else ""
+
+
+def list_kind(item: Any) -> str:
+    """The kind of list a card is, as `asked_for` names lists; "" for a card that is no list."""
+    kind, data = _kind(item), _data(item) if isinstance(item, dict) else {}
+    if kind in _ONE_VIEW:
+        one, word = _ONE_VIEW[kind]
+        return "" if data.get("view") == one else word
+    if kind == "summary_list":
+        return "customers" if str(data.get("task") or "") == "returning_customers" else "orders"
+    if kind == "working_set":
+        set_kind = str(data.get("kind") or "")
+        return next((word for word in ("orders", "emails", "customers") if word[:-1] in set_kind or word in set_kind), "")
+    return _LIST_OF.get(kind, "")
+
+
+def _rows(data: dict[str, Any], *names: str) -> list[dict[str, Any]]:
+    """The dict rows under these keys; a count or a string under one of them is no rows."""
+    if not isinstance(data, dict):
+        return []
+    return [row for name in names if isinstance(data.get(name), list) for row in data[name] if isinstance(row, dict)]
+
+
+def identity(item: Any) -> frozenset[str]:
+    """The ids and order numbers of the record a card IS — what `asked_for`'s records name. A
+    list is not the records on its rows: asking for #1940 is not asking for today's orders."""
+    from app import screen
+
+    kind, data = _kind(item), _data(item) if isinstance(item, dict) else {}
+    if not data or data.get("shell"):
+        return frozenset()
+    found: list[Any] = []
+    if kind == "order":
+        found = [data.get("order_id"), data.get("order_number")]
+    elif kind == "customer":
+        found = [data.get("customer_id")]
+    elif kind in ("email_thread", "reply_state", "email_draft"):
+        found = [data.get("thread_id"), data.get("draft_id")]
+    elif kind in COMPOSED:
+        # A workspace is its record and the records it holds: asked for the thread it took in, it
+        # is the card that thread is on now.
+        found = [data.get("ref"), *(re.findall(r"\d{3,7}", str(data.get("title") or ""))[-1:]), *screen.refs_on([item])]
+    elif kind == "objective":
+        found = [data.get("objective_id")]
+    elif kind in _ONE_VIEW and not list_kind(item):
+        thread = data.get("thread") if isinstance(data.get("thread"), dict) else {}
+        found = [thread.get("chat_id"), data.get("order_number")]
+        found += [row.get(k) for row in _rows(data, "shipments", "returns")
+                  for k in ("shipment_id", "return_id", "order_id", "order_number")]
+    elif kind in ("confirmation", "batch_action", "variant_picker", "email_compose", "workspace"):
+        found = [data.get("entity_ref"), data.get("thread_id"), data.get("order_id"), data.get("workspace_id")]
+    elif kind == "product":
+        found = [row.get("product_id") for row in _rows(data, "products")]
+    return frozenset(_norm(v) for v in found if isinstance(v, (str, int)) and str(v).strip()) - {""}
+
+
+def about(item: Any) -> frozenset[str]:
+    """Who and what a card is about, as marks two cards share when they are about the same
+    customer, order or thread: `id:` an order's, customer's, thread's or conversation's id, `n:`
+    an order number, `e:` an email address, `p:` a full name (`_name`). Read from the card alone:
+    an order's customer and the email about it, a thread's sender and the order it is linked to,
+    a conversation's name, a shipment's or a return's order."""
+    out: set[str] = set()
+    data = _data(item) if isinstance(item, dict) else {}
+
+    def ident(value: Any) -> None:
+        if isinstance(value, (str, int)) and str(value).strip():
+            out.add(f"id:{_norm(value)}")
+
+    def number(value: Any) -> None:
+        found = _NUMBER.match(str(value or "").strip().lower())
+        if found:
+            out.add(f"n:{found.group(1)}")
+
+    def emails(value: Any) -> None:
+        text = value.get("value") if isinstance(value, dict) else value
+        out.update(f"e:{a.lower()}" for a in _EMAIL.findall(str(text or "")))
+
+    def person(value: Any) -> None:
+        if _name(value):
+            out.add(f"p:{_name(value)}")
+
+    def record(row: Any) -> None:
+        """The fields every shape names a record by, on the card or one of its rows."""
+        if not isinstance(row, dict):
+            return
+        for field in ("order_id", "customer_id", "thread_id", "chat_id", "return_id", "shipment_id",
+                      "objective_id", "for", "entity_ref"):
+            ident(row.get(field))
+        number(row.get("order_number"))
+        for field in ("customer_email", "from_email", "to"):
+            emails(row.get(field))
+        for field in ("customer_name", "who"):
+            person(row.get(field))
+
+    kind = _kind(item)
+    record(data)
+    if kind in ("customer", "customer_list"):
+        emails(data.get("email"))
+        person(data.get("name"))
+    if kind == "email_thread":
+        # Who a thread is about: its linked customer, or else whoever wrote to us first — not every
+        # sender on it (somebody replying on his thread is not what he asked about). What we sent
+        # says who we are, not who they are.
+        linked = data.get("linked_customer") if isinstance(data.get("linked_customer"), dict) else {}
+        first = next((m for m in _rows(data, "messages") if not m.get("outbound")), {})
+        if linked.get("customer_id"):
+            record(linked)
+            person(linked.get("name"))
+        else:
+            emails(first.get("from_email"))
+            person(first.get("from"))
+        record(data.get("linked_order"))
+    history = data.get("history") if isinstance(data.get("history"), dict) else {}
+    record(history)
+    person(history.get("name"))
+    record(history.get("last_order"))
+    for row in _rows(history, "recent"):
+        record(row)
+    for block in (data.get("email"), data.get("related_email")):
+        for row in _rows(block if isinstance(block, dict) else {}, "threads"):
+            ident(row.get("thread_id"))
+    record(data.get("thread"))
+    for row in _rows(data, "threads", "shipments", "returns", "rows"):
+        record(row)
+    record(data.get("message"))
+    if kind in COMPOSED:
+        for ref in identity(item):
+            ident(ref)
+    return frozenset(out)
+
+
+def _ids_and_numbers(marks: frozenset[str]) -> frozenset[str]:
+    """What a card added for the subject carries on to the next: its ids and order numbers, never
+    an email address or a name on it — the order his email is linked to brings its tracking, not
+    its buyer's other emails (the review of DEC-073, note 3)."""
+    return frozenset(mark for mark in marks if mark.startswith(("id:", "n:")))
+
+
+def _addable(item: dict[str, Any], read_whole: frozenset[str] | None, *, beside_a_change: bool = False) -> bool:
+    """Whether a card he did not ask for may be added for being about the same subject: a record
+    in its own right — an order or a customer read in full, a thread, a conversation, a shipment,
+    a return, an objective. Never a search or a list, a one-line find, an empty answer, or a card
+    about no customer, order or thread (numbers, products). And never a customer's record beside
+    a change waiting for his hold (`beside_a_change`): that is the card of his 7 October line, "it
+    showed [a customer]'s total orders as a customer ... when all I wanted to see was the reply"
+    (the review of DEC-073, note 1). Their order, tracking and messages may still be added."""
+    kind, data = _kind(item), _data(item)
+    if data.get("empty") or data.get("shell") or kind in LISTINGS or kind == "summary_list":
+        return False
+    if beside_a_change and kind in ("customer", "customer_workspace"):
+        return False
+    if kind in ("order", "customer") or kind in COMPOSED:
+        return in_full(item, read_whole)
+    if kind == "messages":
+        return True                                  # one conversation, or all of them one person's
+    if kind in _ONE_VIEW:
+        return not list_kind(item)
+    return kind in ("email_thread", "reply_state", "email_draft", "objective")
+
+
+def _related(item: dict[str, Any], subject: set[str]) -> bool:
+    """Whether a card is about the subject. A card of several conversations is, only when every
+    one of them is: one person's messages, not the inbox of messages."""
+    data = _data(item)
+    if _kind(item) == "messages" and list_kind(item):
+        threads = _rows(data, "threads")
+        return bool(threads) and all(about({"data": t}) & subject for t in threads)
+    return bool(about(item) & subject)
+
+
+def _matches(item: dict[str, Any], said: Asked, named: list[Any], drawn: list[tuple[dict[str, Any], Any]]) -> bool:
+    """Whether he asked for this card: a record by its id or number, or a card a read he named
+    drew (an order's attention lines follow the order, not the read)."""
+    if identity(item) & said.records:
+        return True
+    if _kind(item) == "attention":
+        return False
+    call = next((call for card, call in drawn if card is item), None)
+    return call is not None and any(call is read for read in named)
+
+
+def _as_asked(cards: list[dict[str, Any]], said: Asked, *, read_whole: frozenset[str] | None,
+              before: list[dict[str, Any]] | None,
+              drawn: list[tuple[dict[str, Any], Any]] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | None:
+    """The cards by what he asked for (module docstring, DEC-073): (kept, added), or None when
+    the model named nothing this turn drew — then DEC-069's three rules decide."""
+    drawn = [pair for pair in drawn or [] if isinstance(pair, tuple) and len(pair) == 2]
+    named = _reads_named(said, drawn)
+    asked = [item for item in cards if _kind(item) not in ALWAYS and _matches(item, said, named, drawn)]
+    if not asked:
+        return None
+    changes = [item for item in cards if _kind(item) in TASK]
+    # The subject: what he asked for that is a record, and what is being changed. A list he asked
+    # for is not the subject of everything on its rows.
+    subject: set[str] = set()
+    for item in changes + [item for item in asked if not list_kind(item) and _kind(item) not in LISTINGS]:
+        subject |= about(item)
+    # What he did not ask for, added when it is about that subject — and then its ids and order
+    # numbers are part of it: the order his email is about brings that order's tracking.
+    added: list[dict[str, Any]] = []
+    grew = True
+    while grew:
+        grew = False
+        for item in cards:
+            if _among(item, asked + changes + added) or not _addable(item, read_whole, beside_a_change=bool(changes)):
+                continue
+            if _related(item, subject):
+                added.append(item)
+                subject |= _ids_and_numbers(about(item))
+                grew = True
+    # Beside a change, as rule 1 keeps them: a screen's remote, and the records he had up when the
+    # turn began, drawn again (their attention lines follow them below).
+    refs = {str(_data(item).get("entity_ref") or "") for item in changes} - {""}
+    his = his_screen(changes, before)
+    for item in cards:
+        if _among(item, asked + changes + added) or _kind(item) == "attention":
+            continue
+        if _kind(item) == "screen_remote" or _was_up(item, his):
+            added.append(item)
+    shown = asked + added
+    orders: set[str] = {_norm(ref) for ref in refs}
+    for item in shown:
+        if _kind(item) in ("order", "order_workspace"):
+            orders |= identity(item)
+    lines = [item for item in cards if _kind(item) == "attention" and _norm(_data(item).get("for")) in orders
+             and not _among(item, shown)]
+    # The change first (DEC-069), then what he asked for, then what is about the same subject:
+    # each in the order the turn drew it, an order's attention lines straight under the order.
+    kept = list(changes)
+    for group in (asked, added):
+        for item in [i for i in cards if _among(i, group) and not _among(i, kept)]:
+            kept.append(item)
+            mine = identity(item) if _kind(item) in ("order", "order_workspace") else frozenset()
+            kept.extend(line for line in lines if _norm(_data(line).get("for")) in mine and not _among(line, kept))
+    kept.extend(line for line in lines if not _among(line, kept))
+    kept.extend(item for item in cards if _kind(item) in ALWAYS and not _among(item, kept))
+    return kept, [item for item in kept if _among(item, added) or _among(item, lines)]
+
+
+def _among(item: dict[str, Any], cards: list[dict[str, Any]]) -> bool:
+    """Whether this very card (not an equal one) is among these."""
+    return any(item is card for card in cards)
+
+
 def answer_cards(items: list[dict[str, Any]], why: dict[str, Any] | None = None, *,
                  read_whole: frozenset[str] | None = None,
                  asked: frozenset[str] | None = None,
-                 before: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+                 before: list[dict[str, Any]] | None = None,
+                 said: Asked | None = None,
+                 drawn: list[tuple[dict[str, Any], Any]] | None = None) -> list[dict[str, Any]]:
     """The cards this answer is about, in the order `present()` built them, except that under
     rule 1 the change cards come first and what stays beside them follows. `why`, when given,
     is told which rule decided and the kinds of the cards set aside (for the interaction record:
@@ -185,8 +592,23 @@ def answer_cards(items: list[dict[str, Any]], why: dict[str, Any] | None = None,
     a workspace was composed (see `in_full`). `asked` is `records_asked_for` of the turn's
     calls: an order in it is never set aside as a find by rule 2. `before` is the half's screen
     as the turn found it: beside a change to one of its records, the records on it that this
-    turn drew again stay (rule 1, `his_screen`)."""
+    turn drew again stay (rule 1, `his_screen`). `said` is what the model said he asked for
+    (`asked_by_the_model`): when it names a card this turn drew, that decides (`_as_asked`), and
+    `why` is also told the kinds it added for being about the same subject. `drawn` is each card
+    with the call that drew it, which is how a list named by its read is found."""
     cards = [item for item in items or [] if isinstance(item, dict)]
+    chosen = None
+    if said is not None:
+        try:
+            chosen = _as_asked(cards, said, read_whole=read_whole, before=before, drawn=drawn)
+        except Exception as exc:  # noqa: BLE001 — never at the cost of the turn: DEC-069's rules decide
+            log.warning("what he asked for could not be chosen by: %s", type(exc).__name__)
+    if chosen is not None:
+        kept, added = chosen
+        if why is not None:
+            aside = [_kind(item) for item in cards if not _among(item, kept)]
+            why.update({"rule": ASKED, "set_aside": aside[:12], "added": [_kind(item) for item in added][:12]})
+        return kept
     if any(_kind(item) in TASK for item in cards):
         rule = CHANGE
         changes = [item for item in cards if _kind(item) in TASK]

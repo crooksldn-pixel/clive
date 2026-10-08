@@ -709,6 +709,9 @@ def _after_turn(record: InteractionRecord, *, session_id, turn_id, question, tra
         # as the searches that found them (app/focus.py). Card kinds only, never what was on them.
         why["focus"] = {"rule": str(focus["rule"])[:12],
                         "set_aside": [str(k)[:24] for k in (focus.get("set_aside") or [])][:12] or None}
+        if focus.get("added"):
+            # [focus, DEC-073] The kinds of card shown unasked for being about what he asked for.
+            why["focus"]["added"] = [str(k)[:24] for k in focus["added"]][:12]
     if any(str(item.get("type") or "") in _COMPOSED and not item.get("kept") for item in cards):
         composed = workspace_reason(used, session)
         if composed is not None:

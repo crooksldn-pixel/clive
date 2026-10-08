@@ -27,12 +27,13 @@ sentence reaches is what the model calls. Tests are read as syntax trees and nev
 here runs a tool, and nothing here can reach a mutation: the audit is a read of
 registries and of source text, so it is safe against a shop it may not touch.
 
-93 tools — 62 reads, 26 writes, 5 bulk.
+94 tools — 63 reads, 26 writes, 5 bulk.
 
 ## Tools
 
 | Tool | Tier | Registered | Routable | Directly tested | Auth scope | Read/write | Staging | Verification | Visible UI | Error UI | Golden scenario |
 |---|---|:-:|:-:|:-:|---|---|---|---|---|---|:-:|
+| `asked_for` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
 | `batch_email_archive` | AMBER | yes | — | yes | — | batch | one proposal per member, through gmail_thread_archive | each member proven by gmail_thread_archive | the change's own card | — | — |
 | `batch_email_drafts` | AMBER | yes | — | yes | — | batch | one proposal per member, through gmail_draft_new | each member proven by gmail_draft_new | the change's own card | — | — |
 | `batch_email_send` | RED | yes | — | yes | — | batch | one proposal per member, through gmail_send_new | each member proven by gmail_send_new | the change's own card | — | — |
@@ -131,6 +132,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 
 | Tool | Reached by | Called in tests | Reached in scenarios |
 |---|---|---|---|
+| `asked_for` | family:asked_for | test_asked_focus.py | — |
 | `batch_email_archive` | the model only | test_batch.py | — |
 | `batch_email_drafts` | the model only | test_batch.py | — |
 | `batch_email_send` | the model only | test_tool_boundary.py | — |
@@ -231,9 +233,9 @@ registries and of source text, so it is safe against a shop it may not touch.
 
 `commerce_capabilities`, `shopify_order_address`
 
-**no golden scenario reaches it (69)**
+**no golden scenario reaches it (70)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_draft_reply`, `gmail_find_in_email`, `gmail_read_thread`, `gmail_send_reply`, `gmail_thread_archive`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `interaction_review`, `message_contact`, `message_reply`, `message_thread`, `messages_recent`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `people_list`, `person_note`, `return_action`, `return_find`, `returns_open`, `returns_stats`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `shipment_find`, `shipment_tracking`, `shipments_open`, `shipping_events`, `shipping_label_buy`, `shipping_label_print`, `shipping_label_reprint`, `shopify_checkout_link_send`, `shopify_find_customer`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_note_append`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `show_again`, `skill_list`, `skill_read`, `submit_engineering_request`, `track_parcel`, `work_list`, `work_note`
+`asked_for`, `batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_capabilities`, `commerce_summary`, `engineering_status`, `gmail_compose_fill`, `gmail_draft_reply`, `gmail_find_in_email`, `gmail_read_thread`, `gmail_send_reply`, `gmail_thread_archive`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `interaction_review`, `message_contact`, `message_reply`, `message_thread`, `messages_recent`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `people_list`, `person_note`, `return_action`, `return_find`, `returns_open`, `returns_stats`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `shipment_find`, `shipment_tracking`, `shipments_open`, `shipping_events`, `shipping_label_buy`, `shipping_label_print`, `shipping_label_reprint`, `shopify_checkout_link_send`, `shopify_find_customer`, `shopify_fulfillment_tracking_set`, `shopify_inventory`, `shopify_inventory_adjust`, `shopify_order_address`, `shopify_order_cancel`, `shopify_order_fulfil`, `shopify_order_note_append`, `shopify_order_shipping_address_set`, `shopify_order_tags_add`, `shopify_order_tags_remove`, `shopify_product_info`, `shopify_refund_create`, `shopify_sales_summary`, `show_again`, `skill_list`, `skill_read`, `submit_engineering_request`, `track_parcel`, `work_list`, `work_note`
 
 **nothing but the model reaches it (5)**
 
@@ -243,9 +245,9 @@ registries and of source text, so it is safe against a shop it may not touch.
 
 `close_screen`, `commerce_capabilities`, `engineering_status`, `gmail_find_in_email`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `interaction_review`, `message_contact`, `people_list`, `person_note`, `screen_list`, `screen_off`, `screen_pair`, `screen_show`, `screen_video`, `shopify_discount_check`, `shopify_order_address`, `skill_list`, `skill_read`, `track_parcel`, `work_list`, `work_note`
 
-**no named error card (41)**
+**no named error card (42)**
 
-`batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_aggregate`, `commerce_capabilities`, `commerce_query`, `commerce_summary`, `email_query`, `engineering_status`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `interaction_review`, `inventory_query`, `message_contact`, `message_reply`, `message_thread`, `messages_recent`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `people_list`, `person_note`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `show_again`, `skill_list`, `skill_read`, `submit_engineering_request`, `track_parcel`, `work_list`, `work_note`
+`asked_for`, `batch_email_archive`, `batch_email_drafts`, `batch_email_send`, `batch_order_tags_add`, `batch_order_tags_remove`, `close_screen`, `commerce_aggregate`, `commerce_capabilities`, `commerce_query`, `commerce_summary`, `email_query`, `engineering_status`, `instagram_comments`, `instagram_inbox`, `instagram_thread`, `interaction_review`, `inventory_query`, `message_contact`, `message_reply`, `message_thread`, `messages_recent`, `objective_list`, `objective_note`, `objective_open`, `objective_show`, `people_list`, `person_note`, `screen_list`, `screen_off`, `screen_pair`, `screen_play`, `screen_remote`, `screen_show`, `screen_video`, `show_again`, `skill_list`, `skill_read`, `submit_engineering_request`, `track_parcel`, `work_list`, `work_note`
 
 ## The rules the audit itself keeps
 
@@ -254,7 +256,7 @@ registries and of source text, so it is safe against a shop it may not touch.
   staged, held for the owner's gesture or proven by a re-read, and it is what the read
   scheduler may run. `app/reads/scheduler.py::assert_reads_only` refuses a plan naming a
   write tool, in every lane, and `app/reads/dedupe.py` refuses to hold, join or reuse one.
-  No read changes the shop or the inbox. These reads change what a screen shows: `screen_show` (puts a packing slip, an objective or a list on a screen, or clears it); `screen_off` (takes everything, or one pane, off a screen); `screen_play` (puts a video on a screen); `screen_video` (plays, pauses, mutes, skips or sets the volume of a screen's video); `screen_pair` (approves a newly named screen, which then leaves its pairing code); `close_screen` (closes what is on the owner's own screen and goes back to the orb).
+  No read changes the shop or the inbox. These reads change what a screen shows: `screen_show` (puts a packing slip, an objective or a list on a screen, or clears it); `screen_off` (takes everything, or one pane, off a screen); `screen_play` (puts a video on a screen); `screen_video` (plays, pauses, mutes, skips or sets the volume of a screen's video); `screen_pair` (approves a newly named screen, which then leaves its pairing code); `close_screen` (closes what is on the owner's own screen and goes back to the orb); `asked_for` (names what the owner asked to see, which chooses the cards beside the answer).
 - No arbitrary GraphQL from the model: the model reaches only the tools above, each
   of which builds its own document.
 - Speculation may never write or commit: a prediction's tool is checked against the

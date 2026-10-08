@@ -4,7 +4,7 @@ Read this before any code. The hand-written parts change only with a decision. T
 
 <!-- map:live -->
 **Production:** `b33ccbc2`, deployed 2026-10-03 17:48 UTC ([`reports/deploy-b33ccbc2.md`](reports/deploy-b33ccbc2.md)). **Before it:** `cac1a9e7` 2026-10-03 13:01 UTC ([`reports/deploy-cac1a9e7.md`](reports/deploy-cac1a9e7.md)); `66d3e05d` 2026-10-02 13:49 UTC ([`reports/deploy-66d3e05d.md`](reports/deploy-66d3e05d.md)).
-**Tools:** 93 tools — 62 reads, 26 writes, 5 bulk ([`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md)).
+**Tools:** 94 tools — 63 reads, 26 writes, 5 bulk ([`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md)).
 <!-- /map:live -->
 
 ## Where we started (7 September 2026)
@@ -39,7 +39,8 @@ routes/turn.py → session/ · system prompt (kb/loader: who CLIVE is, his voice
   → every tool call, through a PreToolUse hook: tools/gate.py GREEN/AMBER/RED · tools/authority.py owner or staff
   → tools/dispatch.py → reads: Shopify, Gmail, analytics, Instagram, Ship24, the screens
                       → writes: STAGED as a proposal in actions/engine.py, never executed here
-  → presentation.py + focus.py (only what the answer is about; words, not cards, while it works: DEC-069)
+  → presentation.py + focus.py (only what the answer is about; words, not cards, while it works: DEC-069;
+    what he asked for, named by the model's asked_for, and only what is about the same subject: DEC-073)
     + screen.py → cards (web/ui.js draws them); a scene too only if CLIVE_SCENES is on
   → speech/speakable → POST /speak → the ElevenLabs voice
 he holds the card → POST /actions/{id}/arm → /commit → identity.py (Tailscale whois) → re-read → execute → verify → actions.jsonl
@@ -53,7 +54,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 <!-- map:parts -->
 | Package | Lines | State | Not loaded by the app | Owner doc |
 |---|---:|---|---|---|
-| (top-level modules) | 12,258 | live | `engineering_measures` | none |
+| (top-level modules) | 12,687 | live | `engineering_measures` | none |
 | `actions` | 3,051 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,478 | live | — | none |
@@ -68,12 +69,12 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `displays` | 2,363 | live | — | none |
 | `engineering_bridge` | 742 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
 | `families` | 10,193 | live | — | none |
-| `kb` | 445 | live | — | [`OWNER_DECISIONS_2026-10-01.md`](docs/product-memory/OWNER_DECISIONS_2026-10-01.md) the voice spec |
+| `kb` | 446 | live | — | [`OWNER_DECISIONS_2026-10-01.md`](docs/product-memory/OWNER_DECISIONS_2026-10-01.md) the voice spec |
 | `logging` | 195 | live | — | none |
 | `memory` | 586 | live | — | none |
 | `messaging` | 2,402 | live | — | [`WECOM.md`](docs/WECOM.md) WeCom; WhatsApp in WHATSAPP.md, Instagram DMs in INSTAGRAM_DMS.md |
 | `objectives` | 3,316 | live | — | none |
-| `observability` | 10,786 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
+| `observability` | 10,789 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
 | `orchestrator` | 11,442 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
 | `people` | 777 | live | — | [`TEAM.md`](docs/TEAM.md) |
 | `providers` | 1,029 | live | `anthropic_api` | none |
@@ -89,7 +90,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `skills` | 979 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
 | `speech` | 846 | live | — | none |
 | `support` | 1,693 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
-| `tools` | 15,135 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
+| `tools` | 15,252 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
 | `work` | 1,374 | live | — | [`TEAM.md`](docs/TEAM.md) |
 <!-- /map:parts -->
 
@@ -197,7 +198,7 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 - **What is live now:** [`CURRENT_TRUTH.md`](docs/product-memory/CURRENT_TRUTH.md).
 - **Every decision and its reason:** [`DECISIONS.md`](docs/product-memory/DECISIONS.md). Add a new decision; never edit an old one's text.
 - **Deploy, the server, secrets and rollback:** [`docs/DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md). Each deploy's record is in `reports/`.
-- **Deploys done by a program instead (built, switched off, DEC-067; George approves each one on the Builds screen and it starts at once, DEC-072):** [`docs/RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md).
+- **Deploys done by a program instead (built, switched off, DEC-067):** [`docs/RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md).
 - **Doctrine:** [`PRODUCT_BRAIN.md`](docs/product-memory/PRODUCT_BRAIN.md), and the product-memory [index](docs/product-memory/README.md).
 - **The team, keys and recording:** [`TEAM.md`](docs/TEAM.md), [`CONNECTIONS.md`](docs/CONNECTIONS.md) and [`RECORDING.md`](docs/RECORDING.md).
 - **The build loop:** [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md). Its live status is on the branch `clive/control/worker-01-status`.
@@ -206,5 +207,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 4,328 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 4,332 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->
