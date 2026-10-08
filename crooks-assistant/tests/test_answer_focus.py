@@ -199,7 +199,8 @@ def test_beside_a_change_its_own_records_attention_and_a_screens_remote_stay():
     listing = {"type": "order_list", "data": {"orders": [{"order_id": "gid://shopify/Order/1940"}]}}
     why: dict = {}
     kept = focus.answer_cards([listing, order, mine, theirs, remote, change], why)
-    assert kept == [mine, remote, change], [c["type"] for c in kept]
+    # The change first, then what stays beside it (8 October, flow's second review, note 1).
+    assert kept == [change, mine, remote], [c["type"] for c in kept]
     assert why == {"rule": "change", "set_aside": ["order_list", "order", "attention"]}
     # A change to nothing named keeps no attention line at all.
     assert focus.answer_cards([mine, {"type": "confirmation", "data": {"proposal_id": "p2"}}])[0]["type"] == "confirmation"
@@ -343,7 +344,7 @@ def test_beside_a_change_to_a_record_he_had_up_the_records_he_had_up_stay():
     note = {"type": "confirmation", "data": {"proposal_id": "p1", "entity_ref": "gid://shopify/Order/1940"}}
     why: dict = {}
     kept = focus.answer_cards([searched, someone, other, again, lines, note], why, before=before)
-    assert kept == [again, lines, note], [c["type"] for c in kept]
+    assert kept == [note, again, lines], [c["type"] for c in kept]
     assert why == {"rule": "change", "set_aside": ["email_list", "customer", "order"]}
 
     # The reply to a customer he did not have up is the reply alone, whatever was on his screen.
@@ -410,6 +411,32 @@ async def test_a_note_on_one_of_two_orders_up_keeps_the_other_through_the_hold(w
         assert sorted(str(c["data"].get("order_number")) for c in shown if c.get("type") == "order") == ["#1938", "#1940"]
     finally:
         put_back()
+
+
+async def test_a_change_that_replaces_the_screen_is_still_the_card_on_top(world):
+    """Review note 1 of flow's second review (8 October): with #1938 and #1940 up, "add a note to
+    1940 saying fragile, it goes with 1939" names an order the screen does not show (and the note
+    does not carry it), so the answer replaces his screen (round 12) and `carry` hands back rule
+    1's cards as they are. The model read #1939 and #1940 on the way. #1940 was up, so its full
+    card stays beside the note; DEC-069 says the change card stays on top, so the note he holds
+    comes first, above #1940's card, not under it where a 601x889 tablet hides it."""
+    sid = "note-names-1939"
+    await _side_by_side(world, sid)
+    staged = await world.ask("add a note to 1940 saying fragile, it goes with 1939",
+                             ("shopify_find_order", {"query": "1939"}),
+                             ("shopify_order_detail", {"order_id": data.BY_NAME["#1939"].order_id}),
+                             ("shopify_order_detail", {"order_id": data.BY_NAME["#1940"].order_id}),
+                             ("shopify_order_note_append", {"order_id": data.BY_NAME["#1940"].order_id,
+                                                            "note": "Fragile"}),
+                             session_id=sid, reply="The note is ready on #1940's card.")
+    assert all(c.get("ok") for c in staged.raw["tool_calls"]), staged.raw["tool_calls"]
+    kinds = [c["type"] for c in _cards(staged)]
+    assert "confirmation" in kinds, kinds
+    assert kinds[0] == "confirmation", kinds
+    # The screen was replaced (1939 was named and is not up): #1938 is gone, and #1940, the record
+    # the note is to, is under the card it is being changed by.
+    assert _numbers(staged) == ["#1940"], kinds
+    assert kinds.index("order") > kinds.index("confirmation"), kinds
 
 
 async def test_the_reply_with_another_order_up_is_still_the_reply_alone(world):
