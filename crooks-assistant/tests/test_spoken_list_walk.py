@@ -10,7 +10,9 @@ cards the answer drew and never from the words.
 The checker branch held the same walk from the other side (review note N2, 8 October): the Orders
 icon's walk as it works, Home from a spoken list, and Next then Back on a spoken list, which it
 marked as a STRICT expected failure until flow's fix landed. The browser gates hold the same walk
-(scripts/browser/experience.js and touch.js).
+(scripts/browser/experience.js and touch.js). The waiting queue asked for out loud ("which customers
+need replying to?") had the same gap, which the review of the checker branch noted: its rows
+open, but Next did nothing, while the Inbox icon's queue walks. It is held the same way.
 
 Scripted through the real gate and presenters on the golden world (`experience/harness.py`): what
 is held is what the Mac does with the calls, not that Claude would make them.
@@ -26,6 +28,8 @@ from app import progressive
 from experience.harness import harness, todays_orders_reads
 
 LIST = "show me today's orders"
+QUEUE = "which customers need replying to?"
+INBOX = ("email_query", {"days": 30})
 DEFECT = ("KNOWN DEFECT spoken-list-walk: a list asked for out loud opens no walk "
           "(checker defect 1; flow is fixing it). Passing? Delete this mark.")
 
@@ -100,3 +104,20 @@ async def test_a_list_asked_for_out_loud_walks_with_next_and_back(world):
     back = await world.touch("navigation.back", session_id="walk-said")
     assert "order_list" in back.surface_types, back.surface_types
     assert ((back.raw.get("changed") or {}).get("workspace") or {}).get("kind") == "list", back.raw.get("changed")
+
+
+async def test_the_inbox_icon_s_queue_walks_with_next(world):
+    await world.touch("open.area", area="email", session_id="walk-inbox")
+    step = await world.touch("workflow.next", session_id="walk-inbox")
+    assert step.raw.get("ok") is True and re.search(r"\b1 of \d+\b", str(step.raw.get("answer"))), step.raw
+    assert "email_thread" in step.surface_types, step.surface_types
+
+
+@pytest.mark.xfail(strict=True, reason=DEFECT)
+async def test_the_waiting_queue_asked_for_out_loud_walks_with_next(world):
+    said = await world.ask(QUEUE, INBOX, reply="Three people are waiting.", session_id="walk-queue")
+    rows = said.data("email_list").get("threads") or []
+    step = await world.touch("workflow.next", session_id="walk-queue")
+    assert step.raw.get("ok") is True, step.raw
+    assert re.search(rf"\b1 of {len(rows)}\b", str(step.raw.get("answer"))), (step.raw.get("answer"), len(rows))
+    assert "email_thread" in step.surface_types, step.surface_types
