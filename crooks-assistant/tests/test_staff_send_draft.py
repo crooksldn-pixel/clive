@@ -219,6 +219,22 @@ async def test_a_draft_changed_after_the_card_is_not_sent(engine, box):
     assert result.code == "stale" and not [c for c in box.calls if c[0] == "send_draft"]
 
 
+async def test_a_draft_readdressed_after_mias_card_is_not_sent(engine, box):
+    """The review of 8 October (note 2): only the draft's To was changed in Gmail after Mia's card
+    was drawn — the same words, the same Message-ID — and her hold sent it to someone else. Her card
+    said Daniel; the hold now reports stale and sends nothing."""
+    draft_id = georges_draft(box)
+    talk = Talk("m8")
+    talk.session.issue(THREAD)
+    with as_staff("mia-fixture"):
+        _, proposal = await call(talk, "gmail_send_draft", thread_id=THREAD)
+        assert facts_of(proposal, talk.session)["To"] == "Daniel Stub <daniel@example.com>"
+        box.drafts[draft_id]["parsed"]["to"] = "Someone Else <someone.else@example.org>"
+        result = await held(engine, proposal, MIA)
+    assert result.code == "stale" and result.spoken == "That draft changed since this was prepared. Nothing was sent."
+    assert not [c for c in box.calls if c[0] in ("send_draft", "send")] and draft_id in box.drafts
+
+
 async def test_two_drafts_in_a_thread_are_never_guessed_between(engine, box):
     georges_draft(box)
     georges_draft(box, body="A second go.")

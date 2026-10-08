@@ -193,6 +193,15 @@ def _sha(text: str) -> str:
     return hashlib.sha256(str(text or "").replace("\r\n", "\n").strip().encode("utf-8")).hexdigest()[:16]
 
 
+def _draft_sha(body: str, headers: dict[str, str]) -> str:
+    """[inbox, the review of 8 October] What a waiting draft would send, as one fingerprint: who it
+    goes to (To, Cc, Bcc), its subject and its words. The card printed all of them; a change to any
+    after it was drawn — a draft readdressed in Gmail with the same words — makes the hold stale and
+    nothing is sent. Header whitespace is not a change (Gmail refolds long headers)."""
+    said = [" ".join(str(headers.get(name) or "").split()) for name in ("to", "cc", "bcc", "subject")]
+    return _sha("\n".join([*said, str(body or "")]))
+
+
 # ----------------------------------------------------------------------- the thread
 
 
@@ -269,10 +278,11 @@ async def _observe_thread(execution: dict) -> Observed:
     ctx = await thread_context(str(execution["thread_id"]))
     fingerprint = _thread_fingerprint(ctx, str(execution["token"]), str(execution.get("sent_message_id") or ""), str(execution.get("drafted_message_id") or ""))
     if execution.get("draft_id"):
-        # The card printed the draft's text; the draft must still be that text when it goes.
+        # The card printed the draft's recipients, subject and text; the draft must still be all of
+        # them when it goes.
         try:
-            body, _ = await _draft_text(str(execution["draft_id"]))
-            fingerprint["draft_sha"] = _sha(body)
+            body, headers = await _draft_text(str(execution["draft_id"]))
+            fingerprint["draft_sha"] = _draft_sha(body, headers)
         except (ToolError, GmailError):
             fingerprint["draft_sha"] = ""
     return Observed(fingerprint=fingerprint, entity=None)
@@ -311,8 +321,8 @@ async def _observe_token(execution: dict) -> Observed:
     fingerprint = await _token_state(str(execution["token"]), str(execution.get("sent_message_id") or ""), str(execution.get("drafted_draft_id") or ""))
     if execution.get("draft_id"):
         try:
-            body, _ = await _draft_text(str(execution["draft_id"]))
-            fingerprint["draft_sha"] = _sha(body)
+            body, headers = await _draft_text(str(execution["draft_id"]))
+            fingerprint["draft_sha"] = _draft_sha(body, headers)
         except (ToolError, GmailError):
             fingerprint["draft_sha"] = ""
     return Observed(fingerprint=fingerprint, entity=None)
@@ -560,7 +570,7 @@ async def _the_one_draft(ctx: dict[str, Any], where: str) -> dict[str, Any]:
         raise ToolError("That draft has no single recipient; fix it in Gmail or say what the email should say.")
     return {
         "draft_id": listed[0]["draft_id"], "token": token, "body": body, "to": to_email.strip().lower(), "to_name": to_name.strip(),
-        "subject": " ".join(str(headers.get("subject") or "").split()), "sha": _sha(body),
+        "subject": " ".join(str(headers.get("subject") or "").split()), "sha": _draft_sha(body, headers),
     }
 
 
@@ -1067,7 +1077,7 @@ async def gmail_send_new(subject: str = "", body: str = "", order_id: str = "", 
             token = headers.get("message-id", "").strip()
             to_name, to_email = parseaddr(headers.get("to", ""))
             if _MESSAGE_ID.match(token) and not headers.get("in-reply-to") and to_email.strip().lower() == customer["email"] and not headers.get("cc") and not headers.get("bcc"):
-                ours.append({"draft_id": d["draft_id"], "token": token, "subject": " ".join(str(headers.get("subject") or "").split()), "body": body_text, "to_name": to_name.strip(), "sha": _sha(body_text)})
+                ours.append({"draft_id": d["draft_id"], "token": token, "subject": " ".join(str(headers.get("subject") or "").split()), "body": body_text, "to_name": to_name.strip(), "sha": _draft_sha(body_text, headers)})
         who = customer.get("name") or customer["email"]
         if not ours:
             raise ToolError(f"There is no draft waiting for {who}. Say what the email should say.")
