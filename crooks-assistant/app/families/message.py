@@ -17,7 +17,8 @@ that card can post, `message.stage`, in two forms:
   the gate holds every id to this conversation, the tool re-reads the thread and checks the new
   words (the orders they name, the links in them), and a new card takes the old one's place. So
   the hold always sends exactly the words on the card, and a refused edit leaves nothing that
-  could send the old ones.
+  could send the old ones. A second edit that arrives while the first is still being prepared
+  is answered "busy" (the tablet sends it again once the first has its answer).
 * the OTHER WAY — `key` and `other=1`: the same words prepared as the write the card names as
   its alternative (an email's "Save as draft", a draft's "Send instead"), then the card withdrawn.
 * AGAIN — `key` and `again=1`, offered only on the card of a send that provably did not go (the
@@ -55,6 +56,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import time
 from collections import OrderedDict
 from typing import Any
 
@@ -88,6 +90,16 @@ MAX_TRACKED = 256
 _BEGAN_AS: OrderedDict[str, str] = OrderedDict()
 MAX_LINKED = 1024
 
+# The edit of each message being prepared right now, and since when. Between an edit's withdrawal
+# of the waiting card and the new card existing, nothing waits under that message, so a second
+# edit arriving then is told to wait ("busy") rather than that the message has gone. Cleared by
+# the route once the preparing is over (`prepared`); a mark it never cleared stops counting after
+# PREPARING_S, which is longer than any tool may take.
+_PREPARING: dict[str, tuple[int, float]] = {}
+PREPARING_S = 60.0
+BUSY = "The words typed before these are still being prepared. These follow them."
+_clock = time.monotonic
+
 
 def began_as(proposal: Any) -> str:
     """The id of the card this message began as: the proposal's own, unless it was prepared from
@@ -110,14 +122,29 @@ def key_of(proposal: Any) -> str:
 
 def prepared(staging: dict[str, Any], proposal_id: str) -> None:
     """What `POST /command` tells this module once it has prepared what a finger on the card asked
-    for (`app/routes/command.py`), whether or not a card came of it: the new card, when there is
-    one, is the same message as the card it was prepared from."""
+    for (`app/routes/command.py`), whether or not a card came of it: an edit is no longer being
+    prepared, and the new card, when there is one, is the same message as the card it was
+    prepared from."""
+    key, seq = str(staging.get("message_key") or ""), staging.get("edit_seq")
+    if seq and _PREPARING.get(key, (None, 0.0))[0] == seq:
+        del _PREPARING[key]
     origin = str(staging.get("message_origin") or "")
     if proposal_id and origin:
         _BEGAN_AS.pop(proposal_id, None)
         _BEGAN_AS[proposal_id] = origin
         while len(_BEGAN_AS) > MAX_LINKED:
             _BEGAN_AS.popitem(last=False)
+
+
+def preparing(key: str) -> bool:
+    """Whether an edit of this message is being prepared right now."""
+    held = _PREPARING.get(key)
+    if held is None:
+        return False
+    if _clock() - held[1] > PREPARING_S:
+        del _PREPARING[key]
+        return False
+    return True
 
 
 def words_of(proposal: Any) -> dict[str, Any]:
@@ -267,6 +294,9 @@ def _message_stage(ctx: CommandCtx) -> Outcome:
     proposal = waiting(ctx.session, ctx.branch, key) if key.startswith("msg_") else None
     message = message_of(proposal) if proposal is not None else None
     if proposal is None or message is None:
+        if key.startswith("msg_") and preparing(key):
+            # The edit before this one is between withdrawing the old card and making the new.
+            return Outcome.refused("busy", BUSY)
         return _no_message()
     if ctx.arg("other"):
         return _the_other_way(proposal, message, key)
@@ -316,9 +346,11 @@ def _edit(ctx: CommandCtx, proposal: Any, message: dict[str, Any], key: str) -> 
     # Withdrawn FIRST: whatever the preparing of the new words finds, the old words can no longer
     # be the ones a hold sends (the card on the glass now shows the new ones).
     ctx.runtime.actions.revoke_ids([str(proposal.proposal_id)], EDITED)
+    seq = _next_edit(key)
+    _PREPARING[key] = (seq, _clock())
     return Outcome(answer="", changed={"stage": {
         "tool": str(proposal.tool_name), "args": args, "revoke": [], "what": "the message as edited",
-        "message_key": key, "message_origin": began_as(proposal), "edit_seq": _next_edit(key),
+        "message_key": key, "message_origin": began_as(proposal), "edit_seq": seq,
     }})
 
 

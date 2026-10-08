@@ -207,6 +207,31 @@ async def test_an_edit_overtaken_by_a_later_one_is_not_the_card(box, engine, ses
     assert message_card.others_waiting(session, key, keep=last.proposal_id) == []
 
 
+async def test_an_edit_while_the_one_before_it_is_being_prepared_is_told_to_wait(box, engine, session, monkeypatch):
+    """Review note 2, the Mac's half: the first edit withdraws the waiting card before the new one
+    exists, and a second edit in that gap was told "That message is no longer waiting". It is
+    told "busy" now, and goes through once the first has been prepared."""
+    _, first = await stage(session, "gmail_send_reply", thread_id=THREAD, body=BODY)
+    key = message_card.key_of(first)
+    a = _press(engine, session, compose_id=key, field="body", value="Hi Daniel, it went out today.")
+    assert a.ok and message_card.preparing(key)
+    b = _press(engine, session, compose_id=key, field="body", value=EDITED)
+    assert not b.ok and b.code == "busy", (b.code, b.detail)
+    _, after_a = await _prepare(session, a)
+    assert not message_card.preparing(key), "the route said it was prepared"
+    b = _press(engine, session, compose_id=key, field="body", value=EDITED)
+    assert b.ok, b.detail
+    _, after_b = await _prepare(session, b)
+    assert after_a.status is ActionStatus.REVOKED and after_b.status is ActionStatus.PENDING
+    assert message_card.key_of(after_b) == key and _card(after_b, session)["message"]["body"] == EDITED
+    # A mark the route never cleared (a preparing that died) stops counting.
+    assert _press(engine, session, compose_id=key, field="body", value="Hi Daniel, one more go.").ok
+    assert message_card.preparing(key)
+    later = message_card._clock() + message_card.PREPARING_S + 1
+    monkeypatch.setattr(message_card, "_clock", lambda: later)
+    assert not message_card.preparing(key)
+
+
 async def test_two_messages_to_one_thread_are_two_cards_and_an_edit_of_one_leaves_the_other(box, engine, session):
     """Review note 7: two cards on the same thread — two replies he asked for — are two messages.
     They used to share a key (conversation, thread), so an edit of the first re-prepared the
@@ -370,5 +395,14 @@ NODE = shutil.which("node") or ("/opt/node22/bin/node" if Path("/opt/node22/bin/
 @pytest.mark.skipif(NODE is None, reason="node is not installed here")
 def test_the_message_card_under_node():
     result = subprocess.run([NODE, "--test", str(ROOT / "tests" / "web" / "message-card.test.js")],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed here")
+def test_typing_on_the_message_card_one_edit_at_a_time_under_node():
+    """Review note 2, the tablet's half (web/app.js): a second edit waits for the first's answer,
+    a timer that outlived a redraw finds the field that replaced its own, and "busy" goes again."""
+    result = subprocess.run([NODE, "--test", str(ROOT / "tests" / "web" / "message-edit.test.js")],
                             capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
