@@ -1,4 +1,4 @@
-"""The message card: one card, its words editable on it, one hold that sends (DEC-068).
+"""The message card: one card, its words editable on it, one hold that sends (DEC-069).
 
 George, 7 October 2026: "why do I have to click save draft and then say send it and then it pulls
 up a send it screen to send." A message he asks for is now one card. These hold it end to end:

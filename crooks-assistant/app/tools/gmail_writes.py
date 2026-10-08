@@ -675,14 +675,14 @@ def _present_email(proposal) -> dict:
         "summary": "", "body": str(s.get("body") or ""), "facts": facts,
         "detail": "Sends now. It cannot be unsent." if sending else "Saved in Gmail drafts; nothing is sent until you say so.",
         "done_title": ("Reply sent" if s.get("in_reply_to") else "Email sent") if sending else "Draft saved",
-        # [flow, DEC-068] The message card: the email as it would leave, its words editable on
+        # [flow, DEC-069] The message card: the email as it would leave, its words editable on
         # the card, and the one gesture that sends it (app/presentation.py `_message_block`).
         "message": _message_words(proposal, s, sending=bool(sending)),
         **({"confirm_label": "Hold, then tap to send"} if sending else {}),
     }
 
 
-# [flow, DEC-068] Which tool the same words are prepared as instead: the quiet second control on
+# [flow, DEC-069] Which tool the same words are prepared as instead: the quiet second control on
 # the message card. A send offers to keep it as a draft; a draft offers to send it instead.
 _OTHER_WAY = {
     "gmail_send_reply": ("gmail_draft_reply", "Save as draft"),

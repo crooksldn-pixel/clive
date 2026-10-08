@@ -821,7 +821,7 @@ async def test_the_whole_sentence_is_one_request_and_ends_ready_to_confirm(shop)
     facts = {f["label"]: f["value"] for f in data["facts"]}
     assert facts["Address"] == "as on CROOKS-2101: 3 Mill Lane, Bray, SL6 2AB" and facts["Made from"] == "order CROOKS-2101"
     assert data["blocked"] == "" and next(a for a in data["actions"] if a["id"] == "prepare")["enabled"] is True
-    # DEC-068 (7 Oct): only what the answer is about. Until then the order that proved who it is
+    # DEC-069 (7 Oct): only what the answer is about. Until then the order that proved who it is
     # for sat under the new one (`[:2] == ["workspace", "order"]`); it was the search that found
     # him, and the new order's own facts name it ("Made from").
     assert [i["type"] for i in body["ui"] if i["type"] != "context_stack"] == ["workspace"], \

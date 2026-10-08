@@ -1,4 +1,4 @@
-/* Typing on the message card, one edit at a time (web/app.js, DEC-068; review of 8 October,
+/* Typing on the message card, one edit at a time (web/app.js, DEC-069; review of 8 October,
  * note 2), run under Node (node --test tests/web/message-edit.test.js; the Python side is
  * tests/test_message_card.py, which runs this file).
  *

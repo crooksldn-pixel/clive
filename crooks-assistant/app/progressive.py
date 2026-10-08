@@ -14,7 +14,7 @@ arrive together however fast the reads were.
 
 This module is the other half: a workspace that exists from the first moment and fills in.
 
-**Since 7 October 2026 (DEC-068) a turn's workspace is QUIET.** The owner, that day: "if you
+**Since 7 October 2026 (DEC-069) a turn's workspace is QUIET.** The owner, that day: "if you
 ask a question, sometimes you'll get shown irrelevant screens that just happened during a
 search process" — the customer's order count, somebody else's email, today's threads and
 today's orders, when all he wanted was the reply to that customer. So `POST /turn` begins its workspace with
@@ -284,7 +284,7 @@ class Workspace:
     actionable_ms: float | None = None
     complete_ms: float | None = None
     finished: bool = False
-    # [flow, 7 Oct — DEC-068] A turn's workspace is QUIET: while CLIVE works the owner sees
+    # [flow, 7 Oct — DEC-069] A turn's workspace is QUIET: while CLIVE works the owner sees
     # progress words only, and nothing a read found reaches the glass until the answer says
     # what it is about. The sections still keep their states (what is being read, what has
     # landed), but no shell, no header and no read's card is staged before `complete`.
@@ -477,7 +477,7 @@ class Workspace:
         return patches + self._record(self.ledger.stage([shell_item(kind)], at_ms=now))
 
     def landed(self, tool: str) -> None:
-        """A read came back on a quiet workspace (DEC-068): its section is no longer being read.
+        """A read came back on a quiet workspace (DEC-069): its section is no longer being read.
         Nothing is staged and no count is claimed — the card it drew may not be the answer."""
         section = self.section(SHELL_OF_TOOL.get(str(tool or ""), ""))
         if section is not None and section.state in (WAITING, LOADING):
@@ -510,7 +510,7 @@ class Workspace:
         now = self.at_ms()
         self._observe(list(items))
         if self.quiet:
-            # A search in progress never takes the screen (DEC-068): the section knows it has
+            # A search in progress never takes the screen (DEC-069): the section knows it has
             # landed, and the card waits for the answer to say whether it is what it is about.
             return []
         patches = self._plan_now(now)
@@ -681,7 +681,7 @@ def begin(session_id: str, *, turn_id: str = "", branch_id: str = "",
     shell holds is named by its sections as each read starts (`starting`); nothing guesses
     from the words what is coming.
 
-    `quiet` (what `POST /turn` asks for since DEC-068): nothing reaches the glass until the
+    `quiet` (what `POST /turn` asks for since DEC-069): nothing reaches the glass until the
     turn's own answer is reconciled in `complete` — the owner sees progress words, then only
     what the answer is about."""
     workspace = Workspace(
@@ -846,7 +846,7 @@ def observe(session: Any, name: str, result: Any) -> None:
         if workspace is None or workspace.finished or not isinstance(result, dict):
             return
         if workspace.quiet:
-            # Nothing of it goes on the glass before the answer (DEC-068), so it is not shaped:
+            # Nothing of it goes on the glass before the answer (DEC-069), so it is not shaped:
             # its section only learns that the read came back.
             workspace.landed(str(name))
             return

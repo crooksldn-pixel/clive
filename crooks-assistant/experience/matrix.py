@@ -99,7 +99,7 @@ STAGES: dict[str, tuple[str, ...]] = {
     "address.stage": ("shopify_order_shipping_address_set",),
     "compose.stage": ("gmail_draft_new", "gmail_send_new", "gmail_draft_reply", "gmail_send_reply"),
     "draft.send_instead": ("gmail_send_new", "gmail_send_reply"),
-    # [flow, DEC-068] The message card (app/families/message.py): an edit prepares the same write
+    # [flow, DEC-069] The message card (app/families/message.py): an edit prepares the same write
     # again with the words changed; the other way prepares the email as a send or a draft.
     "message.stage": ("gmail_draft_new", "gmail_send_new", "gmail_draft_reply", "gmail_send_reply"),
     "discount.stage": ("shopify_discount_create",),

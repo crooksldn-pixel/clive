@@ -10,7 +10,7 @@ the owner could read arrived while the turn was still running, not with it.
 until the last read landed, and the owner saying the system "waits and then dumps a large
 chunk".
 
-7 October 2026 (DEC-068) reversed the half of this that put a read's cards on the glass while
+7 October 2026 (DEC-069) reversed the half of this that put a read's cards on the glass while
 the turn ran. The owner: "sometimes you'll get shown irrelevant screens that just happened
 during a search process" — so a turn's workspace is QUIET, the tablet says what CLIVE is doing
 in words while it works, and the cards come with the answer and are only what it is about.
@@ -92,7 +92,7 @@ async def slow(monkeypatch):
 
 
 async def test_no_card_reaches_the_glass_while_the_turn_is_still_running(slow):
-    """The assertion is on the ORDER OF EVENTS, not the end state. DEC-068 (7 Oct) turned it
+    """The assertion is on the ORDER OF EVENTS, not the end state. DEC-069 (7 Oct) turned it
     round: while the reads run the poll carries what CLIVE is doing, in words, and no card at
     all; the order's card arrives with the answer. (Until 7 Oct this asserted the opposite —
     a readable card on the glass before /turn answered — as
@@ -134,7 +134,7 @@ async def test_the_turn_reports_the_four_numbers_the_brief_asks_for(slow):
         assert name in performance
     assert performance["time_to_visible_shell"] <= performance["time_to_first_meaningful_fact"]
     assert performance["time_to_first_meaningful_fact"] <= performance["time_to_complete_workspace"]
-    # DEC-068: nothing the owner can act on reaches the glass before the answer does, however
+    # DEC-069: nothing the owner can act on reaches the glass before the answer does, however
     # slow this turn's customer read is. (Until 7 Oct: `<`, the screen useful before complete.)
     assert performance["time_to_first_actionable_surface"] == performance["time_to_complete_workspace"]
 
@@ -144,7 +144,7 @@ async def test_the_four_numbers_are_held_and_not_merely_reported(slow):
 
     Measured on this turn, whose customer read is deliberately half a second. Until 7 Oct the
     identity had to be on the glass within 50 ms and something actionable within half the
-    turn; DEC-068 holds the opposite — the words say what CLIVE is doing while it reads, and
+    turn; DEC-069 holds the opposite — the words say what CLIVE is doing while it reads, and
     the identity, the first fact and the first surface are the answer's, at the same moment.
     """
     body = (await slow.post("/turn", json={"text": "show me order 1938", "session_id": "prog"})).json()
@@ -159,7 +159,7 @@ async def test_the_four_numbers_are_held_and_not_merely_reported(slow):
 
 async def test_the_identical_card_is_not_drawn_twice_and_the_repeat_is_counted(slow):
     """D-13 through the whole stack. Until 7 Oct the order was read progressively and
-    presented again at the end, and the second render was counted, not drawn. DEC-068: nothing
+    presented again at the end, and the second render was counted, not drawn. DEC-069: nothing
     is staged while the reads run, so every card of the answer is drawn exactly once and there
     is no repeat to suppress."""
     body = (await slow.post("/turn", json={"text": "show me order 1938", "session_id": "prog"})).json()
@@ -201,11 +201,11 @@ async def test_the_turn_log_keeps_the_shape_of_the_patches_and_not_their_content
     assert any("item" in p for p in body["workspace"]["patches"])
     logged = json.loads(slow.runtime.turnlog.path.read_text(encoding="utf-8").strip().splitlines()[-1])["workspace"]
     assert all(isinstance(p, str) and ":" in p for p in logged["patches"]), logged["patches"]
-    # (Until 7 Oct `renders["suppressed"] >= 1`. DEC-068 stages nothing before the answer, so the
+    # (Until 7 Oct `renders["suppressed"] >= 1`. DEC-069 stages nothing before the answer, so the
     # value this moved to is exactly 0, as the response itself says above. The counts are a
     # Counter, which leaves a zero out, so an absent key is that 0.)
     assert logged["renders"].get("suppressed", 0) == 0 and logged["timings_ms"]["time_to_visible_shell"] is not None
-    # A separate check, new with DEC-068: the answer's own card was drawn.
+    # A separate check, new with DEC-069: the answer's own card was drawn.
     assert logged["renders"]["drawn"] >= 1
     # And nothing a card said reaches the file through this key.
     assert "order_number" not in json.dumps(logged)

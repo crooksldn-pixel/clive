@@ -329,7 +329,7 @@ const DETAIL_WORDS = {
   objective_show: ['Reading', 'the objective'], objective_note: ['Updating', 'the objective'],
   // Changing the inbox
   gmail_draft_reply: ['Drafting', 'the reply', true], gmail_draft_new: ['Drafting', 'a new message', true],
-  // [flow, DEC-068] These PREPARE the card he sends with his hold: nothing is sent while they run.
+  // [flow, DEC-069] These PREPARE the card he sends with his hold: nothing is sent while they run.
   gmail_send_reply: ['Writing', 'the reply', true], gmail_send_new: ['Writing', 'the email', true],
   gmail_thread_archive: ['Archiving', 'the thread', true],
   // Several at once. These STAGE a batch; the change itself goes through the confirmation
@@ -4842,7 +4842,7 @@ function replaceComposeCard(oldNode, items) {
   return fresh;
 }
 
-// [flow, DEC-068] A message card takes ONE edit at a time (review of 8 Oct, note 2). While an
+// [flow, DEC-069] A message card takes ONE edit at a time (review of 8 Oct, note 2). While an
 // edit is on its way to the Mac, a later keystroke's edit waits here — the card's key and the
 // field's NAME, never the words — and goes once the first has its answer, from the field as it
 // then is, so what is sent is the latest. Two in flight let the second's answer land on a card
@@ -4919,7 +4919,7 @@ async function postFieldChange(control, card, composeId, name, tries) {
   // workspace line — a message about the screen, printed for something that happened inside
   // one control, 788px from the thumb that typed it.
   if (!answered.ok) {
-    // [flow, DEC-068] On a message card: an edit a later one overtook is not a fault (the later
+    // [flow, DEC-069] On a message card: an edit a later one overtook is not a fault (the later
     // one is the card); "busy" is the edit before it still being prepared, so it goes again;
     // any other refusal leaves the card saying it is not ready to send.
     if (String(answered.code || '') === 'superseded') return false;
@@ -4929,7 +4929,7 @@ async function postFieldChange(control, card, composeId, name, tries) {
     return false;
   }
   settleWithdrawn(answered);
-  // [flow, DEC-068] A message card as it is on the glass now: one redrawn while this was on its
+  // [flow, DEC-069] A message card as it is on the glass now: one redrawn while this was on its
   // way (a sibling settling, the page restoring its deck) is replaced where it now stands. Only
   // a message card, which has one edit in flight at a time, so this answer is the newest.
   const moved = card && !card.parentNode && card.dataset && card.dataset.message;

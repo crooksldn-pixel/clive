@@ -671,7 +671,7 @@ def after_turn(*, session_id: str, turn_id: str, question: str, transcript: dict
                focus: dict[str, Any] | None = None) -> None:
     """One turn, written down: called by /turn once its screen is decided. Never raises, and
     with no record installed it is one check. `focus` is which rule chose the answer's cards
-    and the kinds it set aside (app/focus.py, DEC-068)."""
+    and the kinds it set aside (app/focus.py, DEC-069)."""
     record = _current
     if record is None:
         return
@@ -705,7 +705,7 @@ def _after_turn(record: InteractionRecord, *, session_id, turn_id, question, tra
     why = decision(ui=cards, screen_state=screen_state, carry=carry, calls=calls, card_sources=drawn_by,
                    error_kind=error_kind, abandoned=abandoned, claim=claim, withheld=withheld, scene=scene)
     if isinstance(focus, dict) and focus.get("rule"):
-        # [flow, DEC-068] Which rule chose the answer's cards, and the kinds of card it set aside
+        # [flow, DEC-069] Which rule chose the answer's cards, and the kinds of card it set aside
         # as the searches that found them (app/focus.py). Card kinds only, never what was on them.
         why["focus"] = {"rule": str(focus["rule"])[:12],
                         "set_aside": [str(k)[:24] for k in (focus.get("set_aside") or [])][:12] or None}

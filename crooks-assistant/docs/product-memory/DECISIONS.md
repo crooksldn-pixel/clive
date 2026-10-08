@@ -1120,7 +1120,7 @@ CLIVE connects to it as the brief's section 6 says, and only through its `/api/v
 
 ---
 
-## DEC-068 — From the question to the action: progress words while CLIVE works, then only what the answer is about; a message is one card and one hold
+## DEC-069 — From the question to the action: progress words while CLIVE works, then only what the answer is about; a message is one card and one hold
 
 **Date:** 2026-10-07 (built on the night of 7–8 October, branch `claude/n2-flow`)
 **Status:** ACTIVE

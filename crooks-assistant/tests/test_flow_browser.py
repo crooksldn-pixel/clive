@@ -1,4 +1,4 @@
-"""From the question to the action, in a real browser at a phone's and the tablet's sizes (DEC-068).
+"""From the question to the action, in a real browser at a phone's and the tablet's sizes (DEC-069).
 
 `scripts/browser/flow.js` drives the page against the real backend on the golden world and checks
 what George sees when he asks for a reply: words saying what CLIVE is doing while it works and no

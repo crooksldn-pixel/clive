@@ -1630,7 +1630,7 @@
     const live = supported && status === 'pending' && Boolean(d.proposal_id) && !blocked;
     const label = live ? text(interaction.label, gestureLabel(kind)) : (blocked ? blockedLabel(blocked.code) : (supported ? settledLabel(status) : 'Needs a newer app build'));
     const surface = buildSurface(kind, label, text(interaction.target), live ? 'arming' : (blocked ? 'unavailable' : (supported ? status : 'unsupported')), live);
-    // [flow, DEC-068] A message — an email today, WeCom/WhatsApp/Instagram next — is the message
+    // [flow, DEC-069] A message — an email today, WeCom/WhatsApp/Instagram next — is the message
     // card: who it goes to, its words editable here, and this one gesture that sends it.
     const message = d.message && typeof d.message === 'object' ? d.message : null;
     const typing = { node: null };
@@ -1665,7 +1665,7 @@
     ], Object.assign({ className: `tier-${risk} kind-${kind}${message ? ' is-message' : ''}` }, opts));
     node.dataset.proposal = text(d.proposal_id);
     node.dataset.ref = text(d.entity_ref);
-    // [flow, DEC-068] While words typed on the card are on their way to the Mac, the gesture waits:
+    // [flow, DEC-069] While words typed on the card are on their way to the Mac, the gesture waits:
     // the hold only ever sends the words the Mac has prepared, which are the words on the card.
     let gestureOpts = opts;
     if (message) {
@@ -1694,7 +1694,7 @@
     return decline || other ? h('div', { class: 'action-foot' }, [meta, other || null, decline]) : meta;
   }
 
-  // ---- [flow, DEC-068] the message card's own parts (app/families/message.py has the contract).
+  // ---- [flow, DEC-069] the message card's own parts (app/families/message.py has the contract).
   // The fields are the composer's own (`field`): a keystroke posts the card's opaque key, the
   // field's NAME and the characters to `message.stage`, after the same quiet, and the Mac prepares
   // the message again and answers with the card, which takes this one's place. Nothing here is an
@@ -2169,7 +2169,7 @@
       againButton(d.again),
     ], opts);
   }
-  // [flow, DEC-068] A message send that provably did not go offers its words again, as a new card
+  // [flow, DEC-069] A message send that provably did not go offers its words again, as a new card
   // to hold: one quiet button naming the message command and the card's opaque key, nothing else.
   function againButton(again) {
     const a = again && typeof again === 'object' ? again : null;
@@ -4100,7 +4100,7 @@
     // The email workspace's own seams: a proven archive applied to the deck on screen, and
     // the unsaved-typing store a redraw must not delete (web/app.js, tests/web/email.test.js).
     settleThread, clearFieldDrafts, ageFieldDrafts, fieldDraft, FIELD_DRAFT_TTL_MS,
-    // [flow, DEC-068] The message card: an edit the Mac would not take (web/app.js).
+    // [flow, DEC-069] The message card: an edit the Mac would not take (web/app.js).
     messageRefused,
   };
 });

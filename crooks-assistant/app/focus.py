@@ -1,4 +1,4 @@
-"""What the answer is about — and only that — on the screen (DEC-068, 7 October 2026).
+"""What the answer is about — and only that — on the screen (DEC-069, 7 October 2026).
 
 George, 7 October: "today I asked for the email reply to [a customer] and it showed [a customer]'s
 total orders as a customer, then some random email from someone else, today's email threads and

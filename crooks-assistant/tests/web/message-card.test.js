@@ -1,4 +1,4 @@
-/* The message card (web/ui.js `messageBlock`, DEC-068, 7 October 2026).
+/* The message card (web/ui.js `messageBlock`, DEC-069, 7 October 2026).
  *
  * George: "why do I have to click save draft and then say send it and then it pulls up a send it
  * screen to send." A message is one card: who it goes to, its words — editable on the card — and

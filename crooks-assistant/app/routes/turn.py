@@ -319,7 +319,7 @@ async def _turn(request: Request, runtime, live, branch, *, text: str | None, au
     # `working`: the branch counts turns actually in flight, so WORKING on a chip is a fact
     # and not a note left behind by a turn that died.
     branch.begin_turn("working it out")
-    # The workspace starts NOW, and QUIET (DEC-068, 7 Oct): a search in progress never takes the
+    # The workspace starts NOW, and QUIET (DEC-069, 7 Oct): a search in progress never takes the
     # screen. While the reads run the tablet's /state poll carries what CLIVE is doing, in
     # words; the cards come with the answer, and only what the answer is about (app/focus.py).
     progressive.begin(session_id, turn_id=turn_id, branch_id=branch.branch_id, quiet=True)
@@ -1559,7 +1559,7 @@ async def _hold_to_the_screen(answer: str, ui: list, *, session, branch, calls, 
     if showing and not missing:
         return answer, ui, None
     if any(item.get("type") in focus.TASK for item in showing):
-        # [flow, DEC-068] A change waiting for him IS the screen (app/focus.py rule 1). A claim
+        # [flow, DEC-069] A change waiting for him IS the screen (app/focus.py rule 1). A claim
         # naming a record beside it is taken out, never answered by drawing that record in the
         # change card's place: the card he has to hold is not swapped for one he did not ask for.
         kept = claims.without_the_claim(answer).removesuffix(claims.NOT_ON_SCREEN).strip()
@@ -1589,7 +1589,7 @@ async def _hold_to_the_screen(answer: str, ui: list, *, session, branch, calls, 
     return claims.without_the_claim(answer), ui, claims.screen_claim(corrected=True, named=sorted(missing | (said - on_it)))
 
 
-#: [flow, DEC-068] What an answer that was only a claim says instead, when the screen is the
+#: [flow, DEC-069] What an answer that was only a claim says instead, when the screen is the
 #: change waiting for him: true, because the change card is on it.
 READY_ON_SCREEN = "It's ready on your screen."
 
@@ -1996,7 +1996,7 @@ async def _answer(
     scene = None
     # [recording] Which rule of app/screen.py decided the screen, for the interaction record.
     carry_why: list[str] = []
-    # [flow, DEC-068] Which rule chose the answer's cards out of everything the turn read
+    # [flow, DEC-069] Which rule chose the answer's cards out of everything the turn read
     # (app/focus.py), for the interaction record.
     focus_why: dict[str, Any] = {}
     # The records the model read, kept where a tap finds them, BEFORE the cards are drawn: a
@@ -2008,7 +2008,7 @@ async def _answer(
     if not abandoned:
         # What the screen shows beside the answer: cards chosen from the tool results, never
         # from the prose. See app/presentation.py for the vocabulary and the bounds. Only what
-        # the answer is about (DEC-068): a change wins, a record read in full wins over the
+        # the answer is about (DEC-069): a change wins, a record read in full wins over the
         # searches that found it, and an error is never set aside.
         ui = present([c for c in (calls or []) if getattr(c, "proposal_id", None) not in withheld] if withheld else calls,
                      session=session, error_kind=error_kind, writes=rail, focus=True, focus_why=focus_why)

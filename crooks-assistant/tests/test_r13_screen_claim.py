@@ -150,7 +150,7 @@ async def test_a_change_staged_by_an_answer_replaced_while_its_claim_is_read_is_
     withdrawn, never shown, and nothing reaches the shop."""
     sid = "late-change"
     reached, release = await _held_claim(desk, monkeypatch, sid)
-    # DEC-068 (7 Oct): a change waiting for him IS the screen, so a claim beside it is taken out
+    # DEC-069 (7 Oct): a change waiting for him IS the screen, so a claim beside it is taken out
     # and the shop is never read to draw the record it names — that read is no longer where this
     # answer waits. Until 7 Oct the wait was the claim's read (`reached`); the same window is now
     # held open in the answer itself, after the note is prepared and before the words come back.
@@ -179,7 +179,7 @@ async def test_a_change_staged_by_an_answer_replaced_while_its_claim_is_read_is_
 
 
 async def test_a_claim_beside_a_change_waiting_for_him_is_taken_out_and_the_change_stays_the_screen(desk, monkeypatch):
-    """DEC-068: the note on #1940 is prepared and the answer says "Order 1938 is on your screen".
+    """DEC-069: the note on #1940 is prepared and the answer says "Order 1938 is on your screen".
     The change card is what he has to hold, so it stays the screen: #1938 is not read and not drawn
     in its place, the false sentence is not spoken, and the note is still waiting."""
     sid = "claim-beside-change"
