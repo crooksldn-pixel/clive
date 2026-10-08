@@ -14,6 +14,9 @@ What it promises:
   (app/tools/engineering_tools.py), staged on his conversation exactly as a tap stages any change
   (app/routes/command.py `_stage_change`) — and nothing is filed until he holds its card. Park and
   Reject prepare nothing.
+- The build loop's inbox is in CLIVE's public repository, so a filed request carries what to build
+  in CLIVE's words and never the research's own: not its quote, not its file name. It names the
+  research record and the proposal by id, and they stay on the server (review note 6, 8 Oct).
 - A proposal that repeats earlier research is not asked again: it is shown under the one it repeats.
 """
 
@@ -204,12 +207,14 @@ async def _filed(request_id: str) -> str:
 
 
 def requested_outcome(record: dict[str, Any], p: dict[str, Any], the_map=None) -> str:
-    """What the build request asks for, in words a builder can act on, from the frozen proposal."""
+    """What the build request asks for, in words a builder can act on, from the frozen proposal. It is
+    filed in the public repository, so the research's own words (its quote, its file name) stay in
+    CLIVE's private record, which the request names by id."""
     day = datetime.now(UTC).strftime("%-d %b %Y")
     cites = ", ".join(_cite(the_map, k)["label"] for k in p.get("cites") or []) or "nothing in the map"
-    lines = [f"From research George gave CLIVE (“{record.get('name')}”), adopted by him on the Builds screen on {day}.",
-             f"What to build: {p.get('title')}.", f"What the research recommends: {p.get('says')}",
-             f"In its words: “{p.get('quote')}”"]
+    lines = [f"From research George gave CLIVE, adopted by him on the Builds screen on {day}. The research's own words "
+             f"stay in CLIVE's private research record ({record.get('id')}, proposal {p.get('id')}).",
+             f"What to build: {p.get('title')}.", f"What the research recommends, in CLIVE's words: {p.get('says')}"]
     view = VERDICT_WORDS.get(p.get("verdict"), "")
     if p.get("verdict") == "adopt":
         lines.append(f"CLIVE's view: adopt. {p.get('reason')} (cites {cites})")

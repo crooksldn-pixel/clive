@@ -48,7 +48,7 @@ Each file can be up to 25 MB. A ChatGPT data export that holds more than 25 chat
    - what building it would touch.
 
    You have three answers, and CLIVE's view is marked:
-   - **Adopt** prepares a build request for the build loop (worker-01) through the same filing path as asking CLIVE to build something (`submit_engineering_request`). Its card comes up in the conversation, and **nothing is filed until you hold it**. If the card has gone, **Prepare the build request again** brings it back.
+   - **Adopt** prepares a build request for the build loop (worker-01) through the same filing path as asking CLIVE to build something (`submit_engineering_request`). Its card comes up in the conversation, and **nothing is filed until you hold it**. Once you do, the request goes to the build loop's inbox in CLIVE's repository, which is **public**; the Adopt answer says so before you pick it. If the card has gone, **Prepare the build request again** brings it back.
    - **Park** keeps it with your research for later. Nothing is built.
    - **Reject** marks it rejected. It stays in the record.
 
@@ -65,7 +65,7 @@ Everything stays on the server, in `crooks-assistant/.state/research/`, which gi
 | `quarantine/` and `digests/` | The digester's copy and its store. |
 | `documents/` | One record per document: how it stands and the proposals made from it. |
 
-A build request is the one thing that leaves the server, and only when you hold its card. It holds the recommendation in CLIVE's words and its quote, scrubbed of contact details, on the build loop's inbox branch.
+A build request is the one thing that leaves the server, and only when you hold its card. It goes to the build loop's inbox branch in `crooksldn-pixel/clive`, which is **public**. It holds what the row showed you, in CLIVE's words: the title, what the research recommends, CLIVE's view and what it rests on, the parts it would touch, and "Done when", scrubbed of contact details. The research's own words never go with it: not the quote, not the file's name. The request names the research record and the proposal by id (`doc-…`, `research:…`), and those stay here.
 
 ## What the server needs
 

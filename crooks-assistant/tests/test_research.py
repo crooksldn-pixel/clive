@@ -652,8 +652,9 @@ async def test_adopting_files_a_build_request_only_when_he_holds_its_card(resear
     request = json.loads(content)
     assert request["title"] == adopted["title"]
     assert request["allowed_paths"][0] == "crooks-assistant/web/connections.js"
-    assert "From research George gave CLIVE (“test-research-note.md”)" in request["requested_outcome"]
+    assert f"CLIVE's private research record ({record['id']}, proposal {adopted['id']})" in request["requested_outcome"]
     assert "CLIVE's view: adopt." in request["requested_outcome"]
+    assert adopted["quote"] not in content and NAME not in content, "the research's own words never reach the public inbox"
     assert request["acceptance_criteria"][0] == "Each Connections card says when its key was last checked."
 
     armed, code = engine.arm(proposal.proposal_id, session.session_id)
@@ -667,6 +668,21 @@ async def test_adopting_files_a_build_request_only_when_he_holds_its_card(resear
     monkeypatch.setattr(section, "_filed_cache", {})
     state = await section._build_state(research.get(record["id"]), adopted)
     assert state["state"] == "filed"
+
+
+def test_a_filed_request_leaves_the_research_words_behind_and_he_is_told_where_it_goes(research, ledger):
+    """Review note 6: the build loop's inbox is in CLIVE's public repository. The request carries what to build
+    in CLIVE's words and points to the private record by id; the quote and the file's name stay on the
+    server; and the Adopt answer says where the request goes before he picks it."""
+    (record,) = research.documents()
+    for p in record["proposals"]:
+        outcome = section.requested_outcome(record, p)
+        assert p["quote"] not in outcome and NAME not in outcome and "test-research-note" not in outcome
+        assert f"({record['id']}, proposal {p['id']})" in outcome and p["title"] in outcome and p["says"] in outcome
+    payload = asyncio.run(section.current(research, ledger))
+    (adopt,) = [a for a in payload["groups"][0]["proposals"][0]["answers"] if a["key"] == "adopt"]
+    assert "Nothing is filed until you hold its card" in adopt["then"]
+    assert "CLIVE's public repository" in adopt["then"] and "never the research's own" in adopt["then"]
 
 
 def test_an_adoption_with_nothing_to_build_says_so_and_prepares_nothing(research):

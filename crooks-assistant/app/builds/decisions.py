@@ -105,7 +105,9 @@ ANSWERS: dict[str, tuple[Answer, ...]] = {
     ),
     # [research] Adopting prepares the build request on a card; nothing is filed until he holds it.
     RESEARCH: (
-        Answer("adopt", "Adopt", "Prepares a build request for the build loop. Nothing is filed until you hold its card.",
+        # The loop's inbox is in the public repository (review note 6, 8 Oct): he is told before he adopts.
+        Answer("adopt", "Adopt", "Prepares a build request for the build loop. Nothing is filed until you hold its card; "
+               "then it goes to CLIVE's public repository, in CLIVE's words, never the research's own.",
                OwnerDecision.APPROVED, ReasonCode.ACCEPTED_AS_PROPOSED),
         Answer("park", "Park", "Kept with your research for later. Nothing is built.",
                OwnerDecision.DEFERRED, ReasonCode.NOT_NOW),
