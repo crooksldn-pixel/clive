@@ -26,7 +26,10 @@ When:
     for a campaign saved as drafts to be sent over a slow week, short enough that Drafts does not
     fill with CLIVE's leftovers. CLIVE looks every SWEEP_EVERY_S, while changes are switched on, and
     deletes those itself (`sweep`). It changes nothing anyone else wrote and nothing that leaves the
-    building, which is why it needs no card.
+    building, which is why it needs no card — and it never takes a draft a card waiting for its
+    gesture names. Each one deleted is written in the action ledger (ids and a count, nothing else),
+    and George is told once, plainly, at the end of his next answer: "CLIVE cleared N of its unused
+    drafts." (the review of 8 October, note 3).
 Each deletion is proven by reading back — Gmail's 404 for the draft, and nothing else — and recorded
 here with when and why; one that cannot be proven (any other answer, a 403 included) stays waiting,
 is said as not confirmed, and is looked at again on the next look.
@@ -67,6 +70,9 @@ WAITING, SENT, DELETED, KEPT, GONE = "waiting", "sent", "deleted", "kept", "gone
 # with something other than the 404 that proves the draft gone — a 403, a 400 — so whether it went is
 # not known (the review of 8 October, note 5).
 UNCONFIRMED = "unconfirmed"
+# Nor this: a draft a card waiting for its gesture (or in flight) names — the one it sends, or one it
+# says it replaces. CLIVE's own clock never takes it away (the review of 8 October, note 3).
+ON_A_CARD = "on_a_card"
 
 _path: Path | None = None
 _lock = threading.RLock()
@@ -104,7 +110,9 @@ def _load() -> dict[str, Any]:
         log.warning("CLIVE's record of its drafts could not be read; nothing is tidied until it can")
         raise
     drafts = data.get("drafts") if isinstance(data, dict) else None
-    return {"version": 1, "drafts": drafts if isinstance(drafts, dict) else {}, "swept_at": data.get("swept_at") if isinstance(data, dict) else None}
+    untold = data.get("untold") if isinstance(data, dict) else 0
+    return {"version": 1, "drafts": drafts if isinstance(drafts, dict) else {}, "swept_at": data.get("swept_at") if isinstance(data, dict) else None,
+            "untold": untold if isinstance(untold, int) and untold > 0 else 0}
 
 
 def _save(data: dict[str, Any]) -> None:
@@ -286,11 +294,12 @@ async def _still_ours(found: dict[str, Any]) -> tuple[str, str]:
     return WAITING, ""
 
 
-async def _take_away(found: dict[str, Any], why: str) -> str:
+async def _take_away(found: dict[str, Any], why: str, *, on_a_card=None) -> str:
     """Delete one of CLIVE's drafts and prove it gone: only Gmail's 404 on the read-back proves it.
     Returns the state it settled in; WAITING when it was not done (it is tried again later); or
     UNCONFIRMED when Gmail answered the read-back with another refusal, so whether it went is not
-    known (it stays waiting, and is looked at again)."""
+    known (it stays waiting, and is looked at again). `on_a_card`, when given, is asked last thing
+    before the delete: a draft a card now names is left as it is (ON_A_CARD)."""
     from app import readonly
     from app.clients.gmail import GmailNotFound, GmailRefused
 
@@ -304,6 +313,8 @@ async def _take_away(found: dict[str, Any], why: str) -> str:
     if state != WAITING:
         _settle(found["draft_id"], state, said)
         return state
+    if on_a_card is not None and on_a_card(found["draft_id"]):
+        return ON_A_CARD
     try:
         await _call(_client.delete_draft, found["draft_id"])
     except Exception as exc:  # noqa: BLE001 — the read-back below decides
@@ -322,6 +333,57 @@ async def _take_away(found: dict[str, Any], why: str) -> str:
         return UNCONFIRMED
     log.warning("a draft of CLIVE's is still in Gmail after its delete; tried again later")
     return WAITING
+
+
+def _named_on_cards() -> set[str] | None:
+    """The drafts a card still waiting for its gesture, or in flight, names: the one it sends and the
+    ones it says it replaces (app/tools/gmail_writes.py, gmail_inbox.py executions). None when that
+    cannot be read — then nothing is taken away."""
+    try:
+        from app.actions import engine as engine_module
+
+        named: set[str] = set()
+        for proposal in engine_module.current().open_proposals():
+            execution = proposal.execution or {}
+            if execution.get("draft_id"):
+                named.add(str(execution["draft_id"]))
+            named.update(str(d) for d in execution.get("replaces") or ())
+        return named
+    except Exception as exc:  # noqa: BLE001 — unknown: the clock takes nothing away
+        log.warning("which drafts a card names could not be read (%s); nothing is tidied", type(exc).__name__)
+        return None
+
+
+def _ledger(draft_ids: list[str], why: str) -> None:
+    """Each draft CLIVE deleted, in the action ledger beside every change CLIVE makes: the Gmail draft
+    ids and how many, and why in a fixed phrase — no words, no recipient, no subject. Never raises:
+    the drafts are gone whatever the ledger says (the record here has them too)."""
+    if not draft_ids:
+        return
+    try:
+        from app.actions import engine as engine_module
+
+        engine_module.current().ledger.record_own("DRAFTS_CLEARED", operation="gmail_drafts_tidy", count=len(draft_ids), ids=list(draft_ids), reason=why)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("the drafts CLIVE cleared could not be written in the action ledger (%s)", type(exc).__name__)
+
+
+def take_cleared_line() -> str:
+    """What George is told, once, about the drafts CLIVE cleared on its own clock since it last said
+    so: "CLIVE cleared N of its unused drafts." — or "" when there is nothing to tell. Taking it
+    marks it told (app/routes/turn.py adds it to the end of the owner's next answer). A record that
+    cannot be read or written tells nothing and keeps the count."""
+    with _lock:
+        try:
+            data = _load()
+            untold = int(data.get("untold") or 0)
+            if untold <= 0:
+                return ""
+            data["untold"] = 0
+            _save(data)
+        except (OSError, ValueError):
+            return ""
+    return f"CLIVE cleared {untold} of its unused drafts."
 
 
 def _timeline(event: str, **fields: Any) -> None:
@@ -378,12 +440,15 @@ async def replaced(draft_ids: list[str]) -> str:
     if _client is None or not draft_ids:
         return ""
     left = kept = unknown = 0
+    gone: list[str] = []
     for draft_id in draft_ids:
         found = row(draft_id)
         if found is None or found.get("state") != WAITING:
             continue
         state = await _take_away(found, "a send replaced it")
-        if state == WAITING:
+        if state == DELETED:
+            gone.append(draft_id)
+        elif state == WAITING:
             left += 1
         elif state == KEPT:
             kept += 1
@@ -398,23 +463,37 @@ async def replaced(draft_ids: list[str]) -> str:
     if unknown:
         notes.append("CLIVE couldn't confirm its earlier draft was deleted: Gmail refused to say. Look in Drafts; CLIVE checks again later."
                      if unknown == 1 else f"CLIVE couldn't confirm {unknown} of its earlier drafts were deleted: Gmail refused to say. Look in Drafts; CLIVE checks again later.")
+    _ledger(gone, "a send replaced it")
     return " ".join(notes)
 
 
 async def sweep(now: float | None = None) -> dict[str, int]:
     """One look: CLIVE's drafts unused for UNUSED_DAYS, each checked and taken away, at most
-    MAX_PER_SWEEP. Counts of what became of them."""
+    MAX_PER_SWEEP — never one a card names (ON_A_CARD). Each one deleted is written in the action
+    ledger (its id, and how many), and counted for George to be told once, plainly
+    (`take_cleared_line`). Counts of what became of them."""
     now = time.time() if now is None else now
-    counts = {DELETED: 0, KEPT: 0, SENT: 0, GONE: 0, WAITING: 0, UNCONFIRMED: 0}
-    if _client is None:
-        return counts
+    counts = {DELETED: 0, KEPT: 0, SENT: 0, GONE: 0, WAITING: 0, UNCONFIRMED: 0, ON_A_CARD: 0}
+    if _client is None or _named_on_cards() is None:
+        return counts              # which drafts a card names is not known: nothing is taken away
+
+    def on_a_card(draft_id: str) -> bool:
+        named = _named_on_cards()
+        return named is None or draft_id in named
+
+    why = f"unused for {UNUSED_DAYS} days"
     old = [r for r in rows() if r.get("state") == WAITING and now - float(r.get("made_at") or now) >= UNUSED_DAYS * 86400]
+    gone: list[str] = []
     for found in sorted(old, key=lambda r: float(r.get("made_at") or 0))[:MAX_PER_SWEEP]:
-        state = await _take_away(found, f"unused for {UNUSED_DAYS} days")
+        state = await _take_away(found, why, on_a_card=on_a_card)
         counts[state] = counts.get(state, 0) + 1
+        if state == DELETED:
+            gone.append(found["draft_id"])
+    _ledger(gone, why)
     with _lock, contextlib.suppress(OSError, ValueError):
         data = _load()
         data["swept_at"] = now
+        data["untold"] = int(data.get("untold") or 0) + len(gone)
         _prune(data["drafts"], now)
         _save(data)
     if old:

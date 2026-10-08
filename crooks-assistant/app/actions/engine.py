@@ -350,6 +350,19 @@ class ActionEngine:
             self._finish(proposal, ActionStatus.EXPIRED, "expired")
         return proposal
 
+    def open_proposals(self) -> list[ActionProposal]:
+        """[inbox, ruling 28] Every change still waiting for its gesture, or in flight, in every
+        conversation: read only, for CLIVE's own clock, which never takes away a draft a card names
+        (app/tools/gmail_drafts.py). A pending card past its time is not open."""
+        now = self.clock()
+        out = []
+        for pid, session in list(self._index.items()):
+            proposal = session.proposal(pid)
+            if proposal is None or proposal.terminal or (proposal.status is ActionStatus.PENDING and proposal.expired(now)):
+                continue
+            out.append(proposal)
+        return out
+
     def state(self, proposal_id: str, session_id: str) -> ActionProposal | None:
         proposal = self.find(proposal_id)
         if proposal is None or proposal.session_id != session_id:

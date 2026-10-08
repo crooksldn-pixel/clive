@@ -18,11 +18,11 @@ import pytest
 
 from app.actions import engine as engine_module
 from app.actions.engine import ActionEngine
-from app.actions.ledger import NullLedger
+from app.actions.ledger import ActionLedger, NullLedger
 from app.clients.gmail import GmailClient, GmailNotFound, GmailRefused
 from app.presentation import present_proposal_state
 from app.session.models import Session
-from app.tools import gmail_drafts, gmail_writes
+from app.tools import authority, gmail_drafts, gmail_writes
 from tests.test_gmail_writes import (
     BODY,
     CUSTOMER_ID,
@@ -35,6 +35,7 @@ from tests.test_gmail_writes import (
     stage,
     tap,
 )
+from tests.test_screen_paths import MINE, world  # noqa: F401 (the fixture)
 
 pytestmark = pytest.mark.usefixtures("owner_asking")
 
@@ -186,6 +187,121 @@ async def test_the_sweep_takes_away_only_clives_untouched_drafts_older_than_two_
     assert gmail_drafts.row(old_id)["state"] == "deleted" and gmail_drafts.row(old_id)["why"] == "unused for 14 days"
     assert young_id in box.drafts and gmail_drafts.row(young_id)["state"] == "waiting", "two weeks, not sooner"
     assert gmails_own in box.drafts, "a draft CLIVE did not make is never touched"
+
+
+# ------------------------------------------- recorded, told once, never a draft a card names
+#
+# The review of 8 October (note 3) and ruling 28 (DEC-071, "delete the unused drafts": Y): the
+# fourteen-day clock stays, but each draft it deletes is written in the action ledger (ids and a
+# count — no words, no recipient, no subject), George is told once, plainly, "CLIVE cleared N of its
+# unused drafts" at the end of his next answer, and a draft a card waiting for its hold names is never
+# taken by the clock.
+
+
+def aged(*draft_ids: str, days: float = 15) -> None:
+    with gmail_drafts._lock:
+        data = gmail_drafts._load()
+        for draft_id in draft_ids:
+            data["drafts"][draft_id]["made_at"] = time.time() - days * 86400
+        gmail_drafts._save(data)
+
+
+def ledger_lines(tmp_path) -> list[dict]:
+    return [json.loads(line) for line in (tmp_path / "logs" / "actions.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+async def test_each_draft_the_clock_deletes_is_in_the_action_ledger_by_id_and_count_only(box, engine, session, tmp_path):
+    engine.ledger = ActionLedger(tmp_path / "logs")
+    one, _ = await saved_draft(box, engine, session, body="An old reply nobody sent.")
+    two, _ = await saved_draft(box, engine, session, body="Another old reply.")
+    aged(one, two)
+    assert (await gmail_drafts.sweep())["deleted"] == 2
+    cleared = [e for e in ledger_lines(tmp_path) if e["event"] == "DRAFTS_CLEARED"]
+    assert len(cleared) == 1, cleared
+    entry = cleared[0]
+    assert set(entry) == {"ts", "iso", "event", "operation", "caller", "count", "ids", "reason"}, entry
+    assert entry["operation"] == "gmail_drafts_tidy" and entry["caller"] == "clive" and entry["reason"] == "unused for 14 days"
+    assert entry["count"] == 2 and sorted(entry["ids"]) == sorted([one, two])
+    written = json.dumps(entry).lower()
+    assert "daniel" not in written and "order 1930" not in written and "nobody sent" not in written, "no words, no recipient, no subject"
+
+
+async def test_a_draft_a_send_replaced_is_in_the_action_ledger_too(box, engine, session, tmp_path):
+    engine.ledger = ActionLedger(tmp_path / "logs")
+    draft_id, _ = await saved_draft(box, engine, session)
+    _, send = await stage(session, "gmail_send_reply", thread_id=THREAD, body="Hi Daniel, it went out this morning.")
+    assert (await hold(engine, send)).code == "verified" and draft_id not in box.drafts
+    (entry,) = [e for e in ledger_lines(tmp_path) if e["event"] == "DRAFTS_CLEARED"]
+    assert entry["ids"] == [draft_id] and entry["count"] == 1 and entry["reason"] == "a send replaced it"
+
+
+async def test_george_is_told_once_how_many_the_clock_cleared_and_a_team_member_never_is(box, engine, session):
+    from app.routes import turn as turn_route
+
+    one, _ = await saved_draft(box, engine, session, body="An old reply nobody sent.")
+    two, _ = await saved_draft(box, engine, session, body="Another old reply.")
+    aged(one, two)
+    await gmail_drafts.sweep()
+    with authority.acting_as(authority.for_staff("mia-fixture", "mia@example.com")):
+        assert turn_route._with_drafts_cleared("Here it is.") == "Here it is.", "a team member's answer never takes it"
+    assert turn_route._with_drafts_cleared("Here it is.") == "Here it is. CLIVE cleared 2 of its unused drafts."
+    assert turn_route._with_drafts_cleared("And the next one.") == "And the next one.", "once"
+    assert gmail_drafts.take_cleared_line() == ""
+
+
+async def test_the_owners_next_answer_ends_with_it_once(world, tmp_path, monkeypatch):  # noqa: F811 - the fixture
+    """Where he sees it: the end of his next answer, on the screen and in the voice, through the real
+    turn — once."""
+    monkeypatch.setattr(gmail_drafts, "_path", tmp_path / "told" / "gmail-drafts.json")
+    gmail_drafts._save({"version": 1, "drafts": {}, "untold": 3})
+    world.model.script = []
+    first = (await world.client.post("/turn", json={"text": "anything new?", "session_id": "t1"}, headers=MINE)).json()
+    assert first["answer"].endswith(" CLIVE cleared 3 of its unused drafts."), first["answer"]
+    second = (await world.client.post("/turn", json={"text": "and now?", "session_id": "t1"}, headers=MINE)).json()
+    assert "cleared" not in second["answer"], second["answer"]
+
+
+async def test_a_reply_that_replaced_a_draft_is_not_counted_for_the_telling(box, engine, session):
+    draft_id, _ = await saved_draft(box, engine, session)
+    _, send = await stage(session, "gmail_send_reply", thread_id=THREAD, body="Hi Daniel, it went out this morning.")
+    assert (await hold(engine, send)).code == "verified" and draft_id not in box.drafts
+    assert gmail_drafts.take_cleared_line() == "", "the card said so before the hold"
+
+
+async def test_a_draft_a_card_waiting_for_its_hold_sends_is_never_taken_by_the_clock(box, engine, session):
+    draft_id, _ = await saved_draft(box, engine, session)
+    aged(draft_id)
+    session.epoch += 1
+    _, send = await stage(session, "gmail_send_reply", thread_id=THREAD)
+    assert send is not None and send.execution["draft_id"] == draft_id, "the card sends the waiting draft"
+    counts = await gmail_drafts.sweep()
+    assert counts["deleted"] == 0 and counts["on_a_card"] == 1, counts
+    assert draft_id in box.drafts and gmail_drafts.row(draft_id)["state"] == "waiting"
+    assert not [c for c in box.calls if c[0] == "delete_draft"]
+    result = await hold(engine, send)
+    assert result.code == "verified", "the hold still sends what the card showed"
+
+
+async def test_a_draft_a_waiting_card_says_it_replaces_is_never_taken_by_the_clock(box, engine, session):
+    draft_id, _ = await saved_draft(box, engine, session)
+    aged(draft_id)
+    _, send = await stage(session, "gmail_send_reply", thread_id=THREAD, body="Hi Daniel, it went out this morning.")
+    assert send.execution["replaces"] == [draft_id]
+    counts = await gmail_drafts.sweep()
+    assert counts["deleted"] == 0 and counts["on_a_card"] == 1 and draft_id in box.drafts, counts
+    assert (await hold(engine, send)).code == "verified" and draft_id not in box.drafts, "the hold takes it, as its card said"
+    assert gmail_drafts.take_cleared_line() == ""
+
+
+async def test_with_no_way_to_tell_which_drafts_a_card_names_the_clock_takes_nothing(box, engine, session, monkeypatch):
+    draft_id, _ = await saved_draft(box, engine, session)
+    aged(draft_id)
+
+    def broken():
+        raise RuntimeError("the engine could not be read")
+
+    monkeypatch.setattr(engine, "open_proposals", broken)
+    assert (await gmail_drafts.sweep())["deleted"] == 0 and draft_id in box.drafts
 
 
 async def test_a_draft_that_was_sent_is_settled_as_sent_and_nothing_is_deleted(box, engine, session):
