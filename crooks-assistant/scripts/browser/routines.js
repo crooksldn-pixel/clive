@@ -17,6 +17,9 @@
  *   - "take step 2 out of my friday drop routine" and "forget my friday drop routine" say what
  *     they did, naming the step taken out and the routine forgotten, read back from the store, each a
  *     screen of its own (nothing of the run left under it);
+ *   - "save this as my office routine" and "run my office routine": a step that changes something at
+ *     once (a job flagged on the work list) says what it will change when saved and what it changed
+ *     when run, with its own solid dot, never "Done" as if it were a lookup;
  *   - nothing leaves the card's edge, the page does not scroll sideways, and nothing throws.
  *
  * Prints one JSON object: { ok, checks: [{name, ok, detail}], shots: [...] }.
@@ -39,6 +42,9 @@ const SAID = {
   run: 'run my friday drop routine',
   drop: 'take step 2 out of my friday drop routine',
   forget: 'forget my friday drop routine',
+  office: 'save this as my office routine',
+  runOffice: 'run my office routine',
+  forgetOffice: 'forget my office routine',
 };
 const ROUTINE = '#cards .card[data-type="routine"]';
 const HOLD = '#cards .card[data-type="confirmation"]';
@@ -159,6 +165,21 @@ async function run(browser, size) {
   const left = await page.evaluate(() => Array.from(document.querySelectorAll('#cards .card')).map((c) => c.dataset.type));
   check(`${tag}: the list is the screen, with nothing of the run left under it`, JSON.stringify(left) === '["routine"]', JSON.stringify(left));
   await shot('5-forgotten', ROUTINE);
+
+  // 5. A step that changes something at once: said as what it changes, saved and run.
+  await say(SAID.office, ROUTINE);
+  card = await seen(ROUTINE);
+  check(`${tag}: a step that acts at once says what it will change`, card.found && /Office/.test(card.text)
+    && /Flags a job for you each run/.test(card.text) && JSON.stringify(card.dots) === JSON.stringify(['is-acts', 'is-read'])
+    && fits(card), JSON.stringify(card));
+  await shot('6-acting-saved', ROUTINE);
+  await say(SAID.runOffice, ROUTINE);
+  card = await seen(ROUTINE);
+  check(`${tag}: run, it says what it changed and never "Done"`, card.found && /Ran: 1 done · 1 changed at once/.test(card.text)
+    && card.rows[0] && /Flagged for you on the work list: Restock the hoodies/.test(card.rows[0]) && !/Done/.test(card.rows[0])
+    && JSON.stringify(card.dots) === JSON.stringify(['is-acts', 'is-quiet']) && fits(card), JSON.stringify(card));
+  await shot('7-acting-run', ROUTINE);
+  await say(SAID.forgetOffice, ROUTINE);   // so the next size starts from none saved, as this one did
 
   check(`${tag}: no page errors`, errors.length === 0, errors.join(' | '));
   await context.close();
