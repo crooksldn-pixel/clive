@@ -29,7 +29,12 @@ from app.returns import events
 from app.secrets import keychain
 from tests import returns_service
 from tests.fake_credentials import bearer_token
-from tests.test_actions_routes import OWNER, PROXIED, client, configure  # noqa: F401 - `client` is a fixture
+from tests.test_actions_routes import (  # noqa: F401 - `client` is a fixture
+    OWNER,
+    PROXIED,
+    client,
+    configure,
+)
 
 READ = bearer_token("contract-events-read", length=32)
 WRITE = bearer_token("contract-events-write", length=32)
