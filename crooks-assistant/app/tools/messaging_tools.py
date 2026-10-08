@@ -66,7 +66,10 @@ _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # The apps as the owner names them, and the channel each is (`messages_recent` `channel`).
 CHANNELS = {"wechat": "wecom", "whatsapp": "whatsapp", "instagram": "instagram"}
 # Reading Instagram's conversations on request: at most this long, so a slow Instagram never holds the turn.
-SYNC_TIMEOUT_S = 20.0
+# [channels] Inside messages_recent's own time (RECENT_TIMEOUT_S), with room left to show what CLIVE
+# already had: 20 seconds under the turn's 8-second tool time failed the whole tool (review note 4).
+SYNC_TIMEOUT_S = 6.0
+RECENT_TIMEOUT_S = SYNC_TIMEOUT_S + 4.0
 LANGUAGE_WORDS = {"zh": "Chinese", "other": "a language other than English"}
 APP_WORDS = {"wecom": "WeChat", "whatsapp": "WhatsApp", "instagram": "Instagram"}
 
@@ -128,6 +131,9 @@ def _thread(chat_id: str):
     # AMBER, like every read that surfaces people's names and words (instagram_inbox, returns_open,
     # people_list): the model is told to read the detail back (review note 3, 8 Oct).
     tier=Tier.AMBER,
+    # Its own time, deliberately longer than the Instagram read it may make, so a slow Instagram is
+    # said in the note beside the conversations CLIVE already had, never a failed tool.
+    timeout_s=RECENT_TIMEOUT_S,
 )
 async def messages_recent(person: str = "", limit: int = 6, channel: str = "") -> dict[str, Any]:
     _owner_only()

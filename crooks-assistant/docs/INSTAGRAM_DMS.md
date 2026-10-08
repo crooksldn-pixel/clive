@@ -87,7 +87,9 @@ http://127.0.0.1:8000/hooks/instagram`. From outside the tailnet `curl -si <the 
    translation.
 3. **Read** with `messages_recent` (`channel: instagram` also reads Instagram's conversations API
    again, keeps anything new, and says exactly how many conversations the API returned, nought
-   included, or why it could not be read) and `message_thread`.
+   included, or why it could not be read) and `message_thread`. That read takes at most 6 seconds,
+   four conversations at a time, inside the tool's own 10; a slower Instagram is said beside the
+   conversations CLIVE already had, never a failed tool.
 4. **Answered** with `message_reply`, within 24 hours of their last message, at most 1,000 bytes
    (Instagram's limit): English alone to someone who writes English, theirs first otherwise. Only
    his hold sends it. "Sent" only on Instagram's `message_id`. Instagram echoes every message the

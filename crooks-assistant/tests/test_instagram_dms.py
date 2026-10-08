@@ -374,6 +374,74 @@ async def test_an_instagram_that_will_not_answer_is_said_so_never_passed_off_as_
     assert "this is what CLIVE had already" in read["note"]
 
 
+def _conversations(graph, n):
+    """n conversations with n different people, each with one message, as Instagram's API gives them."""
+    graph.conversations = []
+    for i in range(n):
+        who = f"9{i:016d}"
+        graph.conversations.append({"id": f"conv{i}", "updated_time": "2026-10-08T05:00:00+0000", "participants": {
+            "data": [{"id": meta_world.IG_ACCOUNT, "username": "crooksldn"}, {"id": who, "username": f"fan{i}"}]}})
+        graph.thread_messages[f"conv{i}"] = [{"id": f"igmid.C{i}", "created_time": "2026-10-08T05:00:00+0000",
+                                              "from": {"id": who, "username": f"fan{i}"}, "message": f"Hi {i}"}]
+
+
+async def test_a_slow_instagram_is_said_beside_what_clive_had_never_a_failed_tool(graph, owner, monkeypatch):
+    """[channels] Review note 4: messages_recent runs in its own time, longer than the Instagram read it
+    makes, so a slow Instagram (every conversation's read hanging) is a note beside the conversations
+    CLIVE already had. It ran in the turn's shorter tool time, and the whole tool failed."""
+    import asyncio
+
+    spec = registry.get("messages_recent")
+    assert spec.timeout_s is not None and spec.timeout_s >= tools.SYNC_TIMEOUT_S + 3.0
+    _wrote("Is the hoodie back?")
+    _conversations(graph, 10)
+
+    async def hangs(_conversation_id):
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(instagram, "thread", hangs)
+    # The turn's own tool time, shorter than the read's bound, as 8 seconds is under the 20 there were.
+    monkeypatch.setattr(tools, "SYNC_TIMEOUT_S", 0.4)
+    read = await registry.invoke("messages_recent", {"channel": "instagram"}, timeout_s=0.2)
+    assert read["note"].startswith("Instagram didn't answer in time, so it wasn't read just now")
+    assert [t["from"] for t in read["threads"]] == [f"@{meta_world.CUSTOMER_HANDLE}"]
+
+
+async def test_instagrams_conversations_are_read_a_few_at_a_time_in_order(graph, owner, monkeypatch):
+    """[channels] Ten conversations read four at a time, not one after another, and each read kept with
+    its own conversation however the answers come back (the later ones answer first here)."""
+    import asyncio
+
+    _conversations(graph, 10)
+    real, busy, most = instagram.thread, [0], [0]
+
+    async def counted(conversation_id):
+        busy[0] += 1
+        most[0] = max(most[0], busy[0])
+        i = int(conversation_id.removeprefix("conv"))
+        await asyncio.sleep(0.002 * (10 - i))
+        try:
+            # The stand-in names one person in every thread; Instagram names each conversation's own.
+            return {**await real(conversation_id), "user_id": f"9{i:016d}", "username": f"fan{i}"}
+        finally:
+            busy[0] -= 1
+
+    monkeypatch.setattr(instagram, "thread", counted)
+    read = await tools.messages_recent(channel="instagram", limit=12)
+    assert read["note"] == "Instagram's API returned 10 conversations just now, 10 new messages."
+    assert most[0] == channel.SYNC_AT_ONCE == 4
+    assert sorted((t["from"], t["messages"][-1]["english"]) for t in read["threads"]) == sorted(
+        (f"@fan{i}", f"Hi {i}") for i in range(10))
+
+
+async def test_one_conversation_instagram_will_not_give_stops_the_read_and_is_said(graph, owner):
+    _conversations(graph, 6)
+    graph.refuse[("graph.instagram.com", "conv3")] = (400, {"code": 10, "message": "no"})
+    read = await tools.messages_recent(channel="instagram")
+    assert read["note"].startswith("Instagram wasn't read just now (Instagram says CLIVE isn't allowed to read that")
+    assert read["threads"] == [] and store.threads() == []
+
+
 async def test_the_probe_reports_what_instagram_returned(graph):
     routes = {r.key: r for r in await channel.probe_routes()}
     assert routes["replies"].state == "ready"

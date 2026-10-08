@@ -27,6 +27,7 @@ What it promises:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Mapping
@@ -47,6 +48,8 @@ KIND = "instagram"
 WINDOW_S = 24 * 3600
 VERIFY_TOKEN = "instagram_webhook_verify_token"
 SYNC_CONVERSATIONS = 10
+# [channels] How many conversations a read asks Instagram for at once.
+SYNC_AT_ONCE = 4
 NAMES_AT_ONCE = 10
 # An attachment's type as the store keeps it; only text carries words.
 KINDS = {"image": "image", "video": "video", "audio": "voice", "file": "file", "share": "share",
@@ -89,6 +92,24 @@ def _seconds(value: Any) -> float:
         return datetime.strptime(str(value), "%Y-%m-%dT%H:%M:%S%z").timestamp()
     except ValueError:
         return time.time()
+
+
+async def _read_threads(ids: list[str]) -> list[dict[str, Any]]:
+    """[channels] Each conversation's messages, SYNC_AT_ONCE read at a time and given back in the order
+    asked: ten read one after another could outlast the tool's own time (review note 4). The first
+    failure stops the rest and is raised as it is."""
+    gate = asyncio.Semaphore(SYNC_AT_ONCE)
+
+    async def one(conversation_id: str) -> dict[str, Any]:
+        async with gate:
+            return await instagram.thread(conversation_id)
+
+    tasks = [asyncio.ensure_future(one(i)) for i in ids]
+    try:
+        return list(await asyncio.gather(*tasks))
+    finally:
+        for task in tasks:
+            task.cancel()
 
 
 class InstagramAdapter:
@@ -171,11 +192,10 @@ class InstagramAdapter:
         await instagram.maybe_refresh()
         account = await instagram.account()
         found = await instagram.conversations(limit=limit)
+        wanted = [c for c in found if c.get("user_id")]
+        reads = await _read_threads([c["conversation_id"] for c in wanted])
         out: list[Received] = []
-        for conversation in found:
-            if not conversation.get("user_id"):
-                continue
-            read = await instagram.thread(conversation["conversation_id"])
+        for conversation, read in zip(wanted, reads, strict=True):
             contact = str(read.get("user_id") or conversation["user_id"])
             thread = dm_thread(contact, account.get("user_id") or account.get("id") or "")
             thread.who = f"@{read['username']}" if read.get("username") else ""
