@@ -104,6 +104,12 @@
     if (s && s.online) return what ? 'On · Showing ' + what : 'On · Nothing up';
     return what ? 'Off · Showing ' + what : 'Off';
   }
+  // A screen's tile as a screen reader names it: the screen's own name (George's label for it) and
+  // whether it is on. Never what it shows — that can be an email's subject (ruling 29), and no
+  // attribute is built from a record; the line beside it says what it shows, as text.
+  function tileLabel(s) {
+    return String((s && s.name) || 'Screen').slice(0, 60) + (s && s.online ? ', on' : ', off');
+  }
   // The same, while the lifted thing is over it.
   function overLine(s) {
     return s && s.online ? 'Let go to show it here' : 'Off · It goes up when it’s next on';
@@ -151,7 +157,7 @@
 
   const rules = {
     HOLD_MS, PRIME_MS, SLOP, PICK_PX, SWALLOW_MS, SETTLE_MS, HOLDABLE, SAY,
-    wandered, release, hitTest, placeChip, stateLine, overLine, confirmation, refusal, bodyFor, orderWords, screenable,
+    wandered, release, hitTest, placeChip, stateLine, tileLabel, overLine, confirmation, refusal, bodyFor, orderWords, screenable,
     guardsFromStart,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = rules;
@@ -359,10 +365,14 @@
       const words = el('span', 'lift-text');
       words.appendChild(el('span', 'lift-name', String(s.name || 'Screen').slice(0, 60)));
       const line = el('span', 'lift-state', stateLine(s));
+      // What it shows is said by the line, as text, and read out as the tile's description: the
+      // tile's own attributes carry only the screen's name, its state and its id (tileLabel).
+      line.id = 'lift-state-' + s.id;
       words.appendChild(line);
       tile.appendChild(glyph);
       tile.appendChild(words);
-      tile.setAttribute('aria-label', String(s.name || 'Screen') + ', ' + stateLine(s).replace(' · ', ', '));
+      tile.setAttribute('aria-label', tileLabel(s));
+      tile.setAttribute('aria-describedby', line.id);
       tile.addEventListener('click', () => { if (P.lift && P.lift.mode === 'pick' && !P.lift.putting) put(s, tile); });
       U.list.appendChild(tile);
       L.tiles.push({ screen: s, el: tile, line, rect: null });

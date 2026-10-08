@@ -161,13 +161,15 @@ const shows = (list, name) => (list.find((s) => s.name === name) || {}).showing 
 const shownPosts = (t) => t.posts.filter((p) => /\/displays\/scr_[0-9a-f]{12}\/show$/.test(p.path));
 
 // A finger held still on a point until it lifts and the tray has risen, then drawn onto the named
-// screen's tile in steps; still down. Returns what was lifted and the tile it is over.
-async function dragOnto(t, from, name) {
+// screen's tile in steps; still down. Returns what was lifted and the tile it is over. `atRest`, when
+// given, is called with the named tile once the tray is at rest, before the finger moves.
+async function dragOnto(t, from, name, atRest) {
   await t.touch('touchStart', from.x, from.y);
   await sleep(640);
   const lifted = await tray(t);
   await sleep(420);
   const to = name ? await tile(t, name) : { x: from.x, y: 90 };
+  if (atRest) await atRest(to);
   for (let i = 1; i <= 10; i++) {
     await t.touch('touchMove', Math.round(from.x + ((to.x - from.x) * i) / 10), Math.round(from.y + ((to.y - from.y) * i) / 10));
     await sleep(24);
@@ -428,10 +430,21 @@ async function main() {
   }
   await sleep(1200);
 
-  // An objective's card in the conversation is held like an order's.
+  // An objective's card in the conversation is held like an order's. With the email up on the Office
+  // TV, the tablet's tile says so as text, and nothing in the tray carries it in an attribute (the
+  // review of 8 October: the tile's aria-label carried the subject).
   await ask(tab, 'show me the autumn drop shoot', '#cards .card-objective[data-objective]');
   const goalCard = await centre(tab, '#cards .card-objective[data-objective] .card-head');
-  const held = await dragOnto(tab, { x: goalCard.x - 100, y: goalCard.y }, 'Office TV');
+  let swept = null;
+  const held = await dragOnto(tab, { x: goalCard.x - 100, y: goalCard.y }, 'Office TV', async (at) => {
+    swept = await tab.page.evaluate(() => Array.from(document.querySelectorAll('.lift-tray, .lift-tray *, .lift-chip, .lift-chip *'))
+      .flatMap((n) => Array.from(n.attributes).map((a) => `${a.name}=${a.value}`)));
+    swept = { line: (at || {}).line || '', attributes: swept };
+  });
+  check('the tablet\'s Office TV tile says it shows the email, as text', swept && swept.line.includes(subject) && subject.length > 0, JSON.stringify(swept && swept.line));
+  check('and no attribute on the tablet\'s tray carries anything of the email',
+    swept && swept.attributes.length > 10 && !swept.attributes.some((a) => a.includes(subject) || a.includes(threadRef)),
+    JSON.stringify(swept && swept.attributes.filter((a) => /aria-label|describedby/.test(a))));
   check('an objective\'s card in the conversation lifts as that objective', held.lifted.chip && held.lifted.chipTitle === 'Autumn drop shoot' && held.over && held.over.over,
     JSON.stringify(held));
   await tab.shot('11-objective-card');
