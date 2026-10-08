@@ -28,10 +28,11 @@ ruling 38), and so did that half.
 
 WHAT IS ALLOWED
 
-Naming `crooks-control <something>` is allowed. It is the same command the app's own button
-runs, the README documents it as the equivalent, and a sentence that offers BOTH ("press
-Update, or `crooks-control apply --yes`") is strictly more useful than one that offers only the
-button. What is forbidden is a sentence whose ONLY remedy is a shell.
+Naming a command beside a control is allowed: a sentence that offers BOTH ("press Update, or
+`crooks-control apply --yes`", as CROOKS Control's did) is strictly more useful than one that
+offers only the button. That app and its `crooks-control` went with the Mac runtime (DEC-071,
+ruling 38); the shape is still the one allowed, and the examples below still use it. What is
+forbidden is a sentence whose ONLY remedy is a shell.
 """
 
 from __future__ import annotations

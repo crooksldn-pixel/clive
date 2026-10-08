@@ -251,6 +251,39 @@ def test_the_commands_point_at_the_checkout_rather_than_copying_it(tmp_path, mon
     assert not any((bin_dir / name).exists() for name in install_commands.COMMANDS)
 
 
+# What `make commands` wrote for crooks-control before 8 October, as it sits on the server.
+STALE_CONTROL_WRAPPER = (
+    "#!/bin/sh\n"
+    "# Written by `make commands` in /opt/crooks-os/crooks-assistant. Points at the checkout rather than copying it, so a\n"
+    "# git pull updates this command too. Delete it, or run `make commands-remove`, to undo.\n"
+    'exec "/opt/crooks-os/crooks-assistant/.venv/bin/python" "/opt/crooks-os/crooks-assistant/scripts/control.py"  "$@"\n'
+)
+
+
+def test_make_commands_takes_off_the_crooks_control_wrapper_it_once_wrote_and_nothing_else(tmp_path, monkeypatch):
+    """scripts/control.py went with the menu-bar app (DEC-071, ruling 38). A crooks-control
+    wrapper an earlier `make commands` left on the PATH points at nothing; running `make commands`
+    or `make commands-remove` takes it off. A file of that name that this script did not write
+    is someone else's, and stays."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    monkeypatch.setattr(install_commands, "BIN", bin_dir)
+    stale = bin_dir / "crooks-control"
+
+    stale.write_text(STALE_CONTROL_WRAPPER, encoding="utf-8")
+    assert install_commands.install(root=Path.cwd(), bin_dir=bin_dir) == 0
+    assert not stale.exists(), "make commands left a wrapper pointing at the deleted scripts/control.py"
+
+    stale.write_text(STALE_CONTROL_WRAPPER, encoding="utf-8")
+    assert install_commands.remove(bin_dir=bin_dir) == 0
+    assert not stale.exists(), "make commands-remove left it too"
+
+    stale.write_text("#!/bin/sh\necho someone else's\n", encoding="utf-8")
+    install_commands.install(root=Path.cwd(), bin_dir=bin_dir)
+    install_commands.remove(bin_dir=bin_dir)
+    assert stale.read_text(encoding="utf-8") == "#!/bin/sh\necho someone else's\n", "not ours to delete"
+
+
 def test_the_commands_are_the_ones_the_brief_asked_for():
     """Three for running it and four for testing it. The four are one script with a switch
     each, so a change to the runner cannot leave one of them behind. (crooks-control, the one

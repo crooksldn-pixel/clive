@@ -378,3 +378,38 @@ def test_a_restart_the_update_cannot_do_says_where_the_reason_is_and_never_an_in
         assert banned not in said, f"the update still tells the operator {banned!r}"
     assert "journalctl" in said, "it names where the reason is"
     assert "Your code IS updated" in said, "and still says what state the server was left in"
+
+
+def test_a_failed_restart_names_the_way_back_and_the_build_to_go_back_to(here, update_server, monkeypatch, capsys):
+    """The way back was `crooks-control rollback`, and that command went with the menu-bar app
+    (DEC-071, ruling 38). What the update says now points at the server's own way back, the
+    section of docs/DEPLOY_LINUX.md it names, and gives the build to go back to: the one this
+    run started from, in full. It no longer adds "Nothing was changed" under a sentence saying
+    the code IS updated."""
+    before = head(here)
+    commit_upstream(here)
+    monkeypatch.setattr(update, "stage_deps", lambda changed, *, check_only: False)
+    update_server.systemd.absent = True          # the restart is what fails
+
+    code, doc = update.run()
+    printed = capsys.readouterr().out
+
+    assert code == 1 and doc["stop"]["stage"] == "restart"
+    said = doc["stop"]["reason"]
+    assert 'docs/DEPLOY_LINUX.md, "Putting the previous build back"' in said
+    assert f"The build before this update: {before}" in said
+    assert "crooks-control" not in said and "CROOKS Control" not in said
+    assert "Nothing was changed" not in printed, "the code did move; the line would contradict the stop"
+
+    section = (PROJECT / "docs" / "DEPLOY_LINUX.md").read_text(encoding="utf-8")
+    section = section.split("## Putting the previous build back", 1)[1].split("\n## ", 1)[0]
+    for way in ("reports/deploy-<sha8>.md", "RELEASE_SERVICE.md", "crooks-update", "make restart"):
+        assert way in section, f"the section the update names does not say {way!r}"
+
+
+def test_a_stop_before_the_code_moves_still_says_nothing_was_changed(here, capsys):
+    """And the other half: a stop before the fast-forward changed nothing, and says so."""
+    (here / "app.py").write_text("print('mine')\n", encoding="utf-8")   # a dirty tree stops it
+    code, _doc = update.run()
+    assert code == 1
+    assert "Nothing was changed" in capsys.readouterr().out

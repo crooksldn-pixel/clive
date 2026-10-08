@@ -273,8 +273,16 @@ def server_for(port: int):
 
 # What is said when the restart is the thing that failed. Never an instruction to type an
 # installer: the lifecycle (scripts/service_linux.py) registers the service itself where systemd
-# does not have it, so what is left to say is where the reason is written down.
-RESTART_FAILED = "Your code IS updated; only the restart failed. The service's journal says why: journalctl -u crooks-assistant.service -n 50"
+# does not have it, so what is left to say is where the reason is written down, and where the way
+# back is. It used to be `crooks-control rollback`, which went with the menu-bar app (DEC-071,
+# ruling 38); the way back on the server is the section of docs/DEPLOY_LINUX.md named here, and
+# `_run` adds the build to go back to, which only it knows. Not `make restart`: that runs this
+# same restart, which has just failed.
+RESTART_FAILED = (
+    "Your code IS updated; only the restart failed. The service's journal says why: "
+    "journalctl -u crooks-assistant.service -n 50. If it is the new build that will not start, "
+    'the answer is a rollback, not a retry: docs/DEPLOY_LINUX.md, "Putting the previous build back".'
+)
 
 
 def stage_restart(*, check_only: bool, port: int) -> None:
@@ -396,7 +404,12 @@ def _run(*, check: bool, branch: str, test: bool, quiet: bool) -> tuple[int, dic
         doc["tested"] = stage_tests(check_only=check, enabled=test and (moved or (check and behind > 0)))
         if moved:
             stage = "restart"
-            stage_restart(check_only=check, port=port)
+            try:
+                stage_restart(check_only=check, port=port)
+            except Stopped as exc:
+                # The way back RESTART_FAILED points at needs the build to go back to: the one
+                # this run started from, in full, which only this function knows.
+                raise Stopped(f"{exc}\nThe build before this update: {head}") from None
             doc["restarted"] = not check
             stage = "verify"
             health = stage_verify(check_only=check, port=port)
@@ -410,7 +423,10 @@ def _run(*, check: bool, branch: str, test: bool, quiet: bool) -> tuple[int, dic
         doc["next"] = "blocked"
         if not quiet:
             print(f"{FAIL} {exc}")
-            print("\nNothing was changed. Fix the line above and run crooks-update again.")
+            # True only before the fast-forward. After it the code on disk HAS moved, and the
+            # stop's own sentence says what state it was left in; this line would contradict it.
+            if not doc["moved"]:
+                print("\nNothing was changed. Fix the line above and run crooks-update again.")
         return 1, doc
     except (OSError, subprocess.SubprocessError) as exc:
         doc["stop"] = {"stage": stage, "reason": f"{type(exc).__name__}: {exc}"}

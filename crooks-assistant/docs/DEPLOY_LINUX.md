@@ -188,6 +188,14 @@ crooks-update      # fetch, fast-forward, install what changed, restart, verify
 `crooks-update` runs eight stages; stage 7 restarts the systemd unit and reads `/health` back.
 It is fast-forward only, refuses on a dirty tree, and has no `--force`.
 
+`crooks-control`, the menu-bar app's command, went with the app on 8 October (DEC-071, ruling
+38). Each of its jobs has a home here: the state is `make status` or `crooks-status`; a restart
+that reads `/health` back is `make restart`; a new build on production is a deploy (below), which
+the release service ([RELEASE_SERVICE.md](RELEASE_SERVICE.md)) makes by itself once it is switched
+on; and the previous build goes back as "Putting the previous build back" says. A
+`~/.local/bin/crooks-control` left by an earlier `make commands` is taken off by running
+`make commands` again.
+
 ## Health
 
 ```bash
@@ -309,6 +317,27 @@ but is not confirmed on disk`, the folder could not be flushed after the replace
 holds the cleaned record, and the original named in that line was flushed before it. The steps
 above put it back. A later `gap record updated, but not confirmed on disk` means the same of an
 ordinary update; `gap record not updated` means the file was not replaced.
+
+## Putting the previous build back
+
+When a new build will not run, the answer is a rollback, not a retry. What goes back depends on how
+the build arrived:
+
+- **A deploy, by hand or by the release service.** Its record, `reports/deploy-<sha8>.md`, names
+  the rollback target, captured before anything changed: the previous SHA and the unit as it was.
+  It also carries the lines that put both back. The release service runs them itself when its own
+  checks fail. A rollback it could not finish leaves `HALT` behind
+  ([RELEASE_SERVICE.md](RELEASE_SERVICE.md), "After a halt").
+- **`crooks-update`.** It moves the code and never the unit. When its restart fails it says so,
+  and names the build it started from ("The build before this update: …"). Check that build out
+  again and restart; `make restart` reads `/health` back:
+
+  ```bash
+  git checkout --detach <the SHA crooks-update named>
+  make restart
+  ```
+
+  The next `crooks-update --branch <branch>` comes forward from there by itself.
 
 ## Taking the server down
 
