@@ -616,6 +616,33 @@ def test_the_research_routes_are_his_alone_and_record_an_answer_bound_to_what_he
     assert refused.status_code == 400 and "isn't one of those" in refused.json()["detail"]
 
 
+def test_an_upload_is_refused_from_its_declared_length_before_the_form_is_parsed(research, ledger, monkeypatch):
+    """Review note 8: parsing the form spools the whole body to disk before the route sees the file, so a
+    file over the bound (or one that won't say its length) is refused from Content-Length, unparsed."""
+    from starlette.requests import Request as StarletteRequest
+
+    monkeypatch.setattr(flow, "kick", lambda store: False)
+    monkeypatch.setattr(convert, "MAX_FILE_BYTES", 1 << 20)
+    parsed: list[str] = []
+    real_form = StarletteRequest.form
+
+    def watched(self, *args, **kwargs):
+        parsed.append(self.headers.get("content-length", "none"))
+        return real_form(self, *args, **kwargs)
+
+    monkeypatch.setattr(StarletteRequest, "form", watched)
+    client = _client()
+    big = client.post("/objectives/research/upload", headers=OWNER, files={"file": ("big.md", b"# Notes\n\n" + b"word " * (300 << 10))})
+    assert big.status_code == 413 and big.json() == {"code": "too_large", "detail": "That file is over 1 MB; research files are taken up to 1 MB."}
+    unsaid = client.post("/objectives/research/upload", content=iter([b"--x\r\n", b"word " * 1000]),
+                         headers={**OWNER, "Content-Type": "multipart/form-data; boundary=x"})
+    assert unsaid.status_code == 411 and unsaid.json()["code"] == "no_length"
+    assert parsed == [], "neither was parsed"
+    assert [d["name"] for d in research.documents()] == [NAME], "nor taken in"
+    ok = client.post("/objectives/research/upload", headers=OWNER, files={"file": ("small.md", b"# More\n\nCLIVE should do one more thing well.\n")})
+    assert ok.status_code == 200 and ok.json()["received"]["name"] == "small.md" and len(parsed) == 1
+
+
 # ------------------------------------------------------------------ adopting: the existing filing path, behind his hold
 
 

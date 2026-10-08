@@ -6,7 +6,8 @@ alone, under the same rule (app/routes/actions.py principal_check), and sits at 
     GET  /objectives/research           the Research section (app/builds/research.py); reading it
                                         also takes in what was put in the server folder and starts
                                         reading anything queued
-    POST /objectives/research/upload    a research file from the screen (multipart, field "file")
+    POST /objectives/research/upload    a research file from the screen (multipart, field "file"),
+                                        refused from its Content-Length before the form is parsed
     POST /objectives/research/answer    Adopt, Park or Reject on one proposal, bound to its fingerprint;
                                         Adopt also prepares its build request on a card he holds
     POST /objectives/research/prepare   an adopted proposal's build request again, when its card has gone
@@ -20,7 +21,7 @@ from __future__ import annotations
 import re
 import uuid
 
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -29,6 +30,9 @@ from app.routes.actions import principal_check
 router = APIRouter(prefix="/research")
 
 _SESSION = re.compile(r"^[A-Za-z0-9_.:-]{1,100}$")
+# What an upload of one research file may declare beyond the file itself: the multipart wrapping
+# around it (boundaries, the part's headers with its file name), a few hundred bytes in practice.
+UPLOAD_WRAPPING_BYTES = 64 << 10
 
 
 class AnswerBody(BaseModel):
@@ -70,15 +74,41 @@ async def research(brief: int = 0) -> dict:
 
 
 @router.post("/upload", response_model=None)
-async def upload(file: UploadFile = File(...)) -> dict | JSONResponse:
-    """A file George gave on the screen: kept, queued, and read in the background."""
+async def upload(request: Request) -> dict | JSONResponse:
+    """A file George gave on the screen: kept, queued, and read in the background.
+
+    Its size is checked from Content-Length before the form is parsed (review note 8, 8 Oct): parsing
+    spools the whole body to disk before anything sees the file, so a check after it comes too late.
+    An upload that does not declare its length is refused too; the screen's always does."""
+    from starlette.datastructures import UploadFile
+    from starlette.exceptions import HTTPException
+    from starlette.formparsers import MultiPartException
+
     from app.research import flow
     from app.research.convert import MAX_FILE_BYTES
 
-    data = await file.read(MAX_FILE_BYTES + 1)
+    declared = request.headers.get("content-length", "")
+    if not declared.isdigit():
+        return JSONResponse(status_code=411, content={"code": "no_length", "detail": "The upload didn't say how big it is, "
+                                                      "so CLIVE didn't take it. Add it again from the Builds screen."})
+    if int(declared) > MAX_FILE_BYTES + UPLOAD_WRAPPING_BYTES:
+        return JSONResponse(status_code=413, content={"code": "too_large", "detail": f"That file is over {MAX_FILE_BYTES >> 20} MB; "
+                                                      f"research files are taken up to {MAX_FILE_BYTES >> 20} MB."})
+    try:
+        form = await request.form(max_files=1, max_fields=1)
+    except (HTTPException, MultiPartException):
+        return JSONResponse(status_code=400, content={"code": "unreadable", "detail": "The upload couldn't be read, so nothing was taken in."})
+    try:
+        file = form.get("file")
+        if not isinstance(file, UploadFile):
+            return JSONResponse(status_code=400, content={"code": "no_file", "detail": "No file came with the upload."})
+        data = await file.read(MAX_FILE_BYTES + 1)
+        name = file.filename or "research"
+    finally:
+        await form.close()
     store = _store()
     try:
-        record = flow.receive(store, file.filename or "research", data, via="screen")
+        record = flow.receive(store, name, data, via="screen")
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"code": "refused", "detail": str(exc)})
     flow.kick(store)
