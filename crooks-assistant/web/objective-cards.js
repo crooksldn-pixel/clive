@@ -89,6 +89,13 @@
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   // A calendar date the Mac sent (YYYY-MM-DD), read as a local date: no time zone moves it.
   function day(value) {
+    // [checker, 8 Oct 2026] A moment (a stage's done_at, a stamp kept in UTC) is the day it was on
+    // the tablet's own calendar: its first ten characters are UTC's day, so a stage done at 00:30
+    // on a summer morning in London said "Done" the day before. A date alone is that date.
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text(value))) {
+      const at = new Date(text(value));
+      if (!Number.isNaN(at.getTime())) return new Date(at.getFullYear(), at.getMonth(), at.getDate());
+    }
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(text(value));
     if (!m) return null;
     const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));

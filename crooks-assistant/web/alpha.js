@@ -334,6 +334,14 @@
     if (window.CliveDistances) window.CliveDistances.drawn();   // objectives by touch (B): the horizon follows
   }
 
+  // [checker, 8 Oct 2026] When something happened to an objective, on London's clock: "8 Oct, 00:59".
+  // The record keeps UTC; this printed it raw and month first ("10-07 23:59" for 00:59 on 8 Oct).
+  function londonStamp(iso) {
+    const at = new Date(iso);
+    if (Number.isNaN(at.getTime())) return String(iso || '');
+    return at.toLocaleString('en-GB', { timeZone: 'Europe/London', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+
   function labelFor(attention) {
     return { needs_you: 'Needs you', blocked: 'Blocked', check_in: 'Check-in due', doing: 'Doing', idle: 'Idle', done: 'Done', dropped: 'Dropped' }[attention] || attention;
   }
@@ -488,7 +496,7 @@
       for (const f of o.facts) blocks.push(h('p', { class: 'alpha-line' }, f.text, h('span', { class: 'alpha-src', text: ` · ${f.source}` })));
     }
 
-    const note = h('input', { class: 'alpha-field', type: 'text', placeholder: 'Tell CLIVE something new about this', 'aria-label': 'Continue this objective' });
+    const note = h('input', { class: 'alpha-field', type: 'text', placeholder: 'Tell CLIVE something new', 'aria-label': 'Continue this objective' });   // [checker, 8 Oct 2026] was '…about this', cut off on a phone
     blocks.push(h('h3', { text: 'Continue' }), h('form', {
       class: 'alpha-row', onsubmit: async (event) => {
         event.preventDefault();
@@ -503,7 +511,7 @@
 
     blocks.push(h('h3', { text: 'History' }));
     for (const e of o.events.slice(-12).reverse()) {
-      blocks.push(h('p', { class: 'alpha-event' }, h('span', { class: 'alpha-src', text: `${e.at.slice(5, 16).replace('T', ' ')} · ${e.by} · ` }), e.text));
+      blocks.push(h('p', { class: 'alpha-event' }, h('span', { class: 'alpha-src', text: `${londonStamp(e.at)} · ${e.by} · ` }), e.text));
     }
     // Why Mark done did not close it, said on the sheet itself, where the owner is looking.
     const notDone = h('p', { class: 'alpha-blocked', role: 'status', 'data-alpha': 'mark_done_failed', hidden: true });

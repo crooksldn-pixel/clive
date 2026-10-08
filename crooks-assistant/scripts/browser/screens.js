@@ -50,6 +50,9 @@ const missing = [];
 const manifest = [];
 const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail: detail === undefined ? '' : String(detail).slice(0, 400) });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// [checker, 8 Oct 2026, review note N4] The one console error from /voice/live that is by design: its
+// 503, with no ElevenLabs key in a fixture world (app/routes/voice.py). Any other, a 500, counts.
+const voiceLiveByDesign = (from, said) => String(from).includes('/voice/live') && /\b503\b/.test(String(said));
 
 const live = (id) => {
   const all = JSON.parse(fs.readFileSync(LIVE, 'utf8')).states || [];
@@ -117,6 +120,8 @@ const ERROR_CARD = {
 
 /* ---------------------------------------------------------------- the matrix -------------
    `reach` gets there. `need` says what must be on the glass for the file to be this shot. */
+
+const SPLIT_RETIRED = 'Split is retired (DEC-050, 20 Sep 2026): nothing on the screen offers it';
 
 const MATRIX = [
   { id: '01', name: 'idle', reach: async () => {}, need: { mode: 'orb', selector: '#orb-frame' } },
@@ -194,16 +199,24 @@ const MATRIX = [
        without this the exemption read as stale on a screen this turn never drew. */
     need: { noShell: true, minCards: 1, drewOwn: true },
   },
-  { id: '20', name: 'split-creation', reach: async (p, k) => { await k.dock('orders'); await k.split(); }, need: { branches: 2 } },
+  /* [checker, 8 Oct 2026] 20 to 23 are Split's, and Split is retired: George retired user-facing
+     Split on 20 September (DEC-050), which says Split-specific UI and tests are migration
+     evidence, not permanent requirements, and web/alpha.css hides the band. Each is `retired`
+     (see the loop below): no picture is taken, and the check is that nothing on the glass offers
+     Split, so a Split control that came back would fail here by name. Their `reach` and `need`
+     are kept as they were, as the record of what each shot was. */
+  { id: '20', name: 'split-creation', retired: SPLIT_RETIRED, reach: async (p, k) => { await k.dock('orders'); await k.split(); }, need: { branches: 2 } },
   {
     id: '21',
     name: 'split-independent-left-right',
+    retired: SPLIT_RETIRED,
     reach: async (p, k) => { await k.open('order'); await k.half(1); await k.dock('email'); },
     need: { branches: 2, types: ['email_list'] },
   },
   {
     id: '22',
     name: 'split-branch-ready',
+    retired: SPLIT_RETIRED,
     owner: 'workstream A/D — the half that finished while he was elsewhere (§10/§16)',
     // A half only becomes READY by finishing work while it is NOT focused — a branch that
     // finishes while focused is simply the screen. `askThenLeave` posts the turn through the
@@ -220,7 +233,7 @@ const MATRIX = [
     reach: (p, k) => k.askThenLeave('show me order 1940'),
     need: { branchReady: true },
   },
-  { id: '23', name: 'merge', reach: (p, k) => k.merge(), need: { branches: 0 } },
+  { id: '23', name: 'merge', retired: SPLIT_RETIRED, reach: (p, k) => k.merge(), need: { branches: 0 } },
   {
     id: '24',
     name: 'keyboard-open',
@@ -301,6 +314,10 @@ async function capture(browser, vp, matrix) {
     if (m.type() !== 'error') return;
     const from = (m.location && m.location() && m.location().url) || '';
     if (from.includes('/speak')) return;
+    // [checker, 8 Oct 2026] Nor /voice/live's 503: with no ElevenLabs key in the fixture world it
+    // answers 503 by design (app/routes/voice.py), and 02's hold goes on without live words. Seen
+    // once 02's hold reached the orb (holdOpen); matched on the URL and the 503 (N4).
+    if (voiceLiveByDesign(from, m.text())) return;
     errors.push(`console: ${m.text()}`);
   });
   await page.route('**/speak', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: '{"ok":false,"kind":"no_key","reason":"no voice under test"}' }));
@@ -320,7 +337,10 @@ async function capture(browser, vp, matrix) {
   // picture of two cards, under a heading that was a lie.
   const arrive = async () => {
     await page.evaluate(() => { try { localStorage.clear(); } catch { /* private window */ } });
-    await page.goto(`${BASE}?dev=1`, { waitUntil: 'domcontentloaded' });
+    // [checker, 8 Oct 2026] Without the start-up (web/startup.js, since 29 Sep), as the other
+    // gates open the page: until it hands over a touch only skips it, so the hold for 02 landed
+    // on the start-up and the state stayed READY. The start-up's own pictures are visuals.js's.
+    await page.goto(`${BASE}?dev=1&startup=off`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1100);
     await page.evaluate(() => { for (const b of document.querySelectorAll('.dev-banner')) b.remove(); });
     await page.evaluate(() => {
@@ -341,6 +361,18 @@ async function capture(browser, vp, matrix) {
   for (const shot of matrix) {
     const label = `${vp.name} · ${shot.id} ${shot.name.replace(/-/g, ' ')}`;
     try {
+      if (shot.retired) {
+        // [checker, 8 Oct 2026] A retired shot is not reached and not photographed. What is
+        // checked is the retirement: no Split, Merge or Close control and no half on the glass.
+        const offered = await page.evaluate(() => Array.from(document.querySelectorAll(
+          '#branch-bar [data-action], #branch-rail [data-action], .branch-chip')).filter((c) => {
+          const b = c.getBoundingClientRect();
+          return b.width > 0 && b.height > 0;
+        }).map((c) => c.dataset.action || 'half'));
+        check(`${label} — retired: ${shot.retired}`, offered.length === 0,
+          offered.length ? `and yet the screen offers ${offered.join(', ')}` : '');
+        continue;
+      }
       if (shot.fresh) await arrive();
       await shot.reach(page, kit);
       if (shot.then) await shot.then(page, kit);
@@ -673,8 +705,11 @@ function makeKit(page, context, vp) {
     },
     holdOpen: async (ms) => {
       const cd = await session();
+      // [checker, 8 Oct 2026] On the orb, the voice target on the idle screen: this held the
+      // centre of `#talk-label`, the pill the alpha product hides (web/alpha.css), so the finger
+      // landed at 0,0 and the state stayed READY.
       const at = await page.evaluate(() => {
-        const b = document.querySelector('#talk-label').getBoundingClientRect();
+        const b = document.querySelector('#orb-frame').getBoundingClientRect();
         return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
       });
       await cd.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: at.x, y: at.y }] });
@@ -685,10 +720,10 @@ function makeKit(page, context, vp) {
       // A second finger joining the hold discards the recording (web/app.js), so the
       // "listening" photograph does not leave a junk turn behind it.
       const at = await page.evaluate(() => {
-        const b = document.querySelector('#talk-label').getBoundingClientRect();
+        const b = document.querySelector('#orb-frame').getBoundingClientRect();   // as holdOpen
         return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
       });
-      await cd.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: at.x - 80, y: at.y }, { x: at.x + 80, y: at.y }] });
+      await cd.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: at.x - 20, y: at.y }, { x: at.x + 20, y: at.y }] });
       await sleep(120);
       await cd.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       await sleep(900);

@@ -145,3 +145,28 @@ def test_the_summary_says_this_is_not_acceptance(steps: list[dict]) -> None:
     summary = step_named(steps, "summarise")["run"].lower()
     assert "not accepted" in summary
     assert "independent" in summary
+
+
+def test_the_screens_are_tested_in_a_real_browser(workflow: dict, steps: list[dict]) -> None:
+    """Without a browser every screen test skips, and a skip is not a pass (8 Oct 2026: the
+    acceptance run had installed no Chromium since the browser suites were written).
+
+    The install is pinned to an exact version, comes before the gates, hands the suite the
+    two settings `experience.browser.available` reads, and refuses to go on if the suite
+    would still see no browser."""
+
+    import re
+
+    assert re.fullmatch(r"\d+\.\d+\.\d+", workflow["env"]["PLAYWRIGHT_CORE_VERSION"])
+    install = step_named(steps, "browser for the screen tests")
+    script = install["run"]
+    assert "playwright-core@${PLAYWRIGHT_CORE_VERSION}" in script and "latest" not in script
+    assert "install --with-deps chromium" in script
+    assert "NODE_PATH=" in script and "CROOKS_CHROMIUM=" in script and "$GITHUB_ENV" in script
+    assert "available()" in script and "SystemExit(0 if ok else 1)" in script
+    # Review note N5 (8 Oct): the downloaded Chromium has no digest pin, so its sha256 is logged,
+    # once it is known to be there and before the suite is handed it.
+    assert 'sha256sum "$chrome"' in script
+    assert script.index('test -x "$chrome"') < script.index('sha256sum "$chrome"') < script.index("CROOKS_CHROMIUM=$chrome")
+    names = [step.get("name") or "" for step in steps]
+    assert names.index(install["name"]) < names.index(step_named(steps, "acceptance gates")["name"])

@@ -111,7 +111,9 @@ body.alpha .icon-btn::before,.ask-bar::before,.alpha-typerow::before{
 }
 body.alpha .icon-btn{width:44px;height:44px;color:#fff}
 body.alpha .icon-btn:active{transform:scale(.94)}
-body.alpha .chip{color:var(--ink-2);font-size:14px;letter-spacing:0;min-height:40px}
+/* [checker, 8 Oct 2026] 44px, as every control a finger uses (§29, web/collide.js TOUCH); this said
+   40px, and the order list's filter chips (All, To ship, Shipped) were 40px tall at every size. */
+body.alpha .chip{color:var(--ink-2);font-size:14px;letter-spacing:0;min-height:44px}
 body.alpha .chip[aria-pressed="true"],body.alpha .chip.is-active{color:#fff;background:linear-gradient(180deg,rgba(var(--acc),.34),rgba(var(--acc-f2),.3));box-shadow:var(--shadow-active)}
 body.alpha .context-nav{border-radius:26px;background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.02))}
 html[data-lite] body.alpha .icon-btn,html[data-lite] .ask-bar,html[data-lite] .alpha-typerow,html[data-lite] body.alpha .chip,html[data-lite] body.alpha .context-nav{
@@ -136,6 +138,12 @@ body.alpha .sheet .sheet-grip{width:36px;height:5px;border-radius:3px;background
 body.alpha.alpha .sheet.alpha-sheet{background:linear-gradient(180deg,rgb(40,39,46),rgb(22,22,26))}
 .alpha-item,.alpha-ask{border:0;border-radius:18px;background:rgba(255,255,255,.07)}
 .alpha-field,.alpha-text{border:0;border-radius:16px;background:rgba(255,255,255,.08);font-size:17px}
+/* [checker, 8 Oct 2026] An objective's Continue row: the field takes the room and Send keeps a button's
+   width (`.btn` is flex:1 with 140px at least). On a phone the field showed "Tell CLIVE someth" of its
+   own words; where the two cannot share a line the field has the line and Send goes under it. */
+.alpha-sheet form.alpha-row{flex-wrap:wrap}
+.alpha-sheet form.alpha-row .alpha-field{flex:1 1 260px;min-width:0;width:auto}
+.alpha-sheet form.alpha-row .btn{flex:none;min-width:96px;margin-left:auto}
 .alpha-needs{color:rgb(var(--acc))}
 
 /* the footer's two buttons, when they are drawn, are cells too; with the dock gone on a phone

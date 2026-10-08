@@ -112,7 +112,9 @@ async function main() {
   const turn = await ask('show me order 1938', 'browser');
   const types = (turn.ui || []).map((i) => i.type);
   check('the backend answered with an order surface', types.indexOf('order') !== -1, `ui=${types.join(',')}`);
-  check('it took the fast lane', turn.lane === 'FAST', `lane=${turn.lane}`);
+  // [checker, 8 Oct 2026] Was 'it took the fast lane' (lane FAST). The fast lane was removed on
+  // 28 September (DEC-063): every sentence is a model turn, and its lane is NORMAL.
+  check('it took the model\'s lane, as every sentence does (DEC-063)', turn.lane === 'NORMAL', `lane=${turn.lane}`);
 
   // The page renders whatever the app puts on screen; drive it the way a person does, by
   // typing into the shell's own input if it has one, otherwise by handing the payload to the
@@ -186,6 +188,34 @@ async function main() {
   const rows = await page.evaluate(() => Array.from(document.querySelectorAll('.rows li, .row')).length);
   check('the list rendered rows to tap', rows > 0, `rows=${rows}`);
 
+  // [checker, 8 Oct 2026, review note N2] Walked as it was asked for, OUT LOUD: George's main path
+  // is to say a list and then walk it. Since 28 September (DEC-063) a spoken list is the model's,
+  // and a list the model drew opened no walk: Next said "There is no list open to move through."
+  // Flow's fix (DEC-069: the answer's own list opens the landing's walk) makes these plain checks.
+  const command = (fields) => page.evaluate(async (f) => {
+    const form = new URLSearchParams({ session_id: 'browser', ...f });
+    return (await fetch('/command', { method: 'POST', body: form })).json();
+  }, fields);
+  const saidNext = await command({ command: 'workflow.next' });
+  check('Next moves the cursor on a list asked for out loud',
+    saidNext.ok === true && /\d+ of \d+/.test(saidNext.answer || ''), `answer=${saidNext.answer}`);
+  const saidBack = await command({ command: 'navigation.back' });
+  const saidBackStop = (saidBack.changed || {}).workspace || {};
+  check('Back returns to the list asked for out loud, with cards on it',
+    (saidBack.ui || []).some((i) => i.type === 'order_list') && saidBackStop.kind === 'list' && Boolean(saidBackStop.set_id),
+    `ui=${(saidBack.ui || []).map((i) => i.type).join(',')} answer=${saidBack.answer}`);
+  const saidHome = await command({ command: 'navigation.home' });
+  check('Home from a list asked for out loud draws the landing, with cards on it',
+    (saidHome.ui || []).some((i) => i.type === 'order_list') && (saidHome.changed || {}).home === true
+    && (saidHome.changed || {}).area === 'orders',
+    `ui=${(saidHome.ui || []).map((i) => i.type).join(',')} changed=${JSON.stringify(saidHome.changed || {}).slice(0, 160)}`);
+
+  // [checker, 8 Oct 2026] And from the list the Orders icon opens, which walks today: the controls
+  // checked below are the list's own, and the Orders icon is how a thumb opens a list to walk.
+  await page.evaluate(async () => {
+    const form = new URLSearchParams({ session_id: 'browser', command: 'open.area', area: 'orders' });
+    return (await fetch('/command', { method: 'POST', body: form })).json();
+  });
   const next = await page.evaluate(async () => {
     const form = new URLSearchParams({ session_id: 'browser', command: 'workflow.next' });
     return (await fetch('/command', { method: 'POST', body: form })).json();
@@ -239,10 +269,22 @@ async function main() {
     JSON.stringify(bound.changed || {}).slice(0, 160));
 
   // ---- 7. the capability surface
+  // [checker, 8 Oct 2026] Was 'the capability question draws a surface'. The capability card was
+  // the word-matching lane's (its `capability_summary` family), removed on 28 September with the
+  // lane (DEC-063); the question is the model's now and is answered in words, and nothing on the
+  // Mac draws the card (`app/capabilities/surface.py` is parked, MAP.md). The card's renderer and
+  // its question chips are still on the page, so they are checked on the card drawn directly.
   const caps = await ask('what can you do now?', 'browser');
-  check('the capability question draws a surface', (caps.ui || []).some((i) => i.type === 'capability'),
-    `ui=${(caps.ui || []).map((i) => i.type).join(',')}`);
-  const capsDrawn = await page.evaluate((payload) => window.__crooksDraw(payload), caps);
+  check('the capability question is the model\'s, answered in words (DEC-063)',
+    caps.lane === 'NORMAL' && Boolean((caps.answer || '').trim()),
+    `lane=${caps.lane} answer=${(caps.answer || '').slice(0, 80)}`);
+  const capsDrawn = await page.evaluate((payload) => window.__crooksDraw(payload), {
+    ui: [{ type: 'capability', data: {
+      title: 'What this can do', writes_enabled: false, counts: { reads: 55, changes: 22, bulk: 5 },
+      groups: [{ area: 'orders', label: 'Orders', items: [{ name: 'shopify_find_order', what: 'find an order by number, name or email', kind: 'read', state: 'ready' }] }],
+      examples: ['show me today\'s orders', 'who is waiting on a reply?'],
+    } }],
+  });
   check('the capability surface renders', capsDrawn.nodes > 0 && (capsDrawn.skipped || []).length === 0,
     `nodes=${capsDrawn.nodes} skipped=${(capsDrawn.skipped || []).join(',')}`);
   const capsBody = await page.evaluate(() => {
@@ -259,7 +301,8 @@ async function main() {
   // did nothing at all — no turn, no toast, not even a telemetry line. A browser is the only
   // thing that can tell a wired button from an unwired one.
   const chips = await page.evaluate(() => {
-    const found = Array.from(document.querySelectorAll('[data-ask]'));
+    // On the card: the dock's icons carry `data-ask` too, and are not what this is about.
+    const found = Array.from(document.querySelectorAll('.card-capability [data-ask]'));
     return { count: found.length, first: found.length ? (found[0].dataset.ask || '') : '' };
   });
   check('the capability card offers questions to tap', chips.count > 0, JSON.stringify(chips));
@@ -273,7 +316,7 @@ async function main() {
     // 503 — a real backend refusal, not a fault in the page, and not this check's subject.
     const speak = document.querySelector('#speak-toggle, [name="speak"]');
     if (speak && speak.checked) speak.checked = false;
-    const chip = document.querySelector('[data-ask]');
+    const chip = document.querySelector('.card-capability [data-ask]');
     if (chip) chip.click();
     return new Promise((resolve) => setTimeout(() => { window.fetch = real; resolve(posts); }, 500));
   });
@@ -335,7 +378,13 @@ async function main() {
     };
   });
 
-  await say("show me today's orders");
+  // [checker, 8 Oct 2026] Opened with the Orders icon, as a thumb opens a list to walk: a spoken
+  // list opens no walk since 28 September (DEC-063); see section 5.
+  const landedOn = page.waitForResponse((r) => r.url().endsWith('/command') && r.request().method() === 'POST');
+  const dockAt = await page.evaluate(() => { const b = document.querySelector('.dock-btn[data-area="orders"]').getBoundingClientRect(); return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }; });
+  await page.touchscreen.tap(dockAt.x, dockAt.y);
+  await landedOn;
+  await sleep(1400);
   const atList = await walkState();
   // Design pass (3 Oct), and its review: Back is drawn only when there is somewhere to go back
   // to (GENERATIVE_UI_V1 §4 removed the permanent strip, and its greyed slot with it). This check
@@ -438,6 +487,49 @@ async function main() {
     landedTwice.mode === landed.mode && landedTwice.mode === 'orb' && landedTwice.home > 0,
     `first=${landed.mode} again=${landedTwice.mode} home=${landedTwice.home}`);
   await shot('08-assistant-landing');
+
+  // [checker, 8 Oct 2026, review note N2] The same walk by thumb on a list asked for OUT LOUD,
+  // from the home: Next, then Back to the list, then Home. Before flow's fix (DEC-069) a list the
+  // model drew was not made the walk: with the Orders icon's list walked earlier in this session,
+  // Next walked THAT list ("#1938. 2 of 3.") and Back ended on its landing, not on the list just
+  // asked for. So the walk is held to the list on the glass, by its own rows, as plain checks.
+  const rowRefs = () => page.evaluate(() => Array.from(document.querySelectorAll('#cards li.row[data-kind="order"][data-ref]')).map((r) => r.dataset.ref));
+  await say("show me today's orders");
+  const saidList = await walkState();
+  const saidRows = await rowRefs();
+  check('a list asked for out loud is on the glass, with rows', saidList.type === 'order_list' && saidRows.length > 0,
+    `types=${saidList.types.join(',')} rows=${saidRows.length}`);
+  let saidFirst = saidList;
+  if (saidList.next && saidList.next.drawn && !saidList.next.disabled) {
+    await page.evaluate(() => document.querySelector('#next-btn').click());
+    await sleep(1200);
+    saidFirst = await walkState();
+  }
+  check('Next on a list asked for out loud opens ITS first order and says "1 of" its length',
+    saidFirst.type === 'order' && saidFirst.ref === saidRows[0] && new RegExp(`\\b1 of ${saidRows.length}\\b`).test(saidFirst.answer),
+    `next=${JSON.stringify(saidList.next)} type=${saidFirst.type} ref=${saidFirst.ref} first row=${saidRows[0]} "${saidFirst.answer}"`);
+  let saidOut = saidFirst;
+  for (let i = 0; i < 8 && saidOut.type !== 'order_list' && saidOut.back && saidOut.back.drawn && !saidOut.back.disabled; i++) {
+    await page.evaluate(() => document.querySelector('#back-btn').click());
+    await sleep(1100);
+    saidOut = await walkState();
+  }
+  const outRows = await rowRefs();
+  check('Back walks out of a list asked for out loud and ends on that same list',
+    saidFirst !== saidList && saidOut.type === 'order_list' && JSON.stringify(outRows) === JSON.stringify(saidRows),
+    `walked=${saidFirst !== saidList} types=${saidOut.types.join(',')} rows=${outRows.length} vs ${saidRows.length}`);
+  const saidHomeBtn = await page.evaluate(() => {
+    const b = document.querySelector('#home-btn');
+    if (!b) return false;
+    const r = b.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return false;
+    b.click();
+    return true;
+  });
+  await sleep(1600);
+  const saidLanded = await walkState();
+  check('Home from a list asked for out loud lands on the home', saidHomeBtn && saidLanded.mode === 'orb',
+    `pressed=${saidHomeBtn} mode=${saidLanded.mode} types=${saidLanded.types.join(',')}`);
 
   // ---- 9. touch, then voice, with a finger rather than with fetch
   //

@@ -22,6 +22,9 @@ const checks = [];
 const shots = [];
 const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail: detail === undefined ? '' : String(detail).slice(0, 300) });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// [checker, 8 Oct 2026, review note N4] The one console error from /voice/live that is by design: its
+// 503, with no ElevenLabs key in a fixture world (app/routes/voice.py). Any other, a 500, counts.
+const voiceLiveByDesign = (from, said) => String(from).includes('/voice/live') && /\b503\b/.test(String(said));
 
 async function main() {
   const browser = await chromium.launch({ executablePath: process.env.CROOKS_CHROMIUM || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
@@ -33,6 +36,10 @@ async function main() {
     if (m.type() !== 'error') return;
     const from = (m.location && m.location() && m.location().url) || '';
     if (from.includes('/speak')) return;
+    // [checker, 8 Oct 2026] Nor /voice/live's 503: with no ElevenLabs key in the fixture world it
+    // answers 503 by design (app/routes/voice.py), the page holds on without live words, and the
+    // browser logs the refusal as a failed resource. Matched on the URL and the 503 (N4).
+    if (voiceLiveByDesign(from, m.text())) return;
     // With the resource that failed. "Failed to load resource: 400" names nothing, and a
     // browser run that cannot say WHAT failed costs an hour to read.
     errors.push(`console: ${m.text()}${from ? ` <- ${from}` : ''}`);
@@ -101,18 +108,32 @@ async function main() {
   check('tapping Orders from idle lands on the order list by the landing command, not a sentence', afterDock.card === 'order_list' && posts.includes('/command') && !posts.includes('/turn'), JSON.stringify({ card: afterDock.card, posts }));
   await shot('02-dock-orders');
 
-  // ---- 2. two fingers on the orb: a division, never a sentence
+  // ---- 2. two fingers on the orb: never a sentence, and no longer a division
+  //
+  // [checker, 8 Oct 2026] Split is retired: George retired user-facing Split on 20 September
+  // (DEC-050), and DEC-050 with DEC-037/038 says Split-specific UI and tests are migration
+  // evidence, not permanent requirements (the precedent is PR #96, which retired the Split hops
+  // of scripts/browser/clickpath.js). Since V0.5 a spread makes no halves (web/app.js
+  // `onHoldMove`) and the stylesheet hides the halves' band (web/alpha.css). So the checks that
+  // pinned Split ON the screen now pin it OFF it, and the ones that only make sense with two
+  // halves are retired with it: "both halves are on screen as chips a finger can hit", "the
+  // Split button divides the orb too", "the first half shows its list; the fresh half shows its
+  // own nothing, with a way out" and "each half keeps its own workspace across taps". What a
+  // second finger must never do — become a sentence or a hearing error — is still checked.
   // Back to the idle screen the way the tablet gets there: a fresh load of the same session.
   await page.goto(`${BASE}?dev=1`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(900);
   await page.evaluate(() => { for (const b of document.querySelectorAll('.dev-banner')) b.remove(); });
+  // [checker, 8 Oct 2026] Until the start-up has handed over (web/startup.js, since 29 Sep), a
+  // finger anywhere but the dock and the gear only skips it. The gestures below are measured on
+  // the app, so they wait for it, as the tablet does a moment after it opens.
+  await page.waitForFunction(() => !document.getElementById('startup'), null, { timeout: 25000 });
   const reloaded = await screen();
   check('a reload brings back what the tablet was looking at, from the Mac', reloaded.mode === 'context' && reloaded.card === 'order_list', JSON.stringify({ mode: reloaded.mode, card: reloaded.card }));
   const before = await branchesNow();
-  // The Split chip sits under the orb on the idle screen and in the rail beside Next when
-  // cards are up: wherever the thumb is, and never behind a gesture alone.
-  const splitChip = await page.evaluate(() => { const c = document.querySelector('#branch-bar [data-action="split"], #branch-rail [data-action="split"]'); if (!c) return null; const b = c.getBoundingClientRect(); return { host: c.parentElement.id, x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2), w: Math.round(b.width), h: Math.round(b.height), visible: b.width > 0 && b.height > 0 }; });
-  check('a visible Split control exists while there is one half', Boolean(splitChip && splitChip.visible && splitChip.h >= 40), JSON.stringify(splitChip));
+  // Was 'a visible Split control exists while there is one half'.
+  const splitChip = await page.evaluate(() => { const c = document.querySelector('#branch-bar [data-action="split"], #branch-rail [data-action="split"]'); if (!c) return null; const b = c.getBoundingClientRect(); return { host: c.parentElement.id, w: Math.round(b.width), h: Math.round(b.height), visible: b.width > 0 && b.height > 0 }; });
+  check('no Split control is on the screen: Split is retired (DEC-050)', !(splitChip && splitChip.visible), JSON.stringify(splitChip));
   const orb = await page.evaluate(() => { const b = document.querySelector('#orb-frame').getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
   posts.length = 0;
   await touches('touchStart', [{ x: orb.x - 20, y: orb.y }]);                         // first finger: the hold begins
@@ -126,28 +147,23 @@ async function main() {
   await sleep(2200);
   const afterSplit = await screen();
   const branchesAfter = await branchesNow();
-  check('a two-finger spread divides the orb', branchesAfter.count === 2 && before.count < 2, `branches ${before.count} -> ${branchesAfter.count}`);
+  // Was 'a two-finger spread divides the orb' (branches 1 -> 2).
+  check('a two-finger spread no longer divides the orb (DEC-050)', branchesAfter.count === before.count && branchesAfter.count < 2, `branches ${before.count} -> ${branchesAfter.count}`);
   check('and sends no speech turn at all', !posts.includes('/turn'), `posted: ${posts.join(', ') || 'nothing'}`);
   check('and shows no hearing error', !afterSplit.errorCard && !/could not hear|cannot hear|closer to the microphone|not running/i.test(afterSplit.answer + ' ' + afterSplit.toast + ' ' + afterSplit.sub) && afterSplit.state !== 'ERROR',
     JSON.stringify({ state: afterSplit.state, answer: afterSplit.answer, toast: afterSplit.toast, sub: afterSplit.sub }));
-  // D-10 · §10. This used to require a message saying "Divided". It is now required to say
-  // NOTHING: the orb has visibly become two halves, and the very next check reads the two
-  // named chips that appeared under it. "Divided. Tap a half to talk to it; the other keeps
-  // working." was said three times in the live tablet session over a screen that had just
-  // shown all of that — one of the sixteen notifications of D-10, and web/notify.js now
-  // refuses the code outright. A state change updates the place the state lives.
-  check('and says nothing, because the screen has already said it',
-    afterSplit.toast === '' && branchesAfter.count === 2,
+  // D-10 · §10: a gesture that changes nothing says nothing either. (Was "…because the screen
+  // has already said it", with two halves on it.)
+  check('and says nothing, because nothing changed',
+    afterSplit.toast === '' && branchesAfter.count < 2,
     `toast="${afterSplit.toast}" branches=${branchesAfter.count}`);
-  await shot('03-divided');
+  await shot('03-two-fingers');
 
-  // ---- 3. the halves are named, and the other one can be tapped
-  const chips = await page.evaluate(() => Array.from(document.querySelectorAll('#branch-bar .branch-chip, #branch-rail .branch-chip')).map((c) => ({ id: c.dataset.branch, pressed: c.getAttribute('aria-pressed'), h: Math.round(c.getBoundingClientRect().height) })));
-  check('both halves are on screen as chips a finger can hit', chips.length === 2 && chips.every((c) => c.h >= 40), JSON.stringify(chips));
-
-  // ---- 4. pinch merges, and posts nothing either. With cards up the hold surface is the dock
-  // band along the bottom (and the small orb); two fingers there, drawn together.
-  const pill = await page.evaluate(() => { const b = document.querySelector('#talk-label').getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
+  // ---- 4. a pinch on the ask bar posts nothing either. With cards up the hold surface is the
+  // ask bar along the bottom (web/alpha.js `#ask-bar`; the old `#talk` pill is hidden in the
+  // alpha product); two fingers there, drawn together. Was 'a pinch on the dock band merges the
+  // halves and sends no speech turn': there are no halves to merge (DEC-050).
+  const pill = await page.evaluate(() => { const b = document.querySelector('#ask-bar').getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
   posts.length = 0;
   await touches('touchStart', [{ x: pill.x - 110, y: pill.y }]);
   await sleep(140);
@@ -159,18 +175,10 @@ async function main() {
   await touches('touchEnd', []);
   await sleep(2000);
   const merged = await branchesNow();
-  check('a pinch on the dock band merges the halves and sends no speech turn', merged.count === 1 && !posts.includes('/turn'), `branches=${merged.count} posted=${posts.join(', ') || 'nothing'}`);
+  check('a pinch on the ask bar sends no speech turn, and leaves one half', merged.count === 1 && !posts.includes('/turn'), `branches=${merged.count} posted=${posts.join(', ') || 'nothing'}`);
 
-  // ---- 5. the Split button reaches the same command as the gesture
-  if ((await branchesNow()).count > 1) { await page.evaluate(() => { const c = document.querySelector('[data-action="cancel"]'); if (c) c.click(); }); await sleep(1200); }
-  const again = await page.evaluate(() => { const c = document.querySelector('#branch-bar [data-action="split"], #branch-rail [data-action="split"]'); if (!c) return false; c.click(); return true; });
-  await sleep(1500);
-  const viaButton = await branchesNow();
-  check('the Split button divides the orb too', again && viaButton.count === 2, `clicked=${again} branches=${viaButton.count}`);
-
-  // ---- 5b. switching halves switches workspaces
-  // The first half (focused after a split) is asked for the list; the second is fresh. Tapping
-  // between them must change what is ON SCREEN, not only who is listening.
+  // ---- 5. the workspace comes back after a reload, from the Mac
+  // (Was 5c, after two halves had each drawn their own; with one half, the order it drew.)
   const say = async (text) => {
     await page.evaluate(() => { const s2 = document.querySelector('#settings'), d = document.querySelector('#dev'); if (d) d.hidden = false; if (s2 && !s2.open && s2.showModal) s2.showModal(); });
     await page.fill('#dev-text', text);
@@ -179,47 +187,23 @@ async function main() {
     await page.evaluate(() => { const s2 = document.querySelector('#settings'); if (s2 && s2.open) s2.close(); });
     await sleep(300);
   };
-  await say("show me today's orders");
-  const onFirst = await screen();
-  const half = await branchesNow();
-  const other = half.ids.find((id) => id !== half.focused);
-  const tapChip = async (id) => { await page.evaluate((b) => { const c = document.querySelector(`.branch-chip[data-branch="${b}"]`); if (c) c.click(); }, id); await sleep(1500); };
-  await tapChip(other);
-  const onSecondEmpty = await screen();
   await say('show me order 1938');
-  const onSecond = await screen();
-  await tapChip(half.focused);
-  const backOnFirst = await screen();
-  await tapChip(other);
-  const backOnSecond = await screen();
-  // The fresh half shows its OWN screen and none of the first half's. It used to show
-  // nothing at all and say so in a line of toast; a half that holds nothing now draws what it
-  // holds and the ways out of it (`half_empty`), which is D-3's "a refusal the owner cannot
-  // act on is a dead control" applied to an empty half.
-  check('the first half shows its list; the fresh half shows its own nothing, with a way out',
-    onFirst.card === 'order_list' && onSecondEmpty.card === 'half_empty' && onSecondEmpty.mode === 'context',
-    JSON.stringify({ first: onFirst.card, secondEmpty: onSecondEmpty.card, mode: onSecondEmpty.mode, toast: onSecondEmpty.toast }));
-  check('each half keeps its own workspace across taps',
-    onSecond.card === 'order' && backOnFirst.card === 'order_list' && backOnSecond.card === 'order' && /1938/.test(backOnSecond.ref),
-    JSON.stringify({ second: onSecond.card, first: backOnFirst.card, secondAgain: backOnSecond.card, ref: backOnSecond.ref }));
-  await shot('04-second-half');
-
-  // ---- 5c. a reload brings the focused half's workspace back from the Mac
   await page.goto(`${BASE}?dev=1`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1600);
   await page.evaluate(() => { for (const b of document.querySelectorAll('.dev-banner')) b.remove(); });
+  await page.waitForFunction(() => !document.getElementById('startup'), null, { timeout: 25000 });   // as above
   const restored = await screen();
   const restoredChips = await page.evaluate(() => document.querySelectorAll('.branch-chip').length);
-  check('after a reload the workspace is back, and both halves with it',
-    restored.mode === 'context' && restored.card === 'order' && /1938/.test(restored.ref) && restoredChips === 2,
+  // Was '…and both halves with it' (two chips); with Split retired there are none.
+  check('after a reload the workspace is back, and no halves with it',
+    restored.mode === 'context' && restored.card === 'order' && /1938/.test(restored.ref) && restoredChips === 0,
     JSON.stringify({ mode: restored.mode, card: restored.card, ref: restored.ref, chips: restoredChips }));
   await shot('05-reloaded');
 
   // ---- 6. an ordinary one-finger hold still records and sends — no delay was added. On the
-  // dock band, where the thumb is when cards are up.
-  await page.evaluate(() => { const c = document.querySelector('[data-action="cancel"]'); if (c) c.click(); });
-  await sleep(1200);
-  const pill2 = await page.evaluate(() => { const b = document.querySelector('#talk-label').getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
+  // ask bar, where the thumb is when cards are up (was the `#talk` pill, hidden in the alpha
+  // product since the ask bar became the voice button).
+  const pill2 = await page.evaluate(() => { const b = document.querySelector('#ask-bar').getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
   posts.length = 0;
   await touches('touchStart', [{ x: pill2.x, y: pill2.y }]);
   await sleep(900);

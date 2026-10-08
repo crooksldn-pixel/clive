@@ -28,6 +28,10 @@ const OUT = process.argv[3] || '';
 const VIEWPORT = { width: 601, height: 889 };
 const HEADERS = { 'Tailscale-User-Login': 'owner@example.com', 'X-Forwarded-For': '100.64.0.9' };
 const THREAD = 'aa70d3f83dbef06e';   // Mia, order 1938, inbound and unanswered
+// [checker, 8 Oct 2026] Mia's row by its thread, where this tapped the queue's first row: the queue
+// is the Inbox landing's since 28 September (DEC-063; app/families/landings.py), longest wait
+// first, and Millie's two-day-old email is ahead of Mia's. The thread under test is still Mia's.
+const MIAS_ROW = `#cards .row.tappable[data-kind="email_thread"][data-ref="${THREAD}"]`;
 
 const checks = [];
 const shots = [];
@@ -55,6 +59,10 @@ async function readProposal(page) {
     const card = document.querySelector('#cards .card-confirmation');
     if (!card) return null;
     const surface = card.querySelector('.action-surface');
+    // [chain, 8 Oct] The message card (DEC-069) is taller than the old confirmation card, so its
+    // gesture surface can sit under the ask bar at 601x889: brought into view first, as a thumb
+    // scrolls to it and as scripts/browser/flow.js does before its hold.
+    if (surface && surface.scrollIntoView) surface.scrollIntoView({ block: 'center' });
     const b = surface ? surface.getBoundingClientRect() : null;
     return {
       proposal: card.dataset.proposal || '',
@@ -113,7 +121,10 @@ async function main() {
     shots.push(`${name}.png`);
   };
 
-  await page.goto(`${BASE}?dev=1`, { waitUntil: 'domcontentloaded' });
+  // [checker, 8 Oct 2026] Without the start-up (`startup=off`, as customers.js, orders.js and
+  // returns.js open the page): since 29 Sep a tap before it hands over only skips it
+  // (web/startup.js), so the first tap on the queue below opened nothing.
+  await page.goto(`${BASE}?dev=1&startup=off`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(700);
   await page.evaluate(() => {
     for (const b of document.querySelectorAll('.dev-banner')) b.remove();
@@ -161,7 +172,7 @@ async function main() {
 
   // ---- 1. the queue, and into a thread
   await say('which customers need replying to?');
-  const opened = await tapMiddle('#cards .row.tappable[data-kind="email_thread"]');
+  const opened = await tapMiddle(MIAS_ROW);
   await sleep(1500);
   await openRail();
   const thread = await page.evaluate(() => {
@@ -216,7 +227,7 @@ async function main() {
   const drove = [];
   for (const chip of enabled) {
     await say('which customers need replying to?');
-    await tapMiddle('#cards .row.tappable[data-kind="email_thread"]');
+    await tapMiddle(MIAS_ROW);
     await sleep(1400);
     await openRail();
     const before = await cards();
@@ -414,7 +425,7 @@ async function main() {
 
   // ---- 3. the Reply path, end to end, asserting the VISIBLE state at every step
   await say('which customers need replying to?');
-  await tapMiddle('#cards .row.tappable[data-kind="email_thread"]');
+  await tapMiddle(MIAS_ROW);
   await sleep(1400);
   const stageBefore = await stageState();
   await tapMiddle(`#cards .card-email_thread .rail-chip[data-action="reply"]`);

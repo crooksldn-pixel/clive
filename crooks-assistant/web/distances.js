@@ -311,6 +311,11 @@
   function label(words, ms) {
     if (!pill) return;
     pill.textContent = words;
+    // [checker, 8 Oct 2026] Above the ask bar wherever it is: the stylesheet's fixed 96px is above
+    // it on a phone, but on a tablet the dock lifts the bar and the line sat on top of "Ask CLIVE".
+    const bar = doc.getElementById('alpha-composer');
+    const top = bar ? bar.getBoundingClientRect().top : 0;
+    pill.style.bottom = top > 0 && root.innerHeight ? `${Math.round(root.innerHeight - top + 12)}px` : '';
     pill.classList.add('is-on');
     clearTimeout(S.labelTimer);
     if (ms) S.labelTimer = setTimeout(() => pill.classList.remove('is-on'), ms);

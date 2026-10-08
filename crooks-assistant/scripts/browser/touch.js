@@ -54,6 +54,21 @@ const checks = [];
 const shots = [];
 const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail: detail === undefined ? '' : String(detail).slice(0, 400) });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// [checker, 8 Oct 2026, review note N4] The one console error from /voice/live that is by design: its
+// 503, with no ElevenLabs key in a fixture world (app/routes/voice.py). Any other, a 500, counts.
+const voiceLiveByDesign = (from, said) => String(from).includes('/voice/live') && /\b503\b/.test(String(said));
+// [chain, 8 Oct 2026] A check held as a STRICT expected failure, named for its defect (pytest's
+// xfail(strict=True), for a script). While the defect is there it is reported as an expected
+// failure and the gate stays green; the day it passes, the gate goes RED and says so: make it a
+// plain `check(...)` again. Flow's fix (DEC-069) made a list asked for out loud a walk, as the
+// Orders icon's list is, and its other spoken-walk checks are plain now. This one is not about
+// that: on a spoken list AND on the Orders icon's list alike, Next after a row was opened starts
+// the walk at the first row again ("#1940. 1 of 3." over #1940), never at the row after it.
+const ROW_THEN_NEXT = 'KNOWN DEFECT row-then-next: Next after a row was opened starts the walk at the first row again, on a spoken list and the Orders icon\'s list alike';
+const knownDefect = (defect, name, ok, detail) => check(
+  ok ? `${name} :: XPASS(strict): ${defect} is fixed, so make this a plain check`
+    : `${name} :: expected failure, ${defect}`,
+  !ok, detail);
 
 async function atSize(browser, size) {
   const at = (what) => `${what} (${size.name})`;
@@ -68,6 +83,9 @@ async function atSize(browser, size) {
     if (m.type() !== 'error') return;
     const from = (m.location && m.location() && m.location().url) || '';
     if (from.includes('/speak')) return;
+    // [checker, 8 Oct 2026] Nor /voice/live's 503: with no ElevenLabs key in the fixture world it
+    // answers 503 by design (app/routes/voice.py), and the hold goes on without live words (N4).
+    if (voiceLiveByDesign(from, m.text())) return;
     errors.push(`console: ${m.text()}`);
   });
   const posts = [];
@@ -185,9 +203,10 @@ async function atSize(browser, size) {
      `expect` is a substring of what the click must have landed on or inside, or a list of
      them where one control has more than one shape: Split is a `.branch-act` in the branch
      band and a `.chip` in the navigation rail. */
-  async function tapControl(label, selector, expect) {
+  // `judge` is who records the result: `check` unless a caller holds this tap to more (N2).
+  async function tapControl(label, selector, expect, judge = check) {
     const box = await boxOf(selector);
-    if (!box) { check(at(`tap ${label}`), false, `${selector} is not on screen at all`); return null; }
+    if (!box) { judge(at(`tap ${label}`), false, `${selector} is not on screen at all`); return null; }
     await reset();
     const before = { turns: turns(), submits: (await audit() || {}).submits };
     await tap(box);
@@ -199,7 +218,7 @@ async function atSize(browser, size) {
     const reached = wanted.length ? landed.some((c) => wanted.some((w) => c.includes(w))) : landed.length > 0;
     const quiet = after.turns === before.turns && short === 0 && starts === 0
       && after.submits === before.submits;
-    check(at(`tap ${label}`), box.onScreen && box.hitBy.startsWith('itself') && reached && quiet, JSON.stringify({
+    judge(at(`tap ${label}`), box.onScreen && box.hitBy.startsWith('itself') && reached && quiet, JSON.stringify({
       box: `${box.left},${box.top} ${box.w}x${box.h}`, onScreen: box.onScreen, hitBy: box.hitBy,
       landed: landed.slice(0, 4), turns: after.turns - before.turns, too_short: short,
       hold_starts: starts, submits: (after.submits || 0) - (before.submits || 0),
@@ -317,42 +336,48 @@ async function atSize(browser, size) {
   await page.goto(`${BASE}?dev=1`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(900);
   await page.evaluate(() => { for (const b of document.querySelectorAll('.dev-banner')) b.remove(); });
+  // [checker, 8 Oct 2026] Until the start-up hands over (web/startup.js, since 29 Sep) a finger
+  // anywhere but the dock and the gear only skips it; every tap below is measured on the app.
+  await page.waitForFunction(() => !document.getElementById('startup'), null, { timeout: 25000 });
 
   // ================================================================== §8, measured
+  //
+  // [checker, 8 Oct 2026] Split is retired: George retired user-facing Split on 20 September
+  // (DEC-050), and DEC-050 with DEC-037/038 says Split-specific UI and tests are migration
+  // evidence, not permanent requirements (PR #96 retired clickpath.js's Split hops the same
+  // way). So the three controls he could not press on 11 September — Split, Merge and Close —
+  // are now held to be ABSENT, under the names the sweep requires (tests/test_browser.py), and
+  // the checks that need two halves are retired with them: "and the tap on Split actually
+  // divided the orb", the ladder and the navigation row "with the orb divided", "both halves
+  // are chips a finger can hit, wholly on the screen", "no chip says it holds nothing AND
+  // carries its parent's task", "tap the other half's chip", "and the tap on Merge actually
+  // folded the halves back", "tap Split (again)" and "and the tap on Close actually let the
+  // other half go". The notification tap does not need halves and stays.
   await ladderHolds('on the idle screen');
+  const absent = async (label, selector) => {
+    const box = await boxOf(selector);
+    check(at(`tap ${label} — retired with Split (DEC-050): nothing on the screen offers it`), !box, JSON.stringify(box));
+  };
+  // Was 'the Split control is on screen, finger-sized, and is what is on top of itself'.
   const splitBox = await boxOf('#branch-bar [data-action="split"], #branch-rail [data-action="split"]');
-  check(at('the Split control is on screen, finger-sized, and is what is on top of itself'),
-        Boolean(splitBox && splitBox.onScreen && splitBox.h >= 40 && splitBox.hitBy.startsWith('itself')),
-        JSON.stringify(splitBox));
+  check(at('no Split control is on the screen: Split is retired (DEC-050)'), !splitBox, JSON.stringify(splitBox));
   await shot('01-idle');
 
-  // ================================================================== §8/§17, the three he
-  // could not press. A question first, so the fresh half inherits something and Merge has
-  // something to merge — §18 forbids drawing it otherwise.
   await say("show me today's orders");
-  await tapControl('Split', '#branch-bar [data-action="split"], #branch-rail [data-action="split"]', ['branch-act', 'chip']);
-  await sleep(800);
-  const divided = await branchesNow();
-  check(at('and the tap on Split actually divided the orb'), divided.count === 2, `branches=${divided.count}`);
-  await shot('02-divided');
+  await absent('Split', '#branch-bar [data-action="split"], #branch-rail [data-action="split"]');
+  check(at('and nothing divided the orb'), (await branchesNow()).count === 1, JSON.stringify(await branchesNow()));
 
   /* A tap on a notification must not become a recording either — it sits in the band that
-     used to be inside the orb zone, under the voice target, with the branch chips.
+     used to be inside the orb zone, under the voice target.
 
-     This used to rely on "Divided." being on the glass after the split. §10 silences that:
-     `divided` is in web/notify.js's SCREEN_SHOWS because the orb visibly becoming divided
-     is sufficient, and the two workstreams were each right — so the check was measuring a
-     notification the product had stopped making, and reported
-     "#notes-orb .note, #notes-deck .note is not on screen at all" at both viewports.
-
-     So it puts one there itself, and chooses a code §10 PERMITS (in neither SCREEN_SHOWS nor
+     It puts one there itself, and chooses a code §10 PERMITS (in neither SCREEN_SHOWS nor
      CONTROL_SHOWS): a change proved on the store, which nothing on the glass says by itself.
-     The check stands or falls with the pointer machine now, rather than with the
-     notification policy of whatever screen it happened to be on. */
+     The check stands or falls with the pointer machine, rather than with the notification
+     policy of whatever screen it happened to be on. */
   const noted = await page.evaluate(() => {
     if (!window.CrooksNotify || typeof window.CrooksNotify.show !== 'function') return false;
     window.CrooksNotify.show({
-      text: 'The refund was proved on the store: \u00a340.00 back to the card.',
+      text: 'The refund was proved on the store: £40.00 back to the card.',
       class: 'workspace', tone: 'good', code: 'refund_proved',
     });
     return true;
@@ -361,38 +386,65 @@ async function atSize(browser, size) {
   await sleep(200);
   await tapControl('a notification', '#notes-orb .note, #notes-deck .note', '.note');
 
-  await ladderHolds('with the orb divided');
-  await railFits('with the orb divided');
-  const chipsOnScreen = await page.evaluate(() => Array.from(document.querySelectorAll('.branch-chip')).map((c) => {
-    const b = c.getBoundingClientRect();
-    return { text: c.textContent.replace(/\s+/g, ' ').trim().slice(0, 44), w: Math.round(b.width), h: Math.round(b.height),
-             onScreen: b.left >= -0.5 && b.right <= innerWidth + 0.5 };
-  }));
-  check(at('both halves are chips a finger can hit, wholly on the screen'),
-        chipsOnScreen.length === 2 && chipsOnScreen.every((c) => c.h >= 40 && c.onScreen),
-        JSON.stringify(chipsOnScreen));
-  // §17: a half that holds nothing says so in words, and never says two things at once —
-  // the visual pass found a chip reading "EMPTY To go out".
-  check(at('no chip says it holds nothing AND carries its parent\'s task'),
-        chipsOnScreen.every((c) => !/EMPTY/.test(c.text)), JSON.stringify(chipsOnScreen.map((c) => c.text)));
-
-  await tapControl('the other half\'s chip', '.branch-chip[aria-pressed="false"]', 'branch-chip');
-  await sleep(600);
-  await tapControl('Merge', '#branch-bar [data-action="merge"]', 'branch-act');
-  await sleep(800);
-  check(at('and the tap on Merge actually folded the halves back'),
-        (await branchesNow()).count === 1, JSON.stringify(await branchesNow()));
-
-  await tapControl('Split (again)', '#branch-bar [data-action="split"], #branch-rail [data-action="split"]', ['branch-act', 'chip']);
-  await sleep(800);
-  await tapControl('Close', '#branch-bar [data-action="cancel"]', 'branch-act');
-  await sleep(800);
-  check(at('and the tap on Close actually let the other half go'),
-        (await branchesNow()).count === 1, JSON.stringify(await branchesNow()));
+  await absent('Merge', '#branch-bar [data-action="merge"], #branch-rail [data-action="merge"]');
+  await absent('Close', '#branch-bar [data-action="cancel"], #branch-rail [data-action="cancel"]');
   await shot('03-after-branch-taps');
 
   // ================================================================== the navigation chrome
-  await say("show me today's orders");
+  //
+  // [checker, 8 Oct 2026] The list is said (first, below) and opened with the Orders icon, under a
+  // finger: since 28 September (DEC-063) a spoken list is the model's, and a list the model draws
+  // is neither a stop on the trail nor a walk, so it offers no Back and no Next. That is
+  // reported for the flow work; the Orders icon's list measures the controls themselves.
+  const openOrders = async () => {
+    const dock = await boxOf('.dock-btn[data-area="orders"]');
+    if (dock) await tap(dock);
+    await sleep(1600);
+  };
+  // [checker, 8 Oct 2026, review note N2] First on a list asked for OUT LOUD, which is George's
+  // main path: say a list, open a row, then Home, Back and Next. Back is held to land in THAT list,
+  // a plain check since flow's fix (DEC-069) made the answer's own list the walk. Next, held to open
+  // the row after the one opened, is a strict expected failure (ROW_THEN_NEXT, at the top). Before
+  // the Orders icon is touched: once its landing has made today's set, an order of today's opened
+  // from anywhere walks that set, which would hide what this measures.
+  const rowRefs = () => page.evaluate(() => Array.from(document.querySelectorAll('#cards li.row[data-kind="order"][data-ref]')).map((r) => r.dataset.ref));
+  const onGlass = () => page.evaluate(() => {
+    const c = document.querySelector('#cards .card');
+    return { type: (c && c.dataset.type) || '', ref: (c && c.dataset.ref) || '',
+             answer: ((document.querySelector('#answer') || {}).textContent || '').trim(), mode: document.body.dataset.mode || '' };
+  });
+  const saidList = async () => {
+    await say("show me today's orders");
+    const refs = await rowRefs();
+    await tapControl('a row of a list asked for out loud', '#cards li.row[data-kind="order"]', 'li.row');
+    await sleep(800);
+    return refs;
+  };
+  let said = await saidList();
+  check(at('a list asked for out loud is on the glass with more than one row'), said.length > 1, JSON.stringify(said.length));
+  await tapControl('Home on an order opened from a list asked for out loud', '#home-btn', 'home-btn');
+  await sleep(900);
+
+  said = await saidList();
+  let heard = [];
+  const keep = (name, ok, detail) => heard.push({ name, ok, detail });
+  await tapControl('Back on an order opened from a list asked for out loud', '#back-btn', 'back-btn', keep);
+  await sleep(900);
+  const backTo = { ...(await onGlass()), rows: await rowRefs() };
+  check(heard[0].name + ', and it lands on that list',
+    heard[0].ok && backTo.type === 'order_list' && JSON.stringify(backTo.rows) === JSON.stringify(said),
+    `${heard[0].detail} landed=${backTo.type} rows=${backTo.rows.length} vs ${said.length}`);
+
+  said = await saidList();
+  heard = [];
+  await tapControl('Next on an order opened from a list asked for out loud', '#next-btn', 'next-btn', keep);
+  await sleep(900);
+  const nextTo = await onGlass();
+  knownDefect(ROW_THEN_NEXT, heard[0].name + ', and it opens that list\'s second order',
+    heard[0].ok && nextTo.type === 'order' && nextTo.ref === said[1] && new RegExp(`\\b2 of ${said.length}\\b`).test(nextTo.answer),
+    `${heard[0].detail} type=${nextTo.type} ref=${nextTo.ref} second row=${said[1]} "${nextTo.answer}"`);
+
+  await openOrders();
   await ladderHolds('beside the cards');
   await railFits('beside the cards, with one half');
   await tapControl('an order card\'s row', '#cards li.row[data-kind="order"]', 'li.row');
@@ -402,7 +454,7 @@ async function atSize(browser, size) {
   await tapControl('Home', '#home-btn', 'home-btn');
   await sleep(900);
 
-  await say("show me today's orders");
+  await openOrders();
   await tapControl('a card row that opens a record', '#cards [data-ref][data-kind]', 'li.row');
   await sleep(800);
   await tapControl('Next', '#next-btn', 'next-btn');
@@ -489,7 +541,7 @@ async function atSize(browser, size) {
     return { moved: now.top - before.top, room: before.room };
   }
 
-  await say("show me today's orders");
+  await openOrders();
   const card = await boxOf('#cards .card');
   if (card) {
     const scrolled = await scrollFrom('on a card', { x: card.x, y: Math.min(card.bottom - 24, card.y + 60) }, 240);
@@ -499,41 +551,44 @@ async function atSize(browser, size) {
   } else {
     check(at('a scroll that begins on a card never becomes a sentence'), false, 'no card on screen');
   }
-  // Beside the dock: inside the 112px band, outside the hold pill's slot — where a thumb rests
-  // when it comes up from the bottom of a list.
+  // Beside the dock: inside the band, outside the hold surface's slot — where a thumb rests
+  // when it comes up from the bottom of a list. [checker, 8 Oct 2026] The hold surface is the ask
+  // bar (web/alpha.js `#ask-bar`); the `#talk` pill this measured is hidden in the alpha product.
   const beside = await page.evaluate(() => {
     const dock = document.querySelector('#dock').getBoundingClientRect();
-    const hold = document.querySelector('#talk').getBoundingClientRect();
+    const hold = document.querySelector('#ask-bar').getBoundingClientRect();
     return { x: Math.round((dock.left + hold.left) / 2), y: Math.round(dock.top + 10) };
   });
   await scrollFrom('beside the dock', beside, 200);
 
   // ================================================================== two fingers
-  /* A pair, on the voice surface. The recording the first finger started must be discarded
+  /* A pair, on a voice surface. The recording the first finger started must be discarded
      before either lifts: the timeline holds 18 `multitouch` hold phases and two
-     GESTURE_COLLISION turns, which is that discard not happening. */
-  await reset();
-  const pillBefore = turns();
-  const pill = await boxOf('#talk-label');
-  await touch('touchStart', [{ x: pill.x - 70, y: pill.y }]);
-  await sleep(150);
-  await touch('touchStart', [{ x: pill.x - 70, y: pill.y }, { x: pill.x + 70, y: pill.y }]);
-  for (let i = 1; i <= 9; i++) {
-    await touch('touchMove', [{ x: pill.x - 70 - i * 9, y: pill.y }, { x: pill.x + 70 + i * 9, y: pill.y }]);
-    await sleep(28);
+     GESTURE_COLLISION turns, which is that discard not happening.
+
+     [checker, 8 Oct 2026] Twice now. On the ask bar, the hold surface beside the cards since the
+     alpha product (the `#talk` pill this used is hidden): the bar is a control, not the touch
+     machine's, so what is checked there is that nothing is said. This found the bar sending the
+     first finger's recording when it lifted (fixed in web/app.js, `abandonAskPress`). And on the
+     orb, the touch machine's own voice surface, where the machine's count is checked as before;
+     the orb is on the idle screen, so that pair is made after Home, below. */
+  async function pairOn(box, gap) {
+    await reset();
+    const before = turns();
+    await touch('touchStart', [{ x: box.x - gap, y: box.y }]);
+    await sleep(150);
+    await touch('touchStart', [{ x: box.x - gap, y: box.y }, { x: box.x + gap, y: box.y }]);
+    for (let i = 1; i <= 9; i++) {
+      await touch('touchMove', [{ x: box.x - gap - i * 9, y: box.y }, { x: box.x + gap + i * 9, y: box.y }]);
+      await sleep(28);
+    }
+    await touch('touchEnd', []);
+    await sleep(1900);
+    return { turns: turns() - before, too_short: await tooShort(), kinds: (await events()).slice(0, 8) };
   }
-  await touch('touchEnd', []);
-  await sleep(1900);
-  const pairAudit = await audit();
-  check(at('two fingers on the voice surface are a gesture and never a sentence'),
-        turns() === pillBefore && (await tooShort()) === 0,
-        JSON.stringify({ turns: turns() - pillBefore, too_short: await tooShort(), kinds: (await events()).slice(0, 8) }));
-  check(at('and the machine counted the pair, cancelled the pending voice, and submitted nothing'),
-        pairAudit && pairAudit.pairs >= 1 && pairAudit.cancels >= 1 && pairAudit.submits === 0,
-        JSON.stringify(pairAudit));
-  check(at('and the spread divided the orb, which is what the pair is for'),
-        (await branchesNow()).count === 2, JSON.stringify(await branchesNow()));
-  await shot('05-two-finger-split');
+  const onBar = await pairOn(await boxOf('#ask-bar'), 70);
+  check(at('two fingers on the ask bar are a gesture and never a sentence'),
+        onBar.turns === 0 && onBar.too_short === 0, JSON.stringify(onBar));
 
   /* And once more here, late: the trail is long by now (a customer, an order, a customer
      again) and the fixed controls must STILL fit. This is the state the screenshots are taken
@@ -556,12 +611,26 @@ async function atSize(browser, size) {
           turns() > before && starts >= 1,
           JSON.stringify({ turns: turns() - before, hold_starts: starts, events: (await events()).slice(0, 8) }));
   }
-  await holdAndSend('the hold pill', await boxOf('#talk-label'), 1300);
+  // [checker, 8 Oct 2026] The ask bar is the hold surface beside the cards (was the hidden pill).
+  await holdAndSend('the ask bar', await boxOf('#ask-bar'), 1300);
 
   // And on the orb, on the idle screen, which is the other voice target.
   await page.evaluate(() => { const h = document.querySelector('#home-btn'); if (h) h.click(); });
   await sleep(1800);
   const orb = await boxOf('#orb-frame');
+  // The pair on the orb (see "two fingers" above), before the hold on it.
+  const onOrb = orb ? await pairOn(orb, 20) : null;
+  const pairAudit = await audit();
+  check(at('two fingers on the voice surface are a gesture and never a sentence'),
+        Boolean(onOrb && onOrb.turns === 0 && onOrb.too_short === 0), JSON.stringify(onOrb));
+  check(at('and the machine counted the pair, cancelled the pending voice, and submitted nothing'),
+        pairAudit && pairAudit.pairs >= 1 && pairAudit.cancels >= 1 && pairAudit.submits === 0,
+        JSON.stringify(pairAudit));
+  // Was 'and the spread divided the orb, which is what the pair is for': since V0.5 a spread
+  // makes no halves (web/app.js `onHoldMove`), Split being retired (DEC-050).
+  check(at('and the spread divided nothing: Split is retired (DEC-050)'),
+        (await branchesNow()).count === 1, JSON.stringify(await branchesNow()));
+  await shot('05-two-fingers');
   if (orb) await holdAndSend('the orb itself', orb, 1300);
   else check(at('a real hold on the orb itself is still a question'), false, 'no orb frame on screen');
   await shot('06-voice-held');

@@ -421,12 +421,19 @@ def test_the_touch_gate_measures_both_viewports_and_uses_real_touches():
     # The row-overflow check the collision gate cannot make.
     assert "async function railFits(where)" in gate
     assert "nav.scrollWidth" in gate and "nav.clientWidth" in gate
-    for required in ("tapControl('Split'", "tapControl('Merge'", "tapControl('Close'",
+    # [checker, 8 Oct 2026] Split, Merge and Close were `tapControl(...)`, pressed with a finger. Split
+    # is retired (DEC-050, 20 Sep), so the gate now holds that none of the three is on the screen,
+    # under the same "tap <label>" names (scripts/browser/touch.js `absent`).
+    for required in ("absent('Split'", "absent('Merge'", "absent('Close'",
                      "tapControl('Back'", "tapControl('Home'", "tapControl('Next'",
                      "tapControl('a text field'", "tapControl('a notification'",
                      "tapControl('an action chip on a card'", "tapControl('an order card\\'s row'",
                      "tapControl('a customer card\\'s tab'", "a scroll that begins",
-                     "two fingers", "is still a question", "a dock icon"):
+                     "two fingers", "is still a question", "a dock icon",
+                     # [checker, 8 Oct 2026, review note N2] The same taps on a list asked for out loud.
+                     "'Home on an order opened from a list asked for out loud'",
+                     "'Back on an order opened from a list asked for out loud'",
+                     "'Next on an order opened from a list asked for out loud'"):
         assert required in gate, f"the gate does not cover: {required}"
     # The hard gate: zero, asserted as zero.
     assert "ZERO recordings were too short across the whole run" in gate

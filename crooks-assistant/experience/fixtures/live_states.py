@@ -505,11 +505,12 @@ AUTHORED: dict[str, dict[str, Any]] = {
             # `_compose_workspace` then builds the customer workspace from those reads: that
             # is D-3's fix.
             #
-            # This world has no model, so nothing can be drawn here whatever the product
-            # does. Declared rather than inferred, and the §3/§4 claim for this sentence is
-            # asserted against the real payload by
-            # tests/test_workspaces.py::test_the_d3_request_renders_a_customer_workspace_not_an_email_list.
-            "routes_to_model": "28 words, against customer_purchase_lookup's max_words=14",
+            # [checker, 8 Oct 2026] This carried `routes_to_model` ("28 words, against
+            # customer_purchase_lookup's max_words=14"): the world had no model, so nothing could
+            # be drawn, and the replay checked only the routing. The browser gates now script the
+            # model for the sentences they type (experience/gate_model.py: find Mia, read her
+            # history, search her mail), the card comes back, and the replay said the exemption
+            # was stale. Without it the state is held to `require_any_type` on the glass.
         },
     },
     # ---------------------------------------------------------------- D-5 -----------------
@@ -608,22 +609,18 @@ AUTHORED: dict[str, dict[str, Any]] = {
                        "and there's no actual way to click the split button",
         "gate": "§9 · zero collisions involving interactive elements, and every branch control hit-testable",
         "owned_by": "workstream A — DOM layering and z-index",
+        # [checker, 8 Oct 2026] Split is retired: George retired user-facing Split on 20 Sep
+        # (DEC-050), which says Split-specific UI and tests are migration evidence, and
+        # web/alpha.css hides the band. The steps that hit-tested and tapped the Split chip, the
+        # halves and the un-divide strip ("hit_test" Split, "tap_selector" Split, "hit_test"
+        # .branch-chip, "undivide_controls" [cancel]) are now `retired` steps: nothing on the
+        # screen may offer those controls (scripts/browser/replay.js). The collision verdict on
+        # the idle screen stays.
         "drive": {"steps": [
             {"do": "idle"},
-            {"do": "hit_test", "selector": "#branch-bar [data-action=\"split\"]"},
-            {"do": "tap_selector", "selector": "#branch-bar [data-action=\"split\"]", "expect_no_post": "/turn"},
-            {"do": "hit_test", "selector": "#branch-bar .branch-chip"},
-            # Was two `hit_test` steps, for Merge and for Close by name. Both halves of this
-            # state hold NOTHING (`observed.cards` is empty), and on such a screen Merge and
-            # Close are the same act, so only one control is drawn — see `holdsSomething` in
-            # web/app.js for why, and note that "Merge cannot succeed there" is NOT why: the
-            # session's own record has `merge_close_tap.observed.merge_status: 200` on an
-            # empty half. `undivide_controls` asserts the strip as a SET and then hit-tests
-            # every member, so it still fails if a control is unreachable — which is what
-            # this fixture is for — and additionally fails if the strip holds a control that
-            # has nothing to do, which two `hit_test`s by name could never notice.
-            {"do": "undivide_controls", "expect": ["cancel"],
-             "why": "neither half holds anything, so keeping and letting go are the same act"},
+            {"do": "retired", "selector": "#branch-bar [data-action=\"split\"]"},
+            {"do": "retired", "selector": "#branch-bar .branch-chip"},
+            {"do": "retired", "selector": "#branch-bar .branch-acts [data-action]"},
             {"do": "collide", "interactive_must_be": 0},
         ]},
     },
@@ -649,20 +646,18 @@ AUTHORED: dict[str, dict[str, Any]] = {
         # tapped — which is the whole point of this fixture, and the reason the leg is here
         # rather than the `merge` step simply being dropped. It is also the shape he had at
         # 23:10:55, before the halves were emptied.
+        # [checker, 8 Oct 2026] Split is retired (DEC-050; see the state above). Both legs tapped
+        # Split, then Close or Merge, and counted two halves and then one. Now: Split, Close and
+        # Merge are `retired` steps (nothing on the screen offers them) on the idle screen and
+        # again with a list open, and there is one half throughout.
         "drive": {"steps": [
             {"do": "idle"},
-            {"do": "tap_selector", "selector": "#branch-bar [data-action=\"split\"]", "expect_no_post": "/turn"},
-            {"do": "expect_branches", "count": 2},
-            {"do": "undivide_controls", "expect": ["cancel"],
-             "why": "a fork of an empty half holds nothing, so there is one outcome"},
-            {"do": "tap_selector", "selector": "#branch-bar [data-action=\"cancel\"]", "expect_no_post": "/turn"},
+            {"do": "retired", "selector": "#branch-bar [data-action=\"split\"]"},
+            {"do": "retired", "selector": "#branch-bar [data-action=\"cancel\"]"},
             {"do": "expect_branches", "count": 1},
             {"do": "ask", "text": "show me today's orders"},
-            {"do": "tap_selector", "selector": "#branch-bar [data-action=\"split\"]", "expect_no_post": "/turn"},
-            {"do": "expect_branches", "count": 2},
-            {"do": "undivide_controls", "expect": ["merge", "cancel"],
-             "why": "the fork inherits the parent's working set, so keeping it and letting it go differ"},
-            {"do": "tap_selector", "selector": "#branch-bar [data-action=\"merge\"]", "expect_no_post": "/turn"},
+            {"do": "retired", "selector": "#branch-bar [data-action=\"split\"], #branch-rail [data-action=\"split\"]"},
+            {"do": "retired", "selector": "#branch-bar [data-action=\"merge\"], #branch-rail [data-action=\"merge\"]"},
             {"do": "expect_branches", "count": 1},
         ]},
     },
@@ -682,9 +677,9 @@ AUTHORED: dict[str, dict[str, Any]] = {
             # for 131 of the session's 132 hold starts because `#talk` IS the dock/hold
             # region and it covers the whole idle screen — so a tap on the Split chip is
             # recorded as a tap on the dock, which is the entire defect.
-            {"do": "tap_burst", "durations_from": "observed.ms",
-             "near": "#branch-bar [data-action=\"split\"]",
-             "expect_no_post": "/turn", "expect_no_recording": True},
+            # [checker, 8 Oct 2026] That control is retired with Split (DEC-050), so the burst at
+            # it is a `retired` step (nothing on the screen offers it); the burst at the dock stays.
+            {"do": "retired", "selector": "#branch-bar [data-action=\"split\"]"},
             # And the dock's own buttons, which must go on working: the fix is ownership, not
             # a bigger dead zone.
             {"do": "tap_burst", "durations_from": "observed.ms", "near": ".dock-btn",

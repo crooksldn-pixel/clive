@@ -354,6 +354,11 @@ async function oneStep(browser) {
 
   // Something is saved now, so the way back is offered: one step, with the passkey, to the voice set up
   // on the server in its own settings.
+  // [chain, 8 Oct] The button comes with the redraw that follows the save's answer, not with the
+  // notice: with ten rows to draw again it was read before it was there (offered false, then
+  // still true). So the offer is waited for, as the notices are; if it never comes, it is not offered.
+  await page.waitForFunction(() => Boolean(document.querySelector('.conn[data-name="elevenlabs"] .voice-reset')), null, { timeout: 15000 })
+    .catch(() => {});
   const offered = await page.evaluate(() => Boolean(document.querySelector('.conn[data-name="elevenlabs"] .voice-reset')));
   const resets = [];
   page.on('request', (request) => {

@@ -166,7 +166,8 @@ async function main() {
       shape.railAboveTheFold && shape.latestAboveTheFold, JSON.stringify(shape));
   };
 
-  await page.goto(`${BASE}?dev=1`, { waitUntil: 'domcontentloaded' });
+  // [checker, 8 Oct 2026] Without the start-up, as collision.js: what is measured is the app.
+  await page.goto(`${BASE}?dev=1&startup=off`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(900);
   await page.evaluate(() => { for (const b of document.querySelectorAll('.dev-banner')) b.remove(); });
   const vp = await page.evaluate(() => [innerWidth, innerHeight, +devicePixelRatio.toFixed(2)]);

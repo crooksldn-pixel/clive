@@ -225,11 +225,8 @@ def _needs_reply_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
     # the card: someone shown as waiting may already have been answered (the 2026-09-26 deploy
     # review, F-02). The scan logs why; the owner is told what it means.
     sent = str(body.get("sent_checked") or "all") if inbox else "all"
-    caveat = ""
-    if waiting and sent != "all":
-        caveat = ("Replies sent as new emails could not be checked, so some of these may already have been answered."
-                  if sent == "none" else
-                  "Only the newest sent emails were checked for replies, so some of these may already have been answered.")
+    caveat = _sent_caveat(sent) if waiting else ""
+    if caveat:
         tail += " " + caveat
         scope_note = " ".join(filter(None, [scope_note, caveat]))
     # A list that may name people already answered is a partial answer, whichever way it is said.
@@ -268,6 +265,51 @@ def _needs_reply_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:
         calls=list(result.calls), partial=partial,
         trace={"rows": len(rows), "waiting": len(waiting), "unchecked": unchecked, "repeat": again},
     )
+
+
+def _sent_caveat(sent: str) -> str:
+    """What a sent-mail check that was not complete means for a list of people waiting (the
+    2026-09-26 deploy review, F-02): someone on it may already have been answered."""
+    if sent == "all":
+        return ""
+    return ("Replies sent as new emails could not be checked, so some of these may already have been answered."
+            if sent == "none" else
+            "Only the newest sent emails were checked for replies, so some of these may already have been answered.")
+
+
+# [checker, 8 Oct 2026] The queue for the model's own inbox read. ---------------------------
+def waits_in_inbox(body: Any) -> bool:
+    """Whether an `email_query` result is the inbox read with someone waiting on a reply."""
+    return (isinstance(body, dict) and body.get("scope") == "inbox"
+            and any(isinstance(r, dict) and r.get("needs_reply") for r in body.get("rows") or []))
+
+
+def queue_for_model(body: Any, session: Any) -> list[dict[str, Any]]:
+    """The waiting queue, drawn for the model's own call of the inbox read.
+
+    Since 28 September "which customers need replying to?" is the model's, and the call it makes
+    is the read this landing makes (`email_query` with no set). Its result was drawn by the read
+    layer as a count and a table of everyone who wrote: no row could be opened, and the people
+    already answered sat among those waiting, which is the screen `_waiting_surface` was written
+    to replace. So the model's call draws the queue the Inbox landing draws: the people waiting,
+    longest first, each row opening its thread, which is issued to this conversation as the
+    landing issues it. Nobody waiting: nothing here, and the read layer's cards say who wrote.
+    """
+    if not waits_in_inbox(body):
+        return []
+    rows = [r for r in body.get("rows") or [] if isinstance(r, dict)]
+    waiting = _longest_waiting_first([r for r in rows if r.get("needs_reply")])
+    threads = [str(r.get("last_thread_id") or "") for r in waiting[:WAITING_SHOWN]]
+    issue = getattr(session, "issue", None)
+    if callable(issue) and any(threads):
+        issue(*[t for t in threads if t])
+    _scope, note = _reply_scope(body, rows)
+    note = " ".join(filter(None, [note, _sent_caveat(str(body.get("sent_checked") or "all"))]))
+    if len(waiting) > WAITING_SHOWN:
+        note = " ".join(filter(None, [note, f"The {WAITING_SHOWN} longest waits are shown."]))
+    unchecked = int((body.get("counts") or {}).get("unchecked") or 0)
+    return [_waiting_surface(waiting, unchecked=unchecked, scope=note).as_ui()]
+# [/checker] --------------------------------------------------------------------------------
 
 
 def _open_waiting_threads(ctx: Ctx, body: dict[str, Any], waiting: list[dict[str, Any]]) -> None:
@@ -668,8 +710,8 @@ def _recent_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:   # noqa: ARG0
         rest = f"Older emails from {RECENT_WHEN} were not read."
         if real:
             newest = real[0]
-            words = (f"{len(real)} thread{'s' if len(real) != 1 else ''} from people {among}; the newest is "
-                     f"{newest.get('from') or 'someone'} about {newest.get('subject') or 'no subject'}. {rest}")
+            words = _ended(f"{len(real)} thread{'s' if len(real) != 1 else ''} from people {among}; the newest is "
+                           f"{newest.get('from') or 'someone'} about {newest.get('subject') or 'no subject'}") + f" {rest}"
         else:
             words = f"Nothing from a person {among}. {rest}"
         note = f"Only the {RECENT_LIMIT} newest emails were read; older emails from {RECENT_WHEN} were not."
@@ -679,8 +721,15 @@ def _recent_render(ctx: Ctx, result: ReadResult) -> RecipeAnswer:   # noqa: ARG0
         return RecipeAnswer(answer=f"Nothing from a person in the inbox {RECENT_WHEN}.", calls=list(result.calls),
                             partial=result.partial, trace=trace)
     newest = real[0]
-    return RecipeAnswer(answer=f"{len(real)} threads from people {RECENT_WHEN}; the newest is {newest.get('from') or 'someone'} about {newest.get('subject') or 'no subject'}.",
+    return RecipeAnswer(answer=_ended(f"{len(real)} threads from people {RECENT_WHEN}; the newest is {newest.get('from') or 'someone'} about {newest.get('subject') or 'no subject'}"),
                         calls=list(result.calls), partial=result.partial, trace=trace)
+
+
+def _ended(words: str) -> str:
+    """[checker, 8 Oct 2026] A sentence that ends in a subject line ends once: "…can I add to it?",
+    never "…can I add to it?." (found walking the screens)."""
+    words = words.rstrip()
+    return words if words.endswith((".", "?", "!", "…")) else f"{words}."
 
 
 def _recent_surface(real: list[dict[str, Any]], note: str):

@@ -183,6 +183,55 @@ test('138 of 200, the pace, and the chart: a dot for each ten, the matrix faint,
   assert.equal(one(card, 'oc-work'), null);
 });
 
+// [checker, 8 Oct 2026] Found walking the screens: 4 of 40 hoodies at a slow pace drew a block of
+// days to come starting a month after today, with no Today, no deadline and no day counted on it.
+test('a pace that lands months after the deadline still draws today, the deadline and the days counted', () => {
+  const slow = SOLD.map((_, i) => (i % 7 === 0 ? 1 : 0));   // five sold in 29 days, two in the last 14
+  const card = hoodie({ number: { of: 'Loopback Hoodie', target: 40, since: '2026-09-01', unit: 'hoodies' } });
+  card.count = Object.assign(card.count, { per_day: slow, total: 5, pace: 0.14, lands: null, far: false, days_early: null });
+  const m = N.model(card);
+  assert.ok(N.standing(m, 40).lands > m.today + 90, 'the pace lands more than three months away');
+  const to = N.edge(m);
+  const from = N.firstShown(m, to);
+  assert.ok(from <= m.today - 6 && to > m.dIdx, JSON.stringify({ from, to, today: m.today, deadline: m.dIdx }));
+  assert.deepEqual(all(drawn(card), 'on-label').map(words), ['Today', '18 Oct']);
+});
+
+// [checker, 8 Oct 2026, review note N3] The cap above (`today + maxCols() - 6`, so the week before
+// today stays in view) cut the deadline off a chart that had room for both: a deadline 84–87 days
+// out on a 90-column chart, 39–42 on the Tab A's 45. The chart reaches the deadline's day plus one
+// whenever that is within today + the columns, so today and the deadline are both on it.
+test('a deadline the chart has room for is on it with today, at 90 columns and at the Tab A\'s 45', () => {
+  const deadlineIn = (k) => {
+    const d = new Date(Date.UTC(2026, 8, 29 + k));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  };
+  const label = (k) => { const d = new Date(Date.UTC(2026, 8, 29 + k)); return `${d.getUTCDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()]}`; };
+  const html = shim.document.documentElement;
+  try {
+    for (const [lite, cols, days] of [[false, 90, [84, 85, 86, 87]], [true, 45, [39, 40, 41, 42]]]) {
+      shim.document.documentElement = { dataset: lite ? { lite: '1' } : {} };
+      for (const k of days) {
+        const card = hoodie({ deadline: deadlineIn(k), days_left: k });
+        const m = N.model(card);
+        assert.equal(m.dIdx, m.today + k);
+        assert.ok(N.standing(m, m.target).lands <= m.dIdx, 'the pace lands by the deadline');
+        const to = N.edge(m);
+        const from = N.firstShown(m, to);
+        const at = JSON.stringify({ lite, k, from: from - m.today, to: to - m.today });
+        assert.ok(from <= m.today && to > m.dIdx && to - from <= cols, `today and the deadline on one chart: ${at}`);
+        assert.deepEqual(all(drawn(card), 'on-label').map(words).slice(-2), ['Today', label(k)], at);
+      }
+      // Past the room for both, the chart keeps the week before today, as before.
+      const beyond = N.model(hoodie({ deadline: deadlineIn(cols + 5), days_left: cols + 5 }));
+      const to = N.edge(beyond);
+      assert.ok(N.firstShown(beyond, to) <= beyond.today - 6, JSON.stringify({ lite, to: to - beyond.today }));
+    }
+  } finally {
+    shim.document.documentElement = html;
+  }
+});
+
 test('the design\'s homepage suggestion is not drawn: nothing here can act on the shop', () => {
   const card = drawn(hoodie());
   assert.ok(!/homepage|Hold to feature|Checked live|suggests/i.test(words(card)));

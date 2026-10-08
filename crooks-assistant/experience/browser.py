@@ -26,6 +26,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from experience import gate_model
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "browser" / "experience.js"
 # The physical tablet's own viewport, 601 x 889 at DPR 1.33: the checks the Phase 2 live test
@@ -116,6 +118,24 @@ def available() -> tuple[bool, str]:
     return True, ""
 
 
+@contextlib.contextmanager
+def _names_left_as_found():
+    """[checker, 8 Oct 2026] The browser run serves the fixture world inside this process, and every
+    personal string its reads return is noted for redaction (app/observability/timeline.py
+    `note_names`), for the rest of the process. Once the gates' model read for real, the replay gate
+    read the shop's own replies and "CROOKS" was left noted as a name: a later test's record wrote
+    "CROOKS-1938" as "[name]-1938". So a run puts the set back as it found it."""
+    from app.observability import timeline
+
+    with timeline._names_lock:
+        before = list(timeline._names)
+    try:
+        yield
+    finally:
+        timeline.forget_names()
+        timeline.note_names(before)
+
+
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -192,6 +212,7 @@ async def capture_screens(_harness: Any, *, out: Path, only: str = "") -> list[P
 
     port = _free_port()
     server, task, _store = await serve_fixture_world(port)
+    _script_the_model()
     try:
         result = await asyncio.to_thread(
             subprocess.run,
@@ -267,6 +288,7 @@ async def capture_matrix(*, out: Path | None = None) -> dict[str, Any]:
         stale.unlink()
     port = _free_port()
     server, task, _store = await serve_fixture_world(port)
+    _script_the_model()
     try:
         result = await asyncio.to_thread(
             subprocess.run,
@@ -293,6 +315,16 @@ async def capture_matrix(*, out: Path | None = None) -> dict[str, Any]:
         print(f"    {mark} {entry.get('name')}"
               + (f"  — {entry.get('detail')}" if not entry.get("ok") else ""), file=sys.stderr)
     return payload
+
+
+def _script_the_model() -> Any:
+    """The fixture model taught the gates' sentences (experience/gate_model.py). Returns the
+    runtime it is bound to."""
+    from app.main import app
+
+    runtime = app.state.runtime
+    gate_model.script(runtime.provider, runtime)
+    return runtime
 
 
 def _start_gate_session(scratch: str):
@@ -341,8 +373,16 @@ async def run_checks(*, scripts: tuple[Path, ...] | None = None) -> dict[str, An
     ok, why = available()
     if not ok:
         return {"skipped": True, "why": why, "checks": []}
+    with _names_left_as_found():
+        return await _run_checks(scripts)
+
+
+async def _run_checks(scripts: tuple[Path, ...] | None) -> dict[str, Any]:
     port = _free_port()
     server, task, _store = await serve_fixture_world(port)
+    # The model, for the sentences the gates type (experience/gate_model.py): every sentence
+    # is a model turn since 28 September, and an unscripted one draws nothing.
+    runtime = _script_the_model()
     # accept.js asserts that the page posts what it drew into a test session, which is the
     # only proof anywhere that the tablet's own telemetry is wired to the Mac at all. It needs
     # a session to be running. One is started here, into a throwaway directory — a gate must
@@ -375,6 +415,10 @@ async def run_checks(*, scripts: tuple[Path, ...] | None = None) -> dict[str, An
         shutil.rmtree(scratch, ignore_errors=True)
         await _stop(server, task)
     merged: dict[str, Any] = {"skipped": False, "ok": True, "checks": [], "shots": []}
+    # A call the gates stood in for Claude with that Claude could not make is a failed check.
+    stood_in = gate_model.unmakeable(runtime.provider, runtime)
+    merged["checks"].extend(stood_in)
+    merged["ok"] = not stood_in
     for result in results:
         payload = None
         for line in reversed((result.stdout or "").strip().splitlines()):
