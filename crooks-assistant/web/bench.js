@@ -399,6 +399,22 @@
 
   // ------------------------------------------------------------------ the page
 
+  // Where the address points: a run id and a result id, each only if it has an id's shape; nothing
+  // else in the fragment is read.
+  function placeOf(hash) {
+    const params = new URLSearchParams(String(hash || '').replace(/^#/, ''));
+    const run = params.get('run') || '';
+    const q = params.get('q') || '';
+    return { run: RUN_ID.test(run) ? run : '', q: RUN_ID.test(run) && RESULT_ID.test(q) ? q : '' };
+  }
+
+  // The view drawn, named for the browser check (data-state) from those checked ids alone, in the
+  // address's own form, so a view drawn for the address it is at reads the same as that address.
+  function viewState(at) {
+    if (!at || !at.run) return '#';
+    return at.q ? `#run=${at.run}&q=${at.q}` : `#run=${at.run}`;
+  }
+
   function start() {
     const view = doc().getElementById('view');
     const title = doc().getElementById('title');
@@ -421,13 +437,10 @@
     }
 
     function place() {
-      const params = new URLSearchParams((location.hash || '').replace(/^#/, ''));
-      const run = params.get('run') || '';
-      const q = params.get('q') || '';
-      return { run: RUN_ID.test(run) ? run : '', q: RESULT_ID.test(q) ? q : '' };
+      return placeOf(location.hash);
     }
 
-    function show(node) {
+    function show(node, at) {
       while (view.firstChild) view.removeChild(view.firstChild);
       view.appendChild(node);
       view.classList.remove('is-in');
@@ -437,8 +450,9 @@
       const page = doc().getElementById('bench-page');
       page.dataset.ready = 'true';
       // Which view is drawn, for the browser check: data-state, a name the screen recorder already
-      // keeps (app/observability/screens.py DATA_NAMES). Its value is the address's fragment: ids only.
-      page.dataset.state = location.hash || '#';
+      // keeps (app/observability/screens.py DATA_NAMES). Built from the checked ids of the view that
+      // was asked for, never copied from the address.
+      page.dataset.state = viewState(at);
     }
 
     function frameFor(cards) {
@@ -467,7 +481,7 @@
         if (!got.ok) { summary.textContent = ''; say(str(got.body.detail) || 'The bench could not be read.', 'is-bad'); return; }
         const runs = got.body.runs || [];
         summary.textContent = runs.length ? `${plural(runs.length, 'run')} · ${plural(Number(got.body.sets || 0), 'question set')}` : 'Nothing run yet.';
-        show(runsView(got.body, (id) => { location.hash = `#run=${id}`; }));
+        show(runsView(got.body, (id) => { location.hash = `#run=${id}`; }), at);
         return;
       }
       if (!at.q) {
@@ -479,7 +493,7 @@
         title.textContent = when((report.run || {}).started_at) || at.run;
         summary.textContent = [plural(Number(counts.questions || 0), 'question'), `${counts.scored || 0} scored`,
           report.overall !== null && report.overall !== undefined ? `${fixed(report.overall)} overall` : 'not scored', `${counts.rated || 0} rated by you`].join(' · ');
-        show(runView(got.body, { openResult: (id) => { location.hash = `#run=${at.run}&q=${id}`; } }));
+        show(runView(got.body, { openResult: (id) => { location.hash = `#run=${at.run}&q=${id}`; } }), at);
         return;
       }
       back.href = `#run=${at.run}`; backLabel.textContent = 'Run';
@@ -498,12 +512,12 @@
           const a = saved.body.run_agreement || {};
           return { ok: true, words: `Saved: you said ${score}${judge ? `, the judge said ${judge}` : ''}.${a.rated ? ' ' + agreementWords(a) + ' in this run.' : ''}` };
         },
-      }));
+      }), at);
     }
 
     window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
     render();
   }
 
-  return { start, tone, when, agreementWords, inUseWords, runsView, runView, resultView, verdictView, runState, CRITERIA };
+  return { start, placeOf, viewState, tone, when, agreementWords, inUseWords, runsView, runView, resultView, verdictView, runState, CRITERIA };
 });

@@ -180,3 +180,55 @@ test('the rating saves a whole score from one to five, and only once one is chos
   assert.equal(before.querySelectorAll('textarea')[0].value, HOSTILE);
   assert.equal(before.querySelectorAll('.seg')[0].children[1].getAttribute('aria-pressed'), 'true');
 });
+
+test('where the address points: an id only when it has an id\'s shape, and nothing else read', () => {
+  const RUN = 'run-20261008-0215-ab12';
+  const cases = [
+    ['', { run: '', q: '' }, '#'],
+    ['#anything', { run: '', q: '' }, '#'],
+    [`#${HOSTILE}`, { run: '', q: '' }, '#'],
+    ['#run=../../etc/passwd&q=q001', { run: '', q: '' }, '#'],
+    ['#q=q001', { run: '', q: '' }, '#'],
+    [`#run=${RUN}`, { run: RUN, q: '' }, `#run=${RUN}`],
+    [`#run=${RUN}&q=${encodeURIComponent(HOSTILE)}`, { run: RUN, q: '' }, `#run=${RUN}`],
+    [`#run=${RUN}&q=q002&note=${encodeURIComponent(HOSTILE)}`, { run: RUN, q: 'q002' }, `#run=${RUN}&q=q002`],
+  ];
+  for (const [hash, at, state] of cases) {
+    assert.deepEqual(Bench.placeOf(hash), at, hash);
+    assert.equal(Bench.viewState(Bench.placeOf(hash)), state, hash);
+  }
+});
+
+test('the page names the view it drew from the checked ids, never the raw address', async () => {
+  // Review note N4 (8 Oct): data-state was the URL fragment as typed, so /bench#<anything> went into an
+  // attribute unchecked. The page is started here as a browser starts it, at addresses carrying markup.
+  const RUN = 'run-20261008-0215-ab12';
+  const ids = Object.fromEntries(['view', 'title', 'summary', 'back', 'back-label', 'notice', 'bench-page']
+    .map((id) => [id, shim.document.createElement(id === 'back' ? 'a' : 'div')]));
+  const listeners = {};
+  const saved = { location: globalThis.location, window: globalThis.window, fetch: globalThis.fetch };
+  const bodies = {
+    '/bench/state': { ok: true, runs: [], sets: 0, agreement: { rated: 0 } },
+    [`/bench/runs/${RUN}/results/q002`]: { ok: true, result: { result_id: 'q002', persona_name: 'George', access: 'owner', category: 'in_scope', turns: [] }, verdict: null, rating: null },
+  };
+  shim.document.getElementById = (id) => ids[id] || null;
+  globalThis.location = { hash: `#${HOSTILE}` };
+  globalThis.window = { addEventListener: (type, fn) => { listeners[type] = fn; }, scrollTo() {} };
+  globalThis.fetch = async (url) => ({ ok: true, status: 200, json: async () => bodies[url] || { ok: false, detail: 'no such thing' } });
+  const settle = async () => { for (let i = 0; i < 6; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
+  try {
+    Bench.start();
+    await settle();
+    assert.equal(ids['bench-page'].dataset.ready, 'true');
+    assert.equal(ids['bench-page'].dataset.state, '#');
+    globalThis.location.hash = `#run=${RUN}&q=q002&x=${encodeURIComponent(HOSTILE)}`;
+    listeners.hashchange();
+    await settle();
+    assert.equal(ids.title.textContent, 'George');
+    assert.equal(ids['bench-page'].dataset.state, `#run=${RUN}&q=q002`);
+    assert.ok(Object.values(ids['bench-page'].dataset).every((v) => !String(v).includes('<')));
+  } finally {
+    delete shim.document.getElementById;
+    for (const [name, was] of Object.entries(saved)) { if (was === undefined) delete globalThis[name]; else globalThis[name] = was; }
+  }
+});
