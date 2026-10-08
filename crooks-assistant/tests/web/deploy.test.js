@@ -188,7 +188,7 @@ test('his hold: the challenge for exactly that version, his passkey, the approva
   const seen = passkeyPrompt();
   const done = await D.deploy(offer(), ui());
   assert.ok(done && done.approved);
-  assert.deepEqual(asked[0], ['/release/deploy/challenge', { sha: SHA }]);
+  assert.deepEqual(asked[0], ['/release/deploy/challenge', { sha: SHA, mode: 'live' }]);
   assert.equal(seen.length, 1);
   assert.ok(seen[0].publicKey.challenge instanceof Uint8Array, 'the challenge handed to the prompt as bytes');
   assert.ok(seen[0].publicKey.allowCredentials[0].id instanceof Uint8Array);
@@ -200,6 +200,28 @@ test('his hold: the challenge for exactly that version, his passkey, the approva
   assert.equal(D.state().payload.progress.line, 'Approved. Starting the release service…');
   assert.equal(D.state().payload.offer, null);
   if (D.state().timer) { clearTimeout(D.state().timer); D.state().timer = null; }
+});
+
+test('a stale dry-run button: the mode it showed is sent, and a changed mode redraws the card and says why', async () => {
+  const said = 'The release service deploys for real now, and the button you held said it would only try it (dry run). '
+    + 'Nothing was asked for. The card now shows what your hold does: hold it again to deploy.';
+  const fresh = offer();
+  const asked = world({
+    '/release/deploy/challenge': { status: 409, data: { ok: false, code: 'mode_changed', detail: said } },
+    '/release/deploy': { data: { ok: true, offer: fresh, progress: null, release: {} } },
+  });
+  const seen = passkeyPrompt();
+  const stale = offer({ hold: { can: true, dry_run: true, label: 'Hold to try it (dry run)', note: '' } });
+  await D.deploy(stale, ui());
+  assert.deepEqual(asked[0], ['/release/deploy/challenge', { sha: SHA, mode: 'dry_run' }]);
+  assert.equal(seen.length, 0, 'no passkey is asked for');
+  assert.equal(asked.length, 2, 'the card is read again, nothing is approved');
+  assert.equal(asked[1][0], '/release/deploy');
+  assert.equal(D.state().payload.offer.hold.label, 'Hold to deploy');
+  const node = D.draw(D.state().payload, { flash: D.state().flash });
+  assert.equal(node.querySelector('.dn-hold').allText(), 'Hold to deploy');
+  assert.equal(node.querySelector('.dn-flash').allText(), said);
+  D.state().flash = '';
 });
 
 test('a cancelled prompt or a refusal: said on the card, nothing deployed, the button back', async () => {

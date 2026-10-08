@@ -755,8 +755,9 @@ def _write_status(folder: Path, release: dict, deploy: dict | None = None) -> No
                        rule=release["rule"], ready_for=release["ready_for"], deploy=deploy)
 
 
-async def _approve(http, sha=TRUNK):
-    asked = await http.post("/release/deploy/challenge", json={"sha": sha}, headers=HEADERS)
+async def _approve(http, sha=TRUNK, mode="live"):
+    """His hold, as the page sends it: the version, and the mode its button said (web/deploy.js)."""
+    asked = await http.post("/release/deploy/challenge", json={"sha": sha, "mode": mode}, headers=HEADERS)
     assert asked.status_code == 200, asked.text
     answer = http.device.get(asked.json()["publicKey"])
     return asked.json(), answer
@@ -807,7 +808,7 @@ async def test_a_hold_given_to_try_it_in_dry_run_is_signed_so_and_never_deploys_
     _write_status(http.release, {**READY, "mode": "dry_run"})
     shown = (await http.get("/release/deploy", headers=PROXIED)).json()["offer"]["hold"]
     assert shown["label"] == "Hold to try it (dry run)" and shown["can"]
-    asked, answer = await _approve(http)
+    asked, answer = await _approve(http, mode="dry_run")
     done = await http.post("/release/deploy", json={"sha": TRUNK, "ticket": asked["ticket"], "approval": answer},
                            headers=HEADERS)
     assert done.status_code == 200, done.text
@@ -848,6 +849,44 @@ def test_a_waiver_that_does_not_say_its_mode_deploys_nothing(server, tmp_path): 
     _tick(settings, host)
     assert [s for s in host.steps if s in MUTATING] == [] and fake.head == LIVE
     assert "whether it was given to deploy or only to try it" in _status(settings)["line"]
+
+
+async def test_a_stale_dry_run_button_is_never_signed_as_a_deploy(deploy_world, server, tmp_path):  # noqa: F811 - fixtures imported from the suite they belong to
+    """The re-review's finding A, its sequence through the routes: his card says "Hold to try it (dry run)";
+    dry run is switched off and a tick writes mode live; he holds the card he still sees. Nothing is asked
+    for, nothing is written, nothing deploys; the card read again says "Hold to deploy"."""
+    http = deploy_world
+    await register(http)
+    _write_status(http.release, {**READY, "mode": "dry_run"})
+    seen = (await http.get("/release/deploy", headers=PROXIED)).json()["offer"]["hold"]
+    assert seen["label"] == "Hold to try it (dry run)"
+    _write_status(http.release, {**READY, "mode": "live"})          # dry run off, and a tick has said so
+    held = await http.post("/release/deploy/challenge", json={"sha": TRUNK, "mode": "dry_run"}, headers=HEADERS)
+    assert held.status_code == 409 and held.json()["code"] == "mode_changed", held.text
+    assert held.json()["detail"] == release_route.MODE_CHANGED["live"]
+    assert "publicKey" not in held.json() and "ticket" not in held.json()
+    # A page that says nothing of its mode is not taken at its word either.
+    unsaid = await http.post("/release/deploy/challenge", json={"sha": TRUNK}, headers=HEADERS)
+    assert unsaid.status_code == 409 and unsaid.json()["code"] == "mode_changed"
+    assert not http.waivers.exists() or not list(http.waivers.iterdir()), "nothing written"
+    settings, fake, host = server
+    settings.passkey_waivers_dir = http.waivers
+    settings.passkeys_file = passkeys._path()
+    host.clock = datetime.now(UTC)
+    _tick(settings, host)
+    assert [s for s in host.steps if s in MUTATING] == [] and fake.head == LIVE
+    # The card read again says what his hold does now; held as shown, it is signed as shown.
+    again = (await http.get("/release/deploy", headers=PROXIED)).json()["offer"]["hold"]
+    assert again["label"] == "Hold to deploy" and again["dry_run"] is False
+    asked, answer = await _approve(http, mode="live")
+    done = await http.post("/release/deploy", json={"sha": TRUNK, "ticket": asked["ticket"], "approval": answer},
+                           headers=HEADERS)
+    assert done.status_code == 200
+    assert json.loads((http.waivers / f"{TRUNK}.json").read_text())["passkey"]["mode"] == "live"
+    # And the other way: dry run switched on under a "Hold to deploy" button.
+    _write_status(http.release, {**READY, "mode": "dry_run"})
+    flipped = await http.post("/release/deploy/challenge", json={"sha": TRUNK, "mode": "live"}, headers=HEADERS)
+    assert flipped.status_code == 409 and flipped.json()["detail"] == release_route.MODE_CHANGED["dry_run"]
 
 
 async def test_a_used_expired_or_other_challenge_is_refused_and_writes_nothing(deploy_world, monkeypatch):

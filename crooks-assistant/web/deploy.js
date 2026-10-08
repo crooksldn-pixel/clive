@@ -8,8 +8,10 @@
  *   - the offer: the version waiting to go live, only when the trunk's head is ahead of what runs and
  *     GitHub acceptance passed on exactly that version: its title, the pull requests since what is live
  *     in their own titles, and the hold. Holding the button (a press of 0.9 s) asks for his passkey for
- *     exactly that version (POST /release/deploy/challenge, then POST /release/deploy). When his hold
- *     cannot deploy it now, the card says why instead of offering it. Dry run is said on the button.
+ *     exactly that version, in the mode the
+ *     button said (POST /release/deploy/challenge, refused if the release service's mode has changed
+ *     since, then POST /release/deploy). When his hold cannot deploy it now, the card says why instead
+ *     of offering it. Dry run is said on the button.
  *   - the progress: the deploy his approval started, from the release service's own status: a road of
  *     dots (Started, Checks, Installing, Health, Done, Kept), lit as far as it has gone, the stage it is
  *     at in blue, red where it stopped, and one line saying where it is or how it ended and why. Asked
@@ -253,14 +255,19 @@
       ui.button.disabled = false;
       ui.words.textContent = ui.label;
     };
+    S.flash = '';
+    // What the button he held said: CLIVE asks for his passkey only if the release service still does that.
+    const shown = offer.hold && offer.hold.dry_run ? 'dry_run' : 'live';
     let asked;
     try {
-      asked = await call('/release/deploy/challenge', { sha: text(offer.sha) });
+      asked = await call('/release/deploy/challenge', { sha: text(offer.sha), mode: shown });
     } catch (e) {
       return fail('CLIVE could not be reached. Nothing was deployed.');
     }
     if (!asked.ok) {
       fail(text(asked.data && asked.data.detail) || `CLIVE answered ${asked.status}. Nothing was deployed.`);
+      // The card is drawn again from a fresh read; why its button changed stays said under it.
+      if (asked.data && asked.data.code === 'mode_changed') S.flash = text(asked.data.detail);
       return refresh();
     }
     let approval;

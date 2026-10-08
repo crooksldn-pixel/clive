@@ -6,7 +6,8 @@ rulings 6, 7 and 8 of 8 October 2026).
                                      (progress). ?progress=1 reads only this server's files, never GitHub:
                                      what the page asks every few seconds while a deploy runs.
     POST /release/deploy/challenge   his hold: a passkey prompt for exactly that SHA, with a challenge this
-                                     server issues, good once, expiring in minutes (app/release/approve.py)
+                                     server issues, good once, expiring in minutes (app/release/approve.py),
+                                     in the mode the button said, refused (409) if that is no longer it
     POST /release/deploy             his passkey's answer: checked, and the approval written where the
                                      release service is started from at once (clive-release-now.path)
     POST /release/kept               after the deploy, his phone's own /whoami token: the deploy is kept
@@ -41,6 +42,14 @@ from app.tools import engineering_tools
 
 log = logging.getLogger("crooks.release")
 router = APIRouter(prefix="/release", dependencies=[Depends(require_principal)])
+
+# Said when the button he held no longer says what his hold would do (keyed by what it would do now).
+MODE_CHANGED = {
+    "live": "The release service deploys for real now, and the button you held said it would only try it (dry "
+            "run). Nothing was asked for. The card now shows what your hold does: hold it again to deploy.",
+    "dry_run": "The release service is in dry run now, and the button you held said it would deploy. Nothing "
+               "was asked for. The card now shows what your hold does: hold it again to try it.",
+}
 
 # The commit this process started on (its checkout's git files, read as the app is put together): a
 # deploy is kept only by the build that was deployed, never by the one it replaced.
@@ -129,10 +138,14 @@ async def deploy_challenge(request: Request) -> JSONResponse:
                                              "deployed. The Builds screen shows what is.")
     if not card["hold"]["can"]:
         raise conn._Refused(409, "cannot_deploy", card["hold"]["why_not"])
+    # The mode signed is the one the button he held said, and only while the release service still works in
+    # it: a stale "Hold to try it (dry run)" is never signed as a deploy (the review of DEC-072, finding A).
+    mode = "dry_run" if card["hold"]["dry_run"] else "live"
+    if body.get("mode") != mode:
+        raise conn._Refused(409, "mode_changed", MODE_CHANGED[mode])
     try:
-        # Signed into the challenge: a hold shown as "Hold to try it (dry run)" can never deploy for real.
         asked = approve.begin(sha, card["title"], repository=ReleaseSettings().repository, login=who, origin=origin,
-                              rp_id=rp_id, now=time.time(), mode="dry_run" if card["hold"]["dry_run"] else "live")
+                              rp_id=rp_id, now=time.time(), mode=mode)
     except approve.Refused as exc:
         return _refused(exc)
     return conn._answer(asked)

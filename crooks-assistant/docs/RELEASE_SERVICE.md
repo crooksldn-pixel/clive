@@ -427,6 +427,9 @@ lines with the new SHA, after its own review. Nothing else changes.
    minutes), and whether the hold deploys or only tries it (the card's dry run), bound into what the
    passkey signs (`app/release/authority.py` `waiver_challenge`), held by CLIVE for three minutes and
    good once (`app/release/approve.py`; `app/connections/passkeys.py` takes the caller's challenge).
+   The page sends the mode its button said; if the release service's mode has changed since the card
+   was drawn (dry run switched off under a "Hold to try it" button, or on under "Hold to deploy"), CLIVE
+   asks for nothing, answers 409, and the card is drawn again from a fresh read, saying why.
 3. **Face ID.** `POST /release/deploy` checks the passkey as every approval is checked (this CLIVE's
    address, his passkey, present and verified, its counter going up) and writes the waiver, with the
    assertion inside it and no words or login of his, to
