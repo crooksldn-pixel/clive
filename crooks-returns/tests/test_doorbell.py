@@ -172,6 +172,52 @@ def test_after_a_day_an_event_is_given_up(hooked, caplog):
     assert "gave up" in caplog.text and "Sam Taylor" not in caplog.text
 
 
+def test_a_crlf_env_posts_to_the_address_the_doorbell_checked(hooked):
+    """A .env saved with CRLF endings gives the address a trailing `\\r`. `on` ignores it, so the
+    post goes to the same address without it, rather than to one httpx refuses."""
+    hooked.s.clive_webhook_url = HOOK + "\r"
+    submit(hooked, Resolution.refund, Postage.self_ship)
+    assert hooked.doorbell.deliver_due() == 1
+    assert [p.url for p in hooked.clive.posts] == [httpx.URL(HOOK)]
+    assert hooked.store.outbox_counts() == {"delivered": 1}
+
+
+@pytest.mark.parametrize(
+    "address",
+    ["https://hooks.example.com\r/hooks/returns", "http://[::1/hooks/returns"],
+    ids=["a-cr-inside", "a-typo"],
+)
+def test_an_address_httpx_refuses_is_a_try_given_up_after_a_day_and_every_row_is_tried(
+    hooked, caplog, address
+):
+    """Every row of the pass gets its try (answer "error"), waits its backoff, and is given up
+    after a day like any other failure; the pass itself never raises."""
+    hooked.s.clive_webhook_url = address
+    ret = submit(hooked, Resolution.refund, Postage.self_ship)
+    act(hooked, ret, "approve")
+    rows = len(waiting(hooked))
+    assert rows >= 2
+    assert hooked.doorbell.deliver_due() == 0
+    tried = hooked.store._db.execute("SELECT state, attempts, last_answer FROM outbox").fetchall()
+    assert tried == [("waiting", 1, "error")] * rows, "each row of the batch was tried once"
+    assert hooked.doorbell.deliver_due() == 0, "not due again for 30 seconds"
+    hooked.doorbell.clock.now += 24 * 3600 + 1
+    assert hooked.doorbell.deliver_due() == 0
+    assert hooked.store.outbox_counts() == {"given_up": rows}
+    assert "InvalidURL" in caplog.text and "\r" not in caplog.text and "[::1" not in caplog.text
+
+
+def test_a_post_that_fails_oddly_never_stops_the_rest_of_the_batch(hooked):
+    ret = submit(hooked, Resolution.refund, Postage.self_ship)
+    act(hooked, ret, "approve")
+    rows = len(waiting(hooked))
+    hooked.clive.answers = [ValueError("not an httpx error")]
+    assert hooked.doorbell.deliver_due() == rows - 1, "the rest of the batch went"
+    assert hooked.store.outbox_counts() == {"delivered": rows - 1, "waiting": 1}
+    hooked.doorbell.clock.now += 31
+    assert hooked.doorbell.deliver_due() == 1, "the odd one is tried again on schedule"
+
+
 def test_without_a_secret_nothing_goes_unsigned(hooked, caplog):
     hooked.s.clive_webhook_secret = ""
     submit(hooked, Resolution.refund, Postage.self_ship)

@@ -21,7 +21,9 @@ What it promises:
   CLIVE never slows or fails an action.
 - **Retries with backoff:** anything but a 2xx is tried again after 30 s, 1 min, 2 min ... up to an
   hour between tries, each try signed afresh; after a day the event is given up (CLIVE still sees
-  the change the next time it reads). A delivered event is never sent again.
+  the change the next time it reads). A delivered event is never sent again. A post that could
+  not be made at all (an address httpx refuses) is a try like any other: it never stops the pass,
+  so the rest of the batch still goes. The address posted to is the one `on` checked, stripped.
 - **Off when unset:** without RETURNS_CLIVE_WEBHOOK_URL no row is written and no thread starts.
   Without RETURNS_CLIVE_WEBHOOK_SECRET nothing is sent unsigned: the rows wait (and are given up
   after a day), and the log says so once.
@@ -100,8 +102,14 @@ class Doorbell:
         self._said_unsigned = False
 
     @property
+    def url(self) -> str:
+        """CLIVE's door as configured, without the stray whitespace (a CRLF .env's `\\r`) that `on`
+        ignores: the address posted to is the one `on` checked."""
+        return self.s.clive_webhook_url.strip()
+
+    @property
     def on(self) -> bool:
-        return bool(self.s.clive_webhook_url.strip())
+        return bool(self.url)
 
     def wake(self) -> None:
         if self.on:
@@ -132,7 +140,10 @@ class Doorbell:
         return delivered
 
     def _post(self, row: dict[str, Any], secret: str) -> str:
-        """One try. The answer as a word: the status code, "timeout" or "unreachable"."""
+        """One try. The answer as a word: the status code, "timeout", "unreachable", or "error" for
+        a post that could not be made at all (an address httpx refuses, say). Every one of them is a
+        try like any other, so the row is retried and given up on schedule and the rest of the
+        batch still goes."""
         raw = body(row, self.clock())
         headers = {
             "Content-Type": "application/json",
@@ -140,11 +151,15 @@ class Doorbell:
             "User-Agent": "crooks-returns-doorbell",
         }
         try:
-            response = self._client().post(self.s.clive_webhook_url, content=raw, headers=headers)
+            response = self._client().post(self.url, content=raw, headers=headers)
         except httpx.TimeoutException:
             return "timeout"
         except httpx.HTTPError:
             return "unreachable"
+        except Exception as exc:  # noqa: BLE001 - recorded as the row's answer, never lost
+            # Its kind only: the message can repeat the address, and the address is the owner's.
+            log.warning("doorbell: the post to CLIVE could not be made (%s)", type(exc).__name__)
+            return "error"
         return str(response.status_code)
 
     def _later(self, row: dict[str, Any], answer: str, now: float) -> None:

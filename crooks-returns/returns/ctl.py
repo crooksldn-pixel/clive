@@ -130,7 +130,7 @@ def doorbell(svc: ReturnsService) -> int:
         print("RETURNS_CLIVE_WEBHOOK_SECRET is not set: events wait and nothing is sent unsigned.")
     counts = svc.store.outbox_counts()
     print(
-        f"To {svc.s.clive_webhook_url}: {counts.get('waiting', 0)} waiting, "
+        f"To {svc.doorbell.url}: {counts.get('waiting', 0)} waiting, "
         f"{counts.get('delivered', 0)} delivered, {counts.get('given_up', 0)} given up "
         "(the last 7 days)."
     )
