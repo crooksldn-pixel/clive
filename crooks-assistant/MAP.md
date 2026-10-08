@@ -62,10 +62,10 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `connections` | 1,762 | live | — | [`CONNECTIONS.md`](docs/CONNECTIONS.md) |
 | `context` | 1,211 | live | — | none |
 | `customers` | 1,596 | live | — | none |
-| `digest` | 18,931 | live | 19 modules | [`KNOWLEDGE_DIGESTER_V1.md`](docs/product-memory/KNOWLEDGE_DIGESTER_V1.md) |
+| `digest` | 18,960 | live | 19 modules | [`KNOWLEDGE_DIGESTER_V1.md`](docs/product-memory/KNOWLEDGE_DIGESTER_V1.md) |
 | `displays` | 2,363 | live | — | none |
 | `engineering_bridge` | 595 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
-| `families` | 9,844 | live | — | none |
+| `families` | 9,808 | live | — | none |
 | `kb` | 442 | live | — | [`OWNER_DECISIONS_2026-10-01.md`](docs/product-memory/OWNER_DECISIONS_2026-10-01.md) the voice spec |
 | `logging` | 193 | live | — | none |
 | `memory` | 586 | live | — | none |
@@ -75,15 +75,15 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `people` | 745 | live | — | [`TEAM.md`](docs/TEAM.md) |
 | `providers` | 973 | live | `anthropic_api` | none |
 | `reads` | 1,451 | live | — | none |
-| `release` | 1,896 | live | 9 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
+| `release` | 2,088 | live | 9 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
 | `remote_engineering` | 2,066 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
-| `returns` | 809 | live | — | none |
+| `returns` | 818 | live | — | none |
 | `routes` | 8,009 | live | — | none |
 | `scenes` | 2,579 | off (`CLIVE_SCENES` off, default) | — | [`GENERATIVE_UI_V1.md`](docs/product-memory/GENERATIVE_UI_V1.md) |
 | `secrets` | 914 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) |
 | `session` | 1,242 | live | — | none |
 | `shipping` | 335 | live | `fixture` | none |
-| `skills` | 905 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
+| `skills` | 979 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
 | `speech` | 844 | live | — | none |
 | `support` | 1,693 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
 | `tools` | 13,684 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
@@ -137,7 +137,7 @@ Production is as recorded by [`reports/deploy-66d3e05d.md`](reports/deploy-66d3e
 
 | Switch | Code default | Template | Production |
 |---|---|---|---|
-| `CLIVE_RELEASE_DRY_RUN` | off | absent | not recorded |
+| `CLIVE_RELEASE_DRY_RUN` | on | absent | not recorded |
 | `CLIVE_RELEASE_ENABLED` | off | absent | not recorded |
 | `CLIVE_RELEASE_RULE` | off | absent | not recorded |
 | `CLIVE_SCENES` | off | absent | not recorded |
