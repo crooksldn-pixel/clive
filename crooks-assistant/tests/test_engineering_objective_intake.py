@@ -184,6 +184,8 @@ PROTECTED_TESTS = {
     "test_builder_check_server.py": "app.orchestrator.workers.check_server",
     "test_claude_worker_adapter.py": "app.orchestrator.workers.claude",
     "test_gpt_reviewer.py": "app.orchestrator.reviewers.gpt",
+    "test_claude_reviewer.py": "app.orchestrator.reviewers.claude",
+    "test_github_app_token.py": "github_app_token",
     "test_remote_engineering.py": "app.remote_engineering",
     "test_github_acceptance.py": "app.orchestrator.github_acceptance",
     "test_engineering_bridge.py": "app.engineering_bridge",

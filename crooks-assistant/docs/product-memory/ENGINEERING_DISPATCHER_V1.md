@@ -179,6 +179,60 @@ Status: built in the repository under the owner's approval of 7 October 2026 ("L
 6. **The CLI's own plugins.** `ALLOWED_PLUGINS` is an exact list of the plugins each pinned CLI was seen to carry: `telemetry@builtin` (2.1.280), `cc-plugin-agents-md@builtin` (2.1.285, PRs #63 and #85), and `cc-plugin-sec-default`, `cc-plugin-telemetry` and `cc-plugin-plugin-authoring` (2.1.293). Each must be reported with path `builtin`. Any other plugin is refused. A deliberate CLI update that brings a new one is refused until a reviewed change names it; `engineering_dispatcher.py probe-launch` launches a builder exactly as an attempt would, stops it at its init event, and prints the verdict, so the operator sees this before a re-pin.
 7. **Two root-run tests and the `_supervise` race.** `_supervise` now asks whether the worker lives before it reads the log (PR #63's note), so a builder that reports and exits between the two is ingested, not cancelled. `test_checks_run_in_the_sandbox_on_a_copy_and_cannot_touch_the_candidate_tree` now says outright that there is one attempt. The sandbox tests no longer assume the tree and interpreter are outside `/root` and `/opt`: a sandbox whose tree lies under one of them holds only the way down to it, and the test checks exactly that. The canary follows `/usr/bin/python3` to the interpreter itself (a Debian-style alternatives link points into the host's `/etc`).
 
+## Loop update part 5 (2026-10-08): Claude reviews the loop's candidates
+
+Status: built in the repository under the owner's ruling of 8 October 2026 (DEC-071, ruling 10: "Replace the GPT reviewer with a Claude reviewer?" "Y"; [DEC-076](./DECISIONS.md)). **It is not in force on any host** until the owner-gated re-pin of clive-worker-01 to a trunk commit that carries it.
+
+**What stays exactly as it was:**
+- the packet (`Dispatcher.review_packet`);
+- the typed `clive.review_result.v1`, READY or CHANGES_REQUIRED with numbered findings, its SHA, task, revision and attempt set by the driver;
+- the kernel's admission and eligibility rule;
+- the repair loop and its limits;
+- the private stop reports;
+- the GitHub gate before review and before acceptance.
+
+The dispatcher itself did not change.
+
+**The reviewer** (`app/orchestrator/reviewers/claude.py`, principal `claude-reviewer`). There is one detached process per review dispatch. It:
+1. exports the candidate's whole tree at the exact SHA from the dispatcher clone's git objects (`ls-tree` and `cat-file --batch`), into a review room of its own under `<runtime>/claude-review/<task>/<attempt>/dispatch.N/run.M/room/candidate/`, beside the packet as `REVIEW_PACKET.md`:
+   - no attributes, filters or hooks apply;
+   - a symbolic link becomes a short note and is never followed;
+   - a path with `..`, `.git` or an absolute root is refused;
+2. makes the room read-only (files 0444, folders 0555);
+3. launches the claude CLI in it with an environment built from nothing: PATH, a fresh HOME, LANG, TMPDIR, the review marker, `DISABLE_AUTOUPDATER`, and `CLAUDE_CODE_OAUTH_TOKEN` from the token file. Its flags are `-p`, `--output-format stream-json --verbose`, `--session-id <new>`, `--restricted`, `--tools Read,Glob,Grep`, `--allowedTools Read Glob Grep`, `--permission-mode dontAsk`, `--strict-mcp-config --mcp-config {"mcpServers":{}}`, `--setting-sources ""`, `--disable-slash-commands`, `--no-session-persistence`, `--max-turns`, and `--json-schema` (the decision schema GPT used, now `reviewers/base.py` `DECISION_SCHEMA`);
+4. checks the init event and stops the CLI at once on any problem. It refuses:
+   - another session or cwd;
+   - any tool but Read, Glob, Grep and StructuredOutput, or no Read;
+   - any MCP server;
+   - any plugin but the CLI's own listed in `ALLOWED_PLUGINS`;
+   - any skill or command;
+   - a permission mode other than `dontAsk`;
+   - an `apiKeySource` other than `none`;
+5. refuses a result that used any other tool, that is not a structured decision, or that names another SHA;
+6. compares every file in the room with the commit's blobs again. Any difference, a write bit or an extra file voids the review;
+7. writes the typed result, with the reviewer facts it has verified: principal `claude-reviewer`, session `claude-code:<id>`, context fresh, workspace `claude-review:<task>/<attempt>/dispatch.N/run.M` at the SHA, read-only and clean.
+
+The room and the HOME are removed afterwards; the stream log and stderr are kept with the run. A failed run is recorded, redacted, as `run.M.error.json`; after three, the task blocks with the last reason ("review of … could not be obtained: Claude review run 3 failed: …").
+
+**Proved on the real CLI (2.1.294, 8 Oct 2026, on the build machine):**
+- The init roster for this launch was exactly `Glob, Grep, Read, StructuredOutput`, with no MCP server, no skill and no command, the four built-in plugins already in `ALLOWED_PLUGINS`, `dontAsk`, and `apiKeySource: "none"`.
+- `probe-review --turn` passed in a sealed room.
+- Two real reviews ran through the dispatcher against a fake builder:
+  - "make pkg/hello.txt say hello" was READY, and the kernel accepted it;
+  - "hullo" was CHANGES_REQUIRED with F-01 citing `candidate/pkg/hello.txt:1`, and the kernel rejected it.
+
+  Each run used only Read and Grep before its structured output.
+
+**Choosing it** (`reviewers/choice.py`). Both loop scripts take:
+- `--reviewer claude|gpt`; `engineering_dispatcher.py` also takes `relay`. Default `claude`.
+- `--reviewer-cli` (default `--worker-cli`), `--reviewer-token-file` (default `--worker-token-file`), `--reviewer-model`, `--reviewer-effort` and `--reviewer-max-turns`. The model and effort default to the CLI's own.
+
+The reviewer not chosen is kept collect-only. It finishes a review it was given before the switch and never takes a new one. The GPT reviewer is kept that way only while `--gpt-api-key-file` is still given. A re-pin can therefore switch either way without stranding a review in flight.
+
+**Identity.** `config/review_principals.json` registers `claude-reviewer` with the reviewer role only and `may_review: true`. The builder principal `claude` keeps `may_review: false`. The separation is operational, which is what `routing.py` judges: its own principal, session and workspace, read-only and clean, verified per review. The second model family is given up by the owner's ruling.
+
+**Before and after the re-pin:** `engineering_dispatcher.py probe-review` launches the reviewer exactly as a review would, in a throwaway sealed room, and prints PASS or REFUSED with the roster. With `--turn`, it answers one tiny prompt on the token.
+
 ## Builder driver: Claude Code CLI (verified 2026-09-23, CLI 2.1.280)
 
 Launch is `claude -p <prompt> --output-format stream-json --verbose --session-id <uuid> --restricted --tools Read,Edit,Write,Glob,Grep --allowedTools Read Edit Write Glob Grep --permission-mode dontAsk --strict-mcp-config --mcp-config '{"mcpServers":{}}' --setting-sources "" --disable-slash-commands --no-session-persistence --max-turns N --json-schema <report schema> [--model M]`. It runs detached (`start_new_session`) with cwd set to the workspace.
@@ -228,6 +282,7 @@ State of the reviewer side, as found:
 
 - **GPT, programmatic: does not exist.** This environment has no OpenAI credential and no verified supported programmatic ChatGPT review mechanism. The OpenAI API would be a new secret and new pay-as-you-go spend, both owner decisions. `GptUnavailable` reports exactly this. With the default `--reviewer gpt`, a finished candidate is BLOCKED with the gap. Nothing is dispatched to nobody.
 - **Claude as reviewer: ineligible by contract.** `config/review_principals.json` registers `claude` with `may_review: false`, because every Claude session on the host is one principal. The dispatcher also refuses any reviewer that is the author principal. Changing that registry is an authority change, and objective scope cannot reach it.
+- **Since part 5 (DEC-076): Claude reviews by default**, as its own principal `claude-reviewer` (above); `claude` itself still may not review, and GPT is kept behind `--reviewer gpt`.
 - **Relay: exists, and is a courier.** `--reviewer relay` writes the exact-SHA packet to `<runtime>/relay/<task>/<attempt>/dispatch.N.packet.md` and waits for typed results in `dispatch.N.results/` (via `submit-review --file`). It is marked `courier: true` in the dispatch note, the status output and the runtime record. A task reviewed this way is not no-courier evidence.
 
 ## Workspaces, restart and failure classes

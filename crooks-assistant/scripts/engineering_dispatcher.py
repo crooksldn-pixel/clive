@@ -14,6 +14,9 @@
                    work, and say whether this CLI passes the launch check (run it before a re-pin, and after a
                    deliberate CLI update); with --skill-turn NAME, after a re-pin, let it answer one prompt that
                    loads that skill, to prove a builder can use the owner's skills under dontAsk
+    probe-review   launch the Claude reviewer exactly as a review would, in a throwaway read-only room, and say
+                   whether its launch passes (read-only tools, no server, no skill, the owner's plan, never an API
+                   key); with --turn, let it answer one tiny prompt on its token to prove a review can finish
     skill-entry    the config/builder_skills.json entry for a skill folder: the sha256 of every file in it
 
 Example:
@@ -78,13 +81,15 @@ from app.orchestrator.objectives import (  # noqa: E402
     slug,
 )
 from app.orchestrator.reviewers import (  # noqa: E402
+    DEFAULT_REVIEWER,
     GPT_DEFAULT_EFFORT,
     GPT_DEFAULT_MODEL,
-    GptResponsesReviewer,
-    GptUnavailable,
+    REVIEWERS,
     RelayReviewer,
     ReviewContext,
     ReviewResult,
+    probe_review,
+    reviewers_for,
 )
 from app.orchestrator.store import RecordConflictError, StateConflictError  # noqa: E402
 from app.orchestrator.workers import ClaudeCodeWorker  # noqa: E402
@@ -117,14 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--publish-remote", default=None,
                    help="push candidates to this remote's target branch, so GitHub runs acceptance on them; "
                         "tick and run refuse to start without it")
-    p.add_argument("--reviewer", choices=["gpt", "relay"], default="gpt",
-                   help="gpt: the programmatic GPT reviewer (needs --gpt-api-key-file, else the task blocks with the gap); "
-                        "relay: a person carries packet and typed result (courier)")
-    p.add_argument("--gpt-api-key-file", default=None,
-                   help="host-side file (mode 600, outside git and every workspace) holding the OpenAI API key "
-                        "for the programmatic GPT reviewer; read only by the reviewer process")
-    p.add_argument("--gpt-model", default=GPT_DEFAULT_MODEL)
-    p.add_argument("--gpt-effort", default=GPT_DEFAULT_EFFORT)
+    _add_reviewer_args(p, choices=(*REVIEWERS, "relay"))
     p.add_argument("--worker-cli", default="claude")
     p.add_argument("--worker-model", default=None)
     p.add_argument("--worker-effort", default=None)
@@ -163,7 +161,8 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--product-memory-ref", default=PRODUCT_MEMORY_REF)
 
     g = sub.add_parser("integrate", help="an integration objective: CLIVE merges the accepted candidates of "
-                                         "several objectives, runs whole-product checks, and GPT reviews the result")
+                                         "several objectives, runs whole-product checks, and the independent "
+                                         "reviewer judges the result")
     g.add_argument("--title", required=True)
     g.add_argument("--id", default=None)
     g.add_argument("--from", dest="sources", action="append", required=True,
@@ -200,11 +199,48 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--skill-turn", default=None, metavar="NAME",
                     help="after a re-pin: let the probed builder answer one real prompt (on the worker's token) "
                          "that loads this owner's skill with the Skill tool, and say whether it could")
+    pr = sub.add_parser("probe-review", help="launch the Claude reviewer as a review would, read its init event, stop "
+                                             "it, and say whether its launch passes")
+    pr.add_argument("--turn", action="store_true",
+                    help="after a re-pin: let it answer one tiny prompt on its token, to prove a review can finish")
+    pr.add_argument("--timeout-s", type=float, default=90.0)
     se = sub.add_parser("skill-entry", help="print the config/builder_skills.json entry for a skill folder")
     se.add_argument("--name", required=True)
     se.add_argument("--folder", required=True, help="the skill's folder (an installed skill: <dir>/<name>/skill)")
     se.add_argument("--repo-path", default=None, help="for a skill vendored in the repository: its repository path")
     return p
+
+
+def _add_reviewer_args(p: argparse.ArgumentParser, *, choices: tuple[str, ...]) -> None:
+    """Which reviewer judges each candidate (the owner's ruling of 8 Oct 2026, DEC-071 ruling 10; DEC-076)."""
+    p.add_argument("--reviewer", choices=list(choices), default=DEFAULT_REVIEWER,
+                   help="claude (default): Claude on the owner's plan through the claude CLI, read-only, in a session and "
+                        "review room of its own; gpt: the programmatic GPT reviewer (needs --gpt-api-key-file, else the "
+                        "task blocks with the gap), kept so a re-pin can fall back"
+                        + ("; relay: a person carries packet and typed result (courier)" if "relay" in choices else ""))
+    p.add_argument("--reviewer-cli", default=None, help="the claude CLI the reviewer runs (default: --worker-cli)")
+    p.add_argument("--reviewer-token-file", default=None,
+                   help="host-side file (mode 600) holding the CLAUDE_CODE_OAUTH_TOKEN the reviewer runs on (default: "
+                        "--worker-token-file); an API key is refused")
+    p.add_argument("--reviewer-model", default=None, help="the reviewer's model (default: the CLI's own)")
+    p.add_argument("--reviewer-effort", default=None)
+    p.add_argument("--reviewer-max-turns", type=int, default=None)
+    p.add_argument("--gpt-api-key-file", default=None,
+                   help="host-side file (mode 600, outside git and every workspace) holding the OpenAI API key "
+                        "for the programmatic GPT reviewer; read only by the reviewer process. With --reviewer claude it "
+                        "only lets reviews already dispatched to GPT finish")
+    p.add_argument("--gpt-model", default=GPT_DEFAULT_MODEL)
+    p.add_argument("--gpt-effort", default=GPT_DEFAULT_EFFORT)
+
+
+def loop_reviewers(args, runtime: Path) -> list:
+    """The reviewer drivers this loop runs, from its flags (reviewers/choice.py)."""
+    return reviewers_for(args.reviewer, runtime=runtime, repo=Path(args.repo), gpt_key_file=args.gpt_api_key_file,
+                         gpt_model=args.gpt_model, gpt_effort=args.gpt_effort,
+                         claude_cli=args.reviewer_cli or args.worker_cli,
+                         claude_token_file=args.reviewer_token_file or args.worker_token_file,
+                         claude_model=args.reviewer_model, claude_effort=args.reviewer_effort,
+                         claude_max_turns=args.reviewer_max_turns)
 
 
 def _add_skill_args(p: argparse.ArgumentParser) -> None:
@@ -222,13 +258,7 @@ def _parts(args):
                     operator=args.operator, journal=not args.no_journal)
     objectives = ObjectiveStore(store, journal=not args.no_journal)
     runtime = Path(args.runtime_root)
-    if args.reviewer == "relay":
-        reviewers = [RelayReviewer(runtime / "relay")]
-    elif args.gpt_api_key_file:
-        reviewers = [GptResponsesReviewer(runtime / "gpt", repo=Path(args.repo), key_file=Path(args.gpt_api_key_file),
-                                          model=args.gpt_model, effort=args.gpt_effort)]
-    else:
-        reviewers = [GptUnavailable()]
+    reviewers = loop_reviewers(args, runtime)
     worker = ClaudeCodeWorker(cli=args.worker_cli, model=args.worker_model, effort=args.worker_effort,
                               max_turns=args.worker_max_turns, bash_prefixes=tuple(args.worker_bash_prefix),
                               oauth_token_file=Path(args.worker_token_file) if args.worker_token_file else None)
@@ -458,6 +488,14 @@ def run(argv: list[str] | None = None) -> int:
     try:
         if args.verb == "probe-launch":
             return probe_launch(args, kernel, dispatcher)
+        if args.verb == "probe-review":
+            said = probe_review(cli=args.reviewer_cli or args.worker_cli,
+                                token_file=Path(args.reviewer_token_file or args.worker_token_file)
+                                if (args.reviewer_token_file or args.worker_token_file) else None,
+                                model=args.reviewer_model, effort=args.reviewer_effort, timeout_s=args.timeout_s,
+                                turn=args.turn)
+            print(json.dumps(said, indent=2))
+            return 0 if said["verdict"] == "PASS" else 2
         if args.verb == "skill-entry":
             entry = builder_skills.entry_for(args.name, Path(args.folder), source="repo" if args.repo_path else "installed",
                                              path=args.repo_path or "")

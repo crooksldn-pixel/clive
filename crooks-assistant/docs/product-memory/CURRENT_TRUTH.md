@@ -89,6 +89,8 @@ The loop landed four builds itself on 7–8 Oct, also not deployed:
   - a build filed again starts with the earlier try's findings, and a request without its own number gets the host's default repair rounds;
   - builders get the four design skills, but only on Claude CLI 2.1.285 or 2.1.293. On any other version the loop runs with `--no-builder-skills`;
   - checks can drive Chromium once it is installed on worker-01.
+- **The Claude reviewer is built and not in force** ([DEC-076](./DECISIONS.md), branch `claude/n3-claude-reviewer`). At the next re-pin of clive-worker-01, Claude on the owner's plan reviews the loop's candidates in place of GPT. It is read-only, in a session and room of its own, and the review contract is unchanged. `--reviewer gpt` falls back. The re-pin's own review (`root-repin.sh`) stays GPT until he decides otherwise.
+- **GitHub Apps for the Director and CLIVE** are specified in [`GITHUB_IDENTITY.md`](../GITHUB_IDENTITY.md); George creates them. The loop switches by configuration alone. CLIVE's production filing and the Director are follow-ups.
 
 ### Recorded in DECISIONS on 5 October
 
