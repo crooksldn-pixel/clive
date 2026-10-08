@@ -51,6 +51,8 @@ test('the vocabulary is exactly the presentation layer\'s', () => {
     'messages',
     // CLIVE Shipping: the international orders, one order, what changed (web/shipping.js).
     'shipping',
+    // [routines, DEC-074] A named routine: the saved ones, one as saved, one as it ran (web/routines.js).
+    'routine',
   ]));
 });
 

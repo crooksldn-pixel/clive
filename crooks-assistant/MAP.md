@@ -4,7 +4,7 @@ Read this before any code. The hand-written parts change only with a decision. T
 
 <!-- map:live -->
 **Production:** `b33ccbc2`, deployed 2026-10-03 17:48 UTC ([`reports/deploy-b33ccbc2.md`](reports/deploy-b33ccbc2.md)). **Before it:** `cac1a9e7` 2026-10-03 13:01 UTC ([`reports/deploy-cac1a9e7.md`](reports/deploy-cac1a9e7.md)); `66d3e05d` 2026-10-02 13:49 UTC ([`reports/deploy-66d3e05d.md`](reports/deploy-66d3e05d.md)).
-**Tools:** 94 tools — 63 reads, 26 writes, 5 bulk ([`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md)).
+**Tools:** 97 tools — 66 reads, 26 writes, 5 bulk ([`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md)).
 <!-- /map:live -->
 
 ## Where we started (7 September 2026)
@@ -39,8 +39,7 @@ routes/turn.py → session/ · system prompt (kb/loader: who CLIVE is, his voice
   → every tool call, through a PreToolUse hook: tools/gate.py GREEN/AMBER/RED · tools/authority.py owner or staff
   → tools/dispatch.py → reads: Shopify, Gmail, analytics, Instagram, Ship24, the screens
                       → writes: STAGED as a proposal in actions/engine.py, never executed here
-  → presentation.py + focus.py (only what the answer is about; words, not cards, while it works: DEC-069;
-    what he asked for, named by the model's asked_for, and only what is about the same subject: DEC-073)
+  → presentation.py + focus.py (only what the answer is about; words, not cards, while it works: DEC-069)
     + screen.py → cards (web/ui.js draws them); a scene too only if CLIVE_SCENES is on
   → speech/speakable → POST /speak → the ElevenLabs voice
 he holds the card → POST /actions/{id}/arm → /commit → identity.py (Tailscale whois) → re-read → execute → verify → actions.jsonl
@@ -54,7 +53,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 <!-- map:parts -->
 | Package | Lines | State | Not loaded by the app | Owner doc |
 |---|---:|---|---|---|
-| (top-level modules) | 12,687 | live | `engineering_measures` | none |
+| (top-level modules) | 12,719 | live | `engineering_measures` | none |
 | `actions` | 3,051 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,478 | live | — | none |
@@ -76,7 +75,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `objectives` | 3,316 | live | — | none |
 | `observability` | 10,789 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
 | `orchestrator` | 11,442 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
-| `people` | 777 | live | — | [`TEAM.md`](docs/TEAM.md) |
+| `people` | 780 | live | — | [`TEAM.md`](docs/TEAM.md) |
 | `providers` | 1,029 | live | `anthropic_api` | none |
 | `reads` | 1,451 | live | — | none |
 | `release` | 3,139 | live | 6 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
@@ -90,8 +89,8 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `skills` | 979 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
 | `speech` | 846 | live | — | none |
 | `support` | 1,693 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
-| `tools` | 15,252 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
-| `work` | 1,374 | live | — | [`TEAM.md`](docs/TEAM.md) |
+| `tools` | 15,261 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
+| `work` | 2,134 | live | — | [`TEAM.md`](docs/TEAM.md) |
 <!-- /map:parts -->
 
 ## Pages
@@ -103,7 +102,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `/bench` | `bench.html` | 1: bench.js |
 | `/connections` | `connections.html` | 3: connections-view.js, connections-voice.js, connections.js |
 | `/display` | `display.html` | 2: dots.js, display.js |
-| `/` | `index.html` | 31: dots.js, startup.js, orb.js, audio-viz.js, live-voice.js, collide.js, touch.js, telemetry.js, notify.js, action-state.js, live-state.js, jobs.js, objective-touch.js, objective-number.js, objective-cards.js, customers.js, returns.js, messages.js, shipping.js, ui.js, app.js, horizon.js, distances.js, builds.js, research.js, deploy.js, alpha.js, remote.js, lift.js, edges.js, dots-app.js |
+| `/` | `index.html` | 32: dots.js, startup.js, orb.js, audio-viz.js, live-voice.js, collide.js, touch.js, telemetry.js, notify.js, action-state.js, live-state.js, jobs.js, objective-touch.js, objective-number.js, objective-cards.js, customers.js, returns.js, messages.js, shipping.js, routines.js, ui.js, app.js, horizon.js, distances.js, builds.js, research.js, deploy.js, alpha.js, remote.js, lift.js, edges.js, dots-app.js |
 | no route (only `/static/scenes-gallery.html`) | `scenes-gallery.html` | 2: scenes.js, scene-fixtures.js |
 | `/today` | `today.html` | 6: orb.js, objective-touch.js, today-say.js, today-voice.js, today.js, today-owner.js |
 <!-- /map:pages -->
@@ -119,6 +118,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | Instagram token state | `instagram.json` | `clients/instagram.py` | always |
 | People cards | `people.json` | `people/store.py` | always |
 | Work list | `work/items/, routines.json, record.jsonl` | `work/store.py` | always |
+| Named routines | `work/named-routines.json` | `work/routines.py` | always |
 | Team access | `access.json` | `people/access.py` | always |
 | Passkeys | `passkeys.json` | `connections/passkeys.py` | always |
 | Connections ledger | `changes.jsonl` | `connections/ledger.py` | always |
@@ -207,5 +207,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 4,332 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 4,396 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->

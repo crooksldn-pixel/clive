@@ -112,6 +112,9 @@ STORES: tuple[tuple[str, str, str, str | None, tuple[tuple[str, str], ...]], ...
     ("People cards", "people.json", "app/people/store.py", None, (("app/runtime.py", '"people.json"'),)),
     ("Work list", "work/items/, routines.json, record.jsonl", "app/work/store.py", None,
      (("app/work/store.py", '"record.jsonl"'), ("app/work/store.py", '"routines.json"'))),
+    # [routines, DEC-074] Named routines: saved steps started by name, beside the work list.
+    ("Named routines", "work/named-routines.json", "app/work/routines.py", None,
+     (("app/work/routines.py", '"named-routines.json"'),)),
     ("Team access", "access.json", "app/people/access.py", None, (("app/people/access.py", '"access.json"'),)),
     ("Passkeys", "passkeys.json", "app/connections/passkeys.py", None,
      (("app/connections/passkeys.py", '"passkeys.json"'),)),

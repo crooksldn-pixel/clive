@@ -194,6 +194,7 @@ def test_the_tool_block_stays_within_its_budget():
         show_again,
         skill_tools,
     )
+    from app.work import routine_tools as _routine_tools  # noqa: F401
     from app.work import tools as _work_tools  # noqa: F401
 
     # The team's tools (app/people, app/work) are offered by app/runtime.py too: imported here so
@@ -222,4 +223,7 @@ def test_the_tool_block_stays_within_its_budget():
     # and 55,915 with the model naming what he asked to see (asked_for, DEC-073: +510, measured on
     # trunk 6f844183, 55,405 before, 55,915 after), then 55,895 with its lists named by the read
     # that drew them (-20, measured on claude/n3-focus: 55,915 before, 55,895 after).
-    assert total <= 55_895, f"the tool block is {total} bytes"
+    # and 56,786 with named routines (routine_list, routine_note, routine_run: +1,381, measured).
+    # Both on one tree, rebased in the 8 October chain (routines on focus): 57,276 (55,895 before,
+    # +1,381, measured on the merged tree).
+    assert total <= 57_276, f"the tool block is {total} bytes"

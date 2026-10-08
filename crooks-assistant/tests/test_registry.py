@@ -148,6 +148,7 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
         show_again,
         skill_tools,
     )
+    from app.work import routine_tools as _routine_tools  # noqa: F401
     from app.work import tools as _work_tools  # noqa: F401
 
     # The team's tools (app/people, app/work) are offered by app/runtime.py too: imported here so
@@ -507,7 +508,16 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # kind (the review of DEC-073, note 2: naming today's emails brought in the search that found a
     # customer's thread), -20 bytes measured on claude/n3-focus (55,915 before, 55,895 after):
     # asked_for 490, its closed list of kinds gone and one example of a named read in its place.
-    assert total <= 55_895, f"the tool block is {total} bytes"
+    # 56_786 is named routines (ruling 31, DEC-074; app/work/routine_tools.py, tests/test_routines.py),
+    # +1,381 bytes measured (55,405 before, 56,786 after, on trunk 6f844183): routine_list 209 (a
+    # name or none), routine_note 907 (the action, the name, and the steps, each {tool, args, say}:
+    # what "save this as my Friday drop routine" keeps) and routine_run 265 (a name). Three reads of
+    # CLIVE's own records; what the model does with a run's steps is said in routine_run's result,
+    # not in a description every turn pays for. Imported above because app/runtime.py offers them.
+    # The ceiling is raised by exactly what was measured, leaving no headroom.
+    # 57_276 is both of the above on one tree, rebased in the 8 October chain (claude/n3-routines on
+    # claude/n3-focus): 55,895 before, 57,276 after, +1,381 measured on the merged tree.
+    assert total <= 57_276, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

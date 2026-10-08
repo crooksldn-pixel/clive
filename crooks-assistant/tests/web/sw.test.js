@@ -154,6 +154,8 @@ const SHELL = ['/', '/static/style.css', '/static/app.js', '/static/ui.js', '/st
   '/static/messages.js', '/static/messages.css',
   // CLIVE Shipping: the international orders, one order in full, what changed (web/shipping.js).
   '/static/shipping.js', '/static/shipping.css',
+  // [routines, DEC-074] Named routines: the saved ones, one as saved, one as it ran (web/routines.js).
+  '/static/routines.js', '/static/routines.css',
   // The design pass of 3 Oct (web/design.css).
   '/static/design.css',
   '/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png', '/static/icon-maskable-192.png', '/static/icon-maskable-512.png'];

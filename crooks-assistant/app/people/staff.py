@@ -30,6 +30,9 @@ READS = frozenset({
     "email_query", "gmail_search", "gmail_read_thread", "gmail_find_in_email",
     "instagram_inbox", "instagram_thread", "instagram_comments",
     "people_list", "work_list", "work_note",
+    # [routines, DEC-074] Their own named routines: a step is refused unless it is one of these tools
+    # (app/work/routine_tools.py), and each step runs through their own authority like any call.
+    "routine_list", "routine_note", "routine_run",
 })
 
 # The writes the owner allowed without his OK, by tool. Each is still staged as a card and made

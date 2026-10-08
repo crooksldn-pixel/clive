@@ -1273,6 +1273,27 @@ He wants "the flow from actually asking a question to the action happening to be
 
 ---
 
+## DEC-074 — Named routines: saved steps he starts by name; the reads run and every change waits on its own card
+
+**Date:** 2026-10-08
+**Status:** ACTIVE. Built in the repository (`claude/n3-routines`); live once deployed.
+**Source:** the owner's ruling 31 of 8 October 2026 (DEC-071): asked whether "routines" means saved multi-step jobs started by name, he answered "Y". The voice spec's "Borrow the rituals" (OWNER_DECISIONS_2026-10-01) had left them unbuilt for want of a store and a tool, and PR #75 had left the `routine_*` names out until he said what he meant.
+
+**Decision:**
+- **A routine is a name and up to eight steps.** A step is one of CLIVE's tools, the arguments it is called with, and what it does in his words. "Save this as my Friday drop routine" keeps the calls CLIVE just made for him; he can also give the steps one by one. He can list, show, add, change, take out and reorder steps, rename a routine and forget it (`routine_list`, `routine_note`). Not the work list's repeating jobs (`work_note` routine, "tidy the desks" every day): those come back on a calendar for the team; these come back only when somebody names them.
+- **Running one changes nothing by itself.** `routine_run` hands the model the steps, and the model calls each tool as it would if he had asked in words. Every call goes through dispatch and the gate: a read runs, and a change is only ever staged as its own card for his gesture, exactly as it would be asked for singly. A step that cannot run now (its family not connected, changes switched off, a tool no longer the asker's) is marked with why and said, never skipped in silence.
+- **No record's id is kept.** A step keeps what to look for and how; the gate's issued-id arguments (an order, a thread, a working set, a workspace) are dropped when it is saved, and each run looks its records up again. A routine cannot act on yesterday's order by accident.
+- **Checked when saved and again when run.** A step's tool must be one the gate would run or stage (never a RED read, an unreviewed write, a test tool or another routine), with arguments its schema names. Whether a step is a read or a change is the registry's to say, not the model's.
+- **Each person's own.** His routines are his; a member of the team keeps theirs, only with the tools he allowed them (`app/people/staff.py`), and nobody lists, runs or edits anyone else's.
+- **What the screen shows.** The routine card shows each step as the turn left it: done, waiting for him on its card, failed, skipped with why, or not done, matched from the calls the model made and never from its words. A change waiting for his gesture comes first (DEC-069), then the routine, then what its steps read. Naming the routine asked for every step, so those cards stay (ruling 25: what he asked for always shows); the lookups made on the way to a change are not drawn.
+- **Where it is kept.** `work/named-routines.json` beside the work list, 0600, written atomically under the work list's lock and read back after every change. A file that cannot be read is said as such, never taken for "no routines".
+
+**Reason:** his ruling, and the rules that never bend: anything outward waits for a gesture on its card (rule 2), unknown is RED (rule 3), verified or it is an error (rule 1).
+
+**Consequences:** three tools on the gate's read allow-list (`routine_list`, `routine_note`, `routine_run`), named without a mutation verb and changing only CLIVE's own records, like `work_note` and `objective_note`. They are in the staff tool set; no write, operation or authority is added. The tool block grows by 1,381 bytes. Not built: routines on a schedule (he asked for "started by name"), a routine started from a tap, and the owner seeing the team's routines.
+
+---
+
 ## DEC-076 — The loop's exact-SHA reviewer is Claude on the owner's plan; the Director and CLIVE get GitHub Apps of their own
 
 **Date:** 2026-10-08

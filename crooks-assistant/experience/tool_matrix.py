@@ -585,6 +585,7 @@ def load() -> None:
     import app.tools.shopify_writes  # noqa: F401
     import app.tools.show_again  # noqa: F401
     import app.tools.skill_tools  # noqa: F401
+    import app.work.routine_tools  # noqa: F401 - [routines] the named routines' three tools
     import app.work.tools  # noqa: F401
     from app.families import load_all
 
@@ -1000,6 +1001,8 @@ def _error_ui(name: str) -> str:
         return "returns"
     if name in ("shipments_open", "shipment_find", "shipment_tracking") or name.startswith("shipping_"):
         return "shipping"
+    if name in ("routine_list", "routine_note", "routine_run"):
+        return "routines"      # [routines, DEC-074]
     return ""
 
 
