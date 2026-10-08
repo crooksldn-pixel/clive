@@ -610,6 +610,7 @@ def build(settings: Settings | None = None) -> Runtime:
     from app.people import tools as people_tools  # noqa: F401 - registers people_list, person_note
     from app.tools import (  # noqa: F401
         analytics_tools,
+        asked_for,  # [focus, DEC-073] the model naming what he asked to see
         batch_tools,
         close_screen,
         display_tools,

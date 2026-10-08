@@ -130,6 +130,7 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     from app.providers.max_agent_sdk import withheld_tools
     from app.tools import (  # noqa: F401
         analytics_tools,
+        asked_for,
         batch_tools,
         close_screen,
         display_tools,
@@ -495,7 +496,14 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # message_reply 450 (+40: `translated`, their language, in place of `chinese`). No new tool.
     # 55_405 is the same +132 re-measured on trunk 4c39bba5 (8 Oct), where flow's turn (PR #107) had
     # already taken the block to 55,273: 55,273 before, 55,405 after, measured, no headroom.
-    assert total <= 55_405, f"the tool block is {total} bytes"
+    #
+    # 55_915 is the model naming what he asked to see (app/tools/asked_for.py, DEC-073, the owner's
+    # ruling 25; tests/test_asked_focus.py), +510 bytes measured on trunk 6f844183 (55,405 before,
+    # 55,915 after): asked_for 510, records by id or order number and lists from a closed set of eight
+    # kinds. What it buys is "show me today's orders and open 1940" showing both, and a customer's
+    # email showing what is about them and nobody else's. When to call it is one sentence of the
+    # system prompt. The ceiling is raised by exactly what was measured, leaving no headroom.
+    assert total <= 55_915, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

@@ -285,10 +285,12 @@ def present(
     items = [i for i in items if i["type"] == "workspace"] + [i for i in items if i["type"] != "workspace"]
     if focus:
         # [flow, DEC-069] Only what the answer is about: the searches that found it stay off
-        # the glass and off the context stack.
-        from app.focus import answer_cards, records_asked_for
+        # the glass and off the context stack. [focus, DEC-073] What the model said he asked for
+        # (`asked_for`) decides first, when it names a card this turn drew.
+        from app.focus import answer_cards, asked_by_the_model, records_asked_for
 
-        items = answer_cards(items, focus_why, read_whole=read_whole, asked=records_asked_for(calls), before=before)
+        items = answer_cards(items, focus_why, read_whole=read_whole, asked=records_asked_for(calls), before=before,
+                             said=asked_by_the_model(calls))
     if session is not None:
         _remember(items, session)
         # §18, as a SWEEP rather than one renderer at a time. After `_remember`, which is

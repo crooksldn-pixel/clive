@@ -1254,6 +1254,25 @@ He wants "the flow from actually asking a question to the action happening to be
 
 ---
 
+## DEC-073 — What he asked for always shows; what CLIVE adds unasked must be about the same customer, order or thread
+
+**Date:** 2026-10-08
+**Status:** ACTIVE. Built in the repository (`claude/n3-focus`); live once deployed.
+**Source:** the owner's ruling 25 of 8 October (DEC-071), verbatim: "asking to see todays orders and to show a specific order s different to asking to see a specific order and seeing the specific order + todays orders. in one instance it was asked, in the other, the ai inferred it was needed when it wasnt specified. clive can infer but inferring needs stronger relation, for instance, asking about a customers email can give detailed explanation as to why with other cards, not just showing the reason. this can be its tracking status, an instagram message. they were't asked for but if theyre relevant they are inferred, asking to see the customers email and it showing you every other email from other people today is not what we want to happen."
+
+**Decision:** DEC-069's focus rules are amended (its text stands; this is the amendment).
+- **The model says what he asked for.** A new GREEN tool, `asked_for` (`app/tools/asked_for.py`), takes the records he asked to see by id or order number and the lists by kind (orders, emails, customers, messages, shipments, returns, numbers, products). It reads and changes nothing; the turn records it with its other calls. The model is told to call it beside its reads in one sentence of the system prompt. The Mac never works out what was asked from his words (MAP rule 7).
+- **What he asked for always shows.** Every card the declaration names shows, a list and a record together: "show me today's orders and open 1940" is the list and the order.
+- **An unasked card shows only when it is about the same subject.** It must be a record in its own right (an order or customer read in full, a thread, a conversation, a shipment, a return, an objective), never a search, a list, a one-line find or an empty answer, and it must share an id, an order number, an email address or a full name with what he asked for or with the change being made, followed from card to card (`app/focus.py` `about`). His customer's order with its tracking, and their Instagram message, stay beside their email; other people's emails today, today's orders when he asked about one customer, and numbers about nobody do not. A list he asked for is not the subject of everything on its rows. A conversation carries no email or customer id, so a full name (two words or more, or a handle that spells one) is its only evidence; a first name alone never is.
+- **Unchanged from DEC-069:** a change waiting for his hold is first on the screen, the records he had up stay beside a change to one of them, a screen's remote stays, and an error is never set aside.
+- **When the model says nothing,** or names nothing the turn drew, DEC-069's three rules decide exactly as before.
+
+**Reason:** his ruling, above.
+
+**Consequences:** the offered tool block grows by 510 bytes (55,405 to 55,915, measured), and the gate's read allow-list by one name. The interaction record also notes the kinds of card added for being about the subject (kinds only). Not built: a card for Ship24's parcel scans (`track_parcel` still draws none; the order card carries the carrier and tracking number), and staff turns, which are not offered `asked_for`, keep DEC-069's rules.
+
+---
+
 ## DEC-076 — The loop's exact-SHA reviewer is Claude on the owner's plan; the Director and CLIVE get GitHub Apps of their own
 
 **Date:** 2026-10-08

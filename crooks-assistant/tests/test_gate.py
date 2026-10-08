@@ -299,7 +299,7 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     shipping = {"shipments_open", "shipment_find", "shipment_tracking", "shipping_events"}
     assert shipping <= gate._KNOWN_TOOLS and not any(gate._looks_like_mutation(name) for name in shipping)
     assert not {"shipping_label_buy", "shipping_label_print", "shipping_label_reprint"} & gate._KNOWN_TOOLS
-    assert len(gate._KNOWN_TOOLS) == 65, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
+    assert len(gate._KNOWN_TOOLS) == 66, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
                                           "screen_off and screen_remote, then screen_play and screen_video, "
                                           "then round 12's shopify_order_build, show_again and close_screen, "
                                           "then instagram_inbox, instagram_thread and instagram_comments, "
@@ -307,7 +307,8 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
                                           "then skill_list and skill_read, then track_parcel, then interaction_review, "
                                           "then returns_open, return_find and returns_stats, "
                                           "then messages_recent, message_thread and message_contact, "
-                                          "then shipments_open, shipment_find, shipment_tracking and shipping_events")
+                                          "then shipments_open, shipment_find, shipment_tracking and shipping_events, "
+                                          "then asked_for (DEC-073)")
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",

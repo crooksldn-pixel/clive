@@ -177,6 +177,7 @@ def test_the_tool_block_stays_within_its_budget():
     from app.providers.max_agent_sdk import withheld_tools
     from app.tools import (  # noqa: F401
         analytics_tools,
+        asked_for,
         batch_tools,
         close_screen,
         display_tools,
@@ -217,5 +218,7 @@ def test_the_tool_block_stays_within_its_budget():
     # message_reply: +1,299, measured), and 55,325 with CLIVE Shipping (four reads and three staged
     # writes, +2,113, measured on the chain after messaging; tests/test_registry.py has them tool by
     # tool), and 55,457 with WhatsApp and Instagram on the same messaging tools (+132, measured),
-    # then 55,405 once rebased on trunk 4c39bba5, whose flow turn had taken it to 55,273 (+132, measured).
-    assert total <= 55_405, f"the tool block is {total} bytes"
+    # then 55,405 once rebased on trunk 4c39bba5, whose flow turn had taken it to 55,273 (+132, measured),
+    # and 55,915 with the model naming what he asked to see (asked_for, DEC-073: +510, measured on
+    # trunk 6f844183, 55,405 before, 55,915 after).
+    assert total <= 55_915, f"the tool block is {total} bytes"

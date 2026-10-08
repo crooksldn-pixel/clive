@@ -18,6 +18,11 @@
  *      a card to hold;
  *   d. a list asked for out loud ("show me today's orders") has Next beside it, as the Orders
  *      icon's list does, and Next opens the first of them: "#… 1 of N".
+ *   e. [focus, DEC-073] what he asked for always shows: "show me today's orders and open 1940"
+ *      is the list and the order, both;
+ *   f. and what CLIVE adds unasked is about the same customer: David's email, with his order and
+ *      its tracking and his Instagram message beside it — not Mia's email, not the inbox, not
+ *      today's orders, not somebody else's Instagram.
  *
  *   node scripts/browser/flow.js http://127.0.0.1:8823 /path/to/screenshots
  *
@@ -39,6 +44,9 @@ const ADDED = ' It fits every size.';
 const REFUSED_QUESTION = 'and tell her it only comes in black';
 const REFUSED = 'Hi Priya, one more thing: it comes in black only.';
 const LIST_QUESTION = "show me today's orders";
+// [focus, DEC-073] Parts e and f: the model names what he asked for (tests/test_flow_browser.py).
+const TWO_PART_QUESTION = "show me today's orders and open 1940";
+const HIS_EMAIL_QUESTION = "show me david's email";
 
 const checks = [];
 const shots = [];
@@ -248,6 +256,45 @@ async function walk(browser, size) {
     /^#\d+\. 1 of \d+\.$/.test(walked.answer.trim()) && walked.types.some((t) => t === 'order' || t === 'order_workspace'),
     JSON.stringify({ answer: walked.answer, types: walked.types }));
   await shot('d2-next-the-first-of-them');
+
+  // ---- e. [focus, DEC-073] both parts of a two-part ask: the list he asked for, and the order
+  const answers = async (q, wanted) => {
+    const was = (await glass()).answer;
+    await page.evaluate((x) => window.CliveAlpha.ask(x), q);
+    try {
+      await page.waitForFunction(([old, type]) => {
+        const said = ((document.getElementById('answer') || {}).textContent || '').trim();
+        return said && said !== old && Boolean(document.querySelector(`#cards [data-type="${type}"]`));
+      }, [was.trim(), wanted], { timeout: 30000 });
+    } catch { /* checked below */ }
+    await sleep(900);
+    await page.evaluate(() => { const c = document.getElementById('cards'); if (c) c.scrollTop = 0; window.scrollTo(0, 0); });
+    await sleep(200);
+    return glass();
+  };
+  const both = await answers(TWO_PART_QUESTION, 'order_list');
+  check(at('asked for today\'s orders and 1940: the list and the order are both up'),
+    both.types.includes('order_list') && both.types.includes('order') && /#1940/.test(both.text) && /#1938/.test(both.text),
+    JSON.stringify({ types: both.types, text: both.text.slice(0, 200) }));
+  await shot('e1-todays-orders-and-1940');
+
+  // ---- f. his email, and what is about him: his order with its tracking, his Instagram message
+  const his = await answers(HIS_EMAIL_QUESTION, 'email_thread');
+  const textOf = (type) => page.evaluate((t) => Array.from(document.querySelectorAll(`#cards [data-type="${t}"]`))
+    .map((n) => n.textContent.replace(/\s+/g, ' ').trim()).join(' | '), type);
+  const [email, order, dm, everything] = [await textOf('email_thread'), await textOf('order'), await textOf('messages'),
+    await page.evaluate(() => (document.getElementById('cards') || { textContent: '' }).textContent)];
+  check(at('his email is first, with his order and its tracking, and his Instagram message'),
+    his.types[0] === 'email_thread' && his.types.includes('order') && his.types.includes('messages')
+      && /Where is 1939/.test(email) && /#1939/.test(order) && /AB1234567890GB/.test(order) && /parcel go out/.test(dm),
+    JSON.stringify({ types: his.types, email: email.slice(0, 120), order: order.slice(0, 200), dm: dm.slice(0, 160) }));
+  check(at('nobody else\'s: not Mia\'s email, not the inbox, not today\'s orders, not someone else\'s Instagram'),
+    !his.types.includes('email_list') && !his.types.includes('order_list') && !/Mia|1938|Spain|someone\.else/.test(everything),
+    JSON.stringify({ types: his.types }));
+  await shot('f1-his-email-and-what-is-about-him');
+  await page.evaluate(() => { const m = document.querySelector('#cards [data-type="messages"]'); if (m) m.scrollIntoView({ block: 'center' }); });
+  await sleep(300);
+  await shot('f2-his-instagram-message');
 
   check(at('no page errors'), errors.length === 0, errors.join(' | '));
   await context.close();
