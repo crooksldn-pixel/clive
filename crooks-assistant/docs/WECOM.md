@@ -166,6 +166,11 @@ httpx's log lines.
 
 ## 7. When the generic message card lands
 
+(8 October: WhatsApp and Instagram's direct messages now use the same `message_reply`, docs/WHATSAPP.md
+and docs/INSTAGRAM_DMS.md. What follows applies to all three: `channel` is the conversation's app,
+`editable` stays empty wherever a translation goes with the English, and is `["body"]`, with
+`args: {"body": "english"}`, for a reply sent in English alone.)
+
 Tonight's reply follows the email writes (`app/tools/gmail_writes.py`): a write tool with its own
 `present`, drawn as the action engine's confirmation card, hold to arm, then tap. The flow
 workstream's one-hold message card (branch `claude/n2-flow`, DEC-067, `app/families/message.py`)

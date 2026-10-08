@@ -529,7 +529,8 @@ async def test_every_route_the_app_serves_is_the_owners_unless_it_is_named_publi
             if code:
                 assert response.json()["code"] == code, (path, response.json())
         checked.append(path)
-    assert hooks_seen == HOOK_PATHS == frozenset({"/hooks/wecom"})
+    # [channels] One door per channel since 8 Oct: WeCom, WhatsApp, Instagram.
+    assert hooks_seen == HOOK_PATHS == frozenset({"/hooks/wecom", "/hooks/whatsapp", "/hooks/instagram"})
     for must in ("/turn", "/command", "/pad/heartbeat", "/pad", "/telemetry", "/objectives", "/displays", "/tools",
                  "/speak", "/support/investigate", "/openapi.json", "/media/shopify/scr_000000000000/scr_000000000000"):
         assert must in checked, must

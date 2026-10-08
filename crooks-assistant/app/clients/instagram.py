@@ -1,5 +1,5 @@
 """Instagram, for the owner's inbox: the CROOKS account's direct messages and the comments on
-its posts. Read-only.
+its posts. Reads, and one send: a direct message the owner held (`send_text`).
 
 - Every call goes to graph.instagram.com, the Instagram API with Instagram Login, with the
   account's long-lived Instagram User access token stored as `instagram_access_token`
@@ -10,8 +10,11 @@ its posts. Read-only.
   defines with the token as a query parameter; that address is built, sent and dropped here and
   never logged or quoted. If the API does not accept the header, the first call learns that and
   this process sends the token as a parameter from then on (`_auth_mode`), again never logged.
-- Nothing here sends, replies, likes, hides or deletes anything: every request is a GET, and no
-  write the API offers is wired to anything.
+- Two requests are not reads. `send_text`, a text to one person who wrote to the account, made only
+  by the messaging adapter (app/messaging/instagram.py) when the action engine sends a reply after
+  the owner's hold (app/tools/messaging_tools.py); and `subscribe`, which switches on the account's
+  webhook events and is run only by hand (scripts/instagram.py subscribe). Nothing here replies to
+  a comment, likes, hides or deletes anything, and every other request is a GET.
 - Every failure is one InstagramUnavailable with a `kind` and words the owner can be told. No
   answer or refusal quotes what Meta sent back, because Meta's error text can echo the request.
 - A long-lived token lasts 60 days, and Meta renews one only once it is at least a day old
@@ -74,11 +77,15 @@ _AUTH_MODE = ["header"]
 class InstagramUnavailable(RuntimeError):
     """Instagram could not answer this, said as the owner can be told it. `kind` is one of:
     no_token, token (expired or revoked), permission, rate_limited, timeout, unreachable,
-    not_found, refused, refresh_blocked."""
+    not_found, refused, refresh_blocked, window (a send outside the 24 hours). `refused` is True
+    when Instagram answered and so nothing was sent, which the action engine reads to say so."""
 
-    def __init__(self, said: str, *, kind: str) -> None:
+    plain_words = True   # its words are written to be said (app/actions/engine.py `_refusal_words`)
+
+    def __init__(self, said: str, *, kind: str, refused: bool = False) -> None:
         super().__init__(said)
         self.kind = kind
+        self.refused = refused
 
 
 def configure(*, api_version: str | None = None, state_path: Path | None = None) -> None:
@@ -315,11 +322,18 @@ def _message(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _participant(conversation: dict[str, Any], account_: dict[str, str]) -> str:
+    return _other(conversation, account_)[1]
+
+
+def _other(conversation: dict[str, Any], account_: dict[str, str]) -> tuple[str, str]:
+    """(id, handle) of the conversation's other person: the id is the Instagram-scoped id that
+    Instagram's webhooks name them by, and that a direct message is sent to."""
     people = conversation.get("participants")
     for person in _data(people) if isinstance(people, dict) else []:
         if not is_ours(person, account_):
-            return _handle(person.get("username"))
-    return ""
+            ident = str(person.get("id") or "")
+            return (ident if ID.fullmatch(ident) else ""), _handle(person.get("username"))
+    return "", ""
 
 
 async def conversations(limit: int = 10) -> list[dict[str, Any]]:
@@ -340,10 +354,12 @@ async def conversations(limit: int = 10) -> list[dict[str, Any]]:
         latest = [_message(m) for m in _data(messages)] if isinstance(messages, dict) else []
         if latest and not latest[0]["text"] and not latest[0]["from"]["id"] and latest[0]["message_id"]:
             latest = [await _message_by_id(latest[0]["message_id"])]
+        other_id, handle = _other(item, account_)
         out.append({
             "conversation_id": ident,
             "updated_time": str(item.get("updated_time") or ""),
-            "username": _participant(item, account_),
+            "username": handle,
+            "user_id": other_id,
             "latest": latest[0] if latest else None,
         })
     return out
@@ -370,9 +386,11 @@ async def thread(conversation_id: str) -> dict[str, Any]:
     if items and all(not m["text"] and not m["from"]["id"] for m in items):
         items = [await _message_by_id(m["message_id"]) for m in items[:THREAD_MESSAGES]]
     items.sort(key=lambda m: m["created_time"])
+    other_id, handle = _other(body, account_)
     return {
         "conversation_id": conversation_id,
-        "username": _participant(body, account_),
+        "username": handle,
+        "user_id": other_id,
         "messages": items[-THREAD_MESSAGES:],
         "account": account_,
     }
@@ -430,6 +448,129 @@ async def comments(media_id: str, limit: int = 25) -> list[dict[str, Any]]:
         entry["replies"] = [_comment(r) for r in _data(replies)] if isinstance(replies, dict) else []
         out.append(entry)
     return out
+
+
+# --- the one send ---------------------------------------------------------------------------
+
+# Instagram API with Instagram Login: "Message text must be UTF-8 and be a 1000 bytes or less."
+TEXT_MAX_BYTES = 1000
+WINDOW_WORDS = ("It is more than 24 hours since they last wrote, so Instagram won't take a message from CLIVE. "
+                "They need to message CROOKS again first.")
+# Meta's answers to a send that mean "outside the 24 hours" (Instagram's subcode, Messenger's code).
+_WINDOW_SUBCODES = frozenset({2534022, 2018278})
+
+
+def _send_refusal(response: httpx.Response) -> InstagramUnavailable:
+    """A send Instagram answered with an error: nothing was sent. Said in plain words from its codes.
+    [channels] Except a 5xx, whatever code it carries: a gateway's 500 or 502 doesn't prove the
+    message didn't go, so it is never a refusal ("Nothing was changed") but unconfirmed, and the
+    owner is told to check Instagram before sending it again."""
+    if response.status_code >= 500:
+        return InstagramUnavailable(f"Instagram had trouble answering ({response.status_code}), so CLIVE can't tell "
+                                    "whether the message went.", kind="unreachable")
+    code, subcode, _message = _error_fields(response)
+    if code == 1545041 or (code == 10 and subcode in _WINDOW_SUBCODES):
+        return InstagramUnavailable(WINDOW_WORDS, kind="window", refused=True)
+    if code == 551:
+        return InstagramUnavailable("That person isn't available on Instagram right now: they may have blocked "
+                                    "CROOKS or closed their account.", kind="refused", refused=True)
+    if code == 100 and subcode == 2534014:
+        return InstagramUnavailable("Instagram can't find that person for CROOKS's account.", kind="not_found",
+                                    refused=True)
+    refused = _refusal(response)
+    refused.refused = True
+    return refused
+
+
+async def send_text(recipient: str, text: str) -> str:
+    """POST me/messages: one text to one person who wrote to the account. Returns Instagram's
+    message id; anything else raises InstagramUnavailable, and nothing is said to have gone. Only
+    the action engine calls this, after the owner's hold."""
+    access = token()
+    if not access:
+        raise InstagramUnavailable("Instagram isn't connected: there is no Instagram token on the server yet.",
+                                   kind="no_token", refused=True)
+    if not ID.fullmatch(str(recipient or "")):
+        raise InstagramUnavailable("That isn't an Instagram conversation CLIVE can send to.", kind="not_found",
+                                   refused=True)
+    words = str(text or "")
+    if not words.strip():
+        raise InstagramUnavailable("The message is empty.", kind="refused", refused=True)
+    if len(words.encode("utf-8")) > TEXT_MAX_BYTES:
+        raise InstagramUnavailable("That message is longer than Instagram takes (1,000 bytes); shorten it.",
+                                   kind="refused", refused=True)
+    url = f"{HOST}/{_CONFIG['version']}/me/messages"
+    payload = json.dumps({"recipient": {"id": str(recipient)}, "message": {"text": words}}, ensure_ascii=False)
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    params: dict[str, str] = {}
+    if _AUTH_MODE[0] == "header":
+        headers["Authorization"] = f"Bearer {access}"
+    else:
+        params["access_token"] = access
+    try:
+        async with http_client() as client:
+            response = await asyncio.wait_for(
+                client.post(url, params=params, content=payload.encode("utf-8"), headers=headers), TIMEOUT_S)
+    except (TimeoutError, httpx.TimeoutException):
+        raise InstagramUnavailable("Instagram did not answer in time.", kind="timeout") from None
+    except httpx.HTTPError:
+        raise InstagramUnavailable("Instagram could not be reached.", kind="unreachable") from None
+    if response.status_code != 200:
+        raise _noted_error(_send_refusal(response))
+    try:
+        sent = str((response.json() or {}).get("message_id") or "").strip()
+    except (ValueError, AttributeError):
+        sent = ""
+    if not sent:
+        raise InstagramUnavailable("Instagram accepted the message but gave no message id, so it isn't counted as sent.",
+                                   kind="refused")
+    _noted_ok()
+    return sent
+
+
+async def subscribed_fields() -> list[str]:
+    """GET me/subscribed_apps: the webhook fields Instagram sends this account's events for, exactly
+    as Instagram lists them (an empty list when the account's subscription is not switched on)."""
+    body = await get("me/subscribed_apps")
+    fields: list[str] = []
+    for row in _data(body):
+        named = row.get("subscribed_fields")
+        if isinstance(named, list):
+            fields.extend(str(f)[:40] for f in named if f)
+    return list(dict.fromkeys(fields))
+
+
+async def subscribe(fields: tuple[str, ...] = ("messages", "messaging_seen")) -> bool:
+    """POST me/subscribed_apps: Instagram sends this account's events for `fields` to the app's webhook.
+    Changes an Instagram setting, never a message; made only by scripts/instagram.py, by hand."""
+    access = token()
+    if not access:
+        raise InstagramUnavailable("Instagram isn't connected: there is no Instagram token on the server yet.",
+                                   kind="no_token")
+    headers = {"Accept": "application/json", "Authorization": f"Bearer {access}"}
+    try:
+        async with http_client() as client:
+            response = await asyncio.wait_for(client.post(
+                f"{HOST}/{_CONFIG['version']}/me/subscribed_apps", params={"subscribed_fields": ",".join(fields)},
+                headers=headers), TIMEOUT_S)
+    except (TimeoutError, httpx.TimeoutException):
+        raise InstagramUnavailable("Instagram did not answer in time.", kind="timeout") from None
+    except httpx.HTTPError:
+        raise InstagramUnavailable("Instagram could not be reached.", kind="unreachable") from None
+    if response.status_code != 200:
+        raise _refusal(response)
+    try:
+        return (response.json() or {}).get("success") is True
+    except (ValueError, AttributeError):
+        return False
+
+
+async def person(igsid: str) -> dict[str, str]:
+    """GET <Instagram-scoped id>: the handle and name of someone who wrote to the account."""
+    if not ID.fullmatch(str(igsid or "")):
+        raise InstagramUnavailable("That is not an Instagram user.", kind="not_found")
+    body = await get(str(igsid), {"fields": "name,username"})
+    return {"username": _handle(body.get("username")), "name": text(body.get("name"), 80)}
 
 
 # --- the token's life ------------------------------------------------------------------------

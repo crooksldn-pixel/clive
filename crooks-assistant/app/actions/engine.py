@@ -556,7 +556,7 @@ class ActionEngine:
                 # refusal, with the reason it gave — not "could not be reached", which is false.
                 reason = _refusal_words(exc)
                 self._finish(proposal, ActionStatus.FAILED, "refused", reason=reason)
-                service = service_name(proposal.tool_name, write)
+                service = service_name(proposal.tool_name, write, proposal)
                 return CommitResult(proposal, "refused", f"{service} refused that: {reason}. Nothing was changed.", detail=reason)
             if write.settle is not None:
                 # Unchanged after the wait — but a job Shopify accepted may still be running.
@@ -692,12 +692,24 @@ def _stale_words(proposal: ActionProposal, write) -> str:
 def _failure_words(proposal: ActionProposal, write) -> str:
     if proposal.undo_of:
         return "I couldn't confirm the undo. Check before asking again."
-    return write.spoken_failure
+    # [messaging] "{service}": the app a message went to (WeCom, WhatsApp, Instagram), as service_name says.
+    return write.spoken_failure.replace("{service}", service_name(proposal.tool_name, write, proposal))
 
 
-def service_name(tool_name: str, write=None) -> str:
+# [messaging] The summary key a write that sends through several apps names this proposal's app by.
+SENT_THROUGH = "sent_through"
+
+
+def service_name(tool_name: str, write=None, proposal=None) -> str:
     """Who a change is sent to, as the owner is told it: the write's own word when it names one
-    (CROOKS Returns), else Gmail for a Gmail write and Shopify for the rest."""
+    (CROOKS Returns), else Gmail for a Gmail write and Shopify for the rest. [messaging] One write
+    that sends through several apps (message_reply: WeCom, WhatsApp, Instagram) names the app on
+    each proposal's summary as `sent_through`, and that is the word. Only that key: a summary's
+    `service` is the write's own business (a label buy's carrier and service, "Royal Mail ·
+    Tracked 48"), never who refused it."""
+    summary = getattr(proposal, "summary", None)
+    if isinstance(summary, dict) and str(summary.get(SENT_THROUGH) or ""):
+        return str(summary[SENT_THROUGH])[:40]
     named = str(getattr(write, "service", "") or "")
     if named:
         return named

@@ -4,12 +4,15 @@
     python scripts/instagram.py refresh    renew the stored long-lived token now (60 more days)
     python scripts/instagram.py exchange   swap a short-lived token (asked for, hidden) for a
                                            long-lived one and store it; needs instagram_app_secret
+    python scripts/instagram.py subscribe  switch on the account's webhook events for direct messages
+                                           (messages, messaging_seen), so Instagram sends them to the
+                                           Meta app's callback URL (docs/INSTAGRAM_DMS.md)
 
 Store the token first with `python scripts/provision_secrets.py instagram_access_token`.
 
 `check` prints the connected account's own handle and how many conversations, posts and
-comments it could read; never a customer's handle or anything anybody wrote. Nothing here sends,
-replies to or changes anything on Instagram.
+comments it could read; never a customer's handle or anything anybody wrote. Nothing here sends or
+replies to anything on Instagram; `subscribe` changes one setting of the account's, by hand.
 """
 
 from __future__ import annotations
@@ -99,12 +102,24 @@ async def exchange() -> int:
     return 0
 
 
+async def subscribe() -> int:
+    try:
+        done = await instagram.subscribe()
+        fields = await instagram.subscribed_fields()
+    except instagram.InstagramUnavailable as exc:
+        print(f"Not switched on: {exc} [{exc.kind}]")
+        return 1
+    print(f"{'Switched on' if done else 'Instagram did not confirm it'}. Instagram now sends: {', '.join(fields) or 'nothing'}.")
+    return 0 if done and "messages" in fields else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=("check", "refresh", "exchange"))
+    parser.add_argument("command", choices=("check", "refresh", "exchange", "subscribe"))
     args = parser.parse_args(argv)
     _configure()
-    return asyncio.run({"check": check, "refresh": refresh, "exchange": exchange}[args.command]())
+    return asyncio.run({"check": check, "refresh": refresh, "exchange": exchange,
+                        "subscribe": subscribe}[args.command]())
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
-"""Messages as the model reads them and as the "messages" card draws them: built from the store's
-own records and nothing else.
+"""Messages as the model reads them and as the "messages" card draws them, whichever channel they
+came through (WeChat, WhatsApp, Instagram): built from the store's own records and nothing else.
 
 Why it exists: one place decides what a message looks like outside the store, so the words the
 model speaks and the card on the screen cannot disagree. English first; the original beside it
@@ -15,11 +15,11 @@ What it promises:
 
 from __future__ import annotations
 
-import time
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.messaging import adapter as adapters
 from app.messaging import contacts
 from app.messaging.models import MACHINE_TRANSLATION, Message, Thread
 
@@ -45,19 +45,31 @@ def _clip(text: str) -> str:
     return text if len(text) <= MAX_CHARS else text[: MAX_CHARS - 1].rstrip() + "…"
 
 
-def message_view(message: Message, *, now: float | None = None) -> dict[str, Any]:
-    by = {"contact": "them", "clive": "CLIVE", "person": "someone in WeCom"}.get(message.origin, message.origin)
+# Who wrote a message CLIVE did not send on the account's side: someone answering in the channel's
+# own app (a WeCom customer-service agent, the WhatsApp or Instagram app on a phone).
+PERSON_WORDS = {"wecom": "someone in WeCom", "whatsapp": "the WhatsApp app", "instagram": "the Instagram app"}
+DELIVERY_WORDS = {"delivered": "Delivered", "read": "Read"}
+
+
+def message_view(message: Message, *, now: float | None = None, channel: str = "wecom") -> dict[str, Any]:
+    person = PERSON_WORDS.get(channel, f"someone in {channel}")
+    by = {"contact": "them", "clive": "CLIVE", "person": person}.get(message.origin, message.origin)
     out: dict[str, Any] = {"direction": message.direction, "by": by, "at": when(message.at)}
     if message.kind != "text" and not message.text:
         out["english"] = KIND_WORDS.get(message.kind, f"sent a {message.kind}")
         return out
     if message.origin == "clive":
-        # Drafted by CLIVE in both languages and held by the owner: both as they were sent.
+        # Drafted by CLIVE, in their language too when they don't write English, and held by the
+        # owner: as it was sent.
         out["english"] = _clip(message.english)
         if message.chinese:
             out["chinese"] = _clip(message.chinese)
+        elif message.translated:
+            out["translated"] = _clip(message.translated)
         if message.status == "failed":
-            out["status"] = f"not delivered: {message.fail_reason or 'WeCom did not say why'}"
+            out["status"] = f"not delivered: {message.fail_reason or 'the app did not say why'}"
+        elif message.delivery in DELIVERY_WORDS:
+            out["delivery"] = DELIVERY_WORDS[message.delivery]
         return out
     # A translation still "pending" past PENDING_LIMIT_S is not coming (a restart cut it off): missing.
     state = message.translation_now(now)
@@ -75,38 +87,34 @@ def thread_view(thread: Thread, messages: list[Message], *, limit: int = MAX_MES
     person = contacts.person_for(thread)
     out: dict[str, Any] = {
         "chat_id": thread.chat_id, "from": contacts.name_for(thread), "channel": contacts.channel_words(thread),
-        "last": when(thread.last_at), "messages": [message_view(m) for m in messages[-max(1, min(limit, MAX_MESSAGES)):]],
+        "last": when(thread.last_at),
+        "messages": [message_view(m, channel=thread.channel) for m in messages[-max(1, min(limit, MAX_MESSAGES)):]],
     }
     if person is not None:
         out["role"] = person.role[:80]
     else:
         out["linked"] = False
-    if thread.route == "kf":
-        out["reply_window"] = reply_window(thread)
+    window = reply_window(thread)
+    if window:
+        out["reply_window"] = window
     return out
 
 
 def reply_window(thread: Thread, now: float | None = None) -> str:
-    """How long WeChat will take a reply in this thread, from their last message (48 hours, five
-    replies): what the owner needs to know before asking for one."""
-    moment = time.time() if now is None else now
-    if not thread.last_in_at:
-        return "closed: they haven't written yet"
-    left = thread.last_in_at + 48 * 3600 - moment
-    if left <= 0:
-        return "closed: their last message was over 48 hours ago"
-    replies = max(0, 5 - thread.sends_since_in)
-    if not replies:
-        return "closed: five replies sent since their last message"
-    hours = int(left // 3600)
-    return f"open {hours}h more, {replies} repl{'y' if replies == 1 else 'ies'} left"
+    """How long the channel will still take a reply in this thread, from their last message (WeChat:
+    48 hours and five replies; WhatsApp and Instagram: 24 hours), as its adapter says it: what the
+    owner needs to know before asking for one. "" where there is no such limit (a team member)."""
+    channel = adapters.get(thread.channel)
+    if channel is None:
+        return ""
+    return channel.reply_window(thread, now)
 
 
 # ------------------------------------------------------------------ the card
 
 
 def _card_message(view: dict[str, Any]) -> dict[str, Any]:
-    keep = ("direction", "by", "at", "english", "original", "translation", "chinese", "status")
+    keep = ("direction", "by", "at", "english", "original", "translation", "chinese", "translated", "status", "delivery")
     return {k: str(view[k])[:MAX_CHARS] for k in keep if view.get(k)}
 
 
@@ -127,5 +135,8 @@ def card(name: str, result: dict[str, Any]) -> dict[str, Any]:
         return {"key": f"thread:{shown['chat_id']}", "view": "thread", "title": shown["who"] or "Messages",
                 "sub": " · ".join(x for x in (shown["channel"], shown["role"]) if x), "thread": shown}
     threads = [_card_thread(t, messages=3) for t in (result.get("threads") or [])[:MAX_THREADS] if isinstance(t, dict)]
-    return {"key": "recent", "view": "recent", "title": str(result.get("title") or "Messages")[:80],
+    # One app's conversations are a card of their own ("recent:WhatsApp"), so asking about Instagram
+    # after WhatsApp adds a card rather than overwriting the other app's.
+    app = str(result.get("app") or "")[:20]
+    return {"key": f"recent:{app}" if app else "recent", "view": "recent", "title": str(result.get("title") or "Messages")[:80],
             "sub": str(result.get("note") or "")[:160], "threads": threads}

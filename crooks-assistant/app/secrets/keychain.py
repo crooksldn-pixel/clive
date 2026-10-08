@@ -88,6 +88,18 @@ KNOWN_KEYS = (
     # printed on the owner's card. No PrintNode key: printing is the service's own.
     "crooks_shipping_read_key",
     "crooks_shipping_write_key",
+    # [channels] WhatsApp through Meta's Cloud API (app/clients/whatsapp.py): the business phone
+    # number's id and the WhatsApp Business Account's id (not secret, shown on the Connections card),
+    # a permanent system-user access token, the Meta app's secret (it signs what Meta sends to
+    # /hooks/whatsapp) and the verify token George chooses for Meta's URL check. Read at each call.
+    "whatsapp_phone_number_id",
+    "whatsapp_business_account_id",
+    "whatsapp_access_token",
+    "whatsapp_app_secret",
+    "whatsapp_verify_token",
+    # [channels] The verify token George chooses for Meta's check of /hooks/instagram (app/messaging/
+    # instagram.py); the webhook's signature is checked with instagram_app_secret below.
+    "instagram_webhook_verify_token",
     # Reads the CROOKS Instagram account's messages and comments (app/clients/instagram.py): a
     # long-lived Instagram User access token, renewed by the application before its 60 days run
     # out. The app id and secret are the Meta app's, kept for exchanging a new short-lived token

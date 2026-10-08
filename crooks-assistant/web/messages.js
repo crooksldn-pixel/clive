@@ -1,17 +1,20 @@
-/* CLIVE · Messages: WeChat and WeCom conversations, in English, with each original one tap away.
+/* CLIVE · Messages: conversations on WeChat, WhatsApp and Instagram, in English, with each original
+ * one tap away.
  *
  * One drawing, from one bounded payload the Mac built (app/messaging/views.py `card`):
  *
- *   body(d)   view "recent": the latest conversations, each with who it is, when, and its last few
- *             messages; view "thread": one conversation in full, and how long WeChat will still take
- *             a reply in it (48 hours from their last message, five replies).
+ *   body(d)   view "recent": the latest conversations, each with who it is, which app, when, and its
+ *             last few messages; view "thread": one conversation in full, and how long its app will
+ *             still take a reply in it (WeChat: 48 hours from their last message, five replies;
+ *             WhatsApp and Instagram: 24 hours), named by the app the payload names.
  *
  * Every message shows its English. When the English is a machine translation it says so, and the
  * words they actually wrote are behind one tap ("Original"); when the translation is missing it
  * says so and shows the original itself. A message CLIVE sent shows the English the owner held and,
- * behind one tap, the Chinese that went with it.
+ * behind one tap, the words in their language that went with it ("Chinese", or "As sent"), and
+ * whether the app says it was delivered or read.
  *
- * Dots that mean something: blue is a conversation WeChat will still take a reply in, red is a
+ * Dots that mean something: blue is a conversation its app will still take a reply in, red is a
  * message that did not arrive, and a quiet dot is one that can't be answered from CLIVE now.
  *
  * The same two rules as web/ui.js: every string lands through textContent, never markup, and no
@@ -66,6 +69,7 @@
     const english = text(m.english);
     const original = text(m.original);
     const chinese = text(m.chinese);
+    const translated = text(m.translated);
     const said = english || original;
     add(bubble, h('p', 'msg-words', said));
     const meta = [];
@@ -76,6 +80,7 @@
     if (translation === 'machine translation') meta.push('Machine translation');
     else if (translation === 'missing') meta.push('Translation missing');
     else if (translation) meta.push(`Translation ${translation}`);
+    if (out && !failed && text(m.delivery)) meta.push(text(m.delivery));
     const line = h('div', 'msg-meta', [h('span', 'msg-meta-words', meta.join(' · '))]);
     let behind = null;
     if (english && original && original !== english) {
@@ -84,6 +89,10 @@
       behind = shown;
     } else if (chinese) {
       const [button, shown] = reveal('Chinese', chinese, 'is-original');
+      add(line, button);
+      behind = shown;
+    } else if (translated) {
+      const [button, shown] = reveal('As sent', translated, 'is-original');
       add(line, button);
       behind = shown;
     }
@@ -97,8 +106,9 @@
     const words = text(t.reply_window);
     if (!words) return null;
     const open = words.indexOf('open') === 0;
+    const app = text(t.channel);
     return h('div', `msg-window ${open ? 'is-open' : 'is-closed'}`, [
-      h('span', 'msg-dot', null), h('span', 'msg-window-words', `WeChat replies: ${words}`)]);
+      h('span', 'msg-dot', null), h('span', 'msg-window-words', app ? `${app} replies: ${words}` : `Replies: ${words}`)]);
   }
 
   function thread(t, messages) {

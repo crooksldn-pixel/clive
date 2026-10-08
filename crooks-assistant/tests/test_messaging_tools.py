@@ -92,7 +92,7 @@ def lookup(name):
 
 
 async def stage(engine, session, thread, *, english=ENGLISH, chinese=CHINESE):
-    text = await dispatch("message_reply", {"chat_id": thread.chat_id, "english": english, "chinese": chinese},
+    text = await dispatch("message_reply", {"chat_id": thread.chat_id, "english": english, "translated": chinese},
                           session=session, timeout_s=10)
     return text, (session.proposals[-1] if session.proposals else None)
 
@@ -301,11 +301,11 @@ async def test_a_reply_wechat_would_not_take_is_not_prepared(world, engine, case
     if case == "person":
         world.state = 3
     session = session_for(thread)
-    args = {"chat_id": thread.chat_id, "english": ENGLISH, "chinese": CHINESE}
+    args = {"chat_id": thread.chat_id, "english": ENGLISH, "translated": CHINESE}
     if case == "not_chinese":
-        args["chinese"] = "Is the sample ready?"
+        args["translated"] = "Is the sample ready?"
     if case == "too_long":
-        args["chinese"] = "长" * 400                    # 1,200 bytes
+        args["translated"] = "长" * 400                    # 1,200 bytes
         args["english"] = "é" * 600                     # 1,200 more: over WeChat's 2,048
     if case == "unknown":
         args["chat_id"] = "chat_" + "0" * 20
@@ -321,7 +321,7 @@ async def test_a_reply_wechat_would_not_take_is_not_prepared(world, engine, case
 async def test_a_chat_id_the_conversation_was_not_shown_is_not_used(world, engine):
     thread = jessica_wrote()
     session = Session(session_id="m2")
-    text = await dispatch("message_reply", {"chat_id": thread.chat_id, "english": ENGLISH, "chinese": CHINESE},
+    text = await dispatch("message_reply", {"chat_id": thread.chat_id, "english": ENGLISH, "translated": CHINESE},
                           session=session, timeout_s=10)
     assert text.startswith("NOT YET") and world.sent == []
 

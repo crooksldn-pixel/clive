@@ -6,7 +6,11 @@ What each asks (read-only, and spending nothing):
   YouTube      GET /videos for one public video, the key in the X-Goog-Api-Key header
   Shopify      the client-credentials token request for this shop; the token minted is dropped
   GitHub       GET /repos/<the clive repository>, which says whether the token may write there
-  Instagram    GET /me with the token, which names the account it reads
+  Instagram    GET /me with the token, which names the account it reads; testing what is stored,
+               then what its direct messages can do (app/messaging/instagram.py probe_routes)
+  WhatsApp     GET the phone number and the WhatsApp Business Account with the token, then what
+               the number can do and whether Meta sends its webhooks anywhere (app/messaging/
+               whatsapp.py probe_routes); nothing is sent
   Ship24       GET /trackers?limit=1, which lists trackers and creates none, so it spends none of
                a per-shipment plan's shipments; per-call plans count only /tracking/search, which
                this never calls (app/clients/ship24.py has the docs relied on)
@@ -155,6 +159,8 @@ async def _instagram(values: dict[str, str], settings: Any, changed: frozenset[s
     # The app's ID and secret cannot be asked about on their own; they are proved at sign-in. Only
     # a token that is being stored, or tested, is asked about here.
     token = values.get("instagram_access_token") or ""
+    if changed and changed <= {"instagram_webhook_verify_token"}:
+        return Outcome(True, "Kept. Meta checks it when you save the callback URL in the Meta app.", checked=False)
     if not token or (changed and "instagram_access_token" not in changed):
         return Outcome(True, "Kept. They are checked when you sign in with Instagram.", checked=False)
     version = str(getattr(settings, "instagram_api_version", "") or instagram.DEFAULT_VERSION)
@@ -171,7 +177,14 @@ async def _instagram(values: dict[str, str], settings: Any, changed: frozenset[s
         except (ValueError, AttributeError):
             name = ""
         who = f"@{name}" if name else ""
-        return Outcome(True, f"Instagram accepted the token{f' for {who}' if who else ''}.", who=who)
+        said = f"Instagram accepted the token{f' for {who}' if who else ''}."
+        if not changed:
+            # [channels] Testing what is stored: what its direct messages can do, as Instagram says.
+            from app.messaging import instagram as dms
+
+            said = channel_summary(said, await dms.probe_routes(), {
+                "replies": "replies", "conversations": "", "callback": "messages arriving"})
+        return Outcome(True, said, who=who)
     refused = instagram._refusal(response)
     reasons = {
         "token": "Instagram refused that token: it has expired, or it was copied short.",
@@ -333,6 +346,61 @@ async def _shipping(values: dict[str, str], settings: Any) -> Outcome:
                          "print a label.", who=host)
 
 
+async def _whatsapp(values: dict[str, str], settings: Any) -> Outcome:
+    """[channels] George's WhatsApp number on Meta's Cloud API. Passes when Meta proves the token may
+    read the number and the WhatsApp Business Account the ids name; then what the number can do and
+    whether Meta sends its webhooks anywhere (app/messaging/whatsapp.py probe_routes), the first thing
+    to do said in the detail. Read-only calls; nothing is sent. The app secret and the verify token
+    are checked for shape here; Meta proves them when it calls /hooks/whatsapp."""
+    from app.clients import whatsapp
+    from app.messaging import whatsapp as channel
+
+    secret = str(values.get(whatsapp.APP_SECRET) or "")
+    if not (len(secret) == 32 and all(c in "0123456789abcdef" for c in secret.lower())):
+        return Outcome(False, "The app secret is 32 letters and digits: Meta app → App settings → Basic → App secret → "
+                              "Show.", refused=(whatsapp.APP_SECRET,))
+    verify = str(values.get(whatsapp.VERIFY_TOKEN) or "")
+    if not (8 <= len(verify) <= 128) or not verify.isprintable() or " " in verify:
+        return Outcome(False, "The verify token is 8 to 128 letters, digits or symbols, with no spaces.",
+                       refused=(whatsapp.VERIFY_TOKEN,))
+    with whatsapp.trying(values):
+        for read, key in ((whatsapp.phone_number, whatsapp.PHONE_NUMBER_ID),
+                          (whatsapp.business_account, whatsapp.BUSINESS_ACCOUNT_ID)):
+            try:
+                await read()
+            except whatsapp.WhatsAppError as exc:
+                if exc.kind == "refused" and exc.code in whatsapp.TOKEN_CODES:
+                    return Outcome(False, str(exc), refused=(whatsapp.ACCESS_TOKEN,))
+                if exc.kind == "refused" and exc.code in whatsapp.PERMISSION_CODES:
+                    return Outcome(False, str(exc), fix="service")
+                if exc.kind in ("timeout", "unreachable"):
+                    return Outcome(False, str(exc), fix="retry")
+                return Outcome(False, str(exc), refused=(key,))
+        routes = await channel.probe_routes()
+    return Outcome(True, channel_summary("Meta accepted the WhatsApp keys.", routes, {
+        "number": "", "replies": "replies", "callback": "messages arriving"}))
+
+
+def channel_summary(lead: str, routes, named: dict[str, str]) -> str:
+    """[channels] A Meta channel's routes in one line: each named route's state (or, named "", what
+    it found, in its own words: the number and its status, how many conversations Instagram
+    returned), then the first thing to do."""
+    said = []
+    for route in routes:
+        if route.key not in named:
+            continue
+        if not named[route.key]:
+            said.append(route.can.rstrip("."))
+        else:
+            word = {"ready": "ready", "off": "off"}.get(route.state, "not sure")
+            said.append(f"{named[route.key]}: {word}")
+    detail = lead + (" " + "; ".join(said) + "." if said else "")
+    first_off = next((r for r in routes if r.state in ("off", "unknown") and r.switch_on), None)
+    if first_off is not None:
+        detail += f" To do: {first_off.switch_on}"
+    return detail[:600]
+
+
 TESTERS = {
     "elevenlabs": _elevenlabs,
     "youtube": _youtube,
@@ -343,6 +411,7 @@ TESTERS = {
     "returns": _returns,
     "wecom": _wecom,
     "shipping": _shipping,
+    "whatsapp": _whatsapp,
 }
 
 

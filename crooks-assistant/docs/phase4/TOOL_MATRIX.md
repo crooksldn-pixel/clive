@@ -158,10 +158,10 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `instagram_thread` | family:instagram | test_instagram.py | — |
 | `interaction_review` | family:self_review | test_interaction_record.py | — |
 | `inventory_query` | recipe:landing_products, family:product_reads | test_analytics_tools.py, test_followups_reads.py | landing_products |
-| `message_contact` | family:messaging_reads | test_messaging_tools.py | — |
-| `message_reply` | family:messaging_replies | test_messaging_tools.py | — |
+| `message_contact` | family:messaging_reads | test_messaging_tools.py, test_whatsapp.py | — |
+| `message_reply` | family:messaging_replies | test_instagram_dms.py, test_messaging_tools.py, test_whatsapp.py | — |
 | `message_thread` | family:messaging_reads | test_messaging_tools.py | — |
-| `messages_recent` | family:messaging_reads | test_messaging_tools.py | — |
+| `messages_recent` | family:messaging_reads | test_instagram_dms.py, test_messaging_tools.py, test_whatsapp.py | — |
 | `objective_list` | family:objectives | test_displays.py, test_let_objectives_marked_complete_or_removed_2.py, test_tool_boundary.py | — |
 | `objective_note` | family:objectives | test_let_objectives_marked_complete_or_removed_2.py, test_objective_design.py, test_objectives.py, test_objectives_number.py, test_tool_boundary.py | — |
 | `objective_open` | family:objectives | test_objective_design.py, test_objectives_number.py, test_r13_objective_design_rules.py | — |
