@@ -566,6 +566,36 @@ def test_a_refused_payment_clears_the_wait(psvc, p2g, p2g_server, clock):
     assert ret.status == Status.awaiting_shipment and p2g_server.paid == ["26633"]
 
 
+def test_a_second_payment_is_written_down_before_it_is_sent(psvc, p2g, p2g_server, clock):
+    # The first payment was refused, so nothing was taken. After a top-up the retry pays the
+    # same order, and that answer is lost. It must be on record before it is sent: otherwise
+    # the next try, or a restart, finds no unanswered payment and pays a third time.
+    p2g.clock = clock
+    ret = request(psvc)
+    p2g_server.refuse_pay = True
+    ret = approve(psvc, ret)
+    assert ret.postage.pay_sent_at is None and p2g_server.pay_calls == 1
+    on_record = []
+
+    def look() -> None:  # what a restart would find, at the moment Parcel2Go is asked
+        kept = psvc.store.get(ret.id)
+        assert kept is not None
+        on_record.append(kept.postage.pay_sent_at)
+
+    p2g_server.refuse_pay, p2g_server.pay_lands_late, p2g_server.on_pay = False, True, look
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k2")["return_doc"]
+    assert on_record == [clock.now]
+    p2g_server.pay_lands_late = False
+    clock.now += timedelta(seconds=20)
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k3")["return_doc"]
+    assert p2g_server.pay_calls == 2  # not paid a third time
+    assert "may still be going through" in (ret.last_error or "")
+    p2g_server.land()
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k4")["return_doc"]
+    assert ret.status == Status.awaiting_shipment and p2g_server.paid == ["26633"]
+    assert p2g_server.pay_calls == 2 and len(p2g_server.orders) == 1
+
+
 def test_a_label_released_a_few_seconds_late_still_reaches_the_customer(psvc, p2g_server):
     ret = request(psvc)
     p2g_server.unreleased_reads = 2  # the first two asks after paying find no label
