@@ -17,6 +17,10 @@ build it tonight, switched off. It only deploys once you've said who holds deplo
     status.py     the status, read-only, for CLIVE's Builds screen
     __main__.py   python -m app.release tick | plan | status | waive
 
+  CLIVE's half of Deploy now (DEC-072), loaded by the running app, never by the service:
+    offer.py      the version waiting to go live, whether his hold can deploy it, and the progress shown
+    approve.py    his hold and passkey made into an approval for one SHA; his phone's /whoami keeps it
+
 What it promises:
 - Nothing happens unless CLIVE_RELEASE_ENABLED is on AND CLIVE_RELEASE_RULE names a rule, and
   nothing changes on production unless CLIVE_RELEASE_DRY_RUN is false in so many words.
@@ -26,5 +30,7 @@ What it promises:
   that fails, or a deploy stopped part way, stops the service until a person looks.
 - It never prints, records or pushes a secret, a journal line or a customer detail, and it pushes
   only claude/deploy-<sha8>-record branches.
-- The model never reaches it: no tool, no route. CLIVE only reads its status.
+- The model never reaches it: no tool. CLIVE reads its status, and George's own owner-only routes
+  (app/routes/release.py) write his passkey-signed approval where the service looks; the service
+  believes it only by that signature, for exactly one SHA, unexpired and unused.
 """

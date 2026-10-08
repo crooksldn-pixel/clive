@@ -78,6 +78,9 @@ const SHELL = [
   // Its Research section: research George gave CLIVE and his answers (web/research.js).
   '/static/research.js',
   '/static/research.css',
+  // [deploy-now] Deploy now: his hold and passkey, then the deploy followed (web/deploy.js).
+  '/static/deploy.js',
+  '/static/deploy.css',
   // Customers: the order he meant, their story, a refund landing (web/customers.js).
   '/static/customers.js',
   '/static/customers.css',

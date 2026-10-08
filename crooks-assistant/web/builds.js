@@ -14,6 +14,8 @@
  *
  * Under the heading, the release service's one line about deploys (app/release/status.py), as it
  * wrote it: what it last did, or that it is off or not installed. Read only; nothing here deploys.
+ * Under that, Deploy now (web/deploy.js, 8 Oct, DEC-072): the version waiting to go live and his hold,
+ * or the deploy he approved, followed to the end; it reads and draws itself, and this file only places it.
  * Under that, the Research section (web/research.js, 8 Oct): the research George gave CLIVE and his
  * answers to what it recommends; it reads and draws itself, and this file only places it.
  *
@@ -479,6 +481,9 @@
     // [research] The Research section (web/research.js) goes under the heading: the research he gave
     // CLIVE and the recommendations that wait on his answer. It reads and draws itself.
     if (globalThis.CliveResearch && typeof globalThis.CliveResearch.place === 'function') globalThis.CliveResearch.place(U.scroll);
+    // [deploy-now] Deploy now (web/deploy.js) goes straight under the heading, before the Research section:
+    // the version waiting to go live and his hold, or the deploy he approved, followed to the end.
+    if (globalThis.CliveDeploy && typeof globalThis.CliveDeploy.place === 'function') globalThis.CliveDeploy.place(U.scroll);
     const h1 = U.scroll.querySelector ? U.scroll.querySelector('.bd-h1') : null;
     if (h1) h1.setAttribute('id', 'bd-title');
     U.flash.textContent = S.flash || '';

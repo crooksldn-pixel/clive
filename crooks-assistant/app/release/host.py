@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import socket
+import stat
 import subprocess
 import time
 from collections.abc import Mapping, Sequence
@@ -39,6 +40,8 @@ class Host(Protocol):
             env: Mapping[str, str] | None = None, input: str | None = None, timeout: float = 600.0) -> Result: ...
 
     def read(self, path: Path) -> bytes | None: ...
+
+    def read_plain(self, path: Path, limit: int) -> tuple[bytes | None, str]: ...
 
     def write(self, path: Path, data: bytes, mode: int) -> None: ...
 
@@ -88,6 +91,36 @@ class SystemHost:
             return Path(path).read_bytes()
         except FileNotFoundError:
             return None
+
+    def read_plain(self, path: Path, limit: int) -> tuple[bytes | None, str]:
+        """A record in a folder another process writes (CLIVE's approvals, its passkeys), read by this
+        root process without trusting what lies there: the file itself, never a link it points along
+        (O_NOFOLLOW); opened without waiting, so a pipe cannot hold the tick and its deploy lock; only a
+        regular file; at most `limit` bytes. (its bytes, "") when read; (None, "") when it is not
+        there; (None, why) when it is there and was not read."""
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+        try:
+            fd = os.open(path, flags)
+        except FileNotFoundError:
+            return None, ""
+        except OSError:
+            return None, "it is a link, or it cannot be opened"
+        try:
+            found = os.fstat(fd)
+            if not stat.S_ISREG(found.st_mode):
+                return None, "it is not a plain file"
+            chunks, size = [], 0
+            while size <= limit:
+                chunk = os.read(fd, limit + 1 - size)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                size += len(chunk)
+            return (None, f"it is larger than {limit} bytes") if size > limit else (b"".join(chunks), "")
+        except OSError:
+            return None, "it cannot be read"
+        finally:
+            os.close(fd)
 
     def write(self, path: Path, data: bytes, mode: int) -> None:
         """Beside it, flushed, renamed over it, the folder flushed: the old file or the new, never half."""

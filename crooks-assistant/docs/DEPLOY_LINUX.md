@@ -211,9 +211,33 @@ python scripts/healthcheck.py -v     # every check
 
 ## Deploying a new build
 
-A production deploy is an exact `clive/trunk` SHA, and it happens only after an independent
-exact-SHA review of that SHA. Neither a green acceptance run nor the SHA's place on the trunk
-counts as review, because the trunk is unprotected. Where the pipeline stands now is in
+A production deploy is an exact `clive/trunk` SHA. Since the owner's ruling of 8 October 2026
+([DEC-071](product-memory/DECISIONS.md), ruling 6; how it works: DEC-072) an independent review of
+that exact SHA is **no longer required before a deploy**. What a deploy needs instead, all three:
+
+- **GitHub acceptance green on the exact SHA** (every `acceptance` run for that commit completed with
+  success, its acceptance job on that commit);
+- **the pull requests it carries were each independently reviewed before they merged.** This is the
+  process, not a lock: merges come only through reviewed PRs or the loop's reviewed landings. The trunk
+  has no branch protection, so nothing on GitHub stops a push that skipped review, and neither the
+  release service nor CLIVE checks reviews. The Deploy now card lists every commit the deploy would
+  bring in, in its own title: every commit in GitHub's comparison of production's SHA with the trunk's
+  head, newest first, whichever line it came in on (a pull request a refresh merge carried in is
+  listed like any other); eight are shown, and the headline and "and N more" count the same list. Only
+  the loop's own refresh merges are left out, matched by their exact title and parents, and the card's
+  technical details count them. That match is metadata: anyone who can push can make a commit in that
+  shape, and its own content is then not on the card (the commits it merges still are). So the card
+  shows him what is coming; it does not prove any of it was reviewed;
+- **the owner's approval of that exact SHA** (ruling 7): given in CLIVE, on the Builds screen's
+  "Deploy now" card, with his hold and his passkey; or, for a hand deploy, his word to the Termius
+  Claude, recorded in the deploy record as his waiver.
+
+His approval in CLIVE starts the deploy at once, through the release service
+([`RELEASE_SERVICE.md`](RELEASE_SERVICE.md)), which runs this same procedure as code and rolls back on
+any failure after the change. A change to how CLIVE is installed or checked (`deploy/`, the Makefile,
+the installer, the dependencies, `.github/`) stays a hand deploy by this section. While the release
+service is installed, a hand deploy first stops it (RELEASE_SERVICE.md, "Deploying by hand while the
+service is installed"). Where the pipeline stands now is in
 [CURRENT_TRUTH.md](product-memory/CURRENT_TRUTH.md), "Where the deploy is".
 
 What every deploy must hold:

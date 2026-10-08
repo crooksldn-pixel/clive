@@ -11,6 +11,14 @@ Why it exists: three things must outlive one tick of the timer.
   changed, and removed only once the outcome is on disk. A tick that holds the lock and still finds
   one knows the deploy before it stopped part way (killed, rebooted, timed out), with production
   perhaps half changed, and halts rather than read production's new SHA as "up to date".
+- The approvals George gave in CLIVE that have started a deploy (DEC-072): `approvals-used/<id>.json`,
+  written and read back before a live deploy begins, so one hold starts one deploy at most. A dry run
+  that answers his hold spends it too, recorded as a dry run, so a hold that only tried a deploy never
+  deploys later when dry run is switched off.
+- The latest deploy itself, as CLIVE follows it (`deploy` in the status): its SHA, the approval it
+  answers, each stage as it was reached (started, checks, installing, health, then done, rolled back
+  with why, halted, or refused with why) and when. Every later status carries it on unchanged, so
+  the outcome is still there for CLIVE after the next tick says "up to date".
 
 Every file is written whole or not at all (host.write), in the service's own folder.
 """
@@ -30,7 +38,12 @@ HALT_FILE = "HALT"
 LOCK_FILE = "deploy.lock"
 STARTED_FILE = "started"
 STATES = ("off", "no_rule", "up_to_date", "waiting", "would_deploy", "deployed", "rolled_back", "halted")
+# A deploy's stages, in the order CLIVE draws them, then how it ended (DEC-072).
+STAGES = ("started", "checks", "installing", "health")
+ENDS = ("done", "rolled_back", "halted", "refused", "dry_run")
+USED_DIR = "approvals-used"
 _SHA = re.compile(r"^[0-9a-f]{40}$")
+_APPROVAL = re.compile(r"^[0-9a-f]{32}$")
 
 
 class LockHeld(Exception):
@@ -94,14 +107,61 @@ def _dump(data: dict[str, Any]) -> bytes:
     return (json.dumps(data, indent=1, sort_keys=True, ensure_ascii=True) + "\n").encode("ascii")
 
 
+_KEEP = object()
+
+
 def write_status(host, state_dir: Path, *, state: str, line: str, at: str, mode: str, sha: str = "",
-                 title: str = "", branch: str = "") -> dict[str, Any]:
+                 title: str = "", branch: str = "", rule: str = "", ready_for: str = "",
+                 deploy: Any = _KEEP) -> dict[str, Any]:
+    """The status CLIVE reads. `ready_for`: the SHA that would deploy now if George approved it, and
+    nothing else is missing. `deploy`: the latest deploy (deploy_record); left out, the one the file
+    already holds is carried on, so a later tick never wipes the outcome CLIVE is showing."""
     if state not in STATES:
         raise ValueError(f"not a release state: {state}")
+    if deploy is _KEEP:
+        deploy = (_json(host, Path(state_dir) / STATUS_FILE) or {}).get("deploy")
     status = {"schema": STATUS_SCHEMA, "state": state, "line": line[:400], "at": at, "mode": mode,
-              "sha": sha if _SHA.fullmatch(sha or "") else "", "title": title[:160], "record_branch": branch}
+              "sha": sha if _SHA.fullmatch(sha or "") else "", "title": title[:160], "record_branch": branch,
+              "rule": rule if rule in ("owner_waiver", "exact_sha_review") else "",
+              "ready_for": ready_for if _SHA.fullmatch(ready_for or "") else "",
+              "deploy": deploy if isinstance(deploy, dict) else None}
     host.write(Path(state_dir) / STATUS_FILE, _dump(status), 0o644)
     return status
+
+
+def deploy_record(*, sha: str, title: str, approval: str, steps: list[tuple[str, str]], end: str = "",
+                  reason: str = "", branch: str = "") -> dict[str, Any]:
+    """The latest deploy as the status carries it: each stage reached and when, then how it ended."""
+    return {"sha": sha if _SHA.fullmatch(sha or "") else "", "title": title[:160],
+            "approval": approval if _APPROVAL.fullmatch(approval or "") else "",
+            "steps": [[stage, at] for stage, at in steps if stage in STAGES + ENDS][:12],
+            "end": end if end in ENDS else "", "reason": " ".join(reason.split())[:300], "record_branch": branch}
+
+
+def approval_used(host, state_dir: Path, approval: str) -> dict[str, Any] | None:
+    """When the approval named `approval` started a deploy, or None if it never has."""
+    if not _APPROVAL.fullmatch(approval or ""):
+        return {"reason": "not an approval's name"}
+    return _json(host, Path(state_dir) / USED_DIR / f"{approval}.json")
+
+
+def spend_approval(host, state_dir: Path, approval: str, *, sha: str, at: str, mode: str) -> bool:
+    """Mark the approval used, before the deploy it starts, or as the dry run that answered it (`mode`
+    "dry_run"): a hold that only tried a deploy can never deploy later, when dry run is switched off.
+    True only when that reads back as written."""
+    if not _APPROVAL.fullmatch(approval or "") or mode not in ("live", "dry_run"):
+        return False
+    path = Path(state_dir) / USED_DIR / f"{approval}.json"
+    data = _dump({"approval": approval, "sha": sha, "at": at, "mode": mode})
+    try:
+        host.write(path, data, 0o600)
+    except OSError:
+        return False
+    return host.read(path) == data
+
+
+def read_status(host, state_dir: Path) -> dict[str, Any] | None:
+    return _json(host, Path(state_dir) / STATUS_FILE)
 
 
 def failed_before(host, state_dir: Path, sha: str) -> dict[str, Any] | None:

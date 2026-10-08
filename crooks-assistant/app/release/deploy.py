@@ -20,7 +20,8 @@ the same procedure, step by step, with the same checks, so the record it writes 
                                        the new process's journal free of tracebacks and errors; the
                                        unit make install wrote byte-identical to the saved copy
 
-A failure before the change refuses with nothing changed. A failure at or after the checkout rolls
+Each stage is reported as it is reached (`progress`: checks, installing, health), so the status CLIVE
+reads follows the deploy as it happens (DEC-072). A failure before the change refuses with nothing changed. A failure at or after the checkout rolls
 back: the previous SHA checked out; when `make install` ran, the saved unit put back, systemd
 reloaded and `make install` run on the previous SHA; then /health read again. A rollback step that
 fails leaves the outcome "halted", and the service then does nothing until a person has looked. A
@@ -35,6 +36,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -254,7 +256,8 @@ def begin(host, settings: ReleaseSettings, facts: Facts, o: Outcome) -> bool:
 # ------------------------------------------------------------------ the change, and after
 
 
-def change(host, settings: ReleaseSettings, facts: Facts, o: Outcome) -> str | None:
+def change(host, settings: ReleaseSettings, facts: Facts, o: Outcome,
+           progress: Callable[[str], None] = lambda _stage: None) -> str | None:
     """Make the change and verify it. None when it held; otherwise which rollback it needs."""
     moved = facts_module.git_checkout(host, settings, "checkout", "checkout", "--quiet", "--detach", facts.trunk)
     head = facts_module.git_checkout(host, settings, "checkout_head", "rev-parse", "--verify", "HEAD^{commit}")
@@ -283,6 +286,7 @@ def change(host, settings: ReleaseSettings, facts: Facts, o: Outcome) -> str | N
     if not o.said("install", installed.ok, "make install: exit 0" if installed.ok
                   else f"make install: exit {installed.code} (it rolls its own unit back)"):
         return "full"
+    progress("health")
     host.sleep(settings.settle_s)
     return verify(host, settings, o)
 
@@ -379,11 +383,16 @@ def roll_back(host, settings: ReleaseSettings, facts: Facts, o: Outcome, kind: s
     o.result = "rolled_back" if fine else "halted"
 
 
-def run(host, settings: ReleaseSettings, facts: Facts) -> Outcome:
-    """One deploy of facts.trunk over facts.live: the whole procedure, and its outcome."""
+def run(host, settings: ReleaseSettings, facts: Facts,
+        progress: Callable[[str], None] = lambda _stage: None) -> Outcome:
+    """One deploy of facts.trunk over facts.live: the whole procedure, and its outcome. `progress` is
+    told each stage as it begins: checks, then installing once the started marker is down, then
+    health once make install has finished."""
     o = Outcome(sha=facts.trunk, previous=facts.live, started_at=_iso(host.now()))
+    progress("checks")
     if precheck(host, settings, facts, o) and begin(host, settings, facts, o):
-        rollback = change(host, settings, facts, o)
+        progress("installing")
+        rollback = change(host, settings, facts, o, progress)
         if rollback is None:
             o.result = "deployed"
         else:

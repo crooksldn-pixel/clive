@@ -21,19 +21,33 @@ Why it exists: this is the whole loop George approved, in the order it runs. The
 `plan` is the same reading and decision with nothing written at all: not the status, not the lock,
 not a record. It prints every fact, the verdict with each reason, and the steps a deploy would take.
 Everything printed goes through the token's scrub first.
+
+Deploy now (DEC-072, the owner's rulings 6 to 8 of 8 October). George approves a deploy in CLIVE with
+his passkey; CLIVE writes the waiver into the folder clive-release-now.path watches, and systemd starts
+a tick at once (no timer wait). A waiver that arrives while a tick is already running (systemd folds
+the trigger's start into it) is seen by the same tick, which looks once more if it began no deploy
+itself; clive-release.service's time limit covers that second look (tests/test_release_service.py). The tick says each stage on the status as it is
+reached (`deploy` in status.json: started, checks, installing, health, then done, rolled back with
+why, halted, or refused with why), marks the approval used before anything changes (a dry run that
+answers it marks it used too, as a dry run, so it never deploys once dry run is switched off), and says
+`ready_for` when the only thing a deploy of the trunk's head lacks is his approval, which is when
+CLIVE offers him the hold.
 """
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from app.release import deploy, github, record, state
 from app.release import facts as facts_module
+from app.release.authority import MAX_RECORD, Authority
 from app.release.decide import Decision, decide
 from app.release.facts import Facts
-from app.release.settings import ReleaseSettings
+from app.release.settings import OWNER_WAIVER, ReleaseSettings
 
 STOPPED = "The release service has stopped until a person looks"
 _SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -103,18 +117,46 @@ def halted_line(halted: dict) -> str:
     return f"{STOPPED}: {why}."
 
 
-def _stopped(host, settings: ReleaseSettings, halted: dict, say, facts: Facts | None = None) -> int:
+def _stopped(host, settings: ReleaseSettings, halted: dict, say, facts: Facts | None = None, **extra) -> int:
     line = halted_line(halted)
-    _status(host, settings, "halted", line, facts)
+    _status(host, settings, "halted", line, facts, **extra)
     say(line)
     return 1
 
 
 def _status(host, settings: ReleaseSettings, state_name: str, line: str, facts: Facts | None = None,
-            branch: str = "") -> None:
+            branch: str = "", ready_for: str = "", **deploy_now) -> None:
     state.write_status(host, settings.state_dir, state=state_name, line=line, at=deploy._iso(host.now()),
                        mode="dry_run" if settings.dry_run else "live", sha=(facts.trunk if facts else ""),
-                       title=(facts.trunk_title if facts else ""), branch=branch)
+                       title=(facts.trunk_title if facts else ""), branch=branch, rule=settings.rule_named() or "",
+                       ready_for=ready_for, **deploy_now)
+
+
+def ready_for(settings: ReleaseSettings, facts: Facts, decision: Decision, *, failed, pinned: bool) -> str:
+    """The trunk's head, when George's approval is the one thing its deploy lacks: the same decision,
+    with the authorisation granted, would deploy. Only under owner_waiver, the rule his hold answers."""
+    if decision.deploy or decision.state != "waiting" or settings.rule_named() != OWNER_WAIVER or not facts.trunk:
+        return ""
+    granted = replace(facts, authority=Authority(True, "approved in CLIVE", kind="waiver"))
+    return facts.trunk if decide(settings, granted, failed=failed, pinned=pinned).deploy else ""
+
+
+def _approval(facts: Facts) -> str:
+    """The approval George gave in CLIVE that authorises this deploy, by its id; "" for any other kind."""
+    found = facts.authority.detail.get("approval") if facts.authority is not None and facts.authority.ok else ""
+    return found if isinstance(found, str) else ""
+
+
+def _waivers(host, settings: ReleaseSettings) -> str:
+    """A fingerprint of the approvals waiting in CLIVE's folder: a change while a tick runs is a new one.
+    Each is read as a plain file of at most a record's size (host.read_plain): a link, a pipe or a huge
+    file another process left there counts by its name and why it was not read, and never holds the
+    tick, which holds the deploy lock."""
+    seen = hashlib.sha256()
+    for path in host.files(settings.passkey_waivers_dir, "*.json"):
+        raw, why = host.read_plain(path, MAX_RECORD)
+        seen.update(path.name.encode("utf-8") + b"\x00" + hashlib.sha256(raw or why.encode("utf-8")).digest())
+    return seen.hexdigest()
 
 
 def tick(host, settings: ReleaseSettings, *, token: github.Token, gate=None, pinned: bool | None = None,
@@ -130,10 +172,17 @@ def tick(host, settings: ReleaseSettings, *, token: github.Token, gate=None, pin
     halted = state.halted(host, settings.state_dir)
     if halted is not None:
         return _stopped(host, settings, halted, say)
+    pinned = running_pinned(settings) if pinned is None else pinned
     try:
         with state.Lock(settings.state_dir):
-            return _locked(host, settings, token=token, gate=gate,
-                           pinned=running_pinned(settings) if pinned is None else pinned, say=say)
+            before = _waivers(host, settings)
+            code, began = _locked(host, settings, token=token, gate=gate, pinned=pinned, say=say)
+            # His approval arrived while this tick ran: systemd folded the trigger's start into this tick,
+            # so nothing else would act on it until the timer. Once more, if this tick began no deploy.
+            if not began and settings.rule_named() == OWNER_WAIVER and _waivers(host, settings) != before:
+                say("An approval arrived while this tick ran; looking again.")
+                code, _ = _locked(host, settings, token=token, gate=gate, pinned=pinned, say=say)
+            return code
     except state.LockHeld:
         say("Another deploy holds the lock; this tick did nothing.")
         return 0
@@ -157,33 +206,83 @@ def _interrupted(host, settings: ReleaseSettings, left: dict, say) -> int:
     halted = state.halted(host, settings.state_dir)
     if halted is not None and halted.get("reason") == reason:
         host.remove(Path(left["marker"]))
-    return _stopped(host, settings, halted or {"reason": reason}, say)
+    # The deploy CLIVE was following stopped part way: it ends here, halted, with why.
+    extra = {}
+    last = (state.read_status(host, settings.state_dir) or {}).get("deploy")
+    if isinstance(last, dict) and last.get("sha") == sha and not last.get("end"):
+        extra["deploy"] = {**last, "end": "halted", "reason": reason[:300],
+                           "steps": [*(last.get("steps") or []), ["halted", at]][:12]}
+    return _stopped(host, settings, halted or {"reason": reason}, say, **extra)
 
 
-def _locked(host, settings: ReleaseSettings, *, token, gate, pinned: bool, say) -> int:
+def _locked(host, settings: ReleaseSettings, *, token, gate, pinned: bool, say) -> tuple[int, bool]:
+    """One look, holding the lock: (the exit code, whether a live deploy began)."""
     left = state.interrupted(host, settings.state_dir)
     if left is not None:
-        return _interrupted(host, settings, left, say)
+        return _interrupted(host, settings, left, say), False
     facts = facts_module.gather(host, settings, token, gate=gate)
     # HALT again, now the lock is held and just before anything could change: one written after this
     # tick's first look (a person stopping it while it waited or read the facts) still stops it.
     halted = state.halted(host, settings.state_dir)
     if halted is not None:
-        return _stopped(host, settings, halted, say, facts)
+        return _stopped(host, settings, halted, say, facts), False
     failed = state.failed_before(host, settings.state_dir, facts.trunk) if facts.trunk else None
     decision = decide(settings, facts, failed=failed, pinned=pinned)
+    approval = _approval(facts)
     if not decision.deploy or settings.dry_run:
         line = line_for(decision, facts, dry_run=settings.dry_run)
-        _status(host, settings, decision.state, line, facts)
+        extra = {}
+        if decision.deploy and approval:
+            extra["deploy"] = _dry_run_answer(host, settings, facts, approval, line)
+        _status(host, settings, decision.state, line, facts,
+                ready_for=ready_for(settings, facts, decision, failed=failed, pinned=pinned), **extra)
         say(line)
         for reason in decision.reasons[1:]:
             say(f"  also: {reason}")
-        return 0
-    _status(host, settings, "would_deploy", line_for(decision, facts, dry_run=False), facts)
-    outcome = deploy.run(host, settings, facts)
+        return 0, False
+    return _deploy(host, settings, facts, decision, approval, token=token, say=say), True
+
+
+def _dry_run_answer(host, settings: ReleaseSettings, facts: Facts, approval: str, line: str) -> dict:
+    """His hold, answered in dry run: the approval spent as a dry run (so switching dry run off later
+    deploys nothing from it), and the deploy CLIVE follows ends here, having changed nothing."""
+    at = deploy._iso(host.now())
+    if not state.spend_approval(host, settings.state_dir, approval, sha=facts.trunk, at=at, mode="dry_run"):
+        return state.deploy_record(sha=facts.trunk, title=facts.trunk_title, approval=approval,
+                                   steps=[("started", at), ("refused", at)], end="refused",
+                                   reason="the approval could not be marked as used, so it was not used")
+    return state.deploy_record(sha=facts.trunk, title=facts.trunk_title, approval=approval,
+                               steps=[("started", at)], end="dry_run", reason=line)
+
+
+def _deploy(host, settings: ReleaseSettings, facts: Facts, decision: Decision, approval: str, *, token, say) -> int:
+    """The live deploy: the approval spent, each stage on the status as it is reached, the outcome."""
+    steps = [("started", deploy._iso(host.now()))]
+
+    def followed(end: str = "", reason: str = "", branch: str = "") -> dict:
+        return state.deploy_record(sha=facts.trunk, title=facts.trunk_title, approval=approval, steps=steps,
+                                   end=end, reason=reason, branch=branch)
+
+    if approval and not state.spend_approval(host, settings.state_dir, approval, sha=facts.trunk,
+                                             at=steps[0][1], mode="live"):
+        steps.append(("refused", steps[0][1]))
+        line = (f"Not deploying {_quoted(facts.trunk_title, facts.trunk)}: the approval could not be marked as "
+                "used, so it was not used. Nothing was changed.")
+        _status(host, settings, "waiting", line, facts, deploy=followed("refused", "the approval could not be marked "
+                                                                                 "as used, so it was not used"))
+        say(line)
+        return 1
+    _status(host, settings, "would_deploy", line_for(decision, facts, dry_run=False), facts, deploy=followed())
+
+    def progress(stage: str) -> None:
+        steps.append((stage, deploy._iso(host.now())))
+        _status(host, settings, "would_deploy", line_for(decision, facts, dry_run=False), facts, deploy=followed())
+
+    outcome = deploy.run(host, settings, facts, progress=progress)
     line = outcome_line(outcome, facts)
     if outcome.result == "refused":
-        _status(host, settings, "waiting", line, facts)
+        steps.append(("refused", outcome.finished_at))
+        _status(host, settings, "waiting", line, facts, deploy=followed("refused", outcome.reason))
         say(line)
         return 1
     if outcome.result == "halted":
@@ -197,7 +296,10 @@ def _locked(host, settings: ReleaseSettings, *, token, gate, pinned: bool, say) 
     pushed, how = record.publish(host, settings, token, outcome, text)
     branch = github.record_branch(outcome.sha) if pushed else ""
     state_name = {"deployed": "deployed", "rolled_back": "rolled_back"}.get(outcome.result, "halted")
-    _status(host, settings, state_name, line, facts, branch=branch)
+    end = {"deployed": "done", "rolled_back": "rolled_back"}.get(outcome.result, "halted")
+    steps.append((end, outcome.finished_at))
+    _status(host, settings, state_name, line, facts, branch=branch,
+            deploy=followed(end, "" if end == "done" else outcome.reason, branch))
     say(line)
     say(f"The record is at {kept}; {how}.")
     return 0 if outcome.result == "deployed" else 1

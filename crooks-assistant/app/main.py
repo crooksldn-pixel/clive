@@ -47,6 +47,7 @@ from app.routes import (
 )
 from app.routes import bench as bench_route  # [bench] the test bench's screen (owner only)
 from app.routes import hooks as hooks_route
+from app.routes import release as release_route
 from app.routes import returns as returns_route
 from app.routes import returns_hook as returns_hook_route  # [returns-events] DEC-077
 from config.settings import get_settings
@@ -729,6 +730,7 @@ app.include_router(returns_route.router)   # CROOKS Returns: the home's count of
 app.include_router(bench_route.router)   # [bench] the test bench: runs, results and his ratings (owner only)
 app.include_router(hooks_route.router)   # [messaging] the public doors for messages coming in (/hooks/wecom, whatsapp, instagram)
 app.include_router(returns_hook_route.router)   # [returns-events] CROOKS Returns' doorbell, /hooks/returns (DEC-077)
+app.include_router(release_route.router)   # [deploy-now] Deploy now: his hold and passkey start the release service (owner only)
 
 if WEB_DIR.exists():
     mimetypes.add_type("application/manifest+json", ".webmanifest")

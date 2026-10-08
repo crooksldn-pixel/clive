@@ -625,7 +625,7 @@ async def test_the_board_carries_the_release_services_own_line_or_says_it_is_not
     monkeypatch.setenv("CLIVE_RELEASE_STATE_DIR", str(tmp_path / "release"))
     payload = await read.current()
     assert payload["release"] == {"installed": False, "state": "", "line": release_status.NOT_INSTALLED, "at": "",
-                                  "mode": ""}
+                                  "mode": "", "rule": "", "ready_for": "", "sha": "", "title": "", "deploy": None}
     release_state.write_status(SystemHost(), tmp_path / "release", state="rolled_back",
                                line="Tried “X” and rolled back: /health after is not well.", at="2026-10-08T01:00:00Z",
                                mode="live")
