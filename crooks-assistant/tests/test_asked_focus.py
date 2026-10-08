@@ -308,3 +308,20 @@ async def test_the_tool_keeps_ids_and_list_kinds_and_changes_nothing():
     assert out == {"records": ["#1940", "c28cf65d31fe6cbb"], "lists": ["orders"],
                    "note": "Only ids and order numbers are kept; a name is not one."}
     assert await asked_for.asked_for() == {"records": [], "lists": []}
+
+
+def test_cards_of_every_shape_are_read_and_a_failure_leaves_today_s_rules(monkeypatch):
+    """A count where a list of rows usually is (a returns card's number of returns, a customer's
+    number of orders) is no rows; and if choosing by what he asked for ever failed, DEC-069's rules
+    would decide rather than the turn."""
+    said = focus.Asked(records=frozenset({DAVIDS_THREAD}), lists=frozenset({"returns"}))
+    stats = {"type": "returns", "data": {"view": "stats", "returns": 4, "rows": "none"}}
+    count = {"type": "customer", "data": {"customer_id": data.DAVID.customer_id, "orders": 2, "history": {"recent": 3}}}
+    assert focus.answer_cards([HIS_EMAIL, stats, count], said=said) == [HIS_EMAIL, stats]
+
+    def broken(*_a, **_k):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(focus, "_as_asked", broken)
+    cards = [INBOX, HIS_EMAIL, ORDER_1939]
+    assert focus.answer_cards(cards, said=said) == focus.answer_cards(cards)

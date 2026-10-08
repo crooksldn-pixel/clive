@@ -54,9 +54,12 @@ When the model says nothing, or names nothing this turn drew, the three rules ab
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
+
+log = logging.getLogger("crooks.focus")
 
 # The cards that are a change, or the thing a change is being made from: rule 1.
 TASK = frozenset({"confirmation", "batch_action", "variant_picker", "email_compose", "workspace"})
@@ -274,7 +277,10 @@ def list_kind(item: Any) -> str:
 
 
 def _rows(data: dict[str, Any], *names: str) -> list[dict[str, Any]]:
-    return [row for name in names for row in (data.get(name) or []) if isinstance(row, dict)] if data else []
+    """The dict rows under these keys; a count or a string under one of them is no rows."""
+    if not isinstance(data, dict):
+        return []
+    return [row for name in names if isinstance(data.get(name), list) for row in data[name] if isinstance(row, dict)]
 
 
 def identity(item: Any) -> frozenset[str]:
@@ -489,7 +495,12 @@ def answer_cards(items: list[dict[str, Any]], why: dict[str, Any] | None = None,
     (`asked_by_the_model`): when it names a card this turn drew, that decides (`_as_asked`), and
     `why` is also told the kinds it added for being about the same subject."""
     cards = [item for item in items or [] if isinstance(item, dict)]
-    chosen = _as_asked(cards, said, read_whole=read_whole, before=before) if said is not None else None
+    chosen = None
+    if said is not None:
+        try:
+            chosen = _as_asked(cards, said, read_whole=read_whole, before=before)
+        except Exception as exc:  # noqa: BLE001 — never at the cost of the turn: DEC-069's rules decide
+            log.warning("what he asked for could not be chosen by: %s", type(exc).__name__)
     if chosen is not None:
         kept, added = chosen
         if why is not None:
