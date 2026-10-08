@@ -52,6 +52,7 @@ Production stays on `b33ccbc2` until these are deployed. None of them changes `.
 - **PR #96** (7 Oct): CROOKS Returns in CLIVE, and the design pass (the answer in full on the phone, Home, approval weights and "Not now", the dock on every tablet, colour). Both halves were reviewed SHIP before merging.
 - **PR #98** (7 Oct): CLIVE can list the installed skills and read one as guidance (`skill_list`, `skill_read`). It finishes the loop's `skill-read-runtime-tool-4` by hand, which stopped at its repair limit on 1 Oct. Reviewed SHIP twice; each note was fixed with a test.
 - **PR #99** (7 Oct): an objective's days left and the support investigator's dates count London's day, not UTC's, so they are right between midnight and 1am in summer time. It re-files the loop's `uk-midnight-clock-sweep-2` on today's trunk. Reviewed SHIP.
+- **Research intake** (8 Oct, `claude/n2-research`, [DEC-070](./DECISIONS.md)): George gives CLIVE research on the Builds screen or in the server's research folder, each recommendation is weighed against the map and put to him as Adopt, Park or Reject, and Adopt files a build request only on his hold. Reviewed SHIP; seven of its eight notes fixed with a test each, and the eighth (its rule check is advisory) said in `RESEARCH.md`. Its deploy is by hand: `pyproject.toml` now needs `pypdf>=6.19.0`.
 
 ### The build loop
 
