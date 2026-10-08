@@ -115,6 +115,8 @@ class Started:
     # The names behind ``skills`` and ``slash_commands``.
     skill_names: tuple[str, ...] = ()
     slash_command_names: tuple[str, ...] = ()
+    # The CLI's own version as the init event names it (``claude_code_version``), None when it names none.
+    cli_version: str | None = None
 
 
 @dataclass(frozen=True)

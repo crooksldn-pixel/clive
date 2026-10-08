@@ -364,17 +364,15 @@ def probe_launch(args, kernel: Kernel, dispatcher: Dispatcher) -> int:
                           check_config=check_config, skills_dir=skills["folder"], skills=tuple(skills["provided"]),
                           skills_settings=skills["settings"])
         started, problems, stderr = dispatcher.worker.probe(spec, timeout_s=args.timeout_s)
-        version = None
-        if started is not None:
-            first = (root / "log.jsonl").read_text(encoding="utf-8").splitlines()[0]
-            version = json.loads(first).get("claude_code_version")
+        # Every command by name, so a new CLI version's own list can be pinned (BUILTIN_SLASH_COMMANDS) from this.
         print(json.dumps({
-            "verdict": "PASS" if not problems else "REFUSED", "problems": problems, "cli_version": version,
+            "verdict": "PASS" if not problems else "REFUSED", "problems": problems,
+            "cli_version": started.cli_version if started is not None else None,
             "skills": {"given": list(skills["provided"]), "withheld": [list(w) for w in skills["withheld"]]},
             "roster": None if started is None else {
                 "tools": list(started.tools), "mcp_servers": list(started.mcp_server_status),
                 "plugins": [list(p) for p in started.plugin_origins], "skills": list(started.skill_names),
-                "slash_commands": len(started.slash_command_names), "permission_mode": started.permission_mode,
+                "slash_commands": list(started.slash_command_names), "permission_mode": started.permission_mode,
                 "api_key_source": started.api_key_source},
             "stderr_tail": stderr.strip()[-300:] if started is None else None,
         }, indent=2))

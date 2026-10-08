@@ -74,6 +74,11 @@ FAKE_CLAUDE = r'''#!{python}
 import json, os, signal, sys, time
 from pathlib import Path
 state = Path({state!r})
+# ``claude --version``, as the real CLI answers it, before anything is counted: the version a test wrote, or 2.1.293.
+version = (state / "version").read_text().strip() if (state / "version").exists() else "2.1.293"
+if sys.argv[1:] == ["--version"]:
+    (state / "version-asked").open("a").write("1")
+    print(f"{{version}} (Claude Code)"); sys.exit(0)
 count_file = state / "invocations"
 n = int(count_file.read_text()) if count_file.exists() else 0
 count_file.write_text(str(n + 1))
@@ -113,7 +118,7 @@ emit({{"type": "system", "subtype": "init", "session_id": sc.get("session") or a
       "mcp_servers": sc.get("mcp", [{{"name": s, "status": "connected"}} for s in servers]),
       "plugins": plugins,
       "skills": skills, "slash_commands": slash, "permissionMode": arg("--permission-mode"),
-      "model": "fake", "apiKeySource": "none"}})
+      "model": "fake", "apiKeySource": "none", "claude_code_version": sc.get("version", version)}})
 time.sleep(sc.get("sleep_after_init", 0))
 for i, (path, content) in enumerate(sc.get("edits", [])):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -2022,7 +2027,13 @@ def test_a_builder_gets_exactly_the_owners_skills_each_verified_by_hash(tmp_path
     ({"slash_commands": ["clive-skills:demo", "ecc:ship"]}, "plugin commands beyond the owner's skills: ecc:ship"),
     ({"plugins": [{"name": "clive-skills", "path": "/elsewhere", "source": "clive-skills@inline"}]},
      "plugins beyond the builtin allowance: clive-skills@inline"),
-], ids=["foreign-skill", "skills-missing", "plugin-command", "other-folder"])
+    # review N2: the CLI's own commands are held to the list pinned for its version ...
+    ({"slash_commands": ["clive-skills:demo", "compact", "brand-new"]},
+     "commands beyond Claude Code 2.1.293's own (BUILTIN_SLASH_COMMANDS): brand-new"),
+    # ... and a CLI that changed under the running loop to a version with no list is refused at its init event
+    ({"version": "2.1.299"}, "Claude Code 2.1.299 has no pinned list of its own commands"),
+], ids=["foreign-skill", "skills-missing", "plugin-command", "other-folder", "unpinned-command",
+        "cli-changed-under-the-loop"])
 def test_a_builder_whose_roster_is_not_exactly_the_owners_skills_is_stopped_and_blocked(tmp_path, roster, says):
     w = _skills_world(tmp_path, {"demo": DEMO_SKILL})
     w.scenarios({**EDIT_HELLO, **roster, "sleep_after_init": 30})
@@ -2035,6 +2046,31 @@ def test_a_builder_whose_roster_is_not_exactly_the_owners_skills_is_stopped_and_
         assert processes_with_marker(MARKER, w.marker(w.store.read_attempts(OBJ)[0])) == []
     finally:
         w.kill_leftovers()
+
+
+def test_on_a_cli_version_with_no_pinned_commands_a_builder_with_skills_is_never_launched(tmp_path):
+    """Review N2: a launch with skills keeps the CLI's command machinery, so it is made only on a version whose own
+    commands are pinned. On any other, nothing starts; the block says to run with --no-builder-skills, and with
+    that switch the same CLI launches builders exactly as before skills (--disable-slash-commands, no skills)."""
+    w = _skills_world(tmp_path, {"demo": DEMO_SKILL})
+    (w.state / "version").write_text("2.1.299\n")
+    w.scenarios(EDIT_HELLO)
+    w.objective()
+    w.run_until(w.status_is(TaskStatus.BLOCKED))
+    reason = w.state_of().blocker_reason
+    assert reason.startswith("worker launch refused: Claude Code 2.1.299 has no pinned list of its own commands")
+    assert "--no-builder-skills" in reason and "--disable-slash-commands" in reason
+    assert w.invocations() == 0 and (w.state / "version-asked").exists()
+
+    (tmp_path / "off").mkdir()
+    off = _skills_world(tmp_path / "off", {"demo": DEMO_SKILL}, builder_skills=False)
+    (off.state / "version").write_text("2.1.299\n")
+    off.scenarios(EDIT_HELLO)
+    off.objective()
+    off.run_until(off.status_is(TaskStatus.REVIEWING))
+    argv = json.loads((off.state / "argv.0.json").read_text())
+    assert "--disable-slash-commands" in argv and "--plugin-dir" not in argv
+    assert not (off.state / "version-asked").exists()      # without skills the version is never asked
 
 
 def test_with_builder_skills_off_the_launch_is_exactly_the_launch_without_skills(tmp_path):

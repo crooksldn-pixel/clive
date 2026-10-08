@@ -17,7 +17,10 @@ What reduces the worker's capability is the launch itself, not the prompt:
   load no settings, skills or commands. A launch that carries the owner's skills
   (workers/skills.py, config/builder_skills.json) instead loads exactly the folder CLIVE
   built with ``--plugin-dir``, switches the CLI's own bundled skills off (``--settings``
-  and ``CLAUDE_CODE_DISABLE_BUNDLED_SKILLS``) and adds the ``Skill`` tool;
+  and ``CLAUDE_CODE_DISABLE_BUNDLED_SKILLS``) and adds the ``Skill`` tool. Such a launch
+  keeps the CLI's command machinery, so it is made only on a CLI version whose own
+  commands are pinned by name (``BUILTIN_SLASH_COMMANDS``): on any other version it is
+  refused before it starts, and the loop runs with ``--no-builder-skills`` instead;
 - ``--strict-mcp-config --mcp-config``: no MCP server, so no connector, however the
   host is configured, with one exception: when the objective declares checks, the
   config names exactly CLIVE's own ``run_checks`` server (``check_server.py``), started
@@ -35,7 +38,8 @@ Then the launch is checked, fail-closed: ``verify_started`` compares the init
 event against what was asked for, and any extra tool, any MCP server but that one
 (and it only when asked for), any plugin but the CLI's own built-ins named in ``ALLOWED_PLUGINS``
 (each reported with path "builtin") and CLIVE's skills folder when asked for, any skill but exactly the owner's
-skills CLIVE gave it (none, without skills), another cwd or another session is a deterministic
+skills CLIVE gave it (none, without skills), any command but those skills and the CLI version's pinned own
+commands (none, without skills), another cwd or another session is a deterministic
 refusal; the dispatcher kills the worker and blocks the task. A launch that asked for the
 checks server must also show it: its ``run_checks`` tool in the roster and the server itself
 ``connected``; a builder told it has run_checks and started without it is refused the same way
@@ -57,10 +61,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -102,6 +108,30 @@ ALLOWED_PLUGINS = frozenset({
     "cc-plugin-plugin-authoring@builtin",   # 2.1.293 (its one skill is switched off: config/builder_skills.json)
 })
 BUILTIN_PATH = "builtin"
+# The commands Claude Code carries itself (/compact, /model, /ultrareview ...), by exact name, per CLI version, as
+# each version listed them in the init event of a builder launched with the owner's skills (--plugin-dir, bundled
+# skills off, no credentials), probed on this project's build machine on 8 Oct 2026. Both versions listed the same
+# 33. A launch with skills cannot pass --disable-slash-commands (the Skill tool needs the command machinery), so this
+# list is what holds its commands: the launch check refuses any command that is neither one of the owner's skills nor
+# pinned here for the version the CLI says it is (review of the loop branch, N2). What a builder may invoke is held
+# separately and more tightly: only Skill(clive-skills:<name>) is allowed under dontAsk. A CLI version with no list
+# here cannot launch a builder with skills at all: the launch is refused before it starts (``cli_version``) and, if
+# the CLI changes under a running loop, at its init event; the loop then runs with --no-builder-skills (builders
+# launch with --disable-slash-commands and no skills) until a reviewed change pins that version's list, which
+# ``engineering_dispatcher.py probe-launch`` prints.
+_CLI_COMMANDS_2026_10_08 = frozenset({
+    "advisor", "agents", "auto-mode-setup", "autocompact", "clear", "color", "compact", "config", "output-style",
+    "context", "effort", "fast", "focus", "heapdump", "mcp", "import", "model", "__remote-workflow",
+    "workflow-launch-exec", "reload-plugins", "reload-skills", "rename", "ultrareview", "security-review", "usage",
+    "insights", "recap", "skill-doctor", "goal", "design-consent", "design-revoke", "list-agents", "team-onboarding",
+})
+BUILTIN_SLASH_COMMANDS: dict[str, frozenset[str]] = {
+    "2.1.285": _CLI_COMMANDS_2026_10_08,     # what clive-worker-01 ran on 30 Sep
+    "2.1.293": _CLI_COMMANDS_2026_10_08,
+}
+NO_BUILDER_SKILLS = "--no-builder-skills"
+VERSION_TIMEOUT_S = 30.0
+_VERSION = re.compile(r"^(\d{1,4}\.\d{1,4}\.\d{1,6})\b")
 SKILL_TOOL = "Skill"
 REPORT_TOOL = "StructuredOutput"
 CHECK_SERVER = check_server.SERVER_NAME
@@ -157,6 +187,7 @@ class ClaudeCodeWorker:
         self.kill_grace_s = kill_grace_s
         self.kill_confirm_s = kill_confirm_s
         self._children: dict[int, subprocess.Popen] = {}
+        self._versions: dict[tuple[str, int, int], str | None] = {}
 
     # ---- launch --------------------------------------------------------------
     def builtin_tools(self, spec: LaunchSpec | None = None) -> tuple[str, ...]:
@@ -243,6 +274,10 @@ class ClaudeCodeWorker:
         if self.live_pids(spec.marker):
             raise WorkerLaunchError(f"a worker for {spec.attempt_id} is already running; not launching a second",
                                     transient=False)
+        if _with_skills(spec):
+            version = self.cli_version(cli_path)
+            if version not in BUILTIN_SLASH_COMMANDS:
+                raise WorkerLaunchError(no_pinned_commands(version), transient=False)
         spec.home.mkdir(parents=True, exist_ok=True)
         spec.log_path.parent.mkdir(parents=True, exist_ok=True)
         env = self.environment(spec, cli_path)
@@ -262,6 +297,32 @@ class ClaudeCodeWorker:
             env_names=tuple(sorted(k if k != "CLAUDE_CODE_OAUTH_TOKEN" else k + " (from token file)" for k in env)),
             launched_at=datetime.now(UTC),
         )
+
+    def cli_version(self, cli_path: str) -> str | None:
+        """The version the CLI says it is (``claude --version`` prints "2.1.293 (Claude Code)"), asked once per
+        binary (its real path, size and modification time), in a clean environment and a throwaway HOME. None
+        when it answers something else; a CLI that cannot be asked at all is a transient launch failure."""
+        real = os.path.realpath(cli_path)
+        try:
+            st = os.stat(real)
+        except OSError as exc:
+            raise WorkerLaunchError(f"worker CLI {self.cli!r} could not be read: {exc}", transient=False) from exc
+        key = (real, st.st_mtime_ns, st.st_size)
+        if key in self._versions:
+            return self._versions[key]
+        with tempfile.TemporaryDirectory(prefix="clive-cli-version-") as home:
+            env = {"PATH": f"{Path(cli_path).parent}:/usr/local/bin:/usr/bin:/bin", "HOME": home, "LANG": "C.UTF-8",
+                   "DISABLE_AUTOUPDATER": "1"}
+            try:
+                done = subprocess.run([cli_path, "--version"], cwd=home, env=env, stdin=subprocess.DEVNULL,
+                                      capture_output=True, text=True, timeout=VERSION_TIMEOUT_S, check=False)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise WorkerLaunchError(f"the worker CLI's version could not be read ({type(exc).__name__})",
+                                        transient=True) from exc
+        match = _VERSION.match(done.stdout.strip()) if done.returncode == 0 else None
+        version = match.group(1) if match else None
+        self._versions[key] = version
+        return version
 
     # ---- observe -------------------------------------------------------------
     def read(self, log_path: Path, offset: int = 0) -> tuple[list[Observation], int]:
@@ -307,8 +368,12 @@ class ClaudeCodeWorker:
         probe-launch``): it answers whether this CLI, with this launch, passes the launch check. Returns the
         init event (None if none came within ``timeout_s``), the launch check's problems, and the end of stderr.
         The process is stopped (and confirmed gone) as soon as the init event is read; the prompt is never
-        answered, because the model is asked nothing before that event is printed."""
-        record = self.launch(spec)
+        answered, because the model is asked nothing before that event is printed. A launch refused before it
+        starts (a CLI version with no pinned commands, for one) is returned as that one problem."""
+        try:
+            record = self.launch(spec)
+        except WorkerLaunchError as exc:
+            return None, [str(exc)], ""
         started: Started | None = None
         deadline = time.monotonic() + timeout_s
         try:
@@ -396,6 +461,14 @@ def _signal(pids: list[int], sig: signal.Signals) -> None:
 _NO_BUNDLED = builder_skills.settings_json(builder_skills.AllowList(skills=()))
 
 
+def no_pinned_commands(version: str | None) -> str:
+    """Why a launch with skills is refused on a CLI version whose own commands are not pinned, and what to do."""
+    return (f"Claude Code {version or '(its version could not be read)'} has no pinned list of its own commands "
+            "(BUILTIN_SLASH_COMMANDS), so no builder is launched with skills on it: run the loop with "
+            f"{NO_BUILDER_SKILLS} (builders then launch with --disable-slash-commands and no skills) until a "
+            "reviewed change pins this version's list (engineering_dispatcher.py probe-launch prints it)")
+
+
 def _with_skills(spec: LaunchSpec | None) -> bool:
     """Whether this launch carries the owner's skills: a folder CLIVE built and at least one skill in it."""
     return spec is not None and spec.skills_dir is not None and bool(spec.skills)
@@ -435,9 +508,11 @@ def _skill_problems(started: Started, spec: LaunchSpec) -> list[str]:
     The skills must be exactly ``clive-skills:<name>`` for the skills CLIVE put in the folder: one more is a skill
     nobody approved, one fewer a builder told it has a skill it does not. The CLI keeps its own built-in commands
     whenever skills are on (/compact, /model ...): they are not skills, the CLI refuses them to the Skill tool, and
-    with ``disableBundledSkills`` they are hidden from the model. Any other command is refused: one a plugin
-    brings (``<plugin>:<name>``) that is not one of the skills, or one named by a command or skill file in the
-    workspace (``--restricted`` keeps those out; this checks that it did)."""
+    with ``disableBundledSkills`` they are hidden from the model; each must still be one pinned for the version
+    the init event names (``BUILTIN_SLASH_COMMANDS``), so a CLI update that brings a new one is refused until a
+    reviewed change names it. Any other command is refused: one a plugin brings (``<plugin>:<name>``) that is not
+    one of the skills, or one named by a command or skill file in the workspace (``--restricted`` keeps those out;
+    this checks that it did)."""
     problems = []
     wanted = {builder_skills.skill_id(name) for name in spec.skills}
     loaded = set(started.skill_names)
@@ -455,6 +530,14 @@ def _skill_problems(started: Started, spec: LaunchSpec) -> list[str]:
         problems.append("plugin commands beyond the owner's skills: " + ", ".join(foreign))
     if local:
         problems.append("commands from the workspace loaded: " + ", ".join(local))
+    pinned = BUILTIN_SLASH_COMMANDS.get(started.cli_version or "")
+    if pinned is None:
+        problems.append(no_pinned_commands(started.cli_version))
+    else:
+        unknown = sorted(c for c in commands - wanted - pinned - set(local) if ":" not in c)
+        if unknown:
+            problems.append(f"commands beyond Claude Code {started.cli_version}'s own (BUILTIN_SLASH_COMMANDS): "
+                            + ", ".join(unknown))
     return problems
 
 
@@ -547,6 +630,8 @@ def parse_events(text: str) -> list[Observation]:
                 plugin_origins=tuple(_plugin_origin(p) for p in event.get("plugins") or ()),
                 skill_names=tuple(_entry_name(s) for s in event.get("skills") or ()),
                 slash_command_names=tuple(_entry_name(c) for c in event.get("slash_commands") or ()),
+                cli_version=event.get("claude_code_version") if isinstance(event.get("claude_code_version"), str)
+                else None,
             ))
         elif kind == "system" and sub == "permission_denied":
             out.append(Activity(at=_at(event), kind="tool_result", detail="permission denied", denied=True))

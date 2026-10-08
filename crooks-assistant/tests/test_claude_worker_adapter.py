@@ -284,6 +284,7 @@ from app.orchestrator.workers import skills as builder_skills  # noqa: E402
 # The init event Claude Code 2.1.293 printed on 2026-10-07 for a skills launch (--plugin-dir with one skill,
 # bundled skills off by --settings and CLAUDE_CODE_DISABLE_BUNDLED_SKILLS), verbatim but for the folder path.
 CLI_2_1_293_SKILLS_INIT = {
+    "claude_code_version": "2.1.293",
     "tools": ["Edit", "Glob", "Grep", "Read", "Skill", "Write"],
     "skills": ["clive-skills:demo-skill"],
     "slash_commands": ["clive-skills:demo-skill", "advisor", "agents", "auto-mode-setup", "autocompact", "clear",
@@ -362,6 +363,99 @@ def test_a_command_or_skill_from_the_workspace_is_refused_even_beside_the_owners
     started = skills_init(tmp_path, cwd=str(workspace),
                           slash_commands=["clive-skills:demo-skill", "compact", "ship"])
     assert ClaudeCodeWorker().verify_started(started, asked) == ["commands from the workspace loaded: ship"]
+
+
+# ---------------------------------------------------------------- the CLI's own commands, pinned per version (N2)
+
+from app.orchestrator.workers.base import WorkerLaunchError  # noqa: E402
+from app.orchestrator.workers.claude import BUILTIN_SLASH_COMMANDS  # noqa: E402
+
+
+def test_each_pinned_command_list_is_exactly_what_that_cli_printed_for_a_skills_launch():
+    """Probed on 8 Oct 2026 with the real CLIs (engineering_dispatcher.py probe-launch, skills on, no credentials):
+    2.1.285 (what clive-worker-01 ran on 30 Sep) and 2.1.293 printed the same 33 commands of their own."""
+    printed = set(CLI_2_1_293_SKILLS_INIT["slash_commands"]) - {"clive-skills:demo-skill"}
+    assert len(printed) == 33 and not any(":" in c for c in printed)
+    assert set(BUILTIN_SLASH_COMMANDS) == {"2.1.285", "2.1.293"}
+    assert all(commands == printed for commands in BUILTIN_SLASH_COMMANDS.values())
+
+
+@pytest.mark.parametrize("change, expected", [
+    ({"slash_commands": [*CLI_2_1_293_SKILLS_INIT["slash_commands"], "brand-new"]},
+     "commands beyond Claude Code 2.1.293's own (BUILTIN_SLASH_COMMANDS): brand-new"),
+    ({"claude_code_version": "2.1.299"}, "Claude Code 2.1.299 has no pinned list of its own commands"),
+    ({"claude_code_version": "2.1.280"}, "Claude Code 2.1.280 has no pinned list of its own commands"),
+    ({"claude_code_version": None}, "Claude Code (its version could not be read) has no pinned list"),
+], ids=["new-command", "unpinned-version", "older-version", "no-version"])
+def test_a_skills_launch_is_refused_unless_every_command_is_pinned_for_its_cli_version(tmp_path, change, expected):
+    problems = ClaudeCodeWorker().verify_started(skills_init(tmp_path, **change), skills_spec(tmp_path))
+    assert any(p.startswith(expected) for p in problems), problems
+    if "pinned list" in expected:
+        [said] = [p for p in problems if "pinned list" in p]
+        assert "--no-builder-skills" in said and "--disable-slash-commands" in said
+
+
+def _version_cli(tmp_path: Path, answer: str, code: int = 0) -> Path:
+    """A stand-in CLI: ``--version`` prints ``answer`` (and is counted); any other launch is recorded and exits."""
+    cli = tmp_path / "bin" / "claude"
+    cli.parent.mkdir(parents=True, exist_ok=True)
+    cli.write_text(f'#!/bin/sh\nif [ "$1" = --version ]; then echo x >> "{tmp_path}/asked"; echo "{answer}"; '
+                   f'exit {code}; fi\necho x >> "{tmp_path}/launched"\n')
+    cli.chmod(0o755)
+    return cli
+
+
+def _count(path: Path) -> int:
+    return len(path.read_text().splitlines()) if path.exists() else 0
+
+
+def test_a_skills_launch_on_a_cli_version_with_no_pinned_commands_never_starts(tmp_path):
+    (tmp_path / "ws").mkdir()
+    worker = ClaudeCodeWorker(cli=str(_version_cli(tmp_path, "2.1.299 (Claude Code)")))
+    with pytest.raises(WorkerLaunchError) as caught:
+        worker.launch(skills_spec(tmp_path, workspace=tmp_path / "ws"))
+    assert caught.value.transient is False
+    assert str(caught.value).startswith("Claude Code 2.1.299 has no pinned list of its own commands")
+    assert "--no-builder-skills" in str(caught.value) and _count(tmp_path / "launched") == 0
+    # probe-launch says the same, and starts nothing either
+    started, problems, _ = worker.probe(skills_spec(tmp_path, workspace=tmp_path / "ws", attempt_id="t-a2"))
+    assert started is None and problems == [str(caught.value)] and _count(tmp_path / "launched") == 0
+    # without skills the version is never asked and the launch goes ahead, exactly as before
+    worker.launch(spec(tmp_path, workspace=tmp_path / "ws", attempt_id="t-a3"))
+    _wait_for(lambda: _count(tmp_path / "launched") == 1)
+    assert _count(tmp_path / "asked") == 1                 # asked once, for the first launch; the probe used that
+
+
+@pytest.mark.parametrize("answer, code", [("2.1.293 (Claude Code)", 1), ("Claude Code", 0), ("", 0)])
+def test_a_cli_whose_version_cannot_be_read_launches_no_builder_with_skills(tmp_path, answer, code):
+    (tmp_path / "ws").mkdir()
+    worker = ClaudeCodeWorker(cli=str(_version_cli(tmp_path, answer, code)))
+    with pytest.raises(WorkerLaunchError, match=r"^Claude Code \(its version could not be read\) has no pinned"):
+        worker.launch(skills_spec(tmp_path, workspace=tmp_path / "ws"))
+    assert _count(tmp_path / "launched") == 0
+
+
+def test_a_pinned_cli_version_is_asked_once_per_binary_and_again_when_the_binary_changes(tmp_path):
+    (tmp_path / "ws").mkdir()
+    cli = _version_cli(tmp_path, "2.1.293 (Claude Code)")
+    worker = ClaudeCodeWorker(cli=str(cli))
+    for n in (1, 2):
+        worker.launch(skills_spec(tmp_path, workspace=tmp_path / "ws", attempt_id=f"t-a{n}"))
+        _wait_for(lambda n=n: _count(tmp_path / "launched") == n)
+    assert _count(tmp_path / "asked") == 1
+    cli.write_text(cli.read_text().replace("2.1.293", "2.1.299") + "\n")      # a CLI update under the loop
+    with pytest.raises(WorkerLaunchError, match="Claude Code 2.1.299 has no pinned list"):
+        worker.launch(skills_spec(tmp_path, workspace=tmp_path / "ws", attempt_id="t-a3"))
+    assert _count(tmp_path / "asked") == 2 and _count(tmp_path / "launched") == 2
+
+
+def _wait_for(predicate, timeout: float = 10.0) -> None:
+    import time
+
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.02)
 
 
 def test_a_launch_without_skills_still_refuses_any_skill_or_command(tmp_path):
