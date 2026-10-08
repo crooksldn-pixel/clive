@@ -38,9 +38,10 @@ StateDirectoryMode=0755
 # A deploy is minutes. But every command a tick runs has its own time limit, and systemd must never
 # stop a deploy part way that those limits would still allow: the longest tick (exact_sha_review, a
 # deploy that reaches the journal and rolls back in full, its record pushed onto an existing branch)
-# adds up to 10,220 s with GitHub's acceptance asks (tests/test_release_service.py measures it), so the
-# limit is above that. A deploy stopped part way all the same (a reboot, systemctl stop) leaves its
-# started marker, and the next tick halts instead of reading half-changed production as up to date.
+# adds up to 10,220 s with the settle wait and an allowance for GitHub's acceptance asks
+# (tests/test_release_service.py measures it), so the limit is above that. A deploy stopped part way
+# all the same (a reboot, systemctl stop) leaves its started marker, and the next tick halts instead of
+# reading half-changed production as up to date.
 TimeoutStartSec=3h
 Nice=5
 StandardOutput=journal

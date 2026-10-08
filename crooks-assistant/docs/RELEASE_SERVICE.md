@@ -78,8 +78,9 @@ deployed by hand until all three are set and the unit is installed.
    more until a person has looked at production and removed that file.
 
    **Time limits.** Every command has its own; the unit's `TimeoutStartSec=3h` is above their sum for
-   the longest tick (measured by `tests/test_release_service.py`: 10,220 s), so systemd never stops a
-   deploy part way that its own steps would still allow. A deploy stopped all the same leaves its
+   the longest tick, with the 20 s settle and an allowance for GitHub's acceptance asks (10,220 s,
+   measured by `tests/test_release_service.py`), so systemd never stops a deploy part way that its own
+   steps would still allow. A deploy stopped all the same leaves its
    started marker, and the next tick halts (step 3).
 8. **Records** (`app/release/record.py`): the deploy record, in the shape of
    `reports/deploy-<sha8>.md` (rollback target, authority, every check, the installer's own status
@@ -87,7 +88,8 @@ deployed by hand until all three are set and the unit is installed.
    `/var/lib/clive-release/deploys/<sha8>/` and pushed as one commit on top of the SHA to the branch
    **`claude/deploy-<sha8>-record`**, ready to merge like the hand records. A rollback's record is
    `deploy-<sha8>-rolled-back.md`, a name `scripts/map.py` never takes for production. The record
-   holds no journal line, no `/health` detail and nothing a customer wrote: the repository is public.
+   holds no journal line, no `/health` detail, nothing a customer wrote and none of George's own
+   waiver words: the repository is public.
 9. **Tells George** (below).
 
 **Still outstanding after every deploy: his phone `/whoami`**, exactly as in DEPLOY_LINUX.md. The
