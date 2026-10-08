@@ -9,12 +9,19 @@ the owner could read arrived while the turn was still running, not with it.
 `turn_c8eb4cffe077` is the turn this is about: 7,975 ms to first cards, nothing on the glass
 until the last read landed, and the owner saying the system "waits and then dumps a large
 chunk".
+
+7 October 2026 (DEC-067) reversed the half of this that put a read's cards on the glass while
+the turn ran. The owner: "sometimes you'll get shown irrelevant screens that just happened
+during a search process" — so a turn's workspace is QUIET, the tablet says what CLIVE is doing
+in words while it works, and the cards come with the answer and are only what it is about.
+The assertions below that pinned mid-turn cards now pin the opposite, each one marked; the
+rest — one card drawn once, a cursor that repeats nothing, a log that keeps shapes — hold as
+they were.
 """
 
 from __future__ import annotations
 
 import asyncio
-import time
 
 import httpx
 import pytest
@@ -84,34 +91,34 @@ async def slow(monkeypatch):
             yield client
 
 
-async def test_a_card_the_owner_can_read_arrives_while_the_turn_is_still_running(slow):
-    """The assertion is on the ORDER OF EVENTS, not the end state: the end state was never
-    the bug. A useful card exists on the glass before /turn has answered at all."""
-    started = time.perf_counter()
+async def test_no_card_reaches_the_glass_while_the_turn_is_still_running(slow):
+    """The assertion is on the ORDER OF EVENTS, not the end state. DEC-067 (7 Oct) turned it
+    round: while the reads run the poll carries what CLIVE is doing, in words, and no card at
+    all; the order's card arrives with the answer. (Until 7 Oct this asserted the opposite —
+    a readable card on the glass before /turn answered — as
+    `test_a_card_the_owner_can_read_arrives_while_the_turn_is_still_running`.)"""
     turn = asyncio.create_task(slow.post("/turn", json={"text": "show me order 1938", "session_id": "prog"}))
-    useful_at: float | None = None
     cursor = 0
-    seen: list[str] = []
-    while not turn.done() and useful_at is None:
+    early: list[str] = []
+    running = 0
+    while not turn.done():
         await asyncio.sleep(0.02)
         state = (await slow.get(f"/state/prog?since={cursor}")).json()
         workspace = state.get("workspace")
         if not workspace:
             continue
         cursor = max(cursor, workspace["revision"])
-        for patch in workspace["patches"]:
-            seen.append(f"{patch['op']}:{patch['type']}")
-            item = patch.get("item") or {}
-            if patch["op"] in ("add", "data") and item.get("type") == "order" and not (item.get("data") or {}).get("shell"):
-                useful_at = time.perf_counter() - started
+        if not workspace["complete"]:
+            running += 1
+            early += [f"{patch['op']}:{patch['type']}" for patch in workspace["patches"]]
     response = await turn
-    finished = time.perf_counter() - started
     assert response.status_code == 200, response.text
 
-    assert useful_at is not None, f"no readable card arrived while the turn ran; saw {seen}"
-    assert useful_at < finished, "the card must exist BEFORE the turn answers, not with it"
-    # And the skeleton was there before the card was: a working screen, then the facts.
-    assert seen[0].startswith("add:order"), seen
+    assert running, "the poll never saw the turn running, so this proved nothing"
+    assert early == [], f"a search in progress took the screen: {early}"
+    # And the answer's own card is the order, drawn with the answer.
+    added = [p for p in response.json()["workspace"]["patches"] if p["op"] == "add"]
+    assert any(p["type"] == "order" and not ((p.get("item") or {}).get("data") or {}).get("shell") for p in added), added
 
 
 async def test_the_turn_reports_the_four_numbers_the_brief_asks_for(slow):
@@ -127,21 +134,23 @@ async def test_the_turn_reports_the_four_numbers_the_brief_asks_for(slow):
         assert name in performance
     assert performance["time_to_visible_shell"] <= performance["time_to_first_meaningful_fact"]
     assert performance["time_to_first_meaningful_fact"] <= performance["time_to_complete_workspace"]
-    # The screen was useful well before it was complete: this turn's customer read is slow.
-    assert performance["time_to_first_actionable_surface"] < performance["time_to_complete_workspace"]
+    # DEC-067: nothing the owner can act on reaches the glass before the answer does, however
+    # slow this turn's customer read is. (Until 7 Oct: `<`, the screen useful before complete.)
+    assert performance["time_to_first_actionable_surface"] == performance["time_to_complete_workspace"]
 
 
 async def test_the_four_numbers_are_held_and_not_merely_reported(slow):
     """§15: instrument AND HOLD. A number nobody asserts on is a number that drifts.
 
-    Measured on this turn, whose customer read is deliberately half a second: the identity
-    must be on the glass within a few milliseconds of the question — it costs no read — and
-    something the owner can act on must exist in well under half the turn.
+    Measured on this turn, whose customer read is deliberately half a second. Until 7 Oct the
+    identity had to be on the glass within 50 ms and something actionable within half the
+    turn; DEC-067 holds the opposite — the words say what CLIVE is doing while it reads, and
+    the identity, the first fact and the first surface are the answer's, at the same moment.
     """
     body = (await slow.post("/turn", json={"text": "show me order 1938", "session_id": "prog"})).json()
     performance = body["performance"]
-    assert performance["time_to_visible_shell"] <= 50.0, performance
-    assert performance["time_to_first_actionable_surface"] <= performance["time_to_complete_workspace"] / 2, performance
+    assert performance["time_to_visible_shell"] == performance["time_to_complete_workspace"], performance
+    assert performance["time_to_first_actionable_surface"] == performance["time_to_complete_workspace"], performance
     # And the workspace the tablet is polling says the same, in §27's words.
     state = (await slow.get("/state/prog")).json()["workspace"]
     assert state["state"] in progressive.STATES
@@ -149,14 +158,16 @@ async def test_the_four_numbers_are_held_and_not_merely_reported(slow):
 
 
 async def test_the_identical_card_is_not_drawn_twice_and_the_repeat_is_counted(slow):
-    """D-13 through the whole stack. The order is read progressively and presented again at
-    the end of the turn; the second render is the same card, so it is counted, not drawn."""
+    """D-13 through the whole stack. Until 7 Oct the order was read progressively and
+    presented again at the end, and the second render was counted, not drawn. DEC-067: nothing
+    is staged while the reads run, so every card of the answer is drawn exactly once and there
+    is no repeat to suppress."""
     body = (await slow.post("/turn", json={"text": "show me order 1938", "session_id": "prog"})).json()
     renders = body["performance"]["renders"]
     assert renders and renders.get("drawn"), renders
-    # The order was read progressively AND presented again at the end. The second one either
-    # changed the card or changed nothing — it was never a second card.
-    assert renders.get("suppressed", 0) >= 1, f"nothing was suppressed: {renders}"
+    # Nothing was staged before the answer, so nothing was staged twice. (Until 7 Oct:
+    # `suppressed >= 1`, the progressive card and the answer's being the same card.)
+    assert renders.get("suppressed", 0) == 0, f"a card was staged before the answer: {renders}"
     # And the patch log proves it: no identity is added twice, whatever the turn did.
     patches = (await slow.get("/state/prog")).json()["workspace"]["patches"]
     added = [p["id"] for p in patches if p["op"] == "add"]
@@ -190,7 +201,8 @@ async def test_the_turn_log_keeps_the_shape_of_the_patches_and_not_their_content
     assert any("item" in p for p in body["workspace"]["patches"])
     logged = json.loads(slow.runtime.turnlog.path.read_text(encoding="utf-8").strip().splitlines()[-1])["workspace"]
     assert all(isinstance(p, str) and ":" in p for p in logged["patches"]), logged["patches"]
-    assert logged["renders"]["suppressed"] >= 1 and logged["timings_ms"]["time_to_visible_shell"] is not None
+    # (Until 7 Oct `renders["suppressed"] >= 1`: DEC-067 stages nothing before the answer.)
+    assert logged["renders"]["drawn"] >= 1 and logged["timings_ms"]["time_to_visible_shell"] is not None
     # And nothing a card said reaches the file through this key.
     assert "order_number" not in json.dumps(logged)
 

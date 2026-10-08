@@ -675,6 +675,49 @@ def _present_email(proposal) -> dict:
         "summary": "", "body": str(s.get("body") or ""), "facts": facts,
         "detail": "Sends now. It cannot be unsent." if sending else "Saved in Gmail drafts; nothing is sent until you say so.",
         "done_title": ("Reply sent" if s.get("in_reply_to") else "Email sent") if sending else "Draft saved",
+        # [flow, DEC-067] The message card: the email as it would leave, its words editable on
+        # the card, and the one gesture that sends it (app/presentation.py `_message_block`).
+        "message": _message_words(proposal, s, sending=bool(sending)),
+        **({"confirm_label": "Hold, then tap to send"} if sending else {}),
+    }
+
+
+# [flow, DEC-067] Which tool the same words are prepared as instead: the quiet second control on
+# the message card. A send offers to keep it as a draft; a draft offers to send it instead.
+_OTHER_WAY = {
+    "gmail_send_reply": ("gmail_draft_reply", "Save as draft"),
+    "gmail_send_new": ("gmail_draft_new", "Save as draft"),
+    "gmail_draft_reply": ("gmail_send_reply", "Send instead"),
+    "gmail_draft_new": ("gmail_send_new", "Send instead"),
+}
+
+
+def _message_words(proposal, s: dict, *, sending: bool) -> dict:
+    """The email as the message card shows it (the contract is `app/presentation.py`
+    `_message_block`): who it goes to, the subject, the words, which of them he may change on
+    the card and the argument each change is prepared again with, and the other way to prepare
+    the same words. A send of the draft already waiting in Gmail is that draft as Gmail holds
+    it, so its words are not edited here and it has no other way."""
+    tool = str(getattr(proposal, "tool_name", "") or "")
+    reply = tool.endswith("_reply")
+    from_draft = bool(s.get("draft_used"))
+    editable = [] if from_draft else (["body"] if reply else ["subject", "body"])
+    other = None if from_draft else _OTHER_WAY.get(tool)
+    sent = str(s.get("body") or "")
+    # The words as they were given, which is what a keystroke edits: the text that goes is these
+    # with their edges trimmed and the store's sign-off added (`clean_body`), and the sign-off is
+    # shown under them as what it is rather than as words he typed.
+    given = dict(getattr(proposal, "model_args", None) or {})
+    words = str(given.get("body") or "") if editable and str(given.get("body") or "").strip() else sent
+    signature = str(getattr(_settings(), "gmail_signature", "") or "").strip()
+    sign_off = signature if signature and sent.rstrip().endswith(signature) and not words.rstrip().endswith(signature) else ""
+    subject = str(given.get("subject") or "") if "subject" in editable and str(given.get("subject") or "").strip() else str(s.get("subject") or "")
+    return {
+        "channel": "email", "kind": "reply" if reply else "new",
+        "to": str(s.get("to_line") or ""), "subject": subject, "body": words, "sign_off": sign_off,
+        "editable": editable, "args": {field: field for field in editable},
+        "other": {"tool": other[0], "label": other[1]} if other else None,
+        "sending": sending,
     }
 
 
@@ -732,10 +775,7 @@ _REPLY_SCHEMA = {
 
 @tool(
     name="gmail_draft_reply",
-    description=(
-        "Save a reply in a customer's thread as a Gmail draft, addressed to the sender of the message "
-        "it answers. Write it yourself, plainly. Nothing is sent."
-    ),
+    description="Only when he asks to keep a reply as a Gmail draft, unsent. To reply, use gmail_send_reply.",
     input_schema={"type": "object", "properties": dict(_REPLY_SCHEMA), "required": ["thread_id", "body"]},
     tier=Tier.AMBER,
     issued_id_args=("thread_id", "order_id"),
@@ -771,9 +811,9 @@ async def gmail_draft_reply(thread_id: str, body: str, order_id: str = "") -> Pr
 @tool(
     name="gmail_send_reply",
     description=(
-        "Send a reply in a customer's thread to the sender of the message it answers. Give the reply "
-        "in your own plain words, or leave body empty to send the one draft waiting in that thread, "
-        "exactly as Gmail holds it."
+        "Reply in a customer's thread to the sender of the message it answers, in your own plain words. "
+        "The card is the reply: he can edit it there and his hold sends it. Empty body: send the one "
+        "draft waiting in that thread, as Gmail holds it."
     ),
     input_schema={"type": "object", "properties": dict(_REPLY_SCHEMA), "required": ["thread_id"]},
     tier=Tier.RED,
@@ -884,8 +924,8 @@ async def _recipient(order_id: str, customer_id: str, to: str = "", to_name: str
 @tool(
     name="gmail_draft_new",
     description=(
-        "Save a new email to an order's customer (or a customer with no visible order) as a Gmail "
-        "draft; the address comes from Shopify. Write it yourself, plainly. Nothing is sent."
+        "Only when he asks to keep a new email as a Gmail draft, unsent; the address comes from "
+        "Shopify. To email, use gmail_send_new."
     ),
     input_schema={"type": "object", "properties": dict(_NEW_SCHEMA), "required": ["subject", "body"]},
     tier=Tier.AMBER,
@@ -917,9 +957,9 @@ async def gmail_draft_new(subject: str, body: str, order_id: str = "", customer_
 @tool(
     name="gmail_send_new",
     description=(
-        "Send a new email to an order's customer (or a customer with no visible order); the address "
-        "comes from Shopify. Give subject and body in your own plain words, or leave both empty to "
-        "send the one draft waiting for that customer, as Gmail holds it."
+        "A new email to an order's customer (or a customer with no visible order); the address comes "
+        "from Shopify. Subject and body in your own plain words: the card is the email, he can edit it "
+        "there and his hold sends it. Both empty: send the one draft waiting for that customer."
     ),
     input_schema={"type": "object", "properties": dict(_NEW_SCHEMA), "required": []},
     tier=Tier.RED,

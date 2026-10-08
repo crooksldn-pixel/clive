@@ -184,10 +184,17 @@ def present(
     writes: dict[str, Any] | None = None,
     question: str = "",
     pending: tuple[str, ...] | list[str] = (),
+    focus: bool = False,
+    focus_why: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """The `ui` list for one turn: the TASK's workspace where the task has one, context cards
     from the tool results, one error card per failed service, and the context stack when the
     conversation has accumulated one.
+
+    `focus` (what a spoken turn asks for, DEC-067): only the cards the answer is about
+    (app/focus.py) — a change wins, a record read in full wins over the searches that found it
+    — chosen before anything is remembered, so the context stack holds what he was shown.
+    Errors are added after the choice and are never set aside. `focus_why` is told the rule.
 
     `question` is what was asked, which is what decides the workspace (§3: intent first, not
     the last tool). It defaults to `session.heard` — set by /turn before a single read is
@@ -258,6 +265,12 @@ def present(
                     items.append(_ui("attention", {"items": attention, "for": item["data"].get("order_id")}))
 
     items = _merge(items)
+    if focus:
+        # [flow, DEC-067] The records a read returned whole, before a workspace is composed over
+        # them: a workspace composed over a record that only came up on a listing is not one.
+        from app.focus import records_read_whole
+
+        read_whole = records_read_whole(items)
     # The task's own surface, over the canonical entity rather than over the last result.
     # Everything the workspace now contains comes out of the deck: a customer touched by
     # three reads is one customer (§6), not a card each.
@@ -267,6 +280,12 @@ def present(
     # customer who bought the hoodie; the order that proves who that is sits under the new one,
     # not over it (round 12: "it tries to pull up a customer screen first").
     items = [i for i in items if i["type"] == "workspace"] + [i for i in items if i["type"] != "workspace"]
+    if focus:
+        # [flow, DEC-067] Only what the answer is about: the searches that found it stay off
+        # the glass and off the context stack.
+        from app.focus import answer_cards
+
+        items = answer_cards(items, focus_why, read_whole=read_whole)
     if session is not None:
         _remember(items, session)
         # §18, as a SWEEP rather than one renderer at a time. After `_remember`, which is
@@ -1345,7 +1364,65 @@ def _confirmation(proposal, *, writes: dict[str, Any] | None = None) -> dict[str
         # undo belongs to a change that is finished, and is not waiting on anybody.
         "undo_of": _text(proposal.undo_of or "", 40),
         "commit": commit if commit else {"allowed": True},
+        # [flow, DEC-067] A message — an email today; WeCom, WhatsApp and Instagram next — is
+        # drawn as the message card: its words editable on it, one hold that sends.
+        **({"message": message} if (message := _message_block(proposal, words)) else {}),
     })
+
+
+# --------------------------------------------------------------- the message card (DEC-067)
+#
+# The contract a write's `present()` keeps to get this card is in app/families/message.py.
+# Bounded and copied key by key here, like every card: the channel from a closed set, the
+# editable fields from a closed set and only while the change is still waiting, the command a
+# keystroke posts, and the card's own opaque key — never anything the tablet could turn into an
+# argument of the change.
+MESSAGE_CHANNELS = frozenset({"email", "wecom", "whatsapp", "instagram"})
+MAX_MESSAGE_TO_CHARS = 200
+
+
+def _message_block(proposal, words: dict[str, Any]) -> dict[str, Any] | None:
+    from app.families import message as message_card
+
+    m = words.get("message")
+    if not isinstance(m, dict) or proposal.undo_of or str(m.get("channel") or "") not in MESSAGE_CHANNELS:
+        return None
+    live = proposal.status.value == "PENDING"
+    key = message_card.key_of(proposal)
+    other = message_card.other_way(m) if live else None
+    return {
+        "channel": str(m["channel"]),
+        "kind": _text(m.get("kind"), 12),
+        "to": _text(m.get("to"), MAX_MESSAGE_TO_CHARS),
+        "subject": _text(m.get("subject"), 200),
+        "body": _text(m.get("body"), MAX_EMAIL_BODY_CHARS),
+        # What is added to the words when they go (an email's sign-off), shown as that.
+        "sign_off": _text(m.get("sign_off"), 80),
+        "editable": message_card.editable(m) if live else [],
+        "sending": bool(m.get("sending")),
+        "key": key,
+        "command": message_card.COMMAND,
+        "other": {"label": _text(other["label"], 30), "args": f"key={key}&other=1"} if other else None,
+    }
+
+
+def _not_sent(proposal, card: dict[str, Any]) -> dict[str, Any]:
+    """[flow, DEC-067] A message send that provably did not go says so in a message's words —
+    "Not sent", and why — and offers the same words again as a new card to hold ("Try again",
+    app/families/message.py). Any other outcome is the card as it was: an outcome that is not
+    known (it may have gone) never offers to send again."""
+    from app.families import message as message_card
+
+    offer = message_card.again_offer(proposal)
+    if offer is None:
+        return card
+    data = card["data"]
+    data.update({
+        "title": "Not sent",
+        "recovery": _text(f"{message_card.why_not_sent(proposal)} Nothing was sent.", 200),
+        "again": {"label": _text(offer["label"], 30), "command": message_card.COMMAND, "args": _text(offer["args"], 80)},
+    })
+    return card
 
 
 # Why a tap would be refused from here, in the words the card shows under the change.
@@ -1652,7 +1729,8 @@ def present_proposal_state(
             # The tool's own words for this outcome (the voice says the same): "a new message
             # arrived in that thread", "the stock moved" — never "the order" for an email.
             words = recovery
-        items.append(_error(_service_of(proposal), _text(code, 40), title, _text(words, 200)))
+        failed = _error(_service_of(proposal), _text(code, 40), title, _text(words, 200))
+        items.append(_not_sent(proposal, failed))
     if session is not None:
         _remember(items, session)
         # §18, as a SWEEP rather than one renderer at a time. After `_remember`, which is

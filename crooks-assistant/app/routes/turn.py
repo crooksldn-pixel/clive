@@ -22,7 +22,7 @@ from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app import progressive, screen
+from app import focus, progressive, screen
 from app.actions import engine as action_engine
 from app.actions.grammar import AFFIRMATION_BLOCKED, affirmation_for, words_for
 from app.actions.grammar import FIXED_LINES as GRAMMAR_FIXED_LINES
@@ -319,9 +319,10 @@ async def _turn(request: Request, runtime, live, branch, *, text: str | None, au
     # `working`: the branch counts turns actually in flight, so WORKING on a chip is a fact
     # and not a note left behind by a turn that died.
     branch.begin_turn("working it out")
-    # The workspace starts NOW, not when the reads are done (§7, D-5): its sections go up as
-    # each read starts (app/tools/dispatch.py) and are collected by the tablet's /state poll.
-    progressive.begin(session_id, turn_id=turn_id, branch_id=branch.branch_id)
+    # The workspace starts NOW, and QUIET (DEC-067, 7 Oct): a search in progress never takes the
+    # screen. While the reads run the tablet's /state poll carries what CLIVE is doing, in
+    # words; the cards come with the answer, and only what the answer is about (app/focus.py).
+    progressive.begin(session_id, turn_id=turn_id, branch_id=branch.branch_id, quiet=True)
 
     await _ensure_provider_started(runtime)
 
@@ -1499,6 +1500,12 @@ async def _hold_to_the_screen(answer: str, ui: list, *, session, branch, calls, 
     missing = named_in_claim - on_it
     if showing and not missing:
         return answer, ui, None
+    if any(item.get("type") in focus.TASK for item in showing):
+        # [flow, DEC-067] A change waiting for him IS the screen (app/focus.py rule 1). A claim
+        # naming a record beside it is taken out, never answered by drawing that record in the
+        # change card's place: the card he has to hold is not swapped for one he did not ask for.
+        kept = claims.without_the_claim(answer).removesuffix(claims.NOT_ON_SCREEN).strip()
+        return (kept or READY_ON_SCREEN), ui, claims.screen_claim(corrected=True, named=sorted(missing | (said - on_it)))
     # What this turn drew of its own — a record it read, not one kept up from the screen before.
     # A claim about another record never replaces it: "show me order 1940", #1940 read, and "Order
     # #1938 is on your screen" drew #1938 in #1940's place and put the cursor on it (the round-12
@@ -1522,6 +1529,11 @@ async def _hold_to_the_screen(answer: str, ui: list, *, session, branch, calls, 
         bookkeeping = [item for item in ui if item.get("type") in screen.BOOKKEEPING]
         return answer, drawn + bookkeeping, claims.screen_claim(drew=target[2] or target[0], named=sorted(missing))
     return claims.without_the_claim(answer), ui, claims.screen_claim(corrected=True, named=sorted(missing | (said - on_it)))
+
+
+#: [flow, DEC-067] What an answer that was only a claim says instead, when the screen is the
+#: change waiting for him: true, because the change card is on it.
+READY_ON_SCREEN = "It's ready on your screen."
 
 
 def _what_is_up(own: list) -> str:
@@ -1926,11 +1938,16 @@ async def _answer(
     scene = None
     # [recording] Which rule of app/screen.py decided the screen, for the interaction record.
     carry_why: list[str] = []
+    # [flow, DEC-067] Which rule chose the answer's cards out of everything the turn read
+    # (app/focus.py), for the interaction record.
+    focus_why: dict[str, Any] = {}
     if not abandoned:
         # What the screen shows beside the answer: cards chosen from the tool results, never
-        # from the prose. See app/presentation.py for the vocabulary and the bounds.
+        # from the prose. See app/presentation.py for the vocabulary and the bounds. Only what
+        # the answer is about (DEC-067): a change wins, a record read in full wins over the
+        # searches that found it, and an error is never set aside.
         ui = present([c for c in (calls or []) if getattr(c, "proposal_id", None) not in withheld] if withheld else calls,
-                     session=session, error_kind=error_kind, writes=rail)
+                     session=session, error_kind=error_kind, writes=rail, focus=True, focus_why=focus_why)
         # The same turn as a validated scene, when CLIVE_SCENES is on: planned from these
         # reads, carried as its own field and changing nothing else. Off, nothing here runs.
         scene = _turn_scene(question or str((transcript or {}).get("text") or ""), answer, calls, session_id)
@@ -2110,7 +2127,7 @@ async def _answer(
         session_id=session_id, turn_id=turn_id, question=question, transcript=transcript, answer=answer, ui=ui,
         calls=calls, screen_state=screen_state, carry=carry_why, error_kind=error_kind, abandoned=abandoned,
         timings=timings, branch=branch, claim=on_screen_claim, withheld=len(withheld), binding=binding, scene=scene,
-        session=session,
+        session=session, focus=focus_why or None,
     )
     payload = {
         "session_id": session_id,

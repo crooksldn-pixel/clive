@@ -329,7 +329,8 @@ const DETAIL_WORDS = {
   objective_show: ['Reading', 'the objective'], objective_note: ['Updating', 'the objective'],
   // Changing the inbox
   gmail_draft_reply: ['Drafting', 'the reply', true], gmail_draft_new: ['Drafting', 'a new message', true],
-  gmail_send_reply: ['Sending', 'the reply', true], gmail_send_new: ['Sending', 'the message', true],
+  // [flow, DEC-067] These PREPARE the card he sends with his hold: nothing is sent while they run.
+  gmail_send_reply: ['Writing', 'the reply', true], gmail_send_new: ['Writing', 'the email', true],
   gmail_thread_archive: ['Archiving', 'the thread', true],
   // Several at once. These STAGE a batch; the change itself goes through the confirmation
   // path afterwards, so the Mac does not call them writes and neither does this.
@@ -4859,7 +4860,14 @@ async function composeFieldChanged(control) {
   // CONTROL-LOCAL: a rejected value is about the FIELD it was typed into. It used to be a
   // workspace line — a message about the screen, printed for something that happened inside
   // one control, 788px from the thumb that typed it.
-  if (!answered.ok) { notifyControl(String(answered.detail || 'That could not be applied.'), control, { tone: 'bad', code: 'field_refused' }); return; }
+  if (!answered.ok) {
+    // [flow, DEC-067] On a message card: an edit a later one overtook is not a fault (the later
+    // one is the card), and any other refusal leaves the card saying it is not ready to send.
+    if (String(answered.code || '') === 'superseded') return;
+    if (card && window.CrooksUI && typeof window.CrooksUI.messageRefused === 'function') window.CrooksUI.messageRefused(card);
+    notifyControl(String(answered.detail || 'That could not be applied.'), control, { tone: 'bad', code: 'field_refused' });
+    return;
+  }
   settleWithdrawn(answered);
   if (!Array.isArray(answered.ui) || !answered.ui.length || !card) return;
   const fresh = replaceComposeCard(card, answered.ui);

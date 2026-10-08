@@ -1117,3 +1117,32 @@ CLIVE connects to it as the brief's section 6 says, and only through its `/api/v
 **Reason:** since 25 Sep the loop on clive-worker-01 took 65 requests and stopped 40, and it never published why (`status.py`: "What is never published: review findings text"), so whoever repaired a build had nothing to work from. With the repository public since 7 Oct, those words cannot go on GitHub.
 
 **Consequences:** nothing here weakens exact-SHA review, the gate, protected paths, secret scanning or acceptance. None of it governs a loop until the owner-gated re-pin; the re-pin steps travel with the pull request, and the re-pin is recorded when it happens. The public status branch gains nothing, but it still carries what it carried before, including each stop's one-line blocker, which for a builder-reported or owner-decision stop is the builder's own words, redacted; publishing the stop's cause word instead is a recorded follow-up. So is bounding a check's memory with a cgroup: with browsers named, every check is bounded by `RLIMIT_DATA` rather than `RLIMIT_AS`.
+
+---
+
+## DEC-068 — From the question to the action: progress words while CLIVE works, then only what the answer is about; a message is one card and one hold
+
+**Date:** 2026-10-07 (built on the night of 7–8 October, branch `claude/n2-flow`)
+**Status:** ACTIVE
+**Source:** the owner's words of 7 October, quoted in the night-build brief for the "flow" workstream, and the three points he approved in it.
+
+**The owner, verbatim:**
+
+> Currently, if you ask a question, sometimes you'll get shown irrelevant screens that just happened during a search process. For instance, today I asked for the email reply to [a customer] and it showed [a customer]'s total orders as a customer, then some random email from someone else, today's email threads and today's orders when all I wanted to see was the reply to [a customer].
+
+> I also don't want to have to click save draft and then send — why do I have to click save draft and then say send it and then it pulls up a send it screen to send.
+
+He wants "the flow from actually asking a question to the action happening to be a bit more smooth".
+
+**Decision (the three points he approved):**
+1. **Searches in progress never take the screen.** While CLIVE works the glass says what it is doing in words (the running tool, `web/app.js` `DETAIL_WORDS`), and then shows only what the answer is about. A turn's progressive workspace is begun quiet (`app/progressive.py`): no shell, header or read's card is staged before the answer. The answer's cards are chosen by `app/focus.py`, by three rules over the cards (never over words, MAP rule 7): a change waiting for him wins; otherwise a record read in full wins over the searches that found it; otherwise the listings and numbers are the answer. An error and a change are never set aside.
+2. **Draft to send is one hold that sends it.** No Save draft step and no second Send screen. The hold stays (it is the approval gesture, MAP rule 2), and he can edit the words on that same card before holding: an edit withdraws the waiting change and prepares the same write again with the new words, through the gate and the write's own checks, so the hold always sends the words on the card.
+3. **The same card for every message.** The one-hold card is the action engine's confirmation card carrying a generic `message` block (channel, to, subject if any, words, which fields are editable). Its contract is in `app/families/message.py`, for the WeCom, WhatsApp and Instagram writes to use.
+
+**What this changes:** D-5's progressive hydration put a read's cards on the glass as each read landed (`tests/test_progressive_turn.py`, `turn_c8eb4cffe077`). For a spoken turn that is reversed: the owner judged a screen that fills with searches worse than a screen that waits for the answer, and the wait is said in words. Round 12's "the order that proved who it is for sits under the new one" is replaced by the new order alone (its card already names what it was made from). Replies and new emails are prepared by `gmail_send_reply` and `gmail_send_new`, whose card is the email and whose hold sends it; `gmail_draft_reply` and `gmail_draft_new` stay, and are for when he asks to keep it as a draft. The quiet "Save as draft" on the card, and "Send instead" on a draft's card, prepare the same words the other way.
+
+**Reason:** the owner's own account of the flow, above.
+
+**Consequences:** the gesture table, the gate, staff authority and the proof are unchanged: a send to a customer is still RED and still the hold, and is proven by reading the sent message back. Which tool the model chooses is still the model's; it is told which one to use in the tools' descriptions and one sentence of the system prompt.
+
+**How a failure reads:** a send that provably did not go (Gmail refused it, or it never left) says "Not sent", why, and "Nothing was sent", on the card and in the voice, and offers "Try again": the same words, as they were on the card he held, prepared again as a new card to hold. A send whose outcome is not known (it may have gone) says to check Sent and never offers to send again. A change card on the screen is never swapped for a record the answer names beside it: that sentence is taken out instead.

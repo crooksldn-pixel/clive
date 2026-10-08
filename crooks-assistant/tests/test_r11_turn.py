@@ -303,11 +303,17 @@ async def test_a_read_that_lands_after_its_turn_was_replaced_puts_nothing_on_the
     branch = desk.runtime.sessions.get("landing").branch()
     glass = await _glass(desk, "landing", branch.branch_id)
     assert glass.get("turn_id") and glass["turn_id"] != late["turn_id"], glass.get("turn_id")
-    assert B in json.dumps(glass), "the newer turn's own read is on its glass"
+    # DEC-067 (7 Oct): a search in progress never takes the screen, so while the newer turn is
+    # still answering its glass holds no read's card at all. (Until 7 Oct: `B in` here, the newer
+    # turn's own read already on its glass; that is now checked once it has answered, below.)
+    assert B not in json.dumps(glass), "the newer turn's own read took the screen before its answer"
     assert A not in json.dumps(glass), "the replaced turn's read was staged on the newer turn's glass"
     newer_gate.set()
     body = await asyncio.wait_for(asking, 5)
     assert ("order", B) in records(body) and ("order", A) not in records(body)
+    answered = json.dumps(await _glass(desk, "landing", branch.branch_id))
+    assert B in answered, "the newer turn's own read is on its glass once it has answered"
+    assert A not in answered, "the replaced turn's read was staged on the newer turn's glass"
 
 
 async def test_a_read_by_the_half_put_aside_is_not_staged_on_the_focused_half_s_glass(desk):

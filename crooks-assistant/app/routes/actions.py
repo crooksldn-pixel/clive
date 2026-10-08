@@ -597,6 +597,12 @@ async def commit(request: Request, proposal_id: str, session_id: str = Form(defa
     unconfirmed = workspaces.sent_not_confirmed(proposal)
     code = "unverified" if unconfirmed else result.code
     spoken = workspaces.SENT_NOT_CONFIRMED if unconfirmed else result.spoken
+    # [flow, DEC-067] A message that provably did not go is said as its card says it: "Not sent",
+    # why, and that nothing was sent — not a Gmail exception's name (app/families/message.py).
+    from app.families.message import why_not_sent
+
+    if not unconfirmed and (why := why_not_sent(proposal)):
+        spoken = f"Not sent. {why} Nothing was sent."
     log.info("action %s %s → %s (%s)", proposal.proposal_id, proposal.operation, proposal.status.value, result.code)
     timeline.emit(
         "action_commit", session_id=session_id.strip(), proposal_id=proposal.proposal_id, turn_id=proposal.turn_id or None,

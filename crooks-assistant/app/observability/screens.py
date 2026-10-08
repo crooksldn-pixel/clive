@@ -119,6 +119,10 @@ DATA_NAMES = frozenset({
     # the page is at, the horizon's own controls and rows, and a home row that will land late.
     # Words of the page's own ("home", "horizon", "row", "true"), never the owner's.
     "data-distance", "data-hz", "data-late",
+    # [flow, DEC-067] The message card (web/ui.js `messageBlock`): its opaque key ("msg_" and 16
+    # hex, minted on the Mac with nothing of who it is to in it), whether typed words are still on
+    # their way ("true"), and its channel from a closed set. Never the message's words or address.
+    "data-message", "data-typing", "data-channel",
 })
 # data- names whose values are free text by what they are for: kept, but empty. `data-words` is
 # the ask bar's account of the live words it shows (round 9, F-02): whatever the page puts there,
