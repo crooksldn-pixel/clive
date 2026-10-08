@@ -93,7 +93,8 @@ http://127.0.0.1:8000/hooks/instagram`. From outside the tailnet `curl -si <the 
    his hold sends it. "Sent" only on Instagram's `message_id`. Instagram echoes every message the
    account sends, CLIVE's included; when that echo reaches the door before the send's own answer,
    it becomes CLIVE's record, so the send is still proved once. Instagram saying the window has
-   closed (code 10, subcode 2534022) is said as its refusal, with "nothing was changed".
+   closed (code 10, subcode 2534022) is said as its refusal, with "nothing was changed". Any 5xx,
+   whatever code it carries, is "couldn't confirm": a gateway's 502 doesn't prove nothing went.
 5. The three read-only Instagram tools are unchanged and still make GET requests only; their note
    now says a direct message is answered through `message_reply`, and a comment not at all. The
    system prompt's one Instagram sentence says the same (it said CLIVE could not answer there).

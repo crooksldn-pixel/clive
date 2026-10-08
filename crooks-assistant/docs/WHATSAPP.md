@@ -164,7 +164,8 @@ answers **403 with an empty body** (no verify token), and any other path is a 40
    message, who it goes to (with WhatsApp's own name for them beside the person it is linked to),
    and the window. Only his hold sends it. "Sent" only on WhatsApp's message id, recorded in the
    conversation and on the action ledger; a refusal is said in plain words with "nothing was
-   changed"; a send whose answer never came back is "couldn't confirm", never "sent".
+   changed"; a send whose answer never came back, or that Meta answered with any 5xx (whatever
+   code it carries), is "couldn't confirm", never "sent" and never "nothing was changed".
 
 Nothing a message said, no number, name, token or secret goes to a log line or telemetry; the
 door's query string is kept off the access log.

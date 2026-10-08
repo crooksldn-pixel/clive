@@ -461,7 +461,13 @@ _WINDOW_SUBCODES = frozenset({2534022, 2018278})
 
 
 def _send_refusal(response: httpx.Response) -> InstagramUnavailable:
-    """A send Instagram answered with an error: nothing was sent. Said in plain words from its codes."""
+    """A send Instagram answered with an error: nothing was sent. Said in plain words from its codes.
+    [channels] Except a 5xx, whatever code it carries: a gateway's 500 or 502 doesn't prove the
+    message didn't go, so it is never a refusal ("Nothing was changed") but unconfirmed, and the
+    owner is told to check Instagram before sending it again."""
+    if response.status_code >= 500:
+        return InstagramUnavailable(f"Instagram had trouble answering ({response.status_code}), so CLIVE can't tell "
+                                    "whether the message went.", kind="unreachable")
     code, subcode, _message = _error_fields(response)
     if code == 1545041 or (code == 10 and subcode in _WINDOW_SUBCODES):
         return InstagramUnavailable(WINDOW_WORDS, kind="window", refused=True)

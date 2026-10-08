@@ -225,8 +225,10 @@ async def _request(method: str, path: str, *, params: dict[str, str] | None = No
     if response.status_code != 200:
         code = _error_code(response)
         log.info("whatsapp: a %s answered HTTP %s (error %s)", method, response.status_code, code)
-        if not code and response.status_code >= 500:
-            raise WhatsAppError(BUSY_WORDS, kind="unreachable")
+        if response.status_code >= 500:
+            # [channels] Any 5xx, whatever code it carries (1, 2, 131000...): it doesn't prove a send
+            # didn't go, so never a refusal ("Nothing was changed"): unconfirmed, check WhatsApp.
+            raise WhatsAppError(words_for(code) if code else BUSY_WORDS, kind="unreachable", code=code)
         raise WhatsAppError(words_for(code), kind="refused", code=code)
     try:
         answer = response.json()

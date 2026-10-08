@@ -295,6 +295,26 @@ async def test_instagram_saying_the_window_closed_at_send_is_its_refusal_and_not
     assert store.outgoing(thread.chat_id, proposal.execution["client_id"]) is None
 
 
+@pytest.mark.parametrize("status, error", [
+    (500, {"code": 1, "message": "An unknown error occurred"}), (502, {}),
+    (503, {"code": 2, "message": "Service temporarily unavailable"}),
+    (500, {"code": 10, "error_subcode": 2534022, "message": "outside of allowed window"})])
+async def test_a_send_instagram_answered_with_a_5xx_is_unconfirmed_never_nothing_changed(graph, owner, engine, status,
+                                                                                         error):
+    """[channels] A gateway's 500 or 502 doesn't prove the message didn't go: whatever code it carries,
+    the owner is told to check Instagram before sending again, never "Nothing was changed"."""
+    from app.presentation import present_action
+
+    thread = _wrote()
+    graph.refuse[("graph.instagram.com", "me/messages")] = (status, error)
+    proposal, result = await _stage_and_hold(engine, thread)
+    assert result.code == "unverified", result.spoken
+    assert result.spoken == "I couldn't confirm the message went. Check Instagram before sending it again."
+    (card,) = present_action(result)
+    assert "Nothing was changed" not in str(card) and "refused" not in str(card)
+    assert store.outgoing(thread.chat_id, proposal.execution["client_id"]) is None
+
+
 async def test_a_send_whose_answer_never_came_back_names_instagram(graph, owner, engine):
     graph.timeout_sends = True
     _, result = await _stage_and_hold(engine, _wrote())

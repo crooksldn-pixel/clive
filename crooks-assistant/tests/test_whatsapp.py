@@ -440,6 +440,29 @@ async def test_a_reply_names_its_app_by_its_own_summary_key_never_service(meta, 
     assert engine_module.service_name("message_reply", write, proposal) == "WhatsApp"
 
 
+@pytest.mark.parametrize("status, error", [
+    (500, {"code": 131000, "message": "Something went wrong"}), (503, {"code": 2, "message": "Service unavailable"}),
+    (500, {"code": 1, "message": "An unknown error occurred"}), (502, {}),
+    (500, {"code": 131047, "message": "Re-engagement message"})])
+async def test_a_send_whatsapp_answered_with_a_5xx_is_unconfirmed_never_nothing_changed(meta, owner, engine, status,
+                                                                                        error):
+    """[channels] Any 5xx, with a Meta code or without one: it doesn't prove the message didn't go, so the
+    owner is told to check WhatsApp before sending again, never "Nothing was changed"."""
+    from app.presentation import present_action
+
+    thread = _wrote()
+    session = _session(thread)
+    await dispatch("message_reply", {"chat_id": thread.chat_id, "english": "Hello."}, session=session, timeout_s=10)
+    proposal = session.proposals[-1]
+    meta.refuse[("graph.facebook.com", f"{meta_world.PHONE_ID}/messages")] = (status, error)
+    result = await _hold(engine, proposal, session)
+    assert result.code == "unverified", result.spoken
+    assert result.spoken == "I couldn't confirm the message went. Check WhatsApp before sending it again."
+    (card,) = present_action(result)
+    assert "Nothing was changed" not in str(card) and "refused" not in str(card)
+    assert store.outgoing(thread.chat_id, proposal.execution["client_id"]) is None
+
+
 async def test_a_send_whose_answer_never_came_back_is_not_called_sent_and_names_whatsapp(meta, owner, engine):
     thread = _wrote()
     session = _session(thread)
