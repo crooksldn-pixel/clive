@@ -121,25 +121,36 @@ never what any request carried.
    signature (SHA-1 of the sorted token, timestamp, nonce and ciphertext) is checked before
    anything else is done with it; then the timestamp must be within five minutes and the request
    new (`app/messaging/guard.py`); then it is decrypted (AES-256-CBC, the scheme of
-   document/path/90968) and must be for this CorpID. Anything refused gets **403 with an empty
-   body**. A message gets **200 with an empty body at once**, because WeCom wants an answer within
-   five seconds and retries otherwise; a repeat of one already taken is answered and dropped.
+   document/path/90968) and must be for this CorpID. A body is read only if it is UTF-8 and starts
+   `<xml` or `{`, as everything WeCom sends does, so no other encoding or document type reaches a
+   parser; the path checked is the routed one, never one the Host header could shape. Anything
+   refused, or that cannot be read at all, gets **403 with an empty body**, never an error. A
+   message gets **200 with an empty body at once**, because WeCom wants an answer within five
+   seconds and retries otherwise; a team member's message, which is in the callback itself, is
+   stored before that answer however busy CLIVE is; a repeat of one already taken is answered and
+   dropped.
 2. **After the door** (`app/messaging/ingest.py`, no tool authority, no turn): for customer
    service, CLIVE reads the messages with `kf/sync_msg` using the callback's token and the stored
-   read position, saving the position after every page; a team member's message is in the
-   callback itself. Each message is stored once (by WeCom's msgid).
+   read position, saving the position after every page. Each message is stored once (by WeCom's
+   msgid). At most four of these run at once; past that, customer-service messages are read by the
+   next callback, and a team member's message (already stored at the door) is translated by a run
+   already going.
 3. **Translated** by Claude on the Max plan through the Agent SDK, with no tools at all
    (`MaxAgentSDKProvider.complete`), one at a time, told the text is a quotation and never an
    instruction. Stored beside the original, labelled machine translation. If it fails, the
-   original stays and the message says its translation is missing.
+   original stays and the message says its translation is missing; it is not tried again. One a
+   restart cut off reads as missing 15 minutes after it arrived, and is kept so at the next start.
 4. **Named**: the WeChat nickname (`kf/customer/batchget`), until George says who it is
    ("that's Jessica, our manufacturer"), which links the conversation to Jessica's card
    (`message_contact`, `app/people/store.py` `channels`).
 5. **Read** by the model with `messages_recent` and `message_thread`: English first, the original
-   beside it, and how long WeChat will still take a reply.
+   beside it, and how long WeChat will still take a reply. Both are AMBER, like every read that
+   shows people's names and words, so the model reads the name back.
 6. **Answered** with `message_reply`: the model writes the English and the Chinese; CLIVE checks the
    48-hour window, the five-reply limit, the conversation's state and WeChat's 2,048-byte limit,
-   and stages a card printing the exact message. Only his hold sends it. The send is proved by
+   and stages a card printing the exact message, with WeChat's own name for the contact beside the
+   person it is linked to ("Jessica (WeChat name: …)"), so a conversation linked to the wrong
+   person shows before the hold. Only his hold sends it. The send is proved by
    WeCom's errcode 0 and msgid, recorded in the thread and on the action ledger; anything else is
    said as a failure in plain words, and a send whose answer never came back is "couldn't
    confirm", never "sent" and never "not sent".

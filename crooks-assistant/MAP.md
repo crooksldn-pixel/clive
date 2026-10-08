@@ -52,13 +52,13 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 <!-- map:parts -->
 | Package | Lines | State | Not loaded by the app | Owner doc |
 |---|---:|---|---|---|
-| (top-level modules) | 11,835 | live | `engineering_measures` | none |
+| (top-level modules) | 11,837 | live | `engineering_measures` | none |
 | `actions` | 3,039 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,501 | live | — | none |
 | `builds` | 1,345 | live | — | none |
 | `capabilities` | 759 | live | `surface` | none |
-| `clients` | 5,575 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
+| `clients` | 5,595 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
 | `connections` | 1,845 | live | — | [`CONNECTIONS.md`](docs/CONNECTIONS.md) |
 | `context` | 1,211 | live | — | none |
 | `customers` | 1,596 | live | — | none |
@@ -69,7 +69,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `kb` | 442 | live | — | [`OWNER_DECISIONS_2026-10-01.md`](docs/product-memory/OWNER_DECISIONS_2026-10-01.md) the voice spec |
 | `logging` | 195 | live | — | none |
 | `memory` | 586 | live | — | none |
-| `messaging` | 1,271 | live | — | [`WECOM.md`](docs/WECOM.md) WeCom now; WhatsApp and Instagram plug in |
+| `messaging` | 1,396 | live | — | [`WECOM.md`](docs/WECOM.md) WeCom now; WhatsApp and Instagram plug in |
 | `objectives` | 3,316 | live | — | none |
 | `observability` | 11,297 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
 | `orchestrator` | 9,655 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
@@ -79,7 +79,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `release` | 2,088 | live | 9 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
 | `remote_engineering` | 2,066 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
 | `returns` | 818 | live | — | none |
-| `routes` | 8,112 | live | — | none |
+| `routes` | 8,120 | live | — | none |
 | `scenes` | 2,579 | off (`CLIVE_SCENES` off, default) | — | [`GENERATIVE_UI_V1.md`](docs/product-memory/GENERATIVE_UI_V1.md) |
 | `secrets` | 931 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) |
 | `session` | 1,242 | live | — | none |
@@ -87,7 +87,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `skills` | 979 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
 | `speech` | 844 | live | — | none |
 | `support` | 1,693 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
-| `tools` | 14,014 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
+| `tools` | 14,032 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
 | `work` | 1,374 | live | — | [`TEAM.md`](docs/TEAM.md) |
 <!-- /map:parts -->
 
