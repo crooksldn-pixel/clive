@@ -26,9 +26,9 @@
     line.classList.toggle('is-done', mood === 'done');
   }
 
-  function closed(title, text) {
+  function closed(title, text, mood) {
     $('#title').textContent = title;
-    say(text, 'error');
+    say(text, mood);
     $('#form').hidden = true;
     $('#note').hidden = true;
   }
@@ -75,7 +75,7 @@
       $('#code').focus();
       return;
     }
-    closed(done.code === 'locked' ? 'This link is locked' : "This link doesn't work", done.detail);
+    closed(done.code === 'locked' ? 'This link is locked' : "This link doesn't work", done.detail, 'error');
   }
 
   document.addEventListener('DOMContentLoaded', () => {
