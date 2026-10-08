@@ -81,7 +81,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `release` | 2,088 | live | 9 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
 | `remote_engineering` | 2,506 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
 | `returns` | 818 | live | — | none |
-| `routes` | 8,468 | live | — | none |
+| `routes` | 8,502 | live | — | none |
 | `scenes` | 2,579 | off (`CLIVE_SCENES` off, default) | — | [`GENERATIVE_UI_V1.md`](docs/product-memory/GENERATIVE_UI_V1.md) |
 | `secrets` | 960 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) |
 | `session` | 1,242 | live | — | none |
