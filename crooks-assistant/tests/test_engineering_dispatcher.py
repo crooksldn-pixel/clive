@@ -2214,6 +2214,62 @@ def test_a_build_filed_again_is_told_why_the_try_before_it_stopped(tmp_path):
     assert "AN EARLIER TRY" not in (w.state / "prompt.0.txt").read_text()
 
 
+def _stopped_first_try(tmp_path: Path) -> World:
+    """A world whose first build stopped at its repair limit with the reviewer's finding on record."""
+    w = World(tmp_path, max_repair_rounds=0)
+    w.scenarios(EDIT_HELLO, EDIT_HELLO)
+    w.objective()
+    w.reviewer.answers.append(lambda ctx: review(ctx, "CHANGES_REQUIRED", findings=[FINDING])
+                              if ctx.task_id == OBJ else review(ctx, "READY"))
+    w.run_until(w.status_is(TaskStatus.BLOCKED))
+    return w
+
+
+def test_a_try_is_linked_to_the_one_before_it_only_when_it_is_the_same_build(tmp_path):
+    """Review N4: ``_free_id`` gives -2 to any new request whose title makes the same slug, so the id alone does not
+    make a build the same one asked again; its title or its allowed paths must also be the same."""
+    w = _stopped_first_try(tmp_path)
+
+    def later(**fields) -> Objective:
+        base = dict(objective_id=f"{OBJ}-2", title="Demo", requested_outcome="Make pkg/hello.txt say hello.",
+                    acceptance_criteria=(), checks=(), repository="crooksldn-pixel/clive", base_ref="main",
+                    base_sha=w.base, target_branch="clive/objective/demo-2", product_memory_sha=w.base,
+                    allowed_paths=ALLOWED, max_repair_rounds=0, owner=OwnerEntry(os_user="george", host="host"),
+                    created_at=w.clock())
+        return Objective(**{**base, **fields})
+
+    d = w.dispatcher()
+    assert d.earlier_try(later())["objective_id"] == OBJ
+    assert d.earlier_try(later(title="  demo ", allowed_paths=("docs",)))["objective_id"] == OBJ   # same title
+    assert d.earlier_try(later(title="Demo of something else"))["objective_id"] == OBJ            # same paths
+    assert d.earlier_try(later(title="Demo of something else", allowed_paths=("docs",))) is None
+
+    # end to end: an unrelated build filed under the -2 id starts with nothing of the first one's stop
+    w.objective(objective_id=f"{OBJ}-2", title="Demo of something else", allowed_paths=("docs",),
+                target_branch="clive/objective/demo-2", requested_outcome="Write docs/notes.txt.")
+    w.run_until(lambda: w.invocations() >= 2 and (w.state / "prompt.1.txt").exists())
+    prompt = (w.state / "prompt.1.txt").read_text()
+    assert "AN EARLIER TRY" not in prompt and "the greeting is wrong" not in prompt
+
+
+def test_a_stop_report_that_cannot_be_kept_never_stops_the_next_try_launching(tmp_path, monkeypatch):
+    """Review N4: the earlier try's report helps the builder; failing to keep it (a full disk, a permission) is
+    no report, never an aborted launch."""
+    from app.orchestrator import dispatcher as dispatcher_module
+
+    w = _stopped_first_try(tmp_path)
+    shutil.rmtree(tmp_path / "runtime" / "stops", ignore_errors=True)
+
+    def refuse(path: Path, payload: bytes) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(dispatcher_module, "_private_write", refuse)
+    w.objective(objective_id=f"{OBJ}-2", target_branch="clive/objective/demo-2")
+    w.run_until(lambda: w.invocations() >= 2 and (w.state / "prompt.1.txt").exists())
+    assert "AN EARLIER TRY" not in (w.state / "prompt.1.txt").read_text()
+    assert w.store.read_attempts(f"{OBJ}-2")
+
+
 def test_a_repair_revision_is_given_each_material_finding_verbatim(tmp_path):
     """Item 2 of the owner's loop upgrade, verified: the finding, its evidence and its required repair reach the
     repairing builder word for word; a finding the reviewer marked as not material is not a repair order."""

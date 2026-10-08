@@ -2185,7 +2185,12 @@ class Dispatcher:
     def earlier_try(self, obj: Objective) -> dict | None:
         """The stop report of the try this objective files again, by the owner's convention for a build asked again
         (the same id with -2, -3 ...: engineering_tools ``_free_id``, app/builds/board.py ``family_key``): ``x-3``
-        is the next try of ``x-2``, and ``x-2`` of ``x``. Only a try that stopped has a report."""
+        is the next try of ``x-2``, and ``x-2`` of ``x``. Only a try that stopped has a report.
+
+        An id alone does not make two builds one (review of the loop branch, N4): ``_free_id`` gives ``-2`` to any
+        new request whose title makes the same slug, so the earlier objective counts only when its title or its
+        allowed paths are also the same (as the Builds board groups tries, ``families``). The report is a help to
+        the builder, never a condition of its launch: a report that cannot be read or kept is no report."""
         match = re.fullmatch(r"(?P<base>.+)-(?P<n>\d{1,2})", obj.objective_id)
         if match is None or int(match.group("n")) < 2:
             return None
@@ -2195,7 +2200,12 @@ class Dispatcher:
             earlier = self.objectives.read(previous)
         except (OSError, ValueError, LifecycleError):
             return None
-        return self._stop_of(earlier) if earlier is not None else None
+        if earlier is None or not _same_build(earlier, obj):
+            return None
+        try:
+            return self._stop_of(earlier)
+        except OSError:
+            return None
 
     # ------------------------------------------------------------ observability
     def status(self) -> list[dict]:
@@ -2304,6 +2314,15 @@ class Dispatcher:
 
 def _canonical(document: dict) -> bytes:
     return (json.dumps(document, indent=2, sort_keys=True) + "\n").encode()
+
+
+def _same_build(earlier: Objective, later: Objective) -> bool:
+    """Whether a later try is the same build asked again, not another that only shares its id's stem: the same
+    title (ignoring case and spacing) or the same allowed paths."""
+    def title(obj: Objective) -> str:
+        return " ".join(obj.title.split()).casefold()
+
+    return title(earlier) == title(later) or set(earlier.allowed_paths) == set(later.allowed_paths)
 
 
 def _private_write(path: Path, payload: bytes) -> None:
