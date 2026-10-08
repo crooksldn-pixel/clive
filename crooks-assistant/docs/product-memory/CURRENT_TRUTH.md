@@ -95,19 +95,14 @@ DEC-062 to DEC-065 record the owner decisions of 26 Sep, 28 Sep, 30 Sep and 1 Oc
 
 ### Still the owner's
 
-- The phone `/whoami` for `b33ccbc2`.
-- Whether a deploy still needs the exact-SHA review, or the waivers become the rule.
-  - The release service (DEC-067, [RELEASE_SERVICE.md](../RELEASE_SERVICE.md)) is built, not installed and switched off. It deploys nothing until he names that rule as `CLIVE_RELEASE_RULE`.
-- Whether the governed loop or direct builders are the normal way work lands.
-- Whether the team page may act on "packed 2106" without the model (`web/today-say.js`), as an exception to 28 Sep.
-- The parked items in MAP.md, each with its expiry date.
-- Carried from 30 Sep, with no later record deciding them:
-  - Jev access, and a data policy for business text leaving the host;
-  - a recipient tap on new emails, and whether an email may go on a TV;
-  - whether CLIVE may delete the unused drafts its Prepare leaves;
-  - whether "open the inbox" after Add a note is held only by his tap;
-  - the reviewer's monthly budget, and decisions 3 and 6 of the self-shipping plan;
-  - clive-worker-01's hardware items, and the runner's registration token.
+On 8 October he answered 43 open questions at once ([DEC-071](./DECISIONS.md)): deploys are his to approve and start at once (the waiver is now the rule); the worker-01 loop is the normal way work lands, with a Claude reviewer; Split, the Mac runtime, the local Whisper client, the CROOKS Pad and Easyship are retired; `web/today-say.js` is a recorded exception; emails may go on a TV; CLIVE may delete its own unused drafts; business text may go to other AI services. Still open:
+
+- The phone `/whoami` for the next deploy.
+- When the repository goes private again, and whether its history is rewritten (rulings 1–3: not now).
+- Instagram Advanced Access and the human-agent tag (rulings 17–18: not now).
+- Whether staff may read security and login emails (ruling 33: not yet).
+- A recipient tap on new emails, and whether "open the inbox" after Add a note is held only by his tap (carried from 30 Sep).
+- clive-worker-01's hardware items.
 
 ### Not verified from here
 

@@ -1082,7 +1082,7 @@ CLIVE connects to it as the brief's section 6 says, and only through its `/api/v
 ## DEC-067 — The release service is built and switched off; it deploys only once the owner names who holds deploy authority
 
 **Date:** 2026-10-07
-**Status:** ACTIVE
+**Status:** ACTIVE. On 8 Oct the owner named the rule: he approves each deploy himself, and his approval deploys at once (DEC-071, ruling 7).
 **Source:** the owner's approval in the night-build brief of 7 October 2026, verbatim: "Release service. I build it tonight, switched off. It only deploys once you've said who holds deploy authority." His reason, as the brief records it: he wants deploys "to just happen (or fix themselves) without him relaying commands between Claude and the Termius Claude".
 
 **Decision:**
@@ -1172,3 +1172,62 @@ He wants "the flow from actually asking a question to the action happening to be
 **Reason:** his words above. The digester and the owner-judgment ledger already existed; this wires research into both rather than building a second path.
 
 **Consequences:** no new authority. Adopt uses the existing filing path and his hold, and Park and Reject change nothing outside CLIVE's records. One new dependency, `pypdf>=6.19.0`, reads PDFs in a process of its own with a time and memory limit; installing it is a hand deploy, because `pyproject.toml` changed. Not built: the home's Builds row does not count research waiting on him, and ChatGPT share links are not fetched by URL.
+
+---
+
+## DEC-071 — The owner's rulings of 8 October: 43 questions answered
+
+**Date:** 2026-10-08
+**Status:** ACTIVE
+**Source:** the owner's answers in the Director's session on 8 October 2026 (12:34 and 12:43 London), to 43 numbered yes/no questions. Every open owner decision the records held was put to him; his answers are quoted as he gave them.
+
+**Decision:**
+
+| # | Question | His answer, verbatim | What it means |
+|---|---|---|---|
+| 1 | Make the repository private again today? | N - for now | It stays public. Nothing secret or customer-identifying may be committed (the night's privacy sweep, PR #104, cleaned trunk). |
+| 2 | Rewrite the history to strip the real customer details? | N | History is not rewritten. |
+| 3 | Ask GitHub Support to purge old commits and pull-request copies? | N | No purge request. |
+| 4 | Move the Returns/Shipping service into its own private repository? | Eventually - not now | Stays on its branch for now. |
+| 5 | If private, run CI on clive-worker-01 instead of paying for minutes? | Y | Applies once the repository is private. While it is public, CI stays on GitHub's runners: a self-hosted runner on a public repository would run outsiders' code. |
+| 6 | Make waiving the exact-SHA review the standing rule (green acceptance plus an independent review is enough to ship)? | Y | DEPLOY_LINUX.md's requirement of an exact-SHA review before every deploy is replaced by: green acceptance on the exact SHA, the pull requests' independent pre-merge reviews, and the owner's approval (ruling 7). |
+| 7 | Release service: the owner approves each SHA, rather than anything reviewed ships? | "i want to say yes to deploy - but, once deploy should be instant, not deploy and then the deploy service runs and takes hours. deploy as in, implement this now" | `CLIVE_RELEASE_RULE=owner_waiver`. His approval, given in CLIVE with his passkey, starts the deploy at once (no waiting for a timer); CLIVE shows it through to the result. |
+| 8 | Switch the release service on in dry run after the next hand deploy? | Y | Installed after the first hand deploy that carries it. |
+| 9 | The build loop on clive-worker-01 is the normal way work lands; direct builders only for urgent work? | Y | Work is filed to the loop first. |
+| 10 | Replace the GPT reviewer with a Claude reviewer? | Y | The loop's exact-SHA reviewer becomes Claude on his plan (a loop change; owner-gated re-pin). |
+| 11 | Stop the old build loop on the production host after the re-pin? | Y | Confirms the 25 Sep decision. |
+| 12 | GitHub Issues as the build board (Symphony)? | N for now | Not built. |
+| 13 | Give the Director and CLIVE their own GitHub identity? | Y | A GitHub App per identity; George creates them. |
+| 14-15 | WhatsApp for suppliers? For customers? | "Whatsapp for anything - not just one set role" | WhatsApp is a general channel: suppliers, customers, anyone. |
+| 16 | Give CLIVE's WhatsApp its own new number? | Y | A new number; his phone's WhatsApp is untouched. |
+| 17 | Apply for Instagram Advanced Access? | not right now | Not applied for. |
+| 18 | Instagram's human-agent tag? | n for now | Not used. |
+| 19 | hooks.crooksldn.com as the one public webhook address? | Y | The public door for /hooks/* only. |
+| 20 | Returns events reach CLIVE through that address? | Y | CROOKS Returns posts its events to CLIVE's hooks door. |
+| 21 | Let CLIVE use CLIVE Shipping now? | Y | CLIVE's Shipping keys are created at the service deploy. |
+| 22 | Allow label buying on every order rather than an approved list? | Y ("22 is fine") | `SHIPPING_BUYING_ENABLED=true` on the service. CLIVE still needs his hold for every label. |
+| 23 | Send labels straight to the printer through PrintNode? | Y | PrintNode on, on the service. |
+| 24 | Delete CLIVE's old Easyship code? | Y | `app/shipping/` and its family go. |
+| 25 | Accept that a two-part ask ("list today's orders and open 1940") shows only the order? | N, and: "asking to see todays orders and to show a specific order s different to asking to see a specific order and seeing the specific order + todays orders. in one instance it was asked, in the other, the ai inferred it was needed when it wasnt specified. clive can infer but inferring needs stronger relation, for instance, asking about a customers email can give detailed explanation as to why with other cards, not just showing the reason. this can be its tracking status, an instagram message. they were't asked for but if theyre relevant they are inferred, asking to see the customers email and it showing you every other email from other people today is not what we want to happen." | DEC-069's focus rules change: what he asked for always shows; what CLIVE adds unasked must be about the same subject (the same customer, order or thread); anything else stays off. |
+| 26 | Never let the owner's own MCP servers load into CLIVE's live turns? | Y | `strict_mcp_config` on in production. |
+| 27 | Bulk inbox actions (archive or junk many at once) on one hold? | Y | One card, one hold, for a set of threads. |
+| 28 | Let CLIVE delete the unused Gmail drafts it leaves behind? | Y | CLIVE removes drafts it made and that were never sent. |
+| 29 | Allow an email to be shown on a TV? | Y | An email may go on a screen when he puts it there. |
+| 30 | Keep the team page acting on "packed 2106" without the model, as an exception to DEC-063? | Y | `web/today-say.js` stays: a recorded exception to "every sentence is a model turn". |
+| 31 | "Routines" means saved multi-step jobs started by name? | Y | Routines are built as named, saved sequences of steps. |
+| 32 | Run the scenes-versus-cards comparison on the bench and keep the winner? | Y | Ten real questions on the bench. |
+| 33 | Can staff read security and login emails? | not yet | No. |
+| 34 | Can staff send a draft the owner left, on their own hold? | Y | A staff member may send his draft with their own hold. |
+| 35 | Staff join with a link and a code instead of Tailscale? | Y | Staff sign-in by invitation link and code. |
+| 36 | Keep staff on the owner's Max plan for now? | Y | No Team plan yet. |
+| 37 | Delete the retired Split code? | Y | Deleted (DEC-050). |
+| 38 | Retire the Mac runtime and the menu-bar app? | Y | Deleted (DEC-058). |
+| 39 | Delete the local Whisper speech client? | Y | Deleted (DEC-022: no local fallback on the server). |
+| 40 | Archive the CROOKS Pad? | Y | Removed from the app; kept in history. |
+| 41 | Delete the retired orchestrator scheduler? | NO | `orchestrator/scheduler.py` stays. |
+| 42 | Keep the venture engine parked? | "park venture engine for now" | Stays parked on its branch. |
+| 43 | Allow business text to go to AI services other than Claude (such as Jev)? | Y | Allowed, service by service; customer details still never go into logs, URLs or build requests (MAP rule 4). |
+
+**Reason:** he asked for every decision that needed him, as yes or no, in one place.
+
+**Consequences:** rulings 6 and 7 settle decisions 3 and 6 of the self-shipping plan and DEC-067's open question. Ruling 25 changes DEC-069's focus rules. Ruling 30 is a recorded exception to DEC-063. Rulings 37–40 and 24 retire parked code (MAP "Parked"); ruling 41 keeps the scheduler; ruling 42 keeps the venture engine parked. Rulings that need building are built as their own pull requests, each citing its ruling.
