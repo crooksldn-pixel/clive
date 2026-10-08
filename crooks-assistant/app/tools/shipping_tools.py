@@ -232,9 +232,11 @@ async def shipping_events(hours: int = 24) -> dict[str, Any]:
 
 
 def fingerprint(d: dict[str, Any]) -> dict[str, Any]:
-    """What the engine holds an order to: its stage, whether a label is bought, and its prints
-    (the state, how many attempts, how many extra copies). No customer's detail, and nothing that
-    moves on its own between two reads (a status's wording, a carrier check's time)."""
+    """What the engine holds an order to: its stage, whether a label is bought and has its tracking
+    number, and its prints (the state, how many attempts, how many extra copies). It is written to
+    the action ledger and, from there, the timeline, so it says WHETHER the tracking number is in,
+    never the number: that is the customer's parcel. No customer's detail, and nothing that moves on
+    its own between two reads (a status's wording, a carrier check's time)."""
     printing = d.get("print_status") if isinstance(d.get("print_status"), dict) else {}
     history = printing.get("history") if isinstance(printing.get("history"), list) else []
     reprints = printing.get("reprint_count")
@@ -242,7 +244,7 @@ def fingerprint(d: dict[str, Any]) -> dict[str, Any]:
     return {
         "stage": str(d.get("stage") or ""),
         "bought": label is not None,
-        "tracking_number": str((label or {}).get("tracking_number") or ""),
+        "tracking": bool((label or {}).get("tracking_number")),
         "print": str(printing.get("state") or ""),
         "prints": len(history),
         "reprints": reprints if isinstance(reprints, int) else 0,
@@ -311,14 +313,23 @@ async def _read_for_staging(shipment_id: str) -> tuple[dict[str, Any], dict[str,
 # ------------------------------------------------------------------ buy
 
 
+def _without_tracking(words: str, d: Any) -> str:
+    """The service's sentence with the order's own tracking number taken out: what the proof says is
+    written to the ledger and the timeline, and the number is the customer's."""
+    label = d.get("label") if isinstance(d, dict) and isinstance(d.get("label"), dict) else {}
+    number = str(label.get("tracking_number") or "").strip()
+    return words.replace(number, "[tracking number]") if number else words
+
+
 async def _execute_buy(execution: dict) -> dict:
     """Sent only by the action engine, after the owner's hold on this card."""
     answer = await _send(execution, lambda key: client.buy(execution["shipment_id"], basis=execution["basis"],
                                                            idempotency_key=key))
+    error = client.scrub(answer.get("error")) if answer.get("error") else ""
     _remember(str(execution["idempotency_key"]), {
         "charged": answer.get("charged") is True, "may_have_been_charged": answer.get("may_have_been_charged") is True,
         "replayed": answer.get("replayed") is True, "status": str(answer.get("status") or ""),
-        "error": client.scrub(answer.get("error")) if answer.get("error") else "",
+        "error": _without_tracking(error, answer.get("shipment")),
     })
     return {"status": str(answer.get("status") or ""), "done": answer.get("charged") is True}
 
@@ -336,7 +347,9 @@ def verify_buy(before: dict, observed: dict, execution: dict) -> tuple[bool, str
             return False, ("The courier may have taken the payment, and CLIVE Shipping is checking it. Don't buy "
                            "again: look at the order in Shipping.")
         return False, f"{client.NAME} answered, but the order shows no label" + (f": {out['error']}" if out["error"] else ".")
-    said = [f"Tracking {observed['tracking_number']}." if observed.get("tracking_number") else
+    # Whether the number is in, never the number: this note is the ledger's reason and the timeline's.
+    # George reads the number on the order's card, drawn from the order as read back.
+    said = ["Tracking number in." if observed.get("tracking") else
             "No tracking number yet; CLIVE Shipping adds it when the courier sends it."]
     if out["error"]:
         said.append(f"The label is bought, but: {out['error']}")
@@ -413,8 +426,10 @@ async def shipping_label_buy(shipment_id: str) -> Prepared:
     d, v = await _read_for_staging(shipment_id)
     number = _order_of(d)
     if v["label"]:
-        raise ToolError(f"{number} already has a label bought ({v['label']['provider']}, tracking "
-                        f"{v['label']['tracking_number'] or 'not in yet'}). Nothing to buy.")
+        # Whether its tracking number is in, not the number: a refusal is written to the log and the
+        # timeline. The order's card (shipment_find) shows the number.
+        raise ToolError(f"{number} already has a label bought ({v['label']['provider']}, tracking number "
+                        f"{'in' if v['label']['tracking_number'] else 'not in yet'}). Nothing to buy.")
     if v["stage"] != "ready":
         why = " · ".join(v["reasons"]) or v["status"] or v["stage_words"]
         raise ToolError(f"{number} isn't ready for a label: {why}. Nothing was prepared.")

@@ -22,6 +22,7 @@ What it proves, through CLIVE's own tools and action engine:
 
 from __future__ import annotations
 
+import re
 import types
 from unittest.mock import Mock
 
@@ -270,6 +271,68 @@ async def test_what_changed_and_the_tracking_are_the_services(world):
     (one,) = tracked["shipments"]
     assert one["label"]["tracking_number"] and one["carrier_view"] is not None
     _no_customer([changed, tracked])
+
+
+# A tracking number is the customer's parcel: shaped like Royal Mail's, Parcelforce's or the
+# service's fake courier's (…GB), UPS's (1Z…) or Yodel's and DHL Parcel's (JD…).
+TRACKING_SHAPED = re.compile(r"\b(?:[A-Z]{1,2}\d[0-9A-Z]{4,12}GB|1Z[0-9A-Z]{16}|JD\d{16,18})\b")
+
+
+async def test_no_tracking_number_reaches_the_action_ledger_or_the_timeline(world, tmp_path):
+    """The ledger (actions.jsonl) and the timeline (exported, handed to engineering agents) carry
+    whether a label has its tracking number, never the number: through a buy, its proof and what is
+    said, a first print, a copy, and a second buy refused at staging. George still sees the number
+    on the order's card."""
+    from app.actions import ledger as ledger_module
+    from app.actions.ledger import ActionLedger
+    from app.observability import hooks
+    from app.observability import timeline as timeline_module
+    from app.observability.session import TestSessions
+    from app.observability.timeline import Timeline
+
+    world.engine.ledger = ledger = ActionLedger(tmp_path / "logs")
+    sessions = TestSessions(tmp_path / "logs")
+    recording, was = Timeline(sessions), timeline_module.current()
+    observed_already = hooks.ledger_observer in ledger_module._observers
+    timeline_module.install(recording)
+    ledger_module.observe(hooks.ledger_observer)
+    try:
+        test_session = recording.start("tracking numbers")
+        ready = shipping_service.ready_order(world.s, world)
+        session = _session()
+        _, buy = await _stage(session, shipping_tools.BUY, ready.id)
+        bought = await _approve(world, buy, hold=True)
+        assert bought.code == "verified", bought.spoken
+        shipping_service.real_label(world.s, world, ready.id)
+        sender = Mock()
+        sender.print_pdf.side_effect = range(7000, 7100)
+        world.app.state.operations.physical.provider = sender
+        said = [bought.spoken]
+        for tool in (shipping_tools.PRINT, shipping_tools.REPRINT):
+            session.epoch += 1
+            _, card = await _stage(session, tool, ready.id)
+            printed = await _approve(world, card, hold=False)
+            assert printed.code == "verified", printed.spoken
+            said.append(printed.spoken)
+        session.epoch += 1
+        text, again = await _stage(session, shipping_tools.BUY, ready.id)
+        assert again is None and text.startswith("ERROR: #2145 already has a label bought")
+        said.append(text)
+        assert recording.flush()
+        written = sessions.timeline_path(test_session).read_text()
+    finally:
+        if not observed_already:
+            ledger_module.unobserve(hooks.ledger_observer)
+        recording.stop()
+        timeline_module.install(was)
+    number = world.store.get(world.shop, ready.id).label.tracking_number
+    assert number and TRACKING_SHAPED.fullmatch(number), "the shapes would see this courier's number"
+    assert bought.proposal.entity["label"]["tracking_number"] == number, "the order's card still shows it"
+    kept = ledger.path.read_text()
+    assert '"event": "VERIFIED"' in kept and '"action_verified"' in written, "both records were written"
+    for where, text in (("actions.jsonl", kept), ("the timeline", written), ("what CLIVE said", " ".join(said))):
+        assert number not in text and not TRACKING_SHAPED.search(text), f"a tracking number reached {where}"
+    assert '"tracking": true' in kept, "the ledger says the number is in, not what it is"
 
 
 async def test_the_write_key_is_the_only_one_that_acts(world):

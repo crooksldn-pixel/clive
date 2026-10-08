@@ -232,6 +232,26 @@ def test_what_the_service_wrote_is_scrubbed_and_what_it_filled_in_is_kept():
     assert shipping_views.row(summary(stage="in_transit"))["tone"] == "quiet"
 
 
+async def test_what_a_buy_proof_says_names_no_tracking_number(monkeypatch, keys):
+    """The proof's note is the ledger's reason and the timeline's: whether the number is in, and the
+    service's own sentence with the order's number taken out of it."""
+    number = "QF123456789GB"
+    shipment = summary(stage="bought") | {"label": {"provider": "Parcel2Go", "service": "Parcelforce",
+                                                    "tracking_number": number}}
+    answering(monkeypatch, lambda r: httpx.Response(200, json={
+        "charged": True, "status": "fulfillment_failed", "shipment": shipment,
+        "error": f"The label is bought (no need to buy again). Shopify refused {number}."}))
+    execution = {"shipment_id": SID, "basis": "b1", "idempotency_key": CARD}
+    await shipping_tools._execute_buy(execution)
+    before = shipping_tools.fingerprint(summary() | {"label": None})
+    observed = shipping_tools.fingerprint(shipment)
+    assert observed["tracking"] is True and "tracking_number" not in observed
+    ok, note = shipping_tools.verify_buy(before, observed, execution)
+    assert ok and note == ("Tracking number in. The label is bought, but: The label is bought (no need to buy again). "
+                           "Shopify refused [tracking number].")
+    assert number not in note
+
+
 # ------------------------------------------------------------------ the tools, refused before staging
 
 
