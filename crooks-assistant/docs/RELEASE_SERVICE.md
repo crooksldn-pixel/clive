@@ -432,7 +432,7 @@ lines with the new SHA, after its own review. Nothing else changes.
    restarting onto the new build.
 5. **Kept.** Once the service says done and the CLIVE answering is the new build, the page asks
    `/whoami` itself and hands its token to `POST /release/kept`, which looks in CLIVE's own journal
-   for `whoami: id=<token> through=tailscale owner=true refusal=none` since the deploy was done. Found,
+   for `whoami: id=<check> through=tailscale owner=true refusal=none` since the deploy was done. Found,
    the deploy is kept (recorded in `objectives/release-kept/<sha>.json`) and the card says "Deployed and
    kept". Any owner page of CLIVE does this as it opens; the tab he approved from reopens the Builds
    screen on it. The release record pushed to GitHub still lists the phone check as outstanding: CLIVE
