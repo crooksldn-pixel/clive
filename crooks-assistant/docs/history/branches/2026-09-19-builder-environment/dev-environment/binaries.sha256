@@ -1,0 +1,27 @@
+# The pinned single-file binaries in .tooling/bin, in sha256sum(1) format, with paths
+# relative to the REPOSITORY ROOT. Check with:  sha256sum -c crooks-assistant/docs/dev-environment/binaries.sha256
+#
+# These began as OBSERVED digests, read off the artifacts installed on the builder at candidate
+# 9a27bc441adad1e98e8a9ca257d1883246ee7eec. On 2026-09-19, under the owner's approved bounded
+# fetch policy, every asset pinned in manifest.json was fetched from its upstream release and
+# extracted, and all NINE digests below were reproduced exactly. They are therefore no longer
+# observation alone: the bytes this environment was proved against are the bytes those releases
+# contain. A reconstruction that fetches something else fails loudly instead of running a
+# different tool at the same version number.
+#
+# The digests of the downloaded assets themselves are in binary-assets.sha256, which is checked
+# before extraction; this file is checked after install.
+#
+# .tooling/bin/skillspector is deliberately absent: it is a uv-generated shim with the
+# checkout's absolute path baked into its shebang, so its digest is path-dependent and
+# would be wrong in any other checkout. Its identity is the uv_tools pin in manifest.json.
+
+7df43a8878de90c954d89e0cfd9ff4631c6bc06d9060745e5af4c86edb4c7b39  .tooling/bin/ast-grep
+16791ab3d5c2f7ce04dc994d175dab75aa704038d769ebe497ae5d59cb2c5ec9  .tooling/bin/fd
+88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509  .tooling/bin/gitleaks
+a298729daf3b670198b6988a0489289e0044174c8734a172659495dd09d080b6  .tooling/bin/hyperfine
+4da528ddb3a4d1b7b24a59d4e16eb2f5fd960f4bd9a3708a15baddbdf1d5a55b  .tooling/bin/shellcheck
+d9fbb2a9c33d13f47e7618cf362a914d029d02a6df124064fff04fd688a745ea  .tooling/bin/shfmt
+d89bcc6510a267f11b773398cbf1be5520ce39f9e8b6633178c4487f05b7d791  .tooling/bin/trivy
+83f28650272b5543e939debbc7a5578d087952399fd945e9267b1db0ccc27d33  .tooling/bin/uv
+2d14adbd124a9f4ebb49b6a3c66d220af523066ef47205a9f532056d3f3364ad  .tooling/bin/uvx

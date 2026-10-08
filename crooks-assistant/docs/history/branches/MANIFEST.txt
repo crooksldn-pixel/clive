@@ -1,0 +1,34 @@
+# Imported from branches that never reached trunk: one line per file, space-separated.
+#
+#   file (under this folder)  blob it was imported as  source commit  path at that commit
+#
+# Every file is a byte-for-byte copy (`git show <commit>:<path>`), never edited. The blob column
+# is what `git hash-object <file>` gives, so tests/test_repo_boundary.py can prove a file has not
+# changed since it was imported, and, where the source commit is present (its archive tag), that
+# it is the commit's own copy.
+2026-09-19-builder-environment/DESIGN.md 6d99cbdc3639a5fe1f00f5a34e4370a9d5240d2f 295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b crooks-assistant/DESIGN.md
+2026-09-19-builder-environment/DEV_ENVIRONMENT.md e145a71ff2111dd67e2855577b2c58f8b985307f 295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b crooks-assistant/docs/DEV_ENVIRONMENT.md
+2026-09-19-builder-environment/dev-environment/BROWSER_GATE_FINDING.md 309d3fa6587ab31af524bcb4d0ff4084add822cb 295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b crooks-assistant/docs/dev-environment/BROWSER_GATE_FINDING.md
+2026-09-19-builder-environment/dev-environment/CLAUDE_PROJECT_LAYOUT.md 015abb4499743a897f7866317f778c67752a63d0 295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b crooks-assistant/docs/dev-environment/CLAUDE_PROJECT_LAYOUT.md
+2026-09-19-builder-environment/dev-environment/CONTRACT_TRIAL_ENV_REPRO_001.md f2f32e3232e908865e4803e4a4e50e85e79eb7da 295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b crooks-assistant/docs/dev-environment/CONTRACT_TRIAL_ENV_REPRO_001.md
+2026-09-19-builder-environment/dev-environment/LATER_CANDIDATES.md 1e13183d927816464b5b0ee10aa6e0e4e66df991 295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b crooks-assistant/docs/dev-environment/LATER_CANDIDATES.md
+2026-09-19-builder-environment/dev-environment/binaries.sha256 ee9047d6470e42b7419a70a143870f7eb3b5c17b 295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b crooks-assistant/docs/dev-environment/binaries.sha256
+2026-09-19-builder-environment/dev-environment/binary-assets.sha256 d00ba69069b6ce6e2e28b6a78f798b34879d781d 295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b crooks-assistant/docs/dev-environment/binary-assets.sha256
+2026-09-19-builder-environment/dev-environment/manifest.json 7978c68a05d0d352e595596974dcf717da15e0ea 295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b crooks-assistant/docs/dev-environment/manifest.json
+2026-09-19-builder-environment/dev-environment/node-package-lock.json a43d0095a63d96de15e0617d8f7f26f3a1500529 295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b crooks-assistant/docs/dev-environment/node-package-lock.json
+2026-09-19-builder-environment/dev-environment/node-package.json 3633bac4a4201ab00dad8c516df7e35a0696cd34 295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b crooks-assistant/docs/dev-environment/node-package.json
+2026-09-19-builder-environment/dev-environment/sysroot-packages.sha256 aa4a9d48e29fa3fdd3104b3b6890017f450f04ce 295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b crooks-assistant/docs/dev-environment/sysroot-packages.sha256
+2026-09-19-builder-environment/dev-environment/sysroot-packages.txt 187bab9abcb45c5f8ad9c59e034efb7944ef0161 295e483b4f9adcdc3fb58bfb3aa025e2e3f4779b crooks-assistant/docs/dev-environment/sysroot-packages.txt
+2026-09-19-mobile-experience-v1/MOBILE_EXPERIENCE_V1.md 52b16427e7eb436b57ae3edfd818fbed95017941 564ef3430d58b34de582f5548d7fe201c4cfe04b crooks-assistant/docs/MOBILE_EXPERIENCE_V1.md
+2026-09-19-mobile-experience-v1/DESIGN.md 64200defe8da4559c4392328cc053d0fae592202 564ef3430d58b34de582f5548d7fe201c4cfe04b crooks-assistant/DESIGN.md
+2026-09-19-ops-runbook/OPS_RUNBOOK.md e8f47a2d47c3fa4b96187b1a7a1e25a6690e8067 028aca1fdade2791264fb986fa5ad8b10c54811b crooks-assistant/docs/product-memory/OPS_RUNBOOK.md
+2026-09-20-orchestrator-v1-freeze/ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md 4a410c6ec54ea12f826337bb026534f27b454a2e 70d0fa174a42a87dba5ae7ee10df8d01255cf40f crooks-assistant/docs/product-memory/ORCHESTRATOR_V1_ACCEPTANCE_MATRIX.md
+2026-09-20-orchestrator-v1-freeze/ORCHESTRATOR_V1_FREEZE_CONTRACT.md 8699900c6a65bded2ed513346345d5ae0fe00162 70d0fa174a42a87dba5ae7ee10df8d01255cf40f crooks-assistant/docs/product-memory/ORCHESTRATOR_V1_FREEZE_CONTRACT.md
+2026-09-20-orchestrator-v1-freeze/ORCHESTRATOR_V1_STATE_API.md 189601e8a6b6f468aa87cd87096037014ffb3929 70d0fa174a42a87dba5ae7ee10df8d01255cf40f crooks-assistant/docs/product-memory/ORCHESTRATOR_V1_STATE_API.md
+2026-09-20-orchestrator-v1-freeze/ORCHESTRATOR_V1_TRACEABILITY.md dd2b49e59987495be208691f6a96c5e49d02623f 70d0fa174a42a87dba5ae7ee10df8d01255cf40f crooks-assistant/docs/product-memory/ORCHESTRATOR_V1_TRACEABILITY.md
+2026-09-20-orchestrator-v1-freeze/WATCHER_BUILDER_IDENTITY_REMEDIATION.md 5f536b5a090420dfefb3a49480bfb368bc8dedd6 70d0fa174a42a87dba5ae7ee10df8d01255cf40f crooks-assistant/docs/product-memory/WATCHER_BUILDER_IDENTITY_REMEDIATION.md
+2026-09-22-capability-registry/ENGINEERING_CAPABILITY_REGISTRY.md 0fa28e07da17a608eef8a774576fe64eab7c29f0 6a522f8f42bf8664fc966152e3f0ea61aa241c81 crooks-assistant/docs/product-memory/ENGINEERING_CAPABILITY_REGISTRY.md
+2026-09-22-recovery-handoff/RECOVERY_HANDOFF_2026-09-22.md 240a96f891dab82a93ece27ab5ea51bca70a560e 3df126c287a4264f48afd36fe662f7824eaaa638 crooks-assistant/docs/RECOVERY_HANDOFF_2026-09-22.md
+2026-09-22-recovery-handoff/handoff/recovery-handoff-2026-09-22.json 0b8eade4482753c0b973ab71b9907be4a35df2da 3df126c287a4264f48afd36fe662f7824eaaa638 crooks-assistant/docs/handoff/recovery-handoff-2026-09-22.json
+2026-09-22-recovery-handoff/handoff/v05-baseline-33968c92.json 40288831ad83788aaf2a802208a187365c359888 3df126c287a4264f48afd36fe662f7824eaaa638 crooks-assistant/docs/handoff/v05-baseline-33968c92.json
+2026-09-23-product-memory-reconcile/RECONCILIATION_2026-09-23.md faa67961fbe78d67eefa65c4891513d025adf6bc 95227cc27729bf7a5ecba8de09e493666342c89e crooks-assistant/docs/product-memory/RECONCILIATION_2026-09-23.md

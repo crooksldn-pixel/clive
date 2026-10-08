@@ -1,0 +1,88 @@
+{
+  "schema": "clive.v05_acceptance_baseline.v1",
+  "candidate_sha": "33968c92660032104ed75a49dd96df8e63b29a07",
+  "branch": "claude/v05-parallel-worker-20260921",
+  "generated_at": "2026-09-22T19:05:00Z",
+  "runner": "local, /opt/crooks-builder/.worktrees/v05-baseline, isolated detached worktree",
+  "worktree_clean": true,
+
+  "hosted_workflow_status": "CANNOT_RUN_AT_THIS_SHA",
+  "hosted_workflow_reason": [
+    "GitHub Actions resolves the workflow definition from the commit being run.",
+    ".github/workflows/acceptance.yml does not exist at 33968c92 — it was first added at b032d1a3 on 2026-09-22T07:26:33Z.",
+    "Neither a push of this SHA nor workflow_dispatch against it can therefore trigger a run.",
+    "33968c92 and 3640c54a diverge at e43aecdb: they are different lineages, not one branch ahead of the other."
+  ],
+  "why_not_grafted": "Cherry-picking the CI harness onto 33968c92 would produce a different SHA with a different tree, and the resulting green badge would describe that graft rather than the V0.5 candidate. The provenance script exists precisely to prevent evidence floating free of the commit it describes, so the gates were run against the real tree instead.",
+
+  "gates": [
+    {
+      "name": "ruff",
+      "applicable": true,
+      "status": "pass",
+      "exit_code": 0,
+      "command": "ruff check app config scripts tests",
+      "detail": "All checks passed!"
+    },
+    {
+      "name": "pytest_control_plane",
+      "applicable": false,
+      "status": "not_applicable",
+      "detail": "crooks-assistant/app/orchestrator/ and tests/test_orchestrator_control_plane.py are absent at this SHA. The control plane exists only on the e8830c44 lineage; V0.5 branches from e43aecdb and has never contained it."
+    },
+    {
+      "name": "product_memory_structure",
+      "applicable": false,
+      "status": "not_applicable",
+      "detail": "crooks-assistant/docs/product-memory/ is absent at this SHA. There is nothing for the structural checker to check."
+    },
+    {
+      "name": "pytest_offline_full",
+      "applicable": true,
+      "status": "fail",
+      "exit_code": 1,
+      "command": "pytest tests -m \"not live\" -q",
+      "detail": "2979 passed, 3 failed, 8 skipped, 2 deselected",
+      "failures": [
+        "tests/test_no_terminal.py::test_the_documents_the_app_draws_send_nobody_to_terminal[actions_document]",
+        "tests/test_no_terminal.py::test_no_stop_reason_tells_the_owner_to_open_terminal[update.py]",
+        "tests/test_no_terminal.py::test_no_stop_reason_tells_the_owner_to_open_terminal[control.py]"
+      ],
+      "regression_analysis": {
+        "introduced_by_v05": 0,
+        "pre_existing": 3,
+        "method": "The same three tests were run at 93dcd5da, the branch point before any V0.5 commit, in a separate detached worktree.",
+        "result_at_branch_point": "3 failed, 6 passed — byte-identical failure set",
+        "conclusion": "V0.5 introduces no regressions. All three failures are inherited from the Phase 6 merge and are recorded as open item 5 in LIVE_EXPERIENCE_V0_5_STATUS.md."
+      }
+    },
+    {
+      "name": "secret_scan",
+      "applicable": false,
+      "status": "could_not_run",
+      "detail": "No .gitleaks.toml or .gitleaks-baseline.json exists at this SHA, and the gitleaks binary is not installed on this host. Nothing was scanned, baselined or rotated."
+    }
+  ],
+
+  "v05_specific_suites": [
+    {"suite": "tests/web/live-state.test.js", "passed": 27, "failed": 0, "exit_code": 0},
+    {"suite": "tests/web/jobs.test.js", "passed": 25, "failed": 0, "exit_code": 0},
+    {"suite": "tests/web/acceptance-v05.test.js", "passed": 11, "failed": 0, "exit_code": 0}
+  ],
+  "v05_specific_total": {"passed": 63, "failed": 0},
+
+  "baseline_verdict": {
+    "summary": "V0.5 is clean on every gate that applies to it and introduces no regressions. It is not green against the full acceptance workflow, because three of the five gates have no subject in this tree and one cannot run here.",
+    "blocking_for_review": false,
+    "note": "The three pytest failures are pre-existing and documented; they are not a reason to hold review of 33968c92.",
+    "independent_review": "required — this baseline is evidence, not acceptance. Nothing here accepts the candidate."
+  },
+
+  "reproduce": [
+    "git worktree add --detach <path> 33968c92",
+    "cd <path>/crooks-assistant",
+    "ruff check app config scripts tests",
+    "pytest tests -m \"not live\" -q",
+    "node --test tests/web/live-state.test.js tests/web/jobs.test.js tests/web/acceptance-v05.test.js"
+  ]
+}

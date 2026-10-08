@@ -1,0 +1,233 @@
+{
+  "schema": "clive.recovery_handoff.v1",
+  "generated_at": "2026-09-22T18:35:00Z",
+  "generated_by": "independent audit session, crooks-os-prod-1",
+  "note": "Every field is evidence-derived. review_state is NEVER inferred from CI: a green run means the gates passed, not that a principal judged the work.",
+  "candidates": [
+    {
+      "candidate_sha": "e8830c44bcae917b7c711b081a8adf003832bc9d",
+      "branch": "claude/control-plane-vnext-phase1-repair2-2026-09-21",
+      "purpose": "Control plane vNext Phase 1 repair 2 \u2014 S-01 ruff fix plus three isolated single-signal guards (allowed_paths, owner_gate, blocker_class).",
+      "committed_at": "2026-09-21T11:40:32Z",
+      "author_principal": "claude",
+      "ci_state": "NO_CI_RUN \u2014 predates .github/workflows/acceptance.yml, which first ran at 3640c54a",
+      "review_state": "NEVER_REVIEWED",
+      "review_evidence": "0 PRs or issues reference this SHA; branch claude/independent-review-e8830c44 exists locally only and returns HTTP 404 on origin; its tmux pane holds a bash shell with 0.00s CPU and no agent was ever launched",
+      "exact_blocker": "No eligible independent reviewer principal existed. Every Claude session on this host is SAME_PRINCIPAL under app/orchestrator/routing.py and is structurally ineligible.",
+      "next_safe_action": "Route to the GPT reviewer principal recorded in config/review_principals.json, pinned to this exact SHA, from a read-only workspace checked out at this SHA.",
+      "owner_action_required": false,
+      "owner_action_note": "The owner has already nominated GPT as the independent reviewer principal. No further owner decision is needed to start this review."
+    },
+    {
+      "candidate_sha": "3640c54a669b3247fa94d71c8ea6f6bcfdbbee34",
+      "branch": "claude/ci-provenance-acceptance-2026-09-22",
+      "purpose": "First CI for the repository: acceptance workflow pinned to github.sha, provenance script that refuses on HEAD disagreement or dirty tree, structural product-memory checker, reviewer-routing module.",
+      "committed_at": "2026-09-22T07:45:12Z",
+      "author_principal": "claude",
+      "ci_state": "PASS \u2014 run 35701982655, all five gates green",
+      "review_state": "NEVER_REVIEWED",
+      "review_evidence": "Authored entirely by the Claude principal, which declared itself ineligible to review it in bridge/claude-outbox.md \u00a78",
+      "exact_blocker": "Same reviewer-independence blocker as e8830c44. Additionally, the branch head has since moved to 100b8998, so this SHA must be reviewed as a pinned commit, not as 'the branch'.",
+      "next_safe_action": "Route to the GPT reviewer principal at this exact SHA. Do not review 'the branch' \u2014 it has advanced by nine commits since.",
+      "owner_action_required": true,
+      "owner_action_note": "Decision D-3 rides on this commit: the .gitleaks-baseline.json asserts five in-tree findings are redaction fixtures. See secret_scan_findings below."
+    },
+    {
+      "candidate_sha": "a8005721d22299745dbf2cc0d45b0f42f4c04247",
+      "branch": "claude/agent-environment-state-view-2026-09-22",
+      "purpose": "Read-only, evidence-bound projection of CLIVE engineering state for the Agent Environment. Liveness alone never yields BUILDING.",
+      "committed_at": "2026-09-22T18:19:04Z",
+      "author_principal": "claude",
+      "ci_state": "PASS \u2014 run 35766364880, 18:19:11Z to 18:22:24Z; first green run on this repository since 09:42Z",
+      "review_state": "NEVER_REVIEWED",
+      "review_evidence": "Authored in this audit session. Held unchanged pending independent review, per owner instruction.",
+      "exact_blocker": "Awaiting independent review. Not blocked on anything else \u2014 gates are green and it touches no runtime.",
+      "next_safe_action": "Route to the GPT reviewer principal at this exact SHA. Do not add commits to this branch before review.",
+      "owner_action_required": false
+    },
+    {
+      "candidate_sha": "33968c92660032104ed75a49dd96df8e63b29a07",
+      "branch": "claude/v05-parallel-worker-20260921",
+      "purpose": "CLIVE Live Experience V0.5 implementation. Slices A, B, C and E complete; D partial. +2409/-50 across 23 files measured against ff7e2279.",
+      "committed_at": "2026-09-21T12:57:41Z",
+      "author_principal": "claude",
+      "ci_state": "BASELINE ESTABLISHED 2026-09-22T19:05Z (local, not hosted). ruff pass; pytest_offline_full 2979 passed / 3 failed / 8 skipped, all 3 failures pre-existing at branch point 93dcd5da and 0 introduced; V0.5 Node suites 63 passed / 0 failed. pytest_control_plane and product_memory_structure are not applicable at this lineage; secret_scan could not run. The hosted workflow CANNOT bind to this SHA \u2014 .github/workflows/acceptance.yml does not exist at it. See docs/handoff/v05-baseline-33968c92.json.",
+      "review_state": "NEVER_REVIEWED",
+      "review_evidence": "No PR, no review branch, no reviewer assignment. Recorded as 'Untouched' in every bridge round since it was pushed.",
+      "exact_blocker": "Never reviewed, and two genuine owner decisions (V0.5 questions 2 and 3). The CI baseline is no longer a blocker: it is established and shows no regressions. Browser/device evidence remains impossible on this host (/opt/pw-browsers absent).",
+      "next_safe_action": "Route to the GPT reviewer principal at this exact SHA. The acceptance baseline is done and recorded.",
+      "owner_action_required": true,
+      "owner_action_note": "Two of the five open questions are genuine product decisions. The other three are not \u2014 see v05_questions."
+    },
+    {
+      "candidate_sha": "100b89981ab14bb17825d70a95ed0e61108d1dcc",
+      "branch": "claude/ci-provenance-acceptance-2026-09-22",
+      "purpose": "Current head of the CI/provenance stream. Nine commits authored by the GPT principal on 2026-09-22, building review-acceptance fences and a Judgment Ledger.",
+      "committed_at": "2026-09-22T17:42:22Z",
+      "author_principal": "gpt",
+      "ci_state": "FAIL \u2014 run 35762446669. Eighth consecutive failure; the stream has been red since 10:44Z.",
+      "review_state": "NOT_REVIEWABLE_YET",
+      "review_evidence": "A candidate that does not pass its own gates is not eligible for review. Reviewing red work wastes the one reviewer the system has.",
+      "exact_blocker": "Three failing gates. Two are mechanical; the third is not. See ci_failing_gates.",
+      "next_safe_action": "Stop committing to this branch. Apply the two mechanical fixes, then implement the two missing APIs, then re-run CI once.",
+      "owner_action_required": false,
+      "owner_action_note": "The owner has already instructed that no further commits be made merely to retrigger CI."
+    }
+  ],
+  "ci_failing_gates": [
+    {
+      "gate": "ruff",
+      "observed_at_sha": "100b89981ab14bb17825d70a95ed0e61108d1dcc",
+      "failure": "7 errors, all I001 (un-sorted imports), all in files introduced by this stream",
+      "exact_fix": "ruff check --fix app config scripts tests",
+      "classification": "SAFE_REPOSITORY_ONLY",
+      "mechanical": true
+    },
+    {
+      "gate": "product_memory_structure",
+      "observed_at_sha": "100b89981ab14bb17825d70a95ed0e61108d1dcc",
+      "failure": "unindexed_document: JUDGMENT_LEDGER_CONTRACT.md is not linked from README.md",
+      "exact_fix": "Add one index line for JUDGMENT_LEDGER_CONTRACT.md to crooks-assistant/docs/product-memory/README.md. The document exists and is well-formed; only its index entry is missing.",
+      "classification": "SAFE_REPOSITORY_ONLY",
+      "mechanical": true
+    },
+    {
+      "gate": "pytest_offline_full",
+      "observed_at_sha": "100b89981ab14bb17825d70a95ed0e61108d1dcc",
+      "failure": "exit 2, 2 collection errors, suite never runs. tests/test_judgment.py: ImportError, cannot import name 'ReasonCode' from 'app.actions.judgment'. tests/test_review_result_gate.py: ModuleNotFoundError, no module named 'app.orchestrator.reviewer_routing'.",
+      "exact_fix": "Both tests were written against APIs that have never existed on this branch. ReasonCode (with at least the member ACCEPTED_AS_PROPOSED) must be defined in app/actions/judgment.py, which currently exposes only OwnerDecision, JudgmentValidationError, OwnerProvenance and JudgmentRecord. ReviewerProvenance must be defined in a module named app.orchestrator.reviewer_routing; note the existing reviewer-routing module is app/orchestrator/routing.py and does not contain that class, so this is not a rename.",
+      "classification": "NOT_SAFE_MECHANICAL \u2014 requires designing and implementing two absent APIs on the review-acceptance path",
+      "mechanical": false,
+      "note": "This is the review-acceptance surface itself. It must not be self-approved by whoever writes it."
+    }
+  ],
+  "v05_questions": [
+    {
+      "id": "1",
+      "question": "No endpoint re-runs a single failed read, so no per-job retry affordance is drawn.",
+      "classification": "SAFE_ENGINEERING_DECISION",
+      "rationale": "Whether to add a per-job retry endpoint is an implementation choice on an internal surface. The client half is already written and tested. Do not send to the owner.",
+      "owner_action_required": false
+    },
+    {
+      "id": "2",
+      "question": "Partial speech feedback has no recogniser behind it \u2014 on-device SpeechRecognition versus streaming partials from the Mac's whisper server.",
+      "classification": "OWNER_PRODUCT_DECISION",
+      "rationale": "Not because of the engineering, which is a wiring change either way, but because on-device recognition sends the owner's speech to a browser speech service. That is a privacy decision only the owner can make.",
+      "owner_action_required": true,
+      "owner_question": "May the tablet use the browser's on-device speech recognition for live partial text, which involves a third-party speech service, or should partial text wait for a change on the Mac instead?"
+    },
+    {
+      "id": "3",
+      "question": "The tablet is CLIVE end to end; the Mac-side ops layer still says CROOKS OS.",
+      "classification": "OWNER_PRODUCT_DECISION",
+      "rationale": "A naming decision about what the product is called. No engineering content.",
+      "owner_action_required": true,
+      "owner_question": "Is CLIVE the assistant while CROOKS OS remains the appliance, or is the whole thing CLIVE?"
+    },
+    {
+      "id": "4",
+      "question": "No browser or device evidence can be taken \u2014 playwright-core and Chromium are absent from this host.",
+      "classification": "ENVIRONMENT_INFRASTRUCTURE_GATE",
+      "rationale": "/opt/pw-browsers does not exist. This is a missing dependency, not a decision. It blocks slice D's measured layout pass and the 390x844 evidence shots.",
+      "owner_action_required": false,
+      "note": "Installing browsers is an environment change and therefore outside this audit's authority, but it needs no product judgement \u2014 only an authorised install."
+    },
+    {
+      "id": "5",
+      "question": "tests/test_no_terminal.py is red in three places, pre-existing from the Phase 6 merge d073a54b.",
+      "classification": "SAFE_ENGINEERING_DECISION",
+      "rationale": "Two of the three are copy fixes. The third is a real behaviour gap \u2014 after a rollback the checkout is detached and CROOKS Control can neither mark-good nor update, so there is no button to name. Designing that recovery path is engineering work, not a product decision.",
+      "owner_action_required": false,
+      "note": "Red at the branch point, so not introduced by V0.5 and not a blocker on this candidate."
+    }
+  ],
+  "v05_deployment_handoff": {
+    "status": "PREPARED \u2014 NOT DEPLOYED",
+    "candidate_sha": "33968c92660032104ed75a49dd96df8e63b29a07",
+    "branch": "claude/v05-parallel-worker-20260921",
+    "production_checkout": "/opt/crooks-os/crooks-assistant",
+    "production_sha_now": "1cf3a0f3361b79f9de208d80f501543c53c244b5",
+    "production_sha_committed_at": "2026-09-18T21:38:09Z",
+    "why_no_visible_change": "Production serves code committed on 18 September, before any V0.5 work existed. web/live-state.js and web/jobs.js are absent from the production checkout. Neither V0.5 branch has ever been deployed.",
+    "served_by": "crooks-assistant.service, uvicorn on 127.0.0.1:8000, PID 217827, cwd /opt/crooks-os/crooks-assistant",
+    "preconditions_before_any_deploy": [
+      "Independent review of 33968c92 by the GPT reviewer principal, at that exact SHA",
+      "An acceptance workflow run against 33968c92, which has never been run against CI",
+      "Owner answers to v05_questions 2 and 3",
+      "Explicit owner authorisation to deploy \u2014 deploy is an owner gate in every round's hard boundaries"
+    ],
+    "deploy_sequence_when_authorised": [
+      "Record the current production SHA 1cf3a0f3 as the rollback target",
+      "Fetch and check out 33968c92 in the production checkout",
+      "Restart crooks-assistant.service",
+      "Confirm web/live-state.js and web/jobs.js are present and served",
+      "Confirm the tablet reaches the new shell; if not, check out 1cf3a0f3 and restart"
+    ],
+    "rollback_target": "1cf3a0f3361b79f9de208d80f501543c53c244b5",
+    "rollback_caveat": "A rollback leaves the checkout detached, and v05_questions item 5 records that CROOKS Control cannot mark-good or update from that state. Rolling back is safe; recovering forward from a rollback currently needs a person at a shell."
+  },
+  "secret_scan_findings": {
+    "note": "Inspected for location, rule and usage pattern only. No candidate value was printed, transmitted or recorded. Nothing was baselined, rotated or changed.",
+    "scanner_rule_for_all_five": "generic-api-key",
+    "assessment_basis": "Structural, not cryptographic. gitleaks flags these on entropy alone and cannot distinguish a synthetic string from a real key. The judgement below rests on where each string lives and what the surrounding test does with it.",
+    "findings": [
+      {
+        "n": 1,
+        "path": "crooks-assistant/tests/test_observability_redaction.py",
+        "line": 279,
+        "category": "test fixture \u2014 redaction assertion",
+        "appears_deliberate_fixture": true,
+        "evidence": "Passed as authorization= and args={'token': ...} into line.emit(), after which the test reads the written timeline and asserts the value was redacted. The file's docstring records that three real customer email addresses once leaked through this path, which is why the test exists."
+      },
+      {
+        "n": 2,
+        "path": "crooks-assistant/tests/test_observability.py",
+        "line": 81,
+        "category": "test fixture \u2014 scrub assertion",
+        "appears_deliberate_fixture": true,
+        "evidence": "Passed as a header value into timeline.emit() inside a session explicitly named 'scrub'; the test then asserts the redaction marker count."
+      },
+      {
+        "n": 3,
+        "path": "crooks-assistant/tests/test_scribe.py",
+        "line": 24,
+        "category": "test fixture \u2014 module constant SECRET",
+        "appears_deliberate_fixture": true,
+        "evidence": "Module-level SECRET constant, injected via c._key = SECRET, and line 329 asserts SECRET is NOT present in the request body. The value exists precisely so the test can prove it does not leak."
+      },
+      {
+        "n": 4,
+        "path": "crooks-assistant/tests/test_scribe.py",
+        "line": 448,
+        "category": "test fixture \u2014 inline client key injection",
+        "appears_deliberate_fixture": true,
+        "evidence": "client._key = <literal> immediately after constructing ScribeClient() in a test; the surrounding assertions are about transcription output, not credentials."
+      },
+      {
+        "n": 5,
+        "path": "crooks-assistant/tests/test_tts.py",
+        "line": 20,
+        "category": "test fixture \u2014 module constant SECRET",
+        "appears_deliberate_fixture": true,
+        "evidence": "Module-level SECRET constant with the comment 'injected: the Keychain is never read in a test'; lines 101-102 assert SECRET is absent from both the request body and the URL."
+      }
+    ],
+    "residual_risk": "All five sit in tests/ and none appears in application code or configuration. The pattern is consistent throughout: the string exists so a negative assertion can prove it is not leaked. The one thing structure cannot rule out is that a synthetic-looking fixture was originally copied from a live ElevenLabs key. Only the owner knows that.",
+    "action_taken": "NONE. Not baselined, not rotated, not modified.",
+    "recommended_owner_check": "Confirm that no fixture string in these five locations was ever a real credential. If any was, it must be rotated at the provider \u2014 baselining it would record a live key as acceptable."
+  },
+  "reviewer_independence": {
+    "rule_status": "PRESERVED \u2014 UNCHANGED",
+    "rule_location": "crooks-assistant/app/orchestrator/routing.py",
+    "independent_reviewer_principal": "gpt",
+    "recorded_in": "crooks-assistant/config/review_principals.json",
+    "why_this_does_not_weaken_the_rule": "GPT is a genuinely distinct principal_id, so SAME_PRINCIPAL and SAME_SESSION are satisfied by fact rather than by exemption. No ineligibility reason was removed, relaxed or bypassed. The remaining five reasons \u2014 SAME_WORKSPACE, STALE_CONTEXT, CANDIDATE_SHA_DRIFT, REVIEWER_WORKSPACE_IS_WRITABLE, REVIEWER_WORKSPACE_IS_DIRTY, REVIEWER_NOT_AT_CANDIDATE \u2014 continue to apply in full and must each be satisfied per review.",
+    "conditions_on_every_gpt_review": [
+      "The review is pinned to an exact 40-character candidate SHA",
+      "The SHA is re-resolved at decision time; if it has moved, the review does not count",
+      "The reviewer workspace is checked out at the candidate SHA, read-only and clean",
+      "GPT may not review a candidate GPT authored \u2014 the rule is symmetric and applies to 100b8998"
+    ]
+  }
+}

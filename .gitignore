@@ -1,5 +1,4 @@
 node_modules/
-.shopify/
 .env
 .DS_Store
 *.log
