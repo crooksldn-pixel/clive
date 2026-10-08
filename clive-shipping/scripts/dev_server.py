@@ -29,7 +29,7 @@ import os
 import sys
 import tempfile
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -231,6 +231,17 @@ class DevProvider(FakeProvider):
 def order(shopify: FakeShopify, n: int, lines, country: str):
     snap = fo(n, lines)
     snap.destination = ADDRESSES[country]
+    # As Shopify's order list shows them: placed over the last few days; one guest checkout
+    # (no customer: the addressee shows) and one very long name.
+    placed = datetime.now(UTC) - timedelta(hours=7 * (n % 23) + n % 5)
+    snap.order_created_at = placed.isoformat().replace("+00:00", "Z")
+    snap.customer_name = (
+        None
+        if n % 7 == 0
+        else "Maximiliane Wolfeschlegelsteinhausenbergerdorff-Featherstonehaugh"
+        if n % 11 == 0
+        else snap.destination.name
+    )
     return shopify.add(snap)
 
 
@@ -340,8 +351,7 @@ def seed_states(svc: ShippingService, shopify: FakeShopify, provider: DevProvide
         (2158, "NL", "DELIVERED", {"delivered_at": "2026-10-07T09:48:22Z"}),
         (2159, "GG", "IN_TRANSIT", {"in_transit_at": "2026-10-07T05:57:26Z"}),
     ):
-        snap = order(shopify, n, [tee_line()], country)
-        snap.order_created_at = "2026-10-05T18:11:29Z"
+        order(shopify, n, [tee_line()], country)
         svc.sync(SHOP)
         buy(svc, n, f"seed-{n}")
         s = by_order(svc, n)

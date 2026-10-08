@@ -29,7 +29,8 @@ class ShopifyRefused(ShopifyError):
 
 FO_FIELDS = """
   id status requestStatus updatedAt
-  order { id name email phone cancelledAt currencyCode displayFinancialStatus createdAt }
+  order { id name email phone cancelledAt currencyCode displayFinancialStatus createdAt
+          customer { displayName } }
   assignedLocation { name address1 address2 city zip countryCode province phone location { id } }
   destination { firstName lastName company address1 address2 city province zip countryCode phone email }
   fulfillments(first: 10) { nodes { id status trackingInfo { number company url } } }
@@ -148,6 +149,7 @@ class FoSnapshot:
     # through shipping.payment.payment(), never compared as a string anywhere else.
     financial_status: str | None = None
     order_created_at: str | None = None  # Order.createdAt: when the customer ordered
+    customer_name: str | None = None  # Order.customer.displayName; None: guest or deleted
 
     @property
     def open(self) -> bool:
@@ -200,6 +202,7 @@ def parse_fo(node: dict[str, Any]) -> FoSnapshot:
         order_cancelled=bool(order.get("cancelledAt")),
         financial_status=order.get("displayFinancialStatus"),
         order_created_at=order.get("createdAt"),
+        customer_name=((order.get("customer") or {}).get("displayName") or None),
         currency=order.get("currencyCode") or "GBP",
         destination=Address(
             name=" ".join(x for x in (d.get("firstName"), d.get("lastName")) if x),
@@ -244,12 +247,16 @@ class FulfillmentTracking:
     # The order's displayFinancialStatus at the same read (for after-purchase warnings).
     financial_status: str | None = None
     order_created_at: str | None = None
+    customer_name: str | None = None
     # The carrier's scans as Shopify keeps them (FulfillmentEvent), oldest first.
     events: list[dict[str, Any]] = field(default_factory=list)
 
 
 def parse_fulfillment(
-    node: dict[str, Any], financial: str | None = None, created: str | None = None
+    node: dict[str, Any],
+    financial: str | None = None,
+    created: str | None = None,
+    customer: str | None = None,
 ) -> FulfillmentTracking:
     order = node.get("order") or {}
     return FulfillmentTracking(
@@ -263,6 +270,7 @@ def parse_fulfillment(
         numbers=[t.get("number") for t in node.get("trackingInfo") or [] if t.get("number")],
         financial_status=order.get("displayFinancialStatus") or financial,
         order_created_at=order.get("createdAt") or created,
+        customer_name=((order.get("customer") or {}).get("displayName") or customer),
         # Read newest first (the latest 30: Shopify refuses `last` without a cursor); kept
         # oldest first.
         events=sorted(
@@ -308,6 +316,7 @@ class ShopifyPort(Protocol):
     def fulfillment_tracking(self, fulfillment_id: str) -> FulfillmentTracking | None: ...
     def order_fulfillments(self, order_id: str) -> list[FulfillmentTracking]: ...
     def staff_member(self, id_token: str) -> str | None: ...
+    def shop_timezone(self) -> str | None: ...
 
 
 TRACKING_FIELDS = """
@@ -321,13 +330,16 @@ TRACKING_FIELDS = """
 Q_FULFILLMENT_TRACKING = (
     "query FulfillmentTracking($id: ID!) { node(id: $id) { ... on Fulfillment {"
     + TRACKING_FIELDS
-    + " order { id displayFinancialStatus createdAt } } } }"
+    + " order { id displayFinancialStatus createdAt customer { displayName } } } } }"
 )
 
 Q_ORDER_FULFILLMENTS = (
     "query OrderFulfillments($id: ID!) { order(id: $id) { id displayFinancialStatus createdAt"
+    " customer { displayName }"
     " fulfillments(first: 10) {" + TRACKING_FIELDS + "} } }"  # x30 events: within query cost
 )
+
+Q_SHOP_TIMEZONE = "query ShopTimezone { shop { ianaTimezone } }"
 
 API_VERSION = "2026-10"
 
@@ -342,6 +354,7 @@ DOCUMENTS = (
     "Q_LOCATIONS",
     "Q_FULFILLMENT_TRACKING",
     "Q_ORDER_FULFILLMENTS",
+    "Q_SHOP_TIMEZONE",
 )
 
 
@@ -433,7 +446,12 @@ class GraphQLShopify:
     def order_fulfillments(self, order_id: str) -> list[FulfillmentTracking]:
         order = self._call(Q_ORDER_FULFILLMENTS, {"id": order_id}).get("order") or {}
         paid, created = order.get("displayFinancialStatus"), order.get("createdAt")
-        return [parse_fulfillment(n, paid, created) for n in order.get("fulfillments") or []]
+        who = (order.get("customer") or {}).get("displayName")
+        return [parse_fulfillment(n, paid, created, who) for n in order.get("fulfillments") or []]
+
+    def shop_timezone(self) -> str | None:
+        """The store's own time zone (Shop.ianaTimezone), for showing when orders were placed."""
+        return ((self._call(Q_SHOP_TIMEZONE).get("shop") or {}).get("ianaTimezone")) or None
 
     def staff_member(self, id_token: str) -> str | None:
         """The name of the staff member behind an admin session token, by exchanging it for an

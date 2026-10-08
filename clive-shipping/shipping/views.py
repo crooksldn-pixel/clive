@@ -12,6 +12,7 @@ the same thing:
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any
 
 from shipping import contacts, readiness, tracking
@@ -147,11 +148,30 @@ def shipping_text(s: Shipment) -> str:
     return "—"
 
 
+def placed_at(s: Shipment) -> datetime:
+    """When the customer ordered (Shopify's createdAt), for newest-first lists as in Shopify's
+    Orders; when CLIVE first saw it, for records from before that was kept."""
+    if s.order_created_at:
+        try:
+            return datetime.fromisoformat(s.order_created_at.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+    return s.created_at
+
+
+def customer_of(s: Shipment) -> str:
+    """Who ordered, as Shopify names them: the customer, else (a guest checkout, or a deleted
+    customer) the name the parcel is addressed to."""
+    return (s.customer_name or "").strip() or (s.destination.name or "").strip() or "No customer"
+
+
 def row(s: Shipment) -> dict[str, Any]:
     st = status_of(s)
     return {
         "id": s.id,
         "order": s.order_name,
+        "purchased_at": s.order_created_at,  # Shopify's Order.createdAt, not when CLIVE saw it
+        "customer": customer_of(s),
         "destination": {"country": s.destination.country, "city": s.destination.city},
         "package": package_text(s),
         "shipping": shipping_text(s),

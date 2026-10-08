@@ -145,10 +145,15 @@ class FakeShopify:
             numbers=[f["number"]],
             financial_status=order.financial_status if order else None,
             order_created_at=order.order_created_at if order else None,
+            customer_name=order.customer_name if order else None,
             events=list(f.get("events", [])),
         )
 
     staff_name: str | None = None  # what the token exchange would say; None: refused
+    timezone: str | None = "Europe/London"
+
+    def shop_timezone(self) -> str | None:
+        return self.timezone
 
     def staff_member(self, id_token: str) -> str | None:
         return self.staff_name

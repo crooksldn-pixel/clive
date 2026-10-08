@@ -212,6 +212,7 @@ class ShippingService:
         )
         s.order_name, s.destination, s.currency = snap.order_name, snap.destination, snap.currency
         s.order_created_at = snap.order_created_at or s.order_created_at
+        s.customer_name = snap.customer_name  # as Shopify has it now (a deleted customer: None)
         s.lines = readiness.resolve_lines(self.store, shop, snap, items)
         s.package = packages.plan(self.store, cfg, s.lines, s.package)
         s.duties = self._duties(cfg, s)
@@ -1049,6 +1050,7 @@ class ShippingService:
                 t.events = [CarrierEvent(**e) for e in mine.events]
                 fresh = [e for e in t.events if (e.at, e.status) not in seen]
                 x.order_created_at = x.order_created_at or mine.order_created_at
+                x.customer_name = mine.customer_name
                 t.stage = tracking.stage_of(mine)
                 t.display_status = mine.display_status
                 t.fulfillment_id = mine.id

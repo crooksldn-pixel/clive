@@ -331,6 +331,7 @@ class Shipment(BaseModel):
     order_id: str
     order_name: str
     order_created_at: str | None = None  # Shopify Order.createdAt, ISO: when it was ordered
+    customer_name: str | None = None  # Order.customer.displayName; None: guest or deleted
     fulfillment_order_id: str
     destination: Address
     status: ShipmentStatus

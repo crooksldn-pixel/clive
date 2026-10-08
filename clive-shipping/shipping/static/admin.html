@@ -16,6 +16,13 @@
   /* The stage tabs need room; on a phone the same choice is one select. */
   .stage-select { display: none; }
   @media (max-width: 700px) { .stage-tabs { display: none; } .stage-select { display: block; } }
+  /* Selection boxes: Shopify-sized, and a fingertip's worth on touch screens. */
+  input.pick { width: 16px; height: 16px; margin: 0; accent-color: #303030; cursor: pointer; }
+  @media (pointer: coarse) { input.pick { width: 24px; height: 24px; } }
+  .wrap-any { overflow-wrap: anywhere; }
+  .order-cell { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+  /* On a phone the bar stays one line (the header box already selects them all). */
+  @media (max-width: 700px) { .wide-only { display: none; } }
 </style>
 </head>
 <body>
@@ -248,7 +255,7 @@ function renderBatch() {
   const rows = b.children.map((c,i) => `<s-table-row><s-table-cell>${i+1}. ${esc(c.order)}</s-table-cell><s-table-cell>${esc(c.provider || '—')} · ${esc(c.service || '—')}</s-table-cell><s-table-cell>${b.kind === 'buy' ? new Intl.NumberFormat('en-GB',{style:'currency',currency:c.currency}).format(c.amount_minor/100) : '1 first copy'}</s-table-cell><s-table-cell>${esc(c.state)}${c.message ? ` — ${esc(c.message)}` : ''}</s-table-cell></s-table-row>`).join('');
   const counts = Object.fromEntries(['purchased','printed','sent','failed','uncertain','excluded','skipped'].map(k => [k,b.children.filter(c => c.state === k).length]));
   page(b.state === 'review' ? 'Review selected labels' : 'Bulk operation progress', slots,
-    `<s-section><s-stack gap="base"><s-text>${b.state === 'review' ? `${ready} eligible labels` : `${complete} / ${b.children.length} completed`} · ${b.kind === 'buy' ? `Total ${batchMoney(b)}` : 'Print order is shown below.'}</s-text><s-text>${b.state === 'review' ? 'Review the exclusions and each provider/service before confirming. No action has run yet.' : (b.kind === 'buy' ? `${counts.purchased} purchased` : `${counts.printed} printed · ${counts.sent} printing`) + ` · ${counts.failed} failed · ${counts.uncertain} uncertain · ${counts.excluded+counts.skipped} excluded/skipped`}</s-text><s-text color="subdued">Each order is independent. Uncertain outcomes are not automatically retried.</s-text><s-table><s-table-header-row><s-table-header>Order</s-table-header><s-table-header>Service</s-table-header><s-table-header>Price / copies</s-table-header><s-table-header>Outcome</s-table-header></s-table-header-row><s-table-body>${rows}</s-table-body></s-table></s-stack></s-section>`);
+    `<s-section><s-stack gap="base"><s-text>${b.state === 'review' ? `${ready} ready to ${b.kind === 'buy' ? 'buy' : 'print'}${b.children.length > ready ? ` · ${b.children.length - ready} changed since you selected them (not included)` : ''}` : `${complete} / ${b.children.length} completed`} · ${b.kind === 'buy' ? `Total ${batchMoney(b)}` : 'Print order is shown below.'}</s-text><s-text>${b.state === 'review' ? 'Review the exclusions and each provider/service before confirming. No action has run yet.' : (b.kind === 'buy' ? `${counts.purchased} purchased` : `${counts.printed} printed · ${counts.sent} printing`) + ` · ${counts.failed} failed · ${counts.uncertain} uncertain · ${counts.excluded+counts.skipped} excluded/skipped`}</s-text><s-text color="subdued">Each order is independent. Uncertain outcomes are not automatically retried.</s-text><s-table><s-table-header-row><s-table-header>Order</s-table-header><s-table-header>Service</s-table-header><s-table-header>Price / copies</s-table-header><s-table-header>Outcome</s-table-header></s-table-header-row><s-table-body>${rows}</s-table-body></s-table></s-stack></s-section>`);
 }
 async function reviewSelected(kind) {
   const ids = visibleInboxRows().filter(r => state.selected.has(r.id)).map(r => r.id);
@@ -274,33 +281,90 @@ setInterval(() => { void pollBatch(); }, 2000);
 
 // ------------------------------------------------------------------ inbox
 
-function inboxTable(rows) {
+// When the customer ordered, in the store's time zone, as Shopify's order list says it:
+// "Today at 13:06", "Yesterday at 22:01", "Monday at 16:49", then "7 Oct" (and the year if older).
+function purchasedText(iso, tz) {
+  if (!iso) return "—";
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "—";
+  const zone = tz || "Europe/London";
+  const day = (d) => new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  const time = new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit" }).format(at);
+  const days = Math.round((Date.parse(day(new Date())) - Date.parse(day(at))) / 86400000);
+  if (days === 0) return `Today at ${time}`;
+  if (days === 1) return `Yesterday at ${time}`;
+  if (days > 1 && days < 7) return `${new Intl.DateTimeFormat("en-GB", { timeZone: zone, weekday: "long" }).format(at)} at ${time}`;
+  const sameYear = day(at).slice(0, 4) === day(new Date()).slice(0, 4);
+  return new Intl.DateTimeFormat("en-GB", { timeZone: zone, day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }) }).format(at);
+}
+
+// What bulk action this tab offers, and which rows may take it (the server says, per row).
+function bulkPick(ib) {
+  if (ib.stage === "ready") return { flag: "can_buy", noun: "ready", action: "bulk-buy", label: "Buy labels — review" };
+  if (ib.stage === "bought") return { flag: "can_first_print", noun: "unprinted", action: "bulk-print",
+    label: ib.print_method === "printnode" ? "Print labels — review" : "Print labels" };
+  return null;
+}
+
+function inboxTable(rows, pick) {
   const body = rows.map((r) => {
     const extra = r.status.reasons.filter((x) => x !== r.status.label);
     const reasons = extra.length && r.stage === "attention"
       ? `<s-text color="subdued">${esc(extra.join(" · "))}</s-text>` : "";
+    const box = pick && r[pick.flag]
+      ? `<input type="checkbox" class="pick" aria-label="Select ${esc(r.order)}" data-select="${esc(r.id)}" ${state.selected.has(r.id) ? "checked" : ""}>` : "";
     return `<s-table-row>
-      <s-table-cell>${r.can_select ? `<input type="checkbox" aria-label="Select ${esc(r.order)}" data-select="${esc(r.id)}" ${state.selected.has(r.id) ? "checked" : ""}>` : ""}</s-table-cell>
-      <s-table-cell><s-link id="open-${esc(r.id)}" data-open="${esc(r.id)}">${esc(r.order)}</s-link></s-table-cell>
+      <s-table-cell><span class="order-cell">${box}<s-link id="open-${esc(r.id)}" data-open="${esc(r.id)}">${esc(r.order)}</s-link></span></s-table-cell>
+      <s-table-cell>${esc(purchasedText(r.purchased_at, state.inbox?.timezone))}</s-table-cell>
+      <s-table-cell><span class="wrap-any">${esc(r.customer)}</span></s-table-cell>
       <s-table-cell>${flag(r.destination.country)} ${esc(countryName(r.destination.country))}${r.destination.city ? `<s-text color="subdued"> · ${esc(r.destination.city)}</s-text>` : ""}</s-table-cell>
-      <s-table-cell>${esc(r.package)}</s-table-cell>
-      <s-table-cell>${esc(r.shipping)}</s-table-cell>
+      <s-table-cell><s-stack gap="small-100"><s-text>${esc(r.shipping)}</s-text><s-text color="subdued">${esc(r.package)}</s-text></s-stack></s-table-cell>
       <s-table-cell><s-stack gap="small-200">${badge(r.status)}${reasons}</s-stack></s-table-cell>
       <s-table-cell>${printBadge(r.print_status)}</s-table-cell>
     </s-table-row>`;
   }).join("");
   return `<s-table>
     <s-table-header-row>
-      <s-table-header>Select</s-table-header>
       <s-table-header listSlot="primary">Order</s-table-header>
-      <s-table-header listSlot="secondary">Destination</s-table-header>
-      <s-table-header listSlot="labeled">Package</s-table-header>
+      <s-table-header listSlot="kicker">Purchased</s-table-header>
+      <s-table-header listSlot="secondary">Customer</s-table-header>
+      <s-table-header listSlot="labeled">Destination</s-table-header>
       <s-table-header listSlot="labeled">Shipping</s-table-header>
       <s-table-header listSlot="inline">Status</s-table-header>
-      <s-table-header listSlot="inline">Label printing</s-table-header>
+      <s-table-header listSlot="inline">Label</s-table-header>
     </s-table-header-row>
     <s-table-body>${body}</s-table-body>
   </s-table>`;
+}
+
+// The selection bar sits in the list's own header and keeps its height whether or not anything
+// is selected, so ticking the first row moves nothing.
+function bulkBar(pick) {
+  const rows = visibleInboxRows();
+  const eligible = rows.filter((r) => r[pick.flag]);
+  const chosen = eligible.filter((r) => state.selected.has(r.id));
+  const all = eligible.length && chosen.length === eligible.length;
+  const head = `<input type="checkbox" id="pick-all" class="pick" aria-label="Select all ${esc(pick.noun)} orders shown" ${all ? "checked" : ""} ${eligible.length ? "" : "disabled"}>`;
+  const text = chosen.length ? `${chosen.length} selected` : `${eligible.length} ${pick.noun}`;
+  const more = chosen.length && chosen.length < Math.min(eligible.length, 100)
+    ? `<span class="wide-only"><s-button variant="tertiary" data-action="select-stage">Select all ${eligible.length} ${esc(pick.noun)}</s-button></span>` : "";
+  const acts = chosen.length
+    ? `${more}<s-button variant="primary" data-action="${pick.action}">${esc(pick.label)}</s-button><s-button variant="tertiary" data-action="clear-selection">Clear</s-button>`
+    : (eligible.length ? `<s-button variant="tertiary" data-action="select-stage">Select all ${esc(pick.noun)}</s-button>` : "");
+  return `<s-stack direction="inline" gap="small-300" alignItems="center">${head}<s-text type="strong">${text}</s-text>${acts}</s-stack>`;
+}
+
+// Ticking a box redraws only the bar and the boxes, never the page.
+function refreshSelection() {
+  const pick = state.inbox && bulkPick(state.inbox);
+  const bar = document.getElementById("bulk-bar");
+  if (!pick || !bar) return renderInbox();
+  bar.innerHTML = bulkBar(pick);
+  const eligible = visibleInboxRows().filter((r) => r[pick.flag]);
+  const chosen = eligible.filter((r) => state.selected.has(r.id)).length;
+  const head = document.getElementById("pick-all");
+  if (head) head.indeterminate = chosen > 0 && chosen < eligible.length;
+  document.querySelectorAll("input[data-select]").forEach((x) => { x.checked = state.selected.has(x.dataset.select); });
 }
 
 const EMPTY = {
@@ -330,11 +394,12 @@ function renderInbox() {
   const stage = ib.stage;
   const rows = visibleInboxRows();
   // Bulk actions only where they make sense: buy from Ready, first print from Labels bought.
-  const pick = stage === "ready" ? ["can_buy", "Select all ready (up to 100)", "bulk-buy", "Buy labels — review"]
-    : stage === "bought" ? ["can_first_print", "Select unprinted (up to 100)", "bulk-print", ib.print_method === "printnode" ? "Print labels — review" : "Print labels"]
-    : null;
+  const pick = bulkPick(ib);
+  // Selection only ever holds rows on screen that may take this tab's action.
+  for (const id of [...state.selected]) {
+    if (!pick || !rows.some((r) => r.id === id && r[pick.flag])) state.selected.delete(id);
+  }
   const slots =
-    (pick && rows.some((r) => r[pick[0]]) ? `<s-button slot="primary-action" variant="primary" data-action="select-stage">${pick[1]}</s-button>` : "") +
     `<s-button slot="secondary-actions" data-action="sync">Check Shopify for orders</s-button>` +
     `<s-button slot="secondary-actions" data-action="go-setup">Setup</s-button>`;
   let top = "";
@@ -358,13 +423,18 @@ function renderInbox() {
         <s-heading>${h}</s-heading><s-paragraph color="subdued">${p}</s-paragraph>
       </s-stack></s-section>`;
   } else {
-    body = `<s-section padding="none">${inboxTable(rows)}</s-section>`;
+    const bar = pick && rows.some((r) => r[pick.flag])
+      ? `<s-box id="bulk-bar" paddingInline="base" paddingBlock="small-200">${bulkBar(pick)}</s-box>` : "";
+    body = `<s-section padding="none">${bar}${inboxTable(rows, pick)}</s-section>`;
   }
-  const selected = rows.filter((r) => state.selected.has(r.id));
-  const bulk = selected.length && pick
-    ? `<s-section heading="${selected.length} selected"><s-stack direction="inline" gap="base"><s-button variant="primary" data-action="${pick[2]}">${pick[3]}</s-button><s-button data-action="clear-selection">Clear selection</s-button></s-stack></s-section>` : "";
   const recent = (ib.batches || []).length ? `<s-section heading="Recent bulk operations">${ib.batches.map(b => `<s-link href="${BASE}/admin?batch=${esc(b.id)}">${esc(b.kind === 'buy' ? 'Label purchase' : 'Label print')} · ${esc(b.state)} · ${esc(new Date(b.created_at).toLocaleString('en-GB'))}</s-link><br>`).join('')}</s-section>` : '';
-  page("International shipping", slots, top + filters + bulk + body + recent);
+  page("International shipping", slots, top + filters + body + recent);
+  const head = document.getElementById("pick-all");
+  if (head && pick) {
+    const eligible = rows.filter((r) => r[pick.flag]);
+    const chosen = eligible.filter((r) => state.selected.has(r.id)).length;
+    head.indeterminate = chosen > 0 && chosen < eligible.length;
+  }
 }
 
 // ------------------------------------------------------------------ one shipment
@@ -935,11 +1005,16 @@ async function watchPrint(intentId) {
 }
 
 const ACTIONS = {
-  'select-stage': () => {
-    const flag = state.inbox.stage === 'ready' ? 'can_buy' : 'can_first_print';
-    visibleInboxRows().filter(r => r[flag]).slice(0,100).forEach(r => state.selected.add(r.id)); renderInbox();
-  },
-  'clear-selection': () => {state.selected.clear(); renderInbox();},
+  // "Select all ready" asks the server again: what may be bought (or printed) now, for this tab
+  // and search, never what the page showed earlier. The review re-checks each one once more.
+  'select-stage': el => withButton(el, async () => {
+    state.inbox = await loadInbox();
+    const pick = bulkPick(state.inbox);
+    state.selected.clear();
+    if (pick) visibleInboxRows().filter(r => r[pick.flag]).slice(0, 100).forEach(r => state.selected.add(r.id));
+    renderInbox();
+  }),
+  'clear-selection': () => {state.selected.clear(); refreshSelection();},
   'bulk-buy': el => withButton(el, () => reviewSelected('buy')),
   'bulk-print': el => {
     if (state.inbox.print_method === 'printnode') return withButton(el, () => reviewSelected('print'));
@@ -1217,10 +1292,16 @@ document.addEventListener("change", (ev) => {
     navigate(state.q ? { stage, q: state.q } : { stage });
     return;
   }
+  if (ev.target.id === "pick-all") {
+    const pick = bulkPick(state.inbox);
+    const eligible = visibleInboxRows().filter((r) => pick && r[pick.flag]).slice(0, 100);
+    if (ev.target.checked) eligible.forEach((r) => state.selected.add(r.id)); else state.selected.clear();
+    refreshSelection(); return;
+  }
   if (ev.target.dataset?.select) {
     const id = ev.target.dataset.select;
     if (ev.target.checked) state.selected.add(id); else state.selected.delete(id);
-    renderInbox(); return;
+    refreshSelection(); return;
   }
 });
 // Read the state recovered by the server tick; never submit quotes or a purchase here.

@@ -167,6 +167,19 @@ def build_admin_router(
                 missed[sub] = time.monotonic()
         return names.get(sub) or f"Staff {sub}".strip()
 
+    zone: dict[str, Any] = {"tz": None, "tried": -1e9}
+
+    def store_timezone() -> str:
+        """The store's time zone for order times; London until Shopify says (asked again after
+        ten minutes if it couldn't be read)."""
+        if zone["tz"] is None and time.monotonic() - zone["tried"] > 600:
+            zone["tried"] = time.monotonic()
+            try:
+                zone["tz"] = svc.shopify.shop_timezone()
+            except ShopifyError:
+                log.warning("store time zone not read; showing London time")
+        return zone["tz"] or "Europe/London"
+
     def staff(authorization: str | None = Header(default=None)) -> str:
         """The signed-in staff member, for the timeline."""
         token = (authorization or "")[7:].strip() if authorization else ""
@@ -266,7 +279,7 @@ def build_admin_router(
             stage = "attention"
         counts = dict.fromkeys(lifecycle.STAGES, 0)
         rows: list[dict[str, Any]] = []
-        for s in sorted(svc.store.shipments(shop), key=lambda x: x.created_at, reverse=True):
+        for s in sorted(svc.store.shipments(shop), key=views.placed_at, reverse=True):
             if not views.matches(s, q):
                 continue
             printed = physical.summary(shop, s.id)
@@ -292,6 +305,7 @@ def build_admin_router(
             "counts": counts,
             "printing": physical_enabled,
             "print_method": "printnode" if physical_enabled else "print_view",
+            "timezone": store_timezone(),
             "ready_to_print": len(printing.ready(shop)),
             "batches": [
                 {

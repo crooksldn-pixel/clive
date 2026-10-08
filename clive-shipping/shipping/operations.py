@@ -59,6 +59,11 @@ class Operations:
                 amount_minor=0,
                 currency="GBP",
             )
+            if s is not None:  # what it is, shown even when it can't be included
+                if s.label is not None:
+                    child.update(provider=s.label.provider, service=s.label.service_name)
+                elif s.quote is not None:
+                    child.update(provider=s.quote.provider, service=s.quote.title)
             try:
                 if s is None:
                     raise ActionError("Shipment not found.", 404)

@@ -9,6 +9,7 @@ const handlers = {}, storage = new Map();
 const host = {setAttribute() {}, replaceChildren() {}};
 const document = {hidden:false, title:'',
   getElementById: id => fields[id] || host,
+  querySelectorAll: () => [],
   createElement: () => ({set innerHTML(v) {rendered=v;}, childNodes:[]}),
   addEventListener: (name,fn) => {(handlers[name] ||= []).push(fn);}};
 const location = {pathname:'/admin',search:''};
@@ -23,7 +24,7 @@ const context = vm.createContext({document,window,location,history,data,URLSearc
    if(url.endsWith('/batches/preview')) result=data.review;
    else if(url.endsWith('/confirm')) {assert.equal(JSON.parse(options.body).confirm,true);phase='queued';result=data.queued;}
    else if(url.includes('/batches/')) result=phase==='queued'?data.complete:data.review;
-   else if(url.includes('/inbox?')) result=data.inbox;
+   else if(url.includes('/inbox?')) result=structuredClone(url.includes('stage=bought')?data.bought_inbox:url.includes('stage=printed')?data.printed_inbox:data.inbox);
    else if(url.endsWith('/customs')) {result=structuredClone(data.detail);result.products[0].hs_code_value='01012100';}
    else throw new Error('Unexpected request '+url);
    return {ok:true,json:async()=>result};
@@ -34,7 +35,27 @@ const button = {setAttribute(){},removeAttribute(){},dataset:{line:'0'}};
 context.button=button;
 (async()=>{
   location.search='?stage=ready';
-  execute('state.inbox=data.inbox; renderInbox(); ACTIONS["select-stage"]();');
+  execute('state.inbox=data.inbox; renderInbox();');
+  // The list reads like Shopify's: when ordered (store time zone), who, where, what it costs.
+  assert.ok(rendered.includes('Purchased') && rendered.includes('Customer') && rendered.includes('>Label<'));
+  assert.ok(!rendered.includes('>Package<') && !rendered.includes('heading="1 selected"'));
+  assert.ok(rendered.includes(data.inbox.rows[0].customer));
+  assert.equal(execute('purchasedText(null, "Europe/London")'), '—');
+  const now = new Date();
+  assert.ok(execute(`purchasedText("${now.toISOString()}", "Europe/London")`).startsWith('Today at '));
+  assert.ok(execute(`purchasedText("${new Date(now - 86400000).toISOString()}", "Europe/London")`).startsWith('Yesterday at '));
+  assert.equal(execute('purchasedText("2025-03-07T12:00:00Z", "Europe/London")'), '7 Mar 2025');
+  // Nothing selected: the bar is already there (same height), offering the server's "all ready".
+  assert.ok(rendered.includes('id="bulk-bar"') && rendered.includes('id="pick-all"') && rendered.includes('2 ready'));
+  // One box ticked: the bar changes in place; the page isn't redrawn.
+  const drawn = rendered;
+  for (const fn of handlers.change) fn({target:{dataset:{select:data.inbox.rows[0].id},checked:true,id:''}});
+  assert.equal(rendered, drawn);  // no page render happened
+  assert.equal(execute('state.selected.size'),1);
+  // "Select all ready" asks the server again, then selects what may be bought now.
+  const asked = requests.length;
+  await execute('ACTIONS["select-stage"](button)');
+  assert.ok(requests.slice(asked).some(r => r.url.includes('/inbox?stage=ready')));
   assert.equal(execute('state.selected.size'),2);
   assert.ok(rendered.includes('Buy labels — review'));
   assert.ok(!rendered.includes('Print labels — review')); // never Buy & Print together
@@ -42,7 +63,8 @@ context.button=button;
   await execute('ACTIONS["bulk-buy"](button)');
   await new Promise(resolve=>setImmediate(resolve));
   assert.ok(document.title.includes('Review selected labels'));
-  assert.deepEqual(requests[0].body.shipment_ids,data.review.children.map(c=>c.shipment_id));
+  const reviewRequest = requests.find(r => r.url.endsWith('/batches/preview'));
+  assert.deepEqual(reviewRequest.body.shipment_ids,data.review.children.map(c=>c.shipment_id));
   assert.equal(requests.filter(r=>r.url.endsWith('/confirm')).length,0);
   assert.ok(rendered.includes('No action has run yet'));
   await execute('ACTIONS["confirm-batch"](button)');
@@ -53,8 +75,8 @@ context.button=button;
   location.search='?stage=bought';
   execute('state.selected.clear(); state.inbox=data.bought_inbox; renderInbox();');
   assert.equal(execute('visibleInboxRows().length'),1);  // the one never sent to the printer
-  assert.ok(rendered.includes('Not printed') && rendered.includes('Select unprinted'));
-  execute('ACTIONS["select-stage"]()');
+  assert.ok(rendered.includes('Not printed') && rendered.includes('Select all unprinted'));
+  await execute('ACTIONS["select-stage"](button)');
   assert.equal(execute('state.selected.size'),1);
   assert.ok(rendered.includes('Print labels — review') && !rendered.includes('Buy labels — review'));
   location.search='?stage=printed';
