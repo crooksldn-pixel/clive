@@ -457,6 +457,20 @@ def whose(by: str, asker: str) -> str:
     return "Yours, drafted with CLIVE" if mine else f"{first_name(by)}'s, drafted with CLIVE"
 
 
+def whose_draft(draft: dict[str, Any], *, required: bool = False) -> dict[str, str]:
+    """Whose words a draft waiting in Gmail is, and whose hold would send it, for its card: from this
+    record ("" — written in Gmail — when CLIVE did not make it) and the authority asking now. A member
+    of the team is refused a draft another member drafted with CLIVE: George's drafts, and their own,
+    are the ones they may send (ruling 34)."""
+    asker = who_now()
+    if required and not asker:
+        raise ToolError("Nobody is signed in to send it, so nothing was prepared.")
+    by = words_of(draft_id=str(draft.get("draft_id") or ""), token=str(draft.get("token") or ""))
+    if asker not in ("owner", "") and by not in ("", "owner", "clive", asker):
+        raise ToolError(f"That draft is {first_name(by)}'s words, drafted with CLIVE: they or George send it. Nothing was prepared.")
+    return {"by": by, "asker": asker, "words_line": whose(by, asker), "sender_line": sender_line(asker)}
+
+
 def sender_line(asker: str) -> str:
     """Who sends it, said on the card: the one whose hold will send it."""
     if asker == "owner":
