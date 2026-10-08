@@ -97,3 +97,12 @@ async def test_the_page_works_in_a_real_browser():
                     "the layer ladder holds on the idle screen",
                     "ZERO recordings were too short across the whole run"):
         assert pressed in names, f"the touch gate did not run: {pressed}"
+    # [checker, 8 Oct 2026, review note N2] The walk on a list asked for out loud, by API, by
+    # thumb and by finger. Its Next and Back are strict expected failures until flow's fix lands
+    # (KNOWN DEFECT spoken-list-walk); these names stay when they are made plain checks.
+    for walked in ("Next moves the cursor on a list asked for out loud",
+                   "Next on a list asked for out loud opens ITS first order",
+                   "tap Back on an order opened from a list asked for out loud",
+                   "tap Next on an order opened from a list asked for out loud",
+                   "tap Home on an order opened from a list asked for out loud"):
+        assert walked in names, f"the spoken-list walk did not run: {walked}"

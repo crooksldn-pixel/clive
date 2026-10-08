@@ -7,6 +7,11 @@ The answer's own list now opens the walk the landing opens (`app/routes/turn.py`
 `_walk_what_was_listed`, over `app/families/landings.py` `_open_workflow`), decided from the
 cards the answer drew and never from the words.
 
+The checker branch held the same walk from the other side (review note N2, 8 October): the Orders
+icon's walk as it works, Home from a spoken list, and Next then Back on a spoken list, which it
+marked as a STRICT expected failure until flow's fix landed. The browser gates hold the same walk
+(scripts/browser/experience.js and touch.js).
+
 Scripted through the real gate and presenters on the golden world (`experience/harness.py`): what
 is held is what the Mac does with the calls, not that Claude would make them.
 """
@@ -18,7 +23,11 @@ import re
 import pytest
 
 from app import progressive
-from experience.harness import harness
+from experience.harness import harness, todays_orders_reads
+
+LIST = "show me today's orders"
+DEFECT = ("KNOWN DEFECT spoken-list-walk: a list asked for out loud opens no walk "
+          "(checker defect 1; flow is fixing it). Passing? Delete this mark.")
 
 
 @pytest.fixture()
@@ -61,3 +70,33 @@ async def test_one_record_answered_opens_no_walk(world):
     assert said.raw["branch"]["workflow"] is None, said.raw["branch"]["workflow"]
     refused = await world.touch("workflow.next", session_id="record")
     assert refused.raw["ok"] is False and refused.raw["code"] == "no_set"
+
+
+async def test_the_orders_icon_s_list_walks_with_next_and_back(world):
+    opened = await world.touch("open.area", area="orders", session_id="walk-icon")
+    assert "order_list" in opened.surface_types, opened.surface_types
+    step = await world.touch("workflow.next", session_id="walk-icon")
+    assert step.raw.get("ok") is True and re.search(r"\b1 of \d+\b", str(step.raw.get("answer"))), step.raw
+    back = await world.touch("navigation.back", session_id="walk-icon")
+    assert "order_list" in back.surface_types, back.surface_types
+    assert ((back.raw.get("changed") or {}).get("workspace") or {}).get("kind") == "list", back.raw.get("changed")
+
+
+async def test_home_from_a_list_asked_for_out_loud_is_the_orders_landing(world):
+    said = await world.ask(LIST, *todays_orders_reads(), reply="Today's orders.", session_id="walk-said-home")
+    assert said.data("order_list").get("orders"), said.surface_types
+    home = await world.touch("navigation.home", session_id="walk-said-home")
+    changed = home.raw.get("changed") or {}
+    assert "order_list" in home.surface_types and changed.get("home") is True and changed.get("area") == "orders", home.raw
+
+
+@pytest.mark.xfail(strict=True, reason=DEFECT)
+async def test_a_list_asked_for_out_loud_walks_with_next_and_back(world):
+    said = await world.ask(LIST, *todays_orders_reads(), reply="Today's orders.", session_id="walk-said")
+    rows = said.data("order_list").get("orders") or []
+    step = await world.touch("workflow.next", session_id="walk-said")
+    assert step.raw.get("ok") is True, step.raw
+    assert re.search(rf"\b1 of {len(rows)}\b", str(step.raw.get("answer"))), (step.raw.get("answer"), len(rows))
+    back = await world.touch("navigation.back", session_id="walk-said")
+    assert "order_list" in back.surface_types, back.surface_types
+    assert ((back.raw.get("changed") or {}).get("workspace") or {}).get("kind") == "list", back.raw.get("changed")

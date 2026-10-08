@@ -31,6 +31,16 @@ const checks = [];
 const shots = [];
 const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail: detail === undefined ? '' : String(detail).slice(0, 300) });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// [checker, 8 Oct 2026, review note N2] A check held as a STRICT expected failure, named for its
+// defect (pytest's xfail(strict=True), for a script). While the defect is there it is reported
+// as an expected failure and the gate stays green. The day it passes, the gate goes RED and says
+// so: make it a plain `check(...)` again. Grep "KNOWN DEFECT" for every one; the Python side of
+// the same defect is tests/test_spoken_list_walk.py.
+const SPOKEN_LIST_WALK = 'KNOWN DEFECT spoken-list-walk: a list asked for out loud opens no walk (checker defect 1; flow is fixing it)';
+const knownDefect = (defect, name, ok, detail) => check(
+  ok ? `${name} :: XPASS(strict): ${defect} is fixed, so make this a plain check`
+    : `${name} :: expected failure, ${defect}`,
+  !ok, detail);
 
 async function main() {
   const browser = await chromium.launch({
@@ -188,9 +198,29 @@ async function main() {
   const rows = await page.evaluate(() => Array.from(document.querySelectorAll('.rows li, .row')).length);
   check('the list rendered rows to tap', rows > 0, `rows=${rows}`);
 
-  // [checker, 8 Oct 2026] The walk starts from the list the Orders icon opens. Since 28 September
-  // (DEC-063) a spoken list is the model's, and a list the model draws opens no walk: Next said
-  // "There is no list open to move through." That is reported for the flow work; the controls
+  // [checker, 8 Oct 2026, review note N2] Walked as it was asked for, OUT LOUD: George's main path
+  // is to say a list and then walk it. Since 28 September (DEC-063) a spoken list is the model's,
+  // and a list the model draws opens no walk: Next says "There is no list open to move through."
+  // What that defect breaks is held as a strict expected failure; Home does not depend on it.
+  const command = (fields) => page.evaluate(async (f) => {
+    const form = new URLSearchParams({ session_id: 'browser', ...f });
+    return (await fetch('/command', { method: 'POST', body: form })).json();
+  }, fields);
+  const saidNext = await command({ command: 'workflow.next' });
+  knownDefect(SPOKEN_LIST_WALK, 'Next moves the cursor on a list asked for out loud',
+    saidNext.ok === true && /\d+ of \d+/.test(saidNext.answer || ''), `answer=${saidNext.answer}`);
+  const saidBack = await command({ command: 'navigation.back' });
+  const saidBackStop = (saidBack.changed || {}).workspace || {};
+  knownDefect(SPOKEN_LIST_WALK, 'Back returns to the list asked for out loud, with cards on it',
+    (saidBack.ui || []).some((i) => i.type === 'order_list') && saidBackStop.kind === 'list' && Boolean(saidBackStop.set_id),
+    `ui=${(saidBack.ui || []).map((i) => i.type).join(',')} answer=${saidBack.answer}`);
+  const saidHome = await command({ command: 'navigation.home' });
+  check('Home from a list asked for out loud draws the landing, with cards on it',
+    (saidHome.ui || []).some((i) => i.type === 'order_list') && (saidHome.changed || {}).home === true
+    && (saidHome.changed || {}).area === 'orders',
+    `ui=${(saidHome.ui || []).map((i) => i.type).join(',')} changed=${JSON.stringify(saidHome.changed || {}).slice(0, 160)}`);
+
+  // [checker, 8 Oct 2026] And from the list the Orders icon opens, which walks today: the controls
   // checked below are the list's own, and the Orders icon is how a thumb opens a list to walk.
   await page.evaluate(async () => {
     const form = new URLSearchParams({ session_id: 'browser', command: 'open.area', area: 'orders' });
@@ -467,6 +497,50 @@ async function main() {
     landedTwice.mode === landed.mode && landedTwice.mode === 'orb' && landedTwice.home > 0,
     `first=${landed.mode} again=${landedTwice.mode} home=${landedTwice.home}`);
   await shot('08-assistant-landing');
+
+  // [checker, 8 Oct 2026, review note N2] The same walk by thumb on a list asked for OUT LOUD,
+  // from the home: Next, then Back to the list, then Home. A list the model draws is not made the
+  // walk since 28 September (DEC-063): with the Orders icon's list walked earlier in this session,
+  // Next walks THAT list ("#1938. 2 of 3.") and Back ends on its landing, not on the list just
+  // asked for. So the walk is held to the list on the glass, by its own rows, and what the defect
+  // breaks is a strict expected failure (see the top of this file). Home is a plain check.
+  const rowRefs = () => page.evaluate(() => Array.from(document.querySelectorAll('#cards li.row[data-kind="order"][data-ref]')).map((r) => r.dataset.ref));
+  await say("show me today's orders");
+  const saidList = await walkState();
+  const saidRows = await rowRefs();
+  check('a list asked for out loud is on the glass, with rows', saidList.type === 'order_list' && saidRows.length > 0,
+    `types=${saidList.types.join(',')} rows=${saidRows.length}`);
+  let saidFirst = saidList;
+  if (saidList.next && saidList.next.drawn && !saidList.next.disabled) {
+    await page.evaluate(() => document.querySelector('#next-btn').click());
+    await sleep(1200);
+    saidFirst = await walkState();
+  }
+  knownDefect(SPOKEN_LIST_WALK, 'Next on a list asked for out loud opens ITS first order and says "1 of" its length',
+    saidFirst.type === 'order' && saidFirst.ref === saidRows[0] && new RegExp(`\\b1 of ${saidRows.length}\\b`).test(saidFirst.answer),
+    `next=${JSON.stringify(saidList.next)} type=${saidFirst.type} ref=${saidFirst.ref} first row=${saidRows[0]} "${saidFirst.answer}"`);
+  let saidOut = saidFirst;
+  for (let i = 0; i < 8 && saidOut.type !== 'order_list' && saidOut.back && saidOut.back.drawn && !saidOut.back.disabled; i++) {
+    await page.evaluate(() => document.querySelector('#back-btn').click());
+    await sleep(1100);
+    saidOut = await walkState();
+  }
+  const outRows = await rowRefs();
+  knownDefect(SPOKEN_LIST_WALK, 'Back walks out of a list asked for out loud and ends on that same list',
+    saidFirst !== saidList && saidOut.type === 'order_list' && JSON.stringify(outRows) === JSON.stringify(saidRows),
+    `walked=${saidFirst !== saidList} types=${saidOut.types.join(',')} rows=${outRows.length} vs ${saidRows.length}`);
+  const saidHomeBtn = await page.evaluate(() => {
+    const b = document.querySelector('#home-btn');
+    if (!b) return false;
+    const r = b.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return false;
+    b.click();
+    return true;
+  });
+  await sleep(1600);
+  const saidLanded = await walkState();
+  check('Home from a list asked for out loud lands on the home', saidHomeBtn && saidLanded.mode === 'orb',
+    `pressed=${saidHomeBtn} mode=${saidLanded.mode} types=${saidLanded.types.join(',')}`);
 
   // ---- 9. touch, then voice, with a finger rather than with fetch
   //

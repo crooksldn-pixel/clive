@@ -54,6 +54,16 @@ const checks = [];
 const shots = [];
 const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail: detail === undefined ? '' : String(detail).slice(0, 400) });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// [checker, 8 Oct 2026, review note N2] A check held as a STRICT expected failure, named for its
+// defect (pytest's xfail(strict=True), for a script). While the defect is there it is reported
+// as an expected failure and the gate stays green. The day it passes, the gate goes RED and says
+// so: make it a plain `check(...)` again. Grep "KNOWN DEFECT" for every one; the Python side of
+// the same defect is tests/test_spoken_list_walk.py.
+const SPOKEN_LIST_WALK = 'KNOWN DEFECT spoken-list-walk: a list asked for out loud opens no walk (checker defect 1; flow is fixing it)';
+const knownDefect = (defect, name, ok, detail) => check(
+  ok ? `${name} :: XPASS(strict): ${defect} is fixed, so make this a plain check`
+    : `${name} :: expected failure, ${defect}`,
+  !ok, detail);
 
 async function atSize(browser, size) {
   const at = (what) => `${what} (${size.name})`;
@@ -188,9 +198,10 @@ async function atSize(browser, size) {
      `expect` is a substring of what the click must have landed on or inside, or a list of
      them where one control has more than one shape: Split is a `.branch-act` in the branch
      band and a `.chip` in the navigation rail. */
-  async function tapControl(label, selector, expect) {
+  // `judge` is who records the result: `check` unless a caller holds this tap to more (N2).
+  async function tapControl(label, selector, expect, judge = check) {
     const box = await boxOf(selector);
-    if (!box) { check(at(`tap ${label}`), false, `${selector} is not on screen at all`); return null; }
+    if (!box) { judge(at(`tap ${label}`), false, `${selector} is not on screen at all`); return null; }
     await reset();
     const before = { turns: turns(), submits: (await audit() || {}).submits };
     await tap(box);
@@ -202,7 +213,7 @@ async function atSize(browser, size) {
     const reached = wanted.length ? landed.some((c) => wanted.some((w) => c.includes(w))) : landed.length > 0;
     const quiet = after.turns === before.turns && short === 0 && starts === 0
       && after.submits === before.submits;
-    check(at(`tap ${label}`), box.onScreen && box.hitBy.startsWith('itself') && reached && quiet, JSON.stringify({
+    judge(at(`tap ${label}`), box.onScreen && box.hitBy.startsWith('itself') && reached && quiet, JSON.stringify({
       box: `${box.left},${box.top} ${box.w}x${box.h}`, onScreen: box.onScreen, hitBy: box.hitBy,
       landed: landed.slice(0, 4), turns: after.turns - before.turns, too_short: short,
       hold_starts: starts, submits: (after.submits || 0) - (before.submits || 0),
@@ -376,15 +387,58 @@ async function atSize(browser, size) {
 
   // ================================================================== the navigation chrome
   //
-  // [checker, 8 Oct 2026] The list is opened with the Orders icon, under a finger, rather than
-  // said: since 28 September (DEC-063) a spoken list is the model's, and a list the model draws
+  // [checker, 8 Oct 2026] The list is said (first, below) and opened with the Orders icon, under a
+  // finger: since 28 September (DEC-063) a spoken list is the model's, and a list the model draws
   // is neither a stop on the trail nor a walk, so it offers no Back and no Next. That is
-  // reported for the flow work; what is measured here is the controls themselves.
+  // reported for the flow work; the Orders icon's list measures the controls themselves.
   const openOrders = async () => {
     const dock = await boxOf('.dock-btn[data-area="orders"]');
     if (dock) await tap(dock);
     await sleep(1600);
   };
+  // [checker, 8 Oct 2026, review note N2] First on a list asked for OUT LOUD, which is George's
+  // main path: say a list, open a row, then Home, Back and Next. A list the model draws is not
+  // made the walk since 28 September (DEC-063), so Back and Next, held to land in THAT list, are
+  // strict expected failures (`knownDefect`); a row opening and Home do not depend on it. Before
+  // the Orders icon is touched: once its landing has made today's set, an order of today's opened
+  // from anywhere walks that set, which would hide the defect rather than measure it.
+  const rowRefs = () => page.evaluate(() => Array.from(document.querySelectorAll('#cards li.row[data-kind="order"][data-ref]')).map((r) => r.dataset.ref));
+  const onGlass = () => page.evaluate(() => {
+    const c = document.querySelector('#cards .card');
+    return { type: (c && c.dataset.type) || '', ref: (c && c.dataset.ref) || '',
+             answer: ((document.querySelector('#answer') || {}).textContent || '').trim(), mode: document.body.dataset.mode || '' };
+  });
+  const saidList = async () => {
+    await say("show me today's orders");
+    const refs = await rowRefs();
+    await tapControl('a row of a list asked for out loud', '#cards li.row[data-kind="order"]', 'li.row');
+    await sleep(800);
+    return refs;
+  };
+  let said = await saidList();
+  check(at('a list asked for out loud is on the glass with more than one row'), said.length > 1, JSON.stringify(said.length));
+  await tapControl('Home on an order opened from a list asked for out loud', '#home-btn', 'home-btn');
+  await sleep(900);
+
+  said = await saidList();
+  let heard = [];
+  const keep = (name, ok, detail) => heard.push({ name, ok, detail });
+  await tapControl('Back on an order opened from a list asked for out loud', '#back-btn', 'back-btn', keep);
+  await sleep(900);
+  const backTo = { ...(await onGlass()), rows: await rowRefs() };
+  knownDefect(SPOKEN_LIST_WALK, heard[0].name + ', and it lands on that list',
+    heard[0].ok && backTo.type === 'order_list' && JSON.stringify(backTo.rows) === JSON.stringify(said),
+    `${heard[0].detail} landed=${backTo.type} rows=${backTo.rows.length} vs ${said.length}`);
+
+  said = await saidList();
+  heard = [];
+  await tapControl('Next on an order opened from a list asked for out loud', '#next-btn', 'next-btn', keep);
+  await sleep(900);
+  const nextTo = await onGlass();
+  knownDefect(SPOKEN_LIST_WALK, heard[0].name + ', and it opens that list\'s second order',
+    heard[0].ok && nextTo.type === 'order' && nextTo.ref === said[1] && new RegExp(`\\b2 of ${said.length}\\b`).test(nextTo.answer),
+    `${heard[0].detail} type=${nextTo.type} ref=${nextTo.ref} second row=${said[1]} "${nextTo.answer}"`);
+
   await openOrders();
   await ladderHolds('beside the cards');
   await railFits('beside the cards, with one half');
