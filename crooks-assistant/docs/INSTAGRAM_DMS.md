@@ -75,9 +75,9 @@ http://127.0.0.1:8000/hooks/instagram`. From outside the tailnet `curl -si <the 
 
 1. **At the door** (`app/messaging/meta.py`): Meta's URL check answered only for the stored verify
    token; a POST read only when its `X-Hub-Signature-256` is the HMAC-SHA256 of the raw body under
-   the Instagram app's secret (or the Meta app's, stored for WhatsApp, if it is the same app: Meta
-   signs with the app's secret, and any of George's own apps' secrets proves Meta sent it),
-   compared in constant time before anything is parsed; then strict UTF-8 JSON for the
+   the Instagram app's secret (`instagram_app_secret`, and only it: the WhatsApp app's secret is
+   never tried here, even when both products sit on one Meta app), compared in constant time
+   before anything is parsed; then strict UTF-8 JSON for the
    `instagram` object, under 3 MB. Anything else: **403 with an empty body**. The same body again
    within ten minutes is dropped; every message is stored once by Instagram's own id.
 2. **Stored at once**: each message (Instagram's millisecond times read as seconds), a message the

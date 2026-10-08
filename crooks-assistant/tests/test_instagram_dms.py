@@ -170,17 +170,33 @@ async def test_a_signed_message_is_stored_once_with_instagrams_milliseconds_read
     assert again.status_code == 200 and len(store.messages(thread.chat_id)) == 1 and len(graph.heard) == 1
 
 
-async def test_a_body_signed_with_the_meta_apps_secret_is_taken_and_any_other_is_not(client, graph):  # noqa: F811
+async def test_a_body_signed_with_the_instagram_apps_secret_is_taken_and_any_other_is_not(client, graph):  # noqa: F811
+    """[channels] Only the Instagram app's secret: the WhatsApp app's (meta_world.APP_SECRET, stored on
+    this server too) is refused like any other (review note 3; it was accepted before)."""
     _closed_to_the_public(client)
-    by_meta_app = await _post(client, meta_world.ig_text("hi", mid="igmid.M"), secret=meta_world.APP_SECRET)
-    assert by_meta_app.status_code == 200
-    for secret in ("not-the-secret", meta_world.IG_VERIFY):
+    by_instagram_app = await _post(client, meta_world.ig_text("hi", mid="igmid.M"), secret=meta_world.IG_SECRET)
+    assert by_instagram_app.status_code == 200
+    for secret in ("not-the-secret", meta_world.IG_VERIFY, meta_world.APP_SECRET):
         refused = await _post(client, meta_world.ig_text("hi", mid="igmid.N"), secret=secret)
         assert (refused.status_code, refused.content) == (403, b"")
     whatsapp_kind = await _post(client, meta_world.wa_text("hi", msg_id="wamid.Z"))
     assert whatsapp_kind.status_code == 403                    # signed, but not Instagram's object
     await ingest.settle()
     assert [m.remote_id for t in store.threads() for m in store.messages(t.chat_id)] == ["igmid.M"]
+
+
+async def test_without_the_instagram_apps_secret_the_door_is_shut_whatever_whatsapps_is(client, graph):  # noqa: F811
+    """[channels] WhatsApp's secret stored, Instagram's not: /hooks/instagram is closed (403, empty), a
+    body signed with WhatsApp's secret included, and Test says to store the app secret."""
+    _closed_to_the_public(client)
+    del graph.ig[instagram.APP_SECRET_KEY]
+    for secret in (meta_world.APP_SECRET, meta_world.IG_SECRET):
+        refused = await _post(client, meta_world.ig_text("hi", mid="igmid.W"), secret=secret)
+        assert (refused.status_code, refused.content) == (403, b"")
+    await ingest.settle()
+    assert store.threads() == []
+    callback = {r.key: r for r in await channel.probe_routes()}["callback"]
+    assert callback.state == "off" and callback.switch_on.startswith("Store the app secret")
 
 
 @pytest.mark.parametrize("change", ["unsigned", "garbage", "deep", "no_keys"])

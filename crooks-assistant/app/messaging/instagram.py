@@ -10,8 +10,7 @@ what he switches on at Meta and what he must decide.
 What it promises:
 - verify_inbound: Meta's GET check is answered only for the stored webhook verify token; a POST is
   read only when its X-Hub-Signature-256 is the signature of the body under the Instagram app's
-  secret (or, where the app is the same Meta app WhatsApp uses, that app's secret: Meta signs with
-  the app's secret, and one of George's own apps signing it is what the check proves).
+  secret, and no other: WhatsApp's app secret never signs for Instagram.
 - carried: each message in the request is stored at the door, once, by Instagram's own id. One the
   account sent (Instagram's echo) is kept as sent from the Instagram app, and becomes CLIVE's own
   record when it is the reply CLIVE sent (app/messaging/store.py `claim`). "Seen" marks what CLIVE
@@ -35,7 +34,6 @@ from datetime import datetime
 from typing import Any
 
 from app.clients import instagram
-from app.clients import whatsapp as whatsapp_client
 from app.messaging import meta
 from app.messaging.adapter import Delivery, Failure, Inbound, Received, Refused, Route, register
 from app.messaging.models import Message, Thread, chat_id_for, new_message_id
@@ -106,7 +104,9 @@ class InstagramAdapter:
     def verify_inbound(self, method: str, query: Mapping[str, str], body: bytes,
                        headers: Mapping[str, str] | None = None) -> Inbound:
         verify_token = _stored(VERIFY_TOKEN)
-        secrets = [_stored(instagram.APP_SECRET_KEY), whatsapp_client.value(whatsapp_client.APP_SECRET)]
+        # [channels] The Instagram app's secret alone: Instagram Login's webhooks are signed with it.
+        # WhatsApp lives on another Meta app, whose secret never speaks for Instagram (review note 3).
+        secrets = [_stored(instagram.APP_SECRET_KEY)]
         if not (verify_token and any(secrets) and instagram.token()):
             raise Refused("unconfigured")
         return meta.check(CHANNEL, method, query, body, headers, verify_token=verify_token, secrets=secrets, kind=KIND)
@@ -261,7 +261,7 @@ async def probe_routes() -> list[Route]:
 
 def _callback_route(fields: list[str] | None) -> Route:
     label, can = "Messages arriving", "Instagram telling CLIVE a message came in, at this server's /hooks/instagram."
-    if not (_stored(VERIFY_TOKEN) and (_stored(instagram.APP_SECRET_KEY) or whatsapp_client.value(whatsapp_client.APP_SECRET))):
+    if not (_stored(VERIFY_TOKEN) and _stored(instagram.APP_SECRET_KEY)):
         return Route("callback", label, "off", can, "Store the app secret and the webhook verify token on this card.")
     if fields is None:
         return Route("callback", label, "unknown", can, "Instagram didn't say which events it sends for the account.")
