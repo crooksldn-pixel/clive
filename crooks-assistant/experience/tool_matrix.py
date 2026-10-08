@@ -20,7 +20,9 @@ cannot be decided it says so rather than being filled in optimistically:
                       TestCase), and the set-up and tear-down hooks pytest itself runs, by
                       their exact names — a helper called `setup_shop` is not one. A name is
                       resolved by where it is defined: a bare name reaches the file's
-                      module-level function or class, `self.x()` the method x of the running
+                      module-level function or class — the binding it has
+                      last, so a `go` a later `def go()` replaces is not
+                      reached — `self.x()` the method x of the running
                       method's own class or a base of the file it names, never a module-level
                       x or another class's x. A module-level helper running code hands on by
                       name (`anyio.run(go)`) is reached; named only by the file's top-level
@@ -358,6 +360,24 @@ def _targets(node: ast.Assign | ast.AnnAssign) -> list[ast.AST]:
     return list(node.targets) if isinstance(node, ast.Assign) else [node.target]
 
 
+def _replaces(node: ast.AST) -> set[str]:
+    """The names a statement of a module or class body binds there for certain — a def, a class,
+    an assignment, an import — and so replaces what they meant before, as Python's definition
+    order does: a later `def go(): ...` is the only `go` there is. A statement whose own code
+    reads the name it binds (a decorator such as `@go.setter`, a base, a value such as
+    `go = wrap(go)`) keeps the earlier one alive through it, and replaces nothing."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        names = {node.name}
+    elif isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+        names = {n.id for target in _targets(node) for n in ast.walk(target)
+                 if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    elif isinstance(node, (ast.Import, ast.ImportFrom)):
+        names = {alias.asname or alias.name.split(".")[0] for alias in node.names if alias.name != "*"}
+    else:
+        return set()
+    return names - {n.id for n in _in_scope([node]) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+
+
 _SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
 
 
@@ -475,7 +495,10 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
     functions of the file — and a name is resolved by where it is defined: a bare name, called
     or not, reaches the file's module-level function or class of that name, unless the scope
     that reads it, or a function around it, binds the name itself (a binding inside a function
-    or class nested in the running one is that one's own, and hides nothing); `self.x()` or `cls.x()` reaches the method x of the class
+    or class nested in the running one is that one's own, and hides nothing), and only the
+    binding that name has last, by Python's definition order: a `go` a later `def go(): ...`
+    replaces is reached by nothing, and a class body's method by nothing once a later one of
+    that name replaces it; `self.x()` or `cls.x()` reaches the method x of the class
     the running method belongs to, or of a base class of the file it names, and never a
     module-level function x or a method x of an unrelated class. A `test*` method of a class
     pytest does not collect runs only once running code makes that class. A class of the file
@@ -504,6 +527,12 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
     methods: dict[str, dict[str, list[ast.AST]]] = {}    # class -> its own methods, by name
     loose: list[ast.AST] = []            # statements that run on import
     for node in tree.body:
+        # A name means its last binding, as Python's definition order has it (the 2026-10-08
+        # repair, F-01): a dispatching `go` a later `def go(): ...` replaces is not reached.
+        for name in _replaces(node):
+            functions.pop(name, None)
+            classes.pop(name, None)
+            methods.pop(name, None)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             functions.setdefault(node.name, []).append(node)
         elif isinstance(node, ast.ClassDef):
@@ -511,6 +540,8 @@ def _calls_that_run(tree: ast.Module) -> tuple[set[int], set[int]]:
             own = methods.setdefault(node.name, {})
             loose.extend(node.decorator_list)
             for item in node.body:
+                for name in _replaces(item):
+                    own.pop(name, None)
                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     own.setdefault(item.name, []).append(item)
                 else:

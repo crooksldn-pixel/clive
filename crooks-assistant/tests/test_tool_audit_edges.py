@@ -87,6 +87,28 @@ def test_a_bare_call_from_a_test_method_reaches_the_module_level_function():
                               '    async def test_it(self):\n        await go()\n')
 
 
+def test_a_bare_name_reaches_only_its_last_binding():
+    # The 2026-10-08 repair, F-01: a later definition replaces the earlier one, as in Python.
+    later_go = 'async def go():\n    return None\n'
+    assert not _cites(MODULE_GO + later_go + 'async def test_it():\n    await go()\n')
+    assert not _cites(MODULE_GO + later_go + 'import anyio\ndef test_it():\n    anyio.run(go)\n')
+    assert not _cites(MODULE_GO + 'class go:\n    pass\nasync def test_it():\n    go()\n')
+    assert not _cites(MODULE_GO + 'go = None\nasync def test_it():\n    await go()\n')
+    assert not _cites(DISPATCH + 'async def test_it():\n    await dispatch("probe_tool", {})\n'
+                                 'async def test_it():\n    assert True\n')
+    assert not _cites(DISPATCH + 'class Model:\n    async def turn(self):\n        await dispatch("probe_tool", {})\n'
+                                 'class Model:\n    async def turn(self):\n        return None\n'
+                                 'def test_it(runtime):\n    runtime.provider = Model()\n')
+    assert not _cites(DISPATCH + 'class TestIt:\n    async def go(self):\n        await dispatch("probe_tool", {})\n'
+                                 '    async def go(self):\n        return None\n'
+                                 '    async def test_it(self):\n        await self.go()\n')
+    # The later binding is the one reached, and one that reads the earlier keeps it alive.
+    assert _cites(DISPATCH + 'async def go():\n    return None\n'
+                             'async def go():\n    await dispatch("probe_tool", {})\n'
+                             'async def test_it():\n    await go()\n')
+    assert _cites(MODULE_GO + 'go = wrap(go)\nasync def test_it():\n    await go()\n')
+
+
 def test_a_test_method_of_a_class_pytest_does_not_collect_runs_only_once_the_class_is_made():
     helper = DISPATCH + 'class Helper:\n    async def test_it(self):\n        await dispatch("probe_tool", {})\n'
     assert not _cites(helper + 'def test_other():\n    assert True\n')
