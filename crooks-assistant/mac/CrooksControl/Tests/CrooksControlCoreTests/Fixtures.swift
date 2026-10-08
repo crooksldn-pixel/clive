@@ -12,8 +12,9 @@ import Foundation
 // control.py again. The ONLY edit made to any of these is the absolute path prefix in
 // `actions`, rewritten from the development checkout to /Users/george/crooks-assistant so that
 // reading the fixture does not require knowing where it was captured — and the branch name,
-// which was this workstream's own worktree branch, rewritten to main. No field that any
-// test asserts on was touched.
+// which was this workstream's own worktree branch, rewritten to main. On 8 October 2026, when
+// the repository went public, the Gmail row's account was also rewritten, to the fictional
+// owner@example.com. No field that any test asserts on was touched.
 
 enum Fixture {
 
@@ -252,7 +253,7 @@ enum Fixture {
       "key": "gmail",
       "label": "Gmail",
       "state": "ok",
-      "value": "george@crooksclothing.co.uk",
+      "value": "owner@example.com",
       "detail": ""
     },
     {
@@ -618,7 +619,7 @@ enum Fixture {
       "key": "gmail",
       "label": "Gmail",
       "state": "ok",
-      "value": "george@crooksclothing.co.uk",
+      "value": "owner@example.com",
       "detail": ""
     },
     {
@@ -799,7 +800,7 @@ enum Fixture {
       "key": "gmail",
       "label": "Gmail",
       "state": "ok",
-      "value": "george@crooksclothing.co.uk",
+      "value": "owner@example.com",
       "detail": ""
     },
     {
@@ -980,7 +981,7 @@ enum Fixture {
       "key": "gmail",
       "label": "Gmail",
       "state": "ok",
-      "value": "george@crooksclothing.co.uk",
+      "value": "owner@example.com",
       "detail": ""
     },
     {

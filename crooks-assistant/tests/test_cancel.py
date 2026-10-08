@@ -178,7 +178,7 @@ async def test_preparing_reads_the_order_prints_the_money_and_sends_nothing(stor
     words = registry.get(TOOL).write.present(proposal)
     assert words["title"] == "Cancel order" and words["target"] == "Drop to cancel and refund £60.00"
     facts = {f["label"]: f["value"] for f in words["facts"]}
-    assert facts == {"Customer": "Daniel Sear", "Items": "1 · £60.00, paid", "Refund": "£60.00 to the original payment", "Restock": "2 items", "Customer emailed": "yes", "Reason": "customer request"}
+    assert facts == {"Customer": "Daniel Stub", "Items": "1 · £60.00, paid", "Refund": "£60.00 to the original payment", "Restock": "2 items", "Customer emailed": "yes", "Reason": "customer request"}
     line = engine.ledger.read()[-1]
     assert line["event"] == "PROPOSED" and line["facts"] == {"refund": True, "amount": "60.00", "currency": "GBP", "restock": 2, "notify": True, "reason": "CUSTOMER"}
     assert "Daniel" not in str(line)

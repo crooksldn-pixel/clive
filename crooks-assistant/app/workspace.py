@@ -914,7 +914,7 @@ def _actions_for(session: Any, order: entities.Entity | None, thread: entities.E
             continue
         # A door to the screen you are already standing on is not a way forward (§25). The
         # customer workspace passes its own person in so the WRITE can be offered, and this
-        # is what stops that also drawing "Open Daniel Sear" on Daniel Sear's own workspace.
+        # is what stops that also drawing "Open Daniel Stub" on Daniel Stub's own workspace.
         if about is not None and about == (kind, _ref(entity)):
             continue
         state = _open(session, kind, _ref(entity))

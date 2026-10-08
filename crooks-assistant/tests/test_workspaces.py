@@ -41,7 +41,7 @@ D3 = ("Pull up the history of Daniel and his orders. See how many times he's ord
       "see how much he's spent, and see if he's in Gmail anywhere.")
 
 HISTORY = {
-    "customer_id": CUSTOMER, "name": "Daniel Sear", "email": "daniel@example.com",
+    "customer_id": CUSTOMER, "name": "Daniel Stub", "email": "daniel@example.com",
     "orders": 2, "spent": "120.00 GBP", "standing": "returning", "since": "2026-03-01",
     "last_order": {"order_id": ORDER_A, "order_number": "CROOKS-1962"},
     "recent": [
@@ -54,13 +54,13 @@ HISTORY = {
 THREAD_ID = "18f3a2b9c4d5e6f7"      # the shape Gmail actually returns, and the gate accepts
 THREADS = {
     "query": "daniel@example.com",
-    "threads": [{"thread_id": THREAD_ID, "from": "Daniel Sear", "from_email": "daniel@example.com",
+    "threads": [{"thread_id": THREAD_ID, "from": "Daniel Stub", "from_email": "daniel@example.com",
                  "subject": "Where is my order", "date": "Mon", "snippet": "Any news?"}],
 }
 ORDER_DETAIL = {
     "order_id": ORDER_A, "order_number": "CROOKS-1962", "placed_at": "2026-09-01T10:00:00Z",
     "fulfillment": "UNFULFILLED", "payment": "PAID", "total": "60.00 GBP",
-    "customer_name": "Daniel Sear", "customer_id": CUSTOMER, "customer_email": "daniel@example.com",
+    "customer_name": "Daniel Stub", "customer_id": CUSTOMER, "customer_email": "daniel@example.com",
     "items": [{"title": "Yard Jeans", "variant": "Blue Wash / M", "sku": "YJ-M", "quantity": 1,
                "total": "60.00 GBP"}],
     "items_truncated": False,
@@ -114,7 +114,7 @@ def test_the_d3_request_renders_a_customer_workspace_not_an_email_list():
     assert "email_list" not in types(items), (
         "the last tool result became the screen again: " + str(types(items)))
     data = only(items, "customer_workspace")
-    assert data["title"] == "Daniel Sear"
+    assert data["title"] == "Daniel Stub"
     # Everything the spoken answer got right is on the screen too.
     assert data["sections"]["orders"]["state"] == "ready"
     assert [r["order_number"] for r in data["sections"]["orders"]["rows"]] == ["#1962", "#1930"]
@@ -131,7 +131,7 @@ def test_the_same_request_in_one_turn_is_one_workspace_not_three_cards():
     `gmail_search` → enrich .email. NOT three cards."""
     items = present([
         ok("shopify_find_customer", {"query": "daniel", "customers": [
-            {"customer_id": CUSTOMER, "name": "Daniel Sear", "email": "daniel@example.com",
+            {"customer_id": CUSTOMER, "name": "Daniel Stub", "email": "daniel@example.com",
              "orders": 2, "spent": "120.00 GBP"}]}),
         ok("shopify_customer_history", HISTORY),
         ok("gmail_search", THREADS),
@@ -147,12 +147,12 @@ def test_ten_reads_touching_one_customer_produce_one_customer_surface():
     calls = []
     for _ in range(4):
         calls.append(ok("shopify_find_customer", {"query": "daniel", "customers": [
-            {"customer_id": CUSTOMER, "name": "Daniel Sear", "email": "daniel@example.com",
+            {"customer_id": CUSTOMER, "name": "Daniel Stub", "email": "daniel@example.com",
              "orders": 2, "spent": "120.00 GBP"}]}))
         calls.append(ok("shopify_customer_history", HISTORY))
     calls.append(ok("gmail_search", THREADS))
     calls.append(ok("gmail_read_thread", {"thread_id": THREAD_ID, "message_count": 1, "messages": [
-        {"message_id": "m1", "from": "Daniel Sear", "from_email": "daniel@example.com",
+        {"message_id": "m1", "from": "Daniel Stub", "from_email": "daniel@example.com",
          "subject": "Where is my order", "body": "Any news?", "date": "Mon"}]}))
     items = present(calls, session=session(D3, "ten"))
     surfaces = [t for t in types(items) if t in ("customer_workspace", "customer", "customer_list")]
@@ -175,7 +175,7 @@ def test_an_empty_gmail_section_preserves_the_rest_of_the_workspace():
     assert "no messages found" in inbox["note"].lower(), inbox["note"]
     assert inbox["rows"] == []
     # Nothing else moved.
-    assert data["title"] == "Daniel Sear"
+    assert data["title"] == "Daniel Stub"
     assert data["sections"]["orders"]["state"] == "ready"
     assert len(data["sections"]["orders"]["rows"]) == 2
     assert data["sections"]["overview"]["state"] == "ready"
@@ -194,7 +194,7 @@ def test_an_error_in_one_section_does_not_destroy_the_others():
     assert data["sections"]["orders"]["state"] == "ready"
     assert len(data["sections"]["orders"]["rows"]) == 2
     assert data["sections"]["overview"]["state"] == "ready"
-    assert data["title"] == "Daniel Sear"
+    assert data["title"] == "Daniel Stub"
     # The failed service still gets its own error card; that is what it always did.
     assert "error" in types(items)
 
@@ -222,7 +222,7 @@ def test_a_customer_first_viewport_answers_the_three_questions():
     data = only(items, "customer_workspace")
 
     # WHAT IS THIS — identity, and whether this person is new or returning.
-    assert data["title"] == "Daniel Sear"
+    assert data["title"] == "Daniel Stub"
     assert data["subtitle"] == "daniel@example.com"
     assert data["status"].lower() in ("returning", "regular", "first order", "new", "no orders yet")
 
@@ -246,7 +246,7 @@ def test_an_order_first_viewport_leads_with_the_order_not_with_its_items():
                     session=session("Pull up order 1962 — what's on it, and where is it going?", "order-vp"))
     data = only(items, "order_workspace")
     assert data["title"] == "Order #1962"
-    assert data["subtitle"] == "Daniel Sear"
+    assert data["subtitle"] == "Daniel Stub"
     keys = {f["key"].lower(): str(f["value"]) for f in data["header"]}
     assert "60" in keys["value"]
     assert keys["payment"].lower() == "paid"
@@ -403,7 +403,7 @@ def test_a_workspace_is_bounded():
                     "fulfillment": "FULFILLED", "payment": "PAID"} for n in range(80)],
     }
     many = {"query": "x", "threads": [
-        {"thread_id": f"t-{n}", "from": "Daniel Sear", "from_email": "daniel@example.com",
+        {"thread_id": f"t-{n}", "from": "Daniel Stub", "from_email": "daniel@example.com",
          "subject": "S" * 400, "date": "Mon", "snippet": "z" * 900} for n in range(60)]}
     data = only(present([ok("shopify_customer_history", huge), ok("gmail_search", many)],
                         session=session(D3, "bounds")), "customer_workspace")
@@ -479,12 +479,12 @@ def test_an_inbox_row_says_who_and_what_it_is_about():
         {**THREADS["threads"][0], "awaiting_reply": True, "known_customer": True}]})], session=live)
     row = only(items, "email_list")["threads"][0]
 
-    assert row["from"] == "Daniel Sear" and row["subject"] == "Where is my order"
+    assert row["from"] == "Daniel Stub" and row["subject"] == "Where is my order"
     assert row["date"] == "Mon"                                   # age
     assert row["needs_reply"] is True
     assert row["priority"] == "high"
     assert row["customer_link"] == {"kind": "customer", "ref": CUSTOMER,
-                                    "label": "Daniel Sear", "command": "open.entity"}
+                                    "label": "Daniel Stub", "command": "open.entity"}
     assert row["order_link"] == {"kind": "order", "ref": ORDER_A,
                                  "label": "#1962", "command": "open.entity"}
     # §18: both refs were issued before the links were offered, so neither tap is refused.
@@ -498,7 +498,7 @@ def test_an_inbox_row_offers_no_link_it_cannot_stand_behind():
     than a control that opens the wrong record."""
     stranger = session("Anything in the inbox?", "inbox-2")
     items = present([ok("gmail_search", {"query": "x", "threads": [
-        {"thread_id": THREAD_ID, "from": "Daniel Sear", "from_email": "someone@example.com",
+        {"thread_id": THREAD_ID, "from": "Daniel Stub", "from_email": "someone@example.com",
          "subject": "Hello", "date": "Mon", "snippet": ""}]})], session=stranger)
     row = only(items, "email_list")["threads"][0]
     assert "customer_link" not in row and "order_link" not in row
@@ -508,7 +508,7 @@ def test_an_inbox_row_offers_no_link_it_cannot_stand_behind():
     live = session("Anything in the inbox?", "inbox-3")
     present([ok("shopify_customer_history", HISTORY)], session=live)
     row = only(present([ok("gmail_search", THREADS)], session=live), "email_list")["threads"][0]
-    assert row["customer_link"]["label"] == "Daniel Sear"
+    assert row["customer_link"]["label"] == "Daniel Stub"
     assert "order_link" not in row, "two held orders is a guess, and a guess is not a link"
 
 

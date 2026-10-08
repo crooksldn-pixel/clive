@@ -277,7 +277,7 @@ class ScriptedProvider(FakeProvider):
         if "order 1938" in words and "note" not in words and "cancel" not in words:
             await call("shopify_find_order", {"query": "1938"})
             await call("shopify_order_detail", {"order_id": ORDER})
-            answer = "CROOKS-1938: paid, not shipped yet. One pair of Yard Jeans, sixty pounds, for Daniel Sear."
+            answer = "CROOKS-1938: paid, not shipped yet. One pair of Yard Jeans, sixty pounds, for Daniel Stub."
         elif "jeans" in words and "stock" not in words:
             await call("shopify_product_info", {"product": "Yard Jeans", "size": "medium"})
             answer = "The Yard Jeans in a medium have a thirty-two inch inseam."
@@ -285,9 +285,9 @@ class ScriptedProvider(FakeProvider):
             await call("shopify_customer_store_credit_add", {"customer_id": CUSTOMER_NODE["id"], "amount": "10.00"})
             answer = "I can't add store credit; that isn't something I can do from here."
         elif "daniel" in words:
-            await call("shopify_find_customer", {"query": "Daniel Sear"})
+            await call("shopify_find_customer", {"query": "Daniel Stub"})
             await call("shopify_customer_history", {"customer_id": CUSTOMER_NODE["id"]})
-            answer = "Daniel Sear has three orders with you, four hundred and ten pounds in all."
+            answer = "Daniel Stub has three orders with you, four hundred and ten pounds in all."
         elif "email" in words:
             await call("gmail_search", {"query": "1938", "days": 7})
             answer = "One email from Daniel about order 1938, asking to send it to his work address."
@@ -318,8 +318,8 @@ def canned(name: str, result: dict | None = None, *, error: Exception | None = N
 
 
 PRODUCT = {"query": "Yard Jeans", "products": [{"product_id": "gid://shopify/Product/31", "title": "Yard Jeans", "subtitle": "Blue Wash", "description": "Straight cut.", "measurements": [{"size": "M", "inseam": "32"}], "image_url": "/media/shopify/0123456789abcdef0123456789abcdef/200?u=abc"}]}
-CUSTOMER_MATCH = {"query": "Daniel Sear", "customers": [{"customer_id": CUSTOMER_NODE["id"], "name": "Daniel Sear", "email": "daniel@example.com", "orders": 3, "spent": "410.00 GBP"}]}
-EMAILS = {"query": "1938", "count": 1, "threads": [{"thread_id": "18f2a9c0b1d2e3f4", "from": "Daniel Sear", "from_email": "daniel@example.com", "subject": "Address for 1938", "date": "Mon, 8 Sep 2026 10:12:00 +0100", "snippet": "Please send it to my work instead", "likely_bulk": False, "authenticated": True}]}
+CUSTOMER_MATCH = {"query": "Daniel Stub", "customers": [{"customer_id": CUSTOMER_NODE["id"], "name": "Daniel Stub", "email": "daniel@example.com", "orders": 3, "spent": "410.00 GBP"}]}
+EMAILS = {"query": "1938", "count": 1, "threads": [{"thread_id": "18f2a9c0b1d2e3f4", "from": "Daniel Stub", "from_email": "daniel@example.com", "subject": "Address for 1938", "date": "Mon, 8 Sep 2026 10:12:00 +0100", "snippet": "Please send it to my work instead", "likely_bulk": False, "authenticated": True}]}
 
 
 async def tablet(client, session_id: str, turn_id: str, *events: dict) -> None:

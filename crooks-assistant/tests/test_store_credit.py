@@ -49,7 +49,7 @@ DAVID = "gid://shopify/Customer/7002"
 
 PEOPLE = {
     MIA: {"name": "Mia Jones", "email": "mia.jones@example.com"},
-    DAVID: {"name": "David Randall", "email": "david.randall@example.com"},
+    DAVID: {"name": "David Replica", "email": "david.replica@example.com"},
 }
 
 

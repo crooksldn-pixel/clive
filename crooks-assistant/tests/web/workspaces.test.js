@@ -34,7 +34,7 @@ function section(name, over) {
 function customer(over) {
   return Object.assign({
     workspace: 'customer', kind: 'customer', ref: 'gid://shopify/Customer/7',
-    label: 'Daniel Sear', title: 'Daniel Sear', subtitle: 'daniel@example.com',
+    label: 'Daniel Stub', title: 'Daniel Stub', subtitle: 'daniel@example.com',
     status: 'Returning',
     header: [{ key: 'Lifetime', value: '£120.00' }, { key: 'Orders', value: '2' },
              { key: 'Last order', value: '#1962 · 1 Sep' }],
@@ -60,7 +60,7 @@ function customer(over) {
 function order(over) {
   return Object.assign({
     workspace: 'order', kind: 'order', ref: 'gid://shopify/Order/1962', label: '#1962',
-    title: 'Order #1962', subtitle: 'Daniel Sear', status: 'To ship',
+    title: 'Order #1962', subtitle: 'Daniel Stub', status: 'To ship',
     header: [{ key: 'Value', value: '£60.00' }, { key: 'Payment', value: 'Paid' },
              { key: 'Fulfilment', value: 'Unfulfilled' }, { key: 'Placed', value: '1 Sep' }],
     attention: [], actions: [], tab: 'overview', tab_intended: 'overview', tab_reason: '',
@@ -73,7 +73,7 @@ function order(over) {
       overview: section('overview', { state: 'ready', facts: [{ key: 'Subtotal', value: '£60.00' }] }),
       items: section('items', { state: 'ready', count: 1, rows: [{ title: 'Yard Jeans', variant: 'Blue Wash / M', sku: 'YJ-M', quantity: 1, total: '£60.00', open: false, open_note: '' }] }),
       shipping: section('shipping', { state: 'ready', facts: [{ key: 'Ships to', value: 'London, United Kingdom' }] }),
-      customer: section('customer', { state: 'ready', facts: [{ key: 'Name', value: 'Daniel Sear' }], rows: [{ customer_id: 'gid://shopify/Customer/7', name: 'Daniel Sear', subtitle: 'daniel@example.com', open: true, open_note: '' }] }),
+      customer: section('customer', { state: 'ready', facts: [{ key: 'Name', value: 'Daniel Stub' }], rows: [{ customer_id: 'gid://shopify/Customer/7', name: 'Daniel Stub', subtitle: 'daniel@example.com', open: true, open_note: '' }] }),
       email: section('email', { state: 'unread', note: 'Ask whether they have emailed about it to fill this in.' }),
     },
   }, over || {});
@@ -104,7 +104,7 @@ test('a customer workspace answers what-is-this, what-matters and what-can-I-do 
                 ref: 'gid://shopify/Order/1962', enabled: true, reason: '' }],
   }) });
   const words = node.allText();
-  assert.ok(words.includes('Daniel Sear'));            // what is this
+  assert.ok(words.includes('Daniel Stub'));            // what is this
   assert.ok(words.includes('Returning'));
   assert.ok(words.includes('£120.00') && words.includes('Last order'));   // what matters
   assert.ok(words.includes('Open order #1962'));       // what can I do
@@ -138,7 +138,7 @@ test('a section is drawn from its own state, and one bad section leaves the othe
   // §27: the orders the Mac holds are still drawn, with their rows, and the header is intact.
   assert.equal(by.orders.dataset.state, 'ready');
   assert.ok(by.orders.allText().includes('#1962'));
-  assert.ok(node.allText().includes('Daniel Sear') && node.allText().includes('£120.00'));
+  assert.ok(node.allText().includes('Daniel Stub') && node.allText().includes('£120.00'));
 });
 
 test('empty, unread and loading are three different things on the glass', () => {
@@ -160,9 +160,9 @@ test('a row is a control only where the Mac said it can be opened (§18)', () =>
       inbox: section('inbox', {
         state: 'ready',
         rows: [
-          { thread_id: THREAD, subject: 'Where is my order', from: 'Daniel Sear', when: 'Mon',
+          { thread_id: THREAD, subject: 'Where is my order', from: 'Daniel Stub', when: 'Mon',
             needs_reply: true, snippet: 'Any news?', open: true, open_note: '' },
-          { thread_id: 't-1', subject: 'A message with no openable id', from: 'Daniel Sear',
+          { thread_id: 't-1', subject: 'A message with no openable id', from: 'Daniel Stub',
             when: 'Mon', needs_reply: false, snippet: '', open: false,
             open_note: 'This one has no id the shop would accept.' },
         ],
@@ -190,7 +190,7 @@ test('an offer the Mac disabled is not a button, and it says why', () => {
 test('an order workspace leads with the order and keeps its five sections', () => {
   const node = draw({ type: 'order_workspace', data: order() });
   const words = node.allText();
-  assert.ok(words.includes('Order #1962') && words.includes('Daniel Sear'));
+  assert.ok(words.includes('Order #1962') && words.includes('Daniel Stub'));
   assert.ok(words.includes('£60.00') && words.includes('Paid') && words.includes('Unfulfilled') && words.includes('1 Sep'));
   assert.deepEqual(panels(node).map((p) => p.dataset.section),
                    ['overview', 'items', 'shipping', 'customer', 'email']);

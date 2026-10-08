@@ -361,7 +361,7 @@ async def test_the_add_on_the_picker_stages_only_a_row_of_the_picker_on_screen(s
 
 # ================================================================ R9-E-families1-E-02: the address
 
-SAID = "1232candlestickhorse@gmail.com"     # the model's clean transcription of a spoken address
+SAID = "4417lighthousepony@example.com"     # the model's clean transcription of a spoken address
 
 
 def _then_send(calls) -> dict:
@@ -378,7 +378,7 @@ async def test_an_address_the_model_wrote_down_reaches_no_email_until_the_owner_
     to check; Send tapped is refused. Once the owner has typed the address, Send prepares it —
     that address, from the Mac's copy — and nothing has been sent."""
     session = "r11addr"
-    said = await stage.ask("email 1232 candlestick horse at gmail dot com and ask if they're free on Sunday",
+    said = await stage.ask("email 4417 lighthouse pony at example dot com and ask if they're free on Sunday",
                            ("gmail_compose_open", {"to": SAID, "subject": "A shoot on Sunday", "body": "Are you free on Sunday?"}),
                            ("gmail_send_new", _then_send), session_id=session)
     held = stage.runtime.sessions.get(session)

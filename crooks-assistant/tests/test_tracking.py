@@ -134,14 +134,14 @@ def test_tracking_is_red_irreversible_a_hold_and_a_reviewed_idempotent_mutation(
 
 async def test_the_shipment_without_a_number_is_chosen_on_the_mac_and_nothing_is_sent(store, engine, session):
     text, proposal = await stage(session)
-    assert text.startswith("PROPOSED") and "add tracking AB123456785GB with Royal Mail to order 1930 for Daniel Sear, without emailing the customer" in text
+    assert text.startswith("PROPOSED") and "add tracking AB123456785GB with Royal Mail to order 1930 for Daniel Stub, without emailing the customer" in text
     assert store.mutations == [] and proposal.risk == "RED" and proposal.interaction == "hold_to_arm"
     ex = dict(proposal.execution)
     assert ex == {"order_id": ORDER, "fulfillment_id": SHIPMENT, "input": {"company": "Royal Mail", "number": TRACKING}, "notify": False, "number": TRACKING}
     assert proposal.before == {"number": "", "company": "", "status": "SUCCESS", "cancelled": False}
     words = registry.get(TOOL).write.present(proposal)
     facts = {f["label"]: f["value"] for f in words["facts"]}
-    assert words["title"] == "Add tracking" and facts["Customer"] == "Daniel Sear" and facts["Carrier"] == "Royal Mail" and facts["Tracking"] == TRACKING and facts["Customer emailed"] == "no"
+    assert words["title"] == "Add tracking" and facts["Customer"] == "Daniel Stub" and facts["Carrier"] == "Royal Mail" and facts["Tracking"] == TRACKING and facts["Customer emailed"] == "no"
 
 
 async def test_the_number_is_stored_without_spaces_and_an_unusual_royal_mail_number_is_flagged(store, engine, session):

@@ -222,12 +222,12 @@ def test_harvest_records_personal_strings_but_not_order_names(session):
     from app.tools.dispatch import _harvest_ids
 
     _harvest_ids(
-        {"orders": [{"order_id": "gid://shopify/Order/1", "name": "CROOKS-1928", "customer_name": "Anna Denning",
+        {"orders": [{"order_id": "gid://shopify/Order/1", "name": "CROOKS-1928", "customer_name": "Anna Dummy",
                      "customer_id": "gid://shopify/Customer/7"}],
          "threads": [{"thread_id": "t1", "from": "Jo Bloggs", "from_email": "jo@example.com"}]},
         session,
     )
-    assert {"Anna Denning", "Jo Bloggs", "jo@example.com"} <= session.pii_seen
+    assert {"Anna Dummy", "Jo Bloggs", "jo@example.com"} <= session.pii_seen
     assert "CROOKS-1928" not in session.pii_seen
 
 

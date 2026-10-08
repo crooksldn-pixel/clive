@@ -29,14 +29,14 @@ from app.tools import registry
 from app.tools.gate import Disposition, Tier, classify
 
 WEB = Path(__file__).resolve().parents[1] / "web"
-ADDRESS = "1232candlestickhorse@gmail.com"
+ADDRESS = "4417lighthousepony@example.com"
 BENCH = (
     "Write an email to a model asking if they're free for a shoot next Sunday. "
     f"Their email is {ADDRESS}. Don't send it yet."
 )
 DICTATED = (
     "Write an email to a model asking if they're free for a shoot next Sunday. "
-    "Their email is 1232 candlestick horse at gmail dot com. Don't send it yet."
+    "Their email is 4417 lighthouse pony at example dot com. Don't send it yet."
 )
 
 
@@ -56,10 +56,10 @@ def session() -> Session:
 @pytest.mark.parametrize(("said", "value", "status"), [
     (ADDRESS, ADDRESS, "ok"),
     ("  Sam@CrooksLDN.com ", "sam@crooksldn.com", "ok"),
-    ("their email is 1232 candlestick horse at gmail dot com", ADDRESS, "uncertain"),
+    ("their email is 4417 lighthouse pony at example dot com", ADDRESS, "uncertain"),
     ("sam at crooksldn dot co dot uk", "sam@crooksldn.co.uk", "uncertain"),
     ("send it to sam at crooksldn dot com", "sam@crooksldn.com", "uncertain"),
-    ("1232candlestickhorse at gmail", "1232candlestickhorse@gmail", "invalid"),
+    ("4417lighthousepony at example", "4417lighthousepony@example", "invalid"),
     ("just a name", "just a name", "invalid"),
     ("", "", "invalid"),
 ])
@@ -70,9 +70,9 @@ def test_an_address_is_read_and_its_soundness_is_said(said, value, status):
 
 
 def test_a_dictated_address_is_never_treated_as_typed():
-    """The whole reason `uncertain` exists: "candle stick" and "candlestick" are both valid
+    """The whole reason `uncertain` exists: "light house" and "lighthouse" are both valid
     addresses and only the owner knows which was meant."""
-    clean, status, _ = family.check_address("candle stick horse at gmail dot com")
+    clean, status, _ = family.check_address("light house pony at example dot com")
     assert status == "uncertain" and family.EMAIL_ADDRESS.match(clean), clean
     assert family.check_address(clean)[1] == "ok", "typed, the same characters are sound"
 
@@ -152,7 +152,7 @@ def test_a_typed_value_is_validated_into_the_macs_copy_and_nowhere_else(branch, 
 
     compose_id = family.open_compose(branch, to="", subject="", body="")
     out = commands.run("compose.field", _ctx(None, session, branch, compose_id=compose_id,
-                                             field="to", value="1232 candlestick horse at gmail dot com"))
+                                             field="to", value="4417 lighthouse pony at example dot com"))
     assert out.ok and out.changed["status"] == "uncertain"
     assert branch.compose["to"] == ADDRESS
     assert out.surfaces[0].as_ui()["data"]["to"]["status"] == "uncertain"
@@ -547,7 +547,7 @@ async def test_the_model_opens_a_composer_and_the_card_is_drawn_from_it(branch, 
     session.focused_branch = branch.branch_id
     calls: list[ToolCall] = []
     text = await dispatch("gmail_compose_open",
-                          {"to": "1232 candlestick horse at gmail dot com", "subject": "Free on Sunday?",
+                          {"to": "4417 lighthouse pony at example dot com", "subject": "Free on Sunday?",
                            "body": "Are you free next Sunday?", "about": "a shoot next Sunday"},
                           session=session, timeout_s=5, calls=calls)
     assert "staged" in text and "false" in text.lower()

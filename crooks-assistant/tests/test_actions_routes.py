@@ -544,7 +544,7 @@ def test_a_write_tools_note_is_logged_by_length_only_even_when_refused():
 
     from app.routes.turn import _loggable_args
 
-    refused = SimpleNamespace(name=TOOL, args={"order_id": ORDER, "note": "Refund Daniel Sear, 12 Acacia Avenue"}, proposal_id=None)
+    refused = SimpleNamespace(name=TOOL, args={"order_id": ORDER, "note": "Refund Daniel Stub, 12 Acacia Avenue"}, proposal_id=None)
     logged = _loggable_args(refused)
     assert logged["note"] == "<36 chars>" and logged["order_id"] == ORDER
     # A READ's arguments are kept, because they are what make a wrong answer diagnosable, and
@@ -553,10 +553,10 @@ def test_a_write_tools_note_is_logged_by_length_only_even_when_refused():
     # line used to end in `or True` and assert nothing (round 9, I-tests1 I-01).
     from app.logging.turnlog import redact
 
-    read = SimpleNamespace(name="shopify_find_order", args={"query": "Daniel Sear daniel@example.com"}, proposal_id=None)
+    read = SimpleNamespace(name="shopify_find_order", args={"query": "Daniel Stub daniel@example.com"}, proposal_id=None)
     kept = _loggable_args(read)
     assert "daniel@example.com" not in str(kept) and "[email]" in kept["query"]
-    assert "Daniel" not in str(redact(kept, {"Daniel Sear"}))
+    assert "Daniel" not in str(redact(kept, {"Daniel Stub"}))
 
 
 async def test_a_proxied_request_with_no_login_is_refused_even_with_no_allow_list(client):

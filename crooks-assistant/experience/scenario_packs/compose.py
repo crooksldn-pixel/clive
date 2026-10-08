@@ -141,7 +141,7 @@ async def compose_open(h: Harness) -> Result:
 
 async def compose_dictated(h: Harness) -> Result:
     r = Result("compose_dictated", "An address heard rather than typed, then corrected")
-    c = await h.ask(data.COMPOSE_DICTATED, _opens("1232 candlestick horse at gmail dot com"),
+    c = await h.ask(data.COMPOSE_DICTATED, _opens("4417 lighthouse pony at example dot com"),
                     scenario="compose_dictated", session_id="cmp2")
     r.captures.append(c)
     r.checks += a_surface(c, "email_compose", what="draws the email anyway")

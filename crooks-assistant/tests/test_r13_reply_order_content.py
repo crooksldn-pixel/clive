@@ -11,7 +11,7 @@ customer's order and another customer's inbox.
 Now the words the reply carries are read for order numbers, and each one that is an order this
 conversation holds must belong to the person the reply goes to, or nothing is prepared.
 
-In the golden world (experience/fixtures): Mia Jones has #1938, David Randall has #1939 and a
+In the golden world (experience/fixtures): Mia Jones has #1938, David Replica has #1939 and a
 thread asking where it is. Every sentence goes through the real `POST /turn`, with the model's
 calls scripted as Claude would make them.
 """
@@ -58,7 +58,7 @@ async def test_a_reply_naming_another_customers_order_is_refused_without_order_i
         assert said.unmakeable == {}, said.unmakeable
         call = _the_call(said, tool)
         assert not call["ok"], call
-        assert "1938" in call["error"] and "david.randall@example.com" in call["error"], call["error"]
+        assert "1938" in call["error"] and "david.replica@example.com" in call["error"], call["error"]
         assert "Mia" not in call["error"], "the refusal does not say whose order it is"
         assert _pending(h) == [] and "confirmation" not in said.surface_types
 
@@ -120,7 +120,7 @@ async def test_a_reply_naming_the_recipients_own_order_is_prepared():
                                                           "body": "Your order #1939 went out yesterday."}))
         assert _the_call(said, "gmail_send_reply")["ok"], _the_call(said, "gmail_send_reply")
         (proposal,) = _pending(h)
-        assert proposal.execution["to"] == "david.randall@example.com"
+        assert proposal.execution["to"] == "david.replica@example.com"
 
 
 async def test_a_number_that_is_no_order_this_conversation_holds_is_not_taken_for_one():

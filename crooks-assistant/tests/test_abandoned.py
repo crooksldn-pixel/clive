@@ -40,7 +40,7 @@ CHECKOUTS = [
     ("#C3", 3.2, False, "Priya Raman", [(BONE, 1)], "65.00"),
     ("#C4", 6.8, False, "Millie Fenwick", [(HOODIE, 1), (BONE, 1)], "125.00"),
     ("#C5", 11.0, False, "", [(CAP, 1)], "23.00"),
-    ("#C6", 2.0, True, "David Randall", [(HOODIE, 1)], "65.00"),
+    ("#C6", 2.0, True, "David Replica", [(HOODIE, 1)], "65.00"),
     ("#C7", 40.0, False, "", [(CAP, 1)], "23.00"),
 ]
 

@@ -25,11 +25,11 @@ ORDER_B = "gid://shopify/Order/1930"
 
 FIND_CUSTOMER = {
     "query": "daniel",
-    "customers": [{"customer_id": CUSTOMER, "name": "Daniel Sear", "email": "daniel@example.com",
+    "customers": [{"customer_id": CUSTOMER, "name": "Daniel Stub", "email": "daniel@example.com",
                    "orders": 2, "spent": "120.00 GBP"}],
 }
 HISTORY = {
-    "customer_id": CUSTOMER, "name": "Daniel Sear", "orders": 2, "spent": "120.00 GBP",
+    "customer_id": CUSTOMER, "name": "Daniel Stub", "orders": 2, "spent": "120.00 GBP",
     "standing": "returning", "since": "2026-03-01",
     "last_order": {"order_id": ORDER_A, "order_number": "CROOKS-1962"},
     "recent": [
@@ -41,7 +41,7 @@ HISTORY = {
 }
 GMAIL = {
     "query": "daniel@example.com",
-    "threads": [{"thread_id": "t-1", "from": "Daniel Sear", "from_email": "daniel@example.com",
+    "threads": [{"thread_id": "t-1", "from": "Daniel Stub", "from_email": "daniel@example.com",
                  "subject": "Where is my order", "date": "Mon", "snippet": "Any news?"}],
 }
 
@@ -88,7 +88,7 @@ def test_three_reads_of_one_customer_leave_one_entity_with_all_three_findings():
     people = g.of_kind("customer")
     assert len(people) == 1, [p.ident for p in people]
     person = people[0]
-    assert person.fields["name"] == "Daniel Sear"
+    assert person.fields["name"] == "Daniel Stub"
     assert person.fields["orders"] == 2
     assert person.fields["spent"] == "120.00 GBP"
     # The history read enriched the SAME entity's orders. The graph holds what the shop said
@@ -116,14 +116,14 @@ def test_an_order_id_is_one_order_and_a_thread_id_is_one_email():
     g = graph()
     g.ingest("shopify_find_order", {"orders": [{"order_id": ORDER_A, "order_number": "CROOKS-1962",
                                                 "total": "60.00 GBP", "customer_id": CUSTOMER,
-                                                "customer_name": "Daniel Sear"}]})
+                                                "customer_name": "Daniel Stub"}]})
     g.ingest("shopify_order_detail", {"order_id": ORDER_A, "order_number": "CROOKS-1962",
                                       "total": "60.00 GBP", "payment": "PAID", "fulfillment": "FULFILLED",
-                                      "customer_id": CUSTOMER, "customer_name": "Daniel Sear",
+                                      "customer_id": CUSTOMER, "customer_name": "Daniel Stub",
                                       "items": [{"title": "Yard Jeans", "variant": "M", "quantity": 1,
                                                  "total": "60.00 GBP"}]})
     g.ingest("gmail_read_thread", {"thread_id": "t-1", "messages": [
-        {"message_id": "m1", "from": "Daniel Sear", "from_email": "daniel@example.com",
+        {"message_id": "m1", "from": "Daniel Stub", "from_email": "daniel@example.com",
          "subject": "Where is my order", "body": "Any news?", "date": "Mon"}]})
     g.ingest("gmail_search", GMAIL)
 

@@ -220,7 +220,7 @@ class Person:
 
 
 MIA = Person("gid://shopify/Customer/7001", "Mia Jones", "mia.jones@example.com", 420, 3, "213.00")
-DAVID = Person("gid://shopify/Customer/7002", "David Randall", "david.randall@example.com", 200, 2, "104.00")
+DAVID = Person("gid://shopify/Customer/7002", "David Replica", "david.replica@example.com", 200, 2, "104.00")
 MILLIE = Person("gid://shopify/Customer/7003", "Millie Fenwick", "millie.fenwick@example.com", 95, 1, "84.00")
 # Writes in from an address that is not the one on her order: the cross-thread correlation case.
 PRIYA = Person("gid://shopify/Customer/7004", "Priya Raman", "priya.raman@example.com", 60, 1, "18.00")
@@ -282,7 +282,7 @@ class OrderSpec:
 _WINDSOR = {"name": "Mia Jones", "firstName": "Mia", "lastName": "Jones", "address1": "12 Bridge Street", "address2": "", "city": "Windsor",
             "provinceCode": "", "zip": "SL4 1QN", "country": "United Kingdom", "countryCodeV2": "GB",
             "phone": "", "company": ""}
-_LEEDS = {"name": "David Randall", "firstName": "David", "lastName": "Randall", "address1": "4 Kirkgate", "address2": "Flat 2", "city": "Leeds",
+_LEEDS = {"name": "David Replica", "firstName": "David", "lastName": "Replica", "address1": "4 Kirkgate", "address2": "Flat 2", "city": "Leeds",
           "provinceCode": "", "zip": "LS1 6BY", "country": "United Kingdom", "countryCodeV2": "GB",
           "phone": "", "company": ""}
 # Deliberately missing its house number: the "did anyone email us their house number" scenario
@@ -464,7 +464,7 @@ THREADS: list[Thread] = [
 
     # 2. Inbound then our reply: answered, so it must NOT appear in needs-reply.
     Thread("58361c4d87dfeee5", [
-        _msg("f8c90502519407ee", "58361c4d87dfeee5", f"David Randall <{DAVID.email}>", "Where is 1939?",
+        _msg("f8c90502519407ee", "58361c4d87dfeee5", f"David Replica <{DAVID.email}>", "Where is 1939?",
              "Morning — any tracking for order 1939 yet?", 1, 9),
         _msg("a59b1035eb72180a", "58361c4d87dfeee5", f"CROOKS <{MAILBOX}>", "Re: Where is 1939?",
              "Hi David, 1939 went out with Royal Mail, tracking AB1234567890GB. CROOKS",
@@ -627,14 +627,14 @@ BY_NAME[INTERNATIONAL_ORDER.name] = INTERNATIONAL_ORDER
 # world has ordered anything, which is the whole point — it is the recipient Shopify cannot
 # supply, and the bench sentence was refused for want of it. Invented, like every other
 # address in this file, and it must stay so.
-COMPOSE_TO = "1232candlestickhorse@gmail.com"
+COMPOSE_TO = "4417lighthousepony@example.com"
 COMPOSE_SENTENCE = (
     "Write an email to a model asking if they're free for a shoot next Sunday. "
     f"Their email is {COMPOSE_TO}. Don't send it yet."
 )
 COMPOSE_DICTATED = (
     "Write an email to a model asking if they're free for a shoot next Sunday. "
-    "Their email is 1232 candlestick horse at gmail dot com. Don't send it yet."
+    "Their email is 4417 lighthouse pony at example dot com. Don't send it yet."
 )
 COMPOSE_SUBJECT = "Free for a shoot on Sunday?"
 COMPOSE_BODY = "Hi, are you free for a shoot next Sunday? Let me know and I'll send the call sheet."

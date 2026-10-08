@@ -9,7 +9,7 @@ profiles**. A full customer card is the surface for a DRILLDOWN — "expand his 
 which is a different turn (D-5) and which workstream B owns. A summary question wants:
 
     RETURNING CUSTOMERS TODAY · 1
-    Daniel Sear
+    Daniel Stub
     Order #1962
     Previous order: 31 Aug
     Lifetime: £120.00

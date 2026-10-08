@@ -328,7 +328,7 @@ def _signature(render: dict[str, Any]) -> tuple:
 def identity(card: dict[str, Any]) -> str:
     """The canonical IDENTITY of what a card draws: the record, not the kind of record.
 
-    §6. `gid://shopify/Customer/11410640896343` is an identity; `customer` is a type. The 11
+    §6. `gid://shopify/Customer/10000000000001` is an identity; `customer` is a type. The 11
     September report compared types, found seven `customer` cards in one deck and reported
     "the same customer card drawn 7 times" — for seven different people. A card with no ref
     has no identity, and a rule that needs one is silent about it rather than guessing.

@@ -10,6 +10,12 @@ that the 800 × 1280 shots could not show. **800 × 1280** is kept because it is
 experience gate has always run and a regression should not be able to hide by moving between
 them.
 
+On 8 October 2026, when the repository went public, every fixture name that read like a real
+person's was swapped for an obviously invented one. Where one of the old names was drawn in a
+picture — here, in `../phase5-before/`, `../phase5-after/` and `docs/phase6/evidence/screens/` —
+it has been painted out with the card's own background, so a row or a sentence in those
+pictures has a gap where the name was.
+
 | # | File | Size | What it shows |
 |---|------|------|----------------|
 | 01 | `tab-01-idle.png` | 601×889 | The orb at rest. Nothing is said until the dock is held. |

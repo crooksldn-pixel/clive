@@ -109,7 +109,7 @@ def test_restock_priority_shows_measured_and_derived_lines_and_unknown_stock_as_
 
 def test_a_listing_is_the_order_list_the_tablet_already_draws():
     result = {"entity": "orders", "period": PERIOD, "filters": {"fulfillment": "unfulfilled", "older_than_days": 5}, "group_by": [], "metrics": ["orders", "revenue"], "view": "list", "title": "Delayed orders", "currency": "GBP", "coverage": COVERAGE,
-              "rows": [{"order_id": "gid://shopify/Order/1", "order_number": "CROOKS-1938", "placed_at": "2026-09-01T10:00:00+01:00", "age_days": 8.2, "fulfillment": "UNFULFILLED", "payment": "PAID", "total": 60.0, "currency": "GBP", "customer_name": "Daniel Sear", "customer_id": "gid://shopify/Customer/7", "customer_email": "daniel@example.com", "country_code": "GB", "tags": [], "items": 1, "has_tracking": False, "cancelled": False}],
+              "rows": [{"order_id": "gid://shopify/Order/1", "order_number": "CROOKS-1938", "placed_at": "2026-09-01T10:00:00+01:00", "age_days": 8.2, "fulfillment": "UNFULFILLED", "payment": "PAID", "total": 60.0, "currency": "GBP", "customer_name": "Daniel Stub", "customer_id": "gid://shopify/Customer/7", "customer_email": "daniel@example.com", "country_code": "GB", "tags": [], "items": 1, "has_tracking": False, "cancelled": False}],
               "row_count": 1, "truncated": False, "totals": {"orders": 1, "revenue": 60.0, "unfulfilled_value": 60.0}, "member_ids": ["gid://shopify/Order/1"]}
     (item,) = build(result, tool="commerce_query")
     assert item["type"] == "order_list" and item["data"]["title"] == "Delayed orders" and item["data"]["orders"][0]["order_number"] == "#1938" and item["data"]["orders"][0]["total"] == "£60.00"

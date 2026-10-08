@@ -68,15 +68,15 @@ def test_written_log_line_contains_no_personal_data(tmp_path):
 # --- the review's findings: ids must survive, stdlib logging must be covered ----------
 
 def test_shopify_gids_and_proposal_ids_survive_redaction():
-    text = "order gid://shopify/Order/8245370618199 staged prop_2593c23364af for jo@x.com"
+    text = "order gid://shopify/Order/1000000000013 staged prop_2593c23364af for jo@x.com"
     out = redact_text(text)
-    assert "gid://shopify/Order/8245370618199" in out
+    assert "gid://shopify/Order/1000000000013" in out
     assert "prop_2593c23364af" in out
     assert "jo@x.com" not in out
 
 
 def test_customer_name_keys_are_redacted_but_order_name_survives():
-    out = redact({"name": "CROOKS-1928", "customer_name": "Anna Denning", "from": "Anna <a@b.com>"})
+    out = redact({"name": "CROOKS-1928", "customer_name": "Anna Dummy", "from": "Anna <a@b.com>"})
     assert out["name"] == "CROOKS-1928"
     assert out["customer_name"] == "[redacted]"
     assert out["from"] == "[redacted]"
@@ -105,7 +105,7 @@ def test_known_names_are_scrubbed_from_free_text():
 
 @pytest.mark.parametrize(
     "text",
-    ["[Errno -1094995529] Invalid data", "saved 20260907-225520.webm", "SS24 2XL sold out", "gid://shopify/Order/8245370618199"],
+    ["[Errno -1094995529] Invalid data", "saved 20260907-225520.webm", "SS24 2XL sold out", "gid://shopify/Order/1000000000013"],
 )
 def test_identifiers_and_size_codes_are_not_mangled(text):
     assert redact_text(text) == text
@@ -118,8 +118,8 @@ def test_real_postcode_still_redacted_after_size_exclusion():
 
 def test_turn_log_scrubs_names_the_tools_returned(tmp_path):
     TurnLog(tmp_path).write(
-        {"answer": "Order CROOKS-1928 is Anna Denning's, shipped yesterday.", "question": "whose is 1928"},
-        names={"Anna Denning"},
+        {"answer": "Order CROOKS-1928 is Anna Dummy's, shipped yesterday.", "question": "whose is 1928"},
+        names={"Anna Dummy"},
     )
     written = (tmp_path / "turns.jsonl").read_text()
-    assert "Anna Denning" not in written and "CROOKS-1928" in written
+    assert "Anna Dummy" not in written and "CROOKS-1928" in written

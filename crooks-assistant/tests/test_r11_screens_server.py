@@ -185,7 +185,7 @@ def test_a_record_holding_more_than_a_view_gives_the_tv_none_of_it(tmp_path):
 PHONE, TV, STRANGER_DEVICE = "100.64.0.9", "100.64.0.7", "100.64.0.3"
 STRANGER = "someone@example.com"
 TAILSCALED_END, CURL_END, DIRECT_END = 40001, 40002, 40009     # the fake /proc's connections (_world)
-SHOPPER = ("Daniel Sear", "Somewhere Street", "SL4 1AA", "Leave with the neighbour", "daniel@example.com")
+SHOPPER = ("Daniel Stub", "Somewhere Street", "SL4 1AA", "Leave with the neighbour", "daniel@example.com")
 ORDER_ID = ORDER_NODE["id"]
 
 
@@ -316,7 +316,7 @@ async def test_on_productions_own_switches_nobody_but_the_owner_reaches_a_screen
     await tailnet.post("/turn", json={"text": "put it on the packing screen", "session_id": "s1"}, headers=phone)
     assert not model.said[-1].startswith(("NOT YET", "REFUSED", "ERROR")), model.said[-1]
     shown = await tailnet.get(f"/displays/{sid}?v=-1", headers=mine)
-    assert shown.status_code == 200 and shown.json()["showing"]["order"]["customer"] == "Daniel Sear"
+    assert shown.status_code == 200 and shown.json()["showing"]["order"]["customer"] == "Daniel Stub"
     # Another conversation was not issued it.
     await tailnet.post("/turn", json={"text": "put 1938 up", "session_id": "s2"}, headers=phone)
     assert model.said[-1].startswith("NOT YET")
