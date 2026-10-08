@@ -1,0 +1,66 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "production-strict-mcp-2",
+  "title": "CLIVE's live turns load no MCP server of the host's: only CLIVE's own tools",
+  "requested_outcome": "The owner ruled on 8 October (DEC-071, ruling 26): \"Never let your own MCP servers load into CLIVE's live turns?\" — \"Y\". PR #103 (the persona bench) added a `strict_mcp_config` switch to MaxAgentSDKProvider (app/providers/max_agent_sdk.py), off by default and passed to the Agent SDK only when on, and turned it on for bench runs only. Turn it on for production: in app/runtime.py, the two MaxAgentSDKProvider(...) constructions (the owner's assistant around line 735 and the staff assistant factory around line 885) pass strict_mcp_config=True, so the claude CLI started for a live turn loads only the MCP servers CLIVE gives it (its in-process tools) and never the host user's own MCP servers or claude.ai connectors. The first attempt (production-strict-mcp) was rightly blocked: tests/test_bench_isolation.py::test_a_bench_runs_assistants_load_no_mcp_server_of_the_hosts_and_clives_own_are_unchanged pinned production's staff assistant to strict_mcp_config False, because the bench was built before this ruling. That test is now in allowed_paths and changes in exactly three places, nothing else: `assert theirs.strict_mcp_config is False and options(theirs).strict_mcp_config is False` becomes `assert theirs.strict_mcp_config is True and options(theirs).strict_mcp_config is True`; `assert [\"strict_mcp_config\" in n for n in named] == [False, False, True]` becomes `== [False, True, True]`; and its comment on that block says production's assistants are now strict too (DEC-071 ruling 26). The `plain` provider's assertions stay exactly as they are (the default is still off). Must not change: MaxAgentSDKProvider itself (its default stays False, and with False the options call still names nothing, byte for byte); app/bench/; the tools offered, their descriptions and schemas; the system prompt; allowed_tools and permission mode; anything about the API-key guard. Prove it in a new tests/test_strict_mcp_production.py: build the owner's and a staff assistant through app/runtime.py's own construction path with a fake SDK/options capture (no network, no CLI), and assert the options carry strict_mcp_config=True for both and that CLIVE's own MCP server is still present; assert a provider built directly with the default still omits it. Run every declared check yourself, exactly as declared, before reporting; report only a candidate on which all pass, or the base failure as it is.",
+  "base_ref": "6f8441836d9abd30831eb7a28672f51b4877345d",
+  "base_sha": "6f8441836d9abd30831eb7a28672f51b4877345d",
+  "allowed_paths": [
+    "crooks-assistant/app/runtime.py",
+    "crooks-assistant/tests/test_strict_mcp_production.py",
+    "crooks-assistant/tests/test_bench_isolation.py"
+  ],
+  "acceptance_criteria": [
+    "app/runtime.py's owner assistant and staff assistant MaxAgentSDKProvider constructions pass strict_mcp_config=True (tests).",
+    "A turn's Agent SDK options built through app/runtime.py carry strict_mcp_config=True and still include CLIVE's own in-process MCP server (tests).",
+    "MaxAgentSDKProvider's default is unchanged: built directly without the argument, its options do not name strict_mcp_config (tests).",
+    "tests/test_provider.py passes unchanged, and tests/test_bench_isolation.py passes with only the three changes named in the request (regression; review).",
+    "No other file changes; tool descriptions, schemas and the system prompt are byte-identical (review: allowed_paths).",
+    "ruff passes (ruff)."
+  ],
+  "checks": [
+    {
+      "name": "tests",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_strict_mcp_production.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "regression",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-m",
+        "not live",
+        "tests/test_provider.py",
+        "tests/test_bench_isolation.py",
+        "tests/test_registry.py",
+        "tests/test_expose_draft_order_s_payment_link_2.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/production-strict-mcp-2",
+  "max_repair_rounds": 3
+}
