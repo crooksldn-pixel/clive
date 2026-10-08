@@ -53,6 +53,12 @@ STRIPPED = (b"tailscale-", b"x-crooks-local-key")
 SIGNED_OUT = "This phone isn't signed in to CLIVE. Open the staff link George sent you."
 
 
+def configured_host(value: str) -> str:
+    """CROOKS_TEAM_HOST as it may be written ("team.crooksldn.com", "https://team.crooksldn.com/"),
+    as a host and port only."""
+    return str(value or "").strip().lower().split("://", 1)[-1].split("/", 1)[0]
+
+
 def _hostname(value: str) -> str:
     host = str(value or "").strip().lower().rstrip(".")
     if host.startswith("["):
@@ -62,7 +68,7 @@ def _hostname(value: str) -> str:
 
 def _team_host(request: Request) -> str:
     runtime = getattr(request.app.state, "runtime", None)
-    return _hostname(getattr(getattr(runtime, "settings", None), "team_host", "") or "")
+    return _hostname(configured_host(getattr(getattr(runtime, "settings", None), "team_host", "") or ""))
 
 
 def came_through(request: Request) -> bool:

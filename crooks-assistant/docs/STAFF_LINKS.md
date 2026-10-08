@@ -125,6 +125,9 @@ the server.
 
        team.crooksldn.com {
            header Strict-Transport-Security "max-age=31536000"
+           request_body {
+               max_size 1MB
+           }
            @team path / /join /today /today/* /turn /actions/* /static/*
            handle @team {
                reverse_proxy 127.0.0.1:8000 {

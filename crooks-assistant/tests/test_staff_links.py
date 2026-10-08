@@ -198,6 +198,14 @@ async def test_every_link_that_is_not_open_is_refused_the_same(door, monkeypatch
         (403, {"ok": False, "code": "not_valid", "detail": links.NOT_VALID}), sort_keys=True)}
 
 
+async def test_the_join_reads_no_more_than_a_link_and_a_code(door):
+    big = await door.post("/join", content=b"{" + b" " * 5000 + b"}", headers={**POST, "Content-Type": "application/json"})
+    assert big.status_code == 413 and big.json()["code"] == "too_large"
+    for garbled in (b"\xff not json", b"[1, 2]"):
+        answer = await door.post("/join", content=garbled, headers={**POST, "Content-Type": "application/json"})
+        assert answer.status_code == 400 and answer.json()["code"] == "bad_request"
+
+
 # ------------------------------------------------------------------ the code's brute force
 
 async def test_five_wrong_codes_lock_the_link_for_good(door):
@@ -390,6 +398,12 @@ def test_the_door_serves_exactly_the_files_its_two_pages_load():
     for page in ("today.html", "join.html"):
         loaded |= set(re.findall(r'(?:src|href)="(/static/[^"?]+)', (web / page).read_text(encoding="utf-8")))
     assert loaded == set(team_door.STATIC)
+
+
+def test_the_team_host_is_read_however_it_is_written():
+    for written in ("team.crooksldn.com", "https://team.crooksldn.com/", " Team.CROOKSLDN.com "):
+        assert team_door.configured_host(written) == "team.crooksldn.com"
+    assert team_door._hostname("team.crooksldn.com:443") == "team.crooksldn.com"
 
 
 def test_the_cards_the_door_lets_through_are_the_engines_own_ids():

@@ -16,6 +16,7 @@ the link and code go to his screen once, in the answer to his passkey, and are k
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -31,6 +32,7 @@ log = logging.getLogger("crooks.team")
 router = APIRouter()
 
 WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
+MAX_JOIN_BODY = 2048
 
 
 def _through_team_door(request: Request) -> bool:
@@ -59,12 +61,17 @@ async def join(request: Request) -> JSONResponse:
 
     if not _through_team_door(request):
         return JSONResponse(status_code=404, content={"detail": "Not Found"})
-    raw = await request.body()
-    if len(raw) > 2048:
+    # The one POST anyone on the internet can make: read no more than a link and a code need, never
+    # the whole of whatever was sent.
+    declared = request.headers.get("content-length", "")
+    if declared and (not declared.isdigit() or int(declared) > MAX_JOIN_BODY):
         return _refused(413, "too_large", "That is more than a link and a code.")
+    raw = b""
+    async for chunk in request.stream():
+        raw += chunk
+        if len(raw) > MAX_JOIN_BODY:
+            return _refused(413, "too_large", "That is more than a link and a code.")
     try:
-        import json
-
         body = json.loads(raw.decode("utf-8")) if raw else {}
     except (UnicodeDecodeError, ValueError):
         body = None
@@ -104,8 +111,10 @@ def _ledger(action: str, *, who: str, device: str = "", detail: str = "") -> Non
 # ------------------------------------------------------------------ the owner's
 
 def _team_host(request: Request) -> str:
+    from app.people import team_door
+
     runtime = getattr(request.app.state, "runtime", None)
-    return str(getattr(getattr(runtime, "settings", None), "team_host", "") or "").strip().lower().rstrip("/")
+    return team_door.configured_host(getattr(getattr(runtime, "settings", None), "team_host", "") or "")
 
 
 def _member(person_id: str):
