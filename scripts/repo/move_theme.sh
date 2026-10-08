@@ -26,8 +26,9 @@
 #
 # What it cannot do: anything that was ever public stays public. Existing clones and forks of
 # clive keep these branches, GitHub can serve an old commit by its SHA for some time, and clive's
-# own history keeps the 20 July theme snapshot it started from. So the possible token in
-# mobile/SETUP.md (commit af9d1dc9 on the theme branch) must be rotated whatever this script does.
+# own history keeps the 20 July theme snapshot it started from. So a credential that may have been
+# committed on the theme branch must be rotated before the move, whatever this script does. George
+# knows which.
 #
 # Usage, from any clone of crooksldn-pixel/clive, after George (or you) created the EMPTY private
 # repository crooksldn-pixel/crooksldn-theme (no README, no licence, no .gitignore):
@@ -211,7 +212,7 @@ echo "Theme list: $n branches. Already in the theme repository: $(wc -l < "$WORK
 awk '{ printf "to push   %s  %s -> %s\n", substr($2, 1, 8), $1, $3 }' "$WORK/push"
 
 if [ "$APPLY" = 0 ]; then
-  echo "Dry run: nothing was changed. Run again with --apply to push to $THEME_SHOWN."
+  echo "Dry run: nothing was changed. A credential may have been committed on the theme branch: it must be rotated before the move (George knows which). Then run again with --apply to push to $THEME_SHOWN."
   [ "$refused" = 0 ] || exit 1
   exit 0
 fi
@@ -265,6 +266,6 @@ else
   echo "Nothing was deleted from clive. When George has checked the theme repository, run again with --apply --delete-public."
 fi
 
-echo "Reminder: whatever was public stays public in existing clones, forks and GitHub's cache of old commits. Rotate the possible token in mobile/SETUP.md (af9d1dc9) regardless."
+echo "Reminder: whatever was public stays public in existing clones, forks and GitHub's cache of old commits. That is why the credential that may have been committed on the theme branch had to be rotated before the move (George knows which)."
 echo "Refused: $refused. Failed: $failed."
 [ $((refused + failed)) = 0 ] || exit 1

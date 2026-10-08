@@ -114,6 +114,20 @@ def test_a_loop_objective_branch_is_listed_only_once_landed_or_superseded_as_bou
     assert "Never archived by hand" not in boundary
 
 
+def test_no_text_of_the_boundary_points_at_the_possible_credential(world):
+    """The texts say only that a credential may have been committed on the theme branch and must be
+    rotated before the move. None names a file of the theme's phone app, where it would point."""
+    texts = [REPO / "docs" / "repo" / "BOUNDARY.md", ARCHIVE_LIST, THEME_LIST, MOVE, ARCHIVE,
+             REPO / "README.md", REPO / "CLAUDE.md", HISTORY / "README.md", HISTORY / "MANIFEST.txt"]
+    for path in texts:
+        assert not re.search(r"\bmobile/[\w.-]", path.read_text(encoding="utf-8")), path
+    dry = _move(world)
+    for text in ((REPO / "docs" / "repo" / "BOUNDARY.md").read_text(encoding="utf-8"), MOVE.read_text(encoding="utf-8"), dry.stdout):
+        assert "may have been committed on the theme branch" in " ".join(text.split())
+        assert "rotated before the move" in " ".join(text.split())
+    assert "mobile/" not in dry.stdout + dry.stderr
+
+
 def test_the_theme_list_makes_one_main_and_shares_no_branch_with_the_archive_list():
     rows = _rows(THEME_LIST)
     assert [row[0] for row in rows if row[2] == "refs/heads/main"] == ["claude/crooksldn-theme-init-bnen7a"]

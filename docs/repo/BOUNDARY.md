@@ -52,7 +52,8 @@ branches until they are archived with a tag.
 
 0. **Before you start:** this change is on `clive/trunk` (it carries the imported history; without
    it the 9 knowledge-only branches and the 2 other branches of pull requests #1 and #2 wait).
-   George has made `clive/trunk` the default branch.
+   George has made `clive/trunk` the default branch. A credential may have been committed on the
+   theme branch: George knows which, and it must be rotated before the move (step 2).
 1. **Create the empty private repository** `crooksldn-pixel/crooksldn-theme`: no README, no
    .gitignore, no licence.
 2. **`scripts/repo/move_theme.sh`**, then **`scripts/repo/move_theme.sh --apply`.** It pushes the
@@ -90,9 +91,14 @@ docs/repo/BOUNDARY.md says. Do the steps in order. Stop at the first step that f
 something, and report it to George with the script's own words. Never work around a refusal.
 
 Never: force-push; delete a branch or tag by hand; edit docs/repo/*.txt to get past a refusal;
-open or print mobile/SETUP.md (it may hold a token George is rotating); touch clive/trunk,
-clive/control/*, clive/evidence/*, clive/engineering-state, crooks-ai-bridge,
-claude/compassionate-dirac-44hnee, claude/venture-engine-v1-2026-09-29 or claude/n2-*.
+open, print or check out any file of the theme branches (the scripts move refs and never need a
+file's contents); touch clive/trunk, clive/control/*, clive/evidence/*, clive/engineering-state,
+crooks-ai-bridge, claude/compassionate-dirac-44hnee, claude/venture-engine-v1-2026-09-29 or
+claude/n2-*.
+
+A credential may have been committed on the theme branch, and it must be rotated before the move.
+George knows which. Before step 3, ask him whether it has been rotated; do not start step 3 until
+he says it has.
 
 0. Get the scripts:
      git clone https://github.com/crooksldn-pixel/clive.git ~/clive-boundary   (or: cd to an existing clone and git fetch origin)
@@ -107,7 +113,7 @@ claude/compassionate-dirac-44hnee, claude/venture-engine-v1-2026-09-29 or claude
    (no README, no .gitignore, no licence). Without the GitHub CLI, ask George to create it on
    github.com the same way. Then git ls-remote https://github.com/crooksldn-pixel/crooksldn-theme.git
    must succeed and print nothing.
-3. Move the theme:
+3. Move the theme (only once George has said the credential is rotated):
      scripts/repo/move_theme.sh                 (dry run: expect "To push: 12" and "Refused: 0")
      scripts/repo/move_theme.sh --apply         (expect "in theme" twelve times, "Refused: 0. Failed: 0.")
    If GitHub refuses a push because it found a secret, STOP. Do not allow or bypass it. Tell George.
@@ -129,8 +135,8 @@ claude/compassionate-dirac-44hnee, claude/venture-engine-v1-2026-09-29 or claude
      scripts/repo/move_theme.sh --apply --delete-public   (expect "Deleted from clive: 12")
 8. Report to George: each step's summary line, the output of git ls-remote --heads origin (the
    branches left), and every REFUSED, WAITING or FAILED line with its reason. Remind him that
-   anything that was public stays visible in old clones and forks, so the possible token in
-   mobile/SETUP.md (commit af9d1dc9) must be rotated whatever happened.
+   anything that was public stays visible in old clones and forks, which is why the credential
+   that may have been committed on the theme branch had to be rotated before the move.
 ```
 
 ## What stays public whatever happens
@@ -138,8 +144,9 @@ claude/compassionate-dirac-44hnee, claude/venture-engine-v1-2026-09-29 or claude
 Deleting a branch does not unpublish it. Existing clones and forks keep it, and GitHub can serve an
 old commit by its SHA for some time. `clive/trunk`'s own history starts with the 19 July theme
 import and keeps the 20 July snapshot (`c7988fa4`) that sat at the root until this change; rewriting
-trunk's history to remove it was not part of the approval. So the possible token in
-`mobile/SETUP.md` (commit `af9d1dc9` on the theme branch) must be rotated regardless.
+trunk's history to remove it was not part of the approval. So a credential that may have been
+committed on the theme branch must be rotated before the move, whatever else happens. George knows
+which.
 
 ## The lists, and how they were made
 
