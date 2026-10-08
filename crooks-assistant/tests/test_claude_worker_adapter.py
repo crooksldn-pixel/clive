@@ -389,10 +389,10 @@ def test_each_pinned_command_list_is_exactly_what_that_cli_printed_for_a_skills_
 ], ids=["new-command", "unpinned-version", "older-version", "no-version"])
 def test_a_skills_launch_is_refused_unless_every_command_is_pinned_for_its_cli_version(tmp_path, change, expected):
     problems = ClaudeCodeWorker().verify_started(skills_init(tmp_path, **change), skills_spec(tmp_path))
-    assert any(p.startswith(expected) for p in problems), problems
+    [said] = [p for p in problems if p.startswith(expected)]
+    assert "--no-builder-skills" in said                     # each refusal says what the operator can do now
     if "pinned list" in expected:
-        [said] = [p for p in problems if "pinned list" in p]
-        assert "--no-builder-skills" in said and "--disable-slash-commands" in said
+        assert "--disable-slash-commands" in said
 
 
 def _version_cli(tmp_path: Path, answer: str, code: int = 0) -> Path:

@@ -110,8 +110,10 @@ ALLOWED_PLUGINS = frozenset({
 BUILTIN_PATH = "builtin"
 # The commands Claude Code carries itself (/compact, /model, /ultrareview ...), by exact name, per CLI version, as
 # each version listed them in the init event of a builder launched with the owner's skills (--plugin-dir, bundled
-# skills off, no credentials), probed on this project's build machine on 8 Oct 2026. Both versions listed the same
-# 33. A launch with skills cannot pass --disable-slash-commands (the Skill tool needs the command machinery), so this
+# skills off), probed on this project's build machine, online, on 8 Oct 2026. Both versions listed the same 33. The
+# list follows the feature flags the CLI fetches (with no network 2.1.293 lists 26 of them, and another account may
+# be shown another set), so probe-launch on a build server itself, with its own token, is the proof for that host.
+# A launch with skills cannot pass --disable-slash-commands (the Skill tool needs the command machinery), so this
 # list is what holds its commands: the launch check refuses any command that is neither one of the owner's skills nor
 # pinned here for the version the CLI says it is (review of the loop branch, N2). What a builder may invoke is held
 # separately and more tightly: only Skill(clive-skills:<name>) is allowed under dontAsk. A CLI version with no list
@@ -551,7 +553,8 @@ def _skill_problems(started: Started, spec: LaunchSpec) -> list[str]:
         unknown = sorted(c for c in commands - wanted - pinned - set(local) if ":" not in c)
         if unknown:
             problems.append(f"commands beyond Claude Code {started.cli_version}'s own (BUILTIN_SLASH_COMMANDS): "
-                            + ", ".join(unknown))
+                            + ", ".join(unknown) + f"; a reviewed change pins them, or the loop runs with "
+                            f"{NO_BUILDER_SKILLS} until it does")
     return problems
 
 
