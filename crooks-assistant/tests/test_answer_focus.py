@@ -230,12 +230,49 @@ def test_the_interaction_record_says_which_rule_chose_the_screen_and_what_it_set
         interactions.install(None)
 
 
-# ---- Two orders up (round 12's C3, 8 October): what he asked for stays.
+# ---- Two orders up (round 12's C3, 8 October): what he asked for, and what he had up, stay.
 
 
 def _numbers(said) -> list[str]:
     """The order numbers on the answer's order cards, in order."""
     return [str(c["data"].get("order_number") or "") for c in said.ui if c.get("type") == "order"]
+
+
+def _accepting_notes(world):
+    """The golden world refuses every change; for one test it takes an order's note, as Shopify
+    would, so the hold can be followed to what the shop holds (as tests/test_r12_browser.py)."""
+    notes = {name: data.BY_NAME[name].note for name in ("#1938", "#1940")}
+    refuse = world.store.mutate
+
+    async def mutate(name: str, variables: dict) -> dict:
+        if name != "order_note_set":
+            return await refuse(name, variables)
+        found = next(s for s in data.BY_NAME.values() if s.order_id == variables["id"])
+        found.note = str(variables["note"])
+        return {"data": {"orderUpdate": {"order": {"id": variables["id"], "name": f"#{found.number}", "note": found.note},
+                                         "userErrors": []}}}
+
+    def put_back() -> None:
+        world.store.mutate = refuse
+        for name, note in notes.items():
+            data.BY_NAME[name].note = note
+
+    world.store.mutate = mutate
+    return put_back
+
+
+async def _hold(world, session_id: str, proposal_id: str) -> dict:
+    """His gesture on the card, as the tablet makes it: arm, the dwell, commit."""
+    from experience.harness import TABLET_HEADERS
+
+    headers = dict(TABLET_HEADERS)
+    armed = await world.client.post(f"/actions/{proposal_id}/arm", data={"session_id": session_id}, headers=headers)
+    if armed.status_code == 200 and armed.json().get("nonce"):
+        world.runtime.actions.find(proposal_id).armed_at -= 1.0
+        headers["X-Crooks-Arm"] = armed.json()["nonce"]
+    done = await world.client.post(f"/actions/{proposal_id}/commit", data={"session_id": session_id}, headers=headers)
+    assert done.status_code == 200, done.text
+    return done.json()
 
 
 async def _side_by_side(world, sid: str):
@@ -288,3 +325,98 @@ async def test_two_orders_asked_for_side_by_side_are_both_on_the_screen(world):
     search result, and both cards are the answer — whichever of them is drawn as its line."""
     said = await _side_by_side(world, "side")
     assert sorted(_numbers(said)) == ["#1938", "#1940"], [c.get("type") for c in said.ui]
+
+
+def test_beside_a_change_to_a_record_he_had_up_the_records_he_had_up_stay():
+    """Rule 1 (8 October): a change to one of the records on his screen as the turn began keeps
+    the change card first and the records he had up beside it, as this turn read them, with their
+    lines. This turn's searches still never show beside a change."""
+    up_1938 = {"type": "order", "data": {"order_id": "gid://shopify/Order/1938", "detail": True}}
+    up_1940 = {"type": "order", "data": {"order_id": "gid://shopify/Order/1940", "detail": False}}
+    before = [up_1938, {"type": "attention", "data": {"for": "gid://shopify/Order/1938", "items": []}}, up_1940]
+
+    again = {"type": "order", "data": {"order_id": "gid://shopify/Order/1940", "detail": True}}
+    lines = {"type": "attention", "data": {"for": "gid://shopify/Order/1940", "items": [{"title": "Customer emailed"}]}}
+    searched = {"type": "email_list", "data": {"threads": [{"thread_id": "t1"}]}}
+    someone = {"type": "customer", "data": {"customer_id": "gid://shopify/Customer/9"}}
+    other = {"type": "order", "data": {"order_id": "gid://shopify/Order/1955", "detail": True}}
+    note = {"type": "confirmation", "data": {"proposal_id": "p1", "entity_ref": "gid://shopify/Order/1940"}}
+    why: dict = {}
+    kept = focus.answer_cards([searched, someone, other, again, lines, note], why, before=before)
+    assert kept == [again, lines, note], [c["type"] for c in kept]
+    assert why == {"rule": "change", "set_aside": ["email_list", "customer", "order"]}
+
+    # The reply to a customer he did not have up is the reply alone, whatever was on his screen.
+    reply = {"type": "confirmation", "data": {"proposal_id": "p2", "entity_ref": PRIYAS_THREAD}}
+    assert focus.answer_cards([searched, someone, again, lines, reply], before=before) == [reply]
+    # And nothing up at all: the change alone, as before.
+    assert focus.answer_cards([again, note], before=[]) == [note]
+
+
+def test_the_screen_stays_under_a_change_to_one_of_its_records_whatever_was_read_on_the_way():
+    """`app/screen.py` `carry`, beside rule 1: a change to a record on the screen continues the
+    screen when the model read something elsewhere to prepare it (those reads are this turn's
+    finds, already off the answer), and the changed record's new attention lines go under it
+    rather than replacing his screen as a subject of their own."""
+    import time
+    from types import SimpleNamespace
+
+    from app import screen
+    from app.providers.base import ToolCall
+
+    o1938, o1940 = "gid://shopify/Order/1938", "gid://shopify/Order/1940"
+    up = [{"type": "order", "data": {"order_id": o1938, "detail": True}},
+          {"type": "order", "data": {"order_id": o1940, "detail": False}}]
+    half = SimpleNamespace(last_at=time.time(), last_ui=up)
+    note = {"type": "confirmation", "data": {"proposal_id": "p1", "entity_ref": o1940}}
+    lines = {"type": "attention", "data": {"for": o1940, "items": [{"title": "Customer emailed"}]}}
+    read = [ToolCall(name="gmail_read_thread", args={}, ok=True, result={"thread_id": PRIYAS_THREAD})]
+
+    why: list = []
+    out = screen.carry([lines, note], branch=half, calls=read, why=why)
+    assert why == [screen.WHY_CONTINUED]
+    assert [(c["type"], c["data"].get("order_id") or c["data"].get("for")) for c in out] == [
+        ("confirmation", None), ("order", o1938), ("order", o1940), ("attention", o1940)]
+    assert out[1].get("kept") and out[2].get("kept") and not out[3].get("kept")
+
+    # Words with no change, after a read of something the screen does not show, still go.
+    why = []
+    assert screen.carry([], branch=half, calls=read, why=why) == [] and why == [screen.WHY_READ_ELSEWHERE]
+
+
+@pytest.mark.parametrize("on_the_way", [
+    ("shopify_order_detail", {"order_id": data.BY_NAME["#1940"].order_id}),   # the order read again first
+    ("gmail_read_thread", {"thread_id": PRIYAS_THREAD}),                      # an email read to prepare it
+])
+async def test_a_note_on_one_of_two_orders_up_keeps_the_other_through_the_hold(world, on_the_way):
+    """Round 12's C3: with #1938 and #1940 up, a note staged on #1940 is the card on top and both
+    orders stay under it — whatever the model read on the way, which never shows — and after the
+    hold the proof and both orders are his screen."""
+    sid = f"note-{on_the_way[0]}"
+    await _side_by_side(world, sid)
+    put_back = _accepting_notes(world)
+    try:
+        staged = await world.ask("add a note to 1940 saying fragile", on_the_way,
+                                 ("shopify_order_note_append", {"order_id": data.BY_NAME["#1940"].order_id, "note": "Fragile"}),
+                                 session_id=sid, reply="The note is ready on #1940's card.")
+        kinds = [c["type"] for c in _cards(staged)]
+        assert kinds[0] == "confirmation", kinds
+        assert sorted(_numbers(staged)) == ["#1938", "#1940"], kinds
+        assert "email_thread" not in kinds and "email_list" not in kinds, kinds
+        (card,) = [c["data"] for c in staged.ui if c["type"] == "confirmation"]
+        await _hold(world, sid, card["proposal_id"])
+        shown = world.branch(sid).last_ui
+        assert "success" in [c.get("type") for c in shown]
+        assert sorted(str(c["data"].get("order_number")) for c in shown if c.get("type") == "order") == ["#1938", "#1940"]
+    finally:
+        put_back()
+
+
+async def test_the_reply_with_another_order_up_is_still_the_reply_alone(world):
+    """The reply to a customer found by searching, with an order of somebody else's up: the
+    change is not to anything he had up, so it is the reply and nothing else (rule 1)."""
+    sid = "reply-over-1938"
+    await world.open_order("1938", session_id=sid)
+    said = await world.ask("show me the email reply to priya", *_the_reply_turn("gmail_send_reply"), session_id=sid,
+                           reply="Here's the reply to Priya.")
+    assert [c["type"] for c in _cards(said)] == ["confirmation"], [c["type"] for c in _cards(said)]

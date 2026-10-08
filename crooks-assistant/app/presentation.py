@@ -186,6 +186,7 @@ def present(
     pending: tuple[str, ...] | list[str] = (),
     focus: bool = False,
     focus_why: dict[str, Any] | None = None,
+    before: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """The `ui` list for one turn: the TASK's workspace where the task has one, context cards
     from the tool results, one error card per failed service, and the context stack when the
@@ -195,6 +196,8 @@ def present(
     (app/focus.py) — a change wins, a record read in full wins over the searches that found it
     — chosen before anything is remembered, so the context stack holds what he was shown.
     Errors are added after the choice and are never set aside. `focus_why` is told the rule.
+    `before` is the half's screen as the turn found it (app/screen.py `showing`): beside a change
+    to one of its records, the records on it this turn drew again stay (app/focus.py rule 1).
 
     `question` is what was asked, which is what decides the workspace (§3: intent first, not
     the last tool). It defaults to `session.heard` — set by /turn before a single read is
@@ -285,7 +288,7 @@ def present(
         # the glass and off the context stack.
         from app.focus import answer_cards, records_asked_for
 
-        items = answer_cards(items, focus_why, read_whole=read_whole, asked=records_asked_for(calls))
+        items = answer_cards(items, focus_why, read_whole=read_whole, asked=records_asked_for(calls), before=before)
     if session is not None:
         _remember(items, session)
         # §18, as a SWEEP rather than one renderer at a time. After `_remember`, which is

@@ -14,7 +14,10 @@ themselves and never over the words (MAP rule 7: nothing matches what was said),
    being written, a form being built: those are the screen, and nothing read on the way to them
    is. "The reply to [a customer] and nothing else." Two kinds of card stay beside it, because
    they are about the change and not how it was found: the attention lines of the record the
-   change is to ("Chargeback open" beside a refund of that order), and a screen's remote.
+   change is to ("Chargeback open" beside a refund of that order), and a screen's remote. And
+   when the change is to a record he already had up as the turn began, that screen is his and
+   not this turn's finds: the records on it this turn drew again stay beside the change (with
+   their lines), and `app/screen.py` `carry` keeps the rest of it (`his_screen`).
 2. Otherwise, a RECORD read in full wins over the searches that found it: an order read whole,
    a thread opened, a customer's history, an objective, or a workspace composed over a record
    that a read this turn returned whole. The lists and the one-line finds that led there are set
@@ -95,6 +98,37 @@ def _beside_a_change(item: dict[str, Any], refs: set[str]) -> bool:
     return kind == "attention" and str(_data(item).get("for") or "") in refs
 
 
+def his_screen(changes: list[dict[str, Any]], before: list[dict[str, Any]] | None) -> frozenset[str]:
+    """The records he had on screen when the turn began — as canonical record keys — when a
+    change this turn staged is to something on that screen (rule 1). Empty otherwise: a change
+    to a record that was not up (the reply to a customer found by searching) has nothing of his
+    screen beside it. `before` is the half's screen as the turn found it (`app/screen.py`
+    `showing`); "to something on that screen" is the test `screen.carry` makes."""
+    from app import screen
+
+    up = [item for item in before or [] if isinstance(item, dict)]
+    targets: set[str] = set()
+    for change in changes:
+        data = _data(change)
+        targets |= {str(data.get("entity_ref") or ""), str(data.get("workspace_id") or "")}
+    if not up or not (targets - {""}) & screen.refs_on(up):
+        return frozenset()
+    return frozenset(record[1] for record in (screen.record_of(item) for item in up) if record)
+
+
+def _was_up(item: dict[str, Any], records: frozenset[str]) -> bool:
+    """Whether this turn's card is of a record he had on screen when it began (`his_screen`), or
+    is that record's attention lines: his screen, read again, and not one of this turn's finds."""
+    if not records:
+        return False
+    from app import entities, screen
+
+    if _kind(item) == "attention":
+        return entities.key("order", _data(item).get("for")) in records
+    record = screen.record_of(item)
+    return record is not None and record[1] in records
+
+
 def records_asked_for(calls: Any) -> frozenset[str]:
     """The orders a read this turn asked for by the order's own id or number, whatever card
     `present()` drew for each: one read whole (`shopify_order_detail`), or one looked up by its
@@ -141,17 +175,23 @@ def _found_on_the_way(item: dict[str, Any], kept_orders: set[str]) -> bool:
 
 def answer_cards(items: list[dict[str, Any]], why: dict[str, Any] | None = None, *,
                  read_whole: frozenset[str] | None = None,
-                 asked: frozenset[str] | None = None) -> list[dict[str, Any]]:
+                 asked: frozenset[str] | None = None,
+                 before: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     """The cards this answer is about, in the order `present()` built them. `why`, when given,
     is told which rule decided and the kinds of the cards set aside (for the interaction record:
     app/observability/interactions.py). `read_whole` is `records_read_whole` of the cards before
     a workspace was composed (see `in_full`). `asked` is `records_asked_for` of the turn's
-    calls: an order in it is never set aside as a find by rule 2."""
+    calls: an order in it is never set aside as a find by rule 2. `before` is the half's screen
+    as the turn found it: beside a change to one of its records, the records on it that this
+    turn drew again stay (rule 1, `his_screen`)."""
     cards = [item for item in items or [] if isinstance(item, dict)]
     if any(_kind(item) in TASK for item in cards):
         rule = CHANGE
-        refs = {str(_data(item).get("entity_ref") or "") for item in cards if _kind(item) in TASK} - {""}
-        kept = [item for item in cards if _kind(item) in TASK or _kind(item) in ALWAYS or _beside_a_change(item, refs)]
+        changes = [item for item in cards if _kind(item) in TASK]
+        refs = {str(_data(item).get("entity_ref") or "") for item in changes} - {""}
+        his = his_screen(changes, before)
+        kept = [item for item in cards if _kind(item) in TASK or _kind(item) in ALWAYS
+                or _beside_a_change(item, refs) or _was_up(item, his)]
     elif any(in_full(item, read_whole) for item in cards):
         rule = RECORD
         orders = {str(_data(item).get("order_id") or "") for item in cards if _kind(item) == "order" and in_full(item)}

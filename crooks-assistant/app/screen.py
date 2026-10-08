@@ -300,11 +300,19 @@ def _carry(ui, *, branch, session, calls, named, clock, why) -> list[dict[str, A
         return ui
     held = {identity(item): item for item in screen_subjects}
     fresh: dict[str, dict[str, Any]] = {}
+    # [flow, DEC-069] What a record on this screen needs, read again by this answer and not up
+    # yet ("Customer emailed: Cap" beside a note on #1940): that record's own lines, drawn under
+    # it, not a subject of their own that would take the rest of his screen away.
+    lines: dict[str, list[dict[str, Any]]] = {}
     for item in answer:
         if not is_subject(item):
             continue
         who = identity(item)
         if who not in held:
+            under = _lines_of(item, screen_subjects)
+            if under:
+                lines.setdefault(under, []).append(item)
+                continue
             why.append(WHY_NEW_SUBJECT)
             return ui                      # a new subject: it is the screen now
         fresh[who] = item
@@ -318,7 +326,11 @@ def _carry(ui, *, branch, session, calls, named, clock, why) -> list[dict[str, A
     if _named_elsewhere(named, screen):
         why.append(WHY_NAMED_ELSEWHERE)
         return ui
-    if _read_elsewhere(calls, on_screen):
+    # [flow, DEC-069] A change to a record on this screen is about this screen, whatever the
+    # model read to prepare it: those reads are this turn's finds, which the answer's cards have
+    # already left off (app/focus.py rule 1), and they must not take his screen away with them.
+    to_here = any(about(change, session) & on_screen for change in changes)
+    if not to_here and _read_elsewhere(calls, on_screen):
         why.append(WHY_READ_ELSEWHERE)
         return ui
     why.append(WHY_CONTINUED)
@@ -336,12 +348,26 @@ def _carry(ui, *, branch, session, calls, named, clock, why) -> list[dict[str, A
                 kept.append(_recomposed(item, counterpart, session) or _flagged(item, "kept"))
             else:
                 kept.append(_flagged(item, "kept"))
+            record = record_of(item)
+            kept.extend(plain(line) for line in lines.pop(record[1] if record else "", []))
         elif render_id(item) not in new_ids and _still_live(item, session):
             if kind(item) == "variant_picker" and changed_refs & refs_on([item]):
                 continue                   # the step is done: its change is the card now
             kept.append(_flagged(item, "kept"))
     bookkeeping = [item for item in answer if kind(item) in BOOKKEEPING]
     return changes + kept[:MAX_KEPT] + bookkeeping
+
+
+def _lines_of(item: dict[str, Any], subjects: list[dict[str, Any]]) -> str:
+    """The record key an answer's attention card belongs under, when that record's own card is
+    on this screen; "" for any other card, which is a subject of its own."""
+    if kind(item) != "attention" or not isinstance(item.get("data"), dict):
+        return ""
+    from app import entities
+
+    key = entities.key("order", item["data"].get("for"))
+    on = {record[1] for record in (record_of(subject) for subject in subjects) if record}
+    return key if key and key in on else ""
 
 
 _NUMBER = re.compile(r"(\d{3,7})\s*$")

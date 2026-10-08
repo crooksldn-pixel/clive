@@ -2009,9 +2009,11 @@ async def _answer(
         # What the screen shows beside the answer: cards chosen from the tool results, never
         # from the prose. See app/presentation.py for the vocabulary and the bounds. Only what
         # the answer is about (DEC-069): a change wins, a record read in full wins over the
-        # searches that found it, and an error is never set aside.
+        # searches that found it, and an error is never set aside. Beside a change to a record
+        # he already had up, what he had up and this turn read again stays: it is his screen.
         ui = present([c for c in (calls or []) if getattr(c, "proposal_id", None) not in withheld] if withheld else calls,
-                     session=session, error_kind=error_kind, writes=rail, focus=True, focus_why=focus_why)
+                     session=session, error_kind=error_kind, writes=rail, focus=True, focus_why=focus_why,
+                     before=screen.showing(branch) if branch is not None else None)
         # The same turn as a validated scene, when CLIVE_SCENES is on: planned from these
         # reads, carried as its own field and changing nothing else. Off, nothing here runs.
         scene = _turn_scene(question or str((transcript or {}).get("text") or ""), answer, calls, session_id)
