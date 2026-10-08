@@ -46,7 +46,10 @@ env:
 jobs:
   acceptance:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 60, was 30: with a browser installed the screen tests run instead of skipping, and the full
+    # suite took 28m43s of pytest alone on the run before they all passed (run 37705279194), so
+    # the next was cancelled at 30. The same gates, given the time to finish.
+    timeout-minutes: 60
 
     steps:
       - name: Check out the exact candidate commit
