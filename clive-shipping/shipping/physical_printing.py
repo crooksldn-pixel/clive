@@ -10,7 +10,7 @@ from typing import Any
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 
-from shipping.label_selection import select_shipping_label_pdf
+from shipping.label_selection import MAX_PARCEL_PAGES, label_page, parcel_label_pdf
 from shipping.models import DocumentKind, Event, PageSize
 from shipping.print_provider import PrintProvider, PrintProviderError
 from shipping.printing import PRINTABLE, PrintError
@@ -18,21 +18,18 @@ from shipping.store import Store, new_id, now
 
 
 def validate_label(body: bytes) -> None:
+    """Only portrait 4x6 pages, as made (never scaled, cropped or turned), go to the label
+    printer: the shipping label and any customs form that goes on the parcel with it."""
     try:
         reader = PdfReader(BytesIO(body), strict=True)
-        if reader.is_encrypted or len(reader.pages) != 1:
+        if reader.is_encrypted or not 1 <= len(reader.pages) <= MAX_PARCEL_PAGES:
             raise ValueError()
-        p = reader.pages[0]
-        w, h = float(p.mediabox.width) * 25.4 / 72, float(p.mediabox.height) * 25.4 / 72
-        if not (98 <= w <= 104 and 148 <= h <= 155) or p.rotation % 360:
-            raise ValueError()
-        # Cropped / oversized pages must never be scaled into an apparently valid label.
-        if list(p.cropbox) != list(p.mediabox):
+        if not all(label_page(p) for p in reader.pages):
             raise ValueError()
     except Exception:
         raise PrintError(
-            "Use a dedicated single-page portrait 4x6 shipping-label PDF; "
-            "combined documents and A4 paperwork cannot go to JD-168BT."
+            "Use a portrait 4x6 label PDF (the label and its customs form); "
+            "A4 paperwork cannot go to JD-168BT."
         ) from None
 
 
@@ -126,14 +123,7 @@ class PhysicalPrinting:
         artifact = self.store.get_artifact(shop, doc.artifact_id)
         if not artifact or artifact[0] != "shipping_label" or artifact[1] != "application/pdf":
             raise PrintError("The stored shipping-label PDF is unavailable.")
-        body = select_shipping_label_pdf(
-            artifact[2],
-            provider=s.label.provider,
-            carrier=s.label.carrier,
-            service=s.label.service_name,
-            kind=doc.kind,
-            page_size=doc.page_size,
-        )
+        body = parcel_label_pdf(artifact[2], kind=doc.kind, page_size=doc.page_size)
         validate_label(body)
         return s, doc, body
 
@@ -356,11 +346,19 @@ class PhysicalPrinting:
         if not doc or not artifact or artifact[1] != "application/pdf":
             raise PrintError("The label file isn't stored yet; try again in a minute.", 503)
         try:
-            return self._label_input(shop, sid)[2], ""
+            body = self._label_input(shop, sid)[2]
+            pages = len(PdfReader(BytesIO(body)).pages)
+            return body, "" if pages == 1 else (
+                f"{pages} labels: the shipping label and its customs form. Print both; both go "
+                "on the parcel."
+            )
         except PrintError:
-            # Not a recognised single 4x6 label (e.g. an unknown bundle): the whole original,
-            # so nothing on it is lost; the person picks the pages in the print dialog.
-            return artifact[2], "The full label file is shown: print the label page."
+            # Not all 4x6 label pages (e.g. A4 paperwork in it): the whole original, so nothing
+            # on it is lost.
+            return artifact[2], (
+                "The label file isn't all 4×6 pages, so it is shown whole: print every page "
+                "that goes on the parcel."
+            )
 
     def _record_view(self, shop: str, sid: str, actor: str) -> None:
         s = self.store.get(shop, sid)

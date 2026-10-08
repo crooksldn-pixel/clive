@@ -46,6 +46,7 @@ from shipping.app import create_app  # noqa: E402
 from shipping.commodity import CommodityAssistant, UkTradeTariff  # noqa: E402
 from shipping.fake_shopify import FakeShopify, fo, hoodie_line, tee_line  # noqa: E402
 from shipping.models import Address, PageSize  # noqa: E402
+from shipping.print_provider import options_for  # noqa: E402
 from shipping.providers.base import ProviderUnavailable  # noqa: E402
 from shipping.providers.fake import FakeProvider  # noqa: E402
 from shipping.purchase import Purchases  # noqa: E402
@@ -395,6 +396,8 @@ class DevPrintNode:
 
     def print_pdf(self, body: bytes, title: str, key: str) -> int:
         job = 9_000_000 + len(self.jobs)
+        # What real PrintNode would be asked to print: every page of the label file.
+        print(f"dev PrintNode: job {job} {title!r} pages {options_for(body).get('pages', 'all')}")
         self.jobs[job] = (time.time(), self.fail_next)
         self.fail_next = False
         return job

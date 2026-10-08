@@ -1,4 +1,4 @@
-"""Verified Easyship label/CN23 extraction preserves original documents."""
+"""Label files print whole, customs form included, and the stored original is never changed."""
 
 import base64
 import hashlib
@@ -15,7 +15,7 @@ from reportlab.lib.units import mm
 from reportlab.pdfgen.canvas import Canvas
 
 from shipping.app import create_app
-from shipping.label_selection import CN23_NOTE, easyship_cn23, select_shipping_label_pdf
+from shipping.label_selection import CN23_NOTE, easyship_cn23, parcel_label_pdf
 from shipping.models import CustomsMode, DocumentKind, PageSize, ShipmentDocument
 from shipping.physical_printing import validate_label
 from shipping.print_provider import OPTIONS, PrintNodeProvider
@@ -49,14 +49,8 @@ def bundle(
 
 
 def select(body, **changes):
-    args: dict[str, Any] = dict(
-        provider="Easyship",
-        carrier="Royal Mail",
-        service="Royal Mail Domestic Tracked 48 - Small Parcel",
-        kind=DocumentKind.shipping_label,
-        page_size=PageSize.label_4x6,
-    )
-    return select_shipping_label_pdf(body, **(args | changes))
+    args: dict[str, Any] = dict(kind=DocumentKind.shipping_label, page_size=PageSize.label_4x6)
+    return parcel_label_pdf(body, **(args | changes))
 
 
 def test_print_reprint_original_download_storage_and_no_postage(
@@ -137,26 +131,20 @@ def test_print_reprint_original_download_storage_and_no_postage(
     posts = [req for req in requests if req.method == "POST"]
     assert len(posts) == 2
     assert posts[0].headers["X-Idempotency-Key"] != posts[1].headers["X-Idempotency-Key"]
-    first_page = PdfReader(BytesIO(original)).pages[0]
     sent = []
     for req in posts:
         payload = json.loads(req.content)
         assert payload["printerId"] == 75883753
         assert payload["contentType"] == "pdf_base64"
-        assert payload["options"] == OPTIONS and payload["qty"] == 1
+        # Both pages: the shipping label and the CN23 customs form go on the parcel.
+        assert payload["options"] == OPTIONS | {"pages": "1-2"} and payload["qty"] == 1
         body = base64.b64decode(payload["content"])
         sent.append(body)
         validate_label(body)
-        pdf = PdfReader(BytesIO(body))
-        assert len(pdf.pages) == 1
-        page = pdf.pages[0]
-        assert page.extract_text() == first_page.extract_text()
-        assert "SHIPPING LABEL" in page.extract_text() and "CN23" not in page.extract_text()
-        content, original_content = page.get_contents(), first_page.get_contents()
-        assert content is not None and original_content is not None
-        assert content.get_data() == original_content.get_data()
-        assert list(page.mediabox) == list(first_page.mediabox)
-        assert list(page.cropbox) == list(first_page.cropbox) and page.rotation == 0
+        assert body == original  # the provider's file, unchanged
+        pages = PdfReader(BytesIO(body)).pages
+        assert "SHIPPING LABEL" in pages[0].extract_text()
+        assert "CN23" in pages[1].extract_text()
     assert sent[0] == sent[1]
     stored = svc.store.get_artifact(SHOP, artifact)[2]
     assert stored == original and len(PdfReader(BytesIO(stored)).pages) == 2
@@ -175,36 +163,50 @@ def test_print_reprint_original_download_storage_and_no_postage(
 
 def test_parcel2go_dedicated_label_unchanged():
     body = bundle(("PARCEL2GO SHIPPING LABEL",))
-    assert select(body, provider="Parcel2Go", carrier="Evri", service="Tracked") == body
+    assert select(body) == body
     validate_label(body)
 
 
 @pytest.mark.parametrize(
-    "changes",
-    [
-        dict(provider="Parcel2Go"),
-        dict(provider="Unknown"),
-        dict(service="Unknown service"),
-        dict(kind=DocumentKind.commercial_invoice),
-        dict(page_size=PageSize.a4),
-    ],
+    "changes", [dict(kind=DocumentKind.commercial_invoice), dict(page_size=PageSize.a4)]
 )
-def test_ambiguous_or_non_label_metadata_refused(changes):
+def test_non_label_metadata_refused(changes):
     with pytest.raises(PrintError):
         select(bundle(), **changes)
 
 
 @pytest.mark.parametrize(
+    "texts",
+    [
+        ("LABEL", "UNIDENTIFIED SECOND PAGE"),
+        ("LABEL", "CN23", "OTHER PAGE"),
+        ("LABEL", "CUSTOMS DECLARATION CN22May be opened"),
+    ],
+)
+def test_every_4x6_page_the_carrier_put_in_the_label_file_prints(texts):
+    body = bundle(texts)
+    assert select(body) == body  # never a page dropped: it may be the customs form
+
+
+def test_a_mixed_sheet_and_label_file_is_never_sent_to_the_label_printer():
+    stream = BytesIO()
+    writer = PdfWriter()
+    for part in (bundle(("LABEL",)), bundle(("INVOICE",), (210 * mm, 297 * mm))):
+        writer.add_page(PdfReader(BytesIO(part)).pages[0])
+    writer.write(stream)
+    with pytest.raises(PrintError):
+        select(stream.getvalue())
+
+
+@pytest.mark.parametrize(
     "body",
     [
-        bundle(("LABEL", "UNIDENTIFIED SECOND PAGE")),
-        bundle(("CN23", "CN23")),
-        bundle(("LABEL", "CN23", "OTHER PAGE")),
         bundle(size=(210 * mm, 297 * mm)),
+        bundle(tuple(f"PAGE {n}" for n in range(5))),  # not a label file
         b"not a PDF",
     ],
 )
-def test_unidentified_layouts_refused(body):
+def test_files_that_are_not_label_files_refused(body):
     with pytest.raises(PrintError):
         select(body)
 
@@ -266,37 +268,23 @@ def test_unsafe_combined_pdf_refused(fault):
 LIVE_CN23 = "CUSTOMS DECLARATION CN23May be opened officially"
 
 
-@pytest.mark.parametrize(
-    "service",
-    [
-        "Royal Mail - Domestic Tracked 48 - Small Parcel",
-        "Royal Mail - Domestic Tracked 24 - Small Parcel",
-    ],
-)
-def test_the_live_easyship_label_and_cn23_layout_prints_the_label_page_only(service):
+def test_the_live_easyship_label_and_cn23_both_print():
     body = bundle(("ROYAL MAIL SHIPPING LABEL - VU721241607GB", LIVE_CN23))
     assert easyship_cn23(body)
-    printed = select(body, service=service)
+    printed = select(body)
     pages = PdfReader(BytesIO(printed)).pages
-    assert len(pages) == 1 and "VU721241607GB" in (pages[0].extract_text() or "")
+    assert printed == body and len(pages) == 2
+    assert "VU721241607GB" in (pages[0].extract_text() or "")
+    assert "CN23" in (pages[1].extract_text() or "")  # the customs form goes on the parcel too
     validate_label(printed)
 
 
 @pytest.mark.parametrize(
     "texts",
     [
-        ("LABEL CN23May be opened", LIVE_CN23),  # the customs form first, or on both pages
         ("LABEL", "CUSTOMS DECLARATION CN230 FORM"),  # another form number is not a CN23
         ("LABEL", "CUSTOMS DECLARATION CN22May be opened"),
     ],
 )
-def test_layouts_that_only_look_like_label_and_cn23_are_still_refused(texts):
-    body = bundle(texts)
-    with pytest.raises(PrintError):
-        select(body, service="Royal Mail - Domestic Tracked 48 - Small Parcel")
-
-
-def test_other_royal_mail_services_are_still_refused():
-    body = bundle(("LABEL", LIVE_CN23))
-    with pytest.raises(PrintError):
-        select(body, service="Royal Mail - International Tracked - Small Parcel")
+def test_only_a_real_cn23_is_named_as_one(texts):
+    assert not easyship_cn23(bundle(texts))

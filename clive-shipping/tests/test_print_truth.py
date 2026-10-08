@@ -95,21 +95,30 @@ def test_print_view_opens_the_label_and_counts_as_printed(svc, two, provider, mo
     assert svc.store.get(SHOP, a.id).timeline[-1].type == "label_print_view_again"
 
 
-def test_easyship_bundle_opens_as_its_label_page_only(svc, shopify):
+def test_an_international_label_opens_with_its_customs_form(svc, shopify):
     s = bought(svc, shopify, 2147)
     s.label.provider, s.label.carrier = "Easyship", "Royal Mail"
     s.label.service_name = "Royal Mail - Domestic Tracked 48 - Small Parcel"
     svc.store.save(s)
     body = "CUSTOMS DECLARATION CN23May be opened officially"
     s = with_label(svc, s, bundle(("LABEL VU732053366GB", body)))
-    out, _ = PhysicalPrinting(svc.store, None, 0).print_view(SHOP, s.id, "staff")
-    assert len(PdfReader(BytesIO(out)).pages) == 1  # the CN23 stays in Open PDF
-
-
-def test_an_unknown_bundle_opens_whole_and_says_so(svc, shopify):
-    s = with_label(svc, bought(svc, shopify, 2148), bundle(("PAGE ONE", "PAGE TWO")))
     out, note = PhysicalPrinting(svc.store, None, 0).print_view(SHOP, s.id, "staff")
-    assert len(PdfReader(BytesIO(out)).pages) == 2 and "print the label page" in note
+    pages = PdfReader(BytesIO(out)).pages
+    assert len(pages) == 2 and "CN23" in (pages[1].extract_text() or "")  # both on the parcel
+    assert "customs form" in note and "both" in note
+
+
+def test_a_label_file_with_a4_pages_opens_whole_and_says_so(svc, shopify):
+    from pypdf import PdfWriter
+    from reportlab.lib.units import mm
+
+    writer, stream = PdfWriter(), BytesIO()
+    for part in (bundle(("LABEL",)), bundle(("INVOICE",), (210 * mm, 297 * mm))):
+        writer.add_page(PdfReader(BytesIO(part)).pages[0])
+    writer.write(stream)
+    s = with_label(svc, bought(svc, shopify, 2148), stream.getvalue())
+    out, note = PhysicalPrinting(svc.store, None, 0).print_view(SHOP, s.id, "staff")
+    assert len(PdfReader(BytesIO(out)).pages) == 2 and "print every page" in note
 
 
 def test_bulk_print_view_is_one_pdf_and_names_what_it_left_out(svc, two, shopify):

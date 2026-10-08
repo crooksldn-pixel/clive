@@ -231,7 +231,9 @@ def test_bulk_print_independent_intents_and_no_postage(
 
     from pypdf import PdfReader
 
-    assert len(PdfReader(BytesIO(sender.print_pdf.call_args_list[0].args[0])).pages) == 1
+    # The label and its CN23 customs form, both, exactly as Easyship made them.
+    assert sender.print_pdf.call_args_list[0].args[0] == original
+    assert len(PdfReader(BytesIO(original)).pages) == 2
     assert svc.store.get_artifact(SHOP, doc.artifact_id)[2] == original
     for row, call in zip(rows[1:], sender.print_pdf.call_args_list[1:], strict=True):
         artifact = row.label.document(DocumentKind.shipping_label).artifact_id

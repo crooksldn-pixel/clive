@@ -35,8 +35,11 @@ another print), and the order page asks every two seconds for a minute after Pri
 a job is written to the order's history ("Printer finished printing the label" / "Label didn't
 print"). The print card shows the printer and the computer it hangs off, and their states.
 
-Bulk Print with PrintNode runs each first print separately through review, as before. Easyship
-label+CN23 bundles print their label page only; Parcel2Go 4×6 labels go unchanged.
+Bulk Print with PrintNode runs each first print separately through review, as before. A label
+file prints whole, so the customs form that goes on an international parcel prints with the
+label: Easyship's Royal Mail label + CN23 is two 4×6 labels, both for the parcel. Parcel2Go 4×6
+labels go unchanged. A4 customs papers (commercial invoice copies) are named beside Print and
+printed from Documents.
 
 ## Durable batch safety
 

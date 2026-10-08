@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import base64
+from io import BytesIO
 from typing import Any, Protocol
 
 import httpx
+from pypdf import PdfReader
 
 PAPER = '4.00"x6.00"(101.6x152.4)'
 OPTIONS = dict(
@@ -18,6 +20,15 @@ OPTIONS = dict(
     pages="1",
     color=False,
 )
+
+
+def options_for(body: bytes) -> dict[str, Any]:
+    """Every page of the label file: the label and the customs form that goes with it."""
+    try:
+        pages = len(PdfReader(BytesIO(body)).pages)
+    except Exception:  # never reached with a checked label; never cut pages off if it were
+        return {k: v for k, v in OPTIONS.items() if k != "pages"}  # PrintNode: all pages
+    return {**OPTIONS, "pages": "1" if pages == 1 else f"1-{pages}"}
 
 
 class PrintProviderError(Exception):
@@ -144,7 +155,7 @@ class PrintNodeProvider:
                 title=title,
                 contentType="pdf_base64",
                 content=base64.b64encode(body).decode("ascii"),
-                options=OPTIONS,
+                options=options_for(body),
                 qty=1,
                 expireAfter=300,
                 source="CROOKS Shipping",

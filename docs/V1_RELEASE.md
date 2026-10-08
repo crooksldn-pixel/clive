@@ -60,7 +60,10 @@ Details live with each app (`docs/shipping/DESIGN.md`, `clive-shipping/OPERATION
   "Select all ready" asks the server again),
   review (each order re-checked; any that changed since selection, e.g. now unpaid, is left out
   and named), confirm; each order then runs independently in the durable batch engine.
-- **Printing.** Without PrintNode, Print opens the label as a 4×6 PDF to print from the browser
+- **Printing.** Everything that goes on the parcel prints: the label file whole, so an
+  international parcel's customs form (Easyship's Royal Mail CN23, page 2) prints with its label;
+  A4 customs papers are named beside Print and printed from Documents. Without PrintNode, Print
+  opens the label file as a 4×6 PDF to print from the browser
   (bulk: one combined PDF); opening it counts as printed. With PrintNode, Print sends the job;
   the order says Printing… until PrintNode reports done (Printed) or error/expired (Print
   failed, with PrintNode's reason; Print works again). A retried request never prints twice,

@@ -626,6 +626,7 @@ def detail(
                     "title": TITLES.get(doc.kind, doc.kind.value),
                     "artifact_id": doc.artifact_id,
                     "page_size": doc.page_size.value,
+                    "pages": doc.pages,
                     "copies": doc.copies_required,
                     "must_print": doc.must_print or doc.kind == DocumentKind.shipping_label,
                     "note": doc.note,

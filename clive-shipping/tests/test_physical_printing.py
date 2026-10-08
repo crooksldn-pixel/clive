@@ -95,19 +95,28 @@ def test_print_retries_and_explicit_reprint_never_buy(
         output.status("other-shop", a["id"])
 
 
-@pytest.mark.parametrize(
-    "size", [((595, 842),), ((288, 432), (595, 842)), ((288, 432), (288, 432)), ((432, 288),)]
-)
-def test_rejects_a4_combined_multipage_and_landscape(svc, purchased, sender, size):
+@pytest.mark.parametrize("size", [((595, 842),), ((288, 432), (595, 842)), ((432, 288),)])
+def test_rejects_a4_mixed_and_landscape(svc, purchased, sender, size):
     s, _ = purchased
     d = s.label.documents[0]
     d.artifact_id = svc.store.put_artifact(
         SHOP, s.id, "shipping_label", "application/pdf", pdf(*size)
     )
     svc.store.save(s)
-    with pytest.raises(PrintError, match="single-page"):
+    with pytest.raises(PrintError, match="4x6"):
         PhysicalPrinting(svc.store, sender, 75883753).print_label(SHOP, s.id, "staff", "request-1")
     sender.print_pdf.assert_not_called()
+
+
+def test_a_label_and_its_customs_form_go_to_the_printer_together(svc, purchased, sender):
+    s, _ = purchased
+    body = pdf((288, 432), (288, 432))  # e.g. Easyship's Royal Mail label + CN23
+    s.label.documents[0].artifact_id = svc.store.put_artifact(
+        SHOP, s.id, "shipping_label", "application/pdf", body
+    )
+    svc.store.save(s)
+    PhysicalPrinting(svc.store, sender, 75883753).print_label(SHOP, s.id, "staff", "request-1")
+    assert sender.print_pdf.call_args.args[0] == body  # both pages, unchanged
 
 
 def test_customs_metadata_never_reaches_printer(svc, purchased, sender):

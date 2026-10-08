@@ -1023,9 +1023,17 @@ function printCard(d) {
   }[p.state] || "";
   const steps = (p.steps || []).map((x) =>
     `<s-text color="subdued">${esc(localTime(x.at))} · ${esc(x.words)}${x.message ? ` — ${esc(x.message)}` : ""}</s-text>`).join("");
+  // International: the customs form (CN23) is part of the label file and prints with it.
+  const label = (d.label?.documents || []).find((x) => x.kind === "shipping_label");
+  const parcel = label && label.pages > 1
+    ? `<s-text>${label.pages} labels go on this parcel: the shipping label and the customs form. Print prints both.</s-text>` : "";
+  // Customs papers on A4 can't go through the 4×6 label printer: say so beside Print.
+  const sheets = (d.label?.documents || []).filter((x) => x.must_print && x.kind !== "shipping_label");
+  const also = sheets.length
+    ? `<s-text>Also print ${sheets.map((x) => `${esc(x.title)} (${esc(x.page_size)}${x.copies > 1 ? `, ${x.copies} copies` : ""})`).join(" and ")} from Documents below, for the pouch on the parcel.</s-text>` : "";
   return `<s-stack gap="small-200"><s-heading>Label printing</s-heading>
     <s-stack direction="inline" gap="small-200" alignItems="center">${printBadge(p)}<s-text color="subdued">${via}</s-text></s-stack>
-    <s-text>${say}</s-text>
+    <s-text>${say}</s-text>${parcel}${also}
     ${steps ? `<s-stack gap="small-100">${steps}</s-stack>` : ""}
     ${p.reprint_count ? `<s-text color="subdued">Reprints: ${p.reprint_count}</s-text>` : ""}
     ${d.print_method === "printnode" ? connectionLines(d.print_connection) : ""}

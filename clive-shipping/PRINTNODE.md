@@ -28,22 +28,25 @@ Add to the EXISTING production `clive-shipping/.env` only after review:
 Only this exact configured JD-168BT is accepted. It must be online, its client connected,
 and expose the proven paper, roll feeder and 203x203 DPI. Windows client must use Engine6.
 
-Payload is pdf_base64 of the selected shipping-label PDF; copies=1, qty=1, pages="1",
-paper='4.00"x6.00"(101.6x152.4)', dpi="203x203", bin="Roll Paper Feeder",
-fit_to_page=false, rotate=0, color=false, expireAfter=300.
+Payload is pdf_base64 of the stored shipping-label PDF; copies=1, qty=1, pages="1" (or
+"1-N" for an N-page label file), paper='4.00"x6.00"(101.6x152.4)', dpi="203x203",
+bin="Roll Paper Feeder", fit_to_page=false, rotate=0, color=false, expireAfter=300.
 
-Physical printing selects from a stored shipping_label PDF without modifying its bytes.
-Dedicated single-page labels (including Parcel2Go Label4X6) pass through unchanged. The
-verified Easyship Royal Mail Domestic Tracked 48 / Tracked 24 Small Parcel bundle has two
-portrait 4x6 pages: label first, CN23 second. With matching provider/service metadata and
-positive CN23 evidence on page 2, only page 1 is copied into an in-memory PDF. The live
-bundles' text reads the heading run on ("DECLARATION CN23May be opened"), so "CN23" counts
-when no letter or digit precedes it and no digit follows it. Open PDF continues serving
-the entire original bundle; separate A4 commercial invoices are unchanged. Newly fetched
-Easyship bundles record a CN23 note and paper customs metadata.
+**Everything that goes on the parcel prints.** An international label file carries its
+customs form with it: Easyship's Royal Mail bundle (e.g. Tracked 48 to Guernsey) is two
+portrait 4x6 pages, the label first and the CN23 customs declaration second, and both go on
+the parcel. So the label file is sent unchanged, every page of it, never cut down to page 1.
+Dedicated single-page labels (including Parcel2Go Label4X6) are unchanged as before. The
+same holds for the print view (and bulk print view): all pages, with a note saying both go on
+the parcel. Easyship bundles record a CN23 note and paper customs metadata ("CN23" counts when
+no letter or digit precedes it and no digit follows it: the live text runs the heading on,
+"DECLARATION CN23May be opened").
 
-The selected PDF must be exactly one page, portrait, approximately 4x6, unrotated and
-uncropped. A4, ambiguous multipage, malformed, encrypted or unknown documents are refused.
+Only a file that is all portrait, unrotated, uncropped ~4x6 pages (at most 4) goes to the
+label printer. A4 or mixed files, landscape, malformed or encrypted PDFs are refused; the
+print view then shows the whole original and says to print every page that goes on the
+parcel. A4 customs papers (e.g. Parcel2Go commercial invoice copies) are listed beside Print
+and printed from Documents (Open PDF) on an A4 printer.
 No postage provider is contacted by Print/Reprint. The original artifact and purchase stay intact.
 
 ## Intent and status API
