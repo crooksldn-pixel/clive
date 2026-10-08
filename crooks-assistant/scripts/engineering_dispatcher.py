@@ -12,7 +12,8 @@
                    builder's report (private: printed here and served over the tailnet, never pushed)
     probe-launch   launch a builder exactly as an attempt would, read its init event, stop it before it does any
                    work, and say whether this CLI passes the launch check (run it before a re-pin, and after a
-                   deliberate CLI update)
+                   deliberate CLI update); with --skill-turn NAME, after a re-pin, let it answer one prompt that
+                   loads that skill, to prove a builder can use the owner's skills under dontAsk
     skill-entry    the config/builder_skills.json entry for a skill folder: the sha256 of every file in it
 
 Example:
@@ -196,6 +197,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="probe the launch of a build with no declared checks (default: with CLIVE's check server, "
                          "as every build CLIVE files has)")
     pl.add_argument("--timeout-s", type=float, default=90.0)
+    pl.add_argument("--skill-turn", default=None, metavar="NAME",
+                    help="after a re-pin: let the probed builder answer one real prompt (on the worker's token) "
+                         "that loads this owner's skill with the Skill tool, and say whether it could")
     se = sub.add_parser("skill-entry", help="print the config/builder_skills.json entry for a skill folder")
     se.add_argument("--name", required=True)
     se.add_argument("--folder", required=True, help="the skill's folder (an installed skill: <dir>/<name>/skill)")
@@ -330,6 +334,55 @@ def _print_stops(reports: list[dict]) -> None:
             print(f"    builder ({report.get('status')}): {report.get('summary')} {report.get('reason') or ''}")
 
 
+SKILL_TURN_PROMPT = ("Load the skill {skill} with the Skill tool. Then stop: report status 'completed' with the "
+                     "skill's own one-line description as the summary. Change no file and use no other tool.")
+
+
+def skill_turn_problems(log_text: str, skill: str) -> tuple[list[str], dict]:
+    """What one real turn's stream shows of the Skill tool (review of the loop branch, N8): a call naming the skill,
+    its result not an error, no call denied under dontAsk, and the turn finished. Read from the stream itself."""
+    calls: dict[str, dict] = {}
+    errors: dict[str, bool] = {}
+    denied, finished = 0, None
+    for line in log_text.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        kind = event.get("type")
+        blocks = (event.get("message") or {}).get("content") if kind in ("assistant", "user") else None
+        for block in blocks if isinstance(blocks, list) else ():
+            if not isinstance(block, dict):
+                continue
+            if kind == "assistant" and block.get("type") == "tool_use" and block.get("name") == "Skill":
+                calls[str(block.get("id"))] = block.get("input") if isinstance(block.get("input"), dict) else {}
+            elif kind == "user" and block.get("type") == "tool_result":
+                errors[str(block.get("tool_use_id"))] = bool(block.get("is_error"))
+        if kind == "system" and event.get("subtype") == "permission_denied":
+            denied += 1
+        elif kind == "result":
+            finished = event
+    names = {skill, skill.split(":", 1)[-1]}
+    named = [cid for cid, given in calls.items() if names & {str(v) for v in given.values()}]
+    denied += len((finished or {}).get("permission_denials") or ())
+    problems = []
+    if not named:
+        problems.append(f"the builder never called Skill({skill})")
+    elif not any(errors.get(cid) is False for cid in named):
+        problems.append(f"Skill({skill}) returned no result, or an error")
+    if denied:
+        problems.append(f"{denied} tool call(s) denied under dontAsk")
+    if finished is None:
+        problems.append("the turn did not finish before the timeout")
+    elif finished.get("is_error"):
+        problems.append(f"the turn ended in error ({finished.get('subtype')})")
+    return problems, {"skill_calls": len(named), "denied": denied,
+                      "finished": None if finished is None else finished.get("subtype"),
+                      "report": None if finished is None else finished.get("structured_output")}
+
+
 def probe_launch(args, kernel: Kernel, dispatcher: Dispatcher) -> int:
     """A builder launched exactly as an attempt would be, stopped at its init event: does this CLI pass the check?"""
     base = kernel.git.rev_parse(args.base_ref)
@@ -358,12 +411,28 @@ def probe_launch(args, kernel: Kernel, dispatcher: Dispatcher) -> int:
                 "sandbox": {"ro_paths": list(args.check_ro_path), "browsers": args.sandbox_browsers,
                             "node_path": args.sandbox_node_path}}))
             check_config.chmod(0o600)
+        turn = args.skill_turn
+        if turn is not None and turn not in skills["provided"]:
+            print(json.dumps({"verdict": "REFUSED", "problems": [
+                f"the skill {turn!r} is not one this builder would be given (given: "
+                f"{', '.join(skills['provided']) or 'none'}), so there is no turn to prove"]}, indent=2))
+            return 2
+        prompt = (SKILL_TURN_PROMPT.format(skill=builder_skills.skill_id(turn)) if turn is not None
+                  else "Reply with the single word: probe.")
         spec = LaunchSpec(task_id="probe", task_revision=1, attempt_id=f"probe-{uuid.uuid4().hex[:8]}", fencing_token=1,
                           session_id=str(uuid.uuid4()), workspace=workspace, home=home, log_path=root / "log.jsonl",
-                          stderr_path=root / "stderr.txt", prompt="Reply with the single word: probe.",
+                          stderr_path=root / "stderr.txt", prompt=prompt,
                           check_config=check_config, skills_dir=skills["folder"], skills=tuple(skills["provided"]),
                           skills_settings=skills["settings"])
-        started, problems, stderr = dispatcher.worker.probe(spec, timeout_s=args.timeout_s)
+        started, problems, stderr = dispatcher.worker.probe(spec, timeout_s=args.timeout_s, turn=turn is not None)
+        said = None
+        if turn is not None and not problems:
+            try:
+                log_text = spec.log_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                log_text = ""
+            turn_problems, said = skill_turn_problems(log_text, builder_skills.skill_id(turn))
+            problems = [*problems, *turn_problems]
         # Every command by name, so a new CLI version's own list can be pinned (BUILTIN_SLASH_COMMANDS) from this.
         print(json.dumps({
             "verdict": "PASS" if not problems else "REFUSED", "problems": problems,
@@ -374,6 +443,7 @@ def probe_launch(args, kernel: Kernel, dispatcher: Dispatcher) -> int:
                 "plugins": [list(p) for p in started.plugin_origins], "skills": list(started.skill_names),
                 "slash_commands": list(started.slash_command_names), "permission_mode": started.permission_mode,
                 "api_key_source": started.api_key_source},
+            "skill_turn": said,
             "stderr_tail": stderr.strip()[-300:] if started is None else None,
         }, indent=2))
         return 0 if not problems else 2

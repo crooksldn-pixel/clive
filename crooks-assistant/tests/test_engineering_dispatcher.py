@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -126,6 +127,13 @@ for i, (path, content) in enumerate(sc.get("edits", [])):
     emit({{"type": "assistant", "message": {{"content": [{{"type": "tool_use", "id": f"t{{i}}", "name": "Write",
           "input": {{"file_path": os.path.join(os.getcwd(), path)}}}}]}}}})
     emit({{"type": "user", "message": {{"content": [{{"type": "tool_result", "tool_use_id": f"t{{i}}"}}]}}}})
+for i, call in enumerate(sc.get("tool_calls", [])):   # another tool call (a Skill, say), as the real CLI prints it
+    emit({{"type": "assistant", "message": {{"content": [{{"type": "tool_use", "id": f"c{{i}}", "name": call["name"],
+          "input": call.get("input", {{}})}}]}}}})
+    if call.get("denied"):
+        emit({{"type": "system", "subtype": "permission_denied"}})
+    emit({{"type": "user", "message": {{"content": [{{"type": "tool_result", "tool_use_id": f"c{{i}}",
+          "is_error": bool(call.get("denied") or call.get("error"))}}]}}}})
 for path in sc.get("exec", []):
     os.chmod(path, 0o755)
 if sc.get("hang"):
@@ -2273,6 +2281,76 @@ def test_probe_launch_says_whether_this_cli_passes_the_launch_check_and_leaves_n
     while time.monotonic() < deadline and _probes_running():
         time.sleep(0.1)
     assert not _probes_running(), "the probed builder was stopped"
+
+
+def test_after_a_re_pin_probe_launch_proves_a_builder_can_load_one_of_the_owners_skills(tmp_path):
+    """Review N8: the init roster shows the skills are there; one real turn shows a builder can use them under
+    dontAsk (the Skill call is allowed, returns, and nothing is denied). Run on the worker's token after a re-pin."""
+    w = World(tmp_path)
+    skill = Path(__file__).resolve().parents[2] / ".claude" / "skills" / "web-design-guidelines"
+    shutil.copytree(skill, w.repo / ".claude" / "skills" / "web-design-guidelines")
+    _git(w.repo, "add", "-A")
+    _git(w.repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "one of the owner's skills")
+    script = Path(__file__).resolve().parent.parent / "scripts" / "engineering_dispatcher.py"
+
+    def probe(*extra: str) -> tuple[int, dict]:
+        done = subprocess.run(
+            [sys.executable, str(script), "--store", str(w.store.root), "--repo", str(w.repo), "--no-journal",
+             "--runtime-root", str(tmp_path / "rt"), "--workspace-root", str(tmp_path / "ws"),
+             "--worker-cli", str(w.cli), "probe-launch", "--base-ref", "main", "--timeout-s", "20", *extra],
+            capture_output=True, text=True, cwd=tmp_path, env={**os.environ}, timeout=120)
+        return done.returncode, json.loads(done.stdout)
+
+    call = {"name": "Skill", "input": {"skill": "clive-skills:web-design-guidelines"}}
+    w.scenarios({"tool_calls": [call], "report": {"status": "completed", "summary": "Review UI code"}})
+    code, out = probe("--skill-turn", "web-design-guidelines")
+    assert (code, out["verdict"], out["problems"]) == (0, "PASS", []), out
+    assert out["skill_turn"] == {"skill_calls": 1, "denied": 0, "finished": "success",
+                                 "report": {"status": "completed", "summary": "Review UI code"}}
+    prompt = (w.state / "prompt.0.txt").read_text()
+    assert "Load the skill clive-skills:web-design-guidelines with the Skill tool" in prompt
+
+    w.scenarios({"tool_calls": [{**call, "denied": True}]})
+    code, out = probe("--skill-turn", "web-design-guidelines")
+    assert code == 2 and out["problems"] == ["Skill(clive-skills:web-design-guidelines) returned no result, or an "
+                                             "error", "1 tool call(s) denied under dontAsk"]
+    w.scenarios({"tool_calls": []})
+    code, out = probe("--skill-turn", "web-design-guidelines")
+    assert code == 2 and out["problems"] == ["the builder never called Skill(clive-skills:web-design-guidelines)"]
+    # a skill this builder would not be given (withheld here: its files are not at the base) is not probed at all
+    before = w.invocations()
+    code, out = probe("--skill-turn", "design-taste-frontend")
+    assert code == 2 and "is not one this builder would be given (given: web-design-guidelines)" in out["problems"][0]
+    assert w.invocations() == before
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and _probes_running():
+        time.sleep(0.1)
+    assert not _probes_running(), "the probed builder was stopped"
+
+
+def test_the_skill_turn_is_judged_from_the_stream_itself():
+    from scripts.engineering_dispatcher import skill_turn_problems
+
+    def stream(*events: dict) -> str:
+        return "\n".join(json.dumps(e) for e in events)
+
+    use = {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "u1", "name": "Skill",
+                                                         "input": {"skill": "web-design-guidelines"}}]}}
+    ok = {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "u1"}]}}
+    done = {"type": "result", "subtype": "success", "is_error": False, "permission_denials": []}
+    assert skill_turn_problems(stream(use, ok, done), "clive-skills:web-design-guidelines")[0] == []
+    other = json.loads(json.dumps(use))
+    other["message"]["content"][0]["input"] = {"skill": "clive-skills:image-to-code"}
+    assert skill_turn_problems(stream(other, ok, done), "clive-skills:web-design-guidelines")[0] == [
+        "the builder never called Skill(clive-skills:web-design-guidelines)"]
+    denials = {**done, "permission_denials": [{"tool_name": "Skill"}]}
+    assert skill_turn_problems(stream(use, ok, denials), "clive-skills:web-design-guidelines")[0] == [
+        "1 tool call(s) denied under dontAsk"]
+    assert skill_turn_problems(stream(use, ok), "clive-skills:web-design-guidelines")[0] == [
+        "the turn did not finish before the timeout"]
+    failed = {**done, "is_error": True, "subtype": "error_max_turns"}
+    assert skill_turn_problems(stream(use, ok, failed) + "\nnot json", "clive-skills:web-design-guidelines")[0] == [
+        "the turn ended in error (error_max_turns)"]
 
 
 def _probes_running() -> list[int]:

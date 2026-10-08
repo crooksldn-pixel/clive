@@ -361,7 +361,8 @@ class ClaudeCodeWorker:
             problems.append(f"permission mode {started.permission_mode!r}, expected 'dontAsk'")
         return problems
 
-    def probe(self, spec: LaunchSpec, *, timeout_s: float = 60.0) -> tuple[Started | None, list[str], str]:
+    def probe(self, spec: LaunchSpec, *, timeout_s: float = 60.0,
+              turn: bool = False) -> tuple[Started | None, list[str], str]:
         """Launch exactly as an attempt would, read the init event, stop the process before it does any work.
 
         For the operator, before a re-pin or after a deliberate CLI update (``engineering_dispatcher.py
@@ -369,12 +370,18 @@ class ClaudeCodeWorker:
         init event (None if none came within ``timeout_s``), the launch check's problems, and the end of stderr.
         The process is stopped (and confirmed gone) as soon as the init event is read; the prompt is never
         answered, because the model is asked nothing before that event is printed. A launch refused before it
-        starts (a CLI version with no pinned commands, for one) is returned as that one problem."""
+        starts (a CLI version with no pinned commands, for one) is returned as that one problem.
+
+        With ``turn``, a builder whose launch passes the check answers its prompt to the end (its result event),
+        its process dies, or ``timeout_s`` passes, whichever is first, and is then stopped: the operator's proof
+        after a re-pin that a builder can use what its launch gave it (``probe-launch --skill-turn``). The stream
+        stays in ``spec.log_path`` for the caller to read. A launch that fails the check is stopped at init."""
         try:
             record = self.launch(spec)
         except WorkerLaunchError as exc:
             return None, [str(exc)], ""
         started: Started | None = None
+        problems: list[str] = []
         deadline = time.monotonic() + timeout_s
         try:
             while started is None and time.monotonic() < deadline:
@@ -384,14 +391,21 @@ class ClaudeCodeWorker:
                     if not self.live_pids(spec.marker) and record.pid not in self._children:
                         break
                     time.sleep(0.05)
+            problems = self.verify_started(started, spec) if started is not None else [
+                f"no init event within {timeout_s:.0f}s"]
+            while turn and not problems and time.monotonic() < deadline:
+                observations, _ = self.read(spec.log_path, 0)
+                if any(isinstance(o, Finished) for o in observations):
+                    break
+                if not self.live_pids(spec.marker) and record.pid not in self._children:
+                    break
+                time.sleep(0.1)
         finally:
             self.kill(spec.marker)
         try:
             stderr = Path(spec.stderr_path).read_text(encoding="utf-8", errors="replace")[-600:]
         except OSError:
             stderr = ""
-        problems = self.verify_started(started, spec) if started is not None else [
-            f"no init event within {timeout_s:.0f}s"]
         return started, problems, stderr
 
     def diagnose_exit(self, stderr_path: Path) -> tuple[str, bool]:
