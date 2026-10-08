@@ -171,7 +171,11 @@ answers **403 with an empty body** (no verify token), and any other path is a 40
    code it carries), is "couldn't confirm", never "sent" and never "nothing was changed".
 
 Nothing a message said, no number, name, token or secret goes to a log line or telemetry; the
-door's query string is kept off the access log.
+door's query string is kept off the access log. A conversation's id (in the action ledger, card
+keys and the turn's record) is an HMAC of the number under the server's own random key
+(`messaging/chat_key`, 0600, made once), so it can't be turned back into the number by trying
+every mobile. Keep that file with the messaging folder in any backup: without it, each person
+starts a new conversation.
 
 ## 7. Doc pages relied on (developers.facebook.com/documentation/business-messaging/whatsapp/…)
 

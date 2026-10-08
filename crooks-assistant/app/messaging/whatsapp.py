@@ -31,7 +31,8 @@ from typing import Any
 from app.clients import whatsapp
 from app.messaging import meta
 from app.messaging.adapter import Delivery, Failure, Inbound, Received, Refused, Route, register
-from app.messaging.models import Message, Thread, chat_id_for, new_message_id
+from app.messaging.models import Message, Thread, keyed_chat_id, new_message_id
+from app.messaging.store import store
 
 log = logging.getLogger("crooks.messaging")
 
@@ -47,8 +48,10 @@ KINDS = {"text": "text", "image": "image", "video": "video", "audio": "voice", "
 
 
 def wa_thread(phone_number_id: str, wa_id: str) -> Thread:
-    return Thread(chat_id=chat_id_for(CHANNEL, ROUTE, str(phone_number_id), str(wa_id)), channel=CHANNEL, route=ROUTE,
-                  account=str(phone_number_id), contact=str(wa_id))
+    """[channels] The conversation with one WhatsApp number, its id keyed with the server's own key: a
+    WhatsApp id is a phone number (review note 7)."""
+    chat_id = keyed_chat_id(store.chat_key(), CHANNEL, ROUTE, str(phone_number_id), str(wa_id))
+    return Thread(chat_id=chat_id, channel=CHANNEL, route=ROUTE, account=str(phone_number_id), contact=str(wa_id))
 
 
 def _words(message: dict[str, Any]) -> tuple[str, str]:

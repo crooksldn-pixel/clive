@@ -54,13 +54,13 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | Package | Lines | State | Not loaded by the app | Owner doc |
 |---|---:|---|---|---|
 | (top-level modules) | 12,264 | live | `engineering_measures` | none |
-| `actions` | 3,045 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
+| `actions` | 3,051 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,501 | live | — | none |
 | `bench` | 2,300 | live | 5 modules | [`BENCH.md`](docs/BENCH.md) |
 | `builds` | 1,424 | live | — | none |
 | `capabilities` | 759 | live | `surface` | none |
-| `clients` | 6,429 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
+| `clients` | 6,437 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
 | `connections` | 2,005 | live | — | [`CONNECTIONS.md`](docs/CONNECTIONS.md) |
 | `context` | 1,211 | live | — | none |
 | `customers` | 1,596 | live | — | none |
@@ -71,7 +71,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `kb` | 445 | live | — | [`OWNER_DECISIONS_2026-10-01.md`](docs/product-memory/OWNER_DECISIONS_2026-10-01.md) the voice spec |
 | `logging` | 195 | live | — | none |
 | `memory` | 586 | live | — | none |
-| `messaging` | 2,309 | live | — | [`WECOM.md`](docs/WECOM.md) WeCom; WhatsApp in WHATSAPP.md, Instagram DMs in INSTAGRAM_DMS.md |
+| `messaging` | 2,402 | live | — | [`WECOM.md`](docs/WECOM.md) WeCom; WhatsApp in WHATSAPP.md, Instagram DMs in INSTAGRAM_DMS.md |
 | `objectives` | 3,316 | live | — | none |
 | `observability` | 11,308 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
 | `orchestrator` | 10,626 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
@@ -89,7 +89,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `skills` | 979 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
 | `speech` | 844 | live | — | none |
 | `support` | 1,693 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
-| `tools` | 15,107 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
+| `tools` | 15,136 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
 | `work` | 1,374 | live | — | [`TEAM.md`](docs/TEAM.md) |
 <!-- /map:parts -->
 
@@ -135,7 +135,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | Release service | `status.json, deploys/, failed/, HALT` | `release/state.py` | `CLIVE_RELEASE_ENABLED` off (default) |
 | Bench sets and runs | `bench/questions/, bench/runs/` | `bench/runner.py` | CLI only |
 | Bench ratings | `bench/ratings.jsonl` | `bench/store.py` | always |
-| Messages (90 days) | `messaging/threads/, cursors.json` | `messaging/store.py` | always |
+| Messages (90 days) | `messaging/threads/, cursors.json, chat_key` | `messaging/store.py` | always |
 <!-- /map:stores -->
 
 ## Switches
@@ -205,5 +205,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 3,368 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 3,369 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->

@@ -13,6 +13,7 @@ message id once the channel confirmed it, and — where the channel reports it (
 from __future__ import annotations
 
 import hashlib
+import hmac
 import secrets
 import time
 from dataclasses import asdict, dataclass, field, fields
@@ -44,8 +45,21 @@ def new_message_id() -> str:
 def chat_id_for(channel: str, route: str, account: str, contact: str) -> str:
     """One thread per (channel, route, account, contact), named the same way every time it is
     met, so a callback and a read agree on which thread a message belongs to without a lookup.
-    A digest, so the id carries no contact id of the channel's."""
+    A digest, so the id carries no contact id of the channel's. Unkeyed: for contact ids that are
+    the channel's own opaque ones (WeCom's external_userid, an Instagram-scoped id); a contact id
+    that can be guessed takes keyed_chat_id."""
     digest = hashlib.sha256(f"{channel}|{route}|{account}|{contact}".encode()).hexdigest()
+    return f"chat_{digest[:20]}"
+
+
+def keyed_chat_id(key: bytes, channel: str, route: str, account: str, contact: str) -> str:
+    """[channels] As chat_id_for, but an HMAC-SHA256 under the server's own key (app/messaging/store.py
+    `chat_key`): a WhatsApp id is the person's phone number, and an unkeyed digest of it could be
+    found again by trying every UK mobile (review note 7). The id goes into the action ledger, card
+    keys and the turn's record; without the key it says nothing about the number."""
+    if len(key) < 32:
+        raise ValueError("a conversation key is 32 bytes")
+    digest = hmac.new(key, f"{channel}|{route}|{account}|{contact}".encode(), hashlib.sha256).hexdigest()
     return f"chat_{digest[:20]}"
 
 

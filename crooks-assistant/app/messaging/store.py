@@ -15,6 +15,9 @@ What it promises:
 - A translation left "pending" past PENDING_LIMIT_S (a restart cut it off) is kept as missing
   when CLIVE starts, so the message never says "still being made" for good.
 - Nothing here logs a word, a name or an id.
+- [channels] The server's own key for conversation ids that would otherwise be a digest of
+  something guessable (`chat_key`, the file `chat_key` in the folder, 0600): made once, kept, never
+  logged or sent anywhere.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import tempfile
 import threading
 import time
@@ -36,6 +40,8 @@ log = logging.getLogger("crooks.messaging")
 RETENTION_DAYS = 90
 MAX_PER_THREAD = 400
 _CHAT_ID = re.compile(r"^chat_[0-9a-f]{12,40}$")
+CHAT_KEY_FILE = "chat_key"
+_CHAT_KEY = re.compile(r"^[0-9a-f]{64}$")
 
 
 class MessageStore:
@@ -43,6 +49,7 @@ class MessageStore:
         self._root = Path(root) if root else None
         self._lock = threading.RLock()
         self.clock = clock
+        self._keys: dict[Path | None, bytes] = {}
 
     def configure(self, root: Path | None) -> None:
         with self._lock:
@@ -109,6 +116,32 @@ class MessageStore:
             path.unlink(missing_ok=True)
             return
         self._write(path, {"version": 1, "thread": thread.to_dict(), "messages": [m.to_dict() for m in kept]})
+
+    def chat_key(self) -> bytes:
+        """[channels] 32 random bytes, made the first time a conversation id needs them and kept in
+        this folder, so the same person is the same conversation after a restart. With no folder set
+        up (nothing is kept), one for this process: an id is never an unkeyed digest."""
+        with self._lock:
+            if self._root not in self._keys:
+                self._keys[self._root] = self._read_or_make_key() if self._root else secrets.token_bytes(32)
+            return self._keys[self._root]
+
+    def _read_or_make_key(self) -> bytes:
+        path = self._ensure() / CHAT_KEY_FILE
+        try:
+            handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            said = path.read_text(encoding="ascii").strip()
+            if not _CHAT_KEY.match(said):
+                # Never a new key in its place: every conversation it named would be lost.
+                raise RuntimeError("messaging's conversation key is unreadable") from None
+            return bytes.fromhex(said)
+        key = secrets.token_bytes(32)
+        with os.fdopen(handle, "w", encoding="ascii") as stream:
+            stream.write(key.hex())
+            stream.flush()
+            os.fsync(stream.fileno())
+        return key
 
     # ------------------------------------------------------------------ threads
 

@@ -533,6 +533,39 @@ async def test_an_answer_with_no_message_id_is_never_counted_as_sent(meta, owner
         await whatsapp.send_text(meta_world.SUPPLIER, "hi")
 
 
+def test_a_whatsapp_conversation_id_is_keyed_with_the_servers_own_key_never_a_digest_of_the_number(tmp_path):
+    """[channels] Review note 7: the id is in the ledger, card keys and the turn's record, and an unkeyed
+    digest of (phone number id, number) could be found again by trying every UK mobile. Keyed with
+    32 random bytes kept in the messaging folder (0600): the same after a restart, another server's
+    key gives another id, and an unreadable key is never quietly replaced."""
+    import os
+    import re
+
+    from app.messaging import models
+
+    try:
+        store.configure(tmp_path / "one")
+        first = channel.wa_thread(meta_world.PHONE_ID, meta_world.SUPPLIER).chat_id
+        assert first != models.chat_id_for("whatsapp", "wa", meta_world.PHONE_ID, meta_world.SUPPLIER)
+        key_file = tmp_path / "one" / "chat_key"
+        held = key_file.read_text()
+        assert re.fullmatch(r"[0-9a-f]{64}", held) and os.stat(key_file).st_mode & 0o777 == 0o600
+        assert first == models.keyed_chat_id(bytes.fromhex(held), "whatsapp", "wa", meta_world.PHONE_ID, meta_world.SUPPLIER)
+        store._keys.clear()                                           # a restart
+        store.configure(tmp_path / "one")
+        assert channel.wa_thread(meta_world.PHONE_ID, meta_world.SUPPLIER).chat_id == first
+        store.configure(tmp_path / "two")
+        assert channel.wa_thread(meta_world.PHONE_ID, meta_world.SUPPLIER).chat_id != first
+        (tmp_path / "two" / "chat_key").write_text("not a key")
+        store._keys.clear()
+        with pytest.raises(RuntimeError, match="conversation key is unreadable"):
+            channel.wa_thread(meta_world.PHONE_ID, meta_world.SUPPLIER)
+        assert (tmp_path / "two" / "chat_key").read_text() == "not a key"
+    finally:
+        store._keys.clear()
+        store.configure(None)
+
+
 # ------------------------------------------------------------------ people, on more than one app
 
 

@@ -140,8 +140,10 @@ STORES: tuple[tuple[str, str, str, str | None, tuple[tuple[str, str], ...]], ...
     ("Bench sets and runs", "bench/questions/, bench/runs/", "app/bench/runner.py", None,
      (("app/bench/store.py", '"results.jsonl"'), ("app/bench/store.py", '"questions"'))),
     ("Bench ratings", "bench/ratings.jsonl", "app/bench/store.py", None, (("app/bench/store.py", '"ratings.jsonl"'),)),
-    ("Messages (90 days)", "messaging/threads/, cursors.json", "app/messaging/store.py", None,
-     (("app/runtime.py", '"messaging"'), ("app/messaging/store.py", '"cursors.json"'))),
+    # [channels] chat_key: the server's own key for WhatsApp conversation ids.
+    ("Messages (90 days)", "messaging/threads/, cursors.json, chat_key", "app/messaging/store.py", None,
+     (("app/runtime.py", '"messaging"'), ("app/messaging/store.py", '"cursors.json"'),
+      ("app/messaging/store.py", '"chat_key"'))),
 )
 
 # Read first: what a new session was pointed at before this map (at BEFORE_REF), and now.
