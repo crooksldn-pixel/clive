@@ -133,8 +133,8 @@ the server.
    browser keeps its own cookies, so the phone shows as not signed in there. The join page says to open
    the link in Safari or Chrome; otherwise George makes a new link. **Not yet checked on a real
    iPhone:** whether a home-screen icon added after joining starts with a copy of Safari's sign-in.
-   If it does, Safari and the icon are two holders of one sign-in, and the first renewal one of them
-   uses signs the phone out as a copy (risk 4 working as meant, on an honest phone). Step 6 below is
+   If it does, Safari and the icon are two holders of one sign-in: once one of them is renewed, the
+   other's next use signs the phone out as a copy (risk 4 working as meant, on an honest phone). Step 6 below is
    the check; until it is done, tell the team to use CLIVE from one place only.
 
 ## Server steps (once, on crooks-os-prod-1)

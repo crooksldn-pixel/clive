@@ -509,10 +509,17 @@
     if (!copied) return null;
     const item = el('div', 'flag sub');
     const box = el('div', 'flag-words');
-    box.append(el('span', 'row-small bad', `Their ${copied.kind} was signed out ${day(copied.at)}: someone used a copy of its sign-in. ` +
-      `If ${firstOf(person.name)} still needs CLIVE, make a new staff link.`));
+    box.append(el('span', 'row-small bad', copiedWords(person.name, copied, day(copied.at))));
     item.append(box);
     return item;
+  }
+
+  // The kind is the server's name for the phone (app/routes/connections.py _device): "iPhone",
+  // "Android phone", … or "a device" when it could not tell.
+  function copiedWords(name, copied, when) {
+    const kind = copied.kind === 'a device' ? 'device' : copied.kind;
+    return `Their ${kind} was signed out ${when}: someone used a copy of its sign-in. ` +
+      `If ${firstOf(name)} still needs CLIVE, make a new staff link.`;
   }
 
   function linkRow(person, link) {
@@ -650,5 +657,5 @@
     show();
   }
 
-  window.CliveTodayOwner = { draw, handOutBody };
+  window.CliveTodayOwner = { draw, handOutBody, copiedWords };
 }());
