@@ -265,10 +265,11 @@ async def test_a_bench_runs_assistants_load_no_mcp_server_of_the_hosts_and_clive
             assert started == [owner] and isinstance(staff, MaxAgentSDKProvider) and staff is not owner
             assert options(owner).strict_mcp_config is True and options(staff).strict_mcp_config is True
             theirs = clives_own(people_store.get(card))
-            assert theirs.strict_mcp_config is False and options(theirs).strict_mcp_config is False
+            assert theirs.strict_mcp_config is True and options(theirs).strict_mcp_config is True
     plain = MaxAgentSDKProvider(system_prompt="sys")
     assert plain.strict_mcp_config is False and options(plain).strict_mcp_config is False
-    # Not even named: CLIVE's own options are the call they were, whatever SDK the server has.
+    # Not even named by default: a plain provider's options are the call they were, whatever SDK the server
+    # has; production's assistants are now strict too (DEC-071 ruling 26), so theirs name it as the bench's do.
     import claude_agent_sdk
 
     named, real = [], claude_agent_sdk.ClaudeAgentOptions
@@ -281,4 +282,4 @@ async def test_a_bench_runs_assistants_load_no_mcp_server_of_the_hosts_and_clive
     options(plain)
     options(theirs)
     options(owner)
-    assert ["strict_mcp_config" in n for n in named] == [False, False, True]
+    assert ["strict_mcp_config" in n for n in named] == [False, True, True]

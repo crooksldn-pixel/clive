@@ -742,6 +742,8 @@ def build(settings: Settings | None = None) -> Runtime:
         # Late-bound: the runtime is built a few lines down, and the table it reads is
         # filled by the first /health or capability probe after that.
         withheld_by_family=lambda: runtime.withheld_by_family(),
+        # DEC-071 ruling 26: a live turn loads only CLIVE's own MCP servers, never the host's.
+        strict_mcp_config=True,
     )
     messaging_translate.bind(lambda system, text, **kw: runtime.provider.complete(system, text, **kw))
     # The action engine is installed process-wide: the dispatcher stages into it from inside a
@@ -890,6 +892,7 @@ def _staff_provider(runtime: Runtime, person: Any) -> Any:
         cli_path=settings.claude_cli_path,
         writes_enabled=settings.writes_enabled,
         withheld_by_family=lambda: set(runtime.withheld_by_family()) | not_theirs,
+        strict_mcp_config=True,   # DEC-071 ruling 26, as the owner's
     )
 
 
