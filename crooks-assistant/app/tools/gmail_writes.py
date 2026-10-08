@@ -1,11 +1,11 @@
 """The email the assistant can prepare: a reply drafted or sent in a customer's thread, a
-new email drafted or sent to an order's (or a customer's) address, a thread archived or junked
-(ruling 27 of DEC-071), and a draft waiting in Gmail sent exactly as it is — by George, or by a
-member of the team on their own hold (ruling 34). Every one is a staged change on the action
-engine — the card on the tablet IS the email, printed whole, and a gesture on it is what sends.
-Nothing here reaches Gmail's write methods except through the engine's commit. (CLIVE taking
-away its own unsent drafts, ruling 28, is app/tools/gmail_drafts.py: inside a held send here, or
-on its own clock there, and only ever a draft CLIVE's own record says it made.)
+new email drafted or sent to an order's (or a customer's) address, a thread archived. Every
+one is a staged change on the action engine — the card on the tablet IS the email, printed
+whole, and a gesture on it is what sends. Nothing here reaches Gmail's write methods except
+through the engine's commit. (DEC-071's inbox rulings use these parts: junk, and a draft
+waiting in Gmail sent as it is, are app/tools/gmail_inbox.py; CLIVE taking away its own unsent
+drafts is app/tools/gmail_drafts.py — inside a held send here, or on its own clock there, and
+only ever a draft CLIVE's own record says it made.)
 
 The recipient is never the model's to choose: a reply goes to the person the message it
 answers came from (its Reply-To when it names one, otherwise its From), read from the
