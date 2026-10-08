@@ -77,6 +77,7 @@ OWNER_DOCS: dict[str, tuple[str, str | None] | None] = {
     "people": ("docs/TEAM.md", None),
     "providers": None,
     "reads": None,
+    "release": ("docs/RELEASE_SERVICE.md", None),
     "remote_engineering": ("docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md", None),
     "returns": None,
     "routes": None,
@@ -131,6 +132,9 @@ STORES: tuple[tuple[str, str, str, str | None, tuple[tuple[str, str], ...]], ...
     ("Keys stored from the app", "<secret dir>/app/<key>.cred", "app/secrets/vault.py", None,
      (("app/secrets/vault.py", '".cred"'),)),
     ("Digest store", "one folder per artifact", "app/digest/store.py", None, (("app/digest/store.py", "units.jsonl"),)),
+    # Written by the release service on the server (/var/lib/clive-release), not by the running app.
+    ("Release service", "status.json, deploys/, failed/, HALT", "app/release/state.py", "CLIVE_RELEASE_ENABLED",
+     (("app/release/state.py", '"status.json"'), ("app/release/state.py", '"HALT"'))),
 )
 
 # Read first: what a new session was pointed at before this map (at BEFORE_REF), and now.

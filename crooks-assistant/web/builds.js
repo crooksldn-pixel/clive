@@ -12,6 +12,9 @@
  * moves or waits on him, red where it stopped), why it stopped and why it matters, with times in
  * words. No SHA, branch or request id is on the face: they sit in the technical details.
  *
+ * Under the heading, the release service's one line about deploys (app/release/status.py), as it
+ * wrote it: what it last did, or that it is off or not installed. Read only; nothing here deploys.
+ *
  * A build that waits on George carries its question: two or three answers, each saying what happens
  * next, the recommended one marked with why. A tap picks an answer and a second tap on the button
  * records it (POST /objectives/builds/decide), bound to the question exactly as drawn; a build that
@@ -316,6 +319,26 @@
     return item;
   }
 
+  // ---------------------------------------------------------------- deploys (the release service)
+
+  /* The release service's own line (app/release/status.py), as it wrote it, and when. Its dot: blue
+   * while something moves or waits on George (deploying, waiting, deployed until his phone keeps it),
+   * steel when production runs the trunk's latest, red when a deploy was rolled back or stopped, and
+   * an empty ring when the service is off, has no rule, or is not installed. The class comes from this
+   * fixed table, never from what CLIVE sent. */
+  const RELEASE_DOT = { deployed: 'is-blue', would_deploy: 'is-blue', waiting: 'is-blue', up_to_date: 'is-steel',
+    rolled_back: 'is-red', halted: 'is-red' };
+  function releaseNode(r, now) {
+    if (!r || typeof r !== 'object' || !text(r.line)) return null;
+    const row = el('div', 'bd-release');
+    const dot = el('span', `bd-rdot ${Object.prototype.hasOwnProperty.call(RELEASE_DOT, text(r.state)) ? RELEASE_DOT[text(r.state)] : 'is-off'}`);
+    const words = el('div', 'bd-rwords');
+    const when = ago(r.at, now);
+    add(words, el('p', 'bd-rline', r.line), el('p', 'bd-rwhen', `Deploys${r.mode === 'dry_run' ? ', dry run' : ''}${when ? ` · ${when}` : ''}`));
+    add(row, dot, words);
+    return row;
+  }
+
   // ---------------------------------------------------------------- the screen
 
   function draw(host, payload, on) {
@@ -326,6 +349,7 @@
     add(hello, el('h1', 'bd-h1', 'Builds'), el('p', 'bd-summary', p.summary || ''));
     const read = ago(p.as_of, o.now);
     if (read) add(hello, el('p', 'bd-asof', `The build loop last reported ${read}.`));
+    add(hello, releaseNode(p.release, o.now));
     host.appendChild(hello);
     for (const problem of Array.isArray(p.problems) ? p.problems : []) add(host, el('p', 'bd-problem', problem));
     if (p.connected === false) return host;
@@ -508,7 +532,7 @@
   }
 
   return {
-    STAGES, ago, whenWords, stateLine, roadModel, drawRoad, findingNode, decisionNode, buildNode, draw,
+    STAGES, ago, whenWords, stateLine, roadModel, drawRoad, findingNode, decisionNode, buildNode, releaseNode, draw,
     open, close, refresh, brief, briefNow: () => S.brief, fromTurn, shouldOpen, state: () => S,
   };
 });

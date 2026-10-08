@@ -38,6 +38,17 @@ body.bd-on{overflow:hidden}
 .bd-summary{margin:6px 0 0;font-size:17px;line-height:1.35;color:rgba(235,235,245,.64)}
 .bd-asof{margin:6px 0 0;font-size:13px;color:rgba(235,235,245,.5)}
 .bd-problem{margin:12px 4px 0;font-size:15px;line-height:1.35;color:#ff8a80}
+/* deploys: the release service's one line, with a dot that says where a deploy is (web/builds.js RELEASE_DOT) */
+.bd-release{display:flex;align-items:flex-start;gap:12px;margin:14px 0 0;padding:12px 14px;border-radius:20px;
+  background:rgba(118,118,128,.17);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.08)}
+.bd-rdot{flex:none;width:10px;height:10px;margin-top:6px;border-radius:50%;box-sizing:border-box}
+.bd-rdot.is-blue{background:rgb(var(--acc,10,132,255))}
+.bd-rdot.is-steel{background:#8fa3c0}
+.bd-rdot.is-red{background:#ff8a80}
+.bd-rdot.is-off{border:1.5px solid rgba(235,235,245,.4)}
+.bd-rwords{min-width:0}
+.bd-rline{margin:0;font-size:15px;line-height:1.35;color:rgba(235,235,245,.9)}
+.bd-rwhen{margin:3px 0 0;font-size:13px;color:rgba(235,235,245,.5)}
 .bd-empty{margin:24px 4px 0;font-size:17px;line-height:1.35;color:rgba(235,235,245,.64)}
 .bd-h2{margin:26px 4px 10px;font-size:22px;font-weight:700;letter-spacing:-.01em}
 .bd-list{border-radius:26px;overflow:hidden;background:rgba(118,118,128,.17);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.08);
