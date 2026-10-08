@@ -369,6 +369,8 @@ const DETAIL_WORDS = {
   shipping_label_buy: ['Pricing', 'the label', true], shipping_label_print: ['Preparing', 'the print', true],
   shipping_label_reprint: ['Preparing', 'another copy', true],
   skill_list: ['Listing', 'skills'], skill_read: ['Reading', 'the skill'],
+  // [routines, DEC-074] Named routines (app/work/routine_tools.py): read, kept or changed, and started by name.
+  routine_list: ['Reading', 'your routines'], routine_note: ['Updating', 'your routines'], routine_run: ['Starting', 'the routine'],
   // [messaging] WeChat and WeCom (app/tools/messaging_tools.py): reading conversations, saying who one is
   // with, and a reply prepared for his hold.
   messages_recent: ['Reading', 'your messages'], message_thread: ['Reading', 'the conversation'],

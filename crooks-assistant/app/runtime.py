@@ -629,6 +629,9 @@ def build(settings: Settings | None = None) -> Runtime:
         show_again,
         skill_tools,
     )
+    from app.work import (
+        routine_tools as _routine_tools,  # noqa: F401 - [routines] the routine_* tools
+    )
     from app.work import tools as work_tools_module  # noqa: F401 - registers work_list, work_note
 
     objectives = install_objectives(settings.objectives_dir)

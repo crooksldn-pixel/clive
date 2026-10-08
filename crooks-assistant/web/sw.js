@@ -93,6 +93,9 @@ const SHELL = [
   // CLIVE Shipping: the international orders, one order in full, what changed.
   '/static/shipping.js',
   '/static/shipping.css',
+  // [routines] Named routines: the saved ones, one as saved, one as it ran.
+  '/static/routines.js',
+  '/static/routines.css',
   // The design pass of 3 Oct: the answer in full, Home, approval weights, the dock (web/design.css).
   '/static/design.css',
   '/manifest.webmanifest',

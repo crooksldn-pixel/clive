@@ -3456,6 +3456,22 @@
     ].concat(kit.body(d)), opts);
   }
 
+  // [routines, DEC-074] A named routine: the asker's routines, one as it is saved, or one as this turn
+  // ran it, step by step. Drawn by web/routines.js, which the page loads beside this file; without
+  // it nothing is drawn.
+  function renderRoutine(d, opts) {
+    const kit = typeof window !== 'undefined' ? window.CliveRoutines : globalThis.CliveRoutines;
+    if (!kit || typeof kit.body !== 'function') return null;
+    const said = kit.sub(d);
+    return card('routine', [
+      h('div', { class: 'card-head' }, [h('div', {}, [
+        kicker('Routine'),
+        h('h2', { class: 'card-title', text: kit.title(d) }),
+        said ? h('p', { class: 'card-sub', text: said }) : null,
+      ])]),
+    ].concat(kit.body(d)), opts);
+  }
+
   // One of the owner's objectives, in the shape of its kind (round 12). Drawn by
   // web/objective-cards.js, which the page loads beside this file; without it nothing is drawn.
   function renderObjective(d, opts) {
@@ -3504,6 +3520,8 @@
     // [messaging] WeChat and WeCom conversations (web/messages.js).
     messages: renderMessages,
     shipping: renderShipping,
+    // [routines, DEC-074] A named routine (web/routines.js).
+    routine: renderRoutine,
   };
   const TYPES = Object.keys(RENDERERS).concat(['context_stack']);
   // Both Phase 5 workstreams added to this list and the merge produced two declarations of
@@ -3527,7 +3545,9 @@
     // [messaging] WeChat and WeCom conversations (web/messages.js).
     'messages',
     // [shipping] CLIVE Shipping: the orders by stage, one order, what changed (web/shipping.js).
-    'shipping'];
+    'shipping',
+    // [routines, DEC-074] A named routine, saved or as it ran (web/routines.js).
+    'routine'];
 
   function isValid(item) {
     return Boolean(item) && typeof item === 'object' && typeof item.type === 'string'
@@ -3679,6 +3699,8 @@
     // [messaging]
     messages: ['key'],
     shipping: ['key'],
+    // [routines, DEC-074] One card for the list, one per routine as saved, one per routine as it ran.
+    routine: ['key'],
   };
   const NESTED_KEY_OF = { product: ['products', 'product_id'], inventory: ['products', 'product_id'] };
   const SHELL_SUFFIX = '~shell';

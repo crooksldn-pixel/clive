@@ -299,7 +299,13 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     shipping = {"shipments_open", "shipment_find", "shipment_tracking", "shipping_events"}
     assert shipping <= gate._KNOWN_TOOLS and not any(gate._looks_like_mutation(name) for name in shipping)
     assert not {"shipping_label_buy", "shipping_label_print", "shipping_label_reprint"} & gate._KNOWN_TOOLS
-    assert len(gate._KNOWN_TOOLS) == 66, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
+    # Named routines (app/work/routine_tools.py, 2026-10-08, DEC-074): three reads and changes of
+    # CLIVE's own records, GREEN on their ToolSpecs, named without a mutation verb. routine_run runs
+    # nothing: each step is the model's own call through this gate, so the tables below are unchanged.
+    routines = {"routine_list", "routine_note", "routine_run"}
+    assert routines <= gate._KNOWN_TOOLS and not any(gate._looks_like_mutation(name) for name in routines)
+    assert not routines & gate._PII_TOOLS
+    assert len(gate._KNOWN_TOOLS) == 69, ("33 before, engineering_status, screen_list, screen_show, screen_pair, "
                                           "screen_off and screen_remote, then screen_play and screen_video, "
                                           "then round 12's shopify_order_build, show_again and close_screen, "
                                           "then instagram_inbox, instagram_thread and instagram_comments, "
@@ -308,7 +314,8 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
                                           "then returns_open, return_find and returns_stats, "
                                           "then messages_recent, message_thread and message_contact, "
                                           "then shipments_open, shipment_find, shipment_tracking and shipping_events, "
-                                          "then asked_for (DEC-073)")
+                                          "then asked_for (DEC-073), "
+                                          "then routine_list, routine_note and routine_run")
     assert gate._MUTATION_VERBS == (
         "send", "create", "update", "delete", "modify", "write", "draft", "reply", "forward",
         "trash", "archive", "label", "cancel", "refund", "fulfil", "fulfill", "publish",

@@ -233,6 +233,15 @@ _KNOWN_TOOLS = frozenset({
     # bought, printed, printed again) are writes with complete definitions, so they are staged here
     # like every other and never on this list. Named here one by one, because this is an allow-list.
     "shipments_open", "shipment_find", "shipment_tracking", "shipping_events",
+    # [routines, DEC-074] Named routines (app/work/routine_tools.py): the asker's saved steps, listed,
+    # kept or changed, and started by name. Like work_note and objective_note they read and change
+    # only CLIVE's own records on this machine (work/named-routines.json): nothing is sent and no
+    # store is touched. routine_run executes nothing: it hands the model the steps, and each step is
+    # the model's own call through this gate, so a change in a routine is staged here like any other
+    # and never run. A routine is its maker's, and a step a person could not call is refused when it
+    # is saved and when it is run (the tools' own rule). Named without a mutation verb; named here one
+    # by one, because this is an allow-list.
+    "routine_list", "routine_note", "routine_run",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops

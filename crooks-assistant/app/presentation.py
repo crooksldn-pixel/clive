@@ -109,6 +109,10 @@ UI_TYPES = frozenset({
     # the orders by stage, one order's payment, label, print and carrier, or what changed. Built by
     # app/tools/shipping_views.py `card` from the read's own result; drawn by web/shipping.js.
     "shipping",
+    # [routines, DEC-074] A named routine (app/work/routine_tools.py): the asker's routines, one as it
+    # is saved now, or one as this turn ran it, step by step. Built by app/work/routine_cards.py `card`
+    # from the tool's own result and the calls after it; drawn by web/routines.js.
+    "routine",
 })
 # [messaging] The messaging reads, each drawn as the "messages" card (app/messaging/views.py).
 MESSAGING_TOOLS = frozenset({"messages_recent", "message_thread"})
@@ -116,6 +120,8 @@ MESSAGING_TOOLS = frozenset({"messages_recent", "message_thread"})
 RETURNS_TOOLS = frozenset({"returns_open", "return_find", "returns_stats"})
 # [shipping] The CLIVE Shipping reads, each drawn as the "shipping" card (app/tools/shipping_views.py).
 SHIPPING_TOOLS = frozenset({"shipments_open", "shipment_find", "shipment_tracking", "shipping_events"})
+# [routines, DEC-074] The named routines' tools, each drawn as the "routine" card (app/work/routine_cards.py).
+ROUTINE_TOOLS = frozenset({"routine_list", "routine_note", "routine_run"})
 MAX_BATCH_ROWS = 50
 ANALYTIC_TOOLS = frozenset({"commerce_aggregate", "commerce_query", "inventory_query", "email_query"})
 # The read tools that put a workspace on the owner's screen (app/families/_workspace.py).
@@ -216,6 +222,11 @@ def present(
     # What a row on a card may offer, decided here rather than by the tablet
     # (app/actions/rows.py). Empty while changes are off.
     row_actions = _row_actions(writes)
+    # [routines, DEC-074] The reads a routine's run made that are none of its steps (how a change's
+    # record was found) are not drawn; its steps' are (app/work/routine_cards.py).
+    from app.work import routine_cards
+
+    on_the_way = routine_cards.lookups_on_the_way(calls)
 
     for index, call in enumerate(calls):
         if not call.ok:
@@ -240,6 +251,14 @@ def present(
                 items.append(_confirmation(proposal, writes=writes))
             continue
         if not isinstance(call.result, dict):
+            continue
+        if call.name in ROUTINE_TOOLS:
+            # [routines, DEC-074] Without a session this is the early drawing of one read
+            # (app/progressive.py), and what the run did next is not known yet.
+            later = calls[index + 1:] if session is not None else None
+            items.append(_ui("routine", routine_cards.card(call.name, call.result, later)))
+            continue
+        if index in on_the_way:
             continue
         for item in _from_result(call.name, call.result) + _family_cards(call.name, call.result, session):
             if item["type"] == "email_list" and row_actions.get("email_thread"):
@@ -293,8 +312,16 @@ def present(
         # (`asked_for`) decides first, when it names a card this turn drew.
         from app.focus import answer_cards, asked_by_the_model, records_asked_for
 
-        items = answer_cards(items, focus_why, read_whole=read_whole, asked=records_asked_for(calls), before=before,
-                             said=asked_by_the_model(calls), drawn=drawn)
+        if routine_cards.ran(calls):
+            # [routines, DEC-074] Naming the routine asked for every step: its cards all stay, a
+            # change first, then the routine, then the rest.
+            items = routine_cards.answer_cards(items, focus_why)
+        else:
+            items = answer_cards(items, focus_why, read_whole=read_whole, asked=records_asked_for(calls), before=before,
+                                 said=asked_by_the_model(calls), drawn=drawn)
+    # [routines, DEC-074] A routine kept, changed or forgotten is a line on his screen naming what
+    # changed, whatever this turn's focus set aside: never silent (the review's N2).
+    items = routine_cards.never_set_aside(items, calls)
     if session is not None:
         _remember(items, session)
         # §18, as a SWEEP rather than one renderer at a time. After `_remember`, which is
@@ -1323,6 +1350,11 @@ def _tool_error(call: ToolCall, session: Session | None) -> dict[str, Any]:
         service, title = "returns", "CROOKS Returns unavailable"
     elif name in SHIPPING_TOOLS or name.startswith("shipping_"):
         service, title = "shipping", "CLIVE Shipping unavailable"   # [shipping]
+    elif name in ROUTINE_TOOLS:
+        # [routines, DEC-074] A routine not kept, not changed or not started is not a service that
+        # was down: nothing was changed, and the answer says why.
+        title = {"routine_note": "Routine not changed", "routine_run": "Routine not started"}.get(name, "Routines not read")
+        return _error("routines", "tool_failed", title, "Nothing was changed; the answer says why.")
     else:
         service, title = "assistant", "Lookup failed"
     if blocked:
