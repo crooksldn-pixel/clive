@@ -280,9 +280,11 @@ def _reads_named(said: Asked, drawn: list[tuple[dict[str, Any], Any]]) -> list[A
     each card with the call that drew it). A tool named bare is its one read, or, when it ran more
     than once, its reads that were given no words. A tool named with words is the read of it that
     shares them — whether it ran once or several times: the reads whose own words were all named
-    first, then the one sharing the most; and none when no read shares a word. A search the model
-    ran on the way is never brought in by naming another read of the same tool, nor by naming a
-    read that never ran (the review of DEC-073, note 2, and its re-review, note R1)."""
+    first, then the one sharing the most; and none when no read shares a word, or when two reads
+    given different words share them equally — a tie says neither (the same read made twice is one
+    read). A search the model ran on the way is never brought in by naming another read of the same
+    tool, nor by naming a read that never ran (the review of DEC-073, note 2, and its re-review,
+    notes R1 and R2)."""
     calls: list[Any] = []
     for _, call in drawn:
         if not any(call is seen for seen in calls):
@@ -296,7 +298,9 @@ def _reads_named(said: Asked, drawn: list[tuple[dict[str, Any], Any]]) -> list[A
         shared = [(call, own) for call, own in ((call, _given(getattr(call, "args", None))) for call in mine) if own & words]
         pool = [(call, own) for call, own in shared if own <= words] or shared
         best = max((len(own & words) for _, own in pool), default=0)
-        picked.extend(call for call, own in pool if len(own & words) == best)
+        top = [(call, own) for call, own in pool if len(own & words) == best]
+        if len({own for _, own in top}) == 1:
+            picked.extend(call for call, _ in top)
     return picked
 
 

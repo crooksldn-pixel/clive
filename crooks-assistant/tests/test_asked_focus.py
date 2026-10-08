@@ -447,6 +447,24 @@ def test_a_list_is_named_by_its_read_and_the_words_pick_out_which_one():
     assert focus.list_kind({"type": "order_match", "data": {"rows": []}}) == ""
 
 
+def test_a_tie_between_two_reads_of_the_same_tool_picks_neither():
+    """The re-review's note R2: the words named are shared equally by two different searches, so
+    they do not say which one he asked to see, and neither is shown. The same read made twice is
+    one read, not a choice between two."""
+    reply = {"type": "confirmation", "data": {"proposal_id": "p1", "entity_ref": PRIYAS_THREAD}}
+    hers = {"type": "email_list", "data": {"threads": [{"thread_id": PRIYAS_THREAD}]}}
+    today = {"type": "email_list", "data": {"threads": [{"thread_id": MIAS_THREAD}]}}
+    drawn = [(hers, ToolCall(name="gmail_search", args={"query": "from:priya cap"}, ok=True, result={})),
+             (today, ToolCall(name="gmail_search", args={"query": "priya newer_than:1d"}, ok=True, result={}))]
+    said = focus.asked_by_the_model([ToolCall(name="asked_for", args={}, ok=True,
+                                              result={"records": [PRIYAS_THREAD], "lists": ["gmail_search priya"]})])
+    assert focus.answer_cards([hers, today, reply], said=said, drawn=drawn) == [reply]
+    again = [(hers, ToolCall(name="gmail_search", args={"query": "cap"}, ok=True, result={})),
+             (today, ToolCall(name="gmail_search", args={"query": "cap"}, ok=True, result={}))]
+    twice = focus.asked_by_the_model([ToolCall(name="asked_for", args={}, ok=True, result={"records": [], "lists": ["gmail_search cap"]})])
+    assert focus.answer_cards([hers, today], said=twice, drawn=again) == [hers, today]
+
+
 def test_what_the_model_said_is_read_from_its_calls_and_not_from_his_words():
     said = focus.asked_by_the_model([
         ToolCall(name="shopify_list_orders", args={}, ok=True, result={"orders": []}),
