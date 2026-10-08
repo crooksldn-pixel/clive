@@ -423,19 +423,29 @@ def _register(tmp_path: Path) -> Authenticator:
     return device
 
 
-def _passkey_waiver(settings, device: Authenticator, *, sha: str = TRUNK, signed_for: str = TRUNK) -> None:
-    nonce = os.urandom(16)
-    challenge = b64url(authority.waiver_challenge(settings.repository, signed_for, nonce))
+# When the fake server's clock starts (FakeHost.clock): CLIVE issued the challenge a minute before.
+ISSUED = int(datetime(2026, 10, 8, 0, 59, 0, tzinfo=UTC).timestamp())
+
+
+def _passkey_waiver(settings, device: Authenticator, *, sha: str = TRUNK, signed_for: str = TRUNK,
+                    issued: int = ISSUED, life: int = authority.APPROVAL_TTL_S, nonce: bytes | None = None) -> str:
+    """A waiver as CLIVE writes one (app/release/approve.py): the challenge it issued, with its life
+    (DEC-072), signed by the passkey. Returns the approval's id."""
+    nonce = nonce or os.urandom(32)
+    challenge = b64url(authority.waiver_challenge(settings.repository, signed_for, nonce, issued_at=issued,
+                                                  expires_at=issued + life))
     got = device.get({"challenge": challenge}, count=device.counter + 1)
     settings.passkey_waivers_dir.mkdir(exist_ok=True)
     (settings.passkey_waivers_dir / f"{sha}.json").write_text(json.dumps({
         "schema": authority.WAIVER_SCHEMA, "sha": sha, "repository": settings.repository,
         "waives": "exact_sha_review", "given_by": "George", "given_at": "2026-10-08T00:40:00+00:00",
         "words": "deploy the latest", "source": "passkey",
-        "passkey": {"credential_id": got["rawId"], "nonce": b64url(nonce),
+        "passkey": {"credential_id": got["rawId"], "nonce": b64url(nonce), "issued_at": issued,
+                    "expires_at": issued + life,
                     "client_data_json": got["response"]["clientDataJSON"],
                     "authenticator_data": got["response"]["authenticatorData"],
                     "signature": got["response"]["signature"]}}))
+    return authority.approval_id(nonce)
 
 
 def test_a_passkey_waiver_for_exactly_this_sha_deploys(server, tmp_path):
@@ -673,14 +683,15 @@ def test_the_token_is_read_from_systemds_credential_folder_only(tmp_path, monkey
 
 def test_clive_reads_the_status_and_says_plainly_when_there_is_none(tmp_path):
     assert status.read(tmp_path) == {"installed": False, "state": "", "line": status.NOT_INSTALLED, "at": "",
-                                     "mode": ""}
+                                     "mode": "", "rule": "", "ready_for": "", "sha": "", "title": "", "deploy": None}
     (tmp_path / "status.json").write_text("not json")
     assert status.read(tmp_path)["line"] == status.UNREADABLE
     host = SystemHost()
     state.write_status(host, tmp_path, state="deployed", line="Deployed “X”.  Open /whoami.", at="2026-10-08T01:00:00Z",
                        mode="live", sha=TRUNK)
     assert status.read(tmp_path) == {"installed": True, "state": "deployed", "line": "Deployed “X”. Open /whoami.",
-                                     "at": "2026-10-08T01:00:00Z", "mode": "live"}
+                                     "at": "2026-10-08T01:00:00Z", "mode": "live", "rule": "", "ready_for": "",
+                                     "sha": TRUNK, "title": "", "deploy": None}
 
 
 def test_decide_is_pure_and_names_every_reason():

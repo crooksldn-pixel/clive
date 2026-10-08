@@ -1234,6 +1234,26 @@ He wants "the flow from actually asking a question to the action happening to be
 
 ---
 
+## DEC-072 — Approval to deploy: George's hold and passkey on the Builds screen approve one exact version, and the release service deploys it at once
+
+**Date:** 2026-10-08
+**Status:** ACTIVE. Built in the repository (`claude/n3-deploy-now`); live once deployed by hand and the release service installed (rulings 7 and 8).
+**Source:** the owner's rulings 6, 7 and 8 of 8 October 2026 (DEC-071). Ruling 7, verbatim: "i want to say yes to deploy - but, once deploy should be instant, not deploy and then the deploy service runs and takes hours. deploy as in, implement this now". Ruling 6: waiving the exact-SHA review is the standing rule. Ruling 8: the release service goes on, in dry run, after the next hand deploy.
+
+**Decision:**
+- **What a deploy needs** (ruling 6, [`DEPLOY_LINUX.md`](../DEPLOY_LINUX.md)): GitHub acceptance green on the exact SHA, the pull requests it carries each independently reviewed before they merged, and the owner's approval of that exact SHA. An exact-SHA review is no longer required before a deploy.
+- **Who approves:** the owner, each deploy (ruling 7). The release service's rule is `CLIVE_RELEASE_RULE=owner_waiver`. The code defaults stay as built: the service off, no rule, dry run on, until the install steps in [`RELEASE_SERVICE.md`](../RELEASE_SERVICE.md) set them as he ruled; dry run stays on until he switches it off himself.
+- **How he approves:** on the Builds screen's **Deploy now** card, shown only when `clive/trunk`'s head is ahead of what CLIVE runs and acceptance is green on exactly that SHA, owner only. It names the version by its pull requests' own titles. His hold asks for his passkey for exactly that SHA, over a challenge CLIVE's server issues: a fresh nonce and the moments it was issued and expires, all inside what the passkey signs, held three minutes for the prompt, good once, and expiring ten minutes after the hold. When his hold cannot deploy it (the service not installed, off, not under `owner_waiver`, stopped, or the change one that stays a hand deploy), the card says why instead of offering it.
+- **"At once":** CLIVE writes his approval into its own state folder, and a systemd path unit (`deploy/release/clive-release-now.path`) starts the release service the moment it lands. CLIVE never holds root and never starts a unit. The five-minute timer stays as the fallback.
+- **The release service believes only the signature:** it checks his passkey's signature itself, for exactly the trunk's head, refuses an approval that has expired, and marks it used before a live deploy begins, so one hold starts one deploy at most. Every other condition is as DEC-067 built it.
+- **Shown through to the end:** the service writes each stage on its status as it is reached (started, checks, installing, health, then done, rolled back with why, stopped part way, or refused with why), and CLIVE's card follows it. Once done, CLIVE's page on his device asks `/whoami` itself and hands its token over; the deploy is **kept** once CLIVE finds `whoami: id=<token> through=tailscale owner=true refusal=none` in its own journal, on the new build, as the procedure keeps a deploy.
+
+**Reason:** his words above. The release service (DEC-067) and the passkey waiver's format already existed; this connects his hold to them, fixes the waiver's replay (the review of the release service, notes 10 and 11), and removes the timer's wait.
+
+**Consequences:** decisions 3 and 6 of the self-shipping plan are settled: the release service deploys, and nothing ships without his gesture. The service's unit time limit is 4 hours, above the measured worst tick including a second look. A change to `deploy/`, the installer, the dependencies or `.github/` stays a hand deploy, and the first deploy that carries this is one. Not built: a push message to his phone for each outcome, and writing "kept" into the release service's public record (CLIVE keeps it in its own).
+
+---
+
 ## DEC-076 — The loop's exact-SHA reviewer is Claude on the owner's plan; the Director and CLIVE get GitHub Apps of their own
 
 **Date:** 2026-10-08

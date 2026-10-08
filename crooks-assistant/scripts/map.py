@@ -138,8 +138,12 @@ STORES: tuple[tuple[str, str, str, str | None, tuple[tuple[str, str], ...]], ...
     ("Research", "research/: inbox/, received/, quarantine/, digests/, documents/", "app/research/store.py", None,
      (("app/research/store.py", '".research.json"'),)),
     # Written by the release service on the server (/var/lib/clive-release), not by the running app.
-    ("Release service", "status.json, deploys/, failed/, HALT", "app/release/state.py", "CLIVE_RELEASE_ENABLED",
-     (("app/release/state.py", '"status.json"'), ("app/release/state.py", '"HALT"'))),
+    ("Release service", "status.json, deploys/, failed/, approvals-used/, HALT", "app/release/state.py",
+     "CLIVE_RELEASE_ENABLED", (("app/release/state.py", '"status.json"'), ("app/release/state.py", '"HALT"'),
+                               ("app/release/state.py", '"approvals-used"'))),
+    # [deploy-now] George's deploy approvals (read by the release service) and the deploys his phone kept.
+    ("Deploy approvals", "release-waivers/, release-kept/", "app/release/approve.py", None,
+     (("app/release/approve.py", '"release-waivers"'), ("app/release/approve.py", '"release-kept"'))),
     ("Bench sets and runs", "bench/questions/, bench/runs/", "app/bench/runner.py", None,
      (("app/bench/store.py", '"results.jsonl"'), ("app/bench/store.py", '"questions"'))),
     ("Bench ratings", "bench/ratings.jsonl", "app/bench/store.py", None, (("app/bench/store.py", '"ratings.jsonl"'),)),

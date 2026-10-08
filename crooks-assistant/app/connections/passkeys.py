@@ -282,13 +282,18 @@ def count() -> int:
 
 # ------------------------------------------------------------------ challenges
 
-def _issue(kind: str, action: str, *, login: str, origin: str, rp_id: str) -> bytes:
+def _issue(kind: str, action: str, *, login: str, origin: str, rp_id: str, challenge: bytes | None = None) -> bytes:
     now = time.monotonic()
     for stale in [k for k, p in _PENDING.items() if p.expires <= now]:
         _PENDING.pop(stale, None)
     while len(_PENDING) >= MAX_PENDING:
         _PENDING.pop(min(_PENDING, key=lambda k: _PENDING[k].expires), None)
-    challenge = secrets.token_bytes(32)
+    # [deploy-now] A caller's own challenge (app/release/approve.py: a deploy approval's challenge binds
+    # the SHA and the nonce this server just made); otherwise a random one. Held and spent the same way.
+    if challenge is None:
+        challenge = secrets.token_bytes(32)
+    elif not isinstance(challenge, bytes) or len(challenge) < 32 or b64url(challenge) in _PENDING:
+        raise PasskeyRefused("that approval could not be asked for: try again")
     _PENDING[b64url(challenge)] = Pending(kind, action, login, origin, rp_id, now + CHALLENGE_S)
     return challenge
 
@@ -411,14 +416,15 @@ def finish_registration(credential: Any, *, login: str, origin: str, label: str)
 
 # ------------------------------------------------------------------ approval
 
-def begin_approval(action: str, *, login: str, origin: str, rp_id: str) -> dict[str, Any]:
-    """The options for navigator.credentials.get(): a challenge good for this one action."""
+def begin_approval(action: str, *, login: str, origin: str, rp_id: str, challenge: bytes | None = None) -> dict[str, Any]:
+    """The options for navigator.credentials.get(): a challenge good for this one action. `challenge`:
+    the caller's own (at least 32 bytes, made fresh by this server for this action), instead of a random one."""
     with _LOCK:
         existing = [c for c in _load() if c.get("rp_id") == rp_id]
         if not existing:
             raise PasskeyRefused("set up a passkey on this screen first: every change asks for it",
                                  code="passkey_none")
-        challenge = _issue("get", action, login=login, origin=origin, rp_id=rp_id)
+        challenge = _issue("get", action, login=login, origin=origin, rp_id=rp_id, challenge=challenge)
     return {
         "challenge": b64url(challenge),
         "rpId": rp_id,

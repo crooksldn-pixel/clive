@@ -39,10 +39,13 @@ StateDirectoryMode=0755
 # stop a deploy part way that those limits would still allow: the longest tick (exact_sha_review, a
 # deploy that reaches the journal and rolls back in full, its record pushed onto an existing branch)
 # adds up to 10,220 s with the settle wait and an allowance for GitHub's acceptance asks
-# (tests/test_release_service.py measures it), so the limit is above that. A deploy stopped part way
+# (tests/test_release_service.py measures it). Since 8 Oct (DEC-072) a tick under owner_waiver that
+# began no deploy looks once more when George's approval arrived while it ran (clive-release-now.path's
+# start is folded into a tick already running): that look, then the same worst deploy, adds up to
+# 12,320 s (tests/test_deploy_now.py measures it), so the limit is above that. A deploy stopped part way
 # all the same (a reboot, systemctl stop) leaves its started marker, and the next tick halts instead of
 # reading half-changed production as up to date.
-TimeoutStartSec=3h
+TimeoutStartSec=4h
 Nice=5
 StandardOutput=journal
 StandardError=journal
