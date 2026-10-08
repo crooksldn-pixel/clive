@@ -18,7 +18,8 @@ that card can post, `message.stage`, in two forms:
   words (the orders they name, the links in them), and a new card takes the old one's place. So
   the hold always sends exactly the words on the card, and a refused edit leaves nothing that
   could send the old ones. A second edit that arrives while the first is still being prepared
-  is answered "busy" (the tablet sends it again once the first has its answer).
+  is answered "busy" (the tablet sends it again once the first has its answer), and an edit
+  after a refused one is prepared from the card the refused edit withdrew.
 * the OTHER WAY — `key` and `other=1`: the same words prepared as the write the card names as
   its alternative (an email's "Save as draft", a draft's "Send instead"), then the card withdrawn.
 * AGAIN — `key` and `again=1`, offered only on the card of a send that provably did not go (the
@@ -282,6 +283,19 @@ def latest(session: Any, branch: Any, key: str) -> Any:
     return None
 
 
+def withdrawn_by_an_edit(session: Any, branch: Any, key: str) -> Any:
+    """The card an edit withdrew and nothing replaced — the edit's words were refused — when it
+    is still the newest card of this message on this half and still within its wait: what the
+    next edit is prepared from. None otherwise (it went, was declined, ran out, or has a newer)."""
+    proposal = latest(session, branch, key)
+    if proposal is None or str(getattr(getattr(proposal, "status", None), "value", "")) != "REVOKED":
+        return None
+    if str(getattr(proposal, "reason", "") or "") != EDITED or message_of(proposal) is None:
+        return None
+    expired = getattr(proposal, "expired", None)
+    return None if callable(expired) and expired() else proposal
+
+
 def _no_message() -> Outcome:
     return Outcome.refused("no_message", "That message is no longer waiting. Ask for it again.")
 
@@ -297,6 +311,11 @@ def _message_stage(ctx: CommandCtx) -> Outcome:
         if key.startswith("msg_") and preparing(key):
             # The edit before this one is between withdrawing the old card and making the new.
             return Outcome.refused("busy", BUSY)
+        withdrawn = None if ctx.arg("other") or not key.startswith("msg_") else withdrawn_by_an_edit(ctx.session, ctx.branch, key)
+        if withdrawn is not None:
+            # The last edit was refused (a half-typed link, a "<"): the card he is typing on is
+            # the one it withdrew, so this edit is prepared from that card's own arguments.
+            return _edit(ctx, withdrawn, message_of(withdrawn) or {}, key, waiting=False)
         return _no_message()
     if ctx.arg("other"):
         return _the_other_way(proposal, message, key)
@@ -327,14 +346,17 @@ def _again(ctx: CommandCtx, key: str) -> Outcome:
     }})
 
 
-def _edit(ctx: CommandCtx, proposal: Any, message: dict[str, Any], key: str) -> Outcome:
+def _edit(ctx: CommandCtx, proposal: Any, message: dict[str, Any], key: str, *, waiting: bool = True) -> Outcome:
+    """An edit of one field. `waiting` is False when `proposal` is the card a refused edit
+    withdrew: nothing waits, so even the same words are prepared again, and there is nothing
+    to withdraw first."""
     from app.providers.base import ToolCall
 
     field = ctx.arg("field").strip()
     if field not in editable(message):
         return Outcome.refused("not_editable", "That part of the message is not changed here.")
     value = str(ctx.args.get("value") or "").replace("\r\n", "\n")[:MAX_VALUE_CHARS]
-    if value.strip() == str(message.get(field) or "").strip():
+    if waiting and value.strip() == str(message.get(field) or "").strip():
         # Nothing changed: the card as it stands, drawn again so the tablet stops waiting on it.
         return Outcome(answer="", calls=[ToolCall(name=str(proposal.tool_name), args=dict(proposal.model_args),
                                                   ok=True, proposal_id=str(proposal.proposal_id))],
@@ -345,7 +367,8 @@ def _edit(ctx: CommandCtx, proposal: Any, message: dict[str, Any], key: str) -> 
     args[str(message["args"][field])] = value
     # Withdrawn FIRST: whatever the preparing of the new words finds, the old words can no longer
     # be the ones a hold sends (the card on the glass now shows the new ones).
-    ctx.runtime.actions.revoke_ids([str(proposal.proposal_id)], EDITED)
+    if waiting:
+        ctx.runtime.actions.revoke_ids([str(proposal.proposal_id)], EDITED)
     seq = _next_edit(key)
     _PREPARING[key] = (seq, _clock())
     return Outcome(answer="", changed={"stage": {

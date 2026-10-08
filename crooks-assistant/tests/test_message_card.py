@@ -175,6 +175,43 @@ async def test_an_edit_the_write_refuses_leaves_nothing_that_could_send_the_old_
     assert box.sent == []
 
 
+async def test_a_refused_half_typed_edit_does_not_kill_the_card(box, engine, session):
+    """Review note 3: the edit withdraws the waiting card before the write checks the new words,
+    so a half-typed link (or a "<", or a different customer's order) left nothing waiting, and
+    every later edit was "That message is no longer waiting". The next edit is now prepared from
+    the card the refused one withdrew — through the gate and the write's checks as ever."""
+    _, first = await stage(session, "gmail_send_reply", thread_id=THREAD, body=BODY)
+    key = message_card.key_of(first)
+    half = _press(engine, session, compose_id=key, field="body", value="Track it here: https://crooksld")
+    text, none = await _prepare(session, half)
+    assert text.startswith("ERROR") and none is None, text
+    assert first.status is ActionStatus.REVOKED and first.reason == message_card.EDITED
+    assert not [p for p in session.proposals if p.status is ActionStatus.PENDING], "still nothing waits that the card does not show"
+    fixed = _press(engine, session, compose_id=key, field="body", value=EDITED)
+    assert fixed.ok, (fixed.code, fixed.detail)
+    staging = fixed.changed["stage"]
+    assert staging["tool"] == "gmail_send_reply" and staging["args"]["body"] == EDITED and staging["revoke"] == []
+    assert staging["args"]["thread_id"] == THREAD, "the card's own arguments, with only the words changed"
+    _, card = await _prepare(session, fixed)
+    assert card.status is ActionStatus.PENDING and card.risk == "RED" and message_card.key_of(card) == key
+    assert _card(card, session)["message"]["body"] == EDITED
+    assert box.sent == []
+
+
+async def test_after_a_refused_edit_even_the_card_s_own_words_are_prepared_again(box, engine, session):
+    """Typing back to the words the withdrawn card had is not "unchanged": nothing waits."""
+    _, first = await stage(session, "gmail_send_reply", thread_id=THREAD, body=BODY)
+    key = message_card.key_of(first)
+    await _prepare(session, _press(engine, session, compose_id=key, field="body", value="Love it <3"))
+    again = _press(engine, session, compose_id=key, field="body", value=BODY)
+    assert again.ok and "stage" in again.changed, again.changed
+    _, card = await _prepare(session, again)
+    assert card.status is ActionStatus.PENDING and _card(card, session)["message"]["body"] == BODY
+    # A card that went, or was declined, is not edited back into being: only a refused edit's.
+    engine.revoke_ids([card.proposal_id], "test")
+    assert _press(engine, session, compose_id=key, field="body", value=EDITED).code == "no_message"
+
+
 async def test_an_unchanged_field_draws_the_same_card_again(box, engine, session):
     _, first = await stage(session, "gmail_send_reply", thread_id=THREAD, body=BODY)
     out = _press(engine, session, compose_id=message_card.key_of(first), field="body", value=f"  {BODY}\n")
