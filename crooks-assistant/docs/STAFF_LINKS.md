@@ -25,7 +25,9 @@ would then pass through the model and its records.
 **Taking it back.** On People, *Sign out* beside a phone signs that phone out at the next request.
 *Take access away* (his passkey) signs out all of that person's phones, cancels a waiting link, and
 closes their Tailscale access too. Taking someone off the list (`person_note` active false) or making
-them a contact closes the door the same way. A phone unused for 14 days is signed out by itself, and
+them a contact closes the door the same way: the first time their phone or their link is refused for
+it, that phone and that link are ended for good, so putting the card back opens nothing until he makes
+a new link. A phone unused for 14 days is signed out by itself, and
 every phone needs a new link after 90 days.
 
 ## How it works
@@ -84,7 +86,7 @@ the server.
 | Guessing a link | 256-bit tokens; every refusal looks the same (used, expired, cancelled, unknown) | replay, expiry |
 | Guessing the code of a real link | 5 wrong codes lock the invite for good | brute force |
 | Guessing links, or flooding joins to keep real ones out | At most 10 failed joins per address per 15 minutes and 200 in all, then joins with no open link wait; a join carrying an open link skips both limits (its own five-code lock holds it), so made-up joins never keep a real one out | limits; made-up joins never keep a real link out |
-| Using a link twice, or after it is cancelled or expired, or after the person is taken off | Single-use; cancelled when a new one is made or access is taken away; refused if the card is no longer active staff | lifecycle |
+| Using a link twice, or after it is cancelled or expired, or after the person is taken off | Single-use; cancelled when a new one is made or access is taken away; refused, and ended for good, once the card is no longer active staff, so the card put back does not revive it (nor their phone) | lifecycle; off the team, then put back |
 | A link and code reaching someone else | The code is never in the message with the link; joining with a new link signs out the person's other phone; George sees every phone and when it was last used, and signs it out | revocation |
 | A stolen cookie | `HttpOnly` (no script can read it); rotated hourly; any sign-in the phone has moved past, used after two minutes, signs the phone out for both holders and shows on People; 14 days idle and 90 days in all | rotation and replay; a copy renewed twice while the real phone sleeps; a copy whose renewal empties the waiting list; past what a phone remembers |
 | Another site making a signed-in phone act (CSRF) | `SameSite=Strict`; every POST through the door must carry an `Origin` of the door's own host, and a `Sec-Fetch-Site` other than same-origin is refused | CSRF |

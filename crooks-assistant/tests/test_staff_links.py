@@ -434,6 +434,34 @@ async def test_taking_access_away_or_someone_off_signs_out_their_phones_and_canc
     assert (await door.post("/staff-links/mia/cancel", json={}, headers=PROXIED)).json()["code"] == "no_link"
 
 
+async def test_a_phone_and_link_refused_for_being_off_the_team_stay_ended_when_the_card_is_put_back(door, monkeypatch):
+    """The review's N3: the card taken off in the people record itself, as when person_note's access
+    step fails before it signs the phones out. The refusal ends the phone and the link there and then,
+    so putting the card back brings neither back. A record that cannot be read just now refuses once
+    and ends nothing."""
+    from app.people.store import PeopleError
+
+    phone = await join(door)
+
+    def unreadable(person_id):
+        raise PeopleError("the people record on this server cannot be read")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(people, "get", unreadable)
+        assert (await door.get("/today/state", headers=signed_in(phone))).status_code == 401
+    assert (await door.get("/today/state", headers=signed_in(phone))).status_code == 200    # nothing ended
+    token, code, _ = links.make("mia", by="owner")
+    people.note({"name": "Mia", "active": False})
+    assert (await door.get("/today/state", headers=signed_in(phone))).status_code == 401
+    assert (await door.post("/join", json={"token": token, "code": code}, headers=POST)).json()["code"] == "not_valid"
+    people.note({"name": "Mia", "active": True})
+    assert (await door.get("/today/state", headers=signed_in(phone))).status_code == 401
+    assert (await door.post("/join", json={"token": token, "code": code}, headers=POST)).json()["code"] == "not_valid"
+    board = links.summary()["mia"]
+    assert board["phones"][0]["state"] == "signed_out" and board["phones"][0]["why"] == "taken off the team"
+    assert board["link"]["state"] == "cancelled"
+
+
 # ------------------------------------------------------------------ the door reaches the team's page and nothing else
 
 def _served():

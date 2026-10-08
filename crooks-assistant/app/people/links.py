@@ -21,7 +21,8 @@ directory, 0600), because a line here lets someone in, as a passkey does:
 What it promises: nothing here is ever logged or put where the server would see it in a URL; the
 link, the code and the cookie cannot be rebuilt from the file; every refusal of a join looks the same
 except "wrong code", which only the holder of a real link can reach; a phone is someone only while
-their card is still active staff. What a phone may do is not decided here: the door gives it the
+their card is still active staff, and a phone or link refused because the card says they are off the
+team is ended there and then, so putting the card back brings neither back. What a phone may do is not decided here: the door gives it the
 team's own authority (app/people/team_door.py, app/tools/authority.py for_staff).
 """
 
@@ -222,13 +223,21 @@ def _copy() -> dict[str, Any]:
 
 def _on_the_team(person_id: str):
     """The card, if it is still active staff; None otherwise. An unreadable people record is None."""
+    return _standing(person_id)[0]
+
+
+def _standing(person_id: str):
+    """(card, off_for_good). The card if it is still active staff. Otherwise None, and whether the
+    people record says they are off the team (taken off, made a contact, or not on it at all), which
+    ends their phones and links for good, rather than that it could not be read just now, which only
+    refuses this once."""
     try:
         person = people.get(person_id)
     except PeopleError:
-        return None
+        return None, False
     if person is None or person.kind != "staff" or not person.active:
-        return None
-    return person
+        return None, True
+    return person, False
 
 
 # ------------------------------------------------------------------ the owner's steps
@@ -367,7 +376,10 @@ def redeem(token: str, code: str, *, address: str, kind: str = "phone", now: flo
         if invite is not None and invite.get("state") == "open" and now >= float(invite.get("expires_at") or 0):
             invite.update(state="expired", ended_at=now)
             _save(data)
-        person = _on_the_team(str(invite.get("person_id") or "")) if invite else None
+        person, off = _standing(str(invite.get("person_id") or "")) if invite else (None, False)
+        if invite is not None and invite.get("state") == "open" and off:
+            invite.update(state="cancelled", ended_at=now)      # off the team: this link is over for good
+            _save(data)
         if invite is None or invite.get("state") != "open" or person is None:
             if _throttled(address, now):
                 raise JoinRefused("too_many", TOO_MANY)
@@ -424,7 +436,11 @@ def check(value: str, *, now: float | None = None) -> Seen:
             return Seen(refused="signed_out")
         data = _copy()
         phone = data["phones"][phone_id]
-        if _on_the_team(str(phone.get("person_id") or "")) is None:
+        person, off = _standing(str(phone.get("person_id") or ""))
+        if person is None:
+            if off:                     # off the team: putting the card back does not bring this phone back
+                _end_phone(phone, "signed_out", "", "taken off the team", now)
+                _save(data)
             return Seen(refused="signed_out")
         if now - float(phone.get("last_seen") or 0) > IDLE_S or now - float(phone.get("joined_at") or 0) > MAX_AGE_S:
             _end_phone(phone, "expired", "", "not used for a fortnight, or older than 90 days", now)

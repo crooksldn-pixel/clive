@@ -75,7 +75,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `objectives` | 3,316 | live | — | none |
 | `observability` | 10,789 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
 | `orchestrator` | 11,442 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
-| `people` | 1,548 | live | — | [`TEAM.md`](docs/TEAM.md) |
+| `people` | 1,564 | live | — | [`TEAM.md`](docs/TEAM.md) |
 | `providers` | 1,029 | live | `anthropic_api` | none |
 | `reads` | 1,451 | live | — | none |
 | `release` | 3,139 | live | 6 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
