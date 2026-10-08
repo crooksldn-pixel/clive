@@ -94,7 +94,8 @@ health and journal checks.
    reason not to deploy, never the absence of one.
 6. **Dry run** (`CLIVE_RELEASE_DRY_RUN`, **on unless set to `false` in so many words**: a
    `release.env` that has lost the line stays a dry run): it says "Dry run: it would deploy “…” now.
-   Nothing was changed." and stops.
+   Nothing was changed." and stops. An approval George gave in CLIVE that it answers is marked used,
+   as a dry run, so it never deploys once dry run is off.
 7. **Deploys** (`app/release/deploy.py`), the hand procedure as code:
 
    | Stage | What it does | On failure |
