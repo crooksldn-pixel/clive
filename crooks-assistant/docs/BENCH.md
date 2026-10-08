@@ -129,8 +129,10 @@ API key. Two ways, the same two the provider has:
    and `judge`. The bench reads it only to hand it to the claude CLI as `CLAUDE_CODE_OAUTH_TOKEN`, as the
    workers and the provider do. Where that file is on worker-01 is not recorded in this repository.
 
-If `ANTHROPIC_API_KEY` (or any other pay-as-you-go route) is set, every command refuses to start. Before a
-word is sent, each model call also asks the CLI how it authenticated and stops if it says an API key.
+If `ANTHROPIC_API_KEY` (or any other pay-as-you-go route) is set, every command refuses to start, in one line
+that says which, and writes nothing. Before a word is sent, each model call also asks the CLI how it
+authenticated and stops if it says an API key. Run as a user who cannot write the data directory, a command
+says which folder in one line too.
 
 ### Caps, and the plan's limits
 

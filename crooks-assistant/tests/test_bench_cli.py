@@ -24,11 +24,16 @@ def _bench(*args: str, env: dict[str, str]) -> subprocess.CompletedProcess:
                           text=True, timeout=300, umask=0o022)
 
 
-def test_a_dry_run_from_the_command_line_makes_a_set_a_run_and_a_report(tmp_path):
+def _env(tmp_path: Path) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith(("CROOKS_", "ANTHROPIC_")) and k not in PROXIES}
     env.update({"CROOKS_ENV_FILE": "", "CROOKS_ALLOWED_LOGINS": "someone-else@example.com",
                 "CROOKS_WRITES_ENABLED": "false", "CROOKS_ENGINEERING_HOST": "worker-01",
                 "CROOKS_SECRET_DIR": str(tmp_path / "not-the-run's"), "CROOKS_OBJECTIVES_DIR": str(tmp_path / "objectives")})
+    return env
+
+
+def test_a_dry_run_from_the_command_line_makes_a_set_a_run_and_a_report(tmp_path):
+    env = _env(tmp_path)
     data = tmp_path / "data"
 
     listed = _bench("personas", env=env)
@@ -63,3 +68,42 @@ def test_a_dry_run_from_the_command_line_makes_a_set_a_run_and_a_report(tmp_path
 
     again = _bench("report", "--data-dir", str(data), env=env)
     assert again.returncode == 0 and manifest["run_id"] in again.stdout
+
+
+def _one_line(got: subprocess.CompletedProcess | None, err: str = "") -> str:
+    """A refusal's whole say: exactly one line on stderr, no traceback."""
+    text = got.stderr if got is not None else err
+    assert "Traceback" not in text, text[-2000:]
+    [line] = text.strip().splitlines()
+    return line
+
+
+def test_an_api_key_is_refused_in_one_plain_line(tmp_path):
+    """Review note N6 (8 Oct): the refusal worked, but it came out as a traceback."""
+    env, data = _env(tmp_path), tmp_path / "data"
+    assert _bench("generate", "--dry-run", "--data-dir", str(data), "--personas", "george", env=env).returncode == 0
+    assert _bench("run", "--dry-run", "--data-dir", str(data), "--max-questions", "1", env=env).returncode == 0
+    before = sorted(str(p.relative_to(data)) for p in data.rglob("*"))
+    env["ANTHROPIC_API_KEY"] = "a-pay-as-you-go-key"
+    for command in ("generate", "run", "judge"):
+        got = _bench(command, "--dry-run", "--data-dir", str(data), env=env)
+        assert got.returncode == 2, (command, got.stdout[-1000:], got.stderr[-2000:])
+        assert _one_line(got).startswith("bench: refused: ANTHROPIC_API_KEY is set in this environment."), command
+    assert sorted(str(p.relative_to(data)) for p in data.rglob("*")) == before            # nothing was written
+
+
+def test_a_folder_this_user_may_not_write_is_one_plain_line(tmp_path, monkeypatch, capsys):
+    """Review note N6: run on the server as a user who cannot write the data directory, the bench said so
+    in a traceback. It says so in one line now, with the folder and what to do."""
+    from app.bench import cli
+    from app.bench.store import Bench
+
+    def denied(self, path):
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(Bench, "folder", denied)
+    data = tmp_path / "data"
+    assert cli.main(["generate", "--dry-run", "--data-dir", str(data), "--personas", "george"]) == 2
+    assert _one_line(None, capsys.readouterr().err) == (
+        f"bench: not allowed to use {data / 'bench' / 'questions'} as this user: run it as the user that owns it, "
+        "or give --data-dir a folder this user can write")

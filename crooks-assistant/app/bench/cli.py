@@ -207,10 +207,28 @@ def parser() -> argparse.ArgumentParser:
     return top
 
 
+def _refused_for_billing(exc: BaseException) -> bool:
+    """Whether this is the pay-as-you-go guard's refusal. Only looked for once a command has run, so
+    nothing of CLIVE is imported to ask (a run sets its settings before CLIVE's first import)."""
+    guard = sys.modules.get("app.providers.max_agent_sdk")
+    return guard is not None and isinstance(exc, guard.BillingGuardError)
+
+
 def main(argv: list[str] | None = None) -> int:
+    """Every refusal is one plain line on stderr and a non-zero exit, never a traceback."""
     args = parser().parse_args(argv)
     try:
         return int(args.func(args) or 0)
     except (FileNotFoundError, ValueError) as exc:
         print(f"bench: {exc}", file=sys.stderr)
+        return 2
+    except PermissionError as exc:
+        where = exc.filename or "a file it needs"
+        print(f"bench: not allowed to use {where} as this user: run it as the user that owns it, or give "
+              f"--data-dir a folder this user can write", file=sys.stderr)
+        return 2
+    except RuntimeError as exc:
+        if not _refused_for_billing(exc):
+            raise
+        print(f"bench: refused: {' '.join(str(exc).split())}", file=sys.stderr)
         return 2

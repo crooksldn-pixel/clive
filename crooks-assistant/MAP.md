@@ -56,7 +56,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `actions` | 3,039 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,501 | live | — | none |
-| `bench` | 2,267 | live | 5 modules | [`BENCH.md`](docs/BENCH.md) |
+| `bench` | 2,285 | live | 5 modules | [`BENCH.md`](docs/BENCH.md) |
 | `builds` | 1,345 | live | — | none |
 | `capabilities` | 759 | live | `surface` | none |
 | `clients` | 4,930 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
