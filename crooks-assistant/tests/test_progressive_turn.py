@@ -201,8 +201,12 @@ async def test_the_turn_log_keeps_the_shape_of_the_patches_and_not_their_content
     assert any("item" in p for p in body["workspace"]["patches"])
     logged = json.loads(slow.runtime.turnlog.path.read_text(encoding="utf-8").strip().splitlines()[-1])["workspace"]
     assert all(isinstance(p, str) and ":" in p for p in logged["patches"]), logged["patches"]
-    # (Until 7 Oct `renders["suppressed"] >= 1`: DEC-067 stages nothing before the answer.)
-    assert logged["renders"]["drawn"] >= 1 and logged["timings_ms"]["time_to_visible_shell"] is not None
+    # (Until 7 Oct `renders["suppressed"] >= 1`. DEC-067 stages nothing before the answer, so the
+    # value this moved to is exactly 0, as the response itself says above. The counts are a
+    # Counter, which leaves a zero out, so an absent key is that 0.)
+    assert logged["renders"].get("suppressed", 0) == 0 and logged["timings_ms"]["time_to_visible_shell"] is not None
+    # A separate check, new with DEC-067: the answer's own card was drawn.
+    assert logged["renders"]["drawn"] >= 1
     # And nothing a card said reaches the file through this key.
     assert "order_number" not in json.dumps(logged)
 
