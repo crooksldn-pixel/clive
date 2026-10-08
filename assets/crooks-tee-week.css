@@ -60,7 +60,7 @@
 .ctw-deals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .ctw-deal { padding: 8px 8px 7px; border: 1px solid var(--ctw-line); background: var(--ctw-panel); }
 .ctw-deal.is-hit { border-color: var(--ctw-lav); background: rgba(84, 37, 120, .3); }
-.ctw-deal b { display: block; font-family: var(--ctw-display); font-weight: 400; font-size: 22px; line-height: 1; white-space: nowrap; }
+.ctw-deal b { display: block; font-family: var(--ctw-display); font-weight: 400; font-size: clamp(17px, 5.4vw, 22px); line-height: 1; white-space: nowrap; }
 .ctw-deal span { display: block; margin-top: 2px; font-size: 11px; font-weight: 700; color: var(--ctw-lav); }
 .ctw-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .ctw-day { min-height: 52px; padding: 6px 0 5px; text-align: center; cursor: pointer; border: 1px solid var(--ctw-line); background: transparent; }
