@@ -38,7 +38,8 @@ Each file can be up to 25 MB. A ChatGPT data export that holds more than 25 chat
 4. **Held to the map.** CLIVE does not take Claude's word for any of it:
    - A recommendation must quote the research word for word. One whose quote is not in the file is left out, and the document says so.
    - A citation must be a rule, parked item, decision, idea or feature that exists. If nothing CLIVE knows backs a recommendation, it is never recommended for adoption or rejection. It is parked instead, citing DEC-017: brainstorming is not approval.
-   - The rules that never bend are checked again without the model. If a recommendation asks CLIVE to break one, it is recommended for rejection, citing that rule. Examples: an Anthropic API key, sending or refunding without your hold, acting on words before the model reads them, customer details in logs, weakening a test.
+   - The rules that never bend are checked again without the model. If a recommendation (or its "Done when") asks CLIVE to break one, it is recommended for rejection, citing that rule. Examples: an Anthropic API key, sending or refunding without your hold, acting on words before the model reads them, customer details in logs, weakening a test.
+   - That check is advisory and easy to sidestep: it matches words, so a recommendation that breaks a rule in other words, or with a "no" or "not" close by, can pass it. What decides is your answer and your hold on every card, never this check.
    - "Would touch" lists only parts a build may change. If adopting it would need a protected part (the gate, the loop, the tests that guard them), it is parked for you to decide.
    - If it repeats an idea or feature already written down, it is linked to that idea or feature. If it repeats earlier research, it appears under the earlier proposal and is not asked again.
 5. **Put to you.** On the Builds screen, under **Research → Waiting on you**, each proposal shows:
