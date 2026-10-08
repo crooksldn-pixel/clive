@@ -81,14 +81,21 @@ def summary(**over):
 def test_exactly_three_shipping_changes_exist_each_sent_only_to_the_service():
     """The check that fails if a shipping change is added without being named here: the label bought,
     printed, printed again, each a complete write sent to CLIVE Shipping's own API ("shipping:"), each
-    staged for the owner's gesture. Nothing else registered buys, prints, voids or fulfils a label."""
+    staged for the owner's gesture. Nothing else registered buys, prints, voids or fulfils a label:
+    the tool modules' writes and the families' (app/families/*, checkout links, discount codes, draft
+    orders, store credit among them), loaded first as tests/test_registry.py loads them, so this holds
+    run alone as in the whole suite."""
     import app.tools.batch_tools  # noqa: F401
     import app.tools.gmail_writes  # noqa: F401
     import app.tools.returns_tools  # noqa: F401
     import app.tools.shopify_writes  # noqa: F401
+    from app.families import load_all
     from app.tools import registry
 
+    load_all()
     specs = registry.all_specs()
+    family_writes = {"checkout_link_send", "discount_code_create", "draft_order_complete", "store_credit_credit"}
+    assert family_writes <= {s.write.operation for s in specs if s.write is not None}, "the families' writes are in"
     shipping = sorted(s.write.operation for s in specs if s.write is not None and s.write.mutation.startswith("shipping:"))
     assert shipping == ["shipping_label_buy", "shipping_label_print", "shipping_label_reprint"]
     assert {s.write.operation: s.write.mutation for s in specs if s.write is not None and s.write.mutation.startswith("shipping:")} == {
