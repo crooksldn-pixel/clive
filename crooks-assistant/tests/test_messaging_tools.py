@@ -126,6 +126,21 @@ def test_message_reply_is_the_one_messaging_send_registered_anywhere():
     assert not [t for t in tools.TOOLS if t in staff.TOOLS] and not staff.may_commit("message_reply")
 
 
+async def test_the_two_reads_are_amber_like_every_read_that_surfaces_peoples_words(world):
+    """Review note 3 (8 Oct): messages_recent and message_thread return suppliers' names and what they
+    wrote, so they are AMBER like instagram_inbox, returns_open and people_list, and the model is told
+    to read the detail back. Saying who a conversation is with stays GREEN; the reply stays RED."""
+    thread = jessica_wrote()
+    assert registry.get("messages_recent").tier is gate.Tier.AMBER
+    assert registry.get("message_thread").tier is gate.Tier.AMBER
+    assert registry.get("message_contact").tier is gate.Tier.GREEN
+    for name, args in (("messages_recent", {}), ("message_thread", {"chat_id": thread.chat_id})):
+        decision = gate.classify(name, args, issued_ids=[thread.chat_id])
+        assert decision.tier is gate.Tier.AMBER and decision.disposition is gate.Disposition.EXECUTE_NOW, name
+        text = await dispatch(name, args, session=session_for(thread), timeout_s=10)
+        assert text.startswith("AMBER"), text[:80]
+
+
 # ------------------------------------------------------------------ reads
 
 

@@ -287,8 +287,9 @@ def test_the_allow_list_gained_engineering_status_the_screens_and_nothing_else()
     assert returns <= gate._KNOWN_TOOLS and not any(gate._looks_like_mutation(name) for name in returns)
     assert "return_action" not in gate._KNOWN_TOOLS
     # [messaging] WeChat and WeCom (app/tools/messaging_tools.py, 2026-10-07): two reads of CLIVE's own
-    # store of conversations and the link of one to a person's card, GREEN, named without a mutation
-    # verb; the one send, message_reply, is a declared write at RED and so is staged, never on this list.
+    # store of conversations (AMBER on their ToolSpecs since 8 Oct: suppliers' names and words) and the
+    # link of one to a person's card (GREEN), named without a mutation verb; the one send,
+    # message_reply, is a declared write at RED and so is staged, never on this list.
     messaging = {"messages_recent", "message_thread", "message_contact"}
     assert messaging <= gate._KNOWN_TOOLS and not any(gate._looks_like_mutation(name) for name in messaging)
     assert "message_reply" not in gate._KNOWN_TOOLS and gate._looks_like_mutation("message_reply")

@@ -62,8 +62,8 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `inventory_query` | GREEN | yes | yes | yes | none needed | read | — | — | the read layer's cards | — | read |
 | `message_contact` | GREEN | yes | yes | yes | none needed | read | — | — | — | — | — |
 | `message_reply` | RED | yes | yes | yes | — | write | prepared from a fresh read, held as message_reply, hold_to_arm | a predicate over the re-read, after settling | the change's own card | — | — |
-| `message_thread` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
-| `messages_recent` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
+| `message_thread` | AMBER | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
+| `messages_recent` | AMBER | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
 | `objective_list` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
 | `objective_note` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |
 | `objective_open` | GREEN | yes | yes | yes | none needed | read | — | — | presentation.py | — | — |

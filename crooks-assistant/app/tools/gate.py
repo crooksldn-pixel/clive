@@ -212,9 +212,10 @@ _KNOWN_TOOLS = frozenset({
     # one by one, because this is an allow-list.
     "returns_open", "return_find", "returns_stats",
     # [messaging] WeChat and WeCom (app/tools/messaging_tools.py, app/messaging): the conversations
-    # CLIVE has stored and one in full, read from CLIVE's own private store on this machine; and
-    # message_contact, which says on a person's card which conversation is theirs, changing only
-    # CLIVE's own records like person_note. No message is sent by any of them: the one reply,
+    # CLIVE has stored and one in full, read from CLIVE's own private store on this machine, AMBER on
+    # their ToolSpecs because they surface suppliers' names and words; and message_contact, which
+    # says on a person's card which conversation is theirs, changing only CLIVE's own records like
+    # person_note. No message is sent by any of them: the one reply,
     # message_reply, is a write with a complete definition, staged at RED for the owner's hold and
     # never on this list. The owner's alone (no staff set names them). Named here one by one,
     # because this is an allow-list.

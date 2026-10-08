@@ -14,6 +14,8 @@ The approved rules (7 October), and where each is kept:
   in the thread and on the action ledger, and the card says Sent only once the record shows it.
 
 Reads, the link and the reply are the owner's alone: no staff set names them (app/people/staff.py).
+The two reads are AMBER, because they surface suppliers' names and what they wrote; the link is
+GREEN, changing only CLIVE's own card; the reply is RED.
 Following the email writes (app/tools/gmail_writes.py) until the generic one-hold message card
 lands; docs/WECOM.md says what to switch then.
 """
@@ -103,7 +105,9 @@ def _thread(chat_id: str):
     input_schema={"type": "object", "properties": {
         "person": {"type": "string", "maxLength": 80},
         "limit": {"type": "integer", "minimum": 1, "maximum": MAX_THREADS}}},
-    tier=Tier.GREEN,
+    # AMBER, like every read that surfaces people's names and words (instagram_inbox, returns_open,
+    # people_list): the model is told to read the detail back (review note 3, 8 Oct).
+    tier=Tier.AMBER,
 )
 async def messages_recent(person: str = "", limit: int = 6) -> dict[str, Any]:
     _owner_only()
@@ -141,7 +145,7 @@ async def messages_recent(person: str = "", limit: int = 6) -> dict[str, Any]:
     input_schema={"type": "object", "properties": {
         "chat_id": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 30}},
         "required": ["chat_id"]},
-    tier=Tier.GREEN,
+    tier=Tier.AMBER,   # a supplier's name and words, as messages_recent
     issued_id_args=("chat_id",),
 )
 async def message_thread(chat_id: str, limit: int = 20) -> dict[str, Any]:
