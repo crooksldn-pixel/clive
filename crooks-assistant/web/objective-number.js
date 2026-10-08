@@ -220,7 +220,12 @@
     // before today still in it. This said `today + 120` against at most 90 columns, so a pace landing
     // months after the deadline started the chart a month AFTER today: no day counted, no Today and
     // no deadline on it, and a stray date under it ("4 of 40 sold" drawn as a block of days to come).
-    return Math.min(m.today + Math.min(120, maxCols() - (MIN_COLS - 1)), far === m.today ? m.today + 8 : far + 3);
+    let cap = m.today + Math.min(120, maxCols() - (MIN_COLS - 1));
+    // [checker, 8 Oct 2026, review note N3] But a deadline the chart has room for, with today, is
+    // on it: the end reaches the deadline's day plus one whenever that is within today + the
+    // columns (a deadline 84–87 days out at 90 columns, 39–42 at 45, fell between the two).
+    if (m.dIdx !== null && m.dIdx + 1 <= m.today + maxCols()) cap = Math.max(cap, m.dIdx + 1);
+    return Math.min(cap, far === m.today ? m.today + 8 : far + 3);
   }
   const maxCols = () => (lite() ? MAX_COLS / 2 : MAX_COLS);
   // The first day a chart ending at `to` may start on: never past a week before today, never before
