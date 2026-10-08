@@ -53,7 +53,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 <!-- map:parts -->
 | Package | Lines | State | Not loaded by the app | Owner doc |
 |---|---:|---|---|---|
-| (top-level modules) | 12,737 | live | `engineering_measures` | none |
+| (top-level modules) | 12,750 | live | `engineering_measures` | none |
 | `actions` | 3,084 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,478 | live | — | none |
@@ -75,14 +75,14 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `objectives` | 3,316 | live | — | none |
 | `observability` | 10,789 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
 | `orchestrator` | 11,442 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
-| `people` | 785 | live | — | [`TEAM.md`](docs/TEAM.md) |
+| `people` | 1,460 | live | — | [`TEAM.md`](docs/TEAM.md) |
 | `providers` | 1,029 | live | `anthropic_api` | none |
 | `reads` | 1,451 | live | — | none |
 | `release` | 3,139 | live | 6 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
 | `remote_engineering` | 2,506 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
 | `research` | 1,884 | live | — | [`RESEARCH.md`](docs/RESEARCH.md) |
 | `returns` | 1,084 | live | — | [`RETURNS_EVENTS.md`](docs/RETURNS_EVENTS.md) its events, DEC-077 |
-| `routes` | 8,498 | live | — | none |
+| `routes` | 8,736 | live | — | none |
 | `scenes` | 2,579 | off (`CLIVE_SCENES` off, default) | — | [`GENERATIVE_UI_V1.md`](docs/product-memory/GENERATIVE_UI_V1.md) |
 | `secrets` | 965 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) |
 | `session` | 1,194 | live | — | none |
@@ -103,6 +103,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `/connections` | `connections.html` | 3: connections-view.js, connections-voice.js, connections.js |
 | `/display` | `display.html` | 2: dots.js, display.js |
 | `/` | `index.html` | 32: dots.js, startup.js, orb.js, audio-viz.js, live-voice.js, collide.js, touch.js, telemetry.js, notify.js, action-state.js, live-state.js, jobs.js, objective-touch.js, objective-number.js, objective-cards.js, customers.js, returns.js, messages.js, shipping.js, routines.js, ui.js, app.js, horizon.js, distances.js, builds.js, research.js, deploy.js, alpha.js, remote.js, lift.js, edges.js, dots-app.js |
+| `/join` | `join.html` | 1: join.js |
 | no route (only `/static/scenes-gallery.html`) | `scenes-gallery.html` | 2: scenes.js, scene-fixtures.js |
 | `/today` | `today.html` | 6: orb.js, objective-touch.js, today-say.js, today-voice.js, today.js, today-owner.js |
 <!-- /map:pages -->
@@ -121,6 +122,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | Work list | `work/items/, routines.json, record.jsonl` | `work/store.py` | always |
 | Named routines | `work/named-routines.json` | `work/routines.py` | always |
 | Team access | `access.json` | `people/access.py` | always |
+| Staff links and phones | `staff-links.json` | `people/links.py` | always |
 | Passkeys | `passkeys.json` | `connections/passkeys.py` | always |
 | Connections ledger | `changes.jsonl` | `connections/ledger.py` | always |
 | Voice choice | `voice.json` | `speech/voice_prefs.py` | always |
@@ -208,5 +210,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 4,461 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 4,472 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->

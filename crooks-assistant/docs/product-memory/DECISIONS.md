@@ -1295,6 +1295,26 @@ He wants "the flow from actually asking a question to the action happening to be
 
 ---
 
+## DEC-075 — The team join by a staff link and a code, through their own public door
+
+**Date:** 2026-10-08
+**Status:** ACTIVE. Built in the repository (`claude/n3-staff-links`); live once deployed, the team's address is in DNS and the host's Caddy, and `CROOKS_TEAM_HOST` is set.
+**Source:** ruling 35 of DEC-071 ("Staff join with a link and a code instead of Tailscale? Y"), and the owner before it: staff should "just get a link (e.g. 'send this person a staff link') with a code to sign up, no app installs". His team are teenagers and low-skill workers on their own phones.
+
+**Decision:**
+- **A door of the team's own.** `team.crooksldn.com`, served by the host's Caddy like `hooks.crooksldn.com`, reaches the team's page (`/today`), the routes it calls and the join, and nothing else: every other route is a 404 there (`app/people/team_door.py`). A request through it is never the owner and never the server itself, whatever it carries; Tailscale's headers and the local command key are taken off it.
+- **George makes the link, with his passkey.** On Team › People, "Make a staff link" beside someone on the team: a single-use link for that person's card, open for 12 hours, and a six-digit code shown once, in big type, for him to tell them himself. The server keeps hashes only. Five wrong codes lock the link; failed joins are limited per address and overall. A new link cancels the one before it. Asked in words ("send Emily a staff link"), CLIVE tells him where; it never makes one in a conversation, so the link and the code never pass through the model or its records.
+- **The phone's sign-in is a cookie no script can read:** `__Host-clive_team`, HttpOnly, Secure, SameSite=Strict, kept as a hash, handed out again every hour of use; a replaced one used after two minutes signs the phone out. 14 days unused, or 90 days in all, and the phone needs a new link. A new phone joining signs out the person's other one.
+- **George takes it back from People:** "Sign out" beside a phone, no passkey (it only narrows); "Take access away" (his passkey) signs out all their phones, cancels a waiting link and closes their Tailscale access. Taking someone off the list does the same.
+- **Exactly the team's tools.** A phone signed in by link carries the staff authority of `app/tools/authority.py` for that person, recorded as `team:<person>`: the same reads, work list and five writes as a team member on Tailscale (DEC-062's rules, `app/people/staff.py`, unchanged).
+- **Tailscale is unchanged** for George and for anyone on the team already on it.
+
+**Reason:** ruling 35, and his words above. The threat model, its tests and the risks that remain are in [`docs/STAFF_LINKS.md`](../STAFF_LINKS.md).
+
+**Consequences:** the access door changes, as this brief allowed: `app/main.py` asks the team's door first, and `app/routes/actions.py` `proxy_state` knows a fourth way in (`TEAM_DOOR`), which the owner rule, the write boundary and session binding refuse as the owner. A new store, `staff-links.json`, sits beside `access.json` in the root-only directory. One new setting, `CROOKS_TEAM_HOST`. `person_note`'s description names the staff link (+45 bytes). Server steps (DNS, the Caddy site, the setting) are in `docs/STAFF_LINKS.md`. Not built: CLIVE sending the link itself by WhatsApp, text or email (he sends it from his phone's share sheet), and a team member signing their own phone out.
+
+---
+
 ## DEC-076 — The loop's exact-SHA reviewer is Claude on the owner's plan; the Director and CLIVE get GitHub Apps of their own
 
 **Date:** 2026-10-08

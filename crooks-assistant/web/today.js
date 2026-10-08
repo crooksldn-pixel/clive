@@ -83,7 +83,9 @@
     Object.assign(init.headers, (options && options.headers) || {});
     let response;
     try { response = await fetch(path, init); } catch (error) {
-      return { ok: false, unreached: true, detail: "CLIVE can't be reached. Check the phone is online and on Tailscale." };
+      // [staff-links] A phone that joined by a staff link is not on Tailscale (DEC-075).
+      const how = /\.ts\.net$/.test(window.location.hostname) ? ' and on Tailscale' : '';
+      return { ok: false, unreached: true, detail: `CLIVE can't be reached. Check the phone is online${how}.` };
     }
     let data = {};
     try { data = await response.json(); } catch (error) { data = {}; }
@@ -909,18 +911,21 @@
 
   async function load(fresh) {
     const data = await call('/today/state' + (fresh ? '?fresh=true' : ''));
+    // [staff-links] A phone the team's door does not know, or signed out by George: the join page says
+    // what to do (app/people/team_door.py, DEC-075).
+    if (data.code === 'signed_out') { window.location.replace('/join'); return false; }
     if (!data.ok) {
       line(sentence(data.detail) || "CLIVE wouldn't show the work list.", 'ERROR');
       return false;
     }
-    const was = JSON.stringify(state && [state.work, state.record, state.people]);
+    const was = JSON.stringify(state && [state.work, state.record, state.people, state.links]);
     state = data;
     document.body.classList.remove('loading');
     document.body.classList.toggle('is-owner', state.me.owner);
     $('#home').hidden = !state.me.owner;
     if (state.me.owner) {
       if (view !== 'talk') $('#owner').hidden = false;
-      if (window.CliveTodayOwner && was !== JSON.stringify([state.work, state.record, state.people])) window.CliveTodayOwner.draw(state);
+      if (window.CliveTodayOwner && was !== JSON.stringify([state.work, state.record, state.people, state.links])) window.CliveTodayOwner.draw(state);
       $('#work').hidden = !(ownerWork && view === 'work');
       if (ownerWork && view === 'work') draw();
       return true;

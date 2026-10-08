@@ -11,6 +11,22 @@ And on 8 October (DEC-071, ruling 34): they may **send a draft he left**, on the
 
 ## Setting someone up
 
+**By a staff link (8 October, ruling 35, DEC-075; [`STAFF_LINKS.md`](STAFF_LINKS.md)).** Nothing to install:
+
+1. On Today, open **People**. Add them with their name and what they do (no Tailscale login needed).
+2. Tap **Make a staff link** beside them and confirm with your passkey. The screen shows a link and a
+   six-digit code, once. Share the link from your phone (WhatsApp, Messages), and tell them the code
+   yourself, not in the same message.
+3. They open the link on their phone, type the code, and are on Today, at `https://team.crooksldn.com`.
+   The link works once, for 12 hours.
+
+Their phone stays signed in while they use it; 14 days unused, or 90 days in all, and they need a new
+link. On People you see each phone and when it was last used, and **Sign out** takes one phone off at
+once. Asking CLIVE ("send Emily a staff link") gets the same steps in words: CLIVE never makes the link
+itself in a conversation.
+
+**By Tailscale, as before**, for anyone who already uses it:
+
 1. **First, limit what the team can reach.** Tailscale's default access rules let every user reach every device on the tailnet: your Mac, the build server, and anything listening on them. Before inviting anyone, change the rules in the admin console (Access controls) so that:
    - you keep everything;
    - the team reaches only CLIVE's machine, on port 443.
@@ -22,7 +38,7 @@ And on 8 October (DEC-071, ruling 34): they may **send a draft he left**, on the
 5. **Let them in.** Open Today and go to People. Tap *Let them in* beside their name and confirm with your passkey. Your passkey is set up once on the Connections screen (docs/CONNECTIONS.md).
 6. **They open CLIVE's address** on their phone, `https://<your CLIVE>.<your tailnet>.ts.net`, and land on Today. Adding it to the home screen makes it an app.
 
-To take someone off, open People and tap *Take access away*, confirmed with your passkey. You can also tell CLIVE they have left. Either way the door closes at their next request.
+To take someone off, open People and tap *Take access away*, confirmed with your passkey: it signs out their phones joined by link too, and cancels a link waiting for them. You can also tell CLIVE they have left. Either way the door closes at their next request.
 
 Someone who is not on the team is set up by the same words: "Henry does graphic design for us. His email is … and his Instagram is …; we use him for posters and post designs, not often product design." He gets a card, never a login. When a job needs a poster, CLIVE knows he is the one to suggest.
 
@@ -88,7 +104,7 @@ Their conversations are their own. You do not see them in your app, and they do 
 - **Replying on Instagram.** CLIVE reads Instagram but cannot send there yet. They reply in the Instagram app, then mark the job done.
 - **Vinted.** Uploading Vinted sales and shipping labels are jobs you hand out like any other. Doing them through CLIVE needs Vinted's Pro integrations, which are for Pro accounts and approved per account.
 - **Telling them a job is waiting.** Today refreshes every thirty seconds while it is open; there is no phone notification yet.
-- **Several people on the shared tablet.** The door decides who a request is, so the tablet acts as whoever is signed in to Tailscale on it. Signing in by invite link is a separate piece of work.
+- **Several people on the shared tablet.** The door decides who a request is, so the tablet acts as whoever is signed in on it (by Tailscale, or by the last staff link used on it).
 
 ## Worth deciding before everyday use
 
@@ -101,6 +117,7 @@ Every member of the team's conversation with CLIVE runs on the owner's own Claud
   - its login is one the owner let in with his passkey (`app/people/access.py`, kept beside his passkeys in the root-only directory);
   - the card is still staff and still active;
   - with `CROOKS_TAILSCALE_VERIFY` on, Tailscale confirms the device is theirs.
+- **The team's own door** (`app/people/team_door.py`, DEC-075). A phone signed in by staff link reaches CLIVE at `team.crooksldn.com`, which answers the team's page, the routes it calls and the join, and nothing else. Its sign-in is an HttpOnly cookie kept as a hash, and through that door nobody is ever the owner. [`STAFF_LINKS.md`](STAFF_LINKS.md) has the threat model.
 - **Only the team's routes** (`app/people/staff.py`): the chat, its cards, and Today. Every other route stays the owner's, and the route walk in `tests/test_team.py` fails if a new one is not.
 - **A staff authority** (`app/tools/authority.py`) names its tools: the reads, the work list and the writes above. Anything else is refused before the gate is asked.
 - **Their own assistant** (`app/people/prompt.py`, `app/runtime.py`) has their own prompt and offers only those tools. It is made again whenever their card changes.

@@ -1,0 +1,16 @@
+/* CLIVE · Join (web/join.html): the staff link's one screen, on today.css's tokens. A phone first:
+ * the code box and the button are a thumb's size, the sentence under the title always says what next,
+ * blue is the one thing to do, and the soft red only says something went wrong. */
+.join{max-width:460px;padding-top:max(48px,env(safe-area-inset-top));padding-bottom:max(48px,env(safe-area-inset-bottom))}
+.join-kick{margin:0 0 10px;font-size:var(--t-kick);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.join-title{margin:0;font-size:34px;line-height:1.1;font-weight:700;letter-spacing:-.02em;overflow-wrap:anywhere}
+.join-line{margin:12px 0 0;font-size:var(--t-body);color:var(--ink-2);text-wrap:pretty}
+.join-line.is-error{color:var(--red)}
+.join-line.is-done{color:var(--ink)}
+.join-form{display:grid;gap:10px;margin:28px 0 0}
+.join-label{font-size:var(--t-small);font-weight:600;color:var(--ink-2);padding:0 4px}
+.join-code{min-height:72px;padding:0 18px;font-size:34px;font-weight:600;letter-spacing:.32em;text-align:center;
+  font-variant-numeric:tabular-nums}
+.join-code::placeholder{color:var(--ink-3)}
+.join-note{margin:18px 4px 0;font-size:var(--t-small);color:var(--ink-2)}
+#in-app{color:var(--ink);font-weight:600}

@@ -50,6 +50,7 @@ from app.routes import hooks as hooks_route
 from app.routes import release as release_route
 from app.routes import returns as returns_route
 from app.routes import returns_hook as returns_hook_route  # [returns-events] DEC-077
+from app.routes import staff_links as staff_links_route
 from config.settings import get_settings
 
 log = logging.getLogger("crooks")
@@ -557,6 +558,13 @@ async def guard_and_freshness(request: Request, call_next):
     What the tablet keeps: the page and its scripts are served with no-cache, so a page open
     for a week picks up a new build on its next load rather than in a fortnight.
     """
+    # [staff-links] The team's public door (app/people/team_door.py, DEC-075): a request that came
+    # in through team.crooksldn.com is judged by that door alone, before anything below can read a
+    # claim it carries, and it reaches the team's own page and nothing else (tests/test_staff_links.py).
+    from app.people import team_door
+
+    if team_door.came_through(request):
+        return await team_door.through(request, call_next)
     # [messaging] The public doors for messages coming in, one per channel (app/routes/hooks.py
     # HOOK_PATHS, exact paths only): they skip everything below, because WeCom's and Meta's servers
     # are not on the tailnet, and they carry no authority of any kind, so no tool can run from them. The route checks the channel's
@@ -737,6 +745,7 @@ app.include_router(bench_route.router)   # [bench] the test bench: runs, results
 app.include_router(hooks_route.router)   # [messaging] the public doors for messages coming in (/hooks/wecom, whatsapp, instagram)
 app.include_router(returns_hook_route.router)   # [returns-events] CROOKS Returns' doorbell, /hooks/returns (DEC-077)
 app.include_router(release_route.router)   # [deploy-now] Deploy now: his hold and passkey start the release service (owner only)
+app.include_router(staff_links_route.router)   # [staff-links] joining by link and code, and the owner's links (DEC-075)
 
 if WEB_DIR.exists():
     mimetypes.add_type("application/manifest+json", ".webmanifest")
