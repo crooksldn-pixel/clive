@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from returns.app import create_app
 from returns.models import Postage, Reason, Resolution, Selection, Status
 from returns.parcel2go import Parcel2Go
-from returns.service import ReturnsService
+from returns.service import ActionError, ReturnsService
 from returns.store import Store
 
 from .conftest import RecordingNotifier
@@ -68,6 +68,8 @@ class FakeParcel2Go:
         self.landing: list[str] = []
         # Parcel2Go takes the money, then this process stops before hearing back.
         self.stop_after_paying = False
+        # This process stops as the payment is sent, and the payment never reaches Parcel2Go.
+        self.stop_unpaid = False
         # Run as each payment request starts (a test moves its clock to make the request slow).
         self.on_pay = lambda: None
 
@@ -150,6 +152,8 @@ class FakeParcel2Go:
                 raise httpx.ReadTimeout("no answer yet", request=request)
             if self.stop_after_paying:
                 self.paid.append(path.split("/")[3])
+                raise Stopped()
+            if self.stop_unpaid:
                 raise Stopped()
             if self.refuse_pay:
                 return httpx.Response(
@@ -551,6 +555,94 @@ def test_a_stop_after_paying_never_makes_or_pays_a_second_order(
     assert ret.status == Status.awaiting_shipment
     assert p2g_server.paid == ["26633"] and len(p2g_server.orders) == 1
     assert len(shop.called("returnCreate")) == 1
+
+
+def stopped_mid_approve(psvc, p2g_server, settings, shop, p2g, clock, *, paid=True):
+    """Approve, and the process stops while paying for the label (a deploy restarts it).
+    Returns the restarted service and the return as it was saved."""
+    ret = request(psvc)
+    if paid:
+        p2g_server.stop_after_paying = True
+    else:
+        p2g_server.stop_unpaid = True
+    with pytest.raises(Stopped):
+        approve(psvc, ret)
+    p2g_server.stop_after_paying = p2g_server.stop_unpaid = False
+    restarted = ReturnsService(
+        settings, Store(settings.db_path), shop, p2g, RecordingNotifier(settings), clock=clock
+    )
+    kept = restarted.store.get(ret.id)
+    assert kept is not None
+    return restarted, kept
+
+
+def test_a_stop_during_the_first_approve_names_approve_and_the_timer_sends_the_label(
+    psvc, p2g, p2g_server, settings, shop, clock
+):
+    # The return is still `requested` after the stop: Label isn't offered, Approve is.
+    restarted, kept = stopped_mid_approve(psvc, p2g_server, settings, shop, p2g, clock)
+    assert kept.status == Status.requested and kept.postage.pay_sent_at is not None
+    assert "approve again" in (kept.last_error or "")
+    assert "try the label again" not in (kept.last_error or "")
+    restarted.tick()  # nobody pressed anything: the timer finds the paid label and sends it
+    ret = restarted.store.get(kept.id)
+    assert ret is not None and ret.status == Status.awaiting_shipment
+    assert ret.postage.pay_sent_at is None and not ret.last_error
+    assert p2g_server.paid == ["26633"] and p2g_server.pay_calls == 1
+    assert len(p2g_server.orders) == 1 and len(shop.called("returnCreate")) == 1
+    assert len(shop.called("reverseDeliveryCreateWithShipping")) == 1
+
+
+def test_a_stop_during_the_first_approve_that_never_paid_is_dropped_by_the_timer(
+    psvc, p2g, p2g_server, settings, shop, clock
+):
+    p2g.clock = clock
+    restarted, kept = stopped_mid_approve(psvc, p2g_server, settings, shop, p2g, clock, paid=False)
+    clock.now += timedelta(minutes=1)
+    restarted.tick()
+    ret = restarted.store.get(kept.id)
+    assert ret is not None and ret.status == Status.requested
+    assert "may still be going through" in (ret.last_error or "")
+    assert "Approve again" in (ret.last_error or "")
+    clock.now += timedelta(minutes=15)
+    restarted.tick()
+    ret = restarted.store.get(kept.id)
+    assert ret is not None and ret.status == Status.requested
+    assert "You weren't charged" in (ret.last_error or "") and ret.postage.label_ref is None
+    assert "Approve again to book a new label" in (ret.last_error or "")
+    assert p2g_server.pay_calls == 1 and p2g_server.paid == []
+    # Settled: declining is allowed again, and nothing was ever paid.
+    ret = restarted.execute(kept.id, "decline", {"reason": "worn"}, "staff", "d1")["return_doc"]
+    assert ret.status == Status.declined and p2g_server.paid == []
+
+
+def test_decline_and_cancel_wait_while_a_label_payment_has_no_answer(
+    psvc, p2g, p2g_server, settings, shop, clock
+):
+    restarted, kept = stopped_mid_approve(psvc, p2g_server, settings, shop, p2g, clock)
+    for action in ("decline", "cancel"):
+        with pytest.raises(ActionError) as refused:
+            restarted.execute(kept.id, action, {}, "staff", f"{action}-1")
+        why = str(refused.value)
+        assert refused.value.status == 409 and f"Can't {action} this return yet" in why
+        assert "Parcel2Go order 26633" in why and "may be paid for" in why
+        assert "approve again" in why
+    ret = restarted.store.get(kept.id)
+    assert ret is not None and ret.status == Status.requested
+
+
+def test_cancel_waits_while_a_label_payment_has_no_answer(psvc, p2g, p2g_server, clock):
+    p2g.clock = clock
+    ret = request(psvc)
+    p2g_server.pay_lands_late = True
+    ret = approve(psvc, ret)
+    assert ret.status == Status.awaiting_label and ret.postage.pay_sent_at is not None
+    with pytest.raises(ActionError) as refused:
+        psvc.execute(ret.id, "cancel", {}, "staff", "cancel-1")
+    assert "Can't cancel this return yet" in str(refused.value)
+    assert "try the label again" in str(refused.value)
+    left = psvc.store.get(ret.id)
+    assert left is not None and left.status == Status.awaiting_label
 
 
 def test_a_refused_payment_clears_the_wait(psvc, p2g, p2g_server, clock):

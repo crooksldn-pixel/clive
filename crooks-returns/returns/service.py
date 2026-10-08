@@ -500,6 +500,7 @@ class ReturnsService:
                 calls.append("returnProcess")
         elif action == "decline":
             self._require(ret, Status.requested)
+            self._refuse_while_paying(ret, "decline")
             if ret.shopify.create_unknown_at is not None and not ret.shopify.return_id:
                 will.append(
                     "First check Shopify for a return the earlier approval may have made, and "
@@ -541,6 +542,7 @@ class ReturnsService:
                 calls.append("storeCreditAccountCredit")
         elif action == "cancel":
             self._require(ret, Status.requested, Status.awaiting_label, Status.awaiting_shipment)
+            self._refuse_while_paying(ret, "cancel")
             if ret.shopify.create_unknown_at is not None and not ret.shopify.return_id:
                 will.append(
                     "Check Shopify for a return the earlier approval may have made, cancel it "
@@ -558,6 +560,24 @@ class ReturnsService:
         else:
             raise ActionError(f"Unknown action {action}.", 404)
         return self._preview_out(ret, action, will, calls)
+
+    @staticmethod
+    def _refuse_while_paying(ret: Return, action: str) -> None:
+        """Ending a return while its label payment has no answer would leave a label that may
+        be paid for behind, with nothing left to collect it or say so."""
+        if ret.postage.pay_sent_at is None:
+            return
+        ref = ret.postage.label_ref or ""
+        order = f" (Parcel2Go order {ref.split(':')[1]})" if ref.startswith("p2g:") else ""
+        if ret.status == Status.requested:
+            what, again = "its approval stopped while paying for the label", "approve again"
+        else:
+            what, again = "the payment for its label got no answer", "try the label again"
+        raise ActionError(
+            f"Can't {action} this return yet: {what}{order}, so the label may be paid for. "
+            f"It is checked with Parcel2Go automatically, or {again} to check now (it never "
+            f"pays twice). Once that has settled it, you can {action}."
+        )
 
     def _label_plan(self, ret: Return) -> str:
         """What buying the label will do, with the real price where the provider quotes."""
@@ -841,9 +861,12 @@ class ReturnsService:
             nonlocal sent
             ret.postage.label_ref = ref
             ret.postage.pay_sent_at, ret.postage.unpaid_read_at = self.clock(), None
+            # Seen only if this process stops before the answer is saved. A first approval is
+            # still `requested` then, where the button is Approve, not Label.
+            again = "approve again" if ret.status == Status.requested else "try the label again"
             ret.last_error = (
-                "Paying for the label. If this message stays, try the label again: it checks "
-                "the courier first and never pays twice."
+                f"Paying for the label. If this message stays, {again}: it checks the courier "
+                "first and never pays twice. It is also checked automatically."
             )
             self.store.save(ret)
             sent = True
@@ -1278,6 +1301,21 @@ class ReturnsService:
 
     # ===================================================================== upkeep
 
+    @staticmethod
+    def _to_collect(ret: Return) -> bool:
+        """A Parcel2Go order whose label hasn't reached the customer: waiting for a label, or a
+        first approval that stopped while paying (still `requested`, the payment unanswered)."""
+        if not (ret.postage.label_ref or "").startswith("p2g:"):
+            return False
+        return ret.status == Status.awaiting_label or (
+            ret.status == Status.requested and ret.postage.pay_sent_at is not None
+        )
+
+    def labels_to_collect(self) -> list[Return]:
+        """What the timer (and returns-ctl collect) looks at; see _to_collect."""
+        statuses = [Status.awaiting_label.value, Status.requested.value]
+        return [r for r in self.store.search(status=statuses, limit=1000) if self._to_collect(r)]
+
     def collect_labels(self) -> list[str]:
         """Finish returns whose label is bought but never reached the customer: the label
         wasn't released in time, or Shopify didn't take it. Only labels Parcel2Go confirms are
@@ -1285,12 +1323,10 @@ class ReturnsService:
         and that reads unpaid twice, two minutes apart, is dropped (never paid)."""
         collect = getattr(self.labels, "collect", None)
         done = []
-        for found in self.store.search(status=[Status.awaiting_label.value], limit=1000):
-            if not (found.postage.label_ref or "").startswith("p2g:"):
-                continue
+        for found in self.labels_to_collect():
             with self.store.lock:
                 ret = self._get(found.id)
-                if ret.status != Status.awaiting_label:
+                if not self._to_collect(ret):
                     continue
                 first = len(ret.timeline)
                 if ret.postage.label_file_id or ret.postage.qr_file_id:

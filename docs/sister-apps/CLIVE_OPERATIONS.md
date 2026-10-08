@@ -36,6 +36,10 @@ does. This page is the shared shape; the details are in `clive-shipping/shipping
   - Shipping: its purchase ledger.
   - Returns: reads Shopify back. Finding nothing counts as safe only two minutes after the
     unanswered attempt; sooner, the answer says to try again shortly and nothing is sent.
+  - Returns' label payment: reads Parcel2Go back. An order whose payment got no answer is never
+    paid again; it counts as unpaid only after two unpaid reads two minutes apart, and is then
+    dropped (`label_payment_not_taken`). Its timer does these reads too. Until then, decline and
+    cancel answer 409 and say why.
 
 **Buying postage in Shipping**
 - Only `POST /shipments/{id}/buy` buys, with the `basis` that a preview returned.

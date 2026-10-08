@@ -105,11 +105,7 @@ def labels(svc: ReturnsService, postcode: str) -> int:
 def collect(svc: ReturnsService) -> int:
     """Labels that were bought but never reached the customer: collect them and hand them to
     Shopify now, instead of waiting for the timer. Never pays for anything."""
-    stuck = [
-        r
-        for r in svc.store.search(status=["awaiting_label"], limit=1000)
-        if (r.postage.label_ref or "").startswith("p2g:")
-    ]
+    stuck = svc.labels_to_collect()
     if not stuck:
         print("No bought labels are waiting to be sent.")
         return 0

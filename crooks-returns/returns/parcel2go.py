@@ -36,7 +36,7 @@ from typing import Any
 import httpx
 
 from returns.labels import Keep, Label, LabelError
-from returns.models import Return, declared_value_pence, to_amount, to_pence
+from returns.models import Return, Status, declared_value_pence, to_amount, to_pence
 from returns.settings import Settings
 
 log = logging.getLogger("returns.parcel2go")
@@ -423,7 +423,9 @@ class Parcel2Go:
         got = self._call("GET", "/orders", params={"orderId": order_id, "hash": order_hash})
         if not (got or {}).get("PaidDate"):
             if ret.postage.pay_sent_at is not None:
-                raise self._unanswered(ref, ret, "Try the label again")
+                # A first approval that stopped while paying is still `requested`.
+                again = "Approve again" if ret.status == Status.requested else "Try the label again"
+                raise self._unanswered(ref, ret, again)
             raise LabelError(
                 f"Parcel2Go order {order_id} isn't paid, so it has no label. Try the label "
                 "again to pay for it.",
