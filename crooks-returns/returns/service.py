@@ -833,16 +833,20 @@ class ReturnsService:
             (order.email or order.customer_email) if order else None
         )
 
+        sent = False
+
         def keep(ref: str) -> None:
             # Written down before the provider is asked for money: if its answer is lost or
             # this process stops, the next try settles this order and never pays another.
+            nonlocal sent
             ret.postage.label_ref = ref
-            ret.postage.pay_sent_at = self.clock()
+            ret.postage.pay_sent_at, ret.postage.unpaid_read_at = self.clock(), None
             ret.last_error = (
                 "Paying for the label. If this message stays, try the label again: it checks "
                 "the courier first and never pays twice."
             )
             self.store.save(ret)
+            sent = True
 
         try:
             label = self.labels.create(ret, address, keep)
@@ -850,7 +854,10 @@ class ReturnsService:
             if exc.ref:  # an order exists: keep it so a retry settles it, never buys twice
                 ret.postage.label_ref = exc.ref
             if exc.paid is not None:  # the provider answered: paid, or definitely not
-                ret.postage.pay_sent_at = None
+                ret.postage.pay_sent_at = ret.postage.unpaid_read_at = None
+            elif sent:  # the payment got no answer: the wait counts from now, when it ended
+                ret.postage.pay_sent_at, ret.postage.unpaid_read_at = self.clock(), None
+            self._unpaid_verdict(ret, exc, actor)
             ret.last_error = str(exc)
             if exc.paid:
                 self._event(ret, "label_paid_not_collected", actor, {"why": str(exc)})
@@ -858,11 +865,29 @@ class ReturnsService:
             return
         self._label_ready(ret, actor, label)
 
+    def _unpaid_verdict(self, ret: Return, exc: LabelError, actor: str) -> None:
+        """Keep Parcel2Go's read-back of an order whose payment got no answer: the first unpaid
+        read, or that the order is dropped (unpaid twice, two minutes apart) and never paid."""
+        if exc.unpaid_at is not None:
+            ret.postage.unpaid_read_at = exc.unpaid_at
+        if not exc.dropped:
+            return
+        parts = (exc.ref or ret.postage.label_ref or "").split(":")
+        ret.postage.label_ref = None  # the next try books a new order; this one is never paid
+        ret.postage.pay_sent_at = ret.postage.unpaid_read_at = None
+        self._event(
+            ret,
+            "label_payment_not_taken",
+            actor,
+            {"order": parts[1] if len(parts) > 1 else None, "charged": False},
+            verified=True,
+        )
+
     def _label_ready(self, ret: Return, actor: str, label: Label) -> None:
         """Keep a bought label, then give it to the customer through Shopify."""
         file_id = self.store.put_file(ret.id, "application/pdf", label.pdf) if label.pdf else None
         ret.postage.carrier, ret.postage.label_ref = label.carrier, label.ref
-        ret.postage.pay_sent_at = None  # paid: nothing is in flight
+        ret.postage.pay_sent_at = ret.postage.unpaid_read_at = None  # paid: nothing in flight
         ret.postage.tracking = label.tracking
         ret.postage.tracking_url = label.tracking_url or (
             tracking_url(label.tracking) if label.tracking else None
@@ -1256,7 +1281,8 @@ class ReturnsService:
     def collect_labels(self) -> list[str]:
         """Finish returns whose label is bought but never reached the customer: the label
         wasn't released in time, or Shopify didn't take it. Only labels Parcel2Go confirms are
-        paid are collected; nothing is ever paid for here."""
+        paid are collected; nothing is ever paid for here. An order whose payment got no answer
+        and that reads unpaid twice, two minutes apart, is dropped (never paid)."""
         collect = getattr(self.labels, "collect", None)
         done = []
         for found in self.store.search(status=[Status.awaiting_label.value], limit=1000):
@@ -1282,7 +1308,9 @@ class ReturnsService:
                     try:
                         label = collect(ret)
                     except LabelError as exc:
+                        self._unpaid_verdict(ret, exc, "system")
                         ret.last_error = str(exc)
+                        self._stamp(ret, first, "system")  # the timer
                         self.store.save(ret)
                         continue
                     self._label_ready(ret, "system", label)

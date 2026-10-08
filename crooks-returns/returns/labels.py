@@ -27,7 +27,12 @@ class LabelError(RuntimeError):
     order exists with the provider, so a retry settles that one instead of buying another.
     `paid` is True when the provider confirmed the label is paid for (only collecting it
     failed), False when it confirmed it isn't, None when nobody knows yet. `status` is the
-    provider's HTTP status when it answered with an error (a 4xx means it said no)."""
+    provider's HTTP status when it answered with an error (a 4xx means it said no).
+
+    After a payment that got no answer, the order reading unpaid is not believed at once:
+    `unpaid_at` is when it first read unpaid (to be kept for the next check), and `dropped`
+    means it read unpaid again at least two minutes later, so that order is never paid and a
+    new one is needed (the rule Shipping follows, docs/shipping/DESIGN.md section G.5)."""
 
     def __init__(
         self,
@@ -35,11 +40,15 @@ class LabelError(RuntimeError):
         ref: str | None = None,
         paid: bool | None = None,
         status: int | None = None,
+        unpaid_at: datetime | None = None,
+        dropped: bool = False,
     ) -> None:
         super().__init__(message)
         self.ref = ref
         self.paid = paid
         self.status = status
+        self.unpaid_at = unpaid_at
+        self.dropped = dropped
 
 
 # Called with the provider's order reference just before money can move, so the caller writes

@@ -15,8 +15,10 @@ There is no cancel in the API: an unused label is refunded by asking Parcel2Go, 
 only bought when staff approve the return.
 
 Paying a paid order charges again, so every payment is written down (through `keep`) before it
-is sent, and an order that reads unpaid within PAY_SETTLE of a payment that got no answer is not
-paid again: that payment may still be going through.
+is sent. After a payment that got no answer, an unpaid-looking order is never paid again: it is
+believed unpaid only when it reads unpaid twice, at least PAY_SETTLE apart, after that payment
+ended, and then it is dropped for good and the next try books a new order. This is Shipping's
+rule (docs/shipping/DESIGN.md section G.5).
 """
 
 from __future__ import annotations
@@ -50,8 +52,8 @@ COURIERS = {
 NAMES = {"evri": "Evri", "inpost": "InPost", "royal-mail": "Royal Mail", "collectplus": "Collect+"}
 # Shop and locker services, which the customer walks to. Collection services need them in.
 DROP_OFF = {"Shop", "Locker"}
-# How long a payment that got no answer may still be going through. Until then an order that
-# reads unpaid is not believed unpaid (Shipping waits the same two minutes).
+# How far apart two unpaid reads must be, after a payment that got no answer, before that payment
+# is believed never to have gone through (Shipping's confirm_unpaid_after).
 PAY_SETTLE = timedelta(minutes=2)
 
 
@@ -339,9 +341,7 @@ class Parcel2Go:
             raise LabelError(why)
         if ret.postage.label_ref and ret.postage.label_ref.startswith("p2g:"):
             # An order exists from an earlier try: settle that one, never create a second.
-            return self._settle(
-                ret.postage.label_ref, ret.postage.service, ret.postage.pay_sent_at, keep
-            )
+            return self._settle(ret.postage.label_ref, ret, keep)
         collection = self.customer_address(ret, address)
         if not collection["Phone"]:
             raise LabelError(
@@ -422,6 +422,8 @@ class Parcel2Go:
         _, order_id, _, order_hash = ref.split(":", 3)
         got = self._call("GET", "/orders", params={"orderId": order_id, "hash": order_hash})
         if not (got or {}).get("PaidDate"):
+            if ret.postage.pay_sent_at is not None:
+                raise self._unanswered(ref, ret, "Try the label again")
             raise LabelError(
                 f"Parcel2Go order {order_id} isn't paid, so it has no label. Try the label "
                 "again to pay for it.",
@@ -482,16 +484,9 @@ class Parcel2Go:
                 paid=False,
             ) from exc
 
-    def _settle(
-        self,
-        ref: str,
-        service: str | None,
-        pay_sent_at: datetime | None = None,
-        keep: Keep | None = None,
-    ) -> Label:
+    def _settle(self, ref: str, ret: Return, keep: Keep | None = None) -> Label:
         """Finish an order from an earlier attempt: read whether it was paid, pay only if
-        Parcel2Go says it wasn't (and no unanswered payment may still be going through), then
-        fetch its label."""
+        Parcel2Go said no to every payment sent for it, then fetch its label."""
         _, order_id, _, order_hash = ref.split(":", 3)
         try:
             got = self._call("GET", "/orders", params={"orderId": order_id, "hash": order_hash})
@@ -503,18 +498,36 @@ class Parcel2Go:
             ) from exc
         paid = None
         if not (got or {}).get("PaidDate"):
-            if pay_sent_at is not None and self.clock() < pay_sent_at + PAY_SETTLE:
-                raise LabelError(
-                    f"Parcel2Go order {order_id}: an earlier payment got no answer and may still "
-                    "be going through, so it was not paid again. Try the label again in a "
-                    "couple of minutes: it checks Parcel2Go first.",
-                    ref=ref,
-                )
+            if ret.postage.pay_sent_at is not None:  # a payment got no answer: never pay again
+                raise self._unanswered(ref, ret, "Try the label again")
             self._before_paying(ref, keep)
             paid = self._pay(ref)
-        label = self._documents(ref, service, paid)
+        label = self._documents(ref, ret.postage.service, paid)
         label.price_pence = to_pence((got or {}).get("TotalPrice") or 0) or None
         return label
+
+    def _unanswered(self, ref: str, ret: Return, again: str) -> LabelError:
+        """The order reads unpaid, but a payment sent for it got no answer and may still be
+        going through. It is believed unpaid only after two unpaid reads at least PAY_SETTLE
+        apart, both after that payment ended; then it is dropped and never paid."""
+        order_id, now = ref.split(":")[1], self.clock()
+        first = ret.postage.unpaid_read_at or now  # cleared whenever a payment is sent or ends
+        if now < first + PAY_SETTLE:
+            return LabelError(
+                f"Parcel2Go order {order_id} reads unpaid, but its payment got no answer and may "
+                f"still be going through, so it was not paid again. {again} in a couple of "
+                "minutes: it checks Parcel2Go first and never pays twice.",
+                ref=ref,
+                unpaid_at=first,
+            )
+        return LabelError(
+            f"You weren't charged: Parcel2Go order {order_id} read unpaid twice, two minutes "
+            "apart, after its payment got no answer, so it is dropped and will never be paid. "
+            f"{again} to book a new label.",
+            ref=ref,
+            paid=False,
+            dropped=True,
+        )
 
     def _pick(self, wanted: str | None, postcode: str, value: int) -> DropOption:
         options = self.options(postcode, value, with_shops=False)

@@ -97,6 +97,7 @@ Both `/events` feeds are each record's own history, flattened, oldest first, at 
 - **Returns:** `{at, return_id, order, type, actor, source, verified, detail, status_now}`. Types include:
   - `requested`, `approved`, `approve_unknown`, `approve_reconciled`, `declined`
   - `label_bought`, `shipping_attached`, `shipping_attach_unknown`
+  - `label_payment_not_taken`: a label payment that got no answer read unpaid twice, two minutes apart; that Parcel2Go order is never paid (`detail.charged` is false)
   - `in_transit`, `received`, `processed`, `completed`, `cancelled`, `cancel_unknown`
   - `action_interrupted`
 

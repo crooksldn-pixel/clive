@@ -68,6 +68,8 @@ class FakeParcel2Go:
         self.landing: list[str] = []
         # Parcel2Go takes the money, then this process stops before hearing back.
         self.stop_after_paying = False
+        # Run as each payment request starts (a test moves its clock to make the request slow).
+        self.on_pay = lambda: None
 
     def land(self) -> None:
         self.paid += self.landing
@@ -142,6 +144,7 @@ class FakeParcel2Go:
             )
         if path.endswith("/paywithprepay"):
             self.pay_calls += 1
+            self.on_pay()
             if self.pay_lands_late:
                 self.landing.append(path.split("/")[3])
                 raise httpx.ReadTimeout("no answer yet", request=request)
@@ -449,7 +452,36 @@ def test_a_payment_still_going_through_is_never_paid_again(psvc, p2g, p2g_server
     assert len(p2g_server.orders) == 1
 
 
-def test_a_payment_that_never_arrived_is_paid_once_two_minutes_on(psvc, p2g, p2g_server, clock):
+def test_the_wait_counts_from_when_the_unanswered_payment_ended(psvc, p2g, p2g_server, clock):
+    # The payment request hangs for its 30 s timeout. Two minutes from when it was SENT is only
+    # 90 s after it ended, and Parcel2Go may still be taking the money then.
+    p2g.clock = clock
+    sent_at = clock.now
+    ret = request(psvc)
+    p2g_server.pay_lands_late = True
+
+    def slow() -> None:
+        clock.now += timedelta(seconds=30)
+
+    p2g_server.on_pay = slow
+    ret = approve(psvc, ret)
+    p2g_server.pay_lands_late = False
+    clock.now = sent_at + timedelta(minutes=2, seconds=1)
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k2")["return_doc"]
+    assert p2g_server.pay_calls == 1  # not paid a second time
+    assert ret.status == Status.awaiting_label and "may still be going through" in ret.last_error
+    assert ret.postage.pay_sent_at == sent_at + timedelta(seconds=30)  # when it ended
+    p2g_server.land()
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k3")["return_doc"]
+    assert ret.status == Status.awaiting_shipment
+    assert p2g_server.pay_calls == 1 and p2g_server.paid == ["26633"]
+
+
+def test_a_payment_that_never_arrived_is_dropped_and_a_new_label_paid_once(
+    psvc, p2g, p2g_server, clock
+):
+    # Shipping's rule (DESIGN.md G.5): unpaid is believed only after two unpaid reads at least
+    # two minutes apart; then that order is never paid, and the next try books a new one.
     p2g.clock = clock
     ret = request(psvc)
     p2g_server.pay_lands_late = True
@@ -457,8 +489,46 @@ def test_a_payment_that_never_arrived_is_paid_once_two_minutes_on(psvc, p2g, p2g
     p2g_server.pay_lands_late, p2g_server.landing = False, []  # it never reached Parcel2Go
     clock.now += timedelta(minutes=3)
     ret = psvc.execute(ret.id, "label", {}, "staff", "k2")["return_doc"]
+    first_read = clock.now
+    assert p2g_server.pay_calls == 1 and "may still be going through" in (ret.last_error or "")
+    assert ret.postage.unpaid_read_at == first_read
+    clock.now = first_read + timedelta(minutes=1, seconds=59)
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k3")["return_doc"]
+    assert ret.postage.unpaid_read_at == first_read and p2g_server.pay_calls == 1
+    clock.now = first_read + timedelta(minutes=2)
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k4")["return_doc"]
+    assert ret.status == Status.awaiting_label and "You weren't charged" in (ret.last_error or "")
+    assert ret.postage.label_ref is None and ret.postage.pay_sent_at is None
+    dropped = [e for e in ret.timeline if e.type == "label_payment_not_taken"]
+    assert [e.detail for e in dropped] == [{"order": "26633", "charged": False}]
+    assert p2g_server.pay_calls == 1 and p2g_server.paid == []  # 26633 is never paid
+    ret = psvc.execute(ret.id, "label", {}, "staff", "k5")["return_doc"]
     assert ret.status == Status.awaiting_shipment
-    assert p2g_server.paid == ["26633"] and len(p2g_server.orders) == 1
+    assert p2g_server.paid == ["26634"] and len(p2g_server.orders) == 2
+    assert p2g_server.pay_calls == 2
+
+
+def test_the_timer_drops_a_payment_that_never_went_through_and_never_pays(
+    psvc, p2g, p2g_server, clock
+):
+    p2g.clock = clock
+    ret = request(psvc)
+    p2g_server.pay_lands_late = True
+    ret = approve(psvc, ret)
+    p2g_server.pay_lands_late, p2g_server.landing = False, []  # it never reached Parcel2Go
+    clock.now += timedelta(minutes=1)
+    psvc.tick()
+    ret = psvc.store.get(ret.id)
+    # Not "isn't paid, try the label again to pay for it": it may still be going through.
+    assert ret is not None and "may still be going through" in (ret.last_error or "")
+    assert ret.postage.label_ref and ret.postage.unpaid_read_at == clock.now
+    clock.now += timedelta(minutes=15)
+    psvc.tick()
+    ret = psvc.store.get(ret.id)
+    assert ret is not None and ret.postage.label_ref is None
+    assert "You weren't charged" in (ret.last_error or "")
+    assert [(e.type, e.source) for e in ret.timeline][-1] == ("label_payment_not_taken", "system")
+    assert p2g_server.pay_calls == 1 and p2g_server.paid == []
 
 
 def test_a_stop_after_paying_never_makes_or_pays_a_second_order(
