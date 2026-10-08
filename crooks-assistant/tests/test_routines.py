@@ -398,6 +398,32 @@ async def test_each_argument_is_the_type_its_schema_declares_or_the_step_is_refu
     assert book.of("owner") == []
 
 
+JOB = "wi_0000abcd"
+
+
+@pytest.mark.parametrize("bad", [
+    step("work_note", "Mark the packing job done", action="done", item_id=JOB),
+    step("work_note", "Claim the order found", action="claim", ref="order:gid://shopify/Order/1940"),
+    step("objective_note", "Note on the drop", objective_id="obj_0000abcd", action="fact", text="Samples in"),
+    step("objective_open", "Open the drop", title="Drop", request="x", tasks=[{"who": "Ana", "text": "Pack", "task_id": "7"}]),
+])
+async def test_a_job_an_objective_or_a_found_row_named_by_its_id_is_refused_like_any_record(bad):
+    """The re-review's N7: CLIVE's own ids (a job on the work list, an objective, a row of today's
+    list) are not issued by the gate, but kept in a step they are the same record on every run, and
+    the card says no id is kept. Refused in the same words as any record's id."""
+    with owner(), pytest.raises(ToolError, match=re.escape(NO_ID)):
+        await save(steps=[bad])
+    assert book.of("owner") == []
+
+
+async def test_a_step_stored_with_a_jobs_id_is_skipped_when_run_with_why(folder):
+    _saved_before_this_fix(folder, [step("work_note", "Mark the packing job done", action="done", item_id=JOB),
+                                    step("shopify_list_orders", "Today's orders", days=1)])
+    with owner():
+        run = await routine_tools.routine_run(name="old")
+    assert [r.get("skip", "") for r in run["run"]] == ["it keeps a record's id; say again what it should look for", ""]
+
+
 @pytest.mark.parametrize("declared", [["string", "null"], ["integer"], {"one": "string"}])
 async def test_a_type_that_is_not_one_word_is_refused_never_an_error(monkeypatch, declared):
     """The re-review's N6: no tool declares `"type": [..]` today, but one that did would have raised

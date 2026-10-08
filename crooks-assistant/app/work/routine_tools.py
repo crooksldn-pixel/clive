@@ -14,8 +14,9 @@ What these tools promise:
   read, a change or a step that acts at once (app/work/routine_words.py) is read from the registry,
   not said by the model. An id is never kept: the gate's
   issued-id arguments are dropped and the model is told so, and any other value under a key
-  dispatch reads as an id, at any depth, is refused (a step already saved with one is refused when
-  it is run). Each run looks its records up again, so a routine cannot act on yesterday's order by
+  dispatch reads as an id, or under any other `…_id` or `ref` (CLIVE's own: a job, an objective, a
+  row of today's list), at any depth, is refused (a step already saved with one is refused when it
+  is run). Each run looks its records up again, so a routine cannot act on yesterday's order by
   accident. And no result shows a step's arguments except as one JSON string (`args_json`), so
   dispatch's harvest never issues an id from a saved step: only a real lookup does (the review's
   B1).
@@ -139,11 +140,21 @@ def _issued(name: str, spec: Any) -> set[str]:
     return set(spec.issued_id_args) | set(gate._ISSUED_ID_ARGS.get(name, ()))
 
 
+def names_a_record(key: Any) -> bool:
+    """Whether an argument called `key` names one record by its id: a key dispatch reads as an id
+    (its `_ID_KEYS`), or any other `…_id` or `ref`, CLIVE's own among them (a job on the work list,
+    `work_note`'s item_id; an objective; a row of today's list, "order:gid://…"). The gate does not
+    issue those, but kept in a step they would be the same record on every run, and the card says
+    no id is kept (the re-review's N7)."""
+    key = str(key)
+    return key in _ID_KEYS or key == "ref" or key.endswith("_id")
+
+
 def _id_key_in(value: Any) -> str:
-    """The first key anywhere in `value` that dispatch reads as an id (its `_ID_KEYS`), or ""."""
+    """The first key anywhere in `value` that names a record by its id (`names_a_record`), or ""."""
     if isinstance(value, dict):
         for key, inner in value.items():
-            found = str(key) if key in _ID_KEYS else _id_key_in(inner)
+            found = str(key) if names_a_record(key) else _id_key_in(inner)
             if found:
                 return found
     elif isinstance(value, list):
@@ -203,8 +214,9 @@ NO_ID = "A routine doesn't keep a record's id; say what to look for and each run
 def args_problem(name: str, spec: Any, args: dict[str, Any]) -> str:
     """Why these arguments cannot be kept as, or run from, a step of `name`, or "". The tool's own
     issued-id arguments are left out before a step is saved; any of them still here, or any value
-    anywhere under a key dispatch reads as an id, is refused: kept, it would be the same record on
-    every run, and shown in a result it could be issued without a lookup (the review's B1)."""
+    anywhere under a key that names a record by its id (`names_a_record`), is refused: kept, it
+    would be the same record on every run, and shown in a result it could be issued without a
+    lookup (the review's B1)."""
     known = (spec.input_schema or {}).get("properties") or {}
     unknown = [str(k) for k in args if k not in known]
     if unknown:

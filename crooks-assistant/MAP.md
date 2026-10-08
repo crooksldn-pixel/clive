@@ -90,7 +90,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `speech` | 846 | live | — | none |
 | `support` | 1,693 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
 | `tools` | 15,261 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
-| `work` | 2,493 | live | — | [`TEAM.md`](docs/TEAM.md) |
+| `work` | 2,508 | live | — | [`TEAM.md`](docs/TEAM.md) |
 <!-- /map:parts -->
 
 ## Pages
