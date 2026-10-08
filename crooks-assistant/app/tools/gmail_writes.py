@@ -908,9 +908,13 @@ async def gmail_send_reply(thread_id: str, body: str = "", order_id: str = "") -
         raise ToolError("That was already sent.")
     if execution["draft_id"]:
         before["draft_sha"] = draft["sha"]
+    whose = _whose_draft(draft) if execution["draft_id"] else None
     replaces = await _replaces(str(thread_id), execution)
     prepared = _prepared_email(execution=execution, before=before, expected_after={**before, "drafts": 0, "sent": 1}, entity_ref=str(thread_id), ctx=ctx, customer=customer,
                                sending=True, title="Send the reply", sender=sender, kind="send_reply")
+    if whose is not None and whose["asker"]:
+        # [inbox, ruling 34] The draft waiting in the thread, sent as Gmail holds it: whose words, whose hold.
+        prepared.summary.update(words_line=whose["words_line"], sender_line=whose["sender_line"])
     return _with_replaces(prepared, replaces)
 
 
@@ -930,6 +934,22 @@ def _with_replaces(prepared: Prepared, replaces: list[dict[str, Any]]) -> Prepar
     if replaces:
         prepared.summary["replaces_line"] = gmail_drafts.replaces_line(replaces)
     return prepared
+
+
+def _whose_draft(draft: dict[str, Any], *, required: bool = False) -> dict[str, str]:
+    """[inbox, ruling 34] Whose words a draft waiting in Gmail is, and whose hold would send it, for
+    its card: from CLIVE's record of the drafts it made ("" — written in Gmail — when it did not make
+    it) and the authority asking now. A member of the team is refused a draft another member drafted
+    with CLIVE: George's drafts, and their own, are the ones they may send."""
+    from app.tools import gmail_drafts
+
+    asker = gmail_drafts.who_now()
+    if required and not asker:
+        raise ToolError("Nobody is signed in to send it, so nothing was prepared.")
+    by = gmail_drafts.words_of(draft_id=str(draft.get("draft_id") or ""), token=str(draft.get("token") or ""))
+    if asker not in ("owner", "") and by not in ("", "owner", "clive", asker):
+        raise ToolError(f"That draft is {gmail_drafts.first_name(by)}'s words, drafted with CLIVE: they or George send it. Nothing was prepared.")
+    return {"by": by, "asker": asker, "words_line": gmail_drafts.whose(by, asker), "sender_line": gmail_drafts.sender_line(asker)}
 
 
 # --------------------------------------------------------------- a draft as Gmail holds it (ruling 34)
@@ -960,17 +980,11 @@ def _with_replaces(prepared: Prepared, replaces: list[dict[str, Any]]) -> Prepar
     ),
 )
 async def gmail_send_draft(thread_id: str) -> Prepared:
-    from app.tools import gmail_drafts
-
     client = _g()
     ctx = await thread_context(str(thread_id))
     draft = await _the_one_draft(ctx, "in that thread")
-    asker = gmail_drafts._who_now()
-    if not asker:
-        raise ToolError("Nobody is signed in to send it, so nothing was prepared.")
-    by = gmail_drafts.words_of(draft_id=draft["draft_id"], token=draft["token"])
-    if asker != "owner" and by not in ("", "owner", "clive", asker):
-        raise ToolError(f"That draft is {gmail_drafts._first_name(by)}'s words, drafted with CLIVE: they or George send it. Nothing was prepared.")
+    whose = _whose_draft(draft, required=True)
+    by, asker = whose["by"], whose["asker"]
     # The words that would leave name only orders whose customer they go to, as every email's do.
     await _new_email_held_to_the_orders_it_names(f"{draft['subject']}\n{draft['body']}", {"email": draft["to"]})
     sender = await asyncio.to_thread(client.address)
@@ -987,14 +1001,14 @@ async def gmail_send_draft(thread_id: str) -> Prepared:
     if not reply:
         execution["replaces"] = []
     first = _first_name(draft["to_name"], draft["to"])
-    words = gmail_drafts.whose(by, asker)
+    words = whose["words_line"]
     prepared = Prepared(
         execution=execution, before=before, expected_after={**before, "drafts": 0, "sent": 1}, entity_ref=str(thread_id), entity_label="thread",
         summary={
             "title": "Send the draft", "sending": True, "reply": reply, "draft_used": True,
             "to_line": f"{draft['to_name']} <{draft['to']}>" if draft["to_name"] else draft["to"], "spoken_to": first,
             "subject": draft["subject"], "body": draft["body"], "from_line": sender,
-            "words_line": words, "sender_line": gmail_drafts.sender_line(asker),
+            "words_line": words, "sender_line": whose["sender_line"],
             "read_back": f"send the draft waiting for {first}" + (f", {words.split(',')[0]} words" if not words.startswith("Yours") else ""),
             "pii": [v for v in (draft["to"], draft["to_name"], draft["subject"]) if v],
             "ledger": {

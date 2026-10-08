@@ -162,7 +162,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `gmail_search` | recipe:landing_inbox, family:email_reads | test_followups_reads.py, test_gmail_tools.py, test_interaction_record.py, test_read_dedupe.py, test_tool_args_redaction.py | graph_thread_to_order, landing_inbox, needs_reply |
 | `gmail_send_draft` | command:a tapped control, family:email_sends | test_inbox_browser.py, test_staff_send_draft.py | — |
 | `gmail_send_new` | command:a tapped control, family:email_compose | test_compose_provenance.py, test_gmail_writes.py, test_r13_new_email_order_content.py | compose_send_instead, compose_send_spoken |
-| `gmail_send_reply` | command:a tapped control, family:email_sends | test_gmail_writes.py, test_reply_order_binding.py, test_tool_boundary.py | — |
+| `gmail_send_reply` | command:a tapped control, family:email_sends | test_gmail_writes.py, test_reply_order_binding.py, test_staff_send_draft.py, test_tool_boundary.py | — |
 | `gmail_thread_archive` | command:a tapped control, family:email_archive | test_gmail_writes.py | — |
 | `gmail_thread_junk` | command:a tapped control, family:email_junk | test_inbox_junk.py | — |
 | `gmail_unsent` | family:email_reads | test_inbox_browser.py, test_staff_send_draft.py | — |

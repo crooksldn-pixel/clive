@@ -227,3 +227,28 @@ async def test_two_drafts_in_a_thread_are_never_guessed_between(engine, box):
     with as_staff("mia-fixture"):
         text, proposal = await call(talk, "gmail_send_draft", thread_id=THREAD)
     assert proposal is None and "There are 2 drafts waiting" in text
+
+
+async def test_the_draft_sent_by_answering_its_thread_says_the_same_and_keeps_the_same_rule(engine, box):
+    """gmail_send_reply with no words sends the one draft waiting in the thread: the team could, and
+    can, send George's that way too — and that card says whose words and who sends, as this one does,
+    and refuses another member's draft the same way."""
+    georges_draft(box)
+    mia = Talk("m6")
+    mia.session.issue(THREAD)
+    with as_staff("mia-fixture"):
+        _, proposal = await call(mia, "gmail_send_reply", thread_id=THREAD)
+    said = facts_of(proposal, mia.session)
+    assert said["Words"] == "George's, written in Gmail" and said["Sent by"] == "Mia, on their own hold"
+    kai_thread = Talk("k2")
+    kai_thread.session.issue(THREAD)
+    box.drafts.clear()
+    box.threads[THREAD] = [m for m in box.threads[THREAD] if "DRAFT" not in m["labels"]]
+    with as_staff("kai-fixture", "kai@example.com"):
+        _, saved = await call(kai_thread, "gmail_draft_reply", thread_id=THREAD, body="Hi Daniel, Kai here.")
+        assert (await engine.commit(saved.proposal_id, "k2", caller="kai@example.com", spec_lookup=registry.get)).code == "verified"
+    again = Talk("m7")
+    again.session.issue(THREAD)
+    with as_staff("mia-fixture"):
+        text, refused = await call(again, "gmail_send_reply", thread_id=THREAD)
+    assert refused is None and "That draft is Kai's words" in text

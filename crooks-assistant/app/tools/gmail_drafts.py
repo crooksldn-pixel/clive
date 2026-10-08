@@ -157,7 +157,7 @@ def _settle(draft_id: str, state: str, why: str = "", **extra: Any) -> None:
         _save(data)
 
 
-def _who_now() -> str:
+def who_now() -> str:
     """Who held the card being committed: "owner", a member of the team's id, or "" for nobody."""
     from app.tools import authority
 
@@ -192,7 +192,7 @@ async def note_made(execution: dict[str, Any], created: dict[str, Any]) -> None:
         log.info("a draft CLIVE made could not be read back for its record (%s)", type(exc).__name__)
     entry = {
         "message_id": str(created.get("message_id") or ""), "thread_id": str(created.get("thread_id") or execution.get("thread_id") or ""),
-        "token": str(execution.get("token") or ""), "words": words, "kind": "reply" if execution.get("thread_id") else "new", "by": _who_now(), "made_at": time.time(), "state": WAITING,
+        "token": str(execution.get("token") or ""), "words": words, "kind": "reply" if execution.get("thread_id") else "new", "by": who_now(), "made_at": time.time(), "state": WAITING,
     }
     try:
         with _lock:
@@ -435,7 +435,7 @@ async def stop() -> None:
 # card says who sends it. Words are said from where the asker stands: "Yours" to whoever wrote them.
 
 
-def _first_name(person_id: str) -> str:
+def first_name(person_id: str) -> str:
     try:
         from app.people.store import people
 
@@ -454,14 +454,14 @@ def whose(by: str, asker: str) -> str:
         return "Yours, written in Gmail" if mine else "George's, written in Gmail"
     if by in ("owner", "clive"):
         return "Yours, drafted with CLIVE" if mine else "George's, drafted with CLIVE"
-    return "Yours, drafted with CLIVE" if mine else f"{_first_name(by)}'s, drafted with CLIVE"
+    return "Yours, drafted with CLIVE" if mine else f"{first_name(by)}'s, drafted with CLIVE"
 
 
 def sender_line(asker: str) -> str:
     """Who sends it, said on the card: the one whose hold will send it."""
     if asker == "owner":
         return "You, on your hold"
-    return f"{_first_name(asker)}, on their own hold" if asker else "Nobody: no one is signed in"
+    return f"{first_name(asker)}, on their own hold" if asker else "Nobody: no one is signed in"
 
 
 MAX_LISTED = 10
@@ -483,7 +483,7 @@ async def gmail_unsent() -> dict[str, Any]:
 
     if _client is None:
         raise ToolError("Gmail is not configured on this backend.")
-    asker = _who_now()
+    asker = who_now()
     listed = await _call(_client.list_drafts, "in:draft")
     out = []
     for d in listed[:MAX_LISTED]:
