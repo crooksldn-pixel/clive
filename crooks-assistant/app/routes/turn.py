@@ -702,7 +702,7 @@ def _context_lines(session, text: str, runtime=None, branch=None) -> list[str]:
     if isinstance(last, dict) and last:
         lines.append(f"[Last read-layer query: {_short_query(last)}. A follow-up (\"just this week\", \"by size\", \"only joggers\") is this query with that one thing changed.]")
     # A change the Mac knowingly cannot make: said plainly, with what it can do instead.
-    # Without this the September session's "add two items to David Randall's order" was
+    # Without this the September session's "add two items to David Replica's order" was
     # answered as though it had been done (app/observability/contract.py).
     from app.observability import contract as contract_mod
 

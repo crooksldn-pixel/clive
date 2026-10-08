@@ -52,7 +52,7 @@ _MESSAGE_ID = re.compile(r"^<[^\s<>@]+@[^\s<>@]+>$")
 # An address the owner dictated rather than one Shopify supplied (app/families/compose.py).
 # Strict on purpose: one address, no display name, no comma, no space, a real dotted domain
 # and a letters-only TLD. It is the last check before an address becomes a To header, and a
-# lenient one here would let "1232candlestickhorse at gmail" through as a recipient.
+# lenient one here would let "4417lighthousepony at example" through as a recipient.
 MAX_ADDRESS_CHARS = 254
 EMAIL_ADDRESS = re.compile(
     r"^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*"
@@ -848,8 +848,8 @@ async def _recipient(order_id: str, customer_id: str, to: str = "", to_name: str
     """Who a new email is to. Three sources, exactly one of them: the order's customer, the
     customer record, or an address the owner dictated into an open composer.
 
-    The bench refused "write an email to a model … their email is 1232candlestickhorse@
-    gmail.com" because a recipient had to be a Shopify customer. It does not any more — but
+    The bench refused "write an email to a model … their email is 4417lighthousepony@
+    example.com" because a recipient had to be a Shopify customer. It does not any more — but
     the address is still not the model's to invent: it arrives with a `compose_id` the gate
     has already held to this conversation's issued ids, and `off_shopify` follows it onto the
     card so the owner reads "not a Shopify customer" before the gesture.

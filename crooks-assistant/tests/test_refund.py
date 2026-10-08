@@ -158,7 +158,7 @@ def test_refund_is_red_money_and_its_input_shape_is_held_by_the_client():
 
 async def test_a_plain_amount_is_priced_capped_and_goes_back_the_way_it_came(store, engine, session):
     text, proposal = await stage(session, amount="20")
-    assert text.startswith("PROPOSED") and "refund twenty pounds to Daniel Sear on order 1930" in text and "emailing the customer" in text
+    assert text.startswith("PROPOSED") and "refund twenty pounds to Daniel Stub on order 1930" in text and "emailing the customer" in text
     ex = dict(proposal.execution)
     assert ex["amount"] == "20.00" and ex["input"]["transactions"] == [
         {"orderId": ORDER, "gateway": "shopify_payments", "kind": "REFUND", "amount": "20.00", "parentId": "gid://shopify/OrderTransaction/1"}
@@ -175,7 +175,7 @@ async def test_a_plain_amount_is_priced_capped_and_goes_back_the_way_it_came(sto
 
 async def test_items_are_priced_by_shopify_and_restocked_at_the_one_location(store, engine, session):
     text, proposal = await stage(session, items=[{"line_item_id": LINE, "quantity": 1}, {"line_item_id": LINE2, "quantity": 2}], restock="return", shipping="full", reason="Faulty zip")
-    assert "refund sixty-five pounds to Daniel Sear on order 1930 for Yard Jeans M, Cap ×2, shipping in full, restocking" in text
+    assert "refund sixty-five pounds to Daniel Stub on order 1930 for Yard Jeans M, Cap ×2, shipping in full, restocking" in text
     ex = dict(proposal.execution)
     assert ex["amount"] == "65.00"
     assert ex["input"]["refundLineItems"] == [
@@ -190,7 +190,7 @@ async def test_items_are_priced_by_shopify_and_restocked_at_the_one_location(sto
 
 async def test_postage_alone_can_be_refunded(store, engine, session):
     text, proposal = await stage(session, shipping="3.95")
-    assert "refund three pounds ninety-five to Daniel Sear on order 1930, shipping £3.95" in text or "refund three pounds ninety-five to Daniel Sear on order 1930, shipping" in text
+    assert "refund three pounds ninety-five to Daniel Stub on order 1930, shipping £3.95" in text or "refund three pounds ninety-five to Daniel Stub on order 1930, shipping" in text
     ex = dict(proposal.execution)
     assert ex["amount"] == "3.95" and ex["input"]["shipping"] == {"amount": "3.95"} and "refundLineItems" not in ex["input"]
 

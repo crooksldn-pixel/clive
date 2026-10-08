@@ -335,7 +335,7 @@ async def test_the_card_carries_shopifys_own_arithmetic(store, engine, session):
     assert facts["Unit price"] == "£60.00" and facts["Adds"] == "£60.00 to the order"
     assert facts["New total"] == "£125.00" and facts["Customer owes"] == "£60.00 after this"
     assert facts["Customer emailed"] == "no — tell them yourself"
-    assert facts["Customer"] == "Daniel Sear"
+    assert facts["Customer"] == "Daniel Stub"
     assert "£60.00 more, taking the order to £125.00" in proposal.summary["read_back"]
 
 

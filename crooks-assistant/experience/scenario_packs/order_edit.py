@@ -24,7 +24,7 @@ from experience.harness import Harness
 from experience.scenarios import Result, a_model_turn, a_surface, check, deterministic, grounded
 
 ORDER = data.BY_NAME["#1938"]                    # Mia Jones, two lines, £89.00, unfulfilled
-CANCELLED = data.BY_NAME["#1929"]                # David Randall, cancelled twelve days ago
+CANCELLED = data.BY_NAME["#1929"]                # David Replica, cancelled twelve days ago
 HOODIE = "gid://shopify/ProductVariant/9102"     # Convict Hoodie, Black / M, £60.00
 
 

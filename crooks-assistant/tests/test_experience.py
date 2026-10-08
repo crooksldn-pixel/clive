@@ -266,7 +266,7 @@ async def test_neither_half_of_the_orb_inherits_the_others_list(stage):
     # The half that listed nothing has nothing to walk, and says so rather than borrowing.
     walked = await stage.touch("workflow.next", session_id=session)
     assert walked.raw.get("ok") is False or not walked.surfaces, walked.answer
-    for name in ("Raman", "Fenwick", "Randall"):
+    for name in ("Raman", "Fenwick", "Replica"):
         assert name not in walked.answer, f"the other half's rows reached this one: {walked.answer!r}"
 
     # And nothing tells the model that "these" means the other half's rows.

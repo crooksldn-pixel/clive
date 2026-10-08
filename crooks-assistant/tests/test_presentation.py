@@ -27,7 +27,7 @@ from tests.fake_credentials import shopify_token
 ORDER = {
     "order_id": "gid://shopify/Order/1", "order_number": "CROOKS-1930",
     "placed_at": "2026-09-08T10:00:00Z", "fulfillment": "UNFULFILLED", "payment": "PAID",
-    "total": "60.00 GBP", "customer_name": "Daniel Sear", "customer_id": "gid://shopify/Customer/7",
+    "total": "60.00 GBP", "customer_name": "Daniel Stub", "customer_id": "gid://shopify/Customer/7",
 }
 DETAIL = {
     **ORDER,
@@ -75,7 +75,7 @@ def test_one_order_is_an_order_card_with_the_hash_number_and_pounds():
     assert card["data"]["order_number"] == "#1930"
     assert card["data"]["total"] == "£60.00"
     assert card["data"]["fulfillment"] == "unfulfilled"
-    assert card["data"]["customer_name"] == "Daniel Sear"
+    assert card["data"]["customer_name"] == "Daniel Stub"
     assert card["data"]["detail"] is False
 
 
@@ -240,7 +240,7 @@ def test_context_stack_appears_once_the_conversation_has_two_entities():
     # One order carries its customer too: two entries, most specific first.
     assert types(items) == ["order", "context_stack"]
     stack = items[-1]["data"]["entries"]
-    assert [(e["kind"], e["label"]) for e in stack] == [("customer", "Daniel Sear"), ("order", "#1930")]
+    assert [(e["kind"], e["label"]) for e in stack] == [("customer", "Daniel Stub"), ("order", "#1930")]
 
     thread = {"thread_id": "t1", "messages": [{"from": "Jo", "subject": "Re: order 1930", "body": "hi", "date": "Mon"}]}
     items = present([ok("gmail_read_thread", thread)], session=session)

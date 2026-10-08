@@ -424,7 +424,7 @@ test('an order carries its progress strip and every item, with the quantity wher
 });
 
 test('a customer card carries the history when the tool returned it', () => {
-  const node = UI.renderItem({ type: 'customer', data: { customer_id: 'c1', name: 'Daniel Sear', email: 'd@example.com', orders: 3, spent: '£410.00',
+  const node = UI.renderItem({ type: 'customer', data: { customer_id: 'c1', name: 'Daniel Stub', email: 'd@example.com', orders: 3, spent: '£410.00',
     history: { orders: 3, spent: '£410.00', since: '2025-01-02T00:00:00Z', standing: 'returning', other_unfulfilled: ['#1901', '#1938'], recent: [{ order_number: '#1938', total: '£60.00', fulfillment: 'unfulfilled' }] },
     related_email: { available: true, threads: [{ thread_id: 't1', subject: 'Hello', verified_sender: true }] } } });
   assert.ok(textOf(node).includes('Also waiting to ship: #1901, #1938') && textOf(node).includes('From the customer'));
@@ -435,7 +435,7 @@ test('a customer card carries the history when the tool returned it', () => {
 });
 
 test('a customer is a profile: initials, standing, lifetime', () => {
-  const node = UI.renderItem({ type: 'customer', data: { customer_id: 'c1', name: 'Daniel Sear', email: 'd@example.com', orders: 4, spent: '£286.00' } });
+  const node = UI.renderItem({ type: 'customer', data: { customer_id: 'c1', name: 'Daniel Stub', email: 'd@example.com', orders: 4, spent: '£286.00' } });
   assert.equal(textOf(node.querySelector('.avatar')), 'DS');
   assert.ok(textOf(node).includes('Regular') && textOf(node).includes('Lifetime'));
   assert.equal(node.dataset.ref, 'c1');
@@ -1414,7 +1414,7 @@ test('every string on the picker arrives as text, never as markup', () => {
 
 const COMPOSER = {
   compose_id: 'cmp_ab12cd34ef', kind: 'new',
-  to: { value: '1232candlestickhorse@gmail.com', status: 'ok', hint: '' },
+  to: { value: '4417lighthousepony@example.com', status: 'ok', hint: '' },
   to_name: '',
   subject: { value: 'Free for a shoot on Sunday?', status: 'ok', placeholder: 'the assistant is writing this' },
   body: { value: 'Hi, are you free next Sunday?', status: 'ok', placeholder: 'the assistant is writing this' },
@@ -1487,12 +1487,12 @@ test('typing hands the characters to opts, and the value and status come back th
   const wrap = UI.field({ kind: 'email', name: 'to', value: '', status: 'invalid', hint: 'no address yet', compose_id: 'cmp_1' },
                         { onField: (name, value) => seen.push([name, value]) });
   const input = wrap.querySelectorAll('.field-input')[0];
-  input.value = '1232candlestickhorse@gmail.com';
+  input.value = '4417lighthousepony@example.com';
   input.dispatch('input');
-  assert.deepEqual(seen, [['to', '1232candlestickhorse@gmail.com']]);
+  assert.deepEqual(seen, [['to', '4417lighthousepony@example.com']]);
   // The component is controlled: the Mac's answer is a fresh spec, and the field shows THAT.
-  const answered = UI.field({ kind: 'email', name: 'to', value: '1232candlestickhorse@gmail.com', status: 'ok', hint: '', compose_id: 'cmp_1' }, {});
-  assert.equal(answered.querySelectorAll('.field-input')[0].value, '1232candlestickhorse@gmail.com');
+  const answered = UI.field({ kind: 'email', name: 'to', value: '4417lighthousepony@example.com', status: 'ok', hint: '', compose_id: 'cmp_1' }, {});
+  assert.equal(answered.querySelectorAll('.field-input')[0].value, '4417lighthousepony@example.com');
   assert.ok(answered.classList.contains('is-ok'));
   assert.equal(answered.querySelectorAll('.field-hint')[0].hidden, true);
 });
@@ -1537,7 +1537,7 @@ test('the composer\'s buttons post an id and a mode, and never the email', () =>
   assert.ok(!buttons[0].classList.contains('risk-red'));
   for (const button of buttons) {
     const args = String(button.dataset.args);
-    for (const forbidden of ['Free for a shoot', 'are you free', '@gmail.com', 'subject=', 'body=', 'to=']) {
+    for (const forbidden of ['Free for a shoot', 'are you free', '@example.com', 'subject=', 'body=', 'to=']) {
       assert.ok(args.indexOf(forbidden) === -1, `${button.dataset.action} carries ${forbidden}`);
     }
   }

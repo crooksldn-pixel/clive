@@ -32,7 +32,7 @@ pytestmark = pytest.mark.usefixtures("owner_asking")
 TOOL = "shopify_order_shipping_address_set"
 EVIDENCE = "18f3a9c2b1d4e5f6"
 OLD = {
-    "firstName": "Daniel", "lastName": "Sear", "company": None, "address1": "12 Somewhere Street", "address2": "Flat 3",
+    "firstName": "Daniel", "lastName": "Stub", "company": None, "address1": "12 Somewhere Street", "address2": "Flat 3",
     "city": "Windsor", "province": None, "provinceCode": None, "zip": "SL4 1AA", "country": "United Kingdom",
     "countryCodeV2": "GB", "phone": "+44 7700 900000",
 }
@@ -45,7 +45,7 @@ class Inbox:
     def __init__(self) -> None:
         self.messages: dict[str, dict] = {
             EVIDENCE: {
-                "message_id": EVIDENCE, "thread_id": "t1", "from": "Daniel Sear", "from_email": "daniel@example.com",
+                "message_id": EVIDENCE, "thread_id": "t1", "from": "Daniel Stub", "from_email": "daniel@example.com",
                 "date": "Tue, 8 Sep 2026 10:12:00 +0100", "subject": "Order 1930 — new address", "authenticated": True, "body": BODY,
             },
         }
@@ -211,7 +211,7 @@ async def test_preparing_reads_the_order_and_the_email_merges_the_change_and_sen
     assert proposal.risk == "RED" and proposal.interaction == "hold_to_arm" and not proposal.reversible
     ex = dict(proposal.execution)
     assert ex["address"] == {
-        "firstName": "Daniel", "lastName": "Sear", "address1": "4 Example Row", "city": "London", "zip": "EC1A 1AA",
+        "firstName": "Daniel", "lastName": "Stub", "address1": "4 Example Row", "city": "London", "zip": "EC1A 1AA",
         "countryCode": "GB", "phone": "+44 7700 900000",
     }, "the name and phone kept, the old flat number dropped with the old street"
     assert ex["note"] == f"Gift wrap please\n{REPRINT_NOTE}"
@@ -223,7 +223,7 @@ async def test_preparing_reads_the_order_and_the_email_merges_the_change_and_sen
     words = registry.get(TOOL).write.present(proposal)
     assert words["title"] == "Change the address" and words["done_title"] == "Address changed"
     facts = {f["label"]: f["value"] for f in words["facts"]}
-    assert facts["Customer"] == "Daniel Sear"
+    assert facts["Customer"] == "Daniel Stub"
     assert facts["From"] == "12 Somewhere Street, Flat 3, Windsor, SL4 1AA"
     assert facts["To"] == "4 Example Row, London, EC1A 1AA"
     assert facts["Changes"] == "street, second line cleared, town, postcode"
@@ -424,7 +424,7 @@ async def test_message_evidence_reads_the_whole_message_and_its_authentication()
         "id": EVIDENCE, "threadId": "t1",
         "payload": {
             "headers": [
-                {"name": "From", "value": "Daniel Sear <Daniel@Example.com>"}, {"name": "Date", "value": "Tue, 8 Sep 2026 10:12:00 +0100"},
+                {"name": "From", "value": "Daniel Stub <Daniel@Example.com>"}, {"name": "Date", "value": "Tue, 8 Sep 2026 10:12:00 +0100"},
                 {"name": "Subject", "value": "New address"}, {"name": "Authentication-Results", "value": "mx.google.com; dkim=pass header.i=@example.com; spf=pass"},
             ],
             "mimeType": "text/plain", "body": {"data": _b64(body)},
@@ -496,7 +496,7 @@ async def test_what_the_email_cannot_be_checked_for_is_said_on_the_card(store, e
 
 async def test_an_email_about_the_address_that_the_model_did_not_cite_is_not_quietly_dictated(store, engine, session, inbox):
     async def threads_for(**kwargs):
-        return {"available": True, "threads": [{"thread_id": "t9", "message_id": "9f9f9f9f9f9f", "from": "Daniel Sear", "from_email": "daniel@example.com", "subject": "New address for 1930", "date": "Tue, 8 Sep 2026 09:00:00 +0100", "snippet": "I've moved, please send to 4 Example Row", "likely_bulk": False, "authenticated": True}]}
+        return {"available": True, "threads": [{"thread_id": "t9", "message_id": "9f9f9f9f9f9f", "from": "Daniel Stub", "from_email": "daniel@example.com", "subject": "New address for 1930", "date": "Tue, 8 Sep 2026 09:00:00 +0100", "snippet": "I've moved, please send to 4 Example Row", "likely_bulk": False, "authenticated": True}]}
 
     shopify_tools.bind(store, threads_for=threads_for)
     text, proposal = await stage(session, address1="4 Example Row", city="London", postcode="EC1A 1AA")

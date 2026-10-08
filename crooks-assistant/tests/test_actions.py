@@ -54,7 +54,7 @@ class FakeStore(ShopifyClient):
             "id": ORDER, "name": "#1930", "createdAt": "2026-09-08T10:00:00Z", "processedAt": "2026-09-08T10:00:00Z",
             "displayFulfillmentStatus": "UNFULFILLED", "displayFinancialStatus": "PAID",
             "currentTotalPriceSet": {"shopMoney": {"amount": "60.00", "currencyCode": "GBP"}},
-            "customer": {"id": "gid://shopify/Customer/7", "displayName": "Daniel Sear", "defaultEmailAddress": {"emailAddress": "daniel@example.com"}},
+            "customer": {"id": "gid://shopify/Customer/7", "displayName": "Daniel Stub", "defaultEmailAddress": {"emailAddress": "daniel@example.com"}},
             "note": self.note, "cancelledAt": None, "lineItems": {"edges": []}, "fulfillments": [], "shippingAddress": {"city": "Windsor", "country": "United Kingdom"},
         }
 

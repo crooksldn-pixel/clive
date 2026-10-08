@@ -41,8 +41,8 @@ SAMS = "gid://shopify/Order/1944"
 HER_THREAD, SAMS_THREAD = mailbox.THREAD, "18f3a9c2b1d4e5f7"
 
 ORDERS = {
-    FIRST: {"name": "Daniel Sear", "email": DANIEL, "label": "#1930"},
-    SECOND: {"name": "Daniel Sear", "email": DANIEL, "label": "#1931"},
+    FIRST: {"name": "Daniel Stub", "email": DANIEL, "label": "#1930"},
+    SECOND: {"name": "Daniel Stub", "email": DANIEL, "label": "#1931"},
     SAMS: {"name": "Sam Other", "email": SAM, "label": "#1944"},
 }
 
@@ -74,7 +74,7 @@ async def _customer_of(order_id: str, customer_id: str = "") -> dict:
 @pytest.fixture()
 def box():
     inbox = mailbox.FakeGmail()
-    inbox.threads[HER_THREAD] = [mailbox.msg("m1", from_="Daniel Sear <daniel@example.com>", subject="Order 1930 — where is it?",
+    inbox.threads[HER_THREAD] = [mailbox.msg("m1", from_="Daniel Stub <daniel@example.com>", subject="Order 1930 — where is it?",
                                              mid="<abc@example.com>", labels=["INBOX"])]
     inbox.threads[SAMS_THREAD] = [mailbox.msg("s1", from_="Sam Other <sam.other@example.com>", subject="Order 1930 — is this mine?",
                                               mid="<sam@example.com>", labels=["INBOX"])]
@@ -178,7 +178,7 @@ async def test_the_words_the_conversation_was_shown_can_name_the_order(box, engi
 
     box.threads[HER_THREAD][0]["headers"]["subject"] = "Quick question"
     memory().put(ENTITY, f"email_thread:{HER_THREAD}", {"thread_id": HER_THREAD, "messages": [
-        {"from": "Daniel Sear", "from_email": DANIEL, "subject": "Quick question",
+        {"from": "Daniel Stub", "from_email": DANIEL, "subject": "Quick question",
          "body": "Has order 1931 gone out yet?", "outbound": False},
     ]}, source="gmail")
     try:

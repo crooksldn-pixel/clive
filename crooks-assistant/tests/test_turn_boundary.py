@@ -67,11 +67,11 @@ class Shop(ShopifyClient):
         self._shop = {"name": "CROOKS LDN", "myshopifyDomain": "fake.myshopify.com", "ianaTimezone": "Europe/London", "currencyCode": "GBP"}
         self._tz = ZoneInfo("Europe/London")
         self.orders = {
-            A: _order(A, "1938", DANIEL, "Daniel Sear", "daniel@example.com"),
+            A: _order(A, "1938", DANIEL, "Daniel Stub", "daniel@example.com"),
             B: _order(B, "1940", MIA, "Mia Kowalski", "mia@example.com"),
         }
         self.customers = {
-            DANIEL: _customer(DANIEL, "Daniel Sear", "daniel@example.com", A, "1938"),
+            DANIEL: _customer(DANIEL, "Daniel Stub", "daniel@example.com", A, "1938"),
             MIA: _customer(MIA, "Mia Kowalski", "mia@example.com", B, "1940"),
         }
         self.queries: list[tuple[str, dict]] = []

@@ -77,8 +77,8 @@ def test_bulk_mail_is_detected(hdrs):
 @pytest.mark.parametrize(
     "hdrs",
     [
-        {"from": "Anna Denning <anna@gmail.com>"},
-        {"from": "jo@smallshop.co.uk", "subject": "my order hasn't arrived"},
+        {"from": "Anna Dummy <anna@example.com>"},
+        {"from": "jo@smallshop.example.com", "subject": "my order hasn't arrived"},
     ],
 )
 def test_real_people_are_not_flagged_as_bulk(hdrs):

@@ -25,7 +25,7 @@ DRAFT_NODE = {
     "createdAt": "2026-09-30T10:02:00Z",
     "invoiceUrl": INVOICE_URL,
     "totalPriceSet": {"shopMoney": {"amount": "95.00", "currencyCode": "GBP"}},
-    "customer": {"id": "gid://shopify/Customer/77", "displayName": "Anna Denning"},
+    "customer": {"id": "gid://shopify/Customer/77", "displayName": "Anna Dummy"},
     "order": None,
 }
 

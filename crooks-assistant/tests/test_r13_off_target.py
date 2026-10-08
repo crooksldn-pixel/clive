@@ -166,7 +166,7 @@ async def test_a_number_said_only_in_the_note_does_not_let_the_note_land_on_a_th
     """The same words, and the model notes #1941 — an order he neither named nor is looking at.
     He named an order, only inside the note, and the change is on none he named and not on the
     record he is on: it is withdrawn."""
-    desk.store.orders[C] = _order(C, "1941", DANIEL, "Daniel Sear", "daniel@example.com")
+    desk.store.orders[C] = _order(C, "1941", DANIEL, "Daniel Stub", "daniel@example.com")
     desk.model.steps = [show_order("1941")]
     await say(desk, "show me order 1941", "third")
     await _on_1938_with_1940_held(desk, "third")
@@ -539,7 +539,7 @@ async def test_store_credit_for_the_person_he_named_is_not_given_to_another(desk
     assert proposal.status.value == "REVOKED" and proposal.delivered_at is None
     assert proposal.reason == "not the person the owner named"
     assert no_confirmation(body)
-    assert body["answer"] == ("You said Mia, but the change I'd prepared was for Daniel Sear, so I've withdrawn it. "
+    assert body["answer"] == ("You said Mia, but the change I'd prepared was for Daniel Stub, so I've withdrawn it. "
                               "Say who it's for."), body["answer"]
     assert desk.store.mutations == []
 

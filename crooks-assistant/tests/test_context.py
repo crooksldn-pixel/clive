@@ -35,9 +35,9 @@ ORDER_NODE = {
     "totalRefundedSet": {"shopMoney": {"amount": "0.00", "currencyCode": "GBP"}},
     "totalOutstandingSet": {"shopMoney": {"amount": "0.00", "currencyCode": "GBP"}},
     "shippingLine": {"title": "Royal Mail Tracked 24"},
-    "shippingAddress": {"firstName": "Daniel", "lastName": "Sear", "company": None, "address1": "12 Somewhere Street", "address2": "Flat 3",
+    "shippingAddress": {"firstName": "Daniel", "lastName": "Stub", "company": None, "address1": "12 Somewhere Street", "address2": "Flat 3",
                         "city": "Windsor", "province": "England", "provinceCode": "ENG", "zip": "SL4 1AA", "country": "United Kingdom", "countryCodeV2": "GB"},
-    "customer": {"id": CUSTOMER, "displayName": "Daniel Sear", "numberOfOrders": 3, "createdAt": "2025-01-02T00:00:00Z",
+    "customer": {"id": CUSTOMER, "displayName": "Daniel Stub", "numberOfOrders": 3, "createdAt": "2025-01-02T00:00:00Z",
                  "amountSpent": {"amount": "410.00", "currencyCode": "GBP"}, "defaultEmailAddress": {"emailAddress": "daniel@example.com"}},
     "lineItems": {"edges": [{"node": {
         "id": "gid://shopify/LineItem/1", "title": "Yard Jeans", "quantity": 1, "currentQuantity": 1, "refundableQuantity": 1, "unfulfilledQuantity": 1,
@@ -54,7 +54,7 @@ ORDER_NODE = {
 }
 
 CUSTOMER_NODE = {
-    "id": CUSTOMER, "displayName": "Daniel Sear", "numberOfOrders": 3, "createdAt": "2025-01-02T00:00:00Z", "tags": [],
+    "id": CUSTOMER, "displayName": "Daniel Stub", "numberOfOrders": 3, "createdAt": "2025-01-02T00:00:00Z", "tags": [],
     "amountSpent": {"amount": "410.00", "currencyCode": "GBP"}, "defaultEmailAddress": {"emailAddress": "daniel@example.com"},
     "lastOrder": {"id": ORDER, "name": "CROOKS-1938"},
     "firstOrder": {"edges": [{"node": {"id": "gid://shopify/Order/1800", "name": "#1800", "processedAt": "2025-01-02T10:00:00Z", "createdAt": "2025-01-02T10:00:00Z"}}]},
@@ -76,7 +76,7 @@ CUSTOMER_NODE = {
 }
 
 THREADS = [
-    {"thread_id": "18f2a9c0b1d2e3f4", "from": "Daniel Sear", "from_email": "daniel@example.com", "subject": "Address for 1938", "date": "Mon, 8 Sep 2026 10:12:00 +0100", "snippet": "Please send it to my work instead", "likely_bulk": False, "authenticated": True},
+    {"thread_id": "18f2a9c0b1d2e3f4", "from": "Daniel Stub", "from_email": "daniel@example.com", "subject": "Address for 1938", "date": "Mon, 8 Sep 2026 10:12:00 +0100", "snippet": "Please send it to my work instead", "likely_bulk": False, "authenticated": True},
     {"thread_id": "18f2a9c0b1d2e3f5", "from": "Someone Else", "from_email": "other@example.com", "subject": "Re: CROOKS-1938", "date": "Mon", "snippet": "is 1938 mine?", "likely_bulk": False},
     {"thread_id": "18f2a9c0b1d2e3f6", "from": "Nobody", "from_email": "nobody@example.com", "subject": "Hello", "date": "Mon", "snippet": "unrelated", "likely_bulk": False},
 ]

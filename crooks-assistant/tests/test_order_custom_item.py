@@ -386,7 +386,7 @@ async def test_the_cards_new_total_and_what_the_customer_owes_are_shopifys(store
     assert card["Adding"] == "1 x Rush alteration" and card["Unit price"] == "£15.00"
     assert card["Adds"] == "£18.00 to the order" and card["Treated as"] == "taxable · needs no shipping"   # Shopify's change, tax and all
     assert card["New total"] == "£83.00" and card["Customer owes"] == "£18.00 after this"
-    assert card["Customer emailed"] == "no — tell them yourself" and card["Customer"] == "Daniel Sear"
+    assert card["Customer emailed"] == "no — tell them yourself" and card["Customer"] == "Daniel Stub"
     assert len(card) <= 8, "the card prints eight facts at most"
     assert "£18.00 more, taking the order to £83.00" in proposal.summary["read_back"]
     words = registry.get(TOOL).write.present(proposal)

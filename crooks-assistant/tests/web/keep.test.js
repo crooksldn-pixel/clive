@@ -22,7 +22,7 @@ const shim = require('./dom-shim.js');
 globalThis.document = shim.document;
 const UI = require(path.join(__dirname, '..', '..', 'web', 'ui.js'));
 
-const ORDER = { order_id: 'gid://shopify/Order/1938', order_number: '#1938', detail: true, total: '£84.00', customer_name: 'Daniel Sear', note: '' };
+const ORDER = { order_id: 'gid://shopify/Order/1938', order_number: '#1938', detail: true, total: '£84.00', customer_name: 'Daniel Stub', note: '' };
 const order = (extra) => ({ type: 'order', data: Object.assign({}, ORDER, extra || {}) });
 const attention = () => ({ type: 'attention', data: { for: ORDER.order_id, items: [{ title: 'Paid, not shipped', level: 'amber', kind: 'age' }] } });
 const card = (id, extra) => ({

@@ -67,7 +67,7 @@ def msg(id_: str, *, from_: str, subject: str, mid: str, labels: list[str], to: 
     return {"id": id_, "labels": list(labels), "headers": headers, "body": body}
 
 
-INBOUND = msg("m1", from_="Daniel Sear <daniel@example.com>", subject="Order 1930 — where is it?", mid="<abc@example.com>", labels=["INBOX", "UNREAD"], body="Hi, any news on 1930?")
+INBOUND = msg("m1", from_="Daniel Stub <daniel@example.com>", subject="Order 1930 — where is it?", mid="<abc@example.com>", labels=["INBOX", "UNREAD"], body="Hi, any news on 1930?")
 
 
 class FakeGmail(GmailClient):
@@ -214,9 +214,9 @@ CUSTOMER_ID = "gid://shopify/Customer/7"
 async def customer_of(order_id: str, customer_id: str = "") -> dict:
     if customer_id:
         assert customer_id == CUSTOMER_ID and not order_id
-        return {"name": "Daniel Sear", "email": CUSTOMER, "label": ""}
+        return {"name": "Daniel Stub", "email": CUSTOMER, "label": ""}
     assert order_id == ORDER
-    return {"name": "Daniel Sear", "email": CUSTOMER, "label": "#1930"}
+    return {"name": "Daniel Stub", "email": CUSTOMER, "label": "#1930"}
 
 
 @pytest.fixture()
@@ -324,7 +324,7 @@ async def test_preparing_a_draft_reply_addresses_it_from_the_thread_and_saves_no
     assert text.startswith("PROPOSED") and "draft a reply to Daniel about order 1930" in text
     assert not [c for c in box.calls if c[0] in ("create_draft", "send")]
     parsed = decoded(proposal)
-    assert parsed["to"] == "Daniel Sear <daniel@example.com>" and parsed["from"] == f"CROOKS <{ME}>"
+    assert parsed["to"] == "Daniel Stub <daniel@example.com>" and parsed["from"] == f"CROOKS <{ME}>"
     assert parsed["subject"] == "Re: Order 1930 — where is it?" and parsed["in-reply-to"] == "<abc@example.com>" and parsed["references"] == "<abc@example.com>"
     assert gmail_writes._MESSAGE_ID.match(parsed["message-id"]) and parsed["message-id"].endswith("@crooksldn.com>")
     assert parsed["body"].rstrip("\n") == BODY + "\n\nCROOKS"
@@ -332,11 +332,11 @@ async def test_preparing_a_draft_reply_addresses_it_from_the_thread_and_saves_no
     words = registry.get("gmail_draft_reply").write.present(proposal)
     assert words["title"] == "Save a draft reply" and words["body"] == BODY + "\n\nCROOKS" and words["done_title"] == "Draft saved"
     facts = {f["label"]: f["value"] for f in words["facts"]}
-    assert facts == {"To": "Daniel Sear <daniel@example.com>", "Subject": "Re: Order 1930 — where is it?", "Replying to": "daniel@example.com, 8 Sep 10:12 · verified sender", "Order": "#1930 · the customer on the order"}
+    assert facts == {"To": "Daniel Stub <daniel@example.com>", "Subject": "Re: Order 1930 — where is it?", "Replying to": "daniel@example.com, 8 Sep 10:12 · verified sender", "Order": "#1930 · the customer on the order"}
     line = engine.ledger.read()[-1]
     assert line["facts"] == {"kind": "draft_reply", "reply": True, "draft_used": False, "chars": len(BODY + "\n\nCROOKS"), "verified_sender": True, "to_checked": True}
     assert "Daniel" not in str(line) and "packed" not in str(line)
-    assert {"daniel@example.com", "Daniel Sear"} <= session.pii_seen
+    assert {"daniel@example.com", "Daniel Stub"} <= session.pii_seen
 
 
 async def test_a_tap_saves_the_draft_once_and_the_undo_deletes_it(box, engine, session):
@@ -446,7 +446,7 @@ async def test_send_it_with_no_draft_or_two_drafts_is_refused(box, engine, sessi
 
 async def test_a_new_message_in_the_thread_makes_the_reply_stale(box, engine, session):
     _, proposal = await stage(session, "gmail_send_reply", thread_id=THREAD, body=BODY)
-    box.threads[THREAD].append(msg("m2", from_="Daniel Sear <daniel@example.com>", subject="Re: Order 1930", mid="<def@example.com>", labels=["INBOX"], body="Actually, cancel it."))
+    box.threads[THREAD].append(msg("m2", from_="Daniel Stub <daniel@example.com>", subject="Re: Order 1930", mid="<def@example.com>", labels=["INBOX"], body="Actually, cancel it."))
     result = await hold(engine, proposal)
     assert result.code == "stale" and box.sent == [] and result.spoken == "That thread or its draft changed since this was prepared. Nothing was sent."
 
@@ -493,7 +493,7 @@ async def test_a_new_email_goes_to_the_orders_customer_and_nowhere_else(box, eng
     text, proposal = await stage(session, "gmail_draft_new", order_id=ORDER, subject="Your CROOKS order 1930", body=BODY)
     assert "draft an email to Daniel about order 1930" in text
     parsed = decoded(proposal)
-    assert parsed["to"] == "Daniel Sear <daniel@example.com>" and parsed["subject"] == "Your CROOKS order 1930" and parsed["in-reply-to"] == ""
+    assert parsed["to"] == "Daniel Stub <daniel@example.com>" and parsed["subject"] == "Your CROOKS order 1930" and parsed["in-reply-to"] == ""
     assert proposal.before == {"drafts": 0, "sent": 0}
     result = await tap(engine, proposal)
     assert result.code == "verified" and len(box.drafts) == 1 and list(box.drafts.values())[0]["thread_id"].startswith("t")
@@ -539,7 +539,7 @@ async def test_archiving_leaves_the_inbox_and_the_undo_puts_it_back(box, engine,
     text, proposal = await stage(session, "gmail_thread_archive", thread_id=THREAD)
     assert "archive the thread Order 1930 — where is it?" in text and proposal.interaction == "tap_commit"
     facts = {f["label"]: f["value"] for f in registry.get("gmail_thread_archive").write.present(proposal)["facts"]}
-    assert facts == {"Thread": "Order 1930 — where is it?", "From": "Daniel Sear <daniel@example.com>"}
+    assert facts == {"Thread": "Order 1930 — where is it?", "From": "Daniel Stub <daniel@example.com>"}
     result = await tap(engine, proposal)
     assert result.code == "verified" and result.spoken == "Archived." and "INBOX" not in box.thread_labels(THREAD)
     undo = engine.find(proposal.undo_id)
@@ -627,12 +627,12 @@ def test_health_names_the_account_and_what_google_says_it_may_do(box):
 
 async def test_a_reply_goes_where_the_message_asks_and_the_card_says_so(box, engine, session):
     """A storefront contact form delivers From the store's mailer with Reply-To the customer."""
-    box.threads[THREAD] = [msg("m1", from_="Store contact <mailer@shopify.com>", reply_to="Daniel Sear <daniel@example.com>", subject="Order 1930 — where is it?", mid="<abc@example.com>", labels=["INBOX"], auth="dkim=pass header.i=@shopify.com")]
+    box.threads[THREAD] = [msg("m1", from_="Store contact <mailer@shopify.com>", reply_to="Daniel Stub <daniel@example.com>", subject="Order 1930 — where is it?", mid="<abc@example.com>", labels=["INBOX"], auth="dkim=pass header.i=@shopify.com")]
     text, proposal = await stage(session, "gmail_draft_reply", thread_id=THREAD, body=BODY, order_id=ORDER)
     assert text.startswith("PROPOSED"), text
-    assert decoded(proposal)["to"] == "Daniel Sear <daniel@example.com>"
+    assert decoded(proposal)["to"] == "Daniel Stub <daniel@example.com>"
     facts = {f["label"]: f["value"] for f in registry.get("gmail_draft_reply").write.present(proposal)["facts"]}
-    assert facts["To"] == "Daniel Sear <daniel@example.com>" and "replies go to daniel@example.com" in facts["Replying to"]
+    assert facts["To"] == "Daniel Stub <daniel@example.com>" and "replies go to daniel@example.com" in facts["Replying to"]
 
 
 async def test_a_reply_to_that_diverts_from_the_customer_is_refused(box, engine, session):
@@ -675,7 +675,7 @@ async def test_a_draft_edited_in_gmail_after_the_card_makes_the_send_stale(box, 
     _, proposal = await stage(session, "gmail_send_reply", thread_id=THREAD)
     assert proposal.before["draft_sha"] and dict(proposal.execution)["body"] == BODY + "\n\nCROOKS"
     facts = {f["label"]: f["value"] for f in registry.get("gmail_send_reply").write.present(proposal)["facts"]}
-    assert facts["Draft"] == "the one waiting in Gmail, as it reads now" and facts["To"] == "Daniel Sear <daniel@example.com>"
+    assert facts["Draft"] == "the one waiting in Gmail, as it reads now" and facts["To"] == "Daniel Stub <daniel@example.com>"
     list(box.drafts.values())[0]["parsed"]["body"] = BODY + " Also, a full refund is on its way.\n\nCROOKS"
     result = await hold(engine, proposal)
     assert result.code == "stale" and box.sent == [], "the card is the email; an edited draft is a different email"
@@ -691,7 +691,7 @@ async def test_a_send_whose_message_id_gmail_rewrote_is_proven_by_the_id_gmail_g
 
 async def test_a_new_email_can_go_to_a_customer_with_no_visible_order(box, engine, session):
     text, proposal = await stage(session, "gmail_draft_new", customer_id=CUSTOMER_ID, subject="Your size swap", body=BODY)
-    assert text.startswith("PROPOSED") and decoded(proposal)["to"] == "Daniel Sear <daniel@example.com>"
+    assert text.startswith("PROPOSED") and decoded(proposal)["to"] == "Daniel Stub <daniel@example.com>"
     facts = {f["label"]: f["value"] for f in registry.get("gmail_draft_new").write.present(proposal)["facts"]}
     assert facts["Order"] == "the customer's record in Shopify"
     text, proposal = await stage(session, "gmail_draft_new", order_id=ORDER, customer_id=CUSTOMER_ID, subject="x", body=BODY)

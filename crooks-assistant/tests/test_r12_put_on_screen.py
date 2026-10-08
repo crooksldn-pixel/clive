@@ -41,7 +41,7 @@ from tests.test_screen_paths import (  # noqa: F401 (the fixture)
 
 # What the owner would not want on anything but the slip itself: the customer's name, address,
 # email and the order's note (tests/test_context.py ORDER_NODE).
-CUSTOMER = ("Daniel Sear", "Somewhere Street", "SL4 1AA", "daniel@example.com", "Leave with the neighbour", "Windsor")
+CUSTOMER = ("Daniel Stub", "Somewhere Street", "SL4 1AA", "daniel@example.com", "Leave with the neighbour", "Windsor")
 
 
 @pytest.fixture()
@@ -101,7 +101,7 @@ async def test_an_order_he_was_shown_and_drops_on_a_screen_goes_up_there(world, 
     assert world.model.turns == turns, "a drop is a tap: no model is asked"
     up, beside = showing(screens, tv)
     assert up["kind"] == "order" and up["ref"] == ORDER and beside is None
-    assert up["order"]["customer"] == "Daniel Sear" and up["order"]["items"][0]["title"] == "Yard Jeans"
+    assert up["order"]["customer"] == "Daniel Stub" and up["order"]["items"][0]["title"] == "Yard Jeans"
     # The TV itself, with its own cookie, through the door.
     polled = await world.client.get(f"/displays/{tv['id']}?v=-1", headers={**MINE, "Cookie": f"clive_screen={tv['screen_key']}"})
     assert polled.status_code == 200 and polled.json()["showing"]["ref"] == ORDER
@@ -262,7 +262,7 @@ async def test_what_a_drop_answers_and_writes_to_the_log_carries_no_customers_de
     for word in CUSTOMER:
         assert word not in answer.text and word not in listed.text and word not in remote.text, word
         assert word not in logged, word
-    assert showing(screens, tv)[0]["order"]["customer"] == "Daniel Sear", "the slip is the slip"
+    assert showing(screens, tv)[0]["order"]["customer"] == "Daniel Stub", "the slip is the slip"
 
 
 # --------------------------------------------------------------------------- objectives

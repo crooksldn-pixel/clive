@@ -231,7 +231,7 @@ def test_the_proof_still_refuses_a_draft_that_never_appeared():
 # ---- H. the order edit that was reported done and never happened -----------
 
 def test_editing_what_is_on_an_order_is_a_stated_limitation_not_a_silence():
-    found = contract.limitation_for("add to David Randall's order a medium black convict jogger")
+    found = contract.limitation_for("add to David Replica's order a medium black convict jogger")
     assert found is not None and found["name"] == "order_edit"
     line = contract.limitation_line("add two items to his order")
     assert "cannot" in line and "note on the order" in line
@@ -244,8 +244,8 @@ def test_no_order_edit_mutation_exists_to_be_reached_for():
 
 
 @pytest.mark.parametrize(("question", "answer", "expected"), [
-    ("add two items to David Randall's order", "I've added the two items to the order.", "FALSE_SUCCESS"),
-    ("add two items to David Randall's order", "I can't change what is on an order.", None),
+    ("add two items to David Replica's order", "I've added the two items to the order.", "FALSE_SUCCESS"),
+    ("add two items to David Replica's order", "I can't change what is on an order.", None),
     ("add a note to order 1938", "Tap the card to add the note.", None),
 ])
 def test_a_change_reported_as_made_with_nothing_staged_is_a_false_success(question, answer, expected):

@@ -3,7 +3,7 @@
 Two bench failures, one family.
 
     "Write an email to a model asking if they're free for a shoot next Sunday. Their email
-     is 1232candlestickhorse@gmail.com. Don't send it yet."
+     is 4417lighthousepony@example.com. Don't send it yet."
 
 was refused, because every recipient this build could reach was a Shopify customer. The
 address the owner says out loud is the one recipient the shop cannot supply, and refusing it
@@ -38,7 +38,7 @@ themselves (`owner_checked`, asked by `gmail_writes._recipient`) refuse it until
 been on the field. An address read off a record — a thread's sender, an order's or a customer's
 email — is `ok` from the start, because the shop or the mailbox served it.
 
-SAID OUT LOUD, IT IS THE MODEL'S. "Write an email to 1232candlestickhorse@gmail.com asking if
+SAID OUT LOUD, IT IS THE MODEL'S. "Write an email to 4417lighthousepony@example.com asking if
 they're free on Sunday" and "no, send it instead" are model turns like every other sentence:
 Claude opens the composer with `gmail_compose_open`, writes into it with `gmail_compose_fill`,
 and the gesture on the card is still the owner's. The commands below are the touch path —
@@ -117,8 +117,8 @@ def _now() -> float:
 # --------------------------------------------------------------------------- the address
 
 
-# Lead-in words a dictated address arrives wrapped in: "their email is 1232 candlestick horse
-# at gmail dot com". "at" is deliberately absent — it is the @.
+# Lead-in words a dictated address arrives wrapped in: "their email is 4417 lighthouse pony
+# at example dot com". "at" is deliberately absent — it is the @.
 _LEAD_IN = frozenset({
     "their", "her", "his", "its", "it's", "the", "email", "e-mail", "mail", "address",
     "is", "to", "and", "on", "an", "a", "send", "write", "compose", "it", "this",
@@ -132,8 +132,8 @@ def looks_dictated(value: str) -> bool:
 
 
 def normalise_address(said: str) -> str:
-    """A spoken address as characters: "1232 candlestick horse at gmail dot com" →
-    "1232candlestickhorse@gmail.com".
+    """A spoken address as characters: "4417 lighthouse pony at example dot com" →
+    "4417lighthousepony@example.com".
 
     Word by word rather than by substitution, because the pieces of a local part arrive as
     separate words and every space inside an address is a space the speaker did not mean. The
@@ -154,8 +154,8 @@ def check_address(said: str) -> tuple[str, str, str]:
 
         ok          it is an address, typed or written cleanly, and it may be staged
         uncertain   it was DICTATED. It is normalised and shown, and the owner is asked to
-                    look at it — because a microphone that hears "candlestick" as "candle
-                    stick" produces a perfectly valid address belonging to somebody else,
+                    look at it — because a microphone that hears "lighthouse" as "light
+                    house" produces a perfectly valid address belonging to somebody else,
                     and no check on this side of the wire can tell the difference.
         invalid     it is not an address at all
 
@@ -180,7 +180,7 @@ def check_address(said: str) -> tuple[str, str, str]:
 # What the card says under an address the MODEL wrote into the composer in canonical form. It
 # came from what the owner said — out loud or typed into a sentence, and the Mac cannot tell
 # which — by way of the model, and neither step is a check: a recogniser that heard
-# "candlestick" as "candle stick" and a model that tidied it produce a perfectly valid address
+# "lighthouse" as "light house" and a model that tidied it produce a perfectly valid address
 # belonging to somebody else.
 FROM_WORDS_HINT = "written from what you said, not typed here — check it before this goes anywhere"
 

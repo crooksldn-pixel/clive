@@ -25,7 +25,7 @@ ORDER_NODE = {
     "currentTotalPriceSet": {"shopMoney": {"amount": "129.00", "currencyCode": "GBP"}},
     "customer": {
         "id": "gid://shopify/Customer/77",
-        "displayName": "Anna Denning",
+        "displayName": "Anna Dummy",
         "defaultEmailAddress": {"emailAddress": "anna@example.com"},
     },
 }
@@ -79,14 +79,14 @@ async def test_name_query_resolves_customer_first():
     returns nothing, which reads as 'no orders' rather than 'wrong query'."""
     client = FakeShopify([
         {"data": {"customers": {"edges": [{"node": {
-            "id": "gid://shopify/Customer/77", "displayName": "Anna Denning",
+            "id": "gid://shopify/Customer/77", "displayName": "Anna Dummy",
             "defaultEmailAddress": {"emailAddress": "anna@example.com"},
             "numberOfOrders": 3, "amountSpent": {"amount": "387.00", "currencyCode": "GBP"},
         }}]}}},
         {"data": {"orders": {"edges": [{"node": ORDER_NODE}]}}},
     ])
     shopify_tools.bind(client)
-    result = await shopify_tools.shopify_find_order("Anna Denning")
+    result = await shopify_tools.shopify_find_order("Anna Dummy")
     assert "customer_id:77" in result["matched_on"]
     assert len(client.queries) == 2
 

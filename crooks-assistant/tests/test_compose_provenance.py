@@ -1,8 +1,8 @@
 """An address the model writes into a composer is the owner's to check, however cleanly it reads.
 
 The 2026-09-28 deploy review, round 9, E-02. Every sentence is a model turn now, so "email
-1232 candlestick horse at gmail dot com" reaches `gmail_compose_open` as whatever the model
-wrote down — and the model writes it down canonically: "1232candlestickhorse@gmail.com". The
+4417 lighthouse pony at example dot com" reaches `gmail_compose_open` as whatever the model
+wrote down — and the model writes it down canonically: "4417lighthousepony@example.com". The
 composer ran that through `check_address`, which answers for characters a finger typed, found
 nothing dictated about it and marked it `ok`. `_ready_to_stage` refused only `uncertain`, so a
 mis-heard address the model had tidied could reach Send without the owner ever touching it.
@@ -33,7 +33,7 @@ from app.session.models import Session
 from app.tools.dispatch import dispatch
 from tests import test_gmail_writes as mailbox
 
-ADDRESS = "1232candlestickhorse@gmail.com"      # as the model writes a dictated address down
+ADDRESS = "4417lighthousepony@example.com"      # as the model writes a dictated address down
 THREAD = mailbox.THREAD
 
 # The fake inbox and the engine the Gmail write tests use, bound under these names so pytest
@@ -153,7 +153,7 @@ async def test_a_reply_takes_its_recipient_from_the_thread_the_mac_holds(session
     """A reply opened by the model shows the thread's own sender — read off a record Gmail
     served, so it needs no check — and not whatever the model put in `to`."""
     memory().put(ENTITY, f"email_thread:{THREAD}", {"thread_id": THREAD, "messages": [
-        {"from": "Daniel Sear", "from_email": mailbox.CUSTOMER, "subject": "Order 1930", "outbound": False},
+        {"from": "Daniel Stub", "from_email": mailbox.CUSTOMER, "subject": "Order 1930", "outbound": False},
     ]}, source="gmail")
     try:
         await _model_opens(session, to="somebody.else@example.com", thread_id=THREAD)
@@ -180,5 +180,5 @@ def test_a_typed_address_is_still_sound_the_moment_it_is_typed():
     dictation shape is `uncertain` either way."""
     assert family.check_address(ADDRESS)[1] == "ok"
     assert family.check_said_address(ADDRESS)[1] == "uncertain"
-    assert family.check_said_address("1232 candlestick horse at gmail dot com")[1] == "uncertain"
+    assert family.check_said_address("4417 lighthouse pony at example dot com")[1] == "uncertain"
     assert family.check_said_address("a model")[1] == "invalid"

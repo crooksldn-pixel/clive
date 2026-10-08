@@ -9,7 +9,7 @@ for order numbers, and each one that is an order this conversation holds must be
 person it goes to, or nothing is prepared. That holds for fresh words, for the one draft waiting
 in Gmail that `gmail_send_new` sends with no words, and for Send on the composer.
 
-In the golden world (experience/fixtures): Mia Jones has #1938, David Randall has #1939. Every
+In the golden world (experience/fixtures): Mia Jones has #1938, David Replica has #1939. Every
 sentence goes through the real `POST /turn` with the model's calls scripted as Claude would make
 them; every tap through the real `POST /command`.
 """
@@ -22,7 +22,7 @@ from experience.harness import harness
 from tests import test_gmail_writes as mailbox
 from tests import test_reply_order_binding as binding
 
-DAVID = "david.randall@example.com"
+DAVID = "david.replica@example.com"
 SCOUT = "location.scout@example.org"
 
 

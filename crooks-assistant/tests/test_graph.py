@@ -40,7 +40,7 @@ ROWS = [
     row(1938, MIA, days_ago=0, cid="gid://shopify/Customer/7001", name="Mia Jones"),
     row(1912, MIA, days_ago=45, cid="gid://shopify/Customer/7001", name="Mia Jones", total=65.0, fulfillment="FULFILLED"),
     row(1876, MIA, days_ago=120, cid="gid://shopify/Customer/7001", name="Mia Jones", total=74.0, fulfillment="FULFILLED"),
-    row(1939, "david.randall@example.com", days_ago=0, cid="gid://shopify/Customer/7002", name="David Randall", total=65.0, fulfillment="FULFILLED"),
+    row(1939, "david.replica@example.com", days_ago=0, cid="gid://shopify/Customer/7002", name="David Replica", total=65.0, fulfillment="FULFILLED"),
     row(1940, "priya.raman@example.com", days_ago=0, cid="gid://shopify/Customer/7004", name="Priya Raman", total=23.0),
 ]
 
@@ -69,7 +69,7 @@ def test_a_number_in_the_body_counts_and_says_it_was_the_body():
 
 
 def test_a_sender_with_exactly_one_recent_order_is_confident_without_a_number():
-    found = graph.linked_orders_for_thread(thread("david.randall@example.com", "Hello", "Any news?"), rows=ROWS, clock=clock)
+    found = graph.linked_orders_for_thread(thread("david.replica@example.com", "Hello", "Any news?"), rows=ROWS, clock=clock)
     assert found["confidence"] == "confident"
     assert [o["order_number"] for o in found["linked"]] == ["#1939"]
     assert found["provenance"] == ["sender is the customer on one recent order"]
@@ -94,7 +94,7 @@ def test_a_number_that_is_somebody_elses_order_is_possible_and_says_so():
 
 
 def test_a_number_of_somebody_elses_does_not_shake_a_customers_own_confident_link():
-    found = graph.linked_orders_for_thread(thread("david.randall@example.com", "Re: 1940", "My friend's order 1940 arrived; where is mine?"), rows=ROWS, clock=clock)
+    found = graph.linked_orders_for_thread(thread("david.replica@example.com", "Re: 1940", "My friend's order 1940 arrived; where is mine?"), rows=ROWS, clock=clock)
     assert found["confidence"] == "confident"
     assert [o["order_number"] for o in found["linked"]] == ["#1939"]
     assert "number 1940 is mentioned but the sender is not its customer" in found["provenance"]

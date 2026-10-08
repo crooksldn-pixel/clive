@@ -507,7 +507,7 @@ same way and there is one place where a keystroke's route to the Mac is decided.
 
 Three statuses, three rings: **ok**, **uncertain**, **invalid**. `uncertain` exists because a
 mis-heard address is a perfectly valid address belonging to somebody else, and only the owner
-can tell — so a dictated "1232 candlestick horse at gmail dot com" is normalised, marked
+can tell — so a dictated "4417 lighthouse pony at example dot com" is normalised, marked
 uncertain, and **cannot be staged** until the owner has looked at it.
 
 The gate turned out to enforce the safety property for free. Its write rule requires at least

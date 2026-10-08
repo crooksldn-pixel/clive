@@ -182,7 +182,7 @@ def test_carriers_are_spelled_as_shopify_spells_them():
 async def test_preparing_reads_the_fulfilment_orders_names_every_line_and_sends_nothing(store, engine, session):
     text, proposal = await stage(session, tracking_number="ab123456785gb")
     assert text.startswith("PROPOSED") and words_for("hold_to_arm")["verb"] in text
-    assert "mark order 1930 for Daniel Sear as shipped with Royal Mail, tracking AB123456785GB, without emailing the customer" in text
+    assert "mark order 1930 for Daniel Stub as shipped with Royal Mail, tracking AB123456785GB, without emailing the customer" in text
     assert store.mutations == [] and proposal.risk == "RED" and proposal.interaction == "hold_to_arm"
     ex = dict(proposal.execution)
     assert ex["input"] == {
@@ -194,7 +194,7 @@ async def test_preparing_reads_the_fulfilment_orders_names_every_line_and_sends_
     words = registry.get(TOOL).write.present(proposal)
     assert words["title"] == "Mark as shipped" and words["detail"] == "Marks every item shipped." and words["done_title"] == "Shipped"
     facts = {f["label"]: f["value"] for f in words["facts"]}
-    assert facts == {"Customer": "Daniel Sear", "Items": "Blue Wash Yard Jeans M ×2, Convict Sweats L", "From": "CROOKS HQ", "Carrier": "Royal Mail", "Tracking": TRACKING, "Customer emailed": "no"}
+    assert facts == {"Customer": "Daniel Stub", "Items": "Blue Wash Yard Jeans M ×2, Convict Sweats L", "From": "CROOKS HQ", "Carrier": "Royal Mail", "Tracking": TRACKING, "Customer emailed": "no"}
     assert all(f.get("tone", "") == "" for f in words["facts"])
     line = engine.ledger.read()[-1]
     assert line["event"] == "PROPOSED" and line["facts"] == {"lines": 2, "units": 3, "carrier": "Royal Mail", "tracked": True, "notify": False, "complete": True}

@@ -1,7 +1,7 @@
 """What a request was FOR, and whether the turn did it.
 
 The September session scored a turn "successful" that asked to add two items to David
-Randall's order, called no tool, staged nothing, and answered as though it had. Nothing in
+Replica's order, called no tool, staged nothing, and answered as though it had. Nothing in
 the report caught it, because the report asked "did anything fail" rather than "was the
 request contract met".
 

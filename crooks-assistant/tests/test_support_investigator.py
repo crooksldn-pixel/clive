@@ -141,7 +141,7 @@ def test_identifiers_come_from_the_subject_and_the_text_and_the_sender_is_not_a_
 
 
 def test_a_phone_number_group_and_a_year_are_not_order_numbers():
-    enquiry = parse_enquiry("Order CROOKS-1924 please. Call me on +44 7789 545133. Sent 19 Sep 2026.", sender_email="c@fixture.invalid")
+    enquiry = parse_enquiry("Order CROOKS-1924 please. Call me on +44 7700 900456. Sent 19 Sep 2026.", sender_email="c@fixture.invalid")
     assert enquiry.order_numbers == ("1924",)
     assert parse_enquiry("Where is 2103?").order_numbers == ("2103",), "an uncued number still counts"
     assert parse_enquiry("Two orders: 2090 and order 2101").order_numbers == ("2101", "2090"), "the cued one comes first"
