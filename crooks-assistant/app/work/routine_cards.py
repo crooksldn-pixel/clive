@@ -5,9 +5,12 @@ routine_tools.py), and never from the model's prose:
 
   list   the asker's routines: each name, how many steps, how many of them are changes.
   one    one routine as it is saved now (after a save or an edit, as the store read it back):
-         its steps in order, each a read or a change, in the words it was saved with.
+         its steps in order, each a read, a change, or a step that acts at once with what it
+         changes ("Puts it on the Office TV each run"), in the words it was saved with.
   run    one routine as this turn carried it out: each step done (a read that ran), waiting (a
-         change staged as a card for his gesture), failed, skipped with why, or not done. Read
+         change staged as a card for his gesture), acted (it changed something at once, said in
+         plain words from what its call returned: "Put on the Office TV"; never "Done" as if it
+         were a lookup), failed, skipped with why, or not done. Read
          from the calls the model made after routine_run in this turn, matched to the steps in
          order by tool: a step is "done" only when its own tool came back, and "waiting" only
          when the gate staged it. A step nobody called says so.
@@ -27,9 +30,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.work.routine_words import did
+
 TOOLS = frozenset({"routine_list", "routine_note", "routine_run"})
 RUN_TOOL = "routine_run"
-STATES = ("done", "waiting", "failed", "skipped", "not_done", "pending")
+STATES = ("done", "waiting", "acted", "failed", "skipped", "not_done", "pending")
+KINDS = ("read", "change", "acts")
 MAX_ROWS = 30
 MAX_TEXT = 160
 # The routine's own id (app/work/routines.py), the card's identity on the glass: never its name.
@@ -71,12 +77,21 @@ def card(name: str, result: dict[str, Any], later: list[Any] | None) -> dict[str
         rows = progress(result.get("run"), _until_next_run(later) if later is not None else None)
         counts = {state: sum(1 for r in rows if r["state"] == state) for state in STATES}
         return {"view": "run", "key": f"run {ident}".strip(), "title": title, "steps": rows, "counts": counts}
-    steps = [{"n": n, "say": _text(s.get("say")), "kind": "change" if s.get("kind") == "change" else "read"}
-             for n, s in enumerate(_steps(routine), start=1)]
+    steps = [_kind_of({"n": n, "say": _text(s.get("say"))}, s) for n, s in enumerate(_steps(routine), start=1)]
     out: dict[str, Any] = {"view": "one", "key": f"one {ident}".strip(), "title": title, "said": said, "steps": steps}
     if result.get("ids_not_kept"):
         out["looked_up"] = True       # an id he gave is looked up again each run, never kept
     return out
+
+
+def _kind_of(row: dict[str, Any], step: dict[str, Any]) -> dict[str, Any]:
+    """A row's kind, one the card knows (a step of no known kind is a read), and what a step that
+    acts at once changes."""
+    kind = step.get("kind") if step.get("kind") in KINDS else ("change" if step.get("change") else "read")
+    row["kind"] = kind
+    if kind == "acts":
+        row["does"] = _text(step.get("does"), 80)
+    return row
 
 
 def _until_next_run(later: list[Any]) -> list[Any]:
@@ -118,7 +133,7 @@ def progress(run: Any, later: list[Any] | None) -> list[dict[str, Any]]:
     matched = _match(steps, later or [])
     rows = []
     for number, step in enumerate(steps):
-        row = {"n": number + 1, "say": _text(step.get("say")), "kind": "change" if step.get("change") else "read"}
+        row = _kind_of({"n": number + 1, "say": _text(step.get("say"))}, step)
         if step.get("skip"):
             row.update(state="skipped", why=_text(step.get("skip"), 80))
         elif later is None:
@@ -128,6 +143,9 @@ def progress(run: Any, later: list[Any] | None) -> list[dict[str, Any]]:
         else:
             call = matched[number][1]
             row["state"] = ("waiting" if getattr(call, "proposal_id", None) else "done") if getattr(call, "ok", False) else "failed"
+            if row["state"] == "done" and row["kind"] == "acts":
+                row.update(state="acted", did=_text(did(str(step.get("tool") or ""), getattr(call, "args", None),
+                                                        getattr(call, "result", None)), 80) or "Changed at once")
         rows.append(row)
     return rows
 

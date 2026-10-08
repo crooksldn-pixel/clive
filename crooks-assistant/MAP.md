@@ -90,7 +90,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `speech` | 846 | live | — | none |
 | `support` | 1,693 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
 | `tools` | 15,261 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
-| `work` | 2,139 | live | — | [`TEAM.md`](docs/TEAM.md) |
+| `work` | 2,448 | live | — | [`TEAM.md`](docs/TEAM.md) |
 <!-- /map:parts -->
 
 ## Pages
@@ -207,5 +207,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 4,396 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 4,455 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->

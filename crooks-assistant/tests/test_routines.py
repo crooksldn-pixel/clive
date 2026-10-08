@@ -37,6 +37,7 @@ from app.tools import (  # noqa: F401 - registers the tools the steps name, and 
     mock,
     registry,
     returns_tools,
+    ship24_tools,
     shopify_tools,
     shopify_writes,
 )
@@ -312,7 +313,7 @@ WITH_IDS = [
 NO_ID = "A routine doesn't keep a record's id; say what to look for and each run finds it again."
 
 
-def _saved_before_ids_were_refused(folder, steps=WITH_IDS):
+def _saved_before_this_fix(folder, steps=WITH_IDS):
     """A routine as the file held it before this fix: its steps kept with their ids."""
     folder.mkdir(parents=True, exist_ok=True)
     old = NamedRoutine("nr_0000dead", "Old", "owner", [Step(s["tool"], s["say"], s["args"], "read") for s in steps])
@@ -337,7 +338,7 @@ async def test_no_routine_tool_issues_an_id_saving_listing_or_running_on_any_day
     from app.session.models import Session
     from app.tools.dispatch import dispatch
 
-    _saved_before_ids_were_refused(folder)
+    _saved_before_this_fix(folder)
     for day in ("today", "tomorrow"):
         session = Session(session_id=f"routines-{day}")
         said = []
@@ -366,7 +367,7 @@ async def test_no_routine_tool_issues_an_id_saving_listing_or_running_on_any_day
 
 
 async def test_a_step_saved_with_an_id_before_ids_were_refused_is_refused_when_run(folder):
-    _saved_before_ids_were_refused(folder, WITH_IDS + [step("shopify_list_orders", "Today's orders", days=1)])
+    _saved_before_this_fix(folder, WITH_IDS + [step("shopify_list_orders", "Today's orders", days=1)])
     with owner():
         run = await routine_tools.routine_run(name="old")
     assert [r.get("skip", "") for r in run["run"]] == ["it keeps a record's id; say again what it should look for"] * 3 + [""]
@@ -405,6 +406,73 @@ async def test_arguments_of_the_declared_types_are_kept():
     with owner():
         said = await save(steps=steps)
     assert [json.loads(s["args_json"]) for s in said["routine"]["steps"]] == [s["args"] for s in steps]
+
+
+# ------------------------------------------------------------------ steps that are not lookups (the review's N1)
+
+
+@pytest.mark.parametrize(("tool", "args", "why"), [
+    ("screen_pair", {"screen": "Office TV", "code": "123456"}, "a screen is approved only with the code it shows when he reads it out"),
+    ("person_note", {}, "a person's card is changed only when somebody asks, never by a routine"),
+    ("message_contact", {}, "a person's card is changed only when somebody asks, never by a routine"),
+])
+async def test_approving_a_screen_or_changing_a_persons_card_is_never_a_step(folder, tool, args, why):
+    with owner(), pytest.raises(ToolError, match=re.escape(why)):
+        await save(steps=[step(tool, "Every run", **args)])
+    assert book.of("owner") == []
+    _saved_before_this_fix(folder, [step(tool, "Every run", **args)])
+    with owner():
+        run = await routine_tools.routine_run(name="old")
+    assert run["run"][0]["skip"] == why, "one saved before this fix is refused when it is run, with why"
+
+
+ACTING = [
+    step("screen_show", "The plan on the office TV", screen="Office TV", title="Drop", lines=["Pack", "Post"]),
+    step("work_note", "Flag the restock", action="flag", title="Restock the hoodies"),
+    step("track_parcel", "Where the sample is", tracking_number="RN000000000GB"),
+    step("shopify_list_orders", "Today's orders", days=1),
+]
+SAYS = [("acts", "Puts it on the Office TV each run"), ("acts", "Flags a job for you each run"),
+        ("acts", "May start a Ship24 tracker, one shipment of the plan"), ("read", None)]
+
+
+async def test_a_step_that_acts_at_once_says_what_it_changes_and_never_done_as_if_it_were_a_lookup():
+    """Putting a list on the office TV, flagging a job, the first look-up of a tracking number: each
+    runs at once as it does when he asks for it singly, and the card says what it changed."""
+    with owner():
+        said = await save("Office", ACTING)
+        run = await routine_tools.routine_run(name="office")
+    assert [(s["kind"], s.get("does")) for s in said["routine"]["steps"]] == SAYS
+    assert [(s["kind"], s.get("does")) for s in routine_cards.card("routine_note", said, [])["steps"]] == SAYS
+    later = [
+        ToolCall(name="screen_show", args=ACTING[0]["args"], ok=True, result={"screen": "Office TV", "showing": "Drop", "on": True}),
+        ToolCall(name="work_note", args=ACTING[1]["args"], ok=True, result={"job": {"title": "Restock the hoodies"}}),
+        ToolCall(name="track_parcel", args=ACTING[2]["args"], ok=True, result={"new_tracker": True, "events": []}),
+        ToolCall(name="shopify_list_orders", args=ACTING[3]["args"], ok=True, result={"orders": []}),
+    ]
+    data = routine_cards.card("routine_run", run, later)
+    assert [(s["state"], s.get("did")) for s in data["steps"]] == [
+        ("acted", "Put on the Office TV"), ("acted", "Flagged for you on the work list: Restock the hoodies"),
+        ("acted", "Started a Ship24 tracker: one shipment of the plan"), ("done", None)]
+    assert data["counts"]["acted"] == 3 and data["counts"]["done"] == 1
+
+
+async def test_a_step_saved_as_a_read_before_acting_steps_were_told_apart_is_said_as_what_it_is(folder):
+    _saved_before_this_fix(folder, ACTING[:1])
+    with owner():
+        shown = await routine_tools.routine_list(name="old")
+        run = await routine_tools.routine_run(name="old")
+    assert (shown["routine"]["steps"][0]["kind"], shown["routine"]["steps"][0]["does"]) == SAYS[0]
+    assert run["run"][0]["kind"] == "acts" and "skip" not in run["run"][0]
+
+
+def test_every_tool_that_acts_at_once_is_one_the_gate_runs_and_every_draft_on_his_screen_is_one():
+    from app.presentation import WORKSPACE_TOOLS
+    from app.work import routine_words
+
+    assert routine_words.ACTS <= gate._KNOWN_TOOLS
+    assert WORKSPACE_TOOLS <= routine_words.ACTS
+    assert not set(routine_tools.NEVER_A_STEP) & routine_words.ACTS
 
 
 # ------------------------------------------------------------------ running one

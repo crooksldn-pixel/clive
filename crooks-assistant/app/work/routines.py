@@ -7,8 +7,10 @@ those come back on a calendar for the team, these come back only when somebody n
 
 What a routine is, and what it promises:
 * a name, and up to MAX_STEPS steps. A step is one tool CLIVE has, the arguments it is called
-  with, and what it does in the person's own words (`say`). A step is a read or a change; which,
-  is read from the registry when the step is saved, never taken from what the model said.
+  with, and what it does in the person's own words (`say`). A step is a read, a change (staged as
+  its own card for his gesture), or one of the few tools the gate runs at once that act on CLIVE's
+  own records, his screens or a draft (app/work/routine_words.py); which, is read from the registry
+  when the step is saved, never taken from what the model said.
 * a routine is its maker's: the owner's are his, a member of the team's are theirs. Nobody lists,
   runs or edits anyone else's (`who` is the authority's, app/work/routine_tools.py).
 * no record's id is kept. A step's arguments are what to look for and how ("orders from the last
@@ -17,8 +19,9 @@ What a routine is, and what it promises:
   saving and refuses any other id). And no result shows a step's arguments as anything but one
   JSON string, so a saved step can never make an id "issued" (`Step.public`).
 * running one changes nothing by itself: every step goes through the gate as the model's own call,
-  and a change is only ever staged as a card waiting for his gesture (app/tools/gate.py has no path
-  from a tool call to a mutation).
+  and a change to the shop or a message is only ever staged as a card waiting for his gesture
+  (app/tools/gate.py has no path from a tool call to a mutation). A step that acts at once does
+  what it does when he asks for it singly, and the card says what it changed.
 
 Kept beside the work list (the same folder, the same private atomic write and the same lock as
 store.py): work/named-routines.json, 0600, written whole and read back after every change so a
@@ -44,7 +47,7 @@ MAX_ALL = 300            # routines this machine keeps, everyone's together
 MAX_NAME = 60
 MAX_SAY = 160
 MAX_ARGS_CHARS = 1_000   # a step's arguments, as JSON
-KINDS = ("read", "change")
+KINDS = ("read", "change", "acts")   # a lookup; a change staged for his gesture; acts at once (routine_words.py)
 _ID = re.compile(r"^nr_[0-9a-f]{8}$")
 _WHO = re.compile(r"^[A-Za-z0-9_.@:-]{1,80}$")
 # Words around a name that are not the name: "my Friday drop routine" is "Friday drop".

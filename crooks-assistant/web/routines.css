@@ -1,7 +1,8 @@
 /* Named routines (web/routines.js): the asker's routines, one as it is saved, one as it ran.
  *
  * Dots that mean something and nothing else: blue is waiting for him on its own card, iOS orange
- * is a step that did not happen, red is a step that failed, a quiet dot is a read. In a saved
+ * is a step that did not happen, red is a step that failed, a quiet dot is a read, and a solid light
+ * dot is a step that changes something at once with no card (its words say what). In a saved
  * routine a change has a hollow blue ring: when it runs it will wait for him.
  */
 
@@ -13,6 +14,7 @@
 .is-warn > .rn-dot{background:var(--warn);box-shadow:0 0 0 3px var(--warn-dim)}
 .is-bad > .rn-dot{background:var(--bad);box-shadow:0 0 0 3px var(--bad-dim)}
 .is-change > .rn-dot{background:transparent;border:1.5px solid #0a84ff}
+.is-acts > .rn-dot{background:var(--ink)}
 .is-pending > .rn-dot{background:transparent;border:1.5px solid var(--ink-4)}
 .rn-main{display:flex;align-items:baseline;gap:10px;min-width:0;font-size:16px;color:var(--ink)}
 .rn-n{flex:none;min-width:1.2em;color:var(--ink-3);font-size:14px;font-variant-numeric:tabular-nums}
@@ -21,6 +23,7 @@
 .rn-side{flex:none;font-size:14px;color:var(--ink-2);white-space:nowrap;font-variant-numeric:tabular-nums}
 .rn-state,.rn-meta{grid-column:2;margin:3px 0 0;word-break:break-word}
 .rn-state{font-size:14px;color:var(--ink-2)}
+.is-acts .rn-state{color:var(--ink)}
 .is-ask .rn-state,.is-change .rn-state{color:#0a84ff}
 .is-warn .rn-state{color:var(--warn)}
 .is-bad .rn-state{color:var(--bad)}

@@ -8,9 +8,11 @@ What these tools promise:
   theirs, and only with the tools the owner allowed them (app/people/staff.py): a step a person
   could not call themselves is refused when it is saved, and again when it is run.
 * A step is checked against the registry and the gate when it is saved: a tool CLIVE has, that the
-  gate would run or stage (never a RED read, an unreviewed write or a test tool), with arguments
-  its schema names, each of the type its schema declares (`args_problem`). Whether it is a read or
-  a change is read from the registry, not said by the model. An id is never kept: the gate's
+  gate would run or stage (never a RED read, an unreviewed write, a test tool, or one of the few it
+  runs at once that a routine must never repeat: approving a screen, changing a person's card), with
+  arguments its schema names, each of the type its schema declares (`args_problem`). Whether it is a
+  read, a change or a step that acts at once (app/work/routine_words.py) is read from the registry,
+  not said by the model. An id is never kept: the gate's
   issued-id arguments are dropped and the model is told so, and any other value under a key
   dispatch reads as an id, at any depth, is refused (a step already saved with one is refused when
   it is run). Each run looks its records up again, so a routine cannot act on yesterday's order by
@@ -19,7 +21,9 @@ What these tools promise:
   B1).
 * routine_run executes nothing. It hands the model the steps, and the model calls each tool as it
   would if he had asked in words: every call goes through dispatch and the gate (app/tools/
-  dispatch.py), so a read runs and a change is only ever STAGED as a card for his gesture. A step
+  dispatch.py), so a read runs, a change is only ever STAGED as a card for his gesture, and a step
+  that acts at once (a list put on the office TV, a job flagged) does what it does when he asks for
+  it singly, said on the card in plain words. A step
   that cannot run now (its family not connected, changes switched off, the tool gone) is marked
   with why, and said, never skipped in silence.
 * routine_list and routine_note change and read only CLIVE's own records on this machine, like
@@ -39,6 +43,7 @@ from app.tools.dispatch import _ID_KEYS
 from app.tools.gate import Tier
 from app.tools.registry import ToolError, tool
 from app.work import tools as work_tools
+from app.work.routine_words import ACTS, will
 from app.work.routines import (
     MAX_STEPS,
     NamedRoutine,
@@ -91,6 +96,15 @@ def _caller() -> tuple[str, bool]:
 
 # ------------------------------------------------------------------ what a step may be
 
+# Tools the gate runs at once that a routine never repeats (the review's N1): approving a screen
+# replays the six-digit code it showed once, and a person's card (a login, which conversation is
+# theirs) is changed when somebody asks for it, never again on every run.
+NEVER_A_STEP = {
+    "screen_pair": "a screen is approved only with the code it shows when he reads it out",
+    "person_note": "a person's card is changed only when somebody asks, never by a routine",
+    "message_contact": "a person's card is changed only when somebody asks, never by a routine",
+}
+
 
 def tool_problem(name: str, *, owner: bool) -> str:
     """Why this tool cannot be a step of this person's routine, or "" when it can. The gate's own
@@ -99,6 +113,8 @@ def tool_problem(name: str, *, owner: bool) -> str:
         return "a routine cannot start a routine"
     if name.startswith("mock_"):
         return "that is a test tool"
+    if name in NEVER_A_STEP:
+        return NEVER_A_STEP[name]
     try:
         spec = registry.get(name)
     except KeyError:
@@ -216,8 +232,33 @@ def checked_step(raw: Any, *, owner: bool) -> tuple[Step, list[str]]:
         say = clean_say(raw.get("say"))
     except RoutineError as exc:
         raise ToolError(_sentence(exc)) from None
-    kind = "change" if spec.write is not None or spec.batch is not None else "read"
-    return Step(tool=name, say=say, args=kept, kind=kind), sorted(str(k) for k in args if k in ids)
+    return Step(tool=name, say=say, args=kept, kind=kind_of(name, spec)), sorted(str(k) for k in args if k in ids)
+
+
+def kind_of(name: str, spec: Any) -> str:
+    """A step's kind, from the registry and never from the model: a change (staged as its own card
+    for the gesture), a step that acts at once on CLIVE's own records, a screen or a draft
+    (app/work/routine_words.py, said on the card in plain words), or a read."""
+    if spec.write is not None or spec.batch is not None:
+        return "change"
+    return "acts" if name in ACTS else "read"
+
+
+def _shown(step: Step, row: dict[str, Any]) -> dict[str, Any]:
+    """A step's row in a result, with its kind read again (a step saved as a read before acting
+    steps were told apart is said as what it is) and, when it acts at once, what it changes."""
+    if step.kind != "change" and step.tool in ACTS:
+        row["kind"] = "acts"
+    if row.get("kind") == "acts":
+        row["does"] = will(step.tool, step.args)
+    return row
+
+
+def _public(routine: NamedRoutine) -> dict[str, Any]:
+    """The routine as every result shows it (NamedRoutine.public, each step `_shown`)."""
+    out = routine.public()
+    out["steps"] = [_shown(step, row) for step, row in zip(routine.steps, out["steps"], strict=True)]
+    return out
 
 
 def _steps(raw: Any, *, owner: bool) -> tuple[list[Step], list[str]]:
@@ -249,7 +290,7 @@ def _position(at: Any, count: int, *, allow_end: bool = False) -> int:
 
 
 def _said(routine: NamedRoutine, what: str, dropped: list[str]) -> dict[str, Any]:
-    out: dict[str, Any] = {"view": "one", "said": what, "routine": routine.public(), "note": SAVED}
+    out: dict[str, Any] = {"view": "one", "said": what, "routine": _public(routine), "note": SAVED}
     if dropped:
         out["ids_not_kept"] = dropped
     return out
@@ -268,8 +309,8 @@ async def routine_list(name: str = "") -> dict[str, Any]:
     who, _ = _caller()
     try:
         if name:
-            return {"view": "one", "routine": book.find(who, name).public(), "note": SAVED}
-        return {"view": "list", "routines": [r.public() for r in book.of(who)]}
+            return {"view": "one", "routine": _public(book.find(who, name)), "note": SAVED}
+        return {"view": "list", "routines": [_public(r) for r in book.of(who)]}
     except RoutineError as exc:
         raise ToolError(_sentence(exc)) from None
 
@@ -303,8 +344,8 @@ async def routine_note(action: str, name: str, steps: list[dict] | None = None, 
             return _said(book.save(who, name, made, via=VIA_CLIVE), "Saved", dropped)
         if action == "forget":
             gone = book.forget(who, name)
-            return {"view": "list", "said": f"Forgot {gone.name}", "forgotten": gone.public(),
-                    "routines": [r.public() for r in book.of(who)]}
+            return {"view": "list", "said": f"Forgot {gone.name}", "forgotten": _public(gone),
+                    "routines": [_public(r) for r in book.of(who)]}
         if action == "rename":
             if not str(new_name or "").strip():
                 raise ToolError("Say the new name.")
@@ -358,14 +399,14 @@ async def routine_run(name: str) -> dict[str, Any]:
         raise ToolError(f"{routine.name} has no steps yet.")
     run = []
     for number, step in enumerate(routine.steps, start=1):
-        row: dict[str, Any] = {"step": number, "say": step.say, "tool": step.tool, "args_json": args_json(step.args),
-                               "change": step.kind == "change"}
+        row = _shown(step, {"step": number, "say": step.say, "tool": step.tool, "args_json": args_json(step.args),
+                            "change": step.kind == "change", "kind": step.kind})
         why = unavailable(step, owner=owner)
         if why:
             row["skip"] = why
         run.append(row)
     book.ran(who, routine.routine_id)
-    return {"view": "run", "routine": routine.public(), "run": run, "do": RUN}
+    return {"view": "run", "routine": _public(routine), "run": run, "do": RUN}
 
 
 def unavailable(step: Step, *, owner: bool) -> str:

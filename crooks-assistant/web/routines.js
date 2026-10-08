@@ -4,14 +4,17 @@
  *
  *   view "list"   the asker's routines: each name, how many steps, how many are changes, and the
  *                 first few steps in the words they were saved with.
- *   view "one"    one routine as it is saved now: its steps in order, each a read or a change.
+ *   view "one"    one routine as it is saved now: its steps in order, each a read, a change, or a
+ *                 step that acts at once, with what it changes ("Puts it on the Office TV each run").
  *   view "run"    one routine as this turn ran it: each step done, waiting for his gesture on its own
- *                 card, failed, skipped with why, or not done.
+ *                 card, what a step that acts at once changed ("Put on the Office TV", never "Done"),
+ *                 failed, skipped with why, or not done.
  *
  * Dots that mean something and nothing else: blue is waiting for him (a change staged on its card,
  * which sits above this one); iOS orange is a step that did not happen (skipped, not done); red is a
- * step that failed; a quiet dot is a read that ran, or a read in a saved routine. In a saved
- * routine a change has a hollow blue ring: when it runs, it will wait for him.
+ * step that failed; a quiet dot is a read that ran, or a read in a saved routine; a solid light dot
+ * is a step that changes something at once, with no card (a screen, the work list), and its words say
+ * what. In a saved routine a change has a hollow blue ring: when it runs, it will wait for him.
  *
  * The same two rules as web/ui.js: every string lands through textContent, never markup, and no
  * attribute is built from what the Mac sent. Nothing here is tappable: a routine is run or changed by
@@ -28,6 +31,7 @@
   const RUN = {
     done: ['is-quiet', 'Done'],
     waiting: ['is-ask', 'Waiting for you on its card'],
+    acted: ['is-acts', 'Changed at once'],
     failed: ['is-bad', 'Could not be done'],
     skipped: ['is-warn', 'Skipped'],
     not_done: ['is-warn', 'Not done'],
@@ -77,6 +81,7 @@
       const parts = [];
       if (c.done) parts.push(`${c.done} done`);
       if (c.waiting) parts.push(`${c.waiting} waiting for you`);
+      if (c.acted) parts.push(`${c.acted} changed at once`);
       if (c.failed) parts.push(`${c.failed} failed`);
       if (c.skipped) parts.push(`${c.skipped} skipped`);
       if (c.not_done) parts.push(`${c.not_done} not done`);
@@ -109,8 +114,10 @@
     if (!steps.length) return [];      // the line under the title says it has no steps yet
     const out = [h('ol', 'rn-rows', steps.map((s) => {
       const change = s.kind === 'change';
-      return row(change ? 'is-change' : 'is-read', [h('span', 'rn-n', text(s.n)), h('span', 'rn-say', text(s.say))],
-        change ? 'A change: waits for you on its card' : '', '');
+      const acts = s.kind === 'acts';
+      const state = change ? 'A change: waits for you on its card' : acts ? (text(s.does) || 'Changes something at once') : '';
+      return row(change ? 'is-change' : acts ? 'is-acts' : 'is-read', [h('span', 'rn-n', text(s.n)), h('span', 'rn-say', text(s.say))],
+        state, '');
     }))];
     if (d.looked_up) out.push(h('p', 'card-note', 'No order or thread is kept: each run looks them up again.'));
     return out;
@@ -121,7 +128,8 @@
     return [h('ol', 'rn-rows', steps.map((s) => {
       const [cls, said] = RUN[text(s.state)] || RUN.not_done;
       const why = text(s.why);
-      return row(cls, [h('span', 'rn-n', text(s.n)), h('span', 'rn-say', text(s.say))], why ? `${said}: ${why}` : said, '');
+      const line = text(s.state) === 'acted' ? (text(s.did) || said) : why ? `${said}: ${why}` : said;
+      return row(cls, [h('span', 'rn-n', text(s.n)), h('span', 'rn-say', text(s.say))], line, '');
     }))];
   }
 

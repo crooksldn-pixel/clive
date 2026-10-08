@@ -107,6 +107,25 @@ test('a run shows each step as the turn left it, each dot meaning one thing', ()
   assert.match(all(rows[5], 'rn-state')[0].allText(), /Not done/);
 });
 
+test('a step that acts at once says what it changes, saved and run, never "Done" as if it were a lookup', () => {
+  const saved = UI.render([{ type: 'routine', data: { view: 'one', title: 'Office', said: 'Saved', steps: [
+    { n: 1, say: 'The plan on the office TV', kind: 'acts', does: 'Puts it on the Office TV each run' },
+    { n: 2, say: "Today's orders", kind: 'read' },
+  ] } }]).nodes[0];
+  const rows = all(saved, 'rn-row');
+  assert.ok(has(rows[0], 'is-acts') && has(rows[1], 'is-read'));
+  assert.equal(all(rows[0], 'rn-state')[0].allText(), 'Puts it on the Office TV each run');
+  const ran = UI.render([{ type: 'routine', data: { view: 'run', title: 'Office', counts: { done: 1, acted: 1 }, steps: [
+    { n: 1, say: 'The plan on the office TV', kind: 'acts', state: 'acted', did: 'Put on the Office TV' },
+    { n: 2, say: "Today's orders", kind: 'read', state: 'done' },
+  ] } }]).nodes[0];
+  assert.match(ran.allText(), /Ran: 1 done · 1 changed at once/);
+  const done = all(ran, 'rn-row');
+  assert.ok(has(done[0], 'is-acts') && has(done[1], 'is-quiet'));
+  assert.equal(all(done[0], 'rn-state')[0].allText(), 'Put on the Office TV');
+  assert.doesNotMatch(done[0].allText(), /Done|read/i);
+});
+
 test('a step whose state is not one the card knows is drawn as not done, never as done', () => {
   const card = UI.render([{ type: 'routine', data: { ...RUN.data, steps: [{ n: 1, say: 'x', kind: 'read', state: 'magic' }] } }]).nodes[0];
   const row = all(card, 'rn-row')[0];
