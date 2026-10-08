@@ -203,11 +203,12 @@ async def gmail_send_draft(thread_id: str) -> Prepared:
             "to_line": f"{draft['to_name']} <{draft['to']}>" if draft["to_name"] else draft["to"], "spoken_to": first,
             "subject": draft["subject"], "body": draft["body"], "from_line": sender,
             "words_line": words, "sender_line": whose["sender_line"],
-            "read_back": f"send the draft waiting for {first}" + (f", {words.split(',')[0]} words" if not words.startswith("Yours") else ""),
+            "read_back": f"send the draft waiting for {first}" + (
+                "" if words.startswith("Yours") else ", whose words aren't known" if by in gmail_drafts.UNKNOWN else f", {words.split(',')[0]} words"),
             "pii": [v for v in (draft["to"], draft["to_name"], draft["subject"]) if v],
             "ledger": {
                 "kind": "send_draft", "reply": reply, "draft_used": True, "chars": len(draft["body"]),
-                "words": "gmail" if by == "" else ("owner" if by in ("owner", "clive") else "staff"),
+                "words": "gmail" if by == "" else "unknown" if by in gmail_drafts.UNKNOWN else ("owner" if by in ("owner", "clive") else "staff"),
                 "sender": "owner" if asker == "owner" else "staff",
             },
         },

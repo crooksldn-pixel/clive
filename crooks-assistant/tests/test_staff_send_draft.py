@@ -224,6 +224,66 @@ async def test_another_team_members_draft_is_theirs_or_georges_to_send(engine, b
     assert facts_of(own, kai.session)["Words"] == "Yours, drafted with CLIVE"
 
 
+# ------------------------------------------------------------------- whose words, when unknown
+#
+# The review of 8 October (note 4): with CLIVE's record of its drafts unreadable, or a row for one of
+# its drafts missing, another member's CLIVE draft read "George's, written in Gmail" and Mia could
+# send it. Unknown is said as unknown, and only George may send such a draft.
+
+CLIVES_OWN = "<crooks-0123456789abcdef0123456789abcdef@crooksldn.com>"
+
+
+def clives_unrecorded_draft(box) -> str:
+    """A reply CLIVE drafted (its own Message-ID) that CLIVE's record has no row for."""
+    raw = gmail_writes.build_raw(sender=ME, sender_name="CROOKS", to="daniel@example.com", to_name="Daniel Stub", subject="Re: Order 1930 — where is it?",
+                                 body="Hi Daniel, Kai here. Monday.", token=CLIVES_OWN, in_reply_to="<abc@example.com>", references="<abc@example.com>")
+    return box.create_draft(raw, THREAD)["draft_id"]
+
+
+async def test_with_the_record_unreadable_whose_words_is_unknown_and_mia_is_refused(engine, box, tmp_path):
+    georges_draft(box)
+    (tmp_path / "gmail-drafts.json").write_text("{ this is not the record", encoding="utf-8")
+    mia = Talk("m9")
+    mia.session.issue(THREAD)
+    with as_staff("mia-fixture"):
+        listed = (await call(mia, "gmail_unsent"))[0]
+        assert "George's, written in Gmail" not in listed and "Not known: CLIVE's record of its drafts can't be read just now" in listed, listed
+        text, proposal = await call(mia, "gmail_send_draft", thread_id=THREAD)
+        assert proposal is None and "isn't known" in text and "Nothing was prepared" in text, text
+        text, proposal = await call(mia, "gmail_send_reply", thread_id=THREAD)
+        assert proposal is None and "isn't known" in text, "the reply path keeps the same rule"
+    george = Talk("o5")
+    george.session.issue(THREAD)
+    with as_owner():
+        _, proposal = await call(george, "gmail_send_draft", thread_id=THREAD)
+    facts = facts_of(proposal, george.session)
+    assert facts["Words"] == "Not known: CLIVE's record of its drafts can't be read just now" and facts["Sent by"] == "You, on your hold"
+    assert proposal.summary["ledger"]["words"] == "unknown" and "whose words aren't known" in proposal.summary["read_back"]
+
+
+async def test_clives_own_draft_with_no_row_is_drafted_with_clive_whose_not_recorded(engine, box):
+    clives_unrecorded_draft(box)
+    mia = Talk("m10")
+    mia.session.issue(THREAD)
+    with as_staff("mia-fixture"):
+        listed = (await call(mia, "gmail_unsent"))[0]
+        assert "written in Gmail" not in listed and "Drafted with CLIVE; whose isn't recorded" in listed, listed
+        text, proposal = await call(mia, "gmail_send_draft", thread_id=THREAD)
+        assert proposal is None and "isn't recorded" in text, text
+        text, proposal = await call(mia, "gmail_send_reply", thread_id=THREAD)
+        assert proposal is None and "isn't recorded" in text
+    george = Talk("o6")
+    george.session.issue(THREAD)
+    with as_owner():
+        _, proposal = await call(george, "gmail_send_draft", thread_id=THREAD)
+    assert facts_of(proposal, george.session)["Words"] == "Drafted with CLIVE; whose isn't recorded"
+
+
+def test_a_draft_with_someone_elses_message_id_and_no_row_is_known_to_be_written_in_gmail():
+    assert gmail_drafts.words_of(draft_id="r-1", token="<george-gmail-1@crooksldn.com>") == ""
+    assert gmail_drafts.words_of(draft_id="r-1", token=CLIVES_OWN) == gmail_drafts.UNRECORDED
+
+
 async def test_a_draft_changed_after_the_card_is_not_sent(engine, box):
     draft_id = georges_draft(box)
     talk = Talk("m4")

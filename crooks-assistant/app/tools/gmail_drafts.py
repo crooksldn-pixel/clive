@@ -41,6 +41,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import tempfile
 import threading
 import time
@@ -232,14 +233,29 @@ def waiting_for(thread_id: str, *, besides: str = "") -> list[dict[str, Any]]:
     return sorted(out, key=lambda r: float(r.get("made_at") or 0))
 
 
+# Whose words a draft is when that is not known, which `words_of` says rather than guessing (the
+# review of 8 October, note 4): CLIVE's record could not be read, or the draft carries the Message-ID
+# CLIVE mints (gmail_writes `new_token`) but the record has no row for it (made before the record, or
+# its row lost). Neither is ever said as George's; a member of the team is refused either.
+UNREADABLE, UNRECORDED = "?unreadable", "?unrecorded"
+UNKNOWN = (UNREADABLE, UNRECORDED)
+_CLIVES_MESSAGE_ID = re.compile(r"^<crooks-[0-9a-f]{32}@[^\s<>@]+>$")
+
+
 def words_of(draft_id: str = "", token: str = "") -> str:
     """Who a draft's words are, by CLIVE's record: "owner", a member of the team's id, "clive" for a
-    draft CLIVE made with nobody's hold behind it — or "" when CLIVE did not make it (it was written
-    in Gmail)."""
-    for found in rows():
-        if (draft_id and found["draft_id"] == draft_id) or (token and found.get("token") == token):
+    draft CLIVE made with nobody's hold behind it; "" only when it is known CLIVE did not make it (it
+    was written in Gmail); UNREADABLE when the record cannot be read; UNRECORDED for a draft with
+    CLIVE's own Message-ID that the record does not hold."""
+    with _lock:
+        try:
+            drafts = _load()["drafts"]
+        except (OSError, ValueError):
+            return UNREADABLE
+    for key, found in drafts.items():
+        if isinstance(found, dict) and ((draft_id and key == draft_id) or (token and found.get("token") == token)):
             return str(found.get("by") or "clive")
-    return ""
+    return UNRECORDED if _CLIVES_MESSAGE_ID.match(str(token or "").strip()) else ""
 
 
 # ------------------------------------------------------------------------ is it still CLIVE's
@@ -454,6 +470,8 @@ async def stop() -> None:
 # hold. So a draft says whose words it is — his, written in Gmail (a draft CLIVE did not make is the
 # mailbox's own, which is his); his or a team member's, drafted with CLIVE (by this record) — and the
 # card says who sends it. Words are said from where the asker stands: "Yours" to whoever wrote them.
+# When it is not known (the record unreadable, or CLIVE's own draft with no row), the card says so
+# and only George may send it: whose words are never guessed (UNREADABLE, UNRECORDED).
 
 
 def first_name(person_id: str) -> str:
@@ -469,7 +487,11 @@ def first_name(person_id: str) -> str:
 
 def whose(by: str, asker: str) -> str:
     """Whose words a draft is, said to `asker` ("owner", or a team member's id): `by` is what
-    `words_of` read from the record ("" for a draft written in Gmail)."""
+    `words_of` read from the record ("" for a draft written in Gmail). Unknown is said as unknown."""
+    if by == UNREADABLE:
+        return "Not known: CLIVE's record of its drafts can't be read just now"
+    if by == UNRECORDED:
+        return "Drafted with CLIVE; whose isn't recorded"
     mine = (by in ("", "owner", "clive") and asker == "owner") or (by == asker and asker)
     if by == "":
         return "Yours, written in Gmail" if mine else "George's, written in Gmail"
@@ -487,7 +509,13 @@ def whose_draft(draft: dict[str, Any], *, required: bool = False) -> dict[str, s
     if required and not asker:
         raise ToolError("Nobody is signed in to send it, so nothing was prepared.")
     by = words_of(draft_id=str(draft.get("draft_id") or ""), token=str(draft.get("token") or ""))
-    if asker not in ("owner", "") and by not in ("", "owner", "clive", asker):
+    staff = asker not in ("owner", "")
+    if staff and by == UNREADABLE:
+        raise ToolError("Whose words that draft is isn't known: CLIVE's record of its drafts can't be read just now. "
+                        "George can send it. Nothing was prepared.")
+    if staff and by == UNRECORDED:
+        raise ToolError("That draft was drafted with CLIVE, and whose words they are isn't recorded: George can send it. Nothing was prepared.")
+    if staff and by not in ("", "owner", "clive", asker):
         raise ToolError(f"That draft is {first_name(by)}'s words, drafted with CLIVE: they or George send it. Nothing was prepared.")
     return {"by": by, "asker": asker, "words_line": whose(by, asker), "sender_line": sender_line(asker)}
 
