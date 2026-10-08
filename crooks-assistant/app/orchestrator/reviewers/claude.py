@@ -48,6 +48,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from ..routing import Workspace
 from ..workers.base import Started, processes_with_marker
 from ..workers.claude import ALLOWED_PLUGINS, BUILTIN_PATH, parse_events
 from .base import DECISION_SCHEMA, ReviewContext, ReviewerFacts, ReviewResult
@@ -555,12 +556,27 @@ def _token(job: dict) -> str | None:
     return Path(job["token_file"]).read_text(encoding="utf-8").strip()
 
 
+_WORKSPACE_ID_MAX = next(m.max_length for m in Workspace.model_fields["workspace_id"].metadata
+                         if getattr(m, "max_length", None))
+
+
+def review_workspace_id(task_id: str, attempt_id: str, dispatch_seq: int, run: str) -> str:
+    """The review room's id as the result declares it, always within ``routing.Workspace``'s limit (review of the
+    branch, N7). Readable when it fits; otherwise ``claude-review:`` and a digest of the same four parts, so two
+    rooms never share an id. Task and attempt ids may each be 120 characters, which would not fit as text."""
+    room = f"{task_id}/{attempt_id}/dispatch.{dispatch_seq}/{run}"
+    plain = f"claude-review:{room}"
+    if len(plain) <= _WORKSPACE_ID_MAX:
+        return plain
+    return f"claude-review:sha256:{hashlib.sha256(room.encode()).hexdigest()[:32]}"
+
+
 def _result_of(job: dict, decision: dict, done: Session, started_at: datetime, run: str) -> ReviewResult:
     sha, session = job["candidate_sha"], done.started.session_id
     facts = ReviewerFacts(
         principal_id=PRINCIPAL, session_id=f"claude-code:{session}", session_started_at=started_at,
-        context_fresh=True, workspace_id=f"claude-review:{job['task_id']}/{job['attempt_id']}/"
-                                         f"dispatch.{job['dispatch_seq']}/{run}",
+        context_fresh=True,
+        workspace_id=review_workspace_id(job["task_id"], job["attempt_id"], job["dispatch_seq"], run),
         workspace_branch=f"detached:{sha}", workspace_head=sha, read_only=True, clean=True,
     )
     note = (f"[{PRINCIPAL}: session {session}, model {done.started.model}, Claude Code "

@@ -211,7 +211,7 @@ The dispatcher itself did not change.
    - an `apiKeySource` other than `none`;
 5. refuses a result that used any other tool, that is not a structured decision, or that names another SHA;
 6. compares every file in the room with the commit's blobs again. Any difference, a write bit or an extra file voids the review;
-7. writes the typed result, with the reviewer facts it has verified: principal `claude-reviewer`, session `claude-code:<id>`, context fresh, workspace `claude-review:<task>/<attempt>/dispatch.N/run.M` at the SHA, read-only and clean.
+7. writes the typed result, with the reviewer facts it has verified: principal `claude-reviewer`, session `claude-code:<id>`, context fresh, workspace `claude-review:<task>/<attempt>/dispatch.N/run.M` at the SHA, read-only and clean. When that would pass `routing.Workspace`'s 200-character limit (task and attempt ids may each be 120), the workspace is `claude-review:sha256:` and 32 hex characters of the same four parts.
 
 The room and the HOME are removed afterwards; the stream log and stderr are kept with the run. A failed run is recorded, redacted, as `run.M.error.json`; after three, the task blocks with the last reason ("review of … could not be obtained: Claude review run 3 failed: …").
 

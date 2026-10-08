@@ -20,6 +20,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -359,6 +360,37 @@ def test_a_review_that_fails_every_run_blocks_with_the_reason_instead_of_waiting
     reason = w.state_of().blocker_reason
     assert "could not be obtained: Claude review run 3 failed: the reviewer could not authenticate" in reason
     assert "(no further runs)" in reason and fake.invocations() == 3 and TOKEN not in reason
+
+
+def test_the_reviewers_workspace_id_stays_within_the_routing_limit_for_the_longest_ids(tmp_path):
+    # Review of the branch, N7: task and attempt ids may each be 120 characters (contracts.py). The workspace id the
+    # result declares must still fit routing.Workspace, or party() raises after the payload is consumed and the
+    # review is never admitted. A short id stays readable; a long one is hashed, one per task/attempt/dispatch/run.
+    from app.orchestrator.reviewers.claude import Session, _result_of
+    from app.orchestrator.routing import Workspace
+    from app.orchestrator.workers.base import Started
+
+    limit = next(m.max_length for m in Workspace.model_fields["workspace_id"].metadata if hasattr(m, "max_length"))
+    started = Started(session_id="3f1c5b8e-1111-4222-8333-944445555666", cwd=str(tmp_path), model="m",
+                      tools=("Read", "Glob", "Grep", "StructuredOutput"), mcp_servers=(), plugins=(), skills=0,
+                      slash_commands=0, permission_mode="dontAsk", api_key_source="none", cli_version="2.1.294")
+    done = Session(started, {"num_turns": 3}, [])
+    decision = {"candidate_sha": "a" * 40, "verdict": "READY", "findings": [], "summary": "ok"}
+
+    def facts(task: str, attempt: str, seq: int = 1, run: str = "run.1"):
+        job = {"candidate_sha": "a" * 40, "task_id": task, "task_revision": 1, "attempt_id": attempt,
+               "dispatch_seq": seq}
+        result = _result_of(job, decision, done, datetime.now(UTC), run)
+        result.reviewer.party()                        # what the kernel does on admission: must not raise
+        return result.reviewer.workspace_id
+
+    task, attempt = "t" * 120, ("t" * 114 + "-a1234")
+    assert len(task) == len(attempt) == 120
+    long_id = facts(task, attempt, 12, "run.3")
+    assert len(long_id) <= limit and long_id.startswith("claude-review:")
+    assert len({long_id, facts(task, attempt, 12, "run.2"), facts(task, attempt, 13, "run.3"),
+                facts(task, "t" * 114 + "-a1235", 12, "run.3")}) == 4
+    assert facts("demo-objective", "demo-objective-a1") == "claude-review:demo-objective/demo-objective-a1/dispatch.1/run.1"
 
 
 # ---------------------------------------------------------------- the token: the owner's plan, never an API key
