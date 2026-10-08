@@ -398,6 +398,25 @@ async def test_each_argument_is_the_type_its_schema_declares_or_the_step_is_refu
     assert book.of("owner") == []
 
 
+@pytest.mark.parametrize("declared", [["string", "null"], ["integer"], {"one": "string"}])
+async def test_a_type_that_is_not_one_word_is_refused_never_an_error(monkeypatch, declared):
+    """The re-review's N6: no tool declares `"type": [..]` today, but one that did would have raised
+    TypeError out of the shape check. It is a shape a routine does not keep, refused in words."""
+    @registry.tool(name="routine_probe_listed_type", description="x",
+                   input_schema={"type": "object", "properties": {"when": {"type": declared}}})
+    async def _probe(when=None) -> dict:
+        return {}
+
+    monkeypatch.setattr(gate, "_KNOWN_TOOLS", gate._KNOWN_TOOLS | {"routine_probe_listed_type"})
+    try:
+        with owner(), pytest.raises(ToolError, match=re.escape(
+                "The routine_probe_listed_type step's when is of a shape CLIVE does not keep.")):
+            await save(steps=[step("routine_probe_listed_type", "x", when="today")])
+    finally:
+        registry._REGISTRY.pop("routine_probe_listed_type", None)
+    assert book.of("owner") == []
+
+
 async def test_arguments_of_the_declared_types_are_kept():
     steps = [step("shopify_list_orders", "Unshipped this week", days=7, unfulfilled_only=True),
              step("commerce_query", "This month's orders", period="this_month", sort="total desc"),

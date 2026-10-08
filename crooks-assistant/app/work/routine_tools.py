@@ -159,13 +159,16 @@ def _shape_problem(value: Any, schema: Any) -> str:
     taken: a value of its declared type (one of its `enum`, when it has one); an object only where
     it says object, holding only the keys it names, each checked the same way; a list only of its
     declared item type. A property that declares no type takes a plain value. Any other shape is
-    refused, because what a routine keeps is replayed on every run."""
+    refused, a `type` given as a list among them, because what a routine keeps is replayed on every
+    run."""
     if not isinstance(schema, dict):
         return "of a shape CLIVE does not keep"
     kind = schema.get("type")
     if kind is None and not ({"properties", "items", "anyOf", "oneOf", "allOf"} & set(schema)):
         return "" if isinstance(value, (str, int, float, bool)) else "not a plain value"
-    if kind in _PLAIN:
+    # A `type` that is not one word (["string", "null"]) is not a shape a routine keeps: refused like
+    # any other, never a TypeError out of `in` (the re-review's N6).
+    if isinstance(kind, str) and kind in _PLAIN:
         wanted, words = _PLAIN[kind]
         if isinstance(value, bool) is not (kind == "boolean") or not isinstance(value, wanted):
             return f"not {words}"
