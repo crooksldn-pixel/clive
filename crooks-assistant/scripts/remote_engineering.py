@@ -11,7 +11,8 @@ stops
 run
     Long-lived control loop: poll inbox, advance the existing Dispatcher once,
     publish a disposable GitHub status projection, sleep, repeat. With --private-listen it
-    also serves the stops, over the tailnet, to the machines --private-allow-node names
+    also serves the stops, over the tailnet, to the machines --private-allow-node names (by full
+    tailnet name or StableID)
     (app/remote_engineering/private.py).
 
 GitHub is transport/projection only. Objective/task/review/integration authority
@@ -180,7 +181,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="serve why stopped builds stopped (GET /v1/stops) on this host's TAILNET_ADDRESS:PORT; "
                         "off by default; never a public or wildcard address")
     r.add_argument("--private-allow-node", action="append", default=[],
-                   help="a tailnet machine allowed to read it, by `tailscale whois` (repeat; e.g. crooks-os-prod-1)")
+                   help="a tailnet machine allowed to read it, by its full tailnet name or its StableID as "
+                        "`tailscale whois --json` gives them (repeat; e.g. crooks-os-prod-1.<tailnet>.ts.net); "
+                        "never a bare machine name")
     _add_land_arg(r)
     return parser
 

@@ -2983,18 +2983,26 @@ from app.remote_engineering import (  # noqa: E402
     parse_listen,
 )
 
-PROD = "crooks-os-prod-1"
+TAILNET = "tail1234.ts.net"
+PROD = f"crooks-os-prod-1.{TAILNET}"           # a node is named by its full tailnet name (or its StableID)
+LAPTOP = f"someones-laptop.{TAILNET}"
+
+
+def _stable_id(address: str) -> str:
+    return "nNode" + "".join(ch for ch in address if ch.isdigit()) + "CNTRL"
 
 
 def _whois(names: dict[str, str]):
-    """A stand-in for ``tailscale whois --json``: the node each address belongs to, by the shape Tailscale prints."""
+    """A stand-in for ``tailscale whois --json``: the node each address belongs to (by its full tailnet name), in
+    the shape Tailscale prints (``Name`` with its trailing dot, the machine name in ``ComputedName``)."""
     asked: list[str] = []
 
     def run(_cli: str, address: str) -> str:
         asked.append(address)
         if address not in names:
             raise RuntimeError("tailscale could not place the address")
-        return json.dumps({"Node": {"Name": f"{names[address]}.tail1234.ts.net.", "ComputedName": names[address]},
+        return json.dumps({"Node": {"ID": 7, "StableID": _stable_id(address), "Name": f"{names[address]}.",
+                                    "ComputedName": names[address].split(".", 1)[0]},
                            "UserProfile": {"LoginName": "owner@example.invalid"}})
     run.asked = asked
     return run
@@ -3061,7 +3069,7 @@ def test_only_the_tailnet_machines_the_operator_named_may_read_it():
         PeerCheck([])
     with pytest.raises(ValueError):
         PeerCheck(["Crooks OS"])
-    whois = _whois({"100.64.0.2": PROD, "100.64.0.3": "someones-laptop"})
+    whois = _whois({"100.64.0.2": PROD, "100.64.0.3": LAPTOP})
     now = [0.0]
     peers = PeerCheck([PROD], cli="/usr/bin/tailscale", runner=whois, clock=lambda: now[0])
     assert peers.allows("100.64.0.2") and not peers.allows("100.64.0.3") and not peers.allows("100.64.0.9")
@@ -3071,6 +3079,35 @@ def test_only_the_tailnet_machines_the_operator_named_may_read_it():
     now[0] = 61.0
     assert peers.allows("100.64.0.2") and whois.asked[-1] == "100.64.0.2"   # a minute on, asked again
     assert not PeerCheck([PROD], cli=None, runner=whois).allows("100.64.0.2")   # no tailscale: nobody
+
+
+def test_a_node_is_named_by_its_full_tailnet_name_or_stable_id_never_its_machine_name_alone():
+    """Review N1: a node shared in from another tailnet can carry the same machine name as ours, so neither the
+    first label of its ``Name`` nor its ``ComputedName`` may let it in; its full tailnet name and StableID differ."""
+    nodes = {
+        "100.64.0.2": {"StableID": "nPr0dCNTRL", "Name": f"{PROD}.", "ComputedName": "crooks-os-prod-1"},
+        # shared in from another tailnet: Tailscale gives a shared-in node its full name as ComputedName ...
+        "100.64.0.5": {"StableID": "nSharedCNTRL", "Name": "crooks-os-prod-1.other.ts.net.",
+                       "ComputedName": "crooks-os-prod-1.other.ts.net"},
+        # ... but nothing may rest on that: the same node with no ComputedName, or one that says only the host name
+        "100.64.0.6": {"StableID": "nShared2CNTRL", "Name": "crooks-os-prod-1.other.ts.net."},
+        "100.64.0.7": {"StableID": "nShared3CNTRL", "Name": "", "ComputedName": "crooks-os-prod-1"},
+        "100.64.0.8": {"Name": "Crooks-OS-Prod-1.TAIL1234.ts.net"},           # ours, as written differently
+    }
+
+    def whois(_cli: str, address: str) -> str:
+        return json.dumps({"Node": nodes[address]})
+
+    by_name = PeerCheck([f"{PROD}."], cli="tailscale", runner=whois)
+    assert by_name.allows("100.64.0.2") and by_name.allows("100.64.0.8")
+    assert not any(by_name.allows(a) for a in ("100.64.0.5", "100.64.0.6", "100.64.0.7"))
+    by_id = PeerCheck(["nPr0dCNTRL"], cli="tailscale", runner=whois)
+    assert by_id.allows("100.64.0.2")
+    assert not any(by_id.allows(a) for a in ("100.64.0.5", "100.64.0.6", "100.64.0.7", "100.64.0.8"))
+    # a bare machine name cannot be named at all, so the old way of writing the flag fails loudly
+    for bare in ("crooks-os-prod-1", "crooks-os-prod-1.", "nPr0d CNTRL", "x" * 70):
+        with pytest.raises(ValueError, match="full tailnet name"):
+            PeerCheck([bare])
 
 
 def _free_port() -> int:
@@ -3096,7 +3133,7 @@ def _ask(port: int, method: str = "GET", path: str = "/v1/stops") -> tuple[int, 
 @pytest.mark.parametrize("allowed", [True, False])
 def test_the_private_channel_serves_one_read_only_document_to_a_named_node(allowed):
     port = _free_port()
-    whois = _whois({"127.0.0.1": PROD if allowed else "someones-laptop"})
+    whois = _whois({"127.0.0.1": PROD if allowed else LAPTOP})
     channel = PrivateChannel(f"127.0.0.1:{port}", PeerCheck([PROD], cli="tailscale", runner=whois))
     channel.document.set({"schema_version": PRIVATE_SCHEMA, "generated_at": NOW.isoformat(),
                           "stops": [{"request_id": "r-obj-1", "blocker": "MARKER"}]})
@@ -3199,7 +3236,9 @@ def test_the_stops_verb_prints_what_the_running_loop_recorded_redacted(tmp_path,
 @pytest.mark.parametrize("flags, says", [
     (["--private-allow-node", PROD], "--private-allow-node needs --private-listen"),
     (["--private-listen", "0.0.0.0:8765", "--private-allow-node", PROD], "tailnet address"),
-    (["--private-listen", "100.64.0.1:8765"], "names at least one tailnet machine"),
+    (["--private-listen", "100.64.0.1:8765"], "names each tailnet machine by its full tailnet name"),
+    (["--private-listen", "100.64.0.1:8765", "--private-allow-node", "crooks-os-prod-1"],
+     "names each tailnet machine by its full tailnet name"),
 ])
 def test_run_refuses_a_private_channel_that_is_not_tailnet_only_before_anything_starts(tmp_path, capsys, flags, says):
     common = ["--store", str(tmp_path / "engineering"), "--repo", str(tmp_path), "--publish-remote", "origin",

@@ -11,8 +11,11 @@ tailnet, to the nodes the operator names:
   a wildcard or a public one. Nothing here is written to git or pushed anywhere.
 - **Named nodes only.** Each connection's own address is put to ``tailscale whois``, which answers from the
   tailnet's state which node holds it (WireGuard authenticates the peer; an address cannot be forged inside the
-  tailnet). A node the operator did not name (``--private-allow-node``, e.g. ``crooks-os-prod-1``), or an
-  address Tailscale cannot place, is refused (403) before anything is read. The answer is cached for a minute.
+  tailnet). The operator names each node by its full tailnet name (``--private-allow-node
+  crooks-os-prod-1.<tailnet>.ts.net``) or its StableID, never by a bare machine name: a node shared in from
+  another tailnet can carry the same machine name (its own ``Name`` is ``crooks-os-prod-1.<other>.ts.net.``),
+  but never the same full name or StableID. A node the operator did not name, or an address Tailscale cannot
+  place, is refused (403) before anything is read. The answer is cached for a minute.
 - **Read-only.** GET of one path; any other path is 404 and any other method 405 (to a named node; every other
   node gets 403 whatever it asks); no request body is read, a connection that says nothing is dropped after
   ten seconds, and nothing is logged about who asked.
@@ -59,7 +62,14 @@ PRIVATE_UNAVAILABLE = "the private channel is not serving yet (its tailnet addre
 
 TAILNET_V4 = ipaddress.ip_network("100.64.0.0/10")
 TAILNET_V6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
-_NODE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+# A node as ``tailscale whois --json`` identifies it: its full tailnet name (``Node.Name``, a MagicDNS FQDN such
+# as ``crooks-os-prod-1.taildfb357.ts.net``, compared without its trailing dot and in lower case), or its StableID
+# (``Node.StableID``, an opaque string of letters and digits, compared exactly). A bare machine name is neither.
+_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+_FQDN = re.compile(rf"^{_LABEL}(?:\.{_LABEL})+$")
+_STABLE_ID = re.compile(r"^[A-Za-z0-9]{4,64}$")
+ALLOW_NODE_RULE = ("--private-allow-node names each tailnet machine by its full tailnet name "
+                   "(e.g. crooks-os-prod-1.<tailnet>.ts.net) or its StableID, as `tailscale whois --json` gives them")
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$")
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 STAGES = frozenset({"BLOCKED", "OWNER_GATE"})
@@ -197,25 +207,43 @@ def _run_whois(cli: str, address: str) -> str:
     return done.stdout
 
 
-def node_name(whois: object) -> str | None:
-    """The tailnet node name ``tailscale whois --json`` gives for an address (its machine name, lower case)."""
+def _fqdn(value: object) -> str | None:
+    """A full tailnet name, lower case, without its trailing dot; None for anything else (a bare name included)."""
+    name = str(value or "").strip().lower()
+    name = name[:-1] if name.endswith(".") else name
+    return name if len(name) <= 253 and _FQDN.fullmatch(name) else None
+
+
+def node_identity(whois: object) -> tuple[str | None, str | None]:
+    """(full tailnet name, StableID) of the node ``tailscale whois --json`` gives for an address. Never the
+    machine name alone (``ComputedName`` or the first label of ``Name``): a node shared in from another tailnet
+    can carry the same one."""
     node = whois.get("Node") if isinstance(whois, Mapping) else None
     if not isinstance(node, Mapping):
-        return None
-    name = node.get("ComputedName") or str(node.get("Name") or "").split(".", 1)[0]
-    name = str(name or "").strip().lower()
-    return name if _NODE.fullmatch(name) else None
+        return None, None
+    stable = node.get("StableID")
+    return _fqdn(node.get("Name")), stable if isinstance(stable, str) and _STABLE_ID.fullmatch(stable) else None
 
 
 class PeerCheck:
-    """Whether the node at a connection's address is one the operator allowed, by ``tailscale whois``."""
+    """Whether the node at a connection's address is one the operator allowed, by ``tailscale whois``: its full
+    tailnet name or its StableID must be one the operator named."""
 
     def __init__(self, allowed: Iterable[str], *, cli: str | None = None,
                  runner: Callable[[str, str], object] | None = None, clock: Callable[[], float] = time.monotonic):
-        names = {str(n).strip().lower() for n in allowed}
-        if not names or any(not _NODE.fullmatch(n) for n in names):
-            raise ValueError("--private-allow-node names at least one tailnet machine (lowercase, digits, hyphens)")
-        self.allowed = frozenset(names)
+        names, ids = set(), set()
+        for raw in allowed:
+            entry = str(raw).strip()
+            if "." in entry and _fqdn(entry):
+                names.add(_fqdn(entry))
+            elif _STABLE_ID.fullmatch(entry):
+                ids.add(entry)
+            else:
+                raise ValueError(ALLOW_NODE_RULE)
+        if not names and not ids:
+            raise ValueError(ALLOW_NODE_RULE)
+        self.names = frozenset(names)
+        self.ids = frozenset(ids)
         self.cli = cli or shutil.which("tailscale")
         self._runner = runner or _run_whois
         self._clock = clock
@@ -232,7 +260,8 @@ class PeerCheck:
         if self.cli:
             try:
                 raw = self._runner(self.cli, address)
-                ok = node_name(json.loads(raw) if isinstance(raw, str) else raw) in self.allowed
+                name, stable = node_identity(json.loads(raw) if isinstance(raw, str) else raw)
+                ok = (name is not None and name in self.names) or (stable is not None and stable in self.ids)
             except Exception:  # noqa: BLE001 -- an address Tailscale cannot place is refused, whatever went wrong
                 ok = False
         with self._lock:
