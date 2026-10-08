@@ -70,7 +70,6 @@
 .ctw-day.is-locked { border-style: dashed; color: var(--ctw-muted); }
 .ctw-day.is-locked span { color: var(--ctw-muted); }
 .ctw-day[aria-current="true"] { border-color: var(--ctw-lav); background: rgba(84, 37, 120, .3); }
-.ctw-dayhead { margin-top: 6px; font-size: 11px; font-weight: 700; letter-spacing: .12em; }
 
 /* Case files */
 .ctw-files, .ctw-locked { position: relative; display: flex; gap: 8px; width: 100%; max-width: 560px; margin: 0 auto; transition: height 560ms cubic-bezier(.65, 0, .35, 1); }

@@ -43,8 +43,23 @@
   {%- endfor -%}
 {%- endcapture -%}
 
-<div class="ctw" data-ctw data-crk-section="tee-week" {{ section.shopify_attributes }}>
-  <p class="ctw-strip">FREE UK SHIPPING ALL WEEK · SHIPS IN 2–3 DAYS</p>
+<div class="ctw" data-ctw data-crk-section="tee-week" data-ctw-banner="{{ section.settings.banner | escape }}" {{ section.shopify_attributes }}>
+  {%- comment -%}
+    On this page the site's top banner carries the week's shipping line, so the
+    page doesn't need a strip of its own. Inline and Liquid-free (the text rides
+    on the data attribute above) so it swaps before the page settles. If the
+    status bar is switched off, the strip below shows instead.
+  {%- endcomment -%}
+  <script>
+    (function (el) {
+      var text = el && el.getAttribute('data-ctw-banner');
+      if (!text) return;
+      var msgs = document.querySelectorAll('.crk-status__msg');
+      for (var i = 0; i < msgs.length; i++) msgs[i].textContent = text;
+      if (!msgs.length) { var strip = el.querySelector('.ctw-strip'); if (strip) strip.hidden = false; }
+    })(document.currentScript && document.currentScript.parentNode);
+  </script>
+  <p class="ctw-strip" hidden>{{ section.settings.banner | escape }}</p>
   <p class="ctw-sim" data-ref="sim" hidden></p>
 
   <div class="ctw-wrap">
@@ -54,7 +69,6 @@
 
     <div class="ctw-deals" data-ref="deals"></div>
     <nav class="ctw-days" aria-label="Days" data-ref="days"></nav>
-    <p class="ctw-dayhead" data-ref="dayhead"></p>
 
     <div data-ref="stage">
       <noscript><p class="ctw-noscript">Turn on JavaScript to open the case files.</p></noscript>
@@ -111,6 +125,13 @@
   "name": "Crooks — T-shirt Week",
   "settings": [
     { "type": "text", "id": "heading", "label": "Heading", "default": "T-SHIRT WEEK" },
+    {
+      "type": "text",
+      "id": "banner",
+      "label": "Top banner on this page",
+      "info": "Replaces the site's shipping banner while someone is on this page.",
+      "default": "FREE UK SHIPPING ALL WEEK · 2–3 DAYS DELIVERY"
+    },
     {
       "type": "text",
       "id": "start_date",

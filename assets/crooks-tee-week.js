@@ -252,7 +252,6 @@
         + ' data-act="day" data-v="' + i + '" data-key="day:' + i + '" aria-current="' + (i === S.day) + '">'
         + '<b>' + d.name + '</b><span>' + status + '</span></button>';
     }).join(''));
-    ref('dayhead').textContent = DAYS[S.day].long + ' · ' + (S.day === TODAY ? 'NEW TODAY' : S.day < TODAY ? 'STILL ON SALE' : 'DROPS AT ' + HOUR_LABEL);
   }
 
   /* ---- The case files */
