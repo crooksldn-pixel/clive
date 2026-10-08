@@ -42,8 +42,12 @@ CACHE_S = 60.0
 CHANGES_SHOWN = 8
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _PR = re.compile(r"\s*\(PR #(\d+)\)\s*$")
-# The loop's own merges of the trunk into a build's branch: plumbing, not something that was built.
-_PLUMBING = re.compile(r"^Merge (clive/trunk|branch|remote-tracking branch) ")
+# The loop's own refresh merge, exactly as app/orchestrator/dispatcher.py (_refresh_merge) titles it, its
+# first line: plumbing, not something that was built. Only this shape is left out of the list George
+# approves from, and only with exactly the two parents its title names (the objective's SHA first, then
+# the trunk's): anything else, a pushed "Merge branch …" included, is listed (review note 2, 8 Oct).
+_REFRESH = re.compile(r"Merge " + re.escape(TRUNK) + r" ([0-9a-f]{40}) into clive/objective/[A-Za-z0-9._/-]+ "
+                      r"at ([0-9a-f]{40}) \(loop\)")
 STAGES = (("started", "Started"), ("checks", "Checks"), ("installing", "Installing"), ("health", "Health"),
           ("done", "Done"), ("kept", "Kept"))
 TAKES = "Deploying takes a few minutes: checks, the install, a restart, then a health check."
@@ -149,8 +153,8 @@ class GitHubTrunk:
 
 def compare(out: Trunk, body: Any) -> None:
     """GitHub's comparison of what runs here with the trunk's head, into `out`: ahead or not, the
-    titles of what was merged since (first parents, newest first, the loop's plumbing merges left
-    out), and the files, when GitHub listed every one."""
+    titles of what was merged since (first parents, newest first, only the loop's own refresh merges
+    left out), and the files, when GitHub listed every one."""
     if not isinstance(body, dict):
         out.problem = "GitHub's comparison was not in the expected shape"
         return
@@ -165,8 +169,8 @@ def compare(out: Trunk, body: Any) -> None:
         chain.append(by_sha[at])
         parents = by_sha[at].get("parents") or []
         at = parents[0].get("sha") if parents and isinstance(parents[0], dict) else ""
-    subjects = [plain(str((c.get("commit") or {}).get("message") or "")) for c in (chain or reversed(commits))]
-    out.changes = [s for s in subjects if s and not _PLUMBING.match(s)]
+    built = [c for c in (chain or list(reversed(commits))) if not refresh_merge(c)]
+    out.changes = [s for s in (plain(str((c.get("commit") or {}).get("message") or "")) for c in built) if s]
     if out.changes and not out.title:
         out.title = out.changes[0]
     head = by_sha.get(out.sha)
@@ -177,6 +181,17 @@ def compare(out: Trunk, body: Any) -> None:
         if isinstance(files, list) else None
     # GitHub lists at most 300 files and 250 commits in a comparison: past either, what it touches is not known.
     out.files = listed if listed is not None and len(listed) < 300 and len(commits) < 250 else None
+
+
+def refresh_merge(commit: dict[str, Any]) -> bool:
+    """Whether a commit GitHub listed is the loop's own refresh merge: its title exactly that shape, and
+    its parents exactly the two SHAs the title names, in that order."""
+    message = str((commit.get("commit") or {}).get("message") or "")
+    found = _REFRESH.fullmatch(message.split("\n", 1)[0])
+    if found is None:
+        return False
+    parents = [p.get("sha") for p in commit.get("parents") or [] if isinstance(p, dict)]
+    return parents == [found.group(2), found.group(1)]
 
 
 _READER: Any = None

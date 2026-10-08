@@ -217,8 +217,13 @@ that exact SHA is **no longer required before a deploy**. What a deploy needs in
 
 - **GitHub acceptance green on the exact SHA** (every `acceptance` run for that commit completed with
   success, its acceptance job on that commit);
-- **the pull requests it carries were each independently reviewed before they merged** (the trunk is
-  merged into only through reviewed pull requests or the build loop's own reviewed landings);
+- **the pull requests it carries were each independently reviewed before they merged.** This is the
+  process, not a lock: merges come only through reviewed PRs or the loop's reviewed landings. The trunk
+  has no branch protection, so nothing on GitHub stops a push that skipped review, and neither the
+  release service nor CLIVE checks reviews. The Deploy now card lists the titles of the trunk's own
+  commits since what is live (its first-parent line, newest first, eight shown and the rest counted;
+  only the loop's own refresh merges are left out, matched exactly), so a commit pushed straight onto
+  the trunk is in front of him when he approves, below;
 - **the owner's approval of that exact SHA** (ruling 7): given in CLIVE, on the Builds screen's
   "Deploy now" card, with his hold and his passkey; or, for a hand deploy, his word to the Termius
   Claude, recorded in the deploy record as his waiver.

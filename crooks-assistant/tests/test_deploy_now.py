@@ -500,7 +500,8 @@ def test_the_comparison_reads_as_pull_request_titles_newest_first():
     offer.compare(found, {"status": "ahead", "ahead_by": 4, "files": [{"filename": "crooks-assistant/app/a.py"}],
                           "commits": [
                               commit("a" * 40, "Seven fixes from the review (PR #95)\n\nbody", LIVE),
-                              commit("e" * 40, "Merge clive/trunk 1234 into clive/objective/x (loop)", "a" * 40, "f" * 40),
+                              commit("e" * 40, f"Merge clive/trunk {'f' * 40} into clive/objective/x at {'a' * 40} "
+                                                "(loop)\n\nThe loop's refresh before landing", "a" * 40, "f" * 40),
                               commit("b" * 40, "The card George holds is always on top (PR #111)", "e" * 40),
                               commit("c" * 40, "Deploy now on the Builds screen (PR #112)", "b" * 40)]})
     assert found.ahead is True and found.count == 4 and found.title == "Deploy now on the Builds screen"
@@ -510,6 +511,35 @@ def test_the_comparison_reads_as_pull_request_titles_newest_first():
     behind = Trunk(sha="c" * 40)
     offer.compare(behind, {"status": "behind", "commits": []})
     assert behind.ahead is False
+
+
+def test_only_the_loops_own_refresh_merge_is_left_out_of_the_list_he_approves_from():
+    """Review note 2: a commit pushed straight onto the trunk with a merge-like title is listed; only the
+    loop's exact refresh merge, with exactly the parents its title names, is plumbing."""
+    def commit(sha, message, *parents):
+        return {"sha": sha, "commit": {"message": message}, "parents": [{"sha": p} for p in parents]}
+
+    loop = f"Merge clive/trunk {'f' * 40} into clive/objective/x-y at {'a' * 40} (loop)"
+    pushed = [
+        commit("1" * 40, "Merge branch 'quick-fix' into clive/trunk", LIVE),
+        commit("2" * 40, "Merge remote-tracking branch 'origin/clive/trunk' into clive/trunk", "1" * 40, "9" * 40),
+        commit("3" * 40, "Merge clive/trunk 1234 into clive/objective/x (loop)", "2" * 40, "8" * 40),
+        commit("4" * 40, loop, "3" * 40, "f" * 40),                 # the loop's words, other parents
+        commit("5" * 40, loop + " and more", "4" * 40, "f" * 40),
+        commit("a" * 40, "Seven fixes from the review (PR #95)", "5" * 40),
+        commit("6" * 40, loop, "a" * 40, "f" * 40),                 # the loop's own: hidden
+        commit("c" * 40, "Deploy now on the Builds screen (PR #112)", "6" * 40)]
+    found = Trunk(sha="c" * 40)
+    offer.compare(found, {"status": "ahead", "ahead_by": 8, "commits": pushed})
+    assert found.changes == ["Deploy now on the Builds screen", "Seven fixes from the review",
+                             loop + " and more", loop, "Merge clive/trunk 1234 into clive/objective/x (loop)",
+                             "Merge remote-tracking branch 'origin/clive/trunk' into clive/trunk",
+                             "Merge branch 'quick-fix' into clive/trunk"]
+    assert found.count == 8
+    # The shape matched is the one the loop writes (app/orchestrator/dispatcher.py, its refresh merge).
+    source = (ROOT / "app" / "orchestrator" / "dispatcher.py").read_text()
+    assert 'f"Merge {TRUNK_BRANCH} {task.base_sha} into {task.target_branch} at {source} (loop)' in source
+    assert '"-p", source, "-p", task.base_sha' in source
 
 
 def test_progress_follows_his_approval_stage_by_stage_then_kept():
