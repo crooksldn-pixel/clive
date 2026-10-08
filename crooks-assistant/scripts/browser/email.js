@@ -59,6 +59,10 @@ async function readProposal(page) {
     const card = document.querySelector('#cards .card-confirmation');
     if (!card) return null;
     const surface = card.querySelector('.action-surface');
+    // [chain, 8 Oct] The message card (DEC-069) is taller than the old confirmation card, so its
+    // gesture surface can sit under the ask bar at 601x889: brought into view first, as a thumb
+    // scrolls to it and as scripts/browser/flow.js does before its hold.
+    if (surface && surface.scrollIntoView) surface.scrollIntoView({ block: 'center' });
     const b = surface ? surface.getBoundingClientRect() : null;
     return {
       proposal: card.dataset.proposal || '',

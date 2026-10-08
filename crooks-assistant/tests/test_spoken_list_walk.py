@@ -9,10 +9,12 @@ cards the answer drew and never from the words.
 
 The checker branch held the same walk from the other side (review note N2, 8 October): the Orders
 icon's walk as it works, Home from a spoken list, and Next then Back on a spoken list, which it
-marked as a STRICT expected failure until flow's fix landed. The browser gates hold the same walk
-(scripts/browser/experience.js and touch.js). The waiting queue asked for out loud ("which customers
-need replying to?") had the same gap, which the review of the checker branch noted: its rows
-open, but Next did nothing, while the Inbox icon's queue walks. It is held the same way.
+marked as a STRICT expected failure until flow's fix (DEC-069) landed; it is a plain test now, as
+the browser gates' walk is (scripts/browser/experience.js and touch.js). The waiting queue asked
+for out loud ("which customers need replying to?") has the same gap, which the review of the
+checker branch noted: its rows open, but Next does nothing, while the Inbox icon's queue walks.
+Flow's fix covers a list of orders only, so the spoken queue's walk is still a STRICT expected
+failure: the day it works, it fails loudly (XPASS(strict)) and the mark is deleted.
 
 Scripted through the real gate and presenters on the golden world (`experience/harness.py`): what
 is held is what the Mac does with the calls, not that Claude would make them.
@@ -30,8 +32,8 @@ from experience.harness import harness, todays_orders_reads
 LIST = "show me today's orders"
 QUEUE = "which customers need replying to?"
 INBOX = ("email_query", {"days": 30})
-DEFECT = ("KNOWN DEFECT spoken-list-walk: a list asked for out loud opens no walk "
-          "(checker defect 1; flow is fixing it). Passing? Delete this mark.")
+DEFECT = ("KNOWN DEFECT spoken-queue-walk: the waiting queue asked for out loud opens no walk "
+          "(checker review N2; flow's fix covers a list of orders only). Passing? Delete this mark.")
 
 
 @pytest.fixture()
@@ -94,7 +96,6 @@ async def test_home_from_a_list_asked_for_out_loud_is_the_orders_landing(world):
     assert "order_list" in home.surface_types and changed.get("home") is True and changed.get("area") == "orders", home.raw
 
 
-@pytest.mark.xfail(strict=True, reason=DEFECT)
 async def test_a_list_asked_for_out_loud_walks_with_next_and_back(world):
     said = await world.ask(LIST, *todays_orders_reads(), reply="Today's orders.", session_id="walk-said")
     rows = said.data("order_list").get("orders") or []

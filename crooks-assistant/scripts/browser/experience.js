@@ -31,16 +31,6 @@ const checks = [];
 const shots = [];
 const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail: detail === undefined ? '' : String(detail).slice(0, 300) });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-// [checker, 8 Oct 2026, review note N2] A check held as a STRICT expected failure, named for its
-// defect (pytest's xfail(strict=True), for a script). While the defect is there it is reported
-// as an expected failure and the gate stays green. The day it passes, the gate goes RED and says
-// so: make it a plain `check(...)` again. Grep "KNOWN DEFECT" for every one; the Python side of
-// the same defect is tests/test_spoken_list_walk.py.
-const SPOKEN_LIST_WALK = 'KNOWN DEFECT spoken-list-walk: a list asked for out loud opens no walk (checker defect 1; flow is fixing it)';
-const knownDefect = (defect, name, ok, detail) => check(
-  ok ? `${name} :: XPASS(strict): ${defect} is fixed, so make this a plain check`
-    : `${name} :: expected failure, ${defect}`,
-  !ok, detail);
 
 async function main() {
   const browser = await chromium.launch({
@@ -200,18 +190,18 @@ async function main() {
 
   // [checker, 8 Oct 2026, review note N2] Walked as it was asked for, OUT LOUD: George's main path
   // is to say a list and then walk it. Since 28 September (DEC-063) a spoken list is the model's,
-  // and a list the model draws opens no walk: Next says "There is no list open to move through."
-  // What that defect breaks is held as a strict expected failure; Home does not depend on it.
+  // and a list the model drew opened no walk: Next said "There is no list open to move through."
+  // Flow's fix (DEC-069: the answer's own list opens the landing's walk) makes these plain checks.
   const command = (fields) => page.evaluate(async (f) => {
     const form = new URLSearchParams({ session_id: 'browser', ...f });
     return (await fetch('/command', { method: 'POST', body: form })).json();
   }, fields);
   const saidNext = await command({ command: 'workflow.next' });
-  knownDefect(SPOKEN_LIST_WALK, 'Next moves the cursor on a list asked for out loud',
+  check('Next moves the cursor on a list asked for out loud',
     saidNext.ok === true && /\d+ of \d+/.test(saidNext.answer || ''), `answer=${saidNext.answer}`);
   const saidBack = await command({ command: 'navigation.back' });
   const saidBackStop = (saidBack.changed || {}).workspace || {};
-  knownDefect(SPOKEN_LIST_WALK, 'Back returns to the list asked for out loud, with cards on it',
+  check('Back returns to the list asked for out loud, with cards on it',
     (saidBack.ui || []).some((i) => i.type === 'order_list') && saidBackStop.kind === 'list' && Boolean(saidBackStop.set_id),
     `ui=${(saidBack.ui || []).map((i) => i.type).join(',')} answer=${saidBack.answer}`);
   const saidHome = await command({ command: 'navigation.home' });
@@ -499,11 +489,10 @@ async function main() {
   await shot('08-assistant-landing');
 
   // [checker, 8 Oct 2026, review note N2] The same walk by thumb on a list asked for OUT LOUD,
-  // from the home: Next, then Back to the list, then Home. A list the model draws is not made the
-  // walk since 28 September (DEC-063): with the Orders icon's list walked earlier in this session,
-  // Next walks THAT list ("#1938. 2 of 3.") and Back ends on its landing, not on the list just
-  // asked for. So the walk is held to the list on the glass, by its own rows, and what the defect
-  // breaks is a strict expected failure (see the top of this file). Home is a plain check.
+  // from the home: Next, then Back to the list, then Home. Before flow's fix (DEC-069) a list the
+  // model drew was not made the walk: with the Orders icon's list walked earlier in this session,
+  // Next walked THAT list ("#1938. 2 of 3.") and Back ended on its landing, not on the list just
+  // asked for. So the walk is held to the list on the glass, by its own rows, as plain checks.
   const rowRefs = () => page.evaluate(() => Array.from(document.querySelectorAll('#cards li.row[data-kind="order"][data-ref]')).map((r) => r.dataset.ref));
   await say("show me today's orders");
   const saidList = await walkState();
@@ -516,7 +505,7 @@ async function main() {
     await sleep(1200);
     saidFirst = await walkState();
   }
-  knownDefect(SPOKEN_LIST_WALK, 'Next on a list asked for out loud opens ITS first order and says "1 of" its length',
+  check('Next on a list asked for out loud opens ITS first order and says "1 of" its length',
     saidFirst.type === 'order' && saidFirst.ref === saidRows[0] && new RegExp(`\\b1 of ${saidRows.length}\\b`).test(saidFirst.answer),
     `next=${JSON.stringify(saidList.next)} type=${saidFirst.type} ref=${saidFirst.ref} first row=${saidRows[0]} "${saidFirst.answer}"`);
   let saidOut = saidFirst;
@@ -526,7 +515,7 @@ async function main() {
     saidOut = await walkState();
   }
   const outRows = await rowRefs();
-  knownDefect(SPOKEN_LIST_WALK, 'Back walks out of a list asked for out loud and ends on that same list',
+  check('Back walks out of a list asked for out loud and ends on that same list',
     saidFirst !== saidList && saidOut.type === 'order_list' && JSON.stringify(outRows) === JSON.stringify(saidRows),
     `walked=${saidFirst !== saidList} types=${saidOut.types.join(',')} rows=${outRows.length} vs ${saidRows.length}`);
   const saidHomeBtn = await page.evaluate(() => {

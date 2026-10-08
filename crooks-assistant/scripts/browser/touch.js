@@ -57,12 +57,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // [checker, 8 Oct 2026, review note N4] The one console error from /voice/live that is by design: its
 // 503, with no ElevenLabs key in a fixture world (app/routes/voice.py). Any other, a 500, counts.
 const voiceLiveByDesign = (from, said) => String(from).includes('/voice/live') && /\b503\b/.test(String(said));
-// [checker, 8 Oct 2026, review note N2] A check held as a STRICT expected failure, named for its
-// defect (pytest's xfail(strict=True), for a script). While the defect is there it is reported
-// as an expected failure and the gate stays green. The day it passes, the gate goes RED and says
-// so: make it a plain `check(...)` again. Grep "KNOWN DEFECT" for every one; the Python side of
-// the same defect is tests/test_spoken_list_walk.py.
-const SPOKEN_LIST_WALK = 'KNOWN DEFECT spoken-list-walk: a list asked for out loud opens no walk (checker defect 1; flow is fixing it)';
+// [chain, 8 Oct 2026] A check held as a STRICT expected failure, named for its defect (pytest's
+// xfail(strict=True), for a script). While the defect is there it is reported as an expected
+// failure and the gate stays green; the day it passes, the gate goes RED and says so: make it a
+// plain `check(...)` again. Flow's fix (DEC-069) made a list asked for out loud a walk, as the
+// Orders icon's list is, and its other spoken-walk checks are plain now. This one is not about
+// that: on a spoken list AND on the Orders icon's list alike, Next after a row was opened starts
+// the walk at the first row again ("#1940. 1 of 3." over #1940), never at the row after it.
+const ROW_THEN_NEXT = 'KNOWN DEFECT row-then-next: Next after a row was opened starts the walk at the first row again, on a spoken list and the Orders icon\'s list alike';
 const knownDefect = (defect, name, ok, detail) => check(
   ok ? `${name} :: XPASS(strict): ${defect} is fixed, so make this a plain check`
     : `${name} :: expected failure, ${defect}`,
@@ -400,11 +402,11 @@ async function atSize(browser, size) {
     await sleep(1600);
   };
   // [checker, 8 Oct 2026, review note N2] First on a list asked for OUT LOUD, which is George's
-  // main path: say a list, open a row, then Home, Back and Next. A list the model draws is not
-  // made the walk since 28 September (DEC-063), so Back and Next, held to land in THAT list, are
-  // strict expected failures (`knownDefect`); a row opening and Home do not depend on it. Before
+  // main path: say a list, open a row, then Home, Back and Next. Back is held to land in THAT list,
+  // a plain check since flow's fix (DEC-069) made the answer's own list the walk. Next, held to open
+  // the row after the one opened, is a strict expected failure (ROW_THEN_NEXT, at the top). Before
   // the Orders icon is touched: once its landing has made today's set, an order of today's opened
-  // from anywhere walks that set, which would hide the defect rather than measure it.
+  // from anywhere walks that set, which would hide what this measures.
   const rowRefs = () => page.evaluate(() => Array.from(document.querySelectorAll('#cards li.row[data-kind="order"][data-ref]')).map((r) => r.dataset.ref));
   const onGlass = () => page.evaluate(() => {
     const c = document.querySelector('#cards .card');
@@ -429,7 +431,7 @@ async function atSize(browser, size) {
   await tapControl('Back on an order opened from a list asked for out loud', '#back-btn', 'back-btn', keep);
   await sleep(900);
   const backTo = { ...(await onGlass()), rows: await rowRefs() };
-  knownDefect(SPOKEN_LIST_WALK, heard[0].name + ', and it lands on that list',
+  check(heard[0].name + ', and it lands on that list',
     heard[0].ok && backTo.type === 'order_list' && JSON.stringify(backTo.rows) === JSON.stringify(said),
     `${heard[0].detail} landed=${backTo.type} rows=${backTo.rows.length} vs ${said.length}`);
 
@@ -438,7 +440,7 @@ async function atSize(browser, size) {
   await tapControl('Next on an order opened from a list asked for out loud', '#next-btn', 'next-btn', keep);
   await sleep(900);
   const nextTo = await onGlass();
-  knownDefect(SPOKEN_LIST_WALK, heard[0].name + ', and it opens that list\'s second order',
+  knownDefect(ROW_THEN_NEXT, heard[0].name + ', and it opens that list\'s second order',
     heard[0].ok && nextTo.type === 'order' && nextTo.ref === said[1] && new RegExp(`\\b2 of ${said.length}\\b`).test(nextTo.answer),
     `${heard[0].detail} type=${nextTo.type} ref=${nextTo.ref} second row=${said[1]} "${nextTo.answer}"`);
 
