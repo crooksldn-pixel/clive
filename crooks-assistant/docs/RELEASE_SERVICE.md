@@ -36,7 +36,11 @@ works: DEC-072):
 - **George's approval** (DEC-072). His hold and passkey on CLIVE's Deploy now card make CLIVE write
   the approval into `/var/lib/crooks-assistant/objectives/release-waivers/<sha>.json`, CLIVE's own
   state folder. `clive-release-now.path` watches that folder (`PathChanged=`), and systemd starts one
-  tick of `clive-release.service` at once: no timer wait, and CLIVE never holds root or starts a unit.
+  tick of `clive-release.service` at once: no timer wait. CLIVE needs no root for this and never starts
+  a unit. It does run as root today, temporarily (`crooks-assistant.service` says so); the service's own
+  checks do not depend on that: it believes only his passkey's signature, and reads CLIVE's folder as
+  plain files only (no links, no pipes, at most 64 KiB each). When CLIVE moves to its own user, that
+  user must own `release-waivers/` (the path unit creates it root's, 0700).
   An approval that lands while a tick is already running (systemd folds the start into it) is seen by
   that tick, which looks once more if it began no deploy itself.
 - **The timer**, every five minutes, as before: the fallback if the path unit is not installed, and

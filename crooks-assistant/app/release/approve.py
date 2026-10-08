@@ -5,8 +5,10 @@ Why it exists. George, 8 Oct: "i want to say yes to deploy - but, once deploy sh
 deploy and then the deploy service runs and takes hours. deploy as in, implement this now". So the
 Builds screen offers "Deploy now" (app/release/offer.py), his hold asks for his passkey, and the
 approval it gives is written into the folder the release service is started from at once
-(deploy/release/clive-release-now.path). CLIVE never holds root and never starts a deploy itself: it
-writes one file in its own state folder, and the release service checks everything again on its own.
+(deploy/release/clive-release-now.path). CLIVE never starts a deploy or a unit itself: it writes one
+file in its own state folder, which needs no root, and the release service checks everything again on
+its own. CLIVE runs as root today, temporarily (deploy/systemd/crooks-assistant.service); the service's
+checks do not depend on that: it believes only his passkey's signature, read as a plain file.
 
     begin(...)    a challenge this server issues for exactly one SHA: a fresh nonce, the moment it was
                   issued and the moment it expires, and whether the hold deploys or only tries it (dry

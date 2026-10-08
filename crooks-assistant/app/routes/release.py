@@ -16,8 +16,9 @@ Every route is the owner's alone: the door (app/main.py) refuses anyone else, th
 routes are named in app/people/staff.py and these are not), and `require_principal` says so again. The
 changes need his own device through Tailscale, never the server itself, and this CLIVE's own address
 as the page's origin, because his passkey is bound to it (app/routes/connections.py, reused). No route
-here runs a deploy, holds root or starts a unit: the release service, a separate program, checks his
-approval and everything else itself. Nothing here is reachable by the model: no tool calls these.
+here runs a deploy or starts a unit, and none needs root (CLIVE's process runs as root today,
+temporarily; nothing here relies on it): the release service, a separate program, checks his approval
+and everything else itself. Nothing here is reachable by the model: no tool calls these.
 """
 
 from __future__ import annotations

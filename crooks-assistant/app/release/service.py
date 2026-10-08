@@ -44,7 +44,7 @@ from pathlib import Path
 
 from app.release import deploy, github, record, state
 from app.release import facts as facts_module
-from app.release.authority import Authority
+from app.release.authority import MAX_RECORD, Authority
 from app.release.decide import Decision, decide
 from app.release.facts import Facts
 from app.release.settings import OWNER_WAIVER, ReleaseSettings
@@ -148,10 +148,14 @@ def _approval(facts: Facts) -> str:
 
 
 def _waivers(host, settings: ReleaseSettings) -> str:
-    """A fingerprint of the approvals waiting in CLIVE's folder: a change while a tick runs is a new one."""
+    """A fingerprint of the approvals waiting in CLIVE's folder: a change while a tick runs is a new one.
+    Each is read as a plain file of at most a record's size (host.read_plain): a link, a pipe or a huge
+    file another process left there counts by its name and why it was not read, and never holds the
+    tick, which holds the deploy lock."""
     seen = hashlib.sha256()
     for path in host.files(settings.passkey_waivers_dir, "*.json"):
-        seen.update(path.name.encode("utf-8") + b"\x00" + hashlib.sha256(host.read(path) or b"").digest())
+        raw, why = host.read_plain(path, MAX_RECORD)
+        seen.update(path.name.encode("utf-8") + b"\x00" + hashlib.sha256(raw or why.encode("utf-8")).digest())
     return seen.hexdigest()
 
 

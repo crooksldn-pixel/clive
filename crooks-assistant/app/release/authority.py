@@ -229,15 +229,22 @@ def passkey_waiver(host, folder: Path, passkeys_file: Path, sha: str, repository
     """A waiver CLIVE collected with George's passkey: believed only if its signature is his, over
     a challenge CLIVE issued for exactly this SHA, still inside its life, never used before
     (`used(approval_id)` answers when it was, from the service's own record), and, when the service
-    deploys for real (`dry_run` False), given to deploy, not only to try it."""
-    raw = host.read(Path(folder) / f"{sha}.json")
+    deploys for real (`dry_run` False), given to deploy, not only to try it. Both files are another
+    process's (CLIVE's), so each is read as a plain file of at most MAX_RECORD bytes, never along a link
+    and never waiting on a pipe (host.read_plain)."""
+    raw, why = host.read_plain(Path(folder) / f"{sha}.json", MAX_RECORD)
+    if why:
+        return Authority(False, f"the approval in CLIVE's folder was not read: {why}")
     if raw is None:
         return None
     record = parse(raw)
     refused = _waiver_basics(record, sha, repository, "passkey")
     if refused:
         return Authority(False, refused)
-    credentials = _credentials(host.read(Path(passkeys_file)))
+    keys, why = host.read_plain(Path(passkeys_file), MAX_RECORD)
+    if why:
+        return Authority(False, f"the passkey waiver does not hold: the registered passkeys were not read: {why}")
+    credentials = _credentials(keys)
     why, approval = verify_passkey(record.get("passkey"), credentials, repository, sha,
                                    now=int(host.now().timestamp()), dry_run=dry_run, used=used)
     if why:

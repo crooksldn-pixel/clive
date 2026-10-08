@@ -4,8 +4,9 @@
 # docs/RELEASE_SERVICE.md, beside clive-release.service and clive-release.timer.
 #
 # How: his hold and passkey on the Builds screen make CLIVE write his approval (a passkey waiver for
-# exactly one SHA) into its own state folder, below. Writing it is the whole of CLIVE's part: CLIVE
-# never holds root for this and never starts a unit. systemd sees the folder change and starts one tick
+# exactly one SHA) into its own state folder, below. Writing it is the whole of CLIVE's part: it needs no
+# root for this and never starts a unit. CLIVE runs as root today, temporarily (crooks-assistant.service
+# says so); the service's checks do not depend on that. systemd sees the folder change and starts one tick
 # of clive-release.service, which checks the approval itself (his passkey's signature, for exactly the
 # trunk's head, issued by CLIVE minutes ago and never used) and every other condition, as on the timer.
 # A change while a tick is already running is seen by that tick (app/release/service.py).
@@ -21,7 +22,9 @@ ConditionPathExists=/etc/crooks-os/release.env
 
 [Path]
 PathChanged=/var/lib/crooks-assistant/objectives/release-waivers
-# The folder exists from the start, root's alone, so the watch is on it rather than on its parent.
+# The folder exists from the start (root's, 0700, while CLIVE runs as root), so the watch is on it rather
+# than on its parent. When CLIVE moves to its own user, that user must own this folder (chown it once),
+# or CLIVE cannot write his approvals into it; the service reads them as plain files only, whoever owns it.
 MakeDirectory=yes
 DirectoryMode=0700
 Unit=clive-release.service

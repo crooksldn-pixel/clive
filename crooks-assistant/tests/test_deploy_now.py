@@ -294,6 +294,83 @@ def test_a_deploy_stopped_part_way_ends_halted_on_the_status(server, tmp_path): 
     assert _status(settings)["state"] == "halted"
 
 
+def _within(seconds: float, run, fifos: list[Path]):
+    """`run()` in a thread, failed (not hung) if it is still going after `seconds`; any reader still
+    waiting on one of `fifos` is then let go (a writer opened and closed), so the suite never hangs."""
+    import threading
+
+    out: dict = {}
+    worker = threading.Thread(target=lambda: out.setdefault("result", run()), daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if worker.is_alive():
+        for fifo in fifos:
+            try:
+                os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+            except OSError:
+                pass
+        worker.join(10)
+        pytest.fail(f"still waiting after {seconds} s: a pipe held the tick (and its deploy lock)")
+    return out.get("result")
+
+
+def test_the_service_reads_clives_folder_as_plain_files_only(tmp_path):
+    from app.release.host import SystemHost
+
+    host = SystemHost()
+    plain = tmp_path / "plain.json"
+    plain.write_bytes(b"{}")
+    assert host.read_plain(plain, 64) == (b"{}", "")
+    assert host.read_plain(tmp_path / "missing.json", 64) == (None, "")
+    (tmp_path / "link.json").symlink_to(plain)
+    assert host.read_plain(tmp_path / "link.json", 64) == (None, "it is a link, or it cannot be opened")
+    os.mkfifo(tmp_path / "pipe.json")
+    assert _within(10, lambda: host.read_plain(tmp_path / "pipe.json", 64), [tmp_path / "pipe.json"]) == \
+        (None, "it is not a plain file")
+    (tmp_path / "big.json").write_bytes(b" " * 65)
+    assert host.read_plain(tmp_path / "big.json", 64) == (None, "it is larger than 64 bytes")
+
+
+def test_a_link_in_clives_folder_is_never_followed(server, tmp_path):  # noqa: F811 - fixtures imported from the suite they belong to
+    """Review note 4: a valid approval kept elsewhere and linked into CLIVE's folder deploys nothing."""
+    settings, fake, host = server
+    _passkey_waiver(settings, _register(tmp_path))
+    elsewhere = tmp_path / "elsewhere.json"
+    (settings.passkey_waivers_dir / f"{TRUNK}.json").rename(elsewhere)
+    (settings.passkey_waivers_dir / f"{TRUNK}.json").symlink_to(elsewhere)
+    _tick(settings, host)
+    assert [s for s in host.steps if s in MUTATING] == [] and fake.head == LIVE
+    assert "the approval in CLIVE's folder was not read: it is a link" in _status(settings)["line"]
+    # The registered passkeys, linked in from elsewhere, are not read either.
+    (settings.passkey_waivers_dir / f"{TRUNK}.json").unlink()
+    elsewhere.rename(settings.passkey_waivers_dir / f"{TRUNK}.json")
+    keys = tmp_path / "keys-elsewhere.json"
+    settings.passkeys_file.rename(keys)
+    settings.passkeys_file.symlink_to(keys)
+    host.calls.clear()
+    _tick(settings, host)
+    assert [s for s in host.steps if s in MUTATING] == [] and fake.head == LIVE
+    assert "the registered passkeys were not read: it is a link" in _status(settings)["line"]
+
+
+def test_a_pipe_in_clives_folder_never_holds_the_tick(server, tmp_path):  # noqa: F811 - fixtures imported from the suite they belong to
+    """Review note 4: a FIFO where an approval should be would hang the root tick while it holds the
+    deploy lock (up to four hours). Under the trunk's name, or any other: read as not a plain file."""
+    settings, fake, host = server
+    settings.passkey_waivers_dir.mkdir()
+    named, other = settings.passkey_waivers_dir / f"{TRUNK}.json", settings.passkey_waivers_dir / "other.json"
+    os.mkfifo(named)
+    os.mkfifo(other)
+    _within(20, lambda: _tick(settings, host), [named, other])
+    assert [s for s in host.steps if s in MUTATING] == [] and fake.head == LIVE
+    assert "the approval in CLIVE's folder was not read: it is not a plain file" in _status(settings)["line"]
+    # A real approval beside a pipe still deploys: the pipe is counted by name, never waited on.
+    named.unlink()
+    _passkey_waiver(settings, _register(tmp_path))
+    code, printed = _within(20, lambda: _tick(settings, host), [other])
+    assert code == 0 and fake.head == TRUNK, printed
+
+
 # ------------------------------------------------------------------ the trigger
 
 
