@@ -520,7 +520,7 @@
             <ul class="tl">
               ${r.timeline.slice().reverse().map((e) => `
                 <li class="${e.verified ? "ok" : /failed|overdue/.test(e.type) ? "fail" : ""}">
-                  <div class="what">${esc(EVENT[e.type] || e.type)}${e.verified ? ` <span class="ok-tick">· confirmed ${e.type === "label_bought" || e.actor === "Parcel2Go" ? "by Parcel2Go" : "in Shopify"}</span>` : ""}</div>
+                  <div class="what">${esc(EVENT[e.type] || e.type)}${e.verified ? ` <span class="ok-tick">· confirmed ${e.type === "label_bought" || e.type === "label_payment_not_taken" || e.actor === "Parcel2Go" ? "by Parcel2Go" : "in Shopify"}</span>` : ""}</div>
                   <div class="meta">${when(e.at)} · ${esc(e.actor)}</div>
                   ${eventDetail(e) ? `<div class="det">${esc(eventDetail(e))}</div>` : ""}
                 </li>`).join("")}
