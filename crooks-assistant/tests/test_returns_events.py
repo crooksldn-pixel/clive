@@ -179,6 +179,23 @@ async def test_anything_else_gets_an_empty_403_and_changes_nothing(door, held, w
     assert sum(n for kind, n in GUARD.refused.items() if kind.startswith("returns:")) == 1
 
 
+@pytest.mark.parametrize("sent_at", [float("nan"), float("inf"), float("-inf"), 10**400],
+                         ids=["NaN", "Infinity", "-Infinity", "too long for a float"])
+async def test_a_sent_at_that_is_not_a_finite_moment_is_an_empty_403(door, sent_at):
+    """JSON lets NaN and Infinity in, and NaN is never more than five minutes from anything: a
+    signed body carrying one would pass the window for ever. Refused as a shape, whenever it is."""
+    raw, headers = signed({**event(), "sent_at": sent_at})
+    with pytest.raises(events.Refused) as ten_years_on:
+        events.verify(raw, headers["X-Crooks-Returns-Signature"], key=SECRET, now=time.time() + 10 * 365 * 86400)
+    assert ten_years_on.value.why == "shape"
+    door.service.calls.clear()
+    answer = await door.post(hooks.RETURNS_HOOK, content=raw, headers=headers)
+    await events.DOOR.settle()
+    assert (answer.status_code, answer.content) == (403, b"")
+    assert door.service.calls == [] and events.DOOR.counts["accepted"] == 0
+    assert {k: n for k, n in GUARD.refused.items() if k.startswith("returns:")} == {"returns:shape": 1}
+
+
 async def test_a_body_over_4_kb_is_refused_before_it_is_read_whole(door):
     big = signed(event(note="x" * 5000))
     answer = await door.post(hooks.RETURNS_HOOK, content=big[0], headers=big[1])

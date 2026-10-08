@@ -14,7 +14,8 @@ What it promises:
   "sha256=" and the HMAC-SHA256 of the raw body under it, compared in constant time
   (app/messaging/meta.py `signed`), before the body is decoded; the body is strict UTF-8 JSON, one
   object with exactly the five fields the service sends (id, type, return id, when, sent_at) and
-  nothing of a customer's; `sent_at` within five minutes of this server's clock. Anything else is
+  nothing of a customer's; `sent_at` a finite number (never NaN or Infinity, which JSON lets in)
+  within five minutes of this server's clock. Anything else is
   Refused, and the route answers an empty 403.
 - **Once each:** an event id seen before is answered and dropped (`Door.first_time`), for the last
   MAX_SEEN events whatever their age, so the service's retries of one CLIVE took change nothing.
@@ -37,6 +38,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import re
 import time
 from collections import Counter, OrderedDict
@@ -127,7 +129,14 @@ def verify(raw: bytes, given: str, *, key: str, now: float) -> Event:
     sent_at = data["sent_at"]
     if isinstance(sent_at, bool) or not isinstance(sent_at, int | float):
         raise Refused("shape")
-    if abs(now - float(sent_at)) > WINDOW_S:
+    try:
+        sent = float(sent_at)
+    except OverflowError:  # an integer too long to be a time at all
+        raise Refused("shape") from None
+    # json.loads takes NaN and Infinity, and abs(now - NaN) > WINDOW_S is False: a moment must be one.
+    if not math.isfinite(sent):
+        raise Refused("shape")
+    if abs(now - sent) > WINDOW_S:
         raise Refused("stale")
     event = Event(*(str(data[k]) if isinstance(data[k], str) else "" for k in ("id", "type", "return_id", "at")))
     if not (EVENT_ID.fullmatch(event.id) and EVENT_TYPE.fullmatch(event.type)
