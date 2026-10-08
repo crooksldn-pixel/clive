@@ -24,6 +24,17 @@ from returns.models import OPEN_STATUSES, Postage, Resolution, Selection, Status
 from returns.service import ACTIONS, ActionError, ReturnsService
 
 
+def _utf8(text: str) -> bytes:
+    """Bytes for any text a caller sent, even a lone surrogate from a JSON escape."""
+    return text.encode("utf-8", "surrogatepass")
+
+
+def same(want: str, given: str) -> bool:
+    """A signature check in constant time, as bytes: compare_digest raises on non-ASCII str,
+    which answered 500 instead of refusing."""
+    return hmac.compare_digest(_utf8(want), _utf8(given))
+
+
 def proxy_signature_ok(query: list[tuple[str, str]], secret: str) -> bool:
     """Shopify app proxy signature: every query parameter except `signature`, as key=value
     with repeated keys joined by commas, sorted, concatenated with no separator, HMAC-SHA256
@@ -34,8 +45,8 @@ def proxy_signature_ok(query: list[tuple[str, str]], secret: str) -> bool:
         if k != "signature":
             grouped.setdefault(k, []).append(v)
     message = "".join(sorted(f"{k}={','.join(v)}" for k, v in grouped.items()))
-    want = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
-    return bool(given) and hmac.compare_digest(want, given)
+    want = hmac.new(secret.encode(), _utf8(message), hashlib.sha256).hexdigest()
+    return bool(given) and same(want, given)
 
 
 def page(found: list[dict[str, Any]], limit: int) -> dict[str, Any]:
@@ -54,7 +65,7 @@ def page(found: list[dict[str, Any]], limit: int) -> dict[str, Any]:
 
 def webhook_ok(body: bytes, header: str, secret: str) -> bool:
     want = base64.b64encode(hmac.new(secret.encode(), body, hashlib.sha256).digest()).decode()
-    return bool(header) and hmac.compare_digest(want, header)
+    return bool(header) and same(want, header)
 
 
 def parcel2go_signature_ok(data: dict[str, Any], secret: str) -> bool:
@@ -64,8 +75,8 @@ def parcel2go_signature_ok(data: dict[str, Any], secret: str) -> bool:
         return False
     stamp = str(data.get("Timestamp") or "").replace("T", " ")[:19]
     message = f"{data.get('Id')}:{stamp}:{data.get('Type')}"
-    want = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(want, str(data.get("Signature") or "").lower())
+    want = hmac.new(secret.encode(), _utf8(message), hashlib.sha256).hexdigest()
+    return same(want, str(data.get("Signature") or "").lower())
 
 
 def fail(exc: ActionError) -> HTTPException:

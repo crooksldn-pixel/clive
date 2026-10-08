@@ -83,6 +83,23 @@ def test_a_key_with_any_characters_is_refused_not_a_crash(svc):
     assert c.post("/api/v1/returns/x/actions/note", headers=odd, json={}).status_code == 403
 
 
+def test_signatures_with_any_characters_are_refused_not_a_crash(svc):
+    # The portal's proxy signature, Shopify's webhook HMAC and Parcel2Go's webhook signature can
+    # arrive with characters no real signature has: refused like a wrong one, never a 500.
+    svc.s.dev_skip_proxy_signature = False
+    svc.s.p2g_webhook_secret = "hook-secret"
+    c = TestClient(create_app(svc.s, svc), raise_server_exceptions=False)
+    lookup = {"order": "1939", "proof": "x"}
+    assert c.post("/proxy/api/lookup?shop=s&signature=clé", json=lookup).status_code == 401
+    body = json.dumps({"admin_graphql_api_id": "gid://shopify/Return/1"}).encode()
+    headers = {"X-Shopify-Topic": "returns/close", "X-Shopify-Hmac-Sha256": "clé".encode("latin-1")}
+    assert c.post("/webhooks/shopify", content=body, headers=headers).status_code == 401
+    hook = {"Id": "1", "Timestamp": "2026-10-04T10:15:00", "Type": "Tracking", "Payload": {}}
+    for odd in ({"Signature": "clé"}, {"Signature": "\ud800"}, {"Id": "\ud800"}):
+        sent = json.dumps({**hook, **odd}).encode()  # escaped, as JSON may carry any character
+        assert c.post("/webhooks/parcel2go", content=sent).status_code == 401
+
+
 def test_shopify_webhook_is_verified(svc):
     c = client(svc)
     body = json.dumps({"admin_graphql_api_id": "gid://shopify/Return/1"}).encode()
