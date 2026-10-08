@@ -2,7 +2,8 @@
 
 tests/web/today-say.test.js (the sentence reader), tests/web/today-voice.test.js (hold to speak
 on the phone's own recogniser), today-owner.test.js and today-waiting.test.js (no Fulfil offered for an
-order Shopify already calls fulfilled) are run here so CI runs them. And the page is held to the team's own
+order Shopify already calls fulfilled) and today-reads.test.js (one read of the work list at a time,
+abandoned after a minute: staff links, R1) are run here so CI runs them. And the page is held to the team's own
 routes: what it sends goes to /today/*, /turn and the cards' /actions/*, the owner's voice path is
 never asked from it, a recording is never made or uploaded, and nothing it builds is markup.
 """
@@ -25,7 +26,7 @@ TEAM_FILES = ("today.js", "today-say.js", "today-voice.js")
 
 @needs_node
 @pytest.mark.parametrize("name", ["today-say.test.js", "today-voice.test.js", "today-owner.test.js",
-                                  "today-waiting.test.js"])
+                                  "today-waiting.test.js", "today-reads.test.js"])
 def test_the_team_pages_parts_under_node(name):
     done = subprocess.run([NODE, "--test", str(ROOT / "tests" / "web" / name)], cwd=ROOT, capture_output=True, text=True,
                           timeout=120)

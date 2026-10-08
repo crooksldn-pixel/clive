@@ -77,6 +77,16 @@ def caller_check(request: Request) -> tuple[str, str, str, str]:
     route, why = proxy_state(request)
     if route == FORGED:
         return "", "identity_unverified", f"This request did not come through Tailscale: {why}.", "identity_unverified"
+    if route == TEAM_DOOR:
+        # [staff-links] A phone signed in through the team's door (app/people/team_door.py): it may
+        # confirm a change only as the member of the team the door made it, and staff_refusal() holds
+        # which changes. Never the owner, never the server itself, whatever it carried.
+        from app.people import team_door
+
+        member = team_door.member(request)
+        if member and staff_caller() == member:
+            return member, "", "", ""
+        return "", "not_authorised", "This phone may not apply changes.", "not_authorised"
     if route == TAILSCALE:
         if login and login.lower() in allowed:
             if settings.tailscale_verify:
@@ -148,6 +158,9 @@ def principal_verdict(request: Request) -> tuple[str, str, str]:
     route, why = proxy_state(request)
     if route == FORGED:
         return "", "identity_unverified", f"This request did not come through Tailscale: {why}."
+    if route == TEAM_DOOR:
+        # [staff-links] The team's public door is never the owner (app/people/team_door.py).
+        return "", "not_authorised", "The team's door is for the team's own work."
     if route == TAILSCALE:
         if not login or login.lower() not in allowed:
             return "", "not_authorised", "This login may not use this."
@@ -179,6 +192,7 @@ DIRECT = "direct"          # made on this server: no forwarding header
 TAILSCALE = "tailscale"    # came through `tailscale serve` from one of the tailnet's devices
 THIS_HOST = "this_host"    # came through `tailscale serve`, sent by this server to itself
 FORGED = "forged"          # carries forwarding headers and did not come through tailscaled
+TEAM_DOOR = "team_door"    # [staff-links] came in through the team's public door (app/people/team_door.py)
 _PROXY_KEY = "crooks.proxy_state"
 
 
@@ -194,8 +208,14 @@ def proxy_state(request: Request) -> tuple[str, str]:
     cached = request.scope.get(_PROXY_KEY)
     if cached is not None:
         return cached
+    from app.people import team_door
+
     forwarded = request.headers.get("x-forwarded-for", "")
-    if not forwarded:
+    if team_door.came_through(request):
+        # [staff-links] Marked by the host's Caddy, or addressed to the team's host: the team's public
+        # door, never Tailscale and never this server, whatever else it carries (DEC-075).
+        result = (TEAM_DOOR, "")
+    elif not forwarded:
         result = (DIRECT, "")
     else:
         runtime = getattr(request.app.state, "runtime", None)
@@ -232,8 +252,15 @@ def caller_identity(request: Request) -> str:
     """Who is asking, for binding a conversation to them: the proxied login, or "local" for
     a request made on the server itself. The middleware has already refused a proxied request
     with no login, and one that only claims to be proxied, so this is never empty."""
+    route = proxy_state(request)[0]
+    if route == TEAM_DOOR:
+        # [staff-links] A phone through the team's door is its person ("team:<id>"), never "local",
+        # which may look at any conversation (DEC-075).
+        from app.people import team_door
+
+        return team_door.member(request) or "team:"
     login = request.headers.get("tailscale-user-login", "").strip().lower()
-    return login if proxy_state(request)[0] == TAILSCALE and login else "local"
+    return login if route == TAILSCALE and login else "local"
 
 
 def session_matches(session, request: Request) -> bool:

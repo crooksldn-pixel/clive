@@ -528,7 +528,12 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # measured, leaving no headroom.
     # 58_486 is the inbox rulings on the 8 October chain (claude/n3-inbox on claude/n3-routines):
     # 57,276 before, 58,486 after, +1,210 measured on the merged tree.
-    assert total <= 58_486, f"the tool block is {total} bytes"
+    # 55_450 is staff links (DEC-075, docs/STAFF_LINKS.md): person_note's description says the team join
+    # by a staff link made on the Team page, +45 bytes measured on trunk 6f844183 (55,405 before, 55,450
+    # after). No new tool.
+    # 58_531 is staff links on the 8 October chain (claude/n3-staff-links on claude/n3-inbox):
+    # 58,486 before, 58,531 after, +45 measured on the merged tree.
+    assert total <= 58_531, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

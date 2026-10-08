@@ -713,6 +713,10 @@ def build(settings: Settings | None = None) -> Runtime:
     connections_service.configure(state_dir=connections_dir(settings))
     # Who on the team the owner has let in is kept beside his passkeys: a line there opens the door.
     staff_access.configure(state_dir=connections_dir(settings))
+    # [staff-links] The staff links and the phones that joined by one, beside it for the same reason (DEC-075).
+    from app.people import links as staff_links
+
+    staff_links.configure(state_dir=connections_dir(settings))
     # The skills the installer adopted, in this runtime's settings.skills_dir: read by skill_list
     # and skill_read, never run (app/tools/skill_tools.py). Set before the prompt below names them,
     # so the prompt and the tools read the same folder.

@@ -10,8 +10,10 @@
  *             step, then the whole day's record.
  *   Hand out  one line for what needs doing, who (anyone, or a name), and when (now, tomorrow, every
  *             day, weekdays), a stock count by one switch; then the routines and the jobs not started.
- *   People    who is on the team and whether they can use CLIVE, letting someone in or taking access
- *             away with his passkey (app/routes/today.py), and adding someone in three fields.
+ *   People    who is on the team and whether they can use CLIVE, a staff link for each made with his
+ *             passkey and their phones signed in by one (app/routes/staff_links.py, DEC-075), letting
+ *             someone in by Tailscale or taking access away with his passkey (app/routes/today.py),
+ *             and adding someone in two fields.
  *
  * The routes are the ones the old page used; nothing here can do more than they could. Every word
  * from a record goes on the page as text, never markup.
@@ -34,7 +36,8 @@
   // When the team hold to speak, their phone's speech service (Google's or Apple's) hears them.
   const SPEECH_NOTE = "When the team speak to CLIVE, their phone's speech service hears them (Google's on Android, " +
     "Apple's on an iPhone) and only the words reach CLIVE. CLIVE itself never gets the audio.";
-  let part = 'team';
+  // [staff-links] /today#people opens on People, where a staff link is made (DEC-075).
+  let part = (window.location && window.location.hash === '#people') ? 'people' : 'team';
   let open = '';                 // the person whose day is unfolded
   const draft = { who: '', when: 'now', count: false, day: '', weekday: 'mon' };
 
@@ -108,7 +111,7 @@
   function summary(state) {
     const w = state.work;
     const waiting = (w.mine || []).filter((j) => j.assignee === 'owner' && j.status === 'open').length;
-    const people = staff(state).filter((p) => p.access === 'active');
+    const people = staff(state).filter((p) => p.access === 'active' || joined(state, p).phones.length);
     const busy = people.filter((p) => holding(state, p.person_id).length).map((p) => p.name.split(' ')[0]);
     const bits = [];
     if (waiting) bits.push(waiting === 1 ? 'One thing is waiting for you.' : `${waiting} things are waiting for you.`);
@@ -416,12 +419,147 @@
     C().load();
   }
 
+  // [staff-links] Ruling 35 (DEC-075, docs/STAFF_LINKS.md): the team join by a link and a code. The link
+  // and its code come back once, in the answer to his passkey, and live only in `made` until he taps
+  // Done: the server keeps neither, so a redraw never fetches them again.
+  let made = null;
+
+  function joined(state, person) {
+    const entry = (state.links || {})[person.person_id] || {};
+    return { phones: (entry.phones || []).filter((p) => p.state === 'active'), link: entry.link || null, copied: entry.copied || null };
+  }
+
+  function day(stamp) {
+    const date = new Date(stamp);
+    if (!stamp || Number.isNaN(date.getTime())) return '';
+    const today = new Date();
+    if (date.toDateString() === today.toDateString()) return 'today ' + C().when(stamp);
+    return `${date.getDate()} ${SHORT_MONTHS[date.getMonth()]}`;
+  }
+
+  async function makeLink(person) {
+    try {
+      const approval = await approve('staff-link:make:' + person.person_id);
+      const done = await C().call('/staff-links/' + encodeURIComponent(person.person_id) + '/make', { approval: approval });
+      if (!done.ok) throw done;
+      made = { person_id: person.person_id, name: done.name || person.name, link: done.link, code: done.code, expires_at: done.expires_at };
+      C().bar().say(`${firstOf(made.name)}'s link is ready. Send it, then tell them the code yourself.`);
+    } catch (error) {
+      C().bar().say(said(error), 'error');
+    }
+    await C().load();
+    drawPeople(C().state());
+    const shown = $('#owner-people .link-made');
+    if (shown && shown.scrollIntoView) shown.scrollIntoView({ block: 'start' });
+  }
+
+  async function ownerStep(path, told) {
+    const done = await C().call(path, {});
+    if (!done.ok) { C().bar().say(C().sentence(done.detail), 'error'); return; }
+    C().bar().say(told);
+    await C().load();
+    drawPeople(C().state());
+  }
+
+  function firstOf(name) { return String(name || '').split(' ')[0]; }
+
+  function spaced(code) { return String(code || '').replace(/^(\d{3})(\d{3})$/, '$1 $2'); }
+
+  function linkPanel() {
+    const box = el('div', 'link-made');
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-label', `${made.name}'s staff link`);
+    box.append(el('p', 'kick', `${made.name}'s staff link`));
+    box.append(el('p', 'link-code', spaced(made.code)));
+    box.append(el('p', 'row-small', `Tell ${firstOf(made.name)} this code yourself, not in the same message as the link. ` +
+      `It works once, until ${C().when(made.expires_at)}.`));
+    const url = el('p', 'link-url', made.link);
+    box.append(url);
+    const row = el('div', 'link-actions');
+    if (navigator.share) {
+      row.append(C().button('Share the link', async () => {
+        try { await navigator.share({ title: 'CLIVE', text: `Your CLIVE staff link, ${firstOf(made.name)}:`, url: made.link }); } catch (error) { /* he closed the sheet */ }
+      }, 'pill'));
+    }
+    row.append(C().button('Copy the link', async () => {
+      try { await navigator.clipboard.writeText(made.link); C().bar().say('Copied. Paste it into a message to them.'); } catch (error) {
+        C().bar().say("This phone wouldn't copy it. Hold the link to select it.", 'error');
+      }
+    }, navigator.share ? 'pill quiet-pill' : 'pill'));
+    row.append(C().button('Done', () => { made = null; drawPeople(C().state()); }, 'pill quiet-pill'));
+    box.append(row);
+    return box;
+  }
+
+  function phoneRow(person, phone) {
+    const item = el('div', 'flag sub');
+    const words = el('div', 'flag-words');
+    words.append(el('span', 'row-small', `${phone.kind}, joined ${day(phone.joined_at)}, last used ${day(phone.last_seen)}`));
+    item.append(words, C().button('Sign out', () => {
+      if (window.confirm(`Sign out ${person.name}'s ${phone.kind}? They'll need a new link to use CLIVE on it.`)) {
+        ownerStep('/staff-links/phones/' + encodeURIComponent(phone.phone_id) + '/sign-out', `${person.name}'s ${phone.kind} is signed out.`);
+      }
+    }, 'pill quiet-pill'));
+    return item;
+  }
+
+  // A phone signed out because a copy of its sign-in was used (app/people/links.py): said in red, as
+  // something that went wrong, until a phone of theirs joins again.
+  function copiedRow(person, copied) {
+    if (!copied) return null;
+    const item = el('div', 'flag sub');
+    const box = el('div', 'flag-words');
+    box.append(el('span', 'row-small bad', copiedWords(person.name, copied, day(copied.at))));
+    item.append(box);
+    return item;
+  }
+
+  // The kind is the server's name for the phone (app/routes/connections.py _device): "iPhone",
+  // "Android phone", … or "a device" when it could not tell.
+  function copiedWords(name, copied, when) {
+    const kind = copied.kind === 'a device' ? 'device' : copied.kind;
+    return `Their ${kind} was signed out ${when}: someone used a copy of its sign-in. ` +
+      `If ${firstOf(name)} still needs CLIVE, make a new staff link.`;
+  }
+
+  function linkRow(person, link) {
+    if (!link) return null;
+    const words = {
+      open: `Link waiting until ${C().when(link.expires_at)}, ${link.tries_left} ${link.tries_left === 1 ? 'try' : 'tries'} left at the code`,
+      locked: 'Their last link locked after too many wrong codes. Make a new one.',
+      expired: 'Their last link ran out unused.',
+    }[link.state];
+    if (!words) return null;
+    const item = el('div', 'flag sub');
+    const box = el('div', 'flag-words');
+    box.append(el('span', 'row-small', words));
+    item.append(box);
+    if (link.state === 'open') {
+      item.append(C().button('Cancel link', () => ownerStep('/staff-links/' + encodeURIComponent(person.person_id) + '/cancel',
+        `${person.name}'s link no longer works.`), 'pill quiet-pill'));
+    }
+    return item;
+  }
+
+  function where(person, status, phones) {
+    const bits = [];
+    if (phones.length) bits.push(phones.length === 1 ? 'Can use CLIVE on their phone, by staff link' : `Can use CLIVE on ${phones.length} phones, by staff link`);
+    if (person.login) {
+      bits.push(status === 'active' ? `Can use CLIVE, signed in as ${person.login}`
+        : status === 'suspended' ? `Access taken away (${person.login})` : `Waiting for you to let them in (${person.login})`);
+    }
+    if (!bits.length) bits.push("Can't use CLIVE yet: make them a staff link.");
+    return bits.join('. ');
+  }
+
   function drawPeople(state) {
+    if (!state) return;
     const box = $('#owner-people');
     box.textContent = '';
     box.append(el('h2', 'part', 'The team'));
     // Where the team's spoken words go, said once, plainly (the review of 3 October).
     box.append(el('p', 'hint', SPEECH_NOTE));
+    if (made) box.append(linkPanel());
     const group = el('div', 'group');
     const team = (state.people || []).filter((p) => p.kind === 'staff');
     if (!team.length) group.append(el('p', 'quiet', 'Nobody yet. Add them below.'));
@@ -429,20 +567,29 @@
       const item = el('div', 'flag');
       const words = el('div', 'flag-words');
       const status = person.access || (person.login ? 'pending' : '');
-      const where = !person.login ? 'No sign-in yet: add the one they use for Tailscale.'
-        : status === 'active' ? `Can use CLIVE, signed in as ${person.login}`
-          : status === 'suspended' ? `Access taken away (${person.login})` : `Waiting for you to let them in (${person.login})`;
-      words.append(el('span', 'row-big', person.name), el('span', 'row-small', [person.role, where].filter(Boolean).join('. ')));
+      const { phones, link, copied } = joined(state, person);
+      words.append(el('span', 'row-big', person.name), el('span', 'row-small', [person.role, where(person, status, phones)].filter(Boolean).join('. ')));
       item.append(words);
-      if (person.login && status !== 'active') item.append(C().button('Let them in', () => accessStep(person, 'approve'), 'pill'));
-      if (status === 'active') {
+      if (person.active !== false && state.links_ready) {
+        item.append(C().button(phones.length ? 'New staff link' : 'Make a staff link', () => makeLink(person), phones.length ? 'pill quiet-pill' : 'pill'));
+      }
+      if (person.login && status !== 'active') item.append(C().button('Let them in', () => accessStep(person, 'approve'), 'pill quiet-pill'));
+      if (status === 'active' || phones.length) {
         item.append(C().button('Take access away', () => {
-          if (window.confirm(`Take ${person.name}'s access away? They won't be able to use CLIVE.`)) accessStep(person, 'suspend');
+          if (window.confirm(`Take ${person.name}'s access away? They won't be able to use CLIVE on any phone.`)) accessStep(person, 'suspend');
         }, 'pill quiet-pill'));
       }
       group.append(item);
+      for (const phone of phones) group.append(phoneRow(person, phone));
+      const copy = copiedRow(person, copied);
+      if (copy) group.append(copy);
+      const waiting = linkRow(person, link);
+      if (waiting) group.append(waiting);
     }
     box.append(group);
+    if (!state.links_ready) {
+      box.append(el('p', 'hint', "Staff links can't be made yet: the team's address isn't set on the server (CROOKS_TEAM_HOST)."));
+    }
 
     const contacts = (state.people || []).filter((p) => p.kind !== 'staff');
     if (contacts.length) {
@@ -467,28 +614,31 @@
     name.id = 'add-name';
     name.required = true;
     name.maxLength = 80;
-    const login = el('input', 'field');
-    login.name = 'login';
-    login.id = 'add-login';
-    login.type = 'email';
-    login.required = true;
-    login.maxLength = 200;
-    login.autocapitalize = 'none';
-    login.spellcheck = false;
     const role = el('input', 'field');
     role.name = 'role';
     role.id = 'add-role';
     role.maxLength = 160;
+    const login = el('input', 'field');
+    login.name = 'login';
+    login.id = 'add-login';
+    login.type = 'email';
+    login.maxLength = 200;
+    login.autocapitalize = 'none';
+    login.spellcheck = false;
     const go = el('button', 'go', 'Add to the team');
     go.type = 'submit';
-    form.append(label('Name', 'add-name'), name, label('The email they sign in to Tailscale with', 'add-login'), login,
-      label('What they do', 'add-role'), role,
-      el('p', 'hint', 'They can use CLIVE once you tap Let them in and confirm with your passkey.'), go);
+    form.append(label('Name', 'add-name'), name, label('What they do', 'add-role'), role,
+      label('Their Tailscale login, only if they already use Tailscale', 'add-login'), login,
+      el('p', 'hint', 'Then make them a staff link: they open it on their phone and type the code you tell them.'), go);
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      const done = await C().call('/today/people', { name: name.value.trim(), login: login.value.trim(), role: role.value.trim() });
+      const tailscale = login.value.trim();
+      const done = tailscale
+        ? await C().call('/today/people', { name: name.value.trim(), login: tailscale, role: role.value.trim() })
+        : await C().call('/staff-links/add', { name: name.value.trim(), role: role.value.trim() });
       if (!done.ok) { C().bar().say(C().sentence(done.detail), 'error'); return; }
-      C().bar().say(`${name.value.trim()} is added. Tap Let them in when they're ready.`);
+      C().bar().say(tailscale ? `${name.value.trim()} is added. Tap Let them in when they're ready.`
+        : `${name.value.trim()} is added. Make them a staff link when they're ready.`);
       await C().load();
     });
     box.append(form);
@@ -507,5 +657,5 @@
     show();
   }
 
-  window.CliveTodayOwner = { draw, handOutBody };
+  window.CliveTodayOwner = { draw, handOutBody, copiedWords };
 }());

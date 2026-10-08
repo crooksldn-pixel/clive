@@ -159,6 +159,12 @@ async def today_state(request: Request, fresh: bool = False) -> JSONResponse:
                          for p in people.all(include_inactive=True)]
         out["record"] = _named(work.history(limit=40))
         out["routines"] = [{**r.__dict__, "assignee_name": _name_of(r.assignee)} for r in work.routines() if r.active]
+        # [staff-links] Each person's phones joined by link and their link, if one is waiting (DEC-075);
+        # and whether a link can be made at all here (CROOKS_TEAM_HOST).
+        from app.people import links
+
+        out["links"] = links.summary()
+        out["links_ready"] = bool(str(getattr(getattr(runtime, "settings", None), "team_host", "") or "").strip())
     else:
         out["people"] = [p.public(for_staff=True) for p in people.all() if p.kind == "staff"]
         out["record"] = _named(work.history(who=who, limit=20))
@@ -399,5 +405,9 @@ async def today_access_suspend(request: Request, person_id: str) -> JSONResponse
     body = await _body(request)
     by, _, _ = _access_step(request, person_id, "suspend", body)
     access.suspend(person_id, by=by)
+    # [staff-links] Their phones joined by link are signed out and a waiting link cancelled too (DEC-075).
+    from app.people import links
+
+    links.sign_out_person(person_id, by=by, why="access taken away")
     work.record({"who": by, "what": "access_suspended", "item_id": person_id, "detail": _name_of(person_id)})
     return _answer({"access": "suspended"})

@@ -119,6 +119,10 @@ class Settings(BaseSettings):
     # https *.ts.net address the request itself came to, which is what `tailscale serve` gives.
     # Set it only to use another name (a domain of your own in front of Tailscale).
     public_origin: str = ""
+    # [staff-links] The team's public address, served by the host's Caddy ("team.crooksldn.com"): a
+    # request addressed to it reaches only the team's own page (app/people/team_door.py, DEC-075), and
+    # the staff links George makes point at it. Empty: no staff link can be made.
+    team_host: str = ""
     # What a cancellation does, beyond cancelling: policy, not a model argument, and printed
     # on the card the owner holds. A customer who asked to cancel expects the email; a
     # cancellation for fraud or a declined payment sends none whatever this says.

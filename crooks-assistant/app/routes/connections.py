@@ -263,6 +263,13 @@ def _known_action(action: str) -> bool:
             return False
         person = people.get(person_id) if person_id else None
         return person is not None and person.kind == "staff"
+    if kind == "staff-link":
+        # [staff-links] Making a staff link for one member of the team (app/routes/staff_links.py, DEC-075).
+        from app.people.store import people
+
+        verb, _, person_id = rest.partition(":")
+        person = people.get(person_id) if verb == "make" and person_id else None
+        return person is not None and person.kind == "staff" and person.active
     return False
 
 

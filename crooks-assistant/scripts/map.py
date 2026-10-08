@@ -119,6 +119,9 @@ STORES: tuple[tuple[str, str, str, str | None, tuple[tuple[str, str], ...]], ...
     ("Named routines", "work/named-routines.json", "app/work/routines.py", None,
      (("app/work/routines.py", '"named-routines.json"'),)),
     ("Team access", "access.json", "app/people/access.py", None, (("app/people/access.py", '"access.json"'),)),
+    # [staff-links] DEC-075: the staff links and the phones that joined by one, hashes only.
+    ("Staff links and phones", "staff-links.json", "app/people/links.py", None,
+     (("app/people/links.py", '"staff-links.json"'),)),
     ("Passkeys", "passkeys.json", "app/connections/passkeys.py", None,
      (("app/connections/passkeys.py", '"passkeys.json"'),)),
     ("Connections ledger", "changes.jsonl", "app/connections/ledger.py", None,

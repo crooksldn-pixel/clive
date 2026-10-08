@@ -38,6 +38,10 @@ def _card(person, *, owner: bool) -> dict[str, Any]:
     out = person.public(for_staff=not owner)
     if owner and person.kind == "staff":
         out["access"] = access.state(person.person_id) or ("no login yet" if not person.login else "")
+        # [staff-links] How many phones are signed in by a staff link (DEC-075).
+        from app.people import links
+
+        out["phones_by_link"] = links.phones_signed_in(person.person_id)
     return out
 
 
@@ -64,9 +68,9 @@ async def people_list(who: str = "") -> dict[str, Any]:
 
 @tool(
     name="person_note",
-    description=("Keep who someone is, in the owner's words. staff use CLIVE on their own phone (`login`: "
-                 "their Tailscale sign-in); a contact is someone to suggest (`uses`: what for). Empty fields "
-                 "keep what is there; active false takes someone off."),
+    description=("Keep who someone is, in the owner's words. staff use CLIVE on their own phone (joined by a "
+                 "staff link made on the Team page, or `login`: a Tailscale sign-in); a contact is someone to "
+                 "suggest (`uses`: what for). Empty fields keep what is there; active false takes someone off."),
     input_schema={
         "type": "object",
         "properties": {
@@ -95,6 +99,12 @@ async def person_note(name: str, kind: str = "", role: str = "", areas: str | li
             # No longer staff, no login, or taken off: the door closes for them at once.
             access.suspend(person.person_id, by="the owner, through CLIVE")
             state = "suspended"
+        if not (person.kind == "staff" and person.active):
+            # [staff-links] Taken off, or no longer staff: their phones joined by link are signed out
+            # and a waiting link cancelled, so putting them back later opens nothing by itself (DEC-075).
+            from app.people import links
+
+            links.sign_out_person(person.person_id, by="the owner, through CLIVE", why="taken off the team")
     except (PeopleError, access.AccessError) as exc:
         raise ToolError(str(exc)) from None
     out: dict[str, Any] = {"person": _card(person, owner=True), "created": created}
@@ -102,5 +112,7 @@ async def person_note(name: str, kind: str = "", role: str = "", areas: str | li
         out["next"] = (f"{person.name} can use CLIVE once you approve their login with your passkey on the "
                        "Today screen (/today).")
     elif person.kind == "staff" and not person.login:
-        out["next"] = f"Ask for {person.name}'s Tailscale login (the email they sign in with) to let them use CLIVE."
+        # [staff-links] Ruling 35: the team join with a link and a code, made on Team › People (DEC-075).
+        out["next"] = (f"To let {person.name} use CLIVE on their phone, make them a staff link on Team › People "
+                       "(it needs your passkey), send it, and tell them the code yourself.")
     return out

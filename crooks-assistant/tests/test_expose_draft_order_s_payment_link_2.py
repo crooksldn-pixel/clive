@@ -231,4 +231,7 @@ def test_the_tool_block_stays_within_its_budget():
     # has them tool by tool).
     # The inbox rulings on the 8 October chain (inbox on routines): 58,486 (57,276 before, +1,210,
     # measured on the merged tree).
-    assert total <= 58_486, f"the tool block is {total} bytes"
+    # and 55,450 with staff links (person_note's description, +45, measured on trunk 6f844183).
+    # Staff links on the 8 October chain (staff-links on inbox): 58,531 (58,486 before, +45,
+    # measured on the merged tree).
+    assert total <= 58_531, f"the tool block is {total} bytes"

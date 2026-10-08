@@ -180,7 +180,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `objective_open` | family:objectives | test_objective_design.py, test_objectives_number.py, test_r13_objective_design_rules.py | — |
 | `objective_show` | family:objectives | test_let_objectives_marked_complete_or_removed_2.py, test_objective_design.py | — |
 | `people_list` | family:people | test_people.py | — |
-| `person_note` | family:people | test_people.py | — |
+| `person_note` | family:people | test_people.py, test_staff_links.py | — |
 | `return_action` | family:returns_actions | test_crooks_returns.py, test_crooks_returns_contract.py | — |
 | `return_find` | family:returns_reads | test_crooks_returns.py, test_crooks_returns_contract.py | — |
 | `returns_open` | family:returns_reads | test_crooks_returns.py, test_crooks_returns_contract.py | — |

@@ -5,6 +5,7 @@
  * tomorrow. What is held: today, tomorrow and a picked day become a job with that due date; every
  * day, weekdays and one weekday become a routine with that cadence (app/work/store.py CADENCES);
  * a stock count is a stock count; and a day missing or gone is refused in words, sending nothing.
+ * Also how People words a phone signed out for a copy of its sign-in (staff links, DEC-075).
  */
 'use strict';
 
@@ -14,7 +15,7 @@ const path = require('node:path');
 
 globalThis.window = globalThis;
 require(path.join(__dirname, '..', '..', 'web', 'today-owner.js'));
-const { handOutBody } = globalThis.CliveTodayOwner;
+const { handOutBody, copiedWords } = globalThis.CliveTodayOwner;
 
 const NOW = new Date(2026, 9, 3, 9, 30);   // Sat 3 October 2026, the phone's own clock
 const draft = (extra) => Object.assign({ who: '', when: 'now', count: false, day: '', weekday: 'mon' }, extra);
@@ -46,4 +47,13 @@ test('nothing is sent without what needs doing, or with a day missing or gone', 
   assert.deepEqual(handOutBody(draft({ when: 'date' }), 'x', '', NOW), { error: 'Pick the day it is for.' });
   assert.deepEqual(handOutBody(draft({ when: 'date', day: '2026-10-01' }), 'x', '', NOW), { error: 'That day has gone. Pick today or later.' });
   assert.deepEqual(handOutBody(draft({ when: 'weekly', weekday: 'someday' }), 'x', '', NOW), { error: 'Pick the day of the week.' });
+});
+
+// [staff-links] A phone signed out because a copy of its sign-in was used, as People says it in red
+// (app/people/links.py summary `copied`): its kind as the server named it, plainly when it could not tell.
+test('a copied phone is named as the server named it, and plainly when it could not tell', () => {
+  assert.equal(copiedWords('Ana Fixture', { kind: 'iPhone' }, 'today 15:40'),
+    'Their iPhone was signed out today 15:40: someone used a copy of its sign-in. If Ana still needs CLIVE, make a new staff link.');
+  assert.match(copiedWords('Kit', { kind: 'a device' }, '8 Oct'), /^Their device was signed out 8 Oct: /);
+  assert.match(copiedWords('Kit', { kind: 'Android phone' }, '8 Oct'), /^Their Android phone was signed out/);
 });
