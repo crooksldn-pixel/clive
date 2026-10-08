@@ -367,7 +367,7 @@ async def test_a_reply_after_reply_was_tapped_on_one_thread_is_prepared_only_in_
     sid = f"reply-{replied_in[-4:]}"
     await world.open_order("1938", session_id=sid)
     await _card_collected(world, "gid://shopify/Order/1938", sid)
-    bound =await world.touch("voice.bind", session_id=sid, family="email.reply", kind="email_thread", ref=HER_1912_THREAD)
+    bound = await world.touch("voice.bind", session_id=sid, family="email.reply", kind="email_thread", ref=HER_1912_THREAD)
     assert bound.raw.get("ok") is True, bound.raw
     said = await world.ask("tell her it went out this morning",
                            ("gmail_draft_reply", {"thread_id": replied_in, "body": "It went out this morning."}),
