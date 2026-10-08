@@ -185,6 +185,7 @@ def test_the_tool_block_stays_within_its_budget():
         gmail_writes,
         instagram_tools,
         interaction_tools,
+        messaging_tools,
         returns_tools,
         ship24_tools,
         shopify_writes,
@@ -211,5 +212,6 @@ def test_the_tool_block_stays_within_its_budget():
     # (shopify_checkout_link_send and the lookup, history and refund fields, +1,000, measured), and
     # 51,222 with CROOKS Returns (returns_open, return_find, returns_stats, return_action, +1,950,
     # measured), and 51,913 with the installed skills (skill_list 269 bytes, skill_read 422: +691,
-    # measured).
-    assert total <= 51_913, f"the tool block is {total} bytes"
+    # measured), and 53,212 with messaging (messages_recent, message_thread, message_contact,
+    # message_reply: +1,299, measured).
+    assert total <= 53_212, f"the tool block is {total} bytes"

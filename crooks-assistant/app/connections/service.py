@@ -385,6 +385,10 @@ async def after_change(runtime: Any, keys: tuple[str, ...], *, new_token: bool =
         from app.clients import crooks_returns
 
         crooks_returns.forget()                # the open returns are read whole with the new key
+    if any(key.startswith("wecom_") for key in changed):
+        from app.clients import wecom
+
+        wecom.forget()                         # [messaging] tokens minted with the old Secret go
     refresh = getattr(runtime, "family_states", None)
     if callable(refresh):
         try:

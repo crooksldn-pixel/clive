@@ -505,8 +505,20 @@ async def test_every_route_the_app_serves_is_the_owners_unless_it_is_named_publi
     served = [(template, method.upper()) for template, item in app.openapi()["paths"].items() for method in item]
     served += [("/openapi.json", "GET"), ("/docs", "GET"), ("/redoc", "GET")]
     assert len(served) > 50
+    # [messaging] The one public door for messages coming in (app/routes/hooks.py): it skips the owner
+    # rule, so it is held to its own, stricter one here: anything unsigned, from anyone, is an empty
+    # 403. tests/test_hooks_door.py proves what it does with a signed request and its near misses.
+    from app.routes.hooks import HOOK_PATHS
+
+    hooks_seen = set()
     for template, method in served:
         path = _re.sub(r"\{[^}]+\}", "scr_000000000000", template)
+        if path in HOOK_PATHS:
+            for headers in ({}, stranger, PROXIED):
+                response = await client.request(method, path, headers=headers)
+                assert response.status_code == 403 and response.content == b"", (method, path, headers)
+            hooks_seen.add(path)
+            continue
         if is_public(path):
             response = await client.request(method, path)
             assert response.status_code != 403 or "not the owner" not in response.text, path
@@ -517,6 +529,7 @@ async def test_every_route_the_app_serves_is_the_owners_unless_it_is_named_publi
             if code:
                 assert response.json()["code"] == code, (path, response.json())
         checked.append(path)
+    assert hooks_seen == HOOK_PATHS == frozenset({"/hooks/wecom"})
     for must in ("/turn", "/command", "/pad/heartbeat", "/pad", "/telemetry", "/objectives", "/displays", "/tools",
                  "/speak", "/support/investigate", "/openapi.json", "/media/shopify/scr_000000000000/scr_000000000000"):
         assert must in checked, must

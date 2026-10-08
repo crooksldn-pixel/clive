@@ -10,8 +10,10 @@ QUIET_STATUSES = (200, 304)
 
 
 # Routes whose query must never reach the log: Instagram's sign-in comes back to the first with a
-# one-time code and state in its address (app/routes/connections.py).
-UNLOGGED_QUERIES = ("/connections/",)
+# one-time code and state in its address (app/routes/connections.py); [messaging] the public door
+# for messages, whose query carries WeCom's signature, nonce and (on its URL check) the sealed echo
+# (app/routes/hooks.py).
+UNLOGGED_QUERIES = ("/connections/", "/hooks/")
 
 
 class QuietPollsFilter(logging.Filter):

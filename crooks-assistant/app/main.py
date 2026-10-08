@@ -47,6 +47,7 @@ from app.routes import (
     voice,
 )
 from app.routes import bench as bench_route  # [bench] the test bench's screen (owner only)
+from app.routes import hooks as hooks_route
 from app.routes import returns as returns_route
 from config.settings import get_settings
 
@@ -549,6 +550,21 @@ async def guard_and_freshness(request: Request, call_next):
     What the tablet keeps: the page and its scripts are served with no-cache, so a page open
     for a week picks up a new build on its next load rather than in a fortnight.
     """
+    # [messaging] The one public door for messages coming in (app/routes/hooks.py HOOK_PATHS, exact
+    # paths only): it skips everything below, because WeCom's servers are not on the tailnet, and it
+    # carries no authority of any kind, so no tool can run from it. The route checks the channel's
+    # signature before anything else and answers anything unsigned or invalid with an empty 403.
+    # Every other path is judged exactly as before (tests/test_hooks_door.py). The routed path, from
+    # the ASGI scope, never request.url, which an older Starlette built from the Host header, so a
+    # Host of "x/hooks/wecom#" could have made any route look like this one (review note 8, 8 Oct).
+    if hooks_route.is_hook(hooks_route.routed_path(request)) and request.method in ("GET", "POST"):
+        from app.tools import authority as hook_authority
+
+        nobody = hook_authority.TOOL_AUTHORITY.set(None)
+        try:
+            return await call_next(request)
+        finally:
+            hook_authority.TOOL_AUTHORITY.reset(nobody)
     # A page from another site — another tailnet host, or anything the tablet's browser was
     # pointed at — must not be able to POST here with the tablet's own Tailscale identity.
     # Chrome names the relationship in Sec-Fetch-Site; an Origin that is neither this host nor
@@ -712,6 +728,7 @@ app.include_router(connections.router)   # the Connections screen: keys and sign
 app.include_router(today.router)   # the Today screen: the team's work list, and the owner's board
 app.include_router(returns_route.router)   # CROOKS Returns: the home's count of returns that need the owner
 app.include_router(bench_route.router)   # [bench] the test bench: runs, results and his ratings (owner only)
+app.include_router(hooks_route.router)   # [messaging] the one public door for messages coming in (/hooks/wecom)
 
 if WEB_DIR.exists():
     mimetypes.add_type("application/manifest+json", ".webmanifest")

@@ -101,7 +101,13 @@ UI_TYPES = frozenset({
     # and what each needs, one return's story and where it is, or a period's numbers. Built by
     # app/returns/views.py `card` from the read's own result; drawn by web/returns.js.
     "returns",
+    # [messaging] WeChat and WeCom conversations (app/tools/messaging_tools.py): the recent ones, or one
+    # in full, in English with each original one tap away. Built by app/messaging/views.py `card` from
+    # the read's own result; drawn by web/messages.js.
+    "messages",
 })
+# [messaging] The messaging reads, each drawn as the "messages" card (app/messaging/views.py).
+MESSAGING_TOOLS = frozenset({"messages_recent", "message_thread"})
 # The CROOKS Returns reads, each drawn as the "returns" card (app/returns/views.py).
 RETURNS_TOOLS = frozenset({"returns_open", "return_find", "returns_stats"})
 MAX_BATCH_ROWS = 50
@@ -581,6 +587,10 @@ def _from_result(name: str, result: dict[str, Any]) -> list[dict[str, Any]]:
         from app.returns import views as returns_views
 
         return [_ui("returns", returns_views.card(name, result))]
+    if name in MESSAGING_TOOLS:
+        from app.messaging import views as messaging_views
+
+        return [_ui("messages", messaging_views.card(name, result))]
     if name == "shopify_order_detail":
         return [_ui("order", _order(result, detail=True))]
     if name == "shopify_find_order":

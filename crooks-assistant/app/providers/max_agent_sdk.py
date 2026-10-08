@@ -536,6 +536,49 @@ class MaxAgentSDKProvider(ClaudeProvider):
                 "That is pay-as-you-go billing. Refusing to continue."
             )
 
+    async def complete(self, system: str, text: str, *, timeout_s: float = 45.0) -> str:
+        """[messaging] One answer to one piece of text, on the Max plan, outside any conversation:
+        a fresh `claude` subprocess with no tools at all (no built-ins, no MCP server), no settings
+        from this machine, one model turn, the same billing guard as a turn, then closed. Used to
+        translate a message as it arrives (app/messaging/translate.py). Raises on any failure;
+        the caller keeps the original and says the translation is missing."""
+        from claude_agent_sdk import (
+            AssistantMessage,
+            ClaudeAgentOptions,
+            ClaudeSDKClient,
+            ResultMessage,
+            TextBlock,
+        )
+
+        assert_no_payg_credentials()
+        if not self._started:
+            raise RuntimeError("Claude is not started")
+        options = ClaudeAgentOptions(
+            system_prompt=system, model=self._model, tools=[], mcp_servers={}, allowed_tools=[],
+            permission_mode="dontAsk", setting_sources=[], max_turns=1, cli_path=self._resolve_cli() or None,
+            env=({"CLAUDE_CODE_OAUTH_TOKEN": keychain.get("claude_oauth_token")} if self._auth_mode == "token" else {}),
+        )
+
+        async def ask() -> str:
+            client = ClaudeSDKClient(options=options)
+            try:
+                await client.connect()
+                await self._verify_auth_source(client)
+                await client.query(text)
+                parts: list[str] = []
+                async for message in client.receive_response():
+                    if isinstance(message, AssistantMessage):
+                        parts.extend(block.text for block in message.content if isinstance(block, TextBlock))
+                    elif isinstance(message, ResultMessage):
+                        kind = result_kind(message)
+                        if kind is not None:
+                            raise RuntimeError(f"the model did not answer ({kind})")
+                return "".join(parts).strip()
+            finally:
+                await _disconnect_quietly(client)
+
+        return await asyncio.wait_for(ask(), timeout=timeout_s)
+
     async def turn(self, session_id: str, text: str) -> TurnResult:
         return await self.turn_on_branch(session_id, text)
 

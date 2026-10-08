@@ -211,6 +211,15 @@ _KNOWN_TOOLS = frozenset({
     # complete definition, so it is staged here like every other and never on this list. Named here
     # one by one, because this is an allow-list.
     "returns_open", "return_find", "returns_stats",
+    # [messaging] WeChat and WeCom (app/tools/messaging_tools.py, app/messaging): the conversations
+    # CLIVE has stored and one in full, read from CLIVE's own private store on this machine, AMBER on
+    # their ToolSpecs because they surface suppliers' names and words; and message_contact, which
+    # says on a person's card which conversation is theirs, changing only CLIVE's own records like
+    # person_note. No message is sent by any of them: the one reply,
+    # message_reply, is a write with a complete definition, staged at RED for the owner's hold and
+    # never on this list. The owner's alone (no staff set names them). Named here one by one,
+    # because this is an allow-list.
+    "messages_recent", "message_thread", "message_contact",
 })
 
 # Tools that may only be called with an id this session already handed to the assistant. Stops
@@ -249,6 +258,8 @@ _ID_KIND = {
     "workspace_id": re.compile(r"^(?:dsc|ord|crd)_[0-9a-f]{6,}$"),
     # A return in CROOKS Returns (its service's new_id: "ret_" and hex), as returns_open issued it.
     "return_id": re.compile(r"^ret_[0-9a-f]{6,40}$"),
+    # [messaging] A conversation in CLIVE's messages (app/messaging/models.py chat_id_for).
+    "chat_id": re.compile(r"^chat_[0-9a-f]{12,40}$"),
 }
 
 

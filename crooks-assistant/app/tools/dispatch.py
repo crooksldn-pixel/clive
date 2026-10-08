@@ -48,7 +48,10 @@ _ID_KEYS = ("order_id", "customer_id", "thread_id", "message_id", "variant_id", 
             # Instagram (app/tools/instagram_tools.py): a conversation, a post, a comment.
             "conversation_id", "media_id", "comment_id",
             # CROOKS Returns (app/tools/returns_tools.py): a return, which return_action must act on.
-            "return_id")
+            "return_id",
+            # [messaging] A WeChat/WeCom conversation (app/tools/messaging_tools.py), which
+            # message_thread, message_contact and message_reply must act on.
+            "chat_id")
 # Result keys whose values are a person's details. Remembered so the turn log can scrub them.
 # `username` is an Instagram handle, which is always a person's (app/tools/instagram_tools.py).
 _PII_KEYS = ("customer_name", "customer_email", "name", "from", "from_email", "email", "displayName", "zip", "company", "phone",

@@ -12,6 +12,7 @@ from starlette.requests import Request
 from app import local_cli
 from app.main import app, is_public
 from app.routes import actions as actions_route
+from app.routes.hooks import HOOK_PATHS  # [messaging] the one public door for messages coming in
 from tests.test_actions_routes import (  # noqa: F401 - `client` is a fixture
     OWNER,
     PROXIED,
@@ -82,6 +83,15 @@ async def test_the_key_opens_nothing_but_the_three_routes(client):  # noqa: F811
     for template, method in served:
         path = re.sub(r"\{[^}]+\}", "scr_000000000000", template)
         if is_public(path) or (method, path) in local_cli.ROUTES:
+            continue
+        if path in HOOK_PATHS:
+            # [messaging] It skips the owner rule for WeCom's servers, so it is held to its own,
+            # stricter one: the key changes nothing, and unsigned is an empty 403 with it or without.
+            with_key = await client.request(method, path, headers=WITH_KEY, json={})
+            without = await client.request(method, path, json={})
+            assert (with_key.status_code, with_key.content) == (without.status_code, without.content) == (403, b""), (
+                method, path)
+            checked += 1
             continue
         response = await client.request(method, path, headers=WITH_KEY, json={})
         assert response.status_code == 403 and response.json().get("code") == "local_key_misused", (method, path)

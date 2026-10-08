@@ -276,6 +276,8 @@ def test_each_connection_says_what_it_unlocks_from_the_registry_and_what_stops_w
     from app.tools import (  # noqa: F401 - register their families
         engineering_tools,
         instagram_tools,
+        messaging_tools,
+        returns_tools,
         ship24_tools,
     )
 

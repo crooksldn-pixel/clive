@@ -75,6 +75,18 @@ HELP = {
         "Same command: paste what follows RETURNS_CLIVE_WRITE_KEYS= (one key). CLIVE sends it only "
         "with a returns action you approved on its card."
     ),
+    "wecom_corp_id": (
+        "WeCom admin console (work.weixin.qq.com) -> My Company (我的企业) -> the CorpID at the bottom. "
+        "It starts ww."
+    ),
+    "wecom_agent_id": "WeCom admin console -> App Management -> your self-built app -> AgentId (digits).",
+    "wecom_app_secret": "Same page: Secret -> View (查看); WeCom sends it to your WeCom app.",
+    "wecom_kf_secret": (
+        "Only if WeChat Customer Service (微信客服) has a Secret of its own: 微信客服 -> API -> Secret. "
+        "Leave it out to use the app's Secret, which is the normal case."
+    ),
+    "wecom_callback_token": "The app's page -> Receive Messages (接收消息) -> Set API Receive: the Token.",
+    "wecom_encoding_aes_key": "Same place: the EncodingAESKey (43 letters and digits).",
     "instagram_access_token": (
         "Meta for Developers -> the CLIVE app -> Instagram -> API setup with Instagram login -> "
         "Generate token for the crooksldn account (a long-lived token, 60 days). CLIVE reads "

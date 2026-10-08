@@ -137,7 +137,7 @@ async function judge(browser, size) {
   const at = size.name;
   const seen = await survey(page);
   const row = (name) => seen.rows.find((r) => r.name === name) || {};
-  check(`${at}: the screen is drawn with its rows`, seen.rows.length === 8, JSON.stringify(seen.rows.map((r) => r.name)));
+  check(`${at}: the screen is drawn with its rows`, seen.rows.length === 9, JSON.stringify(seen.rows.map((r) => r.name)));
   check(`${at}: what needs you comes first, then what is working, then what you could add`,
     JSON.stringify(seen.groups.filter((g) => ['attention', 'working', 'add'].includes(g))) === JSON.stringify(['attention', 'working', 'add']),
     JSON.stringify(seen.groups));
@@ -152,7 +152,7 @@ async function judge(browser, size) {
   check(`${at}: GitHub's refused token asks for exactly one key`, row('github').keys === 1, JSON.stringify(row('github')));
   check(`${at}: Instagram's ending sign-in asks for no key, only to sign in again`,
     row('instagram').keys === 0 && row('instagram').action.some((a) => /sign in/i.test(a)), JSON.stringify(row('instagram')));
-  for (const name of ['ship24', 'youtube', 'returns']) {
+  for (const name of ['ship24', 'youtube', 'returns', 'wecom']) {
     const r = row(name);
     check(`${at}: ${name} is something you could add, with no key box until you ask`,
       r.group === 'add' && r.keys === 0 && r.action.some((a) => /connect/i.test(a)), JSON.stringify(r));

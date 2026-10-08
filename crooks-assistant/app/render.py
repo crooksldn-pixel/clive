@@ -89,6 +89,9 @@ KEY_OF: dict[str, tuple[str, ...]] = {
     # CROOKS Returns (app/returns/views.py `card`): one card for what needs him ("open"), one per
     # order or return asked about, one per period of numbers, each patched when asked again.
     "returns": ("key",),
+    # [messaging] WeChat and WeCom (app/messaging/views.py `card`): one card for the recent
+    # conversations ("recent"), one per conversation opened ("thread:<chat_id>"), patched when asked again.
+    "messages": ("key",),
 }
 
 # A product or an inventory card is about a product, and the query that found it is not its

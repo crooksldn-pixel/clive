@@ -81,6 +81,9 @@ const SHELL = [
   // CROOKS Returns: the returns card, the returns on an order, the row on the home.
   '/static/returns.js',
   '/static/returns.css',
+  // [messaging] WeChat and WeCom conversations, the original one tap away.
+  '/static/messages.js',
+  '/static/messages.css',
   // The design pass of 3 Oct: the answer in full, Home, approval weights, the dock (web/design.css).
   '/static/design.css',
   '/manifest.webmanifest',
