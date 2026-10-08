@@ -58,7 +58,7 @@ async function ready(page) {
 
 // A tap that changes the view: the address moves, then the new view has drawn.
 async function moved(page, mark) {
-  await page.waitForFunction((m) => location.hash.includes(m) && document.getElementById('bench-page').dataset.view === location.hash,
+  await page.waitForFunction((m) => location.hash.includes(m) && document.getElementById('bench-page').dataset.state === location.hash,
     mark, { timeout: 20000 });
   await page.waitForTimeout(350);
 }

@@ -436,7 +436,9 @@
       view.setAttribute('aria-busy', 'false');
       const page = doc().getElementById('bench-page');
       page.dataset.ready = 'true';
-      page.dataset.view = location.hash || '#';   // which view is drawn, for the browser check
+      // Which view is drawn, for the browser check: data-state, a name the screen recorder already
+      // keeps (app/observability/screens.py DATA_NAMES). Its value is the address's fragment: ids only.
+      page.dataset.state = location.hash || '#';
     }
 
     function frameFor(cards) {
