@@ -32,7 +32,7 @@ from typing import Any
 
 from app.clients import wecom
 from app.messaging.adapter import Failure, Inbound, Received, Refused, Route, register
-from app.messaging.guard import GUARD
+from app.messaging.guard import GUARD, MAX_BODY_BYTES
 from app.messaging.models import Message, Thread, chat_id_for, new_message_id
 from app.messaging.store import store
 
@@ -87,13 +87,15 @@ def _words_of(msg: dict[str, Any]) -> tuple[str, str]:
 class WeComAdapter:
     channel = CHANNEL
     label = "WeCom"
+    max_body = MAX_BODY_BYTES
 
     def configured(self) -> bool:
         return wecom.configured()
 
     # ------------------------------------------------------------------ the door
 
-    def verify_inbound(self, method: str, query: Mapping[str, str], body: bytes) -> Inbound:
+    def verify_inbound(self, method: str, query: Mapping[str, str], body: bytes,
+                       headers: Mapping[str, str] | None = None) -> Inbound:
         if not self.configured():
             raise Refused("unconfigured")
         signature = str(query.get("msg_signature") or "")
@@ -249,6 +251,29 @@ class WeComAdapter:
         if state not in KF_SENDABLE_STATES:
             return STATE_WORDS.get(state, "WeCom didn't say the conversation can take a message from CLIVE.")
         return ""
+
+    def too_long(self, text: str) -> str:
+        """Why WeCom would cut these words, or "": 2,048 bytes for a WeChat or an app message."""
+        if wecom.utf8_bytes(text) > wecom.KF_TEXT_MAX_BYTES:
+            return "Together the Chinese and the English are longer than WeChat takes; shorten them."
+        return ""
+
+    def reply_window(self, thread: Thread, now: float | None = None) -> str:
+        """How long WeChat will take a reply, from their last message (48 hours, five replies);
+        "" for a team member, whom the app may always message."""
+        if thread.route != "kf":
+            return ""
+        moment = time.time() if now is None else now
+        if not thread.last_in_at:
+            return "closed: they haven't written yet"
+        left = thread.last_in_at + KF_WINDOW_S - moment
+        if left <= 0:
+            return "closed: their last message was over 48 hours ago"
+        replies = max(0, KF_MAX_REPLIES - thread.sends_since_in)
+        if not replies:
+            return "closed: five replies sent since their last message"
+        hours = int(left // 3600)
+        return f"open {hours}h more, {replies} repl{'y' if replies == 1 else 'ies'} left"
 
     async def send(self, thread: Thread, text: str, *, client_id: str) -> str:
         """Send, and return WeCom's msgid. Raises WeComError (with `refused` when WeCom answered

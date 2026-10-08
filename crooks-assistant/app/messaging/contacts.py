@@ -1,8 +1,9 @@
 """Who a thread is with, in CLIVE's own terms: the person card (app/people/store.py) whose
 `channels` names the thread's contact, or nobody yet.
 
-Why it exists: a channel knows a contact by an opaque id (WeCom's external_userid) and a
-nickname; the owner knows them as "Jessica, our manufacturer". The card is the one place that
+Why it exists: a channel knows a contact by an opaque id (WeCom's external_userid, a WhatsApp id,
+an Instagram-scoped id) and a nickname; the owner knows them as "Jessica, our manufacturer". One
+card can hold several (WeChat and WhatsApp for the same supplier). The card is the one place that
 says who someone is, so the link lives there, and is made only when the owner says who a thread
 is with (message_contact in app/tools/messaging_tools.py).
 """
@@ -28,7 +29,9 @@ def name_for(thread: Thread) -> str:
         return person.name
     if thread.who:
         return thread.who
-    return "someone on WeChat" if thread.route == "kf" else "a WeCom member"
+    if thread.channel == "wecom":
+        return "someone on WeChat" if thread.route == "kf" else "a WeCom member"
+    return f"someone on {channel_words(thread)}"
 
 
 def link(thread: Thread, who: str) -> Person:
@@ -39,7 +42,12 @@ def link(thread: Thread, who: str) -> Person:
     return people.link_channel(person.person_id, thread.channel_key)
 
 
+CHANNEL_WORDS = {"whatsapp": "WhatsApp", "instagram": "Instagram"}
+
+
 def channel_words(thread: Thread) -> str:
+    """The app the owner knows a conversation is on: WeChat (WeCom's customer service), WeCom (a team
+    member), WhatsApp, Instagram."""
     if thread.channel == "wecom":
         return "WeChat" if thread.route == "kf" else "WeCom"
-    return thread.channel
+    return CHANNEL_WORDS.get(thread.channel, thread.channel)

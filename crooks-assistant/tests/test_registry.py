@@ -487,7 +487,13 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # (three staged writes, each taking only a shipment_id). Imported above because app/runtime.py
     # offers them. With no CLIVE Shipping key stored their families are DISCONNECTED. The ceiling is
     # raised by exactly what was measured, leaving no headroom.
-    assert total <= 55_325, f"the tool block is {total} bytes"
+    #
+    # 55_457 is WhatsApp and Instagram's direct messages on the same four messaging tools
+    # (app/tools/messaging_tools.py, tests/test_whatsapp.py, tests/test_instagram_dms.py), +132 bytes
+    # measured (55,325 before, 55,457 after): messages_recent 416 (+118: the `channel` it reads, one
+    # app's), message_thread 280 (-13) and message_contact 285 (-13) (shorter: no app named), and
+    # message_reply 450 (+40: `translated`, their language, in place of `chinese`). No new tool.
+    assert total <= 55_457, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

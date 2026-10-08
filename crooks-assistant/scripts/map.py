@@ -72,7 +72,7 @@ OWNER_DOCS: dict[str, tuple[str, str | None] | None] = {
     "kb": ("docs/product-memory/OWNER_DECISIONS_2026-10-01.md", "the voice spec"),
     "logging": None,
     "memory": None,
-    "messaging": ("docs/WECOM.md", "WeCom now; WhatsApp and Instagram plug in"),
+    "messaging": ("docs/WECOM.md", "WeCom; WhatsApp in WHATSAPP.md, Instagram DMs in INSTAGRAM_DMS.md"),
     "objectives": None,
     "observability": ("docs/RECORDING.md", None),
     "orchestrator": ("docs/product-memory/ENGINEERING_DISPATCHER_V1.md", None),

@@ -1,7 +1,9 @@
 # Instagram (read-only)
 
 CLIVE can read the CROOKS Instagram account's direct messages and the comments on its recent
-posts. It cannot send, reply, hide or delete anything there.
+posts with the three tools below, which cannot send, reply, hide or delete anything. Answering a
+direct message, on the owner's hold, is the messaging core's: [INSTAGRAM_DMS.md](./INSTAGRAM_DMS.md).
+A comment is never answered from CLIVE.
 
 ## What the owner can ask
 
@@ -18,13 +20,14 @@ All three are **AMBER** reads, because they surface people's handles and words:
 Everything a customer wrote is **untrusted**, exactly like an email:
 - every result says so beside the text;
 - the system prompt says it too (`app/kb/loader.py`);
-- when the owner asks CLIVE to reply, it says it can read Instagram but not answer there yet.
+- when the owner asks CLIVE to reply to a direct message, it stages `message_reply` for his hold
+  ([INSTAGRAM_DMS.md](./INSTAGRAM_DMS.md)); a comment, it says it cannot answer.
 
 ## What it deliberately does not do (yet)
 
-- **No sending or replying.** A reply would be a write, and writes go through the gate, the owner's hold and a verification step. Instagram also allows a business to answer a DM through the API only within 24 hours of the customer's last message. That is a follow-up decision, not part of this change.
-- **No webhooks.** Real-time delivery needs a public HTTPS endpoint, which the private-first runtime (IDEA-046) avoids. CLIVE asks Instagram when the owner asks CLIVE.
-- **Nothing kept.** Messages and comments are read when asked for and not stored. The only thing written to disk is `instagram.json` beside the objectives, which holds times and kinds for the token's life and never the token.
+- **No sending or replying from these tools.** Since 8 October a direct message is answered through the messaging core instead: `message_reply`, staged at RED, sent only on the owner's hold, within Instagram's 24 hours, proved by Instagram's message id ([INSTAGRAM_DMS.md](./INSTAGRAM_DMS.md)). Comments are not answered.
+- **No webhooks here.** Since 8 October the messaging core has one public door for Instagram's direct messages, `/hooks/instagram`, switched on only when George sets it up ([INSTAGRAM_DMS.md](./INSTAGRAM_DMS.md)). These tools still ask Instagram when the owner asks CLIVE.
+- **Nothing kept by these tools.** Messages and comments are read when asked for and not stored. The only thing they write to disk is `instagram.json` beside the objectives, which holds times and kinds for the token's life and never the token. Direct messages that reach the messaging core are kept in its private store (90 days), like WeChat's.
 
 ## Setting it up
 

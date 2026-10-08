@@ -215,5 +215,6 @@ def test_the_tool_block_stays_within_its_budget():
     # measured), and 51,913 with the installed skills (skill_list 269 bytes, skill_read 422: +691,
     # measured), and 53,212 with messaging (messages_recent, message_thread, message_contact,
     # message_reply: +1,299, measured), and 55,325 with CLIVE Shipping (four reads and three staged
-    # writes, +2,113, measured on the chain after messaging; tests/test_registry.py has them tool by tool).
-    assert total <= 55_325, f"the tool block is {total} bytes"
+    # writes, +2,113, measured on the chain after messaging; tests/test_registry.py has them tool by
+    # tool), and 55,457 with WhatsApp and Instagram on the same messaging tools (+132, measured).
+    assert total <= 55_457, f"the tool block is {total} bytes"

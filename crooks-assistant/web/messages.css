@@ -1,7 +1,8 @@
-/* Messages (web/messages.js): WeChat and WeCom conversations, in English, the original one tap away.
+/* Messages (web/messages.js): conversations on WeChat, WhatsApp and Instagram, in English, the
+ * original one tap away.
  *
  * Their messages on the left, ours on the right in iOS blue. Dots that mean something and nothing
- * else: blue is a conversation WeChat still takes a reply in, a quiet dot one it doesn't, red a
+ * else: blue is a conversation its app still takes a reply in, a quiet dot one it doesn't, red a
  * message that did not arrive.
  */
 

@@ -550,9 +550,9 @@ async def guard_and_freshness(request: Request, call_next):
     What the tablet keeps: the page and its scripts are served with no-cache, so a page open
     for a week picks up a new build on its next load rather than in a fortnight.
     """
-    # [messaging] The one public door for messages coming in (app/routes/hooks.py HOOK_PATHS, exact
-    # paths only): it skips everything below, because WeCom's servers are not on the tailnet, and it
-    # carries no authority of any kind, so no tool can run from it. The route checks the channel's
+    # [messaging] The public doors for messages coming in, one per channel (app/routes/hooks.py
+    # HOOK_PATHS, exact paths only): they skip everything below, because WeCom's and Meta's servers
+    # are not on the tailnet, and they carry no authority of any kind, so no tool can run from them. The route checks the channel's
     # signature before anything else and answers anything unsigned or invalid with an empty 403.
     # Every other path is judged exactly as before (tests/test_hooks_door.py). The routed path, from
     # the ASGI scope, never request.url, which an older Starlette built from the Host header, so a
@@ -728,7 +728,7 @@ app.include_router(connections.router)   # the Connections screen: keys and sign
 app.include_router(today.router)   # the Today screen: the team's work list, and the owner's board
 app.include_router(returns_route.router)   # CROOKS Returns: the home's count of returns that need the owner
 app.include_router(bench_route.router)   # [bench] the test bench: runs, results and his ratings (owner only)
-app.include_router(hooks_route.router)   # [messaging] the one public door for messages coming in (/hooks/wecom)
+app.include_router(hooks_route.router)   # [messaging] the public doors for messages coming in (/hooks/wecom, whatsapp, instagram)
 
 if WEB_DIR.exists():
     mimetypes.add_type("application/manifest+json", ".webmanifest")

@@ -8,7 +8,10 @@ What it promises:
   the channels' read positions (`cursors.json`), every file 0600 and written whole, atomically.
 - Messages are kept RETENTION_DAYS (90) and at most MAX_PER_THREAD per thread; older ones are
   pruned on each write and when CLIVE starts, and a thread with nothing left goes too.
-- A message is stored once: the channel's own id (or CLIVE's id for one it sent) is its key.
+- A message is stored once: the channel's own id (or CLIVE's id for one it sent) is its key. A
+  message CLIVE sent that the channel echoed to the door first becomes CLIVE's own record (`claim`).
+- What a channel says later about a message CLIVE's account sent is kept on it: failed, with the
+  channel's reason; delivered; read (`mark_failed`, `mark_delivery`).
 - A translation left "pending" past PENDING_LIMIT_S (a restart cut it off) is kept as missing
   when CLIVE starts, so the message never says "still being made" for good.
 - Nothing here logs a word, a name or an id.
@@ -173,10 +176,56 @@ class MessageStore:
                 if message.at >= current.last_in_at:
                     current.last_in_at, current.last_in_id = message.at, message.message_id
                     current.sends_since_in = 0
+                    if message.language:
+                        current.last_in_language = message.language
             elif message.origin == "clive" and message.status == "sent" and message.at >= current.last_in_at:
                 current.sends_since_in += 1
             self._save(current, messages)
             return True
+
+    def claim(self, thread: Thread, message: Message) -> bool:
+        """Record a message CLIVE sent. The channel may have told the door about it first, as an echo
+        of what the account sent (Instagram's is_echo), under the same channel id: that record
+        becomes CLIVE's own, so the send is proved by its client id whichever arrived first. False
+        when CLIVE's own record of it is already held."""
+        with self._lock:
+            held = self._load(thread.chat_id)
+            if held is not None and message.remote_id:
+                current, messages = held
+                for index, existing in enumerate(messages):
+                    if existing.remote_id == message.remote_id and existing.direction == "out":
+                        if existing.origin == "clive":
+                            return False
+                        message.delivery = existing.delivery
+                        messages[index] = message
+                        self._save(current, messages)
+                        return True
+        return self.add(thread, message)
+
+    def mark_delivery(self, chat_id: str, remote_id: str, state: str, *, and_before: bool = False) -> bool:
+        """The channel said a message CLIVE's account sent was delivered or read (WhatsApp's statuses,
+        Instagram's messaging_seen, which names the newest message read: `and_before` marks the
+        ones sent before it too). Never moves backwards; a message it does not know is left alone."""
+        rank = {"": 0, "delivered": 1, "read": 2}
+        if state not in rank or not remote_id:
+            return False
+        with self._lock:
+            held = self._load(chat_id)
+            if not held:
+                return False
+            thread, messages = held
+            target = next((m for m in messages if m.direction == "out" and m.remote_id == remote_id), None)
+            if target is None:
+                return False
+            changed = False
+            for message in messages:
+                hit = message is target or (and_before and message.direction == "out" and message.at <= target.at)
+                if hit and message.status == "sent" and rank.get(message.delivery, 0) < rank[state]:
+                    message.delivery = state
+                    changed = True
+            if changed:
+                self._save(thread, messages)
+            return changed
 
     def message(self, chat_id: str, message_id: str) -> Message | None:
         """One message, by CLIVE's own id for it."""
@@ -194,7 +243,8 @@ class MessageStore:
 
     def mark_failed(self, chat_id: str, remote_id: str, reason: str) -> bool:
         """The channel said later that a message it accepted did not arrive (WeCom's
-        msg_send_fail): it stays in the thread, marked failed, with the channel's reason."""
+        msg_send_fail, WhatsApp's "failed" status): it stays in the thread, marked failed, with the
+        channel's reason."""
         with self._lock:
             held = self._load(chat_id)
             if not held:

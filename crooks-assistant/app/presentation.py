@@ -1556,7 +1556,7 @@ def _service_name(proposal) -> str:
         write = registry.get(proposal.tool_name).write
     except KeyError:
         write = None
-    return service_name(str(proposal.tool_name or ""), write)
+    return service_name(str(proposal.tool_name or ""), write, proposal)   # [messaging] the app it went to
 
 
 # --------------------------------------------------------------------------- batches

@@ -2,16 +2,17 @@
 and after the door has answered the channel's adapter reads whatever else it stands for, each
 message is stored once, the contact gets a name, and anything not in English is translated.
 
-Why it exists: WeCom wants an answer within five seconds and retries otherwise (90930), and a
-translation takes longer than that. So the door answers at once and the slow part runs after it,
+Why it exists: WeCom wants an answer within five seconds and retries otherwise (90930), Meta wants
+a 200 or it retries for days, and a translation takes longer than that. So the door answers at once and the slow part runs after it,
 on its own, with no tool authority and no turn: it can store and translate, and nothing else.
 
 What it promises:
 - A message is stored before anything slow is tried, so a translation that fails or a nickname
   WeCom will not give never loses the message itself.
-- What a callback carries itself (a team member's message to the app: no call to make, so it is
-  cheap) is stored at the door, before WeCom is answered, however busy the server is; only its
-  translation waits (review note 5, 8 Oct).
+- What a callback carries itself (a team member's message to the app; everything WhatsApp and
+  Instagram send: no call to make, so it is cheap) is stored at the door, before the channel is
+  answered, however busy the server is; only its translation, and asking the channel what a new
+  contact is called, wait (review note 5, 8 Oct).
 - A message is translated once, when it arrives or as soon as a run is free; failing that it says
   its translation is missing. Nothing waits for a translation at shutdown: one a restart cuts off
   is left "pending", which reads as missing once PENDING_LIMIT_S has passed and is kept so at the
@@ -32,7 +33,7 @@ from collections import OrderedDict
 from typing import Any
 
 from app.messaging import translate
-from app.messaging.adapter import Adapter, Failure, Inbound, Received
+from app.messaging.adapter import Adapter, Delivery, Failure, Inbound, Received
 from app.messaging.models import Message, Thread
 from app.messaging.store import store
 
@@ -44,8 +45,10 @@ MAX_RUNNING = 4
 MAX_WAITING = 200
 _RUNNING: set[asyncio.Task] = set()
 _WAITING: OrderedDict[str, str] = OrderedDict()
-# Set on the Inbound a run is handed when the door has already stored what the callback carried.
+# Set on the Inbound a run is handed when the door has already stored what the callback carried,
+# with the conversations it stored into (so the run can ask the channel what they are called).
 CARRIED_STORED = "_carried_stored"
+CARRIED_CHATS = "_carried_chats"
 COUNTS: dict[str, int] = {"stored": 0, "repeats": 0, "translated": 0, "untranslated": 0, "failed_sends": 0, "errors": 0}
 
 
@@ -59,11 +62,32 @@ def start(adapter: Adapter, inbound: Inbound) -> bool:
         log.info("messaging: a %s callback was left for the next read (busy); %d stored at the door",
                  adapter.channel, len(carried))
         return False
-    handed = dataclasses.replace(inbound, fields={**inbound.fields, CARRIED_STORED: "1"})
+    chats = ",".join(dict.fromkeys(thread.chat_id for thread, _ in carried))
+    handed = dataclasses.replace(inbound, fields={**inbound.fields, CARRIED_STORED: "1", CARRIED_CHATS: chats})
     task = asyncio.get_running_loop().create_task(process(adapter, handed), name=f"messaging-{adapter.channel}")
     _RUNNING.add(task)
     task.add_done_callback(_RUNNING.discard)
     return True
+
+
+def take(adapter: Adapter, items: list[Received]) -> int:
+    """Keep messages a read brought (Instagram's conversations, read when the owner asked), as the
+    door keeps what a callback carried: each once, by the channel's own id, with its translation
+    made after, by a run of its own. Returns how many were new. Never raises."""
+    kept: list[tuple[Thread, Message]] = []
+    for item in items:
+        try:
+            if isinstance(item, Received) and _keep(item):
+                kept.append((item.thread, item.message))
+        except Exception as exc:  # noqa: BLE001 - one message; the rest are still kept
+            COUNTS["errors"] += 1
+            log.info("messaging: a message a %s read brought could not be kept (%s)", adapter.channel, type(exc).__name__)
+    _wait_for_translation(kept)
+    if _WAITING and len([t for t in _RUNNING if not t.done()]) < MAX_RUNNING:
+        task = asyncio.get_running_loop().create_task(_translate_waiting(), name=f"messaging-{adapter.channel}-read")
+        _RUNNING.add(task)
+        task.add_done_callback(_RUNNING.discard)
+    return len(kept)
 
 
 async def settle() -> None:
@@ -92,7 +116,12 @@ async def process(adapter: Adapter, inbound: Inbound) -> dict[str, Any]:
             continue
         if isinstance(item, Received) and _keep(item):
             fresh.append((item.thread, item.message))
-    await _name(adapter, [t for t, _ in fresh])
+    named = [t for t, _ in fresh]
+    for chat_id in filter(None, inbound.fields.get(CARRIED_CHATS, "").split(",")):
+        held = store.thread(chat_id)
+        if held is not None:
+            named.append(held)
+    await _name(adapter, named)
     _wait_for_translation(fresh)
     await _translate_waiting()
     out: dict[str, Any] = {"stored": len(fresh)}
@@ -102,13 +131,30 @@ async def process(adapter: Adapter, inbound: Inbound) -> dict[str, Any]:
 
 
 def _take_carried(adapter: Adapter, inbound: Inbound) -> list[tuple[Thread, Message]]:
-    """Store what the callback itself carries. Never raises: the door answers whatever happens."""
+    """Store what the callback itself carries: messages, and what became of the ones CLIVE sent
+    (failed, delivered, read). Never raises: the door answers whatever happens."""
     try:
-        return [(item.thread, item.message) for item in adapter.carried(inbound) if _keep(item)]
+        items = adapter.carried(inbound)
     except Exception as exc:  # noqa: BLE001 - said by kind; the door still answers
         COUNTS["errors"] += 1
-        log.info("messaging: what a %s callback carried could not be stored (%s)", adapter.channel, type(exc).__name__)
+        log.info("messaging: what a %s callback carried could not be read (%s)", adapter.channel, type(exc).__name__)
         return []
+    kept: list[tuple[Thread, Message]] = []
+    for item in items:
+        try:
+            if isinstance(item, Received):
+                if _keep(item):
+                    kept.append((item.thread, item.message))
+            elif isinstance(item, Failure):
+                if store.mark_failed(item.thread.chat_id, item.remote_id, item.reason):
+                    COUNTS["failed_sends"] += 1
+            elif isinstance(item, Delivery):
+                store.mark_delivery(item.thread.chat_id, item.remote_id, item.state, and_before=item.and_before)
+        except Exception as exc:  # noqa: BLE001 - one item; the rest are still kept
+            COUNTS["errors"] += 1
+            log.info("messaging: one thing a %s callback carried could not be stored (%s)", adapter.channel,
+                     type(exc).__name__)
+    return kept
 
 
 def _wait_for_translation(stored: list[tuple[Thread, Message]]) -> None:

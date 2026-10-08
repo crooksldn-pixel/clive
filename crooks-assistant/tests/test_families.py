@@ -272,7 +272,11 @@ async def test_the_standing_capability_line_is_paid_for_once_per_turn_and_stays_
     # shipping", +93 characters measured (806 before, 899 after, every tool module imported), said
     # only on a server with no shipping keys. Once the read key is stored both families are READY,
     # and so is the parked Easyship row (app/families/shipping.py), whose own line then goes too.
-    assert len(block) <= 899, f"{len(block)} chars on every model turn:\n{block}"
+    # 916 is WhatsApp and Instagram's direct messages on the same two messaging families: the line is
+    # now "- DISCONNECTED — no WeCom, WhatsApp or Instagram keys stored: Messages, Message replies",
+    # +17 characters measured (899 before, 916 after, every tool module imported), said only on a
+    # server with none of the three apps' keys stored.
+    assert len(block) <= 916, f"{len(block)} chars on every model turn:\n{block}"
 
     # The instruction appears once, at the head, and never on a line.
     assert block.count("Do not attempt") == 1, block

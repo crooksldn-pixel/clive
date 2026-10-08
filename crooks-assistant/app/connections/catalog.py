@@ -89,18 +89,22 @@ CONNECTIONS: tuple[Connection, ...] = (
     ),
     Connection(
         name="instagram", label="Instagram",
-        what="Reads your Instagram messages and the comments on your posts.",
+        what="Reads your Instagram messages and the comments on your posts, and sends the message replies you hold.",
         fields=(
             Field("instagram_app_id", "Instagram app ID", secret=False,
                   hint="Meta for Developers → the CLIVE app → Instagram → API setup with Instagram login."),
             Field("instagram_app_secret", "Instagram app secret",
-                  hint="Same page. Sign in with Instagram needs it, once."),
+                  hint="Same page. Sign in with Instagram needs it, once, and it checks messages Instagram sends."),
             Field("instagram_access_token", "Access token (only if you made one there)",
                   hint="Not needed if you sign in: signing in makes one, and CLIVE renews it."),
+            # [channels] Instagram's direct messages arriving at /hooks/instagram (docs/INSTAGRAM_DMS.md).
+            Field("instagram_webhook_verify_token", "Webhook verify token (for messages arriving)",
+                  hint="Any long random string you choose. Type the same in the Meta app → Instagram → Configure "
+                       "webhooks → Verify token."),
         ),
         requires=("instagram_access_token",), family="instagram", sign_in="instagram",
-        unlocks=("instagram",),
-        without="Without it CLIVE can't read your Instagram messages or comments.",
+        unlocks=("instagram", "messaging_reads", "messaging_replies"),
+        without="Without it CLIVE can't read your Instagram messages or comments, or answer a message.",
     ),
     Connection(
         name="ship24", label="Ship24",
@@ -170,6 +174,32 @@ CONNECTIONS: tuple[Connection, ...] = (
         unlocks=("shipping_reads", "shipping_labels"),
         without="Without it CLIVE can't see your international orders, and labels are bought and printed in Shopify "
                 "admin (Apps, then the CROOKS app's Shipping).",
+    ),
+    # [channels] WhatsApp through Meta's Cloud API: whoever George puts on the number, suppliers or
+    # customers (app/clients/whatsapp.py, docs/WHATSAPP.md). Off until its keys are stored; Test asks
+    # Meta what the number can do and says what to do next.
+    Connection(
+        name="whatsapp", label="WhatsApp",
+        what="Reads WhatsApp messages to your business number, and sends the replies you hold.",
+        fields=(
+            Field("whatsapp_phone_number_id", "Phone number ID", secret=False,
+                  hint="Meta for Developers → your app → WhatsApp → API Setup: the Phone number ID (digits, not the "
+                       "number itself)."),
+            Field("whatsapp_business_account_id", "WhatsApp Business Account ID", secret=False,
+                  hint="Same page: WhatsApp Business Account ID."),
+            Field("whatsapp_access_token", "Access token (permanent)",
+                  hint="Business settings → System users → Generate token: expiry Never, permissions "
+                       "whatsapp_business_messaging and whatsapp_business_management."),
+            Field("whatsapp_app_secret", "App secret",
+                  hint="Meta for Developers → your app → App settings → Basic → App secret."),
+            Field("whatsapp_verify_token", "Verify token",
+                  hint="Any long random string you choose. Type the same in WhatsApp → Configuration → Verify token."),
+        ),
+        requires=("whatsapp_phone_number_id", "whatsapp_business_account_id", "whatsapp_access_token",
+                  "whatsapp_app_secret", "whatsapp_verify_token"),
+        family="messaging_reads",
+        unlocks=("messaging_reads", "messaging_replies"),
+        without="Without it CLIVE can't see or answer WhatsApp messages to your business number.",
     ),
     Connection(
         name="youtube", label="YouTube",

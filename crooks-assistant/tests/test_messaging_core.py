@@ -278,7 +278,8 @@ async def test_with_no_keys_the_messaging_tools_are_not_offered(monkeypatch):
     monkeypatch.setattr(wecom_world.wecom, "_stored", lambda name: "")
     table = await families.states(None)
     assert table["messaging_reads"]["state"] == "DISCONNECTED" and table["messaging_replies"]["state"] == "DISCONNECTED"
-    assert table["messaging_reads"]["detail"] == "no WeCom keys stored"
+    # [channels] The one exact value changed: WhatsApp and Instagram are channels too (8 Oct).
+    assert table["messaging_reads"]["detail"] == "no WeCom, WhatsApp or Instagram keys stored"
     wecom_world.install(monkeypatch)
     table = await families.states(None)
     assert table["messaging_reads"]["state"] == "READY"

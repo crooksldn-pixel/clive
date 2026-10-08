@@ -95,6 +95,25 @@ HELP = {
         "Same command: paste what follows SHIPPING_CLIVE_WRITE_KEYS= (one key). CLIVE sends it only "
         "with a label bought or printed on a card you approved."
     ),
+    "whatsapp_phone_number_id": (
+        "Meta for Developers -> your app -> WhatsApp -> API Setup: the Phone number ID under the number "
+        "CROOKS sends from (digits; not the phone number itself)."
+    ),
+    "whatsapp_business_account_id": "Same page: the WhatsApp Business Account ID (digits).",
+    "whatsapp_access_token": (
+        "business.facebook.com -> Business settings -> Users -> System users -> your system user -> Generate "
+        "token: choose the app, expiry Never, permissions whatsapp_business_messaging and "
+        "whatsapp_business_management. It starts EAA."
+    ),
+    "whatsapp_app_secret": "Meta for Developers -> your app -> App settings -> Basic -> App secret -> Show.",
+    "whatsapp_verify_token": (
+        "Any long random string you choose (letters and digits). Type the same into WhatsApp -> Configuration "
+        "-> Verify token in the Meta app when you save the callback URL."
+    ),
+    "instagram_webhook_verify_token": (
+        "Any long random string you choose (letters and digits). Type the same into Instagram -> API setup "
+        "with Instagram login -> Configure webhooks -> Verify token when you save the callback URL."
+    ),
     "instagram_access_token": (
         "Meta for Developers -> the CLIVE app -> Instagram -> API setup with Instagram login -> "
         "Generate token for the crooksldn account (a long-lived token, 60 days). CLIVE reads "

@@ -98,8 +98,16 @@ STATIC_KEYS = frozenset({
     # Read by app/clients/crooks_shipping.py for each call and never written by the application.
     "crooks_shipping_read_key",
     "crooks_shipping_write_key",
+    # [channels] Read by app/clients/whatsapp.py and app/messaging (the doors' checks) for each call
+    # and never written by the application. A system user's token does not expire, so it is static.
+    "whatsapp_phone_number_id",
+    "whatsapp_business_account_id",
+    "whatsapp_access_token",
+    "whatsapp_app_secret",
+    "whatsapp_verify_token",
+    "instagram_webhook_verify_token",
     # The Meta app's id and secret: read by scripts/instagram.py when a new token is exchanged
-    # by hand, never written by the application.
+    # by hand, and the secret by /hooks/instagram's signature check; never written by the application.
     "instagram_app_id",
     "instagram_app_secret",
 })

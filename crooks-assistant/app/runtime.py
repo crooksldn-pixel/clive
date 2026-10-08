@@ -280,12 +280,14 @@ class Runtime:
                 return WriteStatus("blocked", "blocked — CROOKS Returns has no write key on this server")
             return WriteStatus("ready", f"ready — {operation.replace('_', ' ')}")
         if operation is not None and operation in self._messaging_operations():
-            # [messaging] A message needs no store scope: it is sent with the WeCom app's own keys,
-            # read when it is sent, and only after the owner's hold (app/tools/messaging_tools.py).
-            from app.clients import wecom
+            # [messaging] A message needs no store scope: it is sent with its app's own keys (WeCom,
+            # WhatsApp, Instagram), read when it is sent, and only after the owner's hold
+            # (app/tools/messaging_tools.py). Which app a reply may go through is checked per
+            # conversation when its card is prepared.
+            from app.messaging import adapter as messaging_adapters
 
-            if not wecom.configured():
-                return WriteStatus("blocked", "blocked — WeCom is not connected on this server")
+            if not messaging_adapters.any_configured():
+                return WriteStatus("blocked", "blocked — no messaging app is connected on this server")
             return WriteStatus("ready", f"ready — {operation.replace('_', ' ')}")
         if operation is not None and operation in self._shipping_operations():
             # [shipping] A CLIVE Shipping change (a label bought or printed) needs no store scope: the

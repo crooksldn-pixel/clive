@@ -54,7 +54,8 @@ def _closed_to_the_public(client):  # noqa: F811
 
 
 async def test_the_hook_paths_are_exactly_one():
-    assert HOOK_PATHS == frozenset({"/hooks/wecom"})
+    # [channels] Exactly one per channel: WhatsApp and Instagram joined WeCom on 8 Oct.
+    assert HOOK_PATHS == frozenset({"/hooks/wecom", "/hooks/whatsapp", "/hooks/instagram"})
 
 
 async def test_wecoms_url_check_is_answered_with_the_decrypted_echo(client, world):  # noqa: F811
@@ -172,7 +173,11 @@ async def test_only_the_exact_hook_path_skips_the_door(client, world):  # noqa: 
     """Every near miss is judged by the door exactly as any owner route is: refused to the public."""
     _closed_to_the_public(client)
     query, body = wecom_world.kf_event()
-    for path in ("/hooks", "/hooks/", "/hooks/wecom/", "/hooks/wecom/x", "/hooks/whatsapp", "/hooks/WECOM", "/hooks/wecom%2F"):
+    # [channels] /hooks/whatsapp is a door of its own since 8 Oct (tests/test_whatsapp.py), so its
+    # place among the near misses is taken by a channel that has none and by WhatsApp's and
+    # Instagram's own near misses.
+    for path in ("/hooks", "/hooks/", "/hooks/wecom/", "/hooks/wecom/x", "/hooks/telegram", "/hooks/WECOM",
+                 "/hooks/wecom%2F", "/hooks/whatsapp/", "/hooks/WhatsApp", "/hooks/instagram/x"):
         for headers in ({}, STRANGER):
             response = await client.post(path, params=query, content=body, headers=headers)
             assert response.status_code == 403, (path, headers, response.status_code)

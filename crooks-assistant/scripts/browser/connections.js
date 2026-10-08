@@ -137,8 +137,8 @@ async function judge(browser, size) {
   const at = size.name;
   const seen = await survey(page);
   const row = (name) => seen.rows.find((r) => r.name === name) || {};
-  // [messaging] [shipping] 10: WeCom and CLIVE Shipping each joined the eight (app/connections/catalog.py).
-  check(`${at}: the screen is drawn with its rows`, seen.rows.length === 10, JSON.stringify(seen.rows.map((r) => r.name)));
+  // [messaging] [shipping] [channels] 11: WeCom, CLIVE Shipping and WhatsApp each joined the eight (app/connections/catalog.py).
+  check(`${at}: the screen is drawn with its rows`, seen.rows.length === 11, JSON.stringify(seen.rows.map((r) => r.name)));
   check(`${at}: what needs you comes first, then what is working, then what you could add`,
     JSON.stringify(seen.groups.filter((g) => ['attention', 'working', 'add'].includes(g))) === JSON.stringify(['attention', 'working', 'add']),
     JSON.stringify(seen.groups));
@@ -153,7 +153,7 @@ async function judge(browser, size) {
   check(`${at}: GitHub's refused token asks for exactly one key`, row('github').keys === 1, JSON.stringify(row('github')));
   check(`${at}: Instagram's ending sign-in asks for no key, only to sign in again`,
     row('instagram').keys === 0 && row('instagram').action.some((a) => /sign in/i.test(a)), JSON.stringify(row('instagram')));
-  for (const name of ['ship24', 'youtube', 'returns', 'wecom', 'shipping']) {
+  for (const name of ['ship24', 'youtube', 'returns', 'wecom', 'shipping', 'whatsapp']) {
     const r = row(name);
     check(`${at}: ${name} is something you could add, with no key box until you ask`,
       r.group === 'add' && r.keys === 0 && r.action.some((a) => /connect/i.test(a)), JSON.stringify(r));
@@ -172,6 +172,13 @@ async function judge(browser, size) {
     const after = (await survey(page)).rows.find((r) => r.name === 'ship24');
     check('phone: Connect on Ship24 asks for exactly one key', after.keys === 1, JSON.stringify(after));
     await shot(page, 'phone-connect', false);
+    // [channels] WhatsApp asks for its five keys, each with where it is at Meta.
+    await page.click('.conn[data-name="whatsapp"] .conn-act');
+    await page.waitForTimeout(250);
+    const whatsapp = (await survey(page)).rows.find((r) => r.name === 'whatsapp');
+    check('phone: Connect on WhatsApp asks for its five keys', whatsapp.keys === 5, JSON.stringify(whatsapp));
+    await page.evaluate(() => { const r = document.querySelector('.conn[data-name="whatsapp"]'); if (r) r.scrollIntoView({ block: 'start' }); });
+    await shot(page, 'phone-whatsapp-connect', false);
     // The voice is still set from ElevenLabs' details: the picker, the four sliders, a preview.
     await page.click('.conn[data-name="elevenlabs"] summary');
     await page.waitForTimeout(300);

@@ -101,3 +101,39 @@ test('the recent conversations, each with its last messages, and an empty list s
   const empty = { type: 'messages', data: { key: 'recent', view: 'recent', title: 'Messages', sub: 'No messages have come in on WeCom yet.', threads: [] } };
   assert.equal(all(UI.render([empty]).nodes[0], 'msg-none')[0].textContent, 'No messages have come in on WeCom yet.');
 });
+
+// [channels] WhatsApp and Instagram (8 Oct): the window line names the app the payload names; a reply
+// sent in their language keeps it behind "As sent"; delivered and read show on CLIVE's own message
+// only, and never on one that failed.
+const WHATSAPP = {
+  type: 'messages',
+  data: {
+    key: 'thread:chat_aaaaaaaaaaaaaaaaaaaa', view: 'thread', title: 'Ana', sub: 'WhatsApp · knitwear supplier',
+    thread: {
+      chat_id: 'chat_aaaaaaaaaaaaaaaaaaaa', who: 'Ana', channel: 'WhatsApp', last: '8 Oct 09:00',
+      reply_window: 'open 20h more',
+      messages: [
+        { direction: 'in', by: 'them', at: '8 Oct 08:58', english: 'The sample is ready.', original: 'A amostra está pronta.',
+          translation: 'machine translation' },
+        { direction: 'out', by: 'CLIVE', at: '8 Oct 09:00', english: 'Thank you.', translated: 'Obrigado.', delivery: 'Read' },
+        { direction: 'out', by: 'the WhatsApp app', at: '8 Oct 09:01', english: 'See you Friday.' },
+        { direction: 'out', by: 'CLIVE', at: '8 Oct 09:02', english: 'Hello.', delivery: 'Delivered',
+          status: 'not delivered: WhatsApp didn\'t say why' },
+      ],
+    },
+  },
+};
+
+test('the window line names the app, and a reply in their language keeps it behind "As sent"', () => {
+  const card = UI.render([WHATSAPP]).nodes[0];
+  assert.equal(all(all(card, 'msg-window')[0], 'msg-window-words')[0].textContent, 'WhatsApp replies: open 20h more');
+  const [, sent, fromApp, failed] = all(card, 'msg-bubble');
+  assert.equal(all(sent, 'msg-reveal')[0].textContent, 'As sent');
+  assert.equal(all(sent, 'msg-behind')[0].textContent, 'Obrigado.');
+  assert.match(all(sent, 'msg-meta-words')[0].textContent, /CLIVE · 8 Oct 09:00 · Read/);
+  assert.match(all(fromApp, 'msg-meta-words')[0].textContent, /the WhatsApp app/);
+  assert.doesNotMatch(all(failed, 'msg-meta-words')[0].textContent, /Delivered/);
+  const nameless = JSON.parse(JSON.stringify(WHATSAPP));
+  delete nameless.data.thread.channel;
+  assert.equal(all(UI.render([nameless]).nodes[0], 'msg-window-words')[0].textContent, 'Replies: open 20h more');
+});

@@ -304,7 +304,8 @@ def test_the_prompt_says_instagram_text_is_untrusted():
 
     prompt = build_system_prompt(KnowledgeBase(text="", files=[], chars=0))
     assert "anything that came from Instagram" in prompt
-    assert "You can read Instagram but not answer there" in prompt
+    # [channels] The one exact sentence changed (8 Oct): a DM is answered only through the held reply.
+    assert "You answer an Instagram direct message only with message_reply, held by the owner; a comment never." in prompt
 
 
 # --- the token's life ------------------------------------------------------------------------

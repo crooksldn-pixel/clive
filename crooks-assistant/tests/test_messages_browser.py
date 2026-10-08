@@ -89,7 +89,7 @@ def _script(provider) -> None:
                   ("message_thread", lambda calls: {"chat_id": first(calls)}),
                   reply="Here's Jessica's conversation. WeChat will take a reply for another two days.")
     provider.will(SAID["reply"], ("messages_recent", {"person": "Jessica"}),
-                  ("message_reply", lambda calls: {"chat_id": first(calls), "english": REPLY_EN, "chinese": REPLY_ZH}),
+                  ("message_reply", lambda calls: {"chat_id": first(calls), "english": REPLY_EN, "translated": REPLY_ZH}),
                   reply="Here it is in Chinese and English. Hold the card to send it.")
 
 
