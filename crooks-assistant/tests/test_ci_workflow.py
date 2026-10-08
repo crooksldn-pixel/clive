@@ -164,5 +164,9 @@ def test_the_screens_are_tested_in_a_real_browser(workflow: dict, steps: list[di
     assert "install --with-deps chromium" in script
     assert "NODE_PATH=" in script and "CROOKS_CHROMIUM=" in script and "$GITHUB_ENV" in script
     assert "available()" in script and "SystemExit(0 if ok else 1)" in script
+    # Review note N5 (8 Oct): the downloaded Chromium has no digest pin, so its sha256 is logged,
+    # once it is known to be there and before the suite is handed it.
+    assert 'sha256sum "$chrome"' in script
+    assert script.index('test -x "$chrome"') < script.index('sha256sum "$chrome"') < script.index("CROOKS_CHROMIUM=$chrome")
     names = [step.get("name") or "" for step in steps]
     assert names.index(install["name"]) < names.index(step_named(steps, "acceptance gates")["name"])

@@ -100,6 +100,9 @@ jobs:
           "$prefix/node_modules/.bin/playwright-core" install --with-deps chromium
           chrome="$(ls -d "${PLAYWRIGHT_BROWSERS_PATH}"/chromium-*/chrome-linux/chrome | head -n 1)"
           test -x "$chrome"
+          # Which Chromium this run's screen tests ran in, by digest: it is downloaded, not pinned
+          # by digest the way gitleaks is below, so the log says exactly what ran.
+          sha256sum "$chrome"
           echo "NODE_PATH=$prefix/node_modules" >> "$GITHUB_ENV"
           echo "CROOKS_CHROMIUM=$chrome" >> "$GITHUB_ENV"
           NODE_PATH="$prefix/node_modules" CROOKS_CHROMIUM="$chrome" python -c \
