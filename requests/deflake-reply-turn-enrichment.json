@@ -1,0 +1,95 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "deflake-reply-turn-enrichment",
+  "title": "The reply tests collect the order card's inbox the way the tablet does, so a slow inbox read on a busy runner no longer fails them",
+  "requested_outcome": "GitHub acceptance went red twice tonight on tests in tests/test_r11_reply_turn.py that have nothing to do with the change under test: on fixture-clock-dst-nights' candidate d168f661 (run 37701649911, test_a_thread_only_possibly_about_this_order_is_refused[gmail_draft_reply]), which blocked that job, and on claude/n2-loop's 5cc91d64 (run 37705527925). Both pass locally. The cause is a timing race between the product's budget and the test's setup, confirmed on trunk b4214381.\n\nHow it happens. `_shown_mias_orders` says \"show me order 1938\" through the harness: the model's scripted shopify_find_order starts the order's enrichment (its customer history and the inbox around it, app/context/order.py `Hydrator._run`), and shopify_order_detail then waits at most MODEL_BUDGET_S = 0.25 s for it (app/context/order.py line 54; app/tools/shopify_tools.py `shopify_order_detail`). That budget is deliberate: the model answers at once and is told what is still on its way, and the tablet collects the rest of the card from GET /context/order/{order_id} (app/routes/context.py, which waits up to EXTENSION_WAIT_S = 4 s and issues the ids the card carries to the conversation; web/app.js `collectPending`). The inbox read runs in a worker thread (asyncio.to_thread in app/tools/gmail_tools.py `_list_metadata`). Against the golden inbox it normally takes 1 to 6 ms, but on a busy runner the worker thread can wait longer than 0.25 s; the model's read then comes back with `pending: [\"email\"]`, Mia's two thread ids are never issued, and the setup assertion at tests/test_r11_reply_turn.py line 52 fails before the test has started.\n\nWhat was measured on b4214381. With the golden inbox's messages.list slowed by 0.3 s in its worker thread, all seven tests in tests/test_r11_reply_turn.py fail at line 52; the conversation holds Order/1912 (the history landed) but neither thread id, and the model's read returned after 250 ms with \"email\" pending. With 4 to 12 pure-Python threads competing for the interpreter lock, as leftover threads do late in a full run, the same enrichment took 41 to 729 ms instead of a few, and one model read waited 330 ms. The same dependency, with the same slowed inbox, fails two tests in tests/test_r12_surfaces.py (`_thread_up`: the thread read comes back as an error, line 317) and five in tests/test_r13_off_target.py (tapping Reply on a thread from the order card is refused \"not_held\"). Fourteen tests in all; every other test in the three files passes with the slowed inbox.\n\nThe honest fix is in the tests, not the product: the tests do what the tablet does once an order card is up, and collect the rest of the card before relying on what it carries. MODEL_BUDGET_S stays 0.25 s. Raising it would slow every spoken order answer and would still be a bet on timing.\n\nChange three test files, nothing else.\n(1) tests/test_r11_reply_turn.py, `_shown_mias_orders`: after `h.open_order(\"1938\", session_id=session)`, collect the rest of the order card the way the tablet does, with the harness's own `await h.enrich(ORDER_1938, session_id=session)` (experience/harness.py `Harness.enrich`, which calls GET /context/order/{order_id}; experience/scenarios.py `progressive_enrichment` already uses it). Do it every time, not only when something is pending, so every run takes the same path. Assert that the collected extension's `pending` is `[]`, with the extension as the assertion message, so a part that never lands still fails loudly. Then the existing assertion that the four ids are held, unchanged. The docstring says, in a sentence or two, why: the model's own read waits only MODEL_BUDGET_S for her history and inbox; on a busy machine the inbox can miss that, and then they reach the conversation through the card, as on the tablet; either way every id is one this conversation was shown. The module docstring's \"Reading #1938 shows the conversation both orders and both threads\" may say \"Reading #1938, and the rest of its card, ...\".\n(2) tests/test_r12_surfaces.py, `_thread_up`: the same collection for #1938 (data.BY_NAME[\"#1938\"].order_id) and the same pending assertion, after opening the order and before the thread is read.\n(3) tests/test_r13_off_target.py: the same collection and pending assertion before Reply is tapped: in test_a_reply_after_reply_was_tapped_on_one_thread_is_prepared_only_in_that_thread for #1938 (gid://shopify/Order/1938), after opening it; in test_after_reply_was_tapped_an_order_he_dictates_does_not_send_it_to_that_order_s_customer and test_after_reply_was_tapped_a_note_on_an_order_he_did_not_name_is_withdrawn for #1940 (gid://shopify/Order/1940; Priya's thread is on #1940's card), after opening it. A small helper in the file is fine. The file's other tests do not depend on the inbox and do not change.\n\nA prototype of exactly this passed every check below: all 128 tests in the three files, with the race exercised 31 times under the slowed inbox; the 14 dependent tests ten times each (140 runs); the regression suites (172 tests); ruff; and docs/phase4/TOOL_MATRIX.md did not change.\n\nMust not change: anything under crooks-assistant/app (MODEL_BUDGET_S, ENRICH_BUDGET_S, EXTENSION_WAIT_S, the hydrator, the context route, the Gmail tools) or crooks-assistant/experience (the harness, the fixtures, the scenarios); any other test file. In the three files, no existing assertion is removed, loosened, reordered or reworded, and no test is renamed or removed. No sleep, retry-until-pass, skip, xfail, new marker, or monkeypatch of a budget, a wait, the clock or asyncio is added. The only additions are the collection, its pending assertion, and the docstring lines.\n\nNot in this job (the Director has the evidence): with the slowed inbox, two golden scenarios in tests/test_experience.py also fail, graph_order_to_email (it asserts the turn's own order card carries the inbox) and anticipation_yields_to_the_owner. They live in experience/scenarios.py and need their own decision.\n\nChecks. `slow-inbox` runs the three files with the golden inbox answering in 0.4 s and requires at least one model read to have answered before the inbox: on the untouched base it fails exactly the 14 tests above, by design; that failure is the race this job removes. `repeat` runs the 14 dependent tests ten times each. Every other check passes on the base. Run every declared check yourself with the run_checks tool, exactly as declared, before you report, and report only a candidate on which all of them pass. If a check other than slow-inbox fails on the untouched base, report that base failure and its output instead of changing anything to hide it. You cannot delete files or run commands other than the declared checks. Do not report an owner decision for GitHub acceptance: it runs automatically on your published candidate.",
+  "base_ref": "b4214381d89d1a81d45496125b7d3bebe79f6f8b",
+  "base_sha": "b4214381d89d1a81d45496125b7d3bebe79f6f8b",
+  "allowed_paths": [
+    "crooks-assistant/tests/test_r11_reply_turn.py",
+    "crooks-assistant/tests/test_r12_surfaces.py",
+    "crooks-assistant/tests/test_r13_off_target.py"
+  ],
+  "acceptance_criteria": [
+    "In tests/test_r11_reply_turn.py, `_shown_mias_orders` collects the rest of #1938's card with the harness's `enrich` (GET /context/order) after the turn, every time, asserts the extension has nothing pending, and then asserts the four held ids exactly as before; every test in the three files passes (check: tests).",
+    "tests/test_r12_surfaces.py's `_thread_up` collects #1938's card, and the three Reply-tap tests in tests/test_r13_off_target.py collect the card that carries the thread they tap (#1938's; #1940's for Priya's thread), before using it, each asserting nothing is pending (checks: tests, slow-inbox).",
+    "With the golden inbox answering in 0.4 s, past the model's 0.25 s budget, every test in the three files passes, and at least one model read in that run answered before the inbox had landed: the race still happens and no longer decides the result (check: slow-inbox; on the untouched base it fails the 14 dependent tests).",
+    "The 14 tests that depend on the order card's inbox pass ten runs each, 140 runs in all (check: repeat).",
+    "In the three files no existing assertion is removed, loosened, reordered or reworded and no test is renamed or removed; no sleep, retry, skip, xfail, marker, or monkeypatch of a budget, a wait, the clock or asyncio is added; the only additions are the collection, its pending assertion and the docstring lines.",
+    "Nothing outside the three test files changes: nothing under crooks-assistant/app (MODEL_BUDGET_S stays 0.25, EXTENSION_WAIT_S stays 4.0) or crooks-assistant/experience; the hydrator, context route, graph, read dedupe, reply binding, reply content, turn, turn boundary and tool-matrix suites pass (check: regression).",
+    "ruff passes on app, config, scripts and tests (check: ruff)."
+  ],
+  "checks": [
+    {
+      "name": "tests",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-m",
+        "not live",
+        "tests/test_r11_reply_turn.py",
+        "tests/test_r12_surfaces.py",
+        "tests/test_r13_off_target.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "slow-inbox",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-c",
+        "# The golden inbox answers in 0.4 s, past the model's 0.25 s budget (MODEL_BUDGET_S), as it can on a\n# busy runner. Every test must still pass, and at least one model read must have answered before the\n# inbox landed, or the run proved nothing.\nimport sys\nimport types\n\nimport pytest\n\nplugin = types.ModuleType(\"slow_inbox\")\nexec(\"\"\"\nimport time\n\nimport pytest\n\nDELAY_S = 0.4\nraced = []\n\n\n@pytest.fixture(autouse=True)\ndef _slow_inbox(monkeypatch):\n    from app.context import order\n    from experience.fixtures import gmail\n\n    listing = gmail._Messages.list\n\n    def slow(self, *args, **kwargs):\n        time.sleep(DELAY_S)\n        return listing(self, *args, **kwargs)\n\n    monkeypatch.setattr(gmail._Messages, \"list\", slow)\n    read = order.Hydrator.order\n\n    async def watched(self, order_id, **kwargs):\n        out = await read(self, order_id, **kwargs)\n        if kwargs.get(\"budget_s\") == order.MODEL_BUDGET_S and \"email\" in (out.get(\"pending\") or []):\n            raced.append(order_id)\n        return out\n\n    monkeypatch.setattr(order.Hydrator, \"order\", watched)\n\"\"\", plugin.__dict__)\ncode = pytest.main([\"-q\", \"-p\", \"no:cacheprovider\", \"-m\", \"not live\", *[\"tests/test_r11_reply_turn.py\", \"tests/test_r12_surfaces.py\", \"tests/test_r13_off_target.py\"]], plugins=[plugin])\nprint(f\"model reads that answered before the inbox: {len(plugin.raced)}\")\nif not plugin.raced:\n    sys.exit(\"the slowed inbox never missed the model's budget, so this run proved nothing\")\nsys.exit(int(code))\n"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "repeat",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-c",
+        "# The tests that depend on the order card's inbox, ten runs each, at normal speed.\nimport sys\nimport types\n\nimport pytest\n\nplugin = types.ModuleType(\"repeat_runs\")\nexec(\"\"\"\nimport pytest\n\nRUNS = 10\n\n\n@pytest.fixture\ndef _run_number(request):\n    return request.param\n\n\n@pytest.hookimpl(trylast=True)\ndef pytest_generate_tests(metafunc):\n    metafunc.fixturenames.append(\"_run_number\")\n    metafunc.parametrize(\"_run_number\", range(RUNS), indirect=True, ids=[f\"run{i}\" for i in range(RUNS)])\n\"\"\", plugin.__dict__)\nsys.exit(int(pytest.main([\"-q\", \"-p\", \"no:cacheprovider\", \"-m\", \"not live\", *[\"tests/test_r11_reply_turn.py\", \"tests/test_r12_surfaces.py::test_the_email_thread_stays_on_screen_while_a_draft_is_prepared_on_it\", \"tests/test_r12_surfaces.py::test_bring_back_the_draft_after_it_was_withdrawn_tells_the_model_exactly_what_to_prepare\", \"tests/test_r13_off_target.py::test_a_reply_after_reply_was_tapped_on_one_thread_is_prepared_only_in_that_thread\", \"tests/test_r13_off_target.py::test_after_reply_was_tapped_an_order_he_dictates_does_not_send_it_to_that_order_s_customer\", \"tests/test_r13_off_target.py::test_after_reply_was_tapped_a_note_on_an_order_he_did_not_name_is_withdrawn\"]], plugins=[plugin])))\n"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "regression",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-m",
+        "not live",
+        "tests/test_context.py",
+        "tests/test_graph.py",
+        "tests/test_read_dedupe.py",
+        "tests/test_reply_order_binding.py",
+        "tests/test_r13_reply_order_content.py",
+        "tests/test_r11_turn.py",
+        "tests/test_turn_boundary.py",
+        "tests/test_tool_matrix.py",
+        "--deselect",
+        "tests/test_tool_matrix.py::test_the_checked_in_document_is_the_generated_one"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/deflake-reply-turn-enrichment",
+  "max_repair_rounds": 3
+}
