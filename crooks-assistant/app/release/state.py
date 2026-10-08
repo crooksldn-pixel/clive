@@ -4,9 +4,13 @@ Why it exists: three things must outlive one tick of the timer.
 - The lock: one deploy at a time, whoever started it (the timer, or a person running a tick by hand).
 - The status: one line George reads on CLIVE's Builds screen (app/release/status.py reads it), saying
   what the service did last, in words, with the SHA's own title.
-- What it will not do again on its own: a SHA that was tried and rolled back is never tried again
-  automatically (it would deploy and roll back every five minutes), and a rollback that failed
-  stops the service (HALT) until a person has looked and removed the file.
+- What it will not do again on its own: a SHA that was tried and rolled back, or that halted, is
+  never tried again automatically (it would deploy and roll back every five minutes), and a
+  rollback that failed stops the service (HALT) until a person has looked and removed the file.
+- A deploy under way: `deploys/<sha8>/started` is written, and read back, before production is
+  changed, and removed only once the outcome is on disk. A tick that holds the lock and still finds
+  one knows the deploy before it stopped part way (killed, rebooted, timed out), with production
+  perhaps half changed, and halts rather than read production's new SHA as "up to date".
 
 Every file is written whole or not at all (host.write), in the service's own folder.
 """
@@ -24,6 +28,7 @@ STATUS_SCHEMA = "clive.release.status.v1"
 STATUS_FILE = "status.json"
 HALT_FILE = "HALT"
 LOCK_FILE = "deploy.lock"
+STARTED_FILE = "started"
 STATES = ("off", "no_rule", "up_to_date", "waiting", "would_deploy", "deployed", "rolled_back", "halted")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 
@@ -118,3 +123,34 @@ def halt(host, state_dir: Path, *, at: str, reason: str, sha: str) -> None:
 def deploy_dir(state_dir: Path, sha: str) -> Path:
     """Where one attempt keeps what it captured before anything changed (the unit) and its record."""
     return Path(state_dir) / "deploys" / sha[:8]
+
+
+def start(host, state_dir: Path, sha: str, *, previous: str, at: str) -> bool:
+    """The marker that production is being changed, written before the checkout; True only when it
+    reads back as written (a marker that is not there could not tell the next tick anything)."""
+    path = started_path(state_dir, sha)
+    data = _dump({"sha": sha, "previous": previous, "at": at})
+    try:
+        host.write(path, data, 0o600)
+    except OSError:
+        return False
+    return host.read(path) == data
+
+
+def finished(host, state_dir: Path, sha: str) -> None:
+    """The outcome is on disk: a stop from here on is not an interrupted deploy."""
+    host.remove(started_path(state_dir, sha))
+
+
+def started_path(state_dir: Path, sha: str) -> Path:
+    return deploy_dir(state_dir, sha) / STARTED_FILE
+
+
+def interrupted(host, state_dir: Path) -> dict[str, Any] | None:
+    """A deploy that began changing production and left no outcome: its started marker, with where
+    it lies ("marker"). Only meaningful while holding the lock: without it, the marker may be a
+    deploy still running."""
+    for path in host.files(Path(state_dir) / "deploys", f"*/{STARTED_FILE}"):
+        found = _json(host, path) or {}
+        return {**found, "marker": str(path)}
+    return None

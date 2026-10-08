@@ -51,7 +51,7 @@ class GitHost(SystemHost):
             return Result(1, "", "failed")
         if argv[0] == "git":
             return super().run(step, argv, cwd=cwd, env={**ENV, **(env or {})}, input=input, timeout=timeout)
-        if step == "render":
+        if step in ("render", "render_new"):
             return Result(0, self.unit.read_text() + "\n")
         if "healthcheck.py" in " ".join(argv):
             return Result(0, HEALTHY)
@@ -108,7 +108,8 @@ def world(tmp_path, monkeypatch):
     unit = tmp_path / "etc" / "crooks-assistant.service"
     unit.parent.mkdir()
     unit.write_text("[Service]\nEnvironment=HOME=/root\n")
-    settings = ReleaseSettings(enabled=True, rule="owner_waiver", checkout=production, state_dir=tmp_path / "state",
+    settings = ReleaseSettings(enabled=True, rule="owner_waiver", dry_run=False, checkout=production,
+                               state_dir=tmp_path / "state",
                                unit_path=unit, waivers_dir=tmp_path / "waivers", passkey_waivers_dir=tmp_path / "pkw",
                                passkeys_file=tmp_path / "passkeys.json", settle_s=0)
     monkeypatch.setattr(github, "git_url", lambda _repository: str(remote))
@@ -202,3 +203,30 @@ def test_the_plan_reads_real_git_and_changes_nothing_on_production(world):
     assert git("rev-parse", "HEAD", cwd=world["production"]) == before
     assert git("for-each-ref", cwd=world["production"]) == refs, "production's refs are untouched"
     assert not (world["settings"].state_dir / "status.json").exists()
+
+
+def test_a_file_moved_out_of_a_guarded_path_is_still_seen(world):
+    """Review note 9: git diff detects renames by default and lists only the new name, so a file moved out of
+    deploy/ would not look guarded. The service diffs with --no-renames: the old name is listed too."""
+    work, remote, production = world["work"], world["remote"], world["production"]
+    unit = work / "crooks-assistant" / "deploy" / "systemd" / "crooks-assistant.service"
+    unit.parent.mkdir(parents=True)
+    unit.write_text("[Unit]\nDescription=CLIVE\n\n[Service]\nExecStart=/opt/crooks-os/run\nRestart=always\n")
+    git("add", "-A", cwd=work)
+    git("commit", "--quiet", "-m", "The unit, under deploy/", cwd=work)
+    git("push", "--quiet", str(remote), "HEAD:refs/heads/clive/trunk", cwd=work)
+    base = git("rev-parse", "HEAD", cwd=work)
+    git("fetch", "--quiet", "origin", cwd=production)
+    git("checkout", "--quiet", "--detach", base, cwd=production)
+    git("mv", "crooks-assistant/deploy/systemd/crooks-assistant.service", "crooks-assistant/app/unit.service",
+        cwd=work)
+    git("commit", "--quiet", "-m", "The unit, moved out of deploy/", cwd=work)
+    git("push", "--quiet", str(remote), "HEAD:refs/heads/clive/trunk", cwd=work)
+    world["trunk"] = git("rev-parse", "HEAD", cwd=work)
+    assert "R100" in git("diff", "--name-status", "-M", base, world["trunk"], cwd=work), "git sees a rename"
+    _waive(world)
+    host = GitHost(world["settings"].waivers_dir, world["settings"].unit_path)
+    code, printed = _tick(world, host)
+    assert "checkout" not in host.steps and git("rev-parse", "HEAD", cwd=production) == base
+    assert "the change touches how CLIVE is installed (crooks-assistant/deploy/systemd/crooks-assistant.service)" \
+        in "\n".join(printed), printed

@@ -7,7 +7,9 @@ read, so no switch of CLIVE's moves a switch of this, or the other way round.
 
     CLIVE_RELEASE_ENABLED   off  the service does nothing at all
     CLIVE_RELEASE_RULE      off  "exact_sha_review" or "owner_waiver"; anything else deploys nothing
-    CLIVE_RELEASE_DRY_RUN   off  on: every tick works out the plan, says it, and changes nothing
+    CLIVE_RELEASE_DRY_RUN   on   every tick works out the plan, says it, and changes nothing; only an
+                                 explicit CLIVE_RELEASE_DRY_RUN=false deploys, so a release.env that
+                                 lost the line stays a dry run (unknown is RED)
 
 The paths are settings so a test can move them; on the server they stay as written here.
 """
@@ -28,7 +30,7 @@ class ReleaseSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CLIVE_RELEASE_", env_file=None, extra="ignore")
 
     enabled: bool = False
-    dry_run: bool = False
+    dry_run: bool = True
     rule: str = "off"
 
     repository: str = "crooksldn-pixel/clive"

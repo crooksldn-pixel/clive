@@ -10,8 +10,9 @@ tonight, switched off. It only deploys once you've said who holds deploy authori
 
 **Where it stands.** Built and tested in the repository (`app/release/`, `deploy/release/`).
 **Not installed** on the server, and **off** by default twice over: `CLIVE_RELEASE_ENABLED` is off,
-and `CLIVE_RELEASE_RULE` is `off` until George names who holds deploy authority. Production keeps
-being deployed by hand until both are set and the unit is installed.
+and `CLIVE_RELEASE_RULE` is `off` until George names who holds deploy authority; and even then it is
+a dry run until `CLIVE_RELEASE_DRY_RUN=false` is written in so many words. Production keeps being
+deployed by hand until all three are set and the unit is installed.
 
 ---
 
@@ -19,9 +20,15 @@ being deployed by hand until both are set and the unit is installed.
 
 1. **Off, or no rule named:** it writes one status line ("The release service is off…") and stops.
    It does not read GitHub or touch the checkout.
-2. **Halted** (an earlier rollback failed): it says so and stops, until a person removes
-   `/var/lib/clive-release/HALT`.
+2. **Halted** (an earlier rollback failed, or an earlier deploy was stopped part way): it says so and
+   stops, until a person removes `/var/lib/clive-release/HALT`.
 3. **One at a time:** it takes `/var/lib/clive-release/deploy.lock`. A tick that finds it held does nothing.
+   Holding the lock, it looks for a **started marker** (`deploys/<sha8>/started`), which a deploy writes
+   before it changes production and removes once its outcome is on disk. One still there means the
+   last deploy was stopped part way (a reboot, `systemctl stop`, systemd's time limit) with production
+   perhaps half changed: the tick writes `HALT`, marks that SHA in `failed/`, and stops. It never reads
+   that half-changed production as "up to date". It reads `HALT` again just before deciding, so a
+   `HALT` written while it waited or read the facts still stops it.
 4. **Reads the facts, changing nothing on production** (`app/release/facts.py`):
    - `clive/trunk`'s head, fetched into the service's own copy of the repository
      (`/var/lib/clive-release/repo.git`), never into production's checkout;
@@ -39,26 +46,41 @@ being deployed by hand until both are set and the unit is installed.
    - every fact read; the SHA is `clive/trunk`'s head; production is behind it on the trunk;
    - production's checkout is clean;
    - the change does not touch how CLIVE is installed: `deploy/`, the `Makefile`,
-     `scripts/install_systemd.py`, `scripts/launch_common.py`, `pyproject.toml` or any `.env` file.
-     Those stay hand deploys, because `make install` installs no dependency and a program cannot
-     judge, as a person can, whether a change to the installer is harmless;
-   - the SHA was not tried and rolled back before;
+     `scripts/install_systemd.py`, `scripts/launch_common.py`, `pyproject.toml`, `uv.lock`,
+     `requirements*` or any `.env` file. Those stay hand deploys, because `make install` installs no
+     dependency and a program cannot judge, as a person can, whether a change to the installer is
+     harmless. The change is listed with renames switched off (`git diff --no-renames`), so a file
+     moved *out* of one of those paths is seen under its old name too;
+   - nor how CLIVE is checked: `.github/`. The acceptance workflow lives there, and a commit that
+     changed it would be passed by its own changed workflow;
+   - the SHA was not tried before and rolled back, halted or stopped part way;
    - acceptance green on the exact SHA, and the authorisation.
-6. **Dry run** (`CLIVE_RELEASE_DRY_RUN=true`): it says "Dry run: it would deploy “…” now. Nothing
-   was changed." and stops.
+
+   Each is required **positively**: production's SHA known, production known to be behind the trunk's
+   head, acceptance known green, the authorisation known present. A fact that was never read is a
+   reason not to deploy, never the absence of one.
+6. **Dry run** (`CLIVE_RELEASE_DRY_RUN`, **on unless set to `false` in so many words**: a
+   `release.env` that has lost the line stays a dry run): it says "Dry run: it would deploy “…” now.
+   Nothing was changed." and stops.
 7. **Deploys** (`app/release/deploy.py`), the hand procedure as code:
 
    | Stage | What it does | On failure |
    |---|---|---|
-   | Before anything changes | production still on the SHA it read, checkout clean; the checkout and the unit folder writable; `make doctor`; `tailnet_self_check()`; `/health` well (read as the server's own reader, `scripts/healthcheck.py --json`); the live unit saved to `/var/lib/clive-release/deploys/<sha8>/unit-before.service`; `.env`'s and the drop-ins' fingerprints taken; the unit `make install` would write (`scripts/install_systemd.py --print`) byte-identical to the live one, as the `b33ccbc2` deploy checked by hand; the target's objects fetched into the checkout | refuses; nothing changed; tried again next tick |
-   | The change | `git checkout --detach <sha>`; the new build's `scripts/gap_clean_check.py`; `make install`, run with the `HOME` and `PATH` the live unit was rendered with, so the re-rendered unit comes out the same | rolls back |
-   | After | wait 20 s; `/health` well with no check that was ok before now not ok; the service `active (running)` with no restart; `.env` and the drop-ins untouched; the journal since the restart free of tracebacks, `ERROR`/`CRITICAL`, `withheld`, `not confirmed on disk` and the process exiting | rolls back |
+   | Before anything changes | production still on the SHA it read, checkout clean; the checkout and the unit folder writable; `make doctor`; `tailnet_self_check()`; `/health` well (read as the server's own reader, `scripts/healthcheck.py --json`); the live unit saved to `/var/lib/clive-release/deploys/<sha8>/unit-before.service`; `.env`'s and the drop-ins' fingerprints taken; the **live** build's installer (`scripts/install_systemd.py --print`, with the live unit's `HOME` and `PATH`) still renders the live unit byte for byte, so nothing in this service's environment or the credentials provisioned since would change it; the target's objects fetched into the checkout; the started marker written and read back | refuses; nothing changed; tried again next tick |
+   | The change | `git checkout --detach <sha>`; the new build's `scripts/gap_clean_check.py`; the **new** build's unit rendered (`scripts/install_systemd.py --print` from the new checkout) and byte-identical to the live one, **before** `make install`, as the `b33ccbc2` deploy checked by hand (code outside the guarded paths feeds the unit: `config/settings.py`'s host and port, the secrets folder, the known keys behind the credentials block); `make install`, run with the `HOME` and `PATH` the live unit was rendered with | rolls back |
+   | After | wait 20 s; `/health` well with no check that was ok before now not ok; the service `active (running)` with no restart; `.env` and the drop-ins untouched; the **new process's** journal (entries since the install began from the service's new systemd invocation, so not the old process's shutdown) free of tracebacks, `ERROR`/`CRITICAL`, `withheld`, `not confirmed on disk` and the process exiting; the unit `make install` wrote read back, byte-identical to the saved copy | rolls back |
 
    **Rollback:** the previous SHA checked out again; when `make install` ran, the saved unit put
    back, `systemctl daemon-reload` and `make install` on the previous SHA; then `/health` read
    again. The SHA is marked in `/var/lib/clive-release/failed/` and is not tried again on its own.
-   **A rollback step that fails** writes `/var/lib/clive-release/HALT`, and the service does nothing
+   **A rollback step that fails** writes `/var/lib/clive-release/HALT` and marks the SHA in
+   `failed/` too, so removing `HALT` does not set the same deploy off again. The service does nothing
    more until a person has looked at production and removed that file.
+
+   **Time limits.** Every command has its own; the unit's `TimeoutStartSec=3h` is above their sum for
+   the longest tick (measured by `tests/test_release_service.py`: 10,220 s), so systemd never stops a
+   deploy part way that its own steps would still allow. A deploy stopped all the same leaves its
+   started marker, and the next tick halts (step 3).
 8. **Records** (`app/release/record.py`): the deploy record, in the shape of
    `reports/deploy-<sha8>.md` (rollback target, authority, every check, the installer's own status
    lines, verification, what is outstanding, the trunk commits it carries). It is kept in
@@ -131,6 +153,25 @@ George has waived the review for that exact SHA, in one of two forms:
 the standing rule that nothing changes without his gesture, and the passkey step turns the relay into
 one tap on his phone. `exact_sha_review` suits a day when reviews are routine and he trusts every
 push credential with production.
+
+### Two things George should know before he chooses (the independent review's notes 10 and 11)
+
+1. **`exact_sha_review` hands deploy authority to anyone who can push.** Nothing checks that the
+   reviewer is independent of the builder, and the review record is not signed: it is a JSON file on
+   a branch. Every builder or reviewer session holding a push credential could write a SHIP record
+   and put the trunk's head on production with no gesture from him. Acceptance must still be green
+   on the exact SHA, and only the trunk's head, forward, is deployed. **His choice:** accept that
+   (reviews routine, every push credential trusted with production), or keep `owner_waiver`.
+2. **The passkey waiver's trust stops at CLIVE's own process.** Its signature is checked against the
+   public keys in `/etc/crooks-os/secrets/app/passkeys.json`, and both that file and the passkey
+   waiver folder can be written by CLIVE's process, which runs as root. A compromised CLIVE could add
+   a key of its own and sign its own waiver; that would still deploy only the green trunk head, and a
+   process running as root could do worse anyway. Unlike CLIVE's own passkey approvals, the waiver
+   check has **no challenge issued by the server, no expiry and no signature-counter check**: a
+   captured waiver can be replayed, but only for the same SHA. **His choice:** accept that, or ask for
+   the next build to add a server-issued nonce with an expiry and the counter check (and, if wanted,
+   keys read from a file CLIVE's process cannot write). The host waiver (root-only folder) is not
+   affected.
 
 ---
 
@@ -207,7 +248,9 @@ CLIVE_RELEASE_DRY_RUN=true               # for the first days: compare its plan 
 ```
 
 Then, when its dry-run lines have matched what a hand deploy would have done, `CLIVE_RELEASE_DRY_RUN=false`.
-The next tick reads the file; nothing restarts.
+The next tick reads the file; nothing restarts. Only that line (or another value read as false:
+`0`, `no`, `off`) turns dry run off: without the line the service stays a dry run, and a value it
+cannot read stops the tick before it reads or changes anything.
 
 ### Giving a waiver today
 
@@ -218,7 +261,34 @@ cd /srv/clive-release/pin/crooks-assistant && /opt/crooks-os/crooks-assistant/.v
   -m app.release waive <the 40-character SHA> --by George --words "<what he said>"
 ```
 
-The next tick (at most five minutes) deploys it if everything else holds.
+The next tick (at most five minutes) deploys it if everything else holds. His `--words` stay in the
+root-only waiver file on the server; they are **never** copied into the deploy record, which is pushed
+to the public repository (a customer's name in them would otherwise become public). The same holds
+for a passkey waiver's `words`.
+
+### Deploying by hand while the service is installed
+
+Changes to `deploy/`, the installer, the dependencies or `.github/` stay hand deploys. A hand deploy
+does not hold the service's lock by itself, and a tick that started half way through one (after
+`/health` is back, before the phone `/whoami`) could deploy the next waived or reviewed SHA on top of
+a hand deploy nobody has finished checking. So, for every hand deploy, either:
+
+- **switch the service off first** (simplest): `systemctl stop clive-release.timer`, then wait until
+  `systemctl is-active clive-release.service` says `inactive` (a tick under way finishes); do the
+  whole hand deploy, through the phone `/whoami`; then `systemctl start clive-release.timer`; or
+- **hold its lock for the whole hand deploy:** `flock -n /var/lib/clive-release/deploy.lock bash`
+  opens a shell that holds the lock until it exits (it refuses at once if a tick holds it now); run
+  every step of the hand deploy in that shell and leave it only after the phone `/whoami` line. A
+  tick that finds the lock held does nothing.
+
+### The first deploy after this is merged is a hand deploy
+
+Merging the release service adds `crooks-assistant/deploy/release/*`, and `deploy/` is guarded, so
+until production has been deployed by hand past that merge, the service refuses every SHA with "the
+change touches how CLIVE is installed". That hand deploy's own check of `deploy/` (DEPLOY_LINUX.md)
+will also flag the new files: they are **harmless** to it, because `make install` renders only
+`deploy/systemd/crooks-assistant.service` and never reads `deploy/release/`. Any later change to
+`deploy/release/` is the same: a hand deploy, then the service carries on.
 
 ### Turning it off
 
@@ -228,9 +298,11 @@ The next tick (at most five minutes) deploys it if everything else holds.
 
 ### After a halt
 
-Look at production (`make status`, `scripts/healthcheck.py -v`, `git -C /opt/crooks-os rev-parse HEAD`),
-put it right by hand with the record's rollback lines (`/var/lib/clive-release/deploys/<sha8>/`), then
-`rm /var/lib/clive-release/HALT`. A SHA that rolled back is retried only after
+`cat /var/lib/clive-release/HALT` says why: a rollback that did not finish, or a deploy stopped part
+way (then there is no record, only `deploys/<sha8>/unit-before.service`). Look at production
+(`make status`, `scripts/healthcheck.py -v`, `git -C /opt/crooks-os rev-parse HEAD`), put it right by
+hand with the record's rollback lines, or the saved unit and the previous SHA the HALT names, then
+`rm /var/lib/clive-release/HALT`. A SHA that rolled back or halted is retried only after
 `rm /var/lib/clive-release/failed/<sha>.json`.
 
 ### Moving the pin
@@ -290,7 +362,7 @@ The waiver format and the service's verification are built and tested now
 | `/etc/crooks-os/release.env` | the switches on the server (George's) |
 | `/etc/crooks-os/release/` | the encrypted token and the root-only `waivers/` folder |
 | `/srv/clive-release/pin` | the pinned copy the unit runs |
-| `/var/lib/clive-release/` | its state: `status.json`, `deploy.lock`, `repo.git`, `deploys/<sha8>/`, `failed/`, `HALT` |
+| `/var/lib/clive-release/` | its state: `status.json`, `deploy.lock`, `repo.git`, `deploys/<sha8>/` (the saved unit, the record, the `started` marker while a deploy is under way), `failed/`, `HALT` |
 | `tests/test_release_service.py`, `tests/test_release_service_git.py` | every condition, failure point and rollback on a fake server; the git it runs, on real git |
 
 The unit runs as root (it runs `make install`, which writes the crooks-assistant unit and restarts

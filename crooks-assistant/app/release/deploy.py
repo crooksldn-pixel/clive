@@ -8,17 +8,23 @@ the same procedure, step by step, with the same checks, so the record it writes 
     checked before anything changes   production is still where the facts said, its checkout clean;
                                        the checkout and the unit's folder writable; `make doctor`;
                                        the tailnet self-check; /health well; the unit, .env's and the
-                                       drop-ins' fingerprints saved; the target's objects fetched
+                                       drop-ins' fingerprints saved; the live build, run with the live
+                                       unit's HOME and PATH, still renders the live unit byte for byte;
+                                       the target's objects fetched; the started marker written
     the change                         git checkout --detach <sha>; the new build's gap_clean_check;
+                                       the NEW build's unit rendered and byte-identical to the live one
+                                       (as the b33ccbc2 deploy checked by hand), before make install;
                                        make install, with the PATH and HOME the live unit was made with
     verified after                     /health well and no check that was ok before now not ok; the
                                        service active with no restart; .env and the drop-ins untouched;
-                                       the journal since the restart free of tracebacks and errors
+                                       the new process's journal free of tracebacks and errors; the
+                                       unit make install wrote byte-identical to the saved copy
 
 A failure before the change refuses with nothing changed. A failure at or after the checkout rolls
 back: the previous SHA checked out; when `make install` ran, the saved unit put back, systemd
 reloaded and `make install` run on the previous SHA; then /health read again. A rollback step that
-fails leaves the outcome "halted", and the service then does nothing until a person has looked.
+fails leaves the outcome "halted", and the service then does nothing until a person has looked. A
+deploy stopped part way (the process killed) leaves its started marker, and the next tick halts.
 
 Nothing from the journal, /health's details or the commands' own output is kept beyond counts, check
 names and the installer's own status lines: the record is pushed to a public repository.
@@ -137,7 +143,7 @@ def checks(doc: dict[str, Any] | None) -> dict[str, bool]:
 
 def _service(host) -> dict[str, str]:
     out = host.run("service_show", ["systemctl", "show", SERVICE, "-p", "ActiveState", "-p", "SubState",
-                                    "-p", "NRestarts", "-p", "MainPID"], timeout=30)
+                                    "-p", "NRestarts", "-p", "MainPID", "-p", "InvocationID"], timeout=30)
     pairs = (line.split("=", 1) for line in out.out.splitlines() if "=" in line)
     return {key.strip(): value.strip() for key, value in pairs} if out.ok else {}
 
@@ -211,16 +217,13 @@ def capture(host, settings: ReleaseSettings, facts: Facts, o: Outcome) -> bool:
     o.before.update(unit_sha256=_sha256(unit), unit_saved=str(saved), unit_env=_unit_env(unit),
                     env_sha256=_sha256(host.read(settings.assistant / ".env")), dropins=_dropins(host, settings),
                     service=_service(host))
-    # What `make install` would write, rendered here (scripts/install_systemd.py --print) with the HOME and
-    # PATH the live unit was made with, must be the live unit byte for byte, as the b33ccbc2 deploy checked
-    # by hand: otherwise this service's environment, or a credential provisioned since, would change the
-    # unit, and a person must look first.
-    render = host.run("render", [_python(settings), "scripts/install_systemd.py", "--print"], cwd=settings.assistant,
-                      env=o.before["unit_env"], timeout=120)
-    rendered = render.out[:-1] if render.out.endswith("\n") else render.out
-    same = render.ok and rendered.encode("utf-8") == unit
-    if not o.said("render", same, "the unit make install would write is the live unit, byte for byte" if same
-                  else ("the unit could not be rendered" if not render.ok else
+    # The LIVE build's installer (scripts/install_systemd.py --print), run with the HOME and PATH the live
+    # unit was made with, must still render the live unit byte for byte: otherwise this service's
+    # environment, or a credential provisioned since, would change the unit whatever the new build is, and
+    # a person must look first. The new build's own unit is rendered after the checkout (render_new).
+    same, rendered_ok = _renders_live_unit(host, settings, o, "render", unit)
+    if not o.said("render", same, "the live build still renders the live unit, byte for byte" if same
+                  else ("the unit could not be rendered" if not rendered_ok else
                         "the unit make install would write differs from the live one: a person must look first")):
         return False
     fetched = facts_module.git_checkout(host, settings, "fetch_into_checkout", "fetch", "--quiet", "--no-tags",
@@ -229,6 +232,23 @@ def capture(host, settings: ReleaseSettings, facts: Facts, o: Outcome) -> bool:
                                                        f"{facts.trunk}^{{commit}}").ok
     return o.said("fetch_into_checkout", present, f"{facts.trunk[:8]} is in production's checkout" if present
                   else f"{facts.trunk[:8]} could not be brought into production's checkout")
+
+
+def _renders_live_unit(host, settings: ReleaseSettings, o: Outcome, step: str, unit: bytes) -> tuple[bool, bool]:
+    """(the checkout's installer renders exactly `unit`, it rendered at all), with the live unit's HOME/PATH."""
+    render = host.run(step, [_python(settings), "scripts/install_systemd.py", "--print"], cwd=settings.assistant,
+                      env=o.before.get("unit_env") or {}, timeout=120)
+    rendered = render.out[:-1] if render.out.endswith("\n") else render.out
+    return render.ok and rendered.encode("utf-8") == unit, render.ok
+
+
+def begin(host, settings: ReleaseSettings, facts: Facts, o: Outcome) -> bool:
+    """The started marker, written and read back before the checkout: a deploy stopped from here on
+    (killed, rebooted, timed out) is found by the next tick and halts the service, instead of its
+    half-changed production being read as "up to date"."""
+    written = state.start(host, settings.state_dir, facts.trunk, previous=facts.live, at=o.started_at)
+    return o.said("started", written, "the started marker is written: an interruption from here on halts the service"
+                  if written else "the started marker could not be written, so an interruption could not be noticed")
 
 
 # ------------------------------------------------------------------ the change, and after
@@ -245,6 +265,15 @@ def change(host, settings: ReleaseSettings, facts: Facts, o: Outcome) -> str | N
                    timeout=300)
     if not o.said("gap_check", gap.ok, "gap_clean_check on the new build: nothing lost" if gap.ok
                   else f"gap_clean_check on the new build: exit {gap.code}, something would be lost"):
+        return "code"
+    # The unit the NEW build's installer would write, before it writes it (as the b33ccbc2 deploy checked
+    # by hand): code outside the guarded paths feeds it (config/settings.py's host and port, the secrets
+    # folder, the known keys behind the credentials block), so any difference is a person's to look at.
+    saved = host.read(Path(o.before.get("unit_saved") or "/nonexistent"))
+    same, rendered_ok = _renders_live_unit(host, settings, o, "render_new", saved) if saved else (False, False)
+    if not o.said("render_new", same, "the new build's unit, rendered before make install, is the live unit "
+                  "byte for byte" if same else ("the new build's unit could not be rendered" if not rendered_ok
+                  else "the new build would install a different unit from the live one: a person must look first")):
         return "code"
     o.install_started_at = _iso(host.now())
     installed = host.run("install", ["make", "install"], cwd=settings.assistant, env=o.before.get("unit_env") or {},
@@ -280,9 +309,7 @@ def verify(host, settings: ReleaseSettings, o: Outcome) -> str | None:
     if not o.said("switches_after", env_same and dropins_same, ".env and the drop-ins are as they were"
                   if env_same and dropins_same else f"{'.env' if not env_same else 'a drop-in'} changed during the deploy"):
         return "full"
-    since = int(datetime.fromisoformat(o.install_started_at.replace("Z", "+00:00")).timestamp())
-    journal = host.run("journal", ["journalctl", "-u", SERVICE, "--since", f"@{since}", "--no-pager", "-o", "cat"],
-                       timeout=60)
+    journal = host.run("journal", journal_argv(o, service), timeout=60)
     failures, refusals = scan_journal(journal.out)
     o.after.update(journal_lines=len(journal.out.splitlines()), journal_failures=failures, journal_refusals=refusals)
     clean = journal.ok and not failures
@@ -292,8 +319,30 @@ def verify(host, settings: ReleaseSettings, o: Outcome) -> str | None:
                    else "journal since the restart has " + ", ".join(f"{n} × {k}" for k, n in failures.items()))):
         return "full"
     unit = host.read(settings.unit_path)
-    o.after.update(unit_sha256=_sha256(unit), unit_identical=_sha256(unit) == o.before.get("unit_sha256"))
+    same = unit is not None and _sha256(unit) == o.before.get("unit_sha256")
+    o.after.update(unit_sha256=_sha256(unit), unit_identical=same)
+    if not o.said("unit_after", same, "byte-identical to the saved copy" if same else
+                  "the unit make install wrote differs from the saved copy (sha256 "
+                  f"{_sha256(unit)[:8] or 'none'}): a person must look first"):
+        return "full"
     return None
+
+
+_INVOCATION = re.compile(r"^[0-9a-f]{32}$")
+
+
+def journal_argv(o: Outcome, service: dict[str, str]) -> list[str]:
+    """The journal of the process `make install` started, not the old one's shutdown: entries since the
+    install began AND from the service's new invocation (its processes' lines, and systemd's own lines
+    about it). When the new invocation cannot be told from the old one, every line since the install
+    began is read, as before: stricter, never looser."""
+    since = int(datetime.fromisoformat(o.install_started_at.replace("Z", "+00:00")).timestamp())
+    argv = ["journalctl", "--since", f"@{since}", "--no-pager", "-o", "cat"]
+    new = service.get("InvocationID", "")
+    old = (o.before.get("service") or {}).get("InvocationID", "")
+    if _INVOCATION.fullmatch(new) and new != old:
+        return argv + [f"_SYSTEMD_INVOCATION_ID={new}", "+", f"INVOCATION_ID={new}"]
+    return argv + ["-u", SERVICE]
 
 
 def roll_back(host, settings: ReleaseSettings, facts: Facts, o: Outcome, kind: str) -> None:
@@ -333,7 +382,7 @@ def roll_back(host, settings: ReleaseSettings, facts: Facts, o: Outcome, kind: s
 def run(host, settings: ReleaseSettings, facts: Facts) -> Outcome:
     """One deploy of facts.trunk over facts.live: the whole procedure, and its outcome."""
     o = Outcome(sha=facts.trunk, previous=facts.live, started_at=_iso(host.now()))
-    if precheck(host, settings, facts, o):
+    if precheck(host, settings, facts, o) and begin(host, settings, facts, o):
         rollback = change(host, settings, facts, o)
         if rollback is None:
             o.result = "deployed"

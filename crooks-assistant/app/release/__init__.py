@@ -18,11 +18,12 @@ build it tonight, switched off. It only deploys once you've said who holds deplo
     __main__.py   python -m app.release tick | plan | status | waive
 
 What it promises:
-- Nothing happens unless CLIVE_RELEASE_ENABLED is on AND CLIVE_RELEASE_RULE names a rule.
+- Nothing happens unless CLIVE_RELEASE_ENABLED is on AND CLIVE_RELEASE_RULE names a rule, and
+  nothing changes on production unless CLIVE_RELEASE_DRY_RUN is false in so many words.
 - Only clive/trunk's head is deployed, only forward from what production runs, only with GitHub
   acceptance green on that exact SHA and the authorisation the rule asks for, one at a time.
 - Any failure after a change rolls production back to the SHA and unit it ran before. A rollback
-  that fails stops the service until a person looks.
+  that fails, or a deploy stopped part way, stops the service until a person looks.
 - It never prints, records or pushes a secret, a journal line or a customer detail, and it pushes
   only claude/deploy-<sha8>-record branches.
 - The model never reaches it: no tool, no route. CLIVE only reads its status.

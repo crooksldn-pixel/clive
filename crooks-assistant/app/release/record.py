@@ -7,8 +7,8 @@ the service makes leaves the same record: kept in its state folder, and pushed a
 of the deployed SHA to claude/deploy-<sha8>-record, ready to merge into the trunk like theirs.
 
 Its words are built here from the outcome's own fields: SHAs, the trunk's commit titles, check
-names, counts, the installer's status lines. Never a journal line, a /health detail or anything a
-customer wrote, because the repository is public. A deploy that did not hold is recorded as
+names, counts, the installer's status lines. Never a journal line, a /health detail, anything a
+customer wrote or George's free-text waiver words, because the repository is public. A deploy that did not hold is recorded as
 deploy-<sha8>-rolled-back.md (or -halted.md), a name scripts/map.py does not take for production.
 """
 
@@ -50,9 +50,10 @@ def _authority(settings: ReleaseSettings, facts: Facts) -> list[str]:
         lines.append(f"- **Exact-SHA review:** SHIP by {auth.by}, {auth.at}, from {auth.source}; measured against "
                      f"`{base[:8]}`. {auth.detail.get('summary') or ''}".rstrip())
     elif auth is not None and auth.ok:
-        words = auth.detail.get("words")
+        # Never his free-text words: they could carry a customer's name, and this record is pushed to a
+        # public repository. They stay in the waiver file on the server.
         lines.append(f"- **The owner's waiver** of the exact-SHA review, for exactly this SHA: {auth.reason}, "
-                     f"{auth.at}." + (f' His words: "{words}".' if words else ""))
+                     f"{auth.at}.")
     if gate is not None:
         runs = ", ".join(f"`{run.id}`" for run in gate.runs)
         lines.append(f"- **Acceptance on the exact SHA:** {gate.state.value}, run(s) {runs or 'none'}: {gate.detail}.")
@@ -115,9 +116,6 @@ def render(settings: ReleaseSettings, facts: Facts, outcome: Outcome, host_name:
         rows = list(after)
         if outcome.result == "deployed":
             rows.append(("Switches", "untouched — no `.env` line and no credential was written by this deploy"))
-            rows.append(("Main unit", "byte-identical to the saved copy" if outcome.after.get("unit_identical")
-                         else "re-rendered and different from the saved copy (sha256 "
-                              f"`{str(outcome.after.get('unit_sha256') or '')[:8]}…`)"))
             refusals = outcome.after.get("journal_refusals") or 0
             if refusals:
                 rows.append(("Refusals in the journal", f"{refusals} (the door refusing a caller; not a failure)"))
@@ -141,15 +139,18 @@ def render(settings: ReleaseSettings, facts: Facts, outcome: Outcome, host_name:
     return "\n".join(lines)
 
 
-_CHANGE = {"checkout", "gap_check", "install"}
-_AFTER = {"health_after", "service_after", "switches_after", "journal"}
+_CHANGE = {"checkout", "gap_check", "render_new", "install"}
+_AFTER = {"health_after", "service_after", "switches_after", "journal", "unit_after"}
 _LABELS = {
     "precheck_head": "Live SHA read from git", "precheck_tree": "Working tree", "writable": "Writable",
     "doctor": "`make doctor`", "tailnet": "`tailnet_self_check()`", "health_before": "Baseline `/health`",
-    "capture_unit": "Live unit read", "capture_saved": "Live unit saved", "render": "Re-rendered unit", "fetch_into_checkout": "Target fetched",
-    "checkout": "`git checkout --detach`", "gap_check": "`scripts/gap_clean_check.py`", "install": "`make install`",
+    "capture_unit": "Live unit read", "capture_saved": "Live unit saved", "render": "Live build re-renders the unit",
+    "fetch_into_checkout": "Target fetched", "started": "Started marker",
+    "checkout": "`git checkout --detach`", "gap_check": "`scripts/gap_clean_check.py`",
+    "render_new": "New build's unit, before `make install`", "install": "`make install`",
     "health_after": "`/health`", "service_after": "Service state", "switches_after": "`.env` and drop-ins",
-    "journal": "Journal since restart", "rollback_checkout": "Code", "rollback_unit": "Unit",
+    "journal": "Journal since restart", "unit_after": "Main unit",
+    "rollback_checkout": "Code", "rollback_unit": "Unit",
     "rollback_reload": "systemd", "rollback_install": "`make install` on the previous SHA",
     "rollback_health": "`/health`",
 }
@@ -174,13 +175,14 @@ def publish(host, settings: ReleaseSettings, token: github.Token, outcome: Outco
     path = f"crooks-assistant/reports/{file_name(outcome)}"
     blob = facts_module.git_cache(host, settings, "record_blob", "hash-object", "-w", "--stdin", input=text)
     listed = facts_module.git_cache(host, settings, "record_listed", "ls-remote", url, f"refs/heads/{branch}",
-                                    token=token)
+                                    token=token, timeout=facts_module.NETWORK_S)
     if not blob.ok or not listed.ok:
         return False, "the record could not be prepared for GitHub"
     parent = outcome.sha
     if listed.out.strip():
         fetched = facts_module.git_cache(host, settings, "record_fetch", "fetch", "--quiet", "--no-tags", url,
-                                         f"+refs/heads/{branch}:refs/clive-release/record", token=token)
+                                         f"+refs/heads/{branch}:refs/clive-release/record", token=token,
+                                         timeout=facts_module.NETWORK_S)
         head = facts_module.git_cache(host, settings, "record_head", "rev-parse", "--verify",
                                       "refs/clive-release/record^{commit}")
         if not fetched.ok or not head.ok:
@@ -205,5 +207,6 @@ def publish(host, settings: ReleaseSettings, token: github.Token, outcome: Outco
         refspec = github.record_refspec(commit.out.strip(), branch)
     except ValueError as exc:
         return False, str(exc)
-    pushed = facts_module.git_cache(host, settings, "record_push", "push", "--quiet", url, refspec, token=token)
+    pushed = facts_module.git_cache(host, settings, "record_push", "push", "--quiet", url, refspec, token=token,
+                                    timeout=facts_module.NETWORK_S)
     return (True, f"pushed to {branch}") if pushed.ok else (False, f"the push to {branch} was refused (exit {pushed.code})")

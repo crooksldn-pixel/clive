@@ -30,8 +30,12 @@ MAX_COMMITS = 40
 # the two scripts that render and install the unit) and what it needs installed (its dependencies;
 # `make install` installs no package). The hand deploys' records check deploy/, the unit, .env and the
 # Makefile before each deploy; the installer's own code and the dependencies are added here because a
-# program cannot ask, as a person can, whether a change to them is harmless.
+# program cannot ask, as a person can, whether a change to them is harmless. And how CLIVE is checked:
+# .github/ holds the acceptance workflow, so a commit that changed it would be passed by its own
+# changed workflow and count as "green on the exact SHA".
+CHECKS = ".github/"
 GUARDED = (
+    CHECKS,
     "crooks-assistant/deploy/",
     "crooks-assistant/Makefile",
     "crooks-assistant/scripts/install_systemd.py",
@@ -68,16 +72,29 @@ class Facts:
     def guarded(self) -> list[str]:
         return [path for path in self.changed if guarded(path)]
 
+    @property
+    def checks_changed(self) -> list[str]:
+        """The guarded paths that are how CLIVE is checked (.github/), not how it is installed."""
+        return [path for path in self.guarded if path.startswith(CHECKS)]
+
 
 def cache(settings: ReleaseSettings) -> Path:
     return settings.state_dir / "repo.git"
 
 
+# Each command's own time limit: git on the service's own copy is local and quick; asking GitHub is not;
+# the first fetch of the trunk brings its whole history. clive-release.service's TimeoutStartSec sits above
+# the sum of every limit a tick can meet, so systemd never stops a deploy its own steps would still allow.
+LOCAL_S = 120
+NETWORK_S = 300
+FIRST_FETCH_S = 900
+
+
 def git_cache(host, settings: ReleaseSettings, step: str, *args: str, token: github.Token | None = None,
-              env: dict[str, str] | None = None, input: str | None = None):
+              env: dict[str, str] | None = None, input: str | None = None, timeout: float = LOCAL_S):
     argv = ["git", *(token.git_config() if token is not None else []), "--git-dir", str(cache(settings)), *args]
     return host.run(step, argv, env={**(token.env() if token is not None else {}), **(env or {})}, input=input,
-                    timeout=900)
+                    timeout=timeout)
 
 
 def git_checkout(host, settings: ReleaseSettings, step: str, *args: str):
@@ -97,12 +114,13 @@ def _title(host, settings, step: str, sha: str) -> str:
 def refresh_trunk(host, settings: ReleaseSettings, token: github.Token, facts: Facts) -> None:
     """The service's own copy of clive/trunk, fetched from GitHub; its head into `facts.trunk`."""
     if host.read(cache(settings) / "HEAD") is None:
-        made = host.run("cache_init", ["git", "init", "--quiet", "--bare", str(cache(settings))])
+        made = host.run("cache_init", ["git", "init", "--quiet", "--bare", str(cache(settings))], timeout=LOCAL_S)
         if not made.ok:
             facts.problems.append("the release service's copy of the repository could not be made")
             return
     fetched = git_cache(host, settings, "fetch_trunk", "fetch", "--quiet", "--no-tags",
-                        github.git_url(settings.repository), f"+refs/heads/{TRUNK}:refs/heads/{TRUNK}", token=token)
+                        github.git_url(settings.repository), f"+refs/heads/{TRUNK}:refs/heads/{TRUNK}", token=token,
+                        timeout=FIRST_FETCH_S)
     if not fetched.ok:
         facts.problems.append(f"{TRUNK} could not be fetched from GitHub")
         return
@@ -140,7 +158,8 @@ def read_change(host, settings: ReleaseSettings, facts: Facts) -> None:
     facts.forward = ancestry.code == 0
     if not facts.forward:
         return
-    diff = git_cache(host, settings, "diff", "diff", "--name-only", facts.live, facts.trunk)
+    # --no-renames: a file moved out of a guarded path is listed under its old name too, so it is seen.
+    diff = git_cache(host, settings, "diff", "diff", "--name-only", "--no-renames", facts.live, facts.trunk)
     if not diff.ok:
         facts.problems.append("what the change touches could not be listed")
         return
@@ -162,7 +181,7 @@ def read_review(host, settings: ReleaseSettings, token: github.Token, facts: Fac
     """The reviewer's record for exactly the trunk's head, from its branch on GitHub."""
     branch = github.review_branch(facts.trunk)
     listed = git_cache(host, settings, "review_listed", "ls-remote", github.git_url(settings.repository),
-                       f"refs/heads/{branch}", token=token)
+                       f"refs/heads/{branch}", token=token, timeout=NETWORK_S)
     if not listed.ok:
         facts.problems.append("whether a review record exists could not be asked of GitHub")
         return Authority(False, "the review record could not be looked for")
@@ -170,7 +189,7 @@ def read_review(host, settings: ReleaseSettings, token: github.Token, facts: Fac
         return Authority(False, f"no review record for this SHA (no branch {branch})")
     fetched = git_cache(host, settings, "review_fetch", "fetch", "--quiet", "--no-tags",
                         github.git_url(settings.repository), f"+refs/heads/{branch}:refs/clive-release/review",
-                        token=token)
+                        token=token, timeout=NETWORK_S)
     if not fetched.ok:
         facts.problems.append("the review record's branch could not be fetched")
         return Authority(False, "the review record could not be read")

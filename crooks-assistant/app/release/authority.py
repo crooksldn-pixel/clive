@@ -156,8 +156,9 @@ def _waiver_basics(record: dict[str, Any] | None, sha: str, repository: str, sou
 
 def _granted(record: dict[str, Any], source: str, how: str) -> Authority:
     by = _line(record.get("given_by"), 80)
+    # His free-text "words" are not carried: nothing downstream may put them in the public record.
     return Authority(True, f"waived by {by} ({how})", kind="waiver", by=by, at=_when(record.get("given_at")),
-                     source=source, detail={"words": _line(record.get("words"), 200)})
+                     source=source)
 
 
 def _root_only(host, path: Path, kind: int) -> bool:

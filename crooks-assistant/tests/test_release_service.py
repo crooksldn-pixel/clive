@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -20,8 +21,10 @@ from pathlib import Path
 import pytest
 
 from app.connections import passkeys
+from app.orchestrator import github_acceptance
 from app.orchestrator.github_acceptance import GateResult, GateState, RunFact
 from app.release import authority, decide, github, service, state, status
+from app.release import settings as settings_module
 from app.release.facts import Facts
 from app.release.host import Result, SystemHost
 from app.release.settings import ReleaseSettings
@@ -37,7 +40,7 @@ MUTATING = {"checkout", "gap_check", "install", "rollback_checkout", "rollback_r
 DEPLOY_STEPS = ["cache_init", "fetch_trunk", "trunk_head", "live_head", "live_status", "live_known", "ancestry",
                 "diff", "commits", "trunk_title", "live_title",
                 "precheck_head", "precheck_tree", "doctor", "tailnet", "health_before", "service_show", "render",
-                "fetch_into_checkout", "target_present", "checkout", "checkout_head", "gap_check", "install",
+                "fetch_into_checkout", "target_present", "checkout", "checkout_head", "gap_check", "render_new", "install",
                 "health_after", "service_show", "journal",
                 "record_blob", "record_listed", "record_tree_read", "record_tree_add", "record_tree",
                 "record_commit", "record_push"]
@@ -70,6 +73,10 @@ class World:
         self.echo_token = False
         self.on_step: dict[str, callable] = {}
         self.rendered: str | None = None
+        self.rendered_new: str | None = None         # the new build's unit, after the checkout
+        self.journal_old = ""                        # the old process's lines, from before the restart
+        self.same_invocation = False                 # make install did not start a new invocation
+        self.record_exists = False                   # a record branch is already on GitHub
 
     def answer(self, step: str, argv: list[str], env: dict, host) -> Result:
         if step in self.on_step:
@@ -88,12 +95,16 @@ class World:
             "trunk_title": self.titles.get(argv[-1], ""), "live_title": self.titles.get(argv[-1], ""),
             "review_listed": f"{OTHER}\trefs/heads/{github.review_branch(self.trunk)}\n" if self.review else "",
             "review_read": json.dumps(self.review) if self.review else "",
-            "service_show": self.service, "journal": self.journal,
+            "service_show": self.service + self.invocation(),
+            "journal": self.journal if any(a.startswith("_SYSTEMD_INVOCATION_ID=") for a in argv)
+            else self.journal_old + self.journal,
             "install": "  ok     unit → /etc/systemd/system/crooks-assistant.service\n  health all good · Claude\n"
                        "random chatter that is not kept\n",
-            "record_blob": "b" * 40, "record_listed": "", "record_tree": "c" * 40, "record_commit": "d" * 40,
+            "record_blob": "b" * 40, "record_tree": "c" * 40, "record_commit": "d" * 40,
+            "record_listed": f"{'e' * 40}\trefs/heads/{github.record_branch(self.trunk)}\n" if self.record_exists else "",
             "record_head": "e" * 40,
             "render": (self.rendered if self.rendered is not None else UNIT.decode()) + "\n",
+            "render_new": (self.rendered_new if self.rendered_new is not None else UNIT.decode()) + "\n",
         }.get(step, "")
         if step in self.health:
             out = json.dumps(self.health[step]) if self.health[step] is not None else ""
@@ -111,16 +122,23 @@ class World:
             out += f"  ok     remote said {TOKEN}\n"
         return Result(0, out, f"remote said {TOKEN}" if self.echo_token else "")
 
+    def invocation(self) -> str:
+        """systemd's InvocationID: a new one once make install has restarted the service on the new build."""
+        new = self.head != LIVE and not self.same_invocation
+        return f"InvocationID={('f' if new else '0') * 32}\n"
+
 
 class FakeHost(SystemHost):
     def __init__(self, world: World) -> None:
         self.world = world
         self.calls: list[tuple[str, list[str], dict, str | None]] = []
+        self.timeouts: list[float] = []
         self.slept: list[float] = []
         self.clock = datetime(2026, 10, 8, 1, 0, 0, tzinfo=UTC)
 
     def run(self, step, argv, *, cwd=None, env=None, input=None, timeout=600.0):
         self.calls.append((step, list(argv), dict(env or {}), input))
+        self.timeouts.append(timeout)
         return self.world.answer(step, list(argv), dict(env or {}), self)
 
     def writable(self, path):
@@ -165,7 +183,7 @@ class Gate:
 
 @pytest.fixture
 def server(tmp_path):
-    settings = ReleaseSettings(enabled=True, rule="owner_waiver", checkout=tmp_path / "opt",
+    settings = ReleaseSettings(enabled=True, rule="owner_waiver", dry_run=False, checkout=tmp_path / "opt",
                                state_dir=tmp_path / "state", unit_path=tmp_path / "etc" / "crooks-assistant.service",
                                waivers_dir=tmp_path / "waivers", passkey_waivers_dir=tmp_path / "pkw",
                                passkeys_file=tmp_path / "secrets" / "passkeys.json", settle_s=0)
@@ -265,7 +283,8 @@ def test_green_and_authorised_deploys_by_the_procedure_and_records_it(server):
                     "## The authority for this deploy"):
         assert heading in kept
     assert "**Deployed:** 2026-10-08, install" in kept and "| Switches | untouched" in kept
-    assert "waived by George (given on the server)" in kept and "His words: \"waive\"" in kept
+    assert "waived by George (given on the server)" in kept and "His words" not in kept
+    assert not (settings.state_dir / "deploys" / "11111111" / "started").exists(), "the outcome is on disk"
     assert "random chatter" not in kept, "only the installer's own status lines are kept"
     assert "ab12cd34" not in kept and "crooks.runtime ready" not in kept, "no journal line reaches the record"
     blob = next(call for call in host.calls if call[0] == "record_blob")
@@ -321,6 +340,9 @@ def _set(world, settings, what):
     if what == "dependencies changed":
         world.changed.append("crooks-assistant/pyproject.toml")
         return None, "crooks-assistant/pyproject.toml"
+    if what == "the change touches the acceptance workflow":
+        world.changed.append(".github/workflows/acceptance.yml")
+        return None, "the change touches how CLIVE is checked (.github/workflows/acceptance.yml)"
     if what == "the trunk cannot be fetched":
         world.fail.add("fetch_trunk")
         return None, "clive/trunk could not be fetched from GitHub"
@@ -333,6 +355,7 @@ def _set(world, settings, what):
     "acceptance pending", "acceptance red", "acceptance missing", "no waiver", "waiver for another commit",
     "waiver for another repository", "dirty checkout", "not forward", "production not on the trunk",
     "the change touches the installer", "dependencies changed", "the trunk cannot be fetched", "not pinned",
+    "the change touches the acceptance workflow",
 ])
 def test_each_missing_condition_is_no_deploy_with_its_reason(server, what):
     settings, world, host = server
@@ -421,8 +444,9 @@ def test_a_passkey_waiver_for_exactly_this_sha_deploys(server, tmp_path):
     _passkey_waiver(settings, device)
     code, printed = _tick(settings, host)
     assert code == 0 and _status(settings)["state"] == "deployed", printed
-    assert "waived by George (with his passkey)" in (settings.state_dir / "deploys" / "11111111" /
-                                                      "deploy-11111111.md").read_text()
+    kept = (settings.state_dir / "deploys" / "11111111" / "deploy-11111111.md").read_text()
+    assert "waived by George (with his passkey)" in kept
+    assert "deploy the latest" not in kept, "his words stay in the waiver"
 
 
 @pytest.mark.parametrize("how,said", [
@@ -705,3 +729,195 @@ def test_a_command_it_runs_inherits_neither_its_pin_nor_its_credentials(monkeypa
     assert "PYTHONPATH" not in env and "CREDENTIALS_DIRECTORY" not in env and "CLIVE_RELEASE_ENABLED" not in env
     assert env["HOME"] == "/root" and env[github.TOKEN_ENV] == TOKEN, "only what the step is given"
     assert env["GIT_TERMINAL_PROMPT"] == "0"
+
+
+# ------------------------------------------------------------------ the review's notes (night of 7–8 Oct)
+
+
+def test_a_deploy_stopped_part_way_halts_instead_of_reading_as_up_to_date(server):
+    """Note 1: killed after the checkout (systemd's time limit, a reboot, systemctl stop), production is on
+    the new SHA with nothing verified; the next tick must halt, not say "production runs the trunk's latest"."""
+    settings, world, host = server
+    _waive(settings)
+
+    def killed():
+        raise SystemExit("the service was stopped")
+
+    world.on_step["gap_check"] = killed
+    with pytest.raises(SystemExit):
+        _tick(settings, host)
+    marker = settings.state_dir / "deploys" / "11111111" / "started"
+    assert world.head == TRUNK and json.loads(marker.read_text())["sha"] == TRUNK
+    world.on_step.clear()
+    printed: list[str] = []
+    service.plan(host, settings, token=github.Token(""), gate=Gate(), pinned=True, out=printed.append)
+    assert "WOULD NOT DEPLOY" in "\n".join(printed) and "stopped part way" in "\n".join(printed)
+    host.calls.clear()
+    code, printed = _tick(settings, host)
+    assert code == 1 and host.calls == [], "nothing read, nothing changed"
+    now = _status(settings)
+    assert now["state"] == "halted" and "stopped part way" in now["line"] and "11111111" in now["line"], now
+    assert json.loads((settings.state_dir / "HALT").read_text())["sha"] == TRUNK
+    assert not marker.exists(), "HALT now says it"
+    # A person puts production back and removes HALT: that SHA is not tried again on its own.
+    world.head = LIVE
+    (settings.state_dir / "HALT").unlink()
+    host.calls.clear()
+    _tick(settings, host)
+    assert _changed_anything(host) == [] and "is not tried again on its own" in _status(settings)["line"]
+
+
+def test_the_started_marker_is_written_before_the_checkout(server):
+    settings, world, host = server
+    _waive(settings)
+    marker = settings.state_dir / "deploys" / "11111111" / "started"
+    seen: list[bool] = []
+    world.on_step["checkout"] = lambda: seen.append(marker.exists())
+    _tick(settings, host)
+    assert seen == [True] and not marker.exists()
+
+
+def test_systemd_never_stops_a_tick_its_own_step_limits_would_still_allow(server):
+    """Note 1: TimeoutStartSec above the sum of every limit the longest tick meets: exact_sha_review, a
+    record branch already there, a deploy that goes all the way to the journal and rolls back in full."""
+    settings, world, host = server
+    settings.rule = "exact_sha_review"
+    settings.settle_s = ReleaseSettings.model_fields["settle_s"].default
+    world.review = {"schema": authority.REVIEW_SCHEMA, "sha": TRUNK, "base_sha": OTHER, "verdict": "SHIP",
+                    "blocking": [], "reviewer": "review session", "reviewed_at": "2026-10-08T00:10:00Z"}
+    world.record_exists = True
+    world.fail.add("journal")
+    code, _ = _tick(settings, host, token=TOKEN)
+    assert code == 1 and _status(settings)["state"] == "rolled_back"
+    assert {"review_base", "record_fetch", "rollback_install"} <= set(host.steps)
+    # GitHub's acceptance: one ask for the runs and one per run, each bounded by the gate's own limit on
+    # connect, write, read and pool alike; allowed here for nine runs on one SHA.
+    acceptance = 10 * 4 * github_acceptance.TIMEOUT_S
+    budget = sum(host.timeouts) + settings.settle_s + acceptance
+    unit = (Path(__file__).resolve().parents[1] / "deploy" / "release" / "clive-release.service").read_text()
+    limit = re.search(r"^TimeoutStartSec=(\d+)(h|min|s)?$", unit, re.M)
+    assert limit, "a finite limit"
+    seconds = int(limit[1]) * {"h": 3600, "min": 60, "s": 1, None: 1}[limit[2]]
+    assert seconds > budget, (seconds, budget)
+
+
+def test_a_sha_that_halted_is_not_tried_again_once_halt_is_removed(server):
+    """Note 2."""
+    settings, world, host = server
+    _waive(settings)
+    world.fail |= {"install", "rollback_install"}
+    _tick(settings, host)
+    assert _status(settings)["state"] == "halted"
+    assert json.loads((settings.state_dir / "failed" / f"{TRUNK}.json").read_text())["reason"]
+    (settings.state_dir / "HALT").unlink()
+    world.fail.clear()
+    host.calls.clear()
+    _tick(settings, host)
+    assert _changed_anything(host) == [] and "is not tried again on its own" in _status(settings)["line"]
+
+
+def test_a_halt_written_after_the_ticks_first_look_still_stops_it(server):
+    """Note 3: HALT is read again once the lock is held, just before anything could change."""
+    settings, world, host = server
+    _waive(settings)
+    world.on_step["fetch_trunk"] = lambda: (settings.state_dir / "HALT").write_text('{"reason": "a person stopped it"}')
+    code, _ = _tick(settings, host)
+    assert code == 1 and _changed_anything(host) == [] and "precheck_head" not in host.steps
+    now = _status(settings)
+    assert now["state"] == "halted" and "a person stopped it" in now["line"] and world.head == LIVE
+
+
+def test_the_new_builds_unit_is_rendered_before_make_install_and_a_difference_rolls_back(server):
+    """Note 4: the unit rendered is the NEW build's (after the checkout), before make install writes it."""
+    settings, world, host = server
+    _waive(settings)
+    world.rendered_new = UNIT.decode() + "LoadCredentialEncrypted=new_key:/etc/crooks-os/credentials/new_key.cred\n"
+    code, _ = _tick(settings, host, token=TOKEN)
+    assert code == 1 and "install" not in host.steps and world.head == LIVE
+    assert host.steps.index("checkout") < host.steps.index("gap_check") < host.steps.index("render_new")
+    assert [step for step in host.steps if step.startswith("rollback_")] == CODE_ONLY
+    render = next(call for call in host.calls if call[0] == "render_new")
+    assert render[1][1:] == ["scripts/install_systemd.py", "--print"] and render[2]["HOME"] == "/root"
+    now = _status(settings)
+    assert now["state"] == "rolled_back" and "would install a different unit from the live one" in now["line"]
+    assert (settings.state_dir / "failed" / f"{TRUNK}.json").exists()
+
+
+def test_a_unit_make_install_wrote_differently_rolls_back(server):
+    """Note 4: and after make install, the unit read back; any difference from the saved copy rolls back."""
+    settings, world, host = server
+    _waive(settings)
+    world.on_step["install"] = lambda: settings.unit_path.write_bytes(UNIT + b"Environment=EXTRA=1\n")
+    code, _ = _tick(settings, host)
+    assert code == 1 and [step for step in host.steps if step.startswith("rollback_")] == FULL
+    assert settings.unit_path.read_bytes() == UNIT, "the saved unit was put back"
+    assert "differs from the saved copy" in _status(settings)["line"]
+
+
+def test_dry_run_is_on_unless_switched_off_in_so_many_words(tmp_path, monkeypatch):
+    """Note 5: a release.env that lost its CLIVE_RELEASE_DRY_RUN line stays a dry run."""
+    for name in ("CLIVE_RELEASE_ENABLED", "CLIVE_RELEASE_RULE", "CLIVE_RELEASE_DRY_RUN"):
+        monkeypatch.delenv(name, raising=False)
+    assert ReleaseSettings.model_fields["dry_run"].default is True
+    env = tmp_path / "release.env"
+    env.write_text("CLIVE_RELEASE_ENABLED=true\nCLIVE_RELEASE_RULE=owner_waiver\n")
+    loaded = settings_module.load(env)
+    assert loaded.enabled and loaded.rule_named() == "owner_waiver" and loaded.dry_run is True
+    env.write_text(env.read_text() + "CLIVE_RELEASE_DRY_RUN=false\n")
+    assert settings_module.load(env).dry_run is False
+
+
+def test_decide_deploys_only_when_each_condition_is_known_to_hold():
+    """Note 6: no recorded problem is not enough; forward, acceptance and authority must each be true."""
+    settings = ReleaseSettings(enabled=True, rule="owner_waiver")
+    green = Gate().check("r", TRUNK)
+    granted = authority.Authority(True, "waived by George (given on the server)", kind="waiver")
+    assert decide.decide(settings, Facts(trunk=TRUNK, live=LIVE, forward=True, acceptance=green,
+                                         authority=granted)).deploy
+    for facts, said in (
+        (Facts(trunk=TRUNK, live=LIVE, forward=None), "not known that production is behind"),
+        (Facts(trunk=TRUNK, live=LIVE, forward=None, acceptance=green, authority=granted),
+         "not known that production is behind"),
+        (Facts(trunk=TRUNK, live="", forward=True, acceptance=green, authority=granted),
+         "the SHA production runs is not known"),
+        (Facts(trunk="", live=LIVE, forward=True, acceptance=green, authority=granted), "head is not known"),
+    ):
+        decision = decide.decide(settings, facts)
+        assert not decision.deploy and decision.state == "waiting", facts
+        assert any(said in reason for reason in decision.reasons), (said, decision.reasons)
+
+
+def test_georges_own_words_never_reach_the_record(server):
+    """Note 12: the record is pushed to a public repository; his free-text words stay in the waiver."""
+    settings, _world, host = server
+    _waive(settings, words="ship it, Jane Doe can wait for her refund")
+    code, _ = _tick(settings, host, token=TOKEN)
+    assert code == 0
+    kept = (settings.state_dir / "deploys" / "11111111" / "deploy-11111111.md").read_text()
+    pushed = next(call for call in host.calls if call[0] == "record_blob")[3]
+    for text in (kept, pushed):
+        assert "Jane Doe" not in text and "refund" not in text
+    assert "waived by George (given on the server)" in kept
+
+
+def test_the_journal_read_is_the_new_processs_not_the_old_ones_shutdown(server):
+    """Note 14: an ERROR the old process logged while stopping does not roll back a good deploy."""
+    settings, world, host = server
+    _waive(settings)
+    world.journal_old = "12:00:00 ERROR crooks.runtime stopping: a report withheld\n"
+    code, printed = _tick(settings, host)
+    assert code == 0 and _status(settings)["state"] == "deployed", printed
+    journal = next(call for call in host.calls if call[0] == "journal")[1]
+    assert journal[journal.index("--since") + 1].startswith("@")
+    assert journal[-3:] == [f"_SYSTEMD_INVOCATION_ID={'f' * 32}", "+", f"INVOCATION_ID={'f' * 32}"]
+
+
+def test_when_the_new_process_cannot_be_told_apart_the_whole_journal_since_the_install_is_read(server):
+    settings, world, host = server
+    _waive(settings)
+    world.journal_old = "12:00:00 ERROR crooks.runtime stopping\n"
+    world.same_invocation = True
+    code, _ = _tick(settings, host)
+    assert code == 1 and _status(settings)["state"] == "rolled_back", "stricter, never looser"
+    journal = next(call for call in host.calls if call[0] == "journal")[1]
+    assert journal[-2:] == ["-u", "crooks-assistant.service"]
