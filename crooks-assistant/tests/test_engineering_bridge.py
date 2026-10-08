@@ -844,3 +844,108 @@ async def test_nothing_secret_or_customer_shaped_reaches_what_clive_says_about_a
     assert "[email]" in rows["leaky-blocked"]["words"] and "[phone]" in rows["leaky-refused"]["words"]
     for leaked in (TOKEN, key, url, BUILD_EMAIL, BUILD_PHONE, "mia.kowalski", "900123"):
         assert leaked not in text, leaked
+
+
+# ------------------------------------------------------------------ the build server's private record (7 Oct)
+
+from app.engineering_bridge import private as private_reader  # noqa: E402
+
+PRIVATE_URL = "http://100.101.102.103:8765"
+
+
+@pytest.mark.parametrize("value, ok", [
+    (PRIVATE_URL, True), ("http://[fd7a:115c:a1e0::5]:8765", True), ("http://127.0.0.1:8765/", True),
+    ("off", False), ("", False), (None, False), ("https://100.101.102.103:8765", False),
+    ("http://8.8.8.8:8765", False), ("http://192.168.1.4:8765", False), ("http://worker-01:8765", False),
+    ("http://user@100.101.102.103:8765", False), ("http://100.101.102.103:8765/v1/stops", False),
+    ("http://100.101.102.103", False), ("http://100.101.102.103:0", False),
+])
+def test_the_private_channel_is_read_only_from_a_tailnet_or_loopback_http_address(value, ok):
+    assert (private_reader.parse_url(value) is not None) is ok
+
+
+@pytest.fixture()
+def private_on(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(private_reader.time, "monotonic", lambda: now[0])
+    private_reader.configure(PRIVATE_URL)
+    yield now
+    private_reader.configure("off")
+
+
+def _private_answer(asked: list, answers: list):
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append((request.method, str(request.url), dict(request.headers)))
+        return answers.pop(0) if len(answers) > 1 else answers[0]
+    return httpx.MockTransport(handler)
+
+
+async def test_the_private_record_is_read_once_a_minute_and_a_failed_read_keeps_the_last(private_on):
+    document = {"schema_version": private_reader.SCHEMA, "stops": [
+        {"request_id": "r-one", "blocker": "MARKER"}, {"request_id": "../bad id", "blocker": "x"}, "junk"]}
+    asked: list = []
+    transport = _private_answer(asked, [httpx.Response(200, json=document), httpx.Response(503, text="MARKER-BODY"),
+                                        httpx.Response(200, json={"schema_version": "other", "stops": []})])
+    stops, problem = await private_reader.stops(transport=transport)
+    assert problem == "" and list(stops) == ["r-one"] and stops["r-one"]["blocker"] == "MARKER"
+    assert asked[0][:2] == ("GET", f"{PRIVATE_URL}/v1/stops") and "authorization" not in asked[0][2]
+    assert await private_reader.stops(transport=transport) == (stops, "") and len(asked) == 1   # within the minute
+    private_on[0] += 61
+    kept, problem = await private_reader.stops(transport=transport)
+    assert kept == stops and problem == private_reader.UNREADABLE and "MARKER-BODY" not in problem
+    private_on[0] += 61
+    kept, problem = await private_reader.stops(transport=transport)
+    assert kept == stops and problem == private_reader.NOT_ITS_SCHEMA
+
+
+async def test_off_nothing_is_asked_and_an_answer_too_large_is_refused(private_on):
+    asked: list = []
+    private_reader.configure("off")
+    assert await private_reader.stops(transport=_private_answer(asked, [httpx.Response(200)])) == (None, "")
+    assert asked == [] and not private_reader.configured()
+    private_reader.configure(PRIVATE_URL)
+    big = httpx.Response(200, content=b'{"schema_version": "' + b"x" * (private_reader.MAX_BYTES + 10) + b'"}')
+    assert await private_reader.stops(transport=_private_answer(asked, [big])) == (None, private_reader.NOT_ITS_SCHEMA)
+    private_on[0] += 61
+    moved = httpx.Response(302, headers={"location": "http://8.8.8.8/v1/stops"})
+    assert await private_reader.stops(transport=_private_answer(asked, [moved])) == (None, private_reader.UNREADABLE)
+    assert [a[1] for a in asked] == [f"{PRIVATE_URL}/v1/stops"] * 2          # never followed the redirect
+
+
+def test_a_refused_address_is_never_echoed(caplog):
+    from tests.fake_credentials import credential_url, password
+
+    secret = password("private-url")
+    with caplog.at_level(logging.WARNING, logger="crooks.engineering"):
+        private_reader.configure(credential_url(secret, scheme="http", host="8.8.8.8:80", path=""))
+    assert not private_reader.configured() and secret not in caplog.text and "8.8.8.8" not in caplog.text
+    assert "stay off" in caplog.text
+    private_reader.configure("off")
+
+
+def test_a_request_that_names_no_repair_rounds_leaves_them_to_the_build_servers_default():
+    """The owner's loop upgrade of 7 Oct, item 2: CLIVE's filer no longer pins 2 rounds on every build, so the
+    host's default (``--default-repair-rounds``, which he can raise) applies; a number asked for is kept."""
+    request = build_request(**{k: v for k, v in fields().items() if k != "max_repair_rounds"})
+    assert "max_repair_rounds" not in json.loads(request.content)
+    assert parse_request(request.content).max_repair_rounds is None
+    asked = build_request(**fields(max_repair_rounds=4))
+    assert json.loads(asked.content)["max_repair_rounds"] == 4 and parse_request(asked.content).max_repair_rounds == 4
+    for bad in (6, -1, True, "3"):
+        with pytest.raises(RequestRefused, match="max_repair_rounds"):
+            build_request(**fields(max_repair_rounds=bad))
+
+
+@pytest.mark.usefixtures("owner_asking")
+async def test_a_build_filed_without_a_number_of_rounds_says_the_build_server_decides(fake, bound, engine, clock):
+    session = Session(session_id="eng-rounds")
+    await dispatch(STATUS_TOOL, {}, session=session, timeout_s=5)
+    args = {"inbox_id": HEAD, **{k: v for k, v in ask().items() if k != "max_repair_rounds"}}
+    text = await dispatch(SUBMIT_TOOL, args, session=session, timeout_s=5)
+    assert text.startswith("PROPOSED (")
+    (proposal,) = session.proposals
+    facts = {f["label"]: f["value"] for f in registry.get(SUBMIT_TOOL).write.present(proposal)["facts"]}
+    assert facts["Repair rounds"] == "The build server's default"
+    result = await _authorise(engine, clock, session, proposal)
+    assert result.code == "verified", result
+    assert "max_repair_rounds" not in json.loads(fake.files[PATH])

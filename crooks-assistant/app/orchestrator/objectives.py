@@ -100,6 +100,9 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "crooks-assistant/app/orchestrator/checks.py",
     "crooks-assistant/app/orchestrator/generated.py",
     "crooks-assistant/config/generated_files.json",
+    # The owner's curated skills the loop's builders get, each pinned by hash (OWNER_DECISIONS_2026-09-30): no build
+    # may add a skill to its own launch.
+    "crooks-assistant/config/builder_skills.json",
     "crooks-assistant/app/orchestrator/workers",
     "crooks-assistant/app/orchestrator/reviewers",
     "crooks-assistant/scripts/engineering_kernel.py",

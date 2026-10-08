@@ -86,6 +86,32 @@ def sandbox() -> NamespaceSandbox:
     return require_sandbox(NamespaceSandbox(ro_paths=(sys.prefix,)))
 
 
+# What the sandbox's root holds of its own: the bound system directories, its curated /etc, private /proc, /dev and
+# /tmp. Anything else at its top level is there only as the way down to the candidate tree or an operator's
+# read-only path.
+MINIMAL_ROOT = frozenset({"bin", "dev", "etc", "lib", "lib32", "lib64", "libx32", "proc", "sbin", "tmp", "usr"})
+
+
+def scaffold(*bound: Path | str) -> dict[str, set[str]]:
+    """The directories the sandbox creates on the way to each bound path, outside its minimal root, and what each
+    must hold: exactly the next component of the bound paths beneath it, nothing of the host's.
+
+    A host may keep its tree or its interpreter under /root or /opt (a self-hosted runner, a service venv), so
+    the sandbox has a /root or /opt of its own made only of that way down (``mkdir -p`` in its tmpfs root)."""
+    resolved = [Path(path).resolve() for path in bound]
+    out: dict[str, set[str]] = {}
+    for path in resolved:
+        parts = path.parts
+        if len(parts) < 3 or parts[1] in MINIMAL_ROOT:
+            continue
+        for depth in range(1, len(parts) - 1):
+            directory = Path(*parts[: depth + 1])
+            if any(directory == other or other in directory.parents for other in resolved):
+                break   # the host's own directory, bound whole: not a way down the sandbox made
+            out.setdefault(str(directory), set()).add(parts[depth + 1])
+    return out
+
+
 @pytest.fixture
 def listener():
     sock = socket.socket()
@@ -131,7 +157,14 @@ def test_hostile_candidate_test_code_cannot_read_write_or_connect_out(tmp_path, 
     report = json.loads((tree / "report.json").read_text())
     # 1. the host sentinel is not readable
     assert report["sentinel"].startswith("denied") and "TOP SECRET" not in json.dumps(report)
-    assert all(str(report[k]).startswith("denied") for k in ("shadow", "root_home")), report
+    assert str(report["shadow"]).startswith("denied"), report
+    # /root does not exist inside, unless the tree or the interpreter lies beneath it on this host: then it holds
+    # only the way down to them, nothing of the host's own /root
+    way_down = scaffold(tree, sys.prefix).get("/root")
+    if way_down is None:
+        assert str(report["root_home"]).startswith("denied"), report
+    else:
+        assert set(report["root_home"]) == way_down, report
     # /proc is the sandbox's own: PID 1 is the check's init, whose environment is the sandbox's, not the host's
     assert set(report["proc1_environ_keys"]) <= {"PATH", "HOME", "TMPDIR", "LANG", "PYTHONDONTWRITEBYTECODE",
                                                  "OLDPWD", "PWD", "SHLVL", "_"}, report
@@ -152,12 +185,21 @@ def test_hostile_candidate_test_code_cannot_read_write_or_connect_out(tmp_path, 
 def test_the_host_filesystem_beyond_the_minimal_root_does_not_exist_inside(tmp_path, sandbox):
     tree = tmp_path / "candidate"
     tree.mkdir()
-    probe = "import os, json; print(json.dumps({'root': sorted(os.listdir('/')), 'etc': sorted(os.listdir('/etc'))}))"
-    result = sandbox.run((sys.executable, "-c", probe), tree=tree, cwd=".", timeout_s=60)
+    way_down = scaffold(tree, sys.prefix)
+    probe = ("import os, json, sys; print(json.dumps({'root': sorted(os.listdir('/')), 'etc': sorted(os.listdir('/etc')),"
+             " 'way_down': {d: sorted(os.listdir(d)) for d in sys.argv[1:]}}))")
+    result = sandbox.run((sys.executable, "-c", probe, *sorted(way_down)), tree=tree, cwd=".", timeout_s=60)
     seen = json.loads(result["stdout_tail"].strip().splitlines()[-1])
     assert set(seen["root"]) <= {"bin", "dev", "etc", "lib", "lib32", "lib64", "libx32", "proc", "sbin", "tmp", "usr",
                                  *(Path(p).parts[1] for p in (str(tree), sys.prefix))}
-    assert "root" not in seen["root"] and "opt" not in seen["root"]
+    # /root and /opt are absent, unless the tree or the interpreter lies beneath one of them on this host (a
+    # self-hosted runner under /root, a service venv under /opt): then every directory on the way down holds exactly
+    # the way down, and nothing of the host's
+    for top in ("root", "opt"):
+        if f"/{top}" not in way_down:
+            assert top not in seen["root"], seen
+    for directory, entries in way_down.items():
+        assert set(seen["way_down"][directory]) == entries, (directory, seen["way_down"][directory])
     assert set(seen["etc"]) <= {"passwd", "group", "hosts", "nsswitch.conf", "ld.so.cache", "localtime"}
 
 
@@ -259,3 +301,78 @@ def test_a_check_serves_and_connects_on_its_own_loopback_and_never_the_hosts(tmp
     assert report["host"].startswith("denied"), report
     assert accepted == []
     assert "its own loopback up" in sandbox.availability()[1]
+
+
+# ---------------------------------------------------------------- browser checks (Playwright's Chromium)
+
+def _browsers_on_host() -> Path | None:
+    """Where Playwright's browsers are installed on this host, if anywhere: CLIVE_CHECK_BROWSERS, else the folder
+    experience/browser.py defaults to. Browser tests skip without one, as the repository's browser suite does."""
+    folder = Path(os.environ.get("CLIVE_CHECK_BROWSERS") or "/opt/pw-browsers")
+    return folder if any(folder.glob("chromium-*/chrome-linux/chrome")) else None
+
+
+def test_browser_settings_bind_their_folders_read_only_and_name_them_in_the_checks_environment(tmp_path):
+    browsers, modules = tmp_path / "pw", tmp_path / "node_modules"
+    (browsers / "chromium-1194" / "chrome-linux").mkdir(parents=True)
+    (browsers / "chromium-1194" / "chrome-linux" / "chrome").write_text("")
+    modules.mkdir()
+    box = NamespaceSandbox(ro_paths=(str(tmp_path / "pw"),), browsers=str(browsers), node_path=str(modules))
+    assert box.browser_env() == {"PLAYWRIGHT_BROWSERS_PATH": str(browsers), "NODE_PATH": str(modules),
+                                 "CROOKS_CHROMIUM": str(browsers / "chromium-1194" / "chrome-linux" / "chrome")}
+    argv = box._argv(tmp_path, ("true",))
+    at = argv.index("clive-check")
+    tree, _drop, browser, nro = argv[at + 1:at + 5]
+    assert tree == str(tmp_path) and browser == "yes"
+    ro = argv[at + 5:at + 5 + int(nro)]
+    assert ro == [str(browsers), str(modules)]                     # bound once each, read-only like any ro path
+    nenv = int(argv[at + 5 + int(nro)])
+    assert argv[at + 6 + int(nro):at + 6 + int(nro) + nenv] == [
+        f"CROOKS_CHROMIUM={browsers}/chromium-1194/chrome-linux/chrome", f"NODE_PATH={modules}",
+        f"PLAYWRIGHT_BROWSERS_PATH={browsers}"]
+    assert argv[-1] == "true"
+    # a second Chromium leaves the choice to the check: no CROOKS_CHROMIUM is guessed
+    (browsers / "chromium-1200" / "chrome-linux").mkdir(parents=True)
+    (browsers / "chromium-1200" / "chrome-linux" / "chrome").write_text("")
+    assert "CROOKS_CHROMIUM" not in box.browser_env()
+    # without browsers the launch is exactly as before: no browser folder, no extra environment
+    plain = NamespaceSandbox()._argv(tmp_path, ("true",))
+    at = plain.index("clive-check")
+    assert plain[at + 3:at + 6] == ["no", "0", "0"] and plain[-1] == "true"
+
+
+@pytest.mark.parametrize("field", ["browsers", "node_path"])
+def test_a_browser_folder_that_is_not_a_plain_directory_makes_the_sandbox_unavailable(tmp_path, field):
+    for bad in (str(tmp_path / "missing"), str(tmp_path / "with space")):
+        if "space" in bad:
+            Path(bad).mkdir()
+        box = NamespaceSandbox(**{field: bad})
+        ok, why = box.availability()
+        assert not ok and "not a plain absolute path to a directory" in why
+        with pytest.raises(SandboxUnavailable):
+            box.run(("/bin/true",), tree=tmp_path, cwd=".", timeout_s=5)
+
+
+def test_a_check_drives_chromium_inside_the_sandbox_and_it_stays_inside(tmp_path, listener):
+    """Item 4 of the owner's loop upgrade (7 Oct): builders' checks may open a browser. Chromium runs in the same
+    namespaces, as uid 65534 with no capabilities and no network: it renders a page, cannot write its own install,
+    and cannot reach a listener on the host's loopback."""
+    browsers = _browsers_on_host()
+    if browsers is None:
+        pytest.skip("no Playwright Chromium on this host (set CLIVE_CHECK_BROWSERS); browser checks are off here")
+    port, accepted = listener
+    box = require_sandbox(NamespaceSandbox(browsers=str(browsers)))
+    chrome = box.browser_env()["CROOKS_CHROMIUM"]
+    tree = tmp_path / "candidate"
+    tree.mkdir()
+    launch = f'"{chrome}" --headless=new --no-sandbox --disable-gpu --user-data-dir=/tmp/profile --dump-dom'
+    script = (f'{launch} "data:text/html,<p id=found>rendered</p>" > dom.html; echo exit=$?;'
+              f' {launch} "http://127.0.0.1:{port}/" > /dev/null 2>&1;'          # the host's loopback: never reached
+              f' touch {browsers}/escaped 2>/dev/null && echo WROTE || echo readonly;'
+              ' ls /dev/shm >/dev/null && echo shm; echo "$PLAYWRIGHT_BROWSERS_PATH"')
+    result = box.run(("/bin/sh", "-c", script), tree=tree, cwd=".", timeout_s=120)
+    assert result["exit_code"] == 0, result
+    lines = result["stdout_tail"].split()
+    assert "exit=0" in lines and "readonly" in lines and "shm" in lines and str(browsers) in lines, result
+    assert '<p id="found">rendered</p>' in (tree / "dom.html").read_text()
+    assert not (browsers / "escaped").exists() and accepted == []

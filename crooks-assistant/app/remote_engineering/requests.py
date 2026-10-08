@@ -56,7 +56,9 @@ class RemoteObjectiveRequest(StrictRecord):
     acceptance_criteria: tuple[str, ...] = ()
     checks: tuple[Check, ...] = ()
     target_branch: str = Field(min_length=1, max_length=200)
-    max_repair_rounds: int = Field(default=2, ge=0, le=5)
+    # The request's own limit, honoured as given; a request that names none gets the build server's default
+    # (``RemoteControllerConfig.default_repair_rounds``, ``--default-repair-rounds``), which the owner can raise.
+    max_repair_rounds: int | None = Field(default=None, ge=0, le=5)
 
     @field_validator("base_ref")
     @classmethod

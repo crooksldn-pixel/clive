@@ -64,6 +64,10 @@ from .receipts import Claim, ClaimLog, Receipt, ReceiptLog
 from .requests import RemoteObjectiveRequest, parse_request
 from .waits import DEFAULT_BASE_WAIT_S, MAX_BASE_WAIT_S, MIN_BASE_WAIT_S, BaseWait, WaitLog
 
+# A build's repair rounds when its request names none, and the most any objective may have (objectives.py).
+DEFAULT_REPAIR_ROUNDS = 2
+MAX_REPAIR_ROUNDS = 5
+
 # Every field label this host itself defined; see ``redact_validation_error``.
 OBJECTIVE_LABELS = frozenset(Objective.model_fields) | frozenset(Check.model_fields)
 
@@ -73,6 +77,8 @@ TRUNK_UNAVAILABLE = (
 )
 
 __all__ = [
+    "DEFAULT_REPAIR_ROUNDS",
+    "MAX_REPAIR_ROUNDS",
     "OBJECTIVE_LABELS",
     "TRUNK_UNAVAILABLE",
     "RemoteController",
@@ -95,6 +101,10 @@ class RemoteControllerConfig:
     # engineering repo still lacks waits for it before it is refused (waits.py).
     trunk_branch: str = DEFAULT_TRUNK_BRANCH
     base_wait_s: float = DEFAULT_BASE_WAIT_S
+    # How many repair rounds a build gets when its request names none (the owner's loop upgrade of 7 October 2026,
+    # "more repair rounds"): the convergence doctrine's 2 unless the owner raises it on this host. A request that
+    # names its own limit keeps it.
+    default_repair_rounds: int = DEFAULT_REPAIR_ROUNDS
 
     def __post_init__(self) -> None:
         # One plain path component, refused without echo; and whatever it is, it is never
@@ -102,6 +112,9 @@ class RemoteControllerConfig:
         validate_inbox_directory(self.inbox_directory)
         _validate_name(self.trunk_branch, what="trunk branch")
         validate_seconds(self.base_wait_s, what="base wait", minimum=MIN_BASE_WAIT_S, maximum=MAX_BASE_WAIT_S)
+        if isinstance(self.default_repair_rounds, bool) or not isinstance(self.default_repair_rounds, int) \
+                or not 0 <= self.default_repair_rounds <= MAX_REPAIR_ROUNDS:
+            raise ValueError(f"the default repair rounds are a whole number from 0 to {MAX_REPAIR_ROUNDS}")
 
 
 def objective_from_request(
@@ -145,7 +158,7 @@ def objective_from_request(
             target_branch=request.target_branch,
             product_memory_sha=memory_sha,
             allowed_paths=request.allowed_paths,
-            max_repair_rounds=request.max_repair_rounds,
+            max_repair_rounds=_repair_rounds(request, config=config, admitted=admitted),
             owner=owner_entry_from_host(),
             created_at=created_at,
         )
@@ -154,6 +167,17 @@ def objective_from_request(
             f"request {request.request_id} cannot become an objective: "
             f"{redact_validation_error(exc, known=OBJECTIVE_LABELS)}"
         ) from exc
+
+
+def _repair_rounds(request: RemoteObjectiveRequest, *, config: RemoteControllerConfig,
+                   admitted: Objective | None) -> int:
+    """The request's own limit; else the one its interrupted admission already recorded (so a replay stays
+    byte-identical when the host default changed in between); else this host's default."""
+    if request.max_repair_rounds is not None:
+        return request.max_repair_rounds
+    if admitted is not None:
+        return admitted.max_repair_rounds
+    return config.default_repair_rounds
 
 
 @dataclass

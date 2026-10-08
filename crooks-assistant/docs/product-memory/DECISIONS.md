@@ -1097,3 +1097,23 @@ CLIVE connects to it as the brief's section 6 says, and only through its `/api/v
 **Still the owner's:** which rule (who holds deploy authority); when to switch it on, and when to leave dry run; and decision 6 of the self-shipping plan, whether anything may ship without his hold. Under `owner_waiver` nothing does; under `exact_sha_review` a deploy needs no gesture of his.
 
 **Consequences:** this entry grants no deploy authority by itself. DEPLOY_LINUX.md's procedure is unchanged and stays the way production is deployed until the owner switches the service on. The service runs from its own pinned copy, never from the checkout it deploys, so moving that pin is a person's act, as the loop's re-pin is.
+
+---
+
+## DEC-068 — The loop upgrade of 7 October: why a build stopped stays off GitHub, findings reach the repair, more repair rounds, skills and a browser for builders
+
+**Date:** 2026-10-08
+**Status:** ACTIVE. Built in the repository; in force on a loop only through the owner-gated re-pin.
+**Source:** the owner on 7 October 2026, verbatim: "Loop upgrades as protected PRs: publishing findings, findings fed back, more repair rounds, skills and a browser for builders. Termius re-pins worker-01 in the morning on your go." Before it: "I still don't feel like you are using the servers we have to its greatest capability ... Eventually, I should just be able to say to Clive what to do." The skills rest on his decision of 30 September that his curated skill list is his approval (DEC-064, [OWNER_DECISIONS_2026-09-30.md](./OWNER_DECISIONS_2026-09-30.md)).
+
+**Decision:**
+- **Why a build stopped is kept on the loop host and served over the tailnet only.** A stopped build's reviewer findings, failing check output and builder's report are kept in `<runtime>/stops` (files 0600) and served by `remote_engineering.py run --private-listen <tailnet address>:<port> --private-allow-node <node>` ([REMOTE_ENGINEERING_CONTROL_V1.md](./REMOTE_ENGINEERING_CONTROL_V1.md), "The private channel"). A node is named by its full tailnet name or its StableID, never by a bare machine name, which a node shared in from another tailnet can also carry. Nothing new goes to `clive/control/*` or anywhere else on GitHub. CLIVE shows them on the owner's Builds screen when `CROOKS_ENGINEERING_PRIVATE_URL` names the channel (off by default).
+- **Findings reach whoever repairs.** A repair revision already got each material finding word for word; a test now pins it. A build filed again as `<id>-2` starts with the stop report of the try before it, but only when its title or its allowed paths are also the same.
+- **More repair rounds.** A request may name 0 to 5. One that names none gets the host's `--default-repair-rounds` (2 unless the operator raises it, at most 5). No review is added per round.
+- **Skills for builders.** A builder gets exactly the skills in `config/builder_skills.json` (now a protected path), every file pinned by its sha256: today the four design skills vendored in `.claude/skills/`. A launch with skills is made only on a Claude CLI version whose own commands are pinned by name (`BUILTIN_SLASH_COMMANDS` in `app/orchestrator/workers/claude.py`: 2.1.285 and 2.1.293, probed 8 Oct). On any other version no builder is launched with skills, and the loop is run with `--no-builder-skills` (builders then launch as before, with `--disable-slash-commands` and no skills) until a reviewed change pins that version.
+- **A browser for checks.** When the host names them, Playwright's Chromium and playwright-core are bound read-only into the same check sandbox: no network, uid 65534, no capabilities.
+- **The CLI's own plugins are an exact list** (`ALLOWED_PLUGINS`), each accepted only as reported with path `builtin`.
+
+**Reason:** since 25 Sep the loop on clive-worker-01 took 65 requests and stopped 40, and it never published why (`status.py`: "What is never published: review findings text"), so whoever repaired a build had nothing to work from. With the repository public since 7 Oct, those words cannot go on GitHub.
+
+**Consequences:** nothing here weakens exact-SHA review, the gate, protected paths, secret scanning or acceptance. None of it governs a loop until the owner-gated re-pin; the re-pin steps travel with the pull request, and the re-pin is recorded when it happens. The public status branch gains nothing, but it still carries what it carried before, including each stop's one-line blocker, which for a builder-reported or owner-decision stop is the builder's own words, redacted; publishing the stop's cause word instead is a recorded follow-up. So is bounding a check's memory with a cgroup: with browsers named, every check is bounded by `RLIMIT_DATA` rather than `RLIMIT_AS`.

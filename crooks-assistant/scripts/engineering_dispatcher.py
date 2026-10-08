@@ -8,6 +8,13 @@
     run            tick until every objective is COMPLETE, BLOCKED or at OWNER_GATE
     status         task / revision / attempt, worker process, progress, candidate, review, blocker, next action
     submit-review  (relay reviewer only) hand the dispatcher a typed clive.review_result.v1 a person carried back
+    stops          why each stopped build stopped, in full: the reviewer's findings, the failing output, the
+                   builder's report (private: printed here and served over the tailnet, never pushed)
+    probe-launch   launch a builder exactly as an attempt would, read its init event, stop it before it does any
+                   work, and say whether this CLI passes the launch check (run it before a re-pin, and after a
+                   deliberate CLI update); with --skill-turn NAME, after a re-pin, let it answer one prompt that
+                   loads that skill, to prove a builder can use the owner's skills under dontAsk
+    skill-entry    the config/builder_skills.json entry for a skill folder: the sha256 of every file in it
 
 Example:
 
@@ -35,9 +42,12 @@ from __future__ import annotations
 import argparse
 import json
 import shlex
+import shutil
 import socket
 import sys
+import tempfile
 import time
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -78,6 +88,8 @@ from app.orchestrator.reviewers import (  # noqa: E402
 )
 from app.orchestrator.store import RecordConflictError, StateConflictError  # noqa: E402
 from app.orchestrator.workers import ClaudeCodeWorker  # noqa: E402
+from app.orchestrator.workers import skills as builder_skills  # noqa: E402
+from app.orchestrator.workers.base import LaunchSpec  # noqa: E402
 
 DEFAULT_REGISTRY = ROOT / "config" / "review_principals.json"
 TERMINAL = {"COMPLETE", "BLOCKED", "OWNER_GATE", "UNKNOWN", "NO_TASK"}
@@ -120,6 +132,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--worker-token-file", default=None, help="host-side file holding CLAUDE_CODE_OAUTH_TOKEN")
     p.add_argument("--worker-bash-prefix", action="append", default=[],
                    help="allow Bash commands with this prefix (off by default; a prefix is not a sandbox)")
+    p.add_argument("--sandbox-browsers", default=None,
+                   help="where Playwright's browsers are installed on this host (PLAYWRIGHT_BROWSERS_PATH): checks may "
+                        "then drive Chromium, read-only, inside the same sandbox")
+    p.add_argument("--sandbox-node-path", default=None,
+                   help="the node_modules folder holding playwright-core for browser checks (NODE_PATH), read-only")
     p.add_argument("--check-ro-path", action="append", default=[],
                    help="a host directory the check sandbox binds read-only (e.g. the interpreter's virtualenv); "
                         "nothing else of the host is visible to a check")
@@ -127,6 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--stall-s", type=int, default=1200)
     p.add_argument("--init-timeout-s", type=int, default=180)
     p.add_argument("--max-concurrent", type=int, default=1)
+    _add_skill_args(p)
     sub = p.add_subparsers(dest="verb", required=True)
 
     o = sub.add_parser("objective", help="record one owner objective (and its task r1)")
@@ -170,7 +188,32 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--json", action="store_true")
     v = sub.add_parser("submit-review", help="relay only: a typed review result carried back by a person")
     v.add_argument("--file", required=True)
+    st = sub.add_parser("stops", help="why each stopped build stopped, in full (private: never pushed)")
+    st.add_argument("--json", action="store_true")
+    pl = sub.add_parser("probe-launch", help="launch a builder as an attempt would, read its init event, stop it, "
+                                             "and say whether the launch check passes")
+    pl.add_argument("--base-ref", default=PRODUCT_MEMORY_REF, help="the commit the repository's skills are read at")
+    pl.add_argument("--without-checks", action="store_true",
+                    help="probe the launch of a build with no declared checks (default: with CLIVE's check server, "
+                         "as every build CLIVE files has)")
+    pl.add_argument("--timeout-s", type=float, default=90.0)
+    pl.add_argument("--skill-turn", default=None, metavar="NAME",
+                    help="after a re-pin: let the probed builder answer one real prompt (on the worker's token) "
+                         "that loads this owner's skill with the Skill tool, and say whether it could")
+    se = sub.add_parser("skill-entry", help="print the config/builder_skills.json entry for a skill folder")
+    se.add_argument("--name", required=True)
+    se.add_argument("--folder", required=True, help="the skill's folder (an installed skill: <dir>/<name>/skill)")
+    se.add_argument("--repo-path", default=None, help="for a skill vendored in the repository: its repository path")
     return p
+
+
+def _add_skill_args(p: argparse.ArgumentParser) -> None:
+    """The owner's curated skills for builders (app/orchestrator/workers/skills.py): on unless switched off."""
+    p.add_argument("--no-builder-skills", action="store_true",
+                   help="launch builders with no skills at all, exactly as before config/builder_skills.json")
+    p.add_argument("--builder-skills-dir", default=None,
+                   help="where the skill installer put the curated skills on this host (<dir>/<name>/skill); "
+                        "a listed skill of source 'installed' is read from here, and withheld without it")
 
 
 def _parts(args):
@@ -192,8 +235,10 @@ def _parts(args):
     config = DispatcherConfig(runtime_root=runtime, workspace_root=Path(args.workspace_root), repo=Path(args.repo),
                               publish_remote=args.publish_remote, lease_s=args.lease_s, stall_s=args.stall_s,
                               init_timeout_s=args.init_timeout_s, max_concurrent=args.max_concurrent,
-                              land=not getattr(args, "no_land", False))
-    sandbox = NamespaceSandbox(ro_paths=tuple(args.check_ro_path))
+                              land=not getattr(args, "no_land", False), builder_skills=not args.no_builder_skills,
+                              installed_skills_dir=Path(args.builder_skills_dir) if args.builder_skills_dir else None)
+    sandbox = NamespaceSandbox(ro_paths=tuple(args.check_ro_path), browsers=args.sandbox_browsers,
+                               node_path=args.sandbox_node_path)
     # The GitHub acceptance gate asks with the credential git already holds for the remote candidates go to.
     acceptance = GitHubAcceptance(git_remote_token(Path(args.repo), args.publish_remote or "origin"))
     return kernel, objectives, Dispatcher(kernel, objectives, worker, reviewers, config, checks=sandbox,
@@ -267,10 +312,157 @@ def _print_status(items: list[dict]) -> None:
         print(f"    next: {s.get('next_action')}")
 
 
+def _print_stops(reports: list[dict]) -> None:
+    """Each stopped build, in full, for the operator on the loop host (private: this is never pushed)."""
+    for r in reports:
+        print(f"{r.get('objective_id')}  {r.get('stage')}  {r.get('cause')}  r{r.get('revision')} {r.get('attempt_id') or '-'}")
+        print(f"    {r.get('blocker')}")
+        for rnd in r.get("review_rounds") or []:
+            print(f"    review r{rnd.get('revision')} on {rnd.get('candidate_sha')} by {rnd.get('reviewer')}:")
+            for f in rnd.get("findings") or []:
+                print(f"      [{f.get('finding_id')}] {f.get('finding')}")
+                print(f"        evidence: {f.get('evidence_ref')}")
+                print(f"        required repair: {f.get('required_repair')}")
+        for c in r.get("failed_checks") or []:
+            print(f"    failed {c.get('what')} {c.get('name')} (exit {c.get('exit_code')}) on {c.get('attempt_id')}:")
+            print("      " + str(c.get("tail") or "").strip().replace("\n", "\n      ")[-1500:])
+        red = r.get("github_failure") or {}
+        if red:
+            print(f"    red GitHub run on {red.get('sha')}: {red.get('summary')}")
+        report = r.get("builder_report") or {}
+        if report:
+            print(f"    builder ({report.get('status')}): {report.get('summary')} {report.get('reason') or ''}")
+
+
+SKILL_TURN_PROMPT = ("Load the skill {skill} with the Skill tool. Then stop: report status 'completed' with the "
+                     "skill's own one-line description as the summary. Change no file and use no other tool.")
+
+
+def skill_turn_problems(log_text: str, skill: str) -> tuple[list[str], dict]:
+    """What one real turn's stream shows of the Skill tool (review of the loop branch, N8): a call naming the skill,
+    its result not an error, no call denied under dontAsk, and the turn finished. Read from the stream itself."""
+    calls: dict[str, dict] = {}
+    errors: dict[str, bool] = {}
+    denied, finished = 0, None
+    for line in log_text.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        kind = event.get("type")
+        blocks = (event.get("message") or {}).get("content") if kind in ("assistant", "user") else None
+        for block in blocks if isinstance(blocks, list) else ():
+            if not isinstance(block, dict):
+                continue
+            if kind == "assistant" and block.get("type") == "tool_use" and block.get("name") == "Skill":
+                calls[str(block.get("id"))] = block.get("input") if isinstance(block.get("input"), dict) else {}
+            elif kind == "user" and block.get("type") == "tool_result":
+                errors[str(block.get("tool_use_id"))] = bool(block.get("is_error"))
+        if kind == "system" and event.get("subtype") == "permission_denied":
+            denied += 1
+        elif kind == "result":
+            finished = event
+    names = {skill, skill.split(":", 1)[-1]}
+    named = [cid for cid, given in calls.items() if names & {str(v) for v in given.values()}]
+    denied += len((finished or {}).get("permission_denials") or ())
+    problems = []
+    if not named:
+        problems.append(f"the builder never called Skill({skill})")
+    elif not any(errors.get(cid) is False for cid in named):
+        problems.append(f"Skill({skill}) returned no result, or an error")
+    if denied:
+        problems.append(f"{denied} tool call(s) denied under dontAsk")
+    if finished is None:
+        problems.append("the turn did not finish before the timeout")
+    elif finished.get("is_error"):
+        problems.append(f"the turn ended in error ({finished.get('subtype')})")
+    return problems, {"skill_calls": len(named), "denied": denied,
+                      "finished": None if finished is None else finished.get("subtype"),
+                      "report": None if finished is None else finished.get("structured_output")}
+
+
+def probe_launch(args, kernel: Kernel, dispatcher: Dispatcher) -> int:
+    """A builder launched exactly as an attempt would be, stopped at its init event: does this CLI pass the check?"""
+    base = kernel.git.rev_parse(args.base_ref)
+    if base is None:
+        raise LifecycleError(f"base ref {args.base_ref!r} does not resolve to a commit in {args.repo}")
+    root = Path(tempfile.mkdtemp(prefix="clive-probe-"))
+    workspace, home = root / "workspace", root / "home"
+    workspace.mkdir()
+    home.mkdir()
+    config = dispatcher.config
+    try:
+        skills = {"provided": (), "withheld": (), "folder": None, "settings": ""}
+        if config.builder_skills:
+            allow = builder_skills.load_allow_list(config.builder_skills_file or builder_skills.ALLOW_LIST)
+            built = builder_skills.build_plugin(allow, home / builder_skills.PLUGIN_NAME, repo=config.repo,
+                                                base_sha=base, installed_dir=config.installed_skills_dir)
+            skills = {"provided": built.provided, "withheld": built.withheld, "folder": built.folder,
+                      "settings": builder_skills.settings_json(allow) if built.folder else ""}
+        check_config = None
+        if not args.without_checks:
+            check_config = root / "checks" / "config.json"
+            check_config.parent.mkdir()
+            check_config.write_text(json.dumps({
+                "workspace": str(workspace), "scratch": str(root / "checks" / "runs"),
+                "checks": [{"name": "probe", "argv": ["/bin/true"], "cwd": ".", "timeout_s": 30}],
+                "sandbox": {"ro_paths": list(args.check_ro_path), "browsers": args.sandbox_browsers,
+                            "node_path": args.sandbox_node_path}}))
+            check_config.chmod(0o600)
+        turn = args.skill_turn
+        if turn is not None and turn not in skills["provided"]:
+            print(json.dumps({"verdict": "REFUSED", "problems": [
+                f"the skill {turn!r} is not one this builder would be given (given: "
+                f"{', '.join(skills['provided']) or 'none'}), so there is no turn to prove"]}, indent=2))
+            return 2
+        prompt = (SKILL_TURN_PROMPT.format(skill=builder_skills.skill_id(turn)) if turn is not None
+                  else "Reply with the single word: probe.")
+        spec = LaunchSpec(task_id="probe", task_revision=1, attempt_id=f"probe-{uuid.uuid4().hex[:8]}", fencing_token=1,
+                          session_id=str(uuid.uuid4()), workspace=workspace, home=home, log_path=root / "log.jsonl",
+                          stderr_path=root / "stderr.txt", prompt=prompt,
+                          check_config=check_config, skills_dir=skills["folder"], skills=tuple(skills["provided"]),
+                          skills_settings=skills["settings"])
+        started, problems, stderr = dispatcher.worker.probe(spec, timeout_s=args.timeout_s, turn=turn is not None)
+        said = None
+        if turn is not None and not problems:
+            try:
+                log_text = spec.log_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                log_text = ""
+            turn_problems, said = skill_turn_problems(log_text, builder_skills.skill_id(turn))
+            problems = [*problems, *turn_problems]
+        # Every command by name, so a new CLI version's own list can be pinned (BUILTIN_SLASH_COMMANDS) from this.
+        print(json.dumps({
+            "verdict": "PASS" if not problems else "REFUSED", "problems": problems,
+            "cli_version": started.cli_version if started is not None else None,
+            "skills": {"given": list(skills["provided"]), "withheld": [list(w) for w in skills["withheld"]]},
+            "roster": None if started is None else {
+                "tools": list(started.tools), "mcp_servers": list(started.mcp_server_status),
+                "plugins": [list(p) for p in started.plugin_origins], "skills": list(started.skill_names),
+                "slash_commands": list(started.slash_command_names), "permission_mode": started.permission_mode,
+                "api_key_source": started.api_key_source},
+            "skill_turn": said,
+            "stderr_tail": stderr.strip()[-300:] if started is None else None,
+        }, indent=2))
+        return 0 if not problems else 2
+    finally:
+        builder_skills.remove_plugin(home / builder_skills.PLUGIN_NAME)
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     kernel, objectives, dispatcher = _parts(args)
     try:
+        if args.verb == "probe-launch":
+            return probe_launch(args, kernel, dispatcher)
+        if args.verb == "skill-entry":
+            entry = builder_skills.entry_for(args.name, Path(args.folder), source="repo" if args.repo_path else "installed",
+                                             path=args.repo_path or "")
+            print(json.dumps(entry, indent=2))
+            return 0
         if args.verb == "objective":
             print(json.dumps(intake(_objective(args, kernel), kernel=kernel, objectives=objectives), indent=2))
         elif args.verb == "integrate":
@@ -297,6 +489,12 @@ def run(argv: list[str] | None = None) -> int:
                     print(json.dumps(stages, indent=2))
                     break
                 time.sleep(args.interval)
+        elif args.verb == "stops":
+            reports = dispatcher.stop_reports()
+            if args.json:
+                print(json.dumps(reports, indent=2, default=str))
+            else:
+                _print_stops(reports)
         elif args.verb == "status":
             items = dispatcher.status()
             if args.json:

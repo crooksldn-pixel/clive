@@ -651,7 +651,8 @@ def _present(proposal) -> dict:
         {"label": "Checks", "value": checks},
         {"label": "Base", "value": str(s.get("base") or "")},
         {"label": "Acceptance", "value": f"{s.get('criteria', 0)} criteria"},
-        {"label": "Repair rounds", "value": str(s.get("repair_rounds", 0))},
+        {"label": "Repair rounds", "value": "The build server's default" if s.get("repair_rounds") is None
+         else str(s.get("repair_rounds"))},
         {"label": "Filed as", "value": f"{s.get('path', '')} on {s.get('branch') or INBOX_BRANCH}"},
     ]
     return {
@@ -715,7 +716,7 @@ async def submit_engineering_request(
     acceptance_criteria: list[str] | None = None,
     objective_id: str | None = None,
     request_id: str | None = None,
-    max_repair_rounds: int = 2,
+    max_repair_rounds: int | None = None,
 ) -> Prepared:
     """Prepare, never file: fill in what the model cannot know, build the request, hold it to
     the loop's rules, and read the inbox it will be filed into. The engine is handed the state
@@ -800,7 +801,8 @@ async def submit_engineering_request(
             "checks": checks_words,
             "base": base,
             "criteria": len(record["acceptance_criteria"]),
-            "repair_rounds": record["max_repair_rounds"],
+            # None: the build server's own default, which the owner can raise there (loop upgrade, 7 Oct 2026).
+            "repair_rounds": record.get("max_repair_rounds"),
             "path": request.path,
             "branch": inbox.inbox_branch,
             "host": inbox.host,

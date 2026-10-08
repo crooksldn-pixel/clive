@@ -64,6 +64,11 @@ Production stays on `b33ccbc2` until these are deployed. None of them changes `.
   The last request was recorded on **1 Oct at 22:08 UTC**. It still publishes its status to `clive/control/worker-01-status` about every ten minutes (still on 7 Oct).
 - **The loop landed 7 builds itself on 1 Oct.** Every trunk change after its last landing (`8ad7477d`, 1 Oct 22:27 UTC) came from builders outside it: PRs #89–#95, and two direct landings (`1d03efd6`, `4d2dc00f`).
 - **Its pin is not recorded.** PR #72 records a re-pin to `b577bc97` on 1 Oct, at which the owner waived two findings. A later re-pin review of `b577bc97..4daf49e1` asked for changes, which PR #88 (`718fbc41`) answered. Which SHA the loop runs now is not recorded in the repository.
+- **The loop upgrade of 7 Oct is on the trunk and not in force** ([DEC-068](./DECISIONS.md)). It takes effect only at clive-worker-01's re-pin, which the owner approved on the Director's go. From then:
+  - why a build stopped (the reviewer's findings, the failing output, the builder's words) is kept on worker-01 and served over the tailnet only, to `crooks-os-prod-1` named by its full tailnet name. The Builds screen shows it once `CROOKS_ENGINEERING_PRIVATE_URL` is set in production's `.env`; until then it says the wording is kept on the build server;
+  - a build filed again starts with the earlier try's findings, and a request without its own number gets the host's default repair rounds;
+  - builders get the four design skills, but only on Claude CLI 2.1.285 or 2.1.293. On any other version the loop runs with `--no-builder-skills`;
+  - checks can drive Chromium once it is installed on worker-01.
 
 ### Recorded in DECISIONS on 5 October
 

@@ -38,7 +38,6 @@ from app.remote_engineering.requests import (
 MAX_TITLE_CHARS = 200
 MAX_OUTCOME_CHARS = 20000
 MAX_REPAIR_ROUNDS = 5
-DEFAULT_REPAIR_ROUNDS = 2
 CHECK_KEYS = frozenset({"name", "argv", "cwd"})
 
 ID_RULE = (
@@ -95,7 +94,7 @@ def build_request(
     allowed_paths: object,
     acceptance_criteria: object = (),
     checks: object = (),
-    max_repair_rounds: object = DEFAULT_REPAIR_ROUNDS,
+    max_repair_rounds: object = None,
 ) -> EngineeringRequest:
     """Build and validate one request. Every problem is named at once, and none is echoed."""
     problems: list[str] = []
@@ -112,7 +111,10 @@ def build_request(
     paths = _paths(allowed_paths, problems)
     criteria = _criteria(acceptance_criteria, problems)
     check_records = _checks(checks, problems)
-    if isinstance(max_repair_rounds, bool) or not isinstance(max_repair_rounds, int) or not 0 <= max_repair_rounds <= MAX_REPAIR_ROUNDS:
+    # None leaves the number to the build server (its default, which the owner can raise: the loop upgrade of
+    # 7 October 2026); a number is the request's own, kept as given.
+    if max_repair_rounds is not None and (isinstance(max_repair_rounds, bool) or not isinstance(max_repair_rounds, int)
+                                          or not 0 <= max_repair_rounds <= MAX_REPAIR_ROUNDS):
         problems.append(f"max_repair_rounds must be a whole number from 0 to {MAX_REPAIR_ROUNDS}")
     if problems:
         raise RequestRefused(_refusal(problems))
@@ -128,8 +130,9 @@ def build_request(
         "acceptance_criteria": criteria,
         "checks": check_records,
         "target_branch": target_branch(str(request_id)),
-        "max_repair_rounds": max_repair_rounds,
     }
+    if max_repair_rounds is not None:
+        record["max_repair_rounds"] = max_repair_rounds
     try:
         RemoteObjectiveRequest.model_validate(record)
     except ValidationError as exc:

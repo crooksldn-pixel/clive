@@ -37,6 +37,7 @@ from app.orchestrator.store import RecordConflictError, StateConflictError
 
 from .controller import RemoteController
 from .errors import InboxBoundExceeded, InboxError, RequestContentChanged
+from .private import PrivateDocument, build_private
 from .receipts import ReceiptLog
 from .status import build_status
 
@@ -54,6 +55,8 @@ class RemoteEngineeringLoop:
     receipts: ReceiptLog
     publish: Callable[[dict], str]
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
+    # The loop host's private channel (private.py): why each stopped build stopped, in full. Never published.
+    private: PrivateDocument | None = None
 
     def cycle(self) -> dict:
         """Process inbox, advance the existing dispatcher once, then publish projection."""
@@ -92,6 +95,10 @@ class RemoteEngineeringLoop:
             projection_commit: str | None = self.publish(status)
         except TRANSPORT_ERRORS:
             projection_commit, publish_error = None, PUBLISH_UNAVAILABLE
+        if self.private is not None:
+            reports = self._stop_reports()
+            if reports is not None:
+                self.private.set(build_private(reports, receipts=self.receipts, now=self.clock()))
 
         return {
             "outcomes": outcomes,
@@ -124,6 +131,21 @@ class RemoteEngineeringLoop:
             for entry in entries
             if isinstance(entry, dict) and isinstance(entry.get("objective_id"), str)
         }
+
+    def _stop_reports(self) -> list[dict] | None:
+        """Why each stopped build stopped (``Dispatcher.stop_reports``), for the private channel only. A dispatcher
+        that cannot say leaves the last document in place (None) and never stops the cycle; the kernel's and the
+        store's own failures still stop it, as they do from the tick."""
+        read = getattr(self.dispatcher, "stop_reports", None)
+        if not callable(read):
+            return None
+        try:
+            reports = read()
+        except (JournalError, LifecycleError, RecordConflictError, StateConflictError):
+            raise
+        except Exception:  # noqa: BLE001 -- a private report that cannot be built must never end supervision
+            return None
+        return [r for r in reports if isinstance(r, dict)] if isinstance(reports, list) else None
 
     def _acceptance_gates(self) -> dict[str, dict]:
         """The dispatcher's recorded GitHub acceptance answers, for the projection only: a dispatcher that

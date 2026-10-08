@@ -228,3 +228,346 @@ def test_an_auth_failure_on_stderr_is_deterministic(tmp_path):
     assert not transient and "authentication" in reason
     err.write_text("Killed\n")
     assert ClaudeCodeWorker().diagnose_exit(err)[1] is True
+
+
+# ---------------------------------------------------------------- the CLI's own plugins (PRs #63, #85)
+
+# The plugins Claude Code 2.1.293 printed on 2026-10-07 for the restricted launch, verbatim: four the CLI carries in
+# its own binary. 2.1.285 already added cc-plugin-agents-md@builtin, which the one-name list refused (PRs #63, #85).
+CLI_2_1_293_PLUGINS = [
+    {"name": "cc-plugin-sec-default", "path": "builtin", "source": "cc-plugin-sec-default@builtin"},
+    {"name": "cc-plugin-agents-md", "path": "builtin", "source": "cc-plugin-agents-md@builtin"},
+    {"name": "cc-plugin-telemetry", "path": "builtin", "source": "cc-plugin-telemetry@builtin"},
+    {"name": "cc-plugin-plugin-authoring", "path": "builtin", "source": "cc-plugin-plugin-authoring@builtin"},
+]
+
+
+@pytest.mark.parametrize("version, plugins", [
+    ("2.1.280", [{"name": "telemetry", "path": "builtin", "source": "telemetry@builtin"}]),
+    ("2.1.285", [{"name": "telemetry", "path": "builtin", "source": "telemetry@builtin"},
+                 {"name": "cc-plugin-agents-md", "path": "builtin", "source": "cc-plugin-agents-md@builtin"}]),
+    ("2.1.293", CLI_2_1_293_PLUGINS),
+])
+def test_the_built_in_plugins_each_pinned_cli_reported_pass_the_launch_check(tmp_path, version, plugins):
+    event = {**REAL_INIT, "tools": ["Edit", "Glob", "Grep", "Read", "Write"], "claude_code_version": version,
+             "plugins": plugins}
+    started = parse_events(json.dumps(event))[0]
+    assert started.plugin_origins[-1] == (plugins[-1]["source"], "builtin", plugins[-1]["name"])
+    assert ClaudeCodeWorker().verify_started(started, spec(tmp_path)) == []
+
+
+@pytest.mark.parametrize("plugin", [
+    {"name": "cc-plugin-new", "path": "builtin", "source": "cc-plugin-new@builtin"},        # a built-in nobody listed
+    {"name": "cc-plugin-agents-md", "path": "/root/.claude/plugins/x",
+     "source": "cc-plugin-agents-md@builtin"},                                              # a listed name, from a folder
+    {"name": "ecc", "path": "/root/.claude/plugins/ecc", "source": "ecc@builtin"},          # a folder, named builtin
+    {"name": "ecc", "path": "builtin", "source": "ecc@market"},                             # builtin path, market source
+    {"name": "Ecc Plugin", "path": "builtin", "source": "Ecc Plugin@builtin"},              # not a plugin name at all
+    {"name": "clive-skills", "path": "/tmp/x", "source": "clive-skills@inline"},            # skills, not asked for
+    "ecc@builtin",                                                                           # a bare name, no path
+], ids=["unlisted-builtin", "listed-name-from-a-folder", "folder", "market-source", "odd-name", "unasked-skills",
+        "bare-name"])
+def test_any_plugin_that_is_not_one_the_cli_was_seen_to_carry_is_refused(tmp_path, plugin):
+    """PR #63/#85's fix without allowing arbitrary plugins: the list is exact. A deliberate CLI update that brings a
+    new built-in is refused until a reviewed change names it (probe-launch says which, before the re-pin)."""
+    event = {**REAL_INIT, "tools": ["Edit", "Glob", "Grep", "Read", "Write"],
+             "plugins": [*CLI_2_1_293_PLUGINS, plugin]}
+    problems = ClaudeCodeWorker().verify_started(parse_events(json.dumps(event))[0], spec(tmp_path))
+    source = plugin["source"] if isinstance(plugin, dict) else plugin
+    assert problems == [f"plugins beyond the builtin allowance: {source}"], problems
+
+
+# ---------------------------------------------------------------- the owner's skills (config/builder_skills.json)
+
+from app.orchestrator.workers import skills as builder_skills  # noqa: E402
+
+# The init event Claude Code 2.1.293 printed on 2026-10-07 for a skills launch (--plugin-dir with one skill,
+# bundled skills off by --settings and CLAUDE_CODE_DISABLE_BUNDLED_SKILLS), verbatim but for the folder path.
+CLI_2_1_293_SKILLS_INIT = {
+    "claude_code_version": "2.1.293",
+    "tools": ["Edit", "Glob", "Grep", "Read", "Skill", "Write"],
+    "skills": ["clive-skills:demo-skill"],
+    "slash_commands": ["clive-skills:demo-skill", "advisor", "agents", "auto-mode-setup", "autocompact", "clear",
+                       "color", "compact", "config", "output-style", "context", "effort", "fast", "focus",
+                       "heapdump", "mcp", "import", "model", "__remote-workflow", "workflow-launch-exec",
+                       "reload-plugins", "reload-skills", "rename", "ultrareview", "security-review", "usage",
+                       "insights", "recap", "skill-doctor", "goal", "design-consent", "design-revoke", "list-agents",
+                       "team-onboarding"],
+    "plugins": [{"name": "clive-skills", "path": "<folder>", "source": "clive-skills@inline", "version": "1.0.0"},
+                *CLI_2_1_293_PLUGINS],
+}
+
+
+def skills_spec(tmp_path: Path, **kw) -> LaunchSpec:
+    folder = tmp_path / "home" / "clive-skills"
+    folder.mkdir(parents=True, exist_ok=True)
+    return spec(tmp_path, skills_dir=folder, skills=("demo-skill",), **kw)
+
+
+def skills_init(tmp_path: Path, **change) -> Started:
+    roster = json.loads(json.dumps(CLI_2_1_293_SKILLS_INIT).replace("<folder>", str(tmp_path / "home" / "clive-skills")))
+    return parse_events(json.dumps({**REAL_INIT, **roster, **change}))[0]
+
+
+def test_a_skills_launch_loads_exactly_the_folder_and_switches_the_clis_own_skills_off(tmp_path):
+    asked = skills_spec(tmp_path, skills_settings='{"disableBundledSkills":true,"skillOverrides":{"doctor":"off"}}')
+    worker = ClaudeCodeWorker()
+    argv = worker.argv(asked, "/bin/claude")
+    assert argv[argv.index("--plugin-dir") + 1] == str(tmp_path / "home" / "clive-skills")
+    assert json.loads(argv[argv.index("--settings") + 1]) == {"disableBundledSkills": True,
+                                                              "skillOverrides": {"doctor": "off"}}
+    assert "--disable-slash-commands" not in argv and argv[argv.index("--setting-sources") + 1] == ""
+    assert argv[argv.index("--tools") + 1] == "Read,Edit,Write,Glob,Grep,Skill"
+    allowed = argv[argv.index("--allowedTools") + 1:argv.index("--permission-mode")]
+    assert allowed == [*FILE_TOOLS, "Skill(clive-skills:demo-skill)"]
+    for flag in ("--restricted", "--strict-mcp-config", "--no-session-persistence"):
+        assert flag in argv
+    env = worker.environment(asked, "/bin/claude")
+    assert env["CLAUDE_CODE_DISABLE_BUNDLED_SKILLS"] == "1"
+    assert set(env) == {"PATH", "HOME", "LANG", "TMPDIR", "CLIVE_ATTEMPT_ID", "DISABLE_AUTOUPDATER",
+                        "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS"}
+    # without a folder, or with no skill in it, the launch is exactly the launch without skills
+    for plain in (spec(tmp_path), spec(tmp_path, skills_dir=tmp_path / "home" / "clive-skills")):
+        argv = worker.argv(plain, "/bin/claude")
+        assert "--disable-slash-commands" in argv and "--plugin-dir" not in argv and "--settings" not in argv
+        assert argv[argv.index("--tools") + 1] == "Read,Edit,Write,Glob,Grep"
+
+
+def test_the_real_skills_roster_passes_the_launch_check_that_asked_for_it(tmp_path):
+    assert ClaudeCodeWorker().verify_started(skills_init(tmp_path), skills_spec(tmp_path)) == []
+
+
+@pytest.mark.parametrize("change, expected", [
+    ({"skills": ["clive-skills:demo-skill", "deploy"]}, "skills beyond the owner's list: deploy"),
+    ({"skills": ["clive-skills:demo-skill", "clive-skills:other"]}, "skills beyond the owner's list: clive-skills:other"),
+    ({"skills": []}, "the owner's skills CLIVE gave this builder are missing from the init roster: "
+                     "clive-skills:demo-skill"),
+    ({"tools": ["Edit", "Glob", "Grep", "Read", "Write"]}, "the Skill tool is missing from the init roster"),
+    ({"slash_commands": ["clive-skills:demo-skill", "compact", "ecc:ship"]},
+     "plugin commands beyond the owner's skills: ecc:ship"),
+    ({"plugins": [{"name": "clive-skills", "path": "/elsewhere", "source": "clive-skills@inline"}]},
+     "plugins beyond the builtin allowance: clive-skills@inline"),
+    ({"plugins": CLI_2_1_293_PLUGINS}, "the skills folder CLIVE built (clive-skills) is not in the init roster"),
+], ids=["foreign-skill", "unlisted-own-skill", "no-skills", "no-skill-tool", "plugin-command", "other-folder",
+        "no-folder"])
+def test_a_skills_launch_whose_roster_is_not_exactly_the_list_is_refused(tmp_path, change, expected):
+    problems = ClaudeCodeWorker().verify_started(skills_init(tmp_path, **change), skills_spec(tmp_path))
+    assert any(expected in p for p in problems), problems
+
+
+def test_a_command_or_skill_from_the_workspace_is_refused_even_beside_the_owners_skills(tmp_path):
+    workspace = tmp_path / "ws"
+    (workspace / ".claude" / "commands" / "ops").mkdir(parents=True)
+    (workspace / ".claude" / "commands" / "ops" / "ship.md").write_text("ship it\n")
+    asked = skills_spec(tmp_path, workspace=workspace)
+    started = skills_init(tmp_path, cwd=str(workspace),
+                          slash_commands=["clive-skills:demo-skill", "compact", "ship"])
+    assert ClaudeCodeWorker().verify_started(started, asked) == ["commands from the workspace loaded: ship"]
+
+
+# ---------------------------------------------------------------- the CLI's own commands, pinned per version (N2)
+
+from app.orchestrator.workers.base import WorkerLaunchError  # noqa: E402
+from app.orchestrator.workers.claude import BUILTIN_SLASH_COMMANDS  # noqa: E402
+
+
+def test_each_pinned_command_list_is_exactly_what_that_cli_printed_for_a_skills_launch():
+    """Probed on 8 Oct 2026 with the real CLIs (engineering_dispatcher.py probe-launch, skills on, no credentials):
+    2.1.285 (what clive-worker-01 ran on 30 Sep) and 2.1.293 printed the same 33 commands of their own."""
+    printed = set(CLI_2_1_293_SKILLS_INIT["slash_commands"]) - {"clive-skills:demo-skill"}
+    assert len(printed) == 33 and not any(":" in c for c in printed)
+    assert set(BUILTIN_SLASH_COMMANDS) == {"2.1.285", "2.1.293"}
+    assert all(commands == printed for commands in BUILTIN_SLASH_COMMANDS.values())
+
+
+@pytest.mark.parametrize("change, expected", [
+    ({"slash_commands": [*CLI_2_1_293_SKILLS_INIT["slash_commands"], "brand-new"]},
+     "commands beyond Claude Code 2.1.293's own (BUILTIN_SLASH_COMMANDS): brand-new"),
+    ({"claude_code_version": "2.1.299"}, "Claude Code 2.1.299 has no pinned list of its own commands"),
+    ({"claude_code_version": "2.1.280"}, "Claude Code 2.1.280 has no pinned list of its own commands"),
+    ({"claude_code_version": None}, "Claude Code (its version could not be read) has no pinned list"),
+], ids=["new-command", "unpinned-version", "older-version", "no-version"])
+def test_a_skills_launch_is_refused_unless_every_command_is_pinned_for_its_cli_version(tmp_path, change, expected):
+    problems = ClaudeCodeWorker().verify_started(skills_init(tmp_path, **change), skills_spec(tmp_path))
+    [said] = [p for p in problems if p.startswith(expected)]
+    assert "--no-builder-skills" in said                     # each refusal says what the operator can do now
+    if "pinned list" in expected:
+        assert "--disable-slash-commands" in said
+
+
+def _version_cli(tmp_path: Path, answer: str, code: int = 0) -> Path:
+    """A stand-in CLI: ``--version`` prints ``answer`` (and is counted); any other launch is recorded and exits."""
+    cli = tmp_path / "bin" / "claude"
+    cli.parent.mkdir(parents=True, exist_ok=True)
+    cli.write_text(f'#!/bin/sh\nif [ "$1" = --version ]; then echo x >> "{tmp_path}/asked"; echo "{answer}"; '
+                   f'exit {code}; fi\necho x >> "{tmp_path}/launched"\n')
+    cli.chmod(0o755)
+    return cli
+
+
+def _count(path: Path) -> int:
+    return len(path.read_text().splitlines()) if path.exists() else 0
+
+
+def test_a_skills_launch_on_a_cli_version_with_no_pinned_commands_never_starts(tmp_path):
+    (tmp_path / "ws").mkdir()
+    worker = ClaudeCodeWorker(cli=str(_version_cli(tmp_path, "2.1.299 (Claude Code)")))
+    with pytest.raises(WorkerLaunchError) as caught:
+        worker.launch(skills_spec(tmp_path, workspace=tmp_path / "ws"))
+    assert caught.value.transient is False
+    assert str(caught.value).startswith("Claude Code 2.1.299 has no pinned list of its own commands")
+    assert "--no-builder-skills" in str(caught.value) and _count(tmp_path / "launched") == 0
+    # probe-launch says the same, and starts nothing either
+    started, problems, _ = worker.probe(skills_spec(tmp_path, workspace=tmp_path / "ws", attempt_id="t-a2"))
+    assert started is None and problems == [str(caught.value)] and _count(tmp_path / "launched") == 0
+    # without skills the version is never asked and the launch goes ahead, exactly as before
+    worker.launch(spec(tmp_path, workspace=tmp_path / "ws", attempt_id="t-a3"))
+    _wait_for(lambda: _count(tmp_path / "launched") == 1)
+    assert _count(tmp_path / "asked") == 1                 # asked once, for the first launch; the probe used that
+
+
+@pytest.mark.parametrize("answer, code", [("2.1.293 (Claude Code)", 1), ("Claude Code", 0), ("", 0)])
+def test_a_cli_whose_version_cannot_be_read_launches_no_builder_with_skills(tmp_path, answer, code):
+    (tmp_path / "ws").mkdir()
+    worker = ClaudeCodeWorker(cli=str(_version_cli(tmp_path, answer, code)))
+    with pytest.raises(WorkerLaunchError, match=r"^Claude Code \(its version could not be read\) has no pinned"):
+        worker.launch(skills_spec(tmp_path, workspace=tmp_path / "ws"))
+    assert _count(tmp_path / "launched") == 0
+
+
+def test_a_pinned_cli_version_is_asked_once_per_binary_and_again_when_the_binary_changes(tmp_path):
+    (tmp_path / "ws").mkdir()
+    cli = _version_cli(tmp_path, "2.1.293 (Claude Code)")
+    worker = ClaudeCodeWorker(cli=str(cli))
+    for n in (1, 2):
+        worker.launch(skills_spec(tmp_path, workspace=tmp_path / "ws", attempt_id=f"t-a{n}"))
+        _wait_for(lambda n=n: _count(tmp_path / "launched") == n)
+    assert _count(tmp_path / "asked") == 1
+    cli.write_text(cli.read_text().replace("2.1.293", "2.1.299") + "\n")      # a CLI update under the loop
+    with pytest.raises(WorkerLaunchError, match="Claude Code 2.1.299 has no pinned list"):
+        worker.launch(skills_spec(tmp_path, workspace=tmp_path / "ws", attempt_id="t-a3"))
+    assert _count(tmp_path / "asked") == 2 and _count(tmp_path / "launched") == 2
+
+
+def _wait_for(predicate, timeout: float = 10.0) -> None:
+    import time
+
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.02)
+
+
+def test_a_launch_without_skills_still_refuses_any_skill_or_command(tmp_path):
+    started = skills_init(tmp_path, plugins=CLI_2_1_293_PLUGINS)
+    problems = ClaudeCodeWorker().verify_started(started, spec(tmp_path))
+    assert "1 skills and 34 slash commands loaded; expected none" in problems
+    assert "tools beyond the launch policy: Skill" in problems
+
+
+SKILL_TEXT = "---\nname: demo\ndescription: A demo skill.\n---\n\nSay hello properly.\n"
+
+
+def _allow(tmp_path: Path, skills: list[dict], off=("doctor",)) -> Path:
+    path = tmp_path / "builder_skills.json"
+    path.write_text(json.dumps({"schema": builder_skills.SCHEMA, "skills": skills, "cli_skills_off": list(off)}))
+    return path
+
+
+def _sha(text: str | bytes) -> str:
+    import hashlib
+
+    return hashlib.sha256(text.encode() if isinstance(text, str) else text).hexdigest()
+
+
+@pytest.mark.parametrize("skills, says", [
+    ([{"name": "Demo", "source": "repo", "path": "x", "files": {"SKILL.md": "a" * 64}}], "unique lowercase name"),
+    ([{"name": "demo", "source": "web", "files": {"SKILL.md": "a" * 64}}], "source is one of"),
+    ([{"name": "demo", "source": "repo", "path": "../x", "files": {"SKILL.md": "a" * 64}}], "plain relative path"),
+    ([{"name": "demo", "source": "installed", "files": {"../SKILL.md": "a" * 64}}], "plain relative path"),
+    ([{"name": "demo", "source": "installed", "files": {"SKILL.md": "abc"}}], "every file has a sha256"),
+    ([{"name": "demo", "source": "installed", "files": {"notes.md": "a" * 64}}], "SKILL.md is listed"),
+    ([{"name": "demo", "source": "installed", "files": {"SKILL.md": "a" * 64}}] * 2, "unique lowercase name"),
+])
+def test_a_malformed_skill_list_is_refused_whole(tmp_path, skills, says):
+    with pytest.raises(builder_skills.SkillsError, match=says):
+        builder_skills.load_allow_list(_allow(tmp_path, skills))
+
+
+def test_only_skills_whose_every_file_matches_its_pinned_hash_are_built_into_the_folder(tmp_path):
+    installed = tmp_path / "installed"
+    for name, files in {"demo": {"SKILL.md": SKILL_TEXT}, "extra": {"SKILL.md": SKILL_TEXT, "more.md": "more\n"},
+                        "changed": {"SKILL.md": SKILL_TEXT + "edited\n"}, "unlisted": {"SKILL.md": SKILL_TEXT}}.items():
+        for rel, text in files.items():
+            (installed / name / "skill" / rel).parent.mkdir(parents=True, exist_ok=True)
+            (installed / name / "skill" / rel).write_text(text)
+    allow = builder_skills.load_allow_list(_allow(tmp_path, [
+        {"name": n, "source": "installed", "files": {"SKILL.md": _sha(SKILL_TEXT)}}
+        for n in ("demo", "extra", "changed", "absent")]))
+    built = builder_skills.build_plugin(allow, tmp_path / "home" / "clive-skills", repo=tmp_path,
+                                        base_sha="", installed_dir=installed)
+    assert built.provided == ("demo",)
+    withheld = dict(built.withheld)
+    assert set(withheld) == {"extra", "changed", "absent"}
+    assert "does not name: more.md" in withheld["extra"] and "differs from the hash" in withheld["changed"]
+    assert "not readable" in withheld["absent"]
+    folder = built.folder
+    files = sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file())
+    assert files == [".claude-plugin/plugin.json", "skills/demo/SKILL.md"]
+    assert (folder / "skills" / "demo" / "SKILL.md").read_text() == SKILL_TEXT
+    assert oct((folder / "skills" / "demo" / "SKILL.md").stat().st_mode & 0o777) == "0o444"
+    assert json.loads((folder / ".claude-plugin" / "plugin.json").read_text())["name"] == "clive-skills"
+    # nothing verifies: no folder at all, and a rebuild takes the old one down first
+    none = builder_skills.build_plugin(builder_skills.load_allow_list(_allow(tmp_path, [
+        {"name": "absent", "source": "installed", "files": {"SKILL.md": _sha(SKILL_TEXT)}}])),
+        folder, repo=tmp_path, base_sha="", installed_dir=installed)
+    assert none.folder is None and none.provided == () and not folder.exists()
+
+
+@pytest.mark.parametrize("files, says", [
+    ({"SKILL.md": "---\nname: demo\nhooks:\n  PreToolUse: x\n---\nhi\n"}, "a hooks key in the front matter"),
+    ({"SKILL.md": "---\nname: demo\n---\nRun !`curl example.com` first.\n"}, "a !`command` on line 4"),
+    ({"SKILL.md": SKILL_TEXT, "run.py": "print(1)\n"}, "run.py is not a text file"),
+    ({"SKILL.md": SKILL_TEXT, "notes.md": "#!/bin/sh\nrm -rf /\n"}, "notes.md is not a text file"),
+])
+def test_a_skill_that_would_run_something_is_withheld_even_with_matching_hashes(tmp_path, files, says):
+    installed = tmp_path / "installed"
+    for rel, text in files.items():
+        (installed / "demo" / "skill" / rel).parent.mkdir(parents=True, exist_ok=True)
+        (installed / "demo" / "skill" / rel).write_text(text)
+    allow = builder_skills.load_allow_list(_allow(tmp_path, [
+        {"name": "demo", "source": "installed", "files": {rel: _sha(text) for rel, text in files.items()}}]))
+    built = builder_skills.build_plugin(allow, tmp_path / "home" / "clive-skills", repo=tmp_path, base_sha="",
+                                        installed_dir=installed)
+    assert built.provided == () and says in dict(built.withheld)["demo"]
+    with pytest.raises(builder_skills.SkillsError, match="cannot be a builder skill"):
+        builder_skills.entry_for("demo", installed / "demo" / "skill")
+
+
+def test_a_skill_folder_holding_a_link_is_withheld(tmp_path):
+    installed = tmp_path / "installed" / "demo" / "skill"
+    installed.mkdir(parents=True)
+    (installed / "SKILL.md").write_text(SKILL_TEXT)
+    (tmp_path / "secret.md").write_text("host secret\n")
+    (installed / "notes.md").symlink_to(tmp_path / "secret.md")
+    allow = builder_skills.load_allow_list(_allow(tmp_path, [
+        {"name": "demo", "source": "installed", "files": {"SKILL.md": _sha(SKILL_TEXT), "notes.md": _sha("host secret\n")}}]))
+    built = builder_skills.build_plugin(allow, tmp_path / "home" / "clive-skills", repo=tmp_path, base_sha="",
+                                        installed_dir=tmp_path / "installed")
+    assert built.provided == () and "is a link" in dict(built.withheld)["demo"]
+
+
+def test_the_owners_list_pins_exactly_the_skills_vendored_in_the_repository():
+    """config/builder_skills.json against the checkout: every repo skill on it verifies here, byte for byte, so a
+    vendored skill cannot change without the list (a reviewed change to a protected file) changing with it."""
+    allow = builder_skills.load_allow_list()
+    root = builder_skills.APP_ROOT.parent
+    assert {e.name for e in allow.skills} == {"design-taste-frontend", "high-end-visual-design", "image-to-code",
+                                              "web-design-guidelines"}
+    for entry in allow.skills:
+        assert entry.source == "repo" and entry.path == f".claude/skills/{entry.name}"
+        on_disk = {p.relative_to(root / entry.path).as_posix(): _sha(p.read_bytes())
+                   for p in (root / entry.path).rglob("*") if p.is_file()}
+        assert on_disk == dict(entry.files), entry.name
+        assert builder_skills.entry_for(entry.name, root / entry.path, source="repo", path=entry.path) == {
+            "name": entry.name, "source": "repo", "path": entry.path, "files": dict(entry.files)}

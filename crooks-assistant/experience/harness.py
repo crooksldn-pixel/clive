@@ -621,6 +621,8 @@ _TOOL_CONFIG = (
     ("app.speech.voice_prefs", ("_CONFIG",)),
     ("app.clients.crooks_returns", ("_SETTINGS",)),
     ("app.tools.skill_tools", ("_CONFIG",)),
+    # [loop upgrade, 7 Oct] the build server's private channel the Builds screen reads (engineering_private.configure)
+    ("app.engineering_bridge.private", ("_STATE",)),
 )
 # And the stores `build` configures by setting an instance's attributes: (module, the instance's
 # name there, its attributes) — the team's cards (`people_store.configure`) and the work list's

@@ -266,6 +266,11 @@
     for (const [label, words, code] of rows) {
       if (text(words)) add(more, el('p', 'bd-tk', label), el('p', code ? 'bd-tv is-code' : 'bd-tv', words));
     }
+    // From the build server's private record only (the loop's upgrade of 7 Oct): kept as printed, line by line.
+    for (const out of Array.isArray(d.check_output) ? d.check_output : []) {
+      if (text(out)) add(more, el('p', 'bd-tk', 'What the failing check printed'), el('p', 'bd-tv is-code is-lines', out));
+    }
+    if (text(d.builder_said)) add(more, el('p', 'bd-tk', 'The builder’s own words'), el('p', 'bd-tv', d.builder_said));
     const tries = list(d.tries);
     if (tries.length > 1) {
       add(more, el('p', 'bd-tk', `Tries (${tries.length})`));
@@ -305,7 +310,10 @@
       body.appendChild(all);
     } else if (Array.isArray(b.finding_ids) && b.finding_ids.length) {
       const ids = b.finding_ids.map(text).join(', ');
-      add(body, el('p', 'bd-muted', `What ${ids} ${b.finding_ids.length === 1 ? 'says is' : 'say is'} kept on the build server: the loop doesn't publish the reviewer's wording yet, so CLIVE can't show it here.`));
+      const said = `What ${ids} ${b.finding_ids.length === 1 ? 'says is' : 'say is'} kept on the build server`;
+      add(body, el('p', 'bd-muted', o.private
+        ? `${said}, and its private record didn't have the wording when CLIVE last read it.`
+        : `${said}: GitHub never carries the reviewer's wording, and CLIVE isn't linked to the server's private record yet.`));
     }
     if (text(b.note)) add(body, el('p', 'bd-muted', b.note));
     // Why it matters, when a gap CLIVE recorded says so; without one, the plain fact, quietly.
@@ -362,7 +370,7 @@
       const builds = list(g.builds);
       const cut = g.key === 'live' && builds.length > LIVE_SHOWN && !o.allLive;
       for (const b of cut ? builds.slice(0, LIVE_SHOWN) : builds) {
-        const node = buildNode(b, o);
+        const node = buildNode(b, { ...o, private: p.private === true });
         if (Array.isArray(o.drawn)) o.drawn.push([node, text(b.key)]);
         rows.appendChild(node);
       }
