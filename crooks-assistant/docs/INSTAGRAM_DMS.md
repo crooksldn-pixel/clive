@@ -78,7 +78,8 @@ http://127.0.0.1:8000/hooks/instagram`. From outside the tailnet `curl -si <the 
    the Instagram app's secret (`instagram_app_secret`, and only it: the WhatsApp app's secret is
    never tried here, even when both products sit on one Meta app), compared in constant time
    before anything is parsed; then strict UTF-8 JSON for the
-   `instagram` object, under 3 MB. Anything else: **403 with an empty body**. The same body again
+   `instagram` object, under 3 MB, at most four read at once. Anything else: **403 with an empty
+   body**. The same body again
    within ten minutes is dropped; every message is stored once by Instagram's own id.
 2. **Stored at once**: each message (Instagram's millisecond times read as seconds), a message the
    account sent from the Instagram app kept as "the Instagram app" (Instagram echoes them), and

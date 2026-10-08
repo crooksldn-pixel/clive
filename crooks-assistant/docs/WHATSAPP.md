@@ -141,7 +141,8 @@ answers **403 with an empty body** (no verify token), and any other path is a 40
 ## 6. What CLIVE does with each message
 
 1. **At the door** (`app/routes/hooks.py`, `app/messaging/meta.py`): a body over Meta's 3 MB is
-   refused before it is read. Meta's URL check is answered with its challenge only for the stored
+   refused before it is read, and at most four bodies are read at once at each door (a fifth gets
+   the same empty 403, unread, and Meta sends it again later). Meta's URL check is answered with its challenge only for the stored
    verify token, compared in constant time. A POST is read only when its `X-Hub-Signature-256`
    is `sha256=` and the HMAC-SHA256 of the raw body under the app secret, compared in constant
    time, **before** the body is decoded or parsed; then it must be strict UTF-8 JSON, one object,

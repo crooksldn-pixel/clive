@@ -305,6 +305,51 @@ async def test_a_change_for_another_of_the_apps_numbers_is_answered_and_left_alo
     assert response.status_code == 200 and store.threads() == []
 
 
+async def test_only_a_few_bodies_are_read_at_once_at_each_door_and_one_more_is_refused_unread(client, meta):  # noqa: F811
+    """[channels] Review note 8: unauthenticated bodies up to 3 MB can't pile up. While MAX_READING
+    are being read at /hooks/whatsapp, one more gets an empty 403 at once, even a signed one, and is
+    never read; the Instagram door is not shut by it; once they finish, the door takes messages again."""
+    import asyncio
+
+    from app.routes import hooks
+
+    _closed_to_the_public(client)
+    at_once = getattr(hooks, "MAX_READING", 4)
+    release, reading = asyncio.Event(), []
+
+    async def slow():
+        reading.append(1)                                    # the door has started reading this one
+        yield b'{"object": "whatsapp_business_account", "entry": ['
+        await release.wait()
+        yield b"]}"
+
+    unsigned = {"X-Hub-Signature-256": "sha256=" + "0" * 64, "Content-Type": "application/json"}
+    hanging = [asyncio.create_task(client.post("/hooks/whatsapp", content=slow(), headers=unsigned))
+               for _ in range(at_once)]
+    for _ in range(400):
+        if len(reading) == at_once:
+            break
+        await asyncio.sleep(0.005)
+    assert len(reading) == at_once
+    busy_before = guard_module.GUARD.refused.get("whatsapp:busy", 0)
+    one_more = await _post(client, meta_world.wa_text("hi", msg_id="wamid.BUSY"))
+    assert (one_more.status_code, one_more.content) == (403, b"")
+    assert guard_module.GUARD.refused.get("whatsapp:busy", 0) == busy_before + 1
+    other_door = meta_world.raw(meta_world.ig_text("hi", mid="igmid.OPEN"))
+    instagram_door = await client.post("/hooks/instagram", content=other_door,
+                                       headers=meta_world.sign(other_door, meta_world.IG_SECRET))
+    assert instagram_door.status_code == 200
+    release.set()
+    finished = await asyncio.gather(*hanging)
+    assert [(r.status_code, r.content) for r in finished] == [(403, b"")] * at_once
+    assert hooks._READING.get("whatsapp") == 0
+    again = await _post(client, meta_world.wa_text("hi", msg_id="wamid.AFTER"))
+    await ingest.settle()
+    assert again.status_code == 200
+    remote = [m.remote_id for th in store.threads() for m in store.messages(th.chat_id)]
+    assert "wamid.AFTER" in remote and "wamid.BUSY" not in remote
+
+
 async def test_the_body_cap_is_metas_three_megabytes_for_whatsapp_not_wecoms_64_kilobytes(client, meta):  # noqa: F811
     batch = meta_world.wa_text("hi", msg_id="wamid.BIG")
     batch["entry"][0]["changes"][0]["value"]["messages"][0]["text"]["body"] = "x" * (200 * 1024)

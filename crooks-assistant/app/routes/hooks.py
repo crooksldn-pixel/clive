@@ -22,6 +22,10 @@ What it promises, in this order, for every request:
    what has to be read from WeCom, every translation and every name, comes after
    (app/messaging/ingest.py). A repeat of one already accepted gets the same 200 and is dropped.
 6. Nothing a request carried is logged: app/logging/quiet.py keeps the query off the access line.
+7. [channels] At most MAX_READING bodies per channel are read and checked at once (review note 8):
+   anyone can post here, before any signature is proved, up to 3 MB each on Meta's doors. One more
+   meanwhile gets the same empty 403 at once, unread; Meta and WeCom send it again later. Each
+   channel has its own count, so a flood at one door never shuts another.
 """
 
 from __future__ import annotations
@@ -58,6 +62,24 @@ def routed_path(request: Request) -> str:
     return str(request.scope.get("path") or "")
 
 
+# [channels] How many POST bodies one door reads and checks at once: 4 x 3 MB on each Meta door.
+MAX_READING = 4
+_READING: dict[str, int] = {}
+
+
+def _reading(channel: str) -> bool:
+    """Take one of the channel's reading places, or say there is none free. One event loop serves
+    every request, so a plain count is exact; nothing here waits."""
+    if _READING.get(channel, 0) >= MAX_READING:
+        return False
+    _READING[channel] = _READING.get(channel, 0) + 1
+    return True
+
+
+def _done_reading(channel: str) -> None:
+    _READING[channel] = max(0, _READING.get(channel, 0) - 1)
+
+
 def _refused() -> Response:
     return Response(status_code=403, content=b"", headers={"Cache-Control": "no-store"})
 
@@ -84,6 +106,18 @@ async def _door(request: Request) -> Response:
     adapter = adapters.get(channel)
     if adapter is None:
         return _refused()
+    if request.method != "POST":
+        return await _answer(request, channel, adapter)
+    if not _reading(channel):
+        GUARD.refuse(channel, "busy")
+        return _refused()
+    try:
+        return await _answer(request, channel, adapter)
+    finally:
+        _done_reading(channel)
+
+
+async def _answer(request: Request, channel: str, adapter) -> Response:
     body = b""
     if request.method == "POST":
         held = await _bounded_body(request, int(getattr(adapter, "max_body", MAX_BODY_BYTES)))
