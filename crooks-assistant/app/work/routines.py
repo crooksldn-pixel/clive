@@ -13,7 +13,9 @@ What a routine is, and what it promises:
   runs or edits anyone else's (`who` is the authority's, app/work/routine_tools.py).
 * no record's id is kept. A step's arguments are what to look for and how ("orders from the last
   seven days", "tag friday-drop"); the record a change is made to is looked up again each run, as
-  it would be if he asked for it in words (routine_tools.py drops issued-id arguments on saving).
+  it would be if he asked for it in words (routine_tools.py drops the tool's issued-id arguments on
+  saving and refuses any other id). And no result shows a step's arguments as anything but one
+  JSON string, so a saved step can never make an id "issued" (`Step.public`).
 * running one changes nothing by itself: every step goes through the gate as the model's own call,
   and a change is only ever staged as a card waiting for his gesture (app/tools/gate.py has no path
   from a tool call to a mutation).
@@ -61,7 +63,11 @@ class Step:
     kind: str = "read"
 
     def public(self) -> dict[str, Any]:
-        return {"tool": self.tool, "say": self.say, "args": dict(self.args), "kind": self.kind}
+        """The step as a tool's result shows it. Its arguments are one JSON string (`args_json`),
+        never a dict: app/tools/dispatch.py issues every value it finds under an id key in a read's
+        result, and a saved step must never make an id "issued" for the conversation it is shown
+        in, today or any later day (the review's B1). Only a real lookup issues an id."""
+        return {"tool": self.tool, "say": self.say, "args_json": args_json(self.args), "kind": self.kind}
 
 
 @dataclass
@@ -84,6 +90,11 @@ class NamedRoutine:
         return {"routine_id": self.routine_id, "name": self.name, "steps": [s.public() for s in self.steps],
                 "changes": sum(1 for s in self.steps if s.kind == "change"), "created_at": self.created_at,
                 "changed_at": self.changed_at, "last_ran_at": self.last_ran_at, "runs": self.runs}
+
+
+def args_json(args: dict[str, Any]) -> str:
+    """A step's arguments as the one string every routine result carries (see `Step.public`)."""
+    return json.dumps(args, ensure_ascii=False, default=str)
 
 
 def clean_name(text: Any) -> str:

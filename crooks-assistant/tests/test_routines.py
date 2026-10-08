@@ -16,20 +16,27 @@ gate, action engine and presenters, with the model scripted (`experience/harness
 from __future__ import annotations
 
 import json
+import re
 import stat
 from dataclasses import asdict
 from types import SimpleNamespace
 
 import pytest
 
+from app.objectives import (
+    tools as objective_tools,  # noqa: F401 - registers the tools the steps name
+)
 from app.people import staff as staff_rules
 from app.providers.base import ToolCall
 from app.tools import (  # noqa: F401 - registers the tools the steps name, and the test tools a step must not be
+    analytics_tools,
     authority,
+    display_tools,
     gate,
     gmail_tools,
     mock,
     registry,
+    returns_tools,
     shopify_tools,
     shopify_writes,
 )
@@ -201,7 +208,7 @@ async def test_save_checks_each_step_and_keeps_no_id():
     assert said["said"] == "Saved" and routine["name"] == "Friday drop"
     assert [(s["tool"], s["kind"]) for s in routine["steps"]] == [
         ("shopify_list_orders", "read"), ("gmail_search", "read"), ("shopify_order_note_append", "change")]
-    assert routine["steps"][2]["args"] == {"note": "Packed first"}, "the order's id is looked up again each run"
+    assert routine["steps"][2]["args_json"] == '{"note": "Packed first"}', "the order's id is looked up again each run"
     assert said["ids_not_kept"] == ["step 3: order_id"]
     assert ORDER not in json.dumps(book.of("owner")[0].public())
 
@@ -276,7 +283,7 @@ async def test_he_builds_a_routine_step_by_step_and_edits_it():
         said = await routine_tools.routine_note(action="change", name="monday check", at=2,
                                                 steps=[step("gmail_search", "Who wrote this week", query="newer_than:7d")])
         assert said["routine"]["steps"][1] == {"tool": "gmail_search", "say": "Who wrote this week",
-                                               "args": {"query": "newer_than:7d"}, "kind": "read"}
+                                               "args_json": '{"query": "newer_than:7d"}', "kind": "read"}
         said = await routine_tools.routine_note(action="drop", name="monday check", at=1)
         assert said["said"] == "Took out step 1" and len(said["routine"]["steps"]) == 1
         with pytest.raises(ToolError, match="There is no step 4; it has 1"):
@@ -291,6 +298,115 @@ async def test_he_builds_a_routine_step_by_step_and_edits_it():
     assert book.of("owner") == []
 
 
+# ------------------------------------------------------------------ no routine tool ever issues an id (the review's B1)
+
+
+RETURN, CUSTOMER, OTHER = "ret_abcdef12", "gid://shopify/Customer/55555", "gid://shopify/Order/987654321"
+# The review's three: an id at the top of a step that is not the tool's own issued-id argument (twice),
+# and two nested in a value whose schema says text.
+WITH_IDS = [
+    step("return_find", "The return", return_id=RETURN),
+    step("screen_list", "Was it packed", order_id=ORDER),
+    step("shopify_find_order", "Find it", query={"order_id": OTHER, "customer_id": CUSTOMER}),
+]
+NO_ID = "A routine doesn't keep a record's id; say what to look for and each run finds it again."
+
+
+def _saved_before_ids_were_refused(folder, steps=WITH_IDS):
+    """A routine as the file held it before this fix: its steps kept with their ids."""
+    folder.mkdir(parents=True, exist_ok=True)
+    old = NamedRoutine("nr_0000dead", "Old", "owner", [Step(s["tool"], s["say"], s["args"], "read") for s in steps])
+    (folder / FILE).write_text(json.dumps({"routines": [asdict(old)]}))
+
+
+@pytest.mark.parametrize("bad", WITH_IDS + [
+    step("commerce_query", "Their orders", filters={"customer_id": CUSTOMER}),
+    step("shopify_order_fulfil", "Ship one line", items=[{"line_item_id": "gid://shopify/LineItem/1", "quantity": 1}]),
+    step("objective_open", "Open the drop", title="Drop", request="x", tasks=[{"who": "Ana", "text": "Pack", "id": "7"}]),
+])
+async def test_an_id_anywhere_in_a_step_is_refused_in_plain_words(bad):
+    with owner(), pytest.raises(ToolError, match=re.escape(NO_ID)):
+        await save(steps=[bad])
+    assert book.of("owner") == []
+
+
+async def test_no_routine_tool_issues_an_id_saving_listing_or_running_on_any_day(folder):
+    """Through the real dispatch, on the day and in a fresh session the next day: saving, listing and
+    running (a routine saved before ids were refused among them) leave `session.issued_ids` as they
+    were, and the order read in full on an id the routines held is still refused."""
+    from app.session.models import Session
+    from app.tools.dispatch import dispatch
+
+    _saved_before_ids_were_refused(folder)
+    for day in ("today", "tomorrow"):
+        session = Session(session_id=f"routines-{day}")
+        said = []
+
+        async def ask(name, args, session=session):
+            return await dispatch(name, args, session=session, timeout_s=5, calls=[])
+
+        with owner():
+            said.append(await ask("routine_note", {"action": "save", "name": f"Friday {day}", "steps": FRIDAY}))
+            for bad in WITH_IDS:
+                said.append(await ask("routine_note", {"action": "save", "name": "Ids", "steps": [bad]}))
+            said.append(await ask("routine_list", {}))
+            said.append(await ask("routine_list", {"name": "old"}))
+            said.append(await ask("routine_run", {"name": "old"}))
+            said.append(await ask("routine_run", {"name": f"friday {day}"}))
+            assert session.issued_ids == set(), session.issued_ids
+            for tool, arg, value in (("shopify_order_detail", "order_id", ORDER), ("shopify_order_detail", "order_id", OTHER),
+                                     ("shopify_customer_history", "customer_id", CUSTOMER)):
+                assert gate.classify(tool, {arg: value}, session.issued_ids).disposition is gate.Disposition.DENY, (tool, value)
+            refused = await ask("shopify_order_detail", {"order_id": OTHER})
+        assert refused.startswith(("NOT YET", "REFUSED")), refused
+        assert all(NO_ID in text for text in said[1:4]), said[1:4]
+        # The ids were in what the model read, as text it can see, never as values dispatch issues.
+        assert RETURN in said[5] and RETURN in said[6] and OTHER in said[6], said[6][:400]
+    assert [r.name for r in book.of("owner")] == ["Old", "Friday today", "Friday tomorrow"]
+
+
+async def test_a_step_saved_with_an_id_before_ids_were_refused_is_refused_when_run(folder):
+    _saved_before_ids_were_refused(folder, WITH_IDS + [step("shopify_list_orders", "Today's orders", days=1)])
+    with owner():
+        run = await routine_tools.routine_run(name="old")
+    assert [r.get("skip", "") for r in run["run"]] == ["it keeps a record's id; say again what it should look for"] * 3 + [""]
+    assert all(isinstance(r["args_json"], str) and "args" not in r for r in run["run"])
+    assert all(isinstance(s["args_json"], str) and "args" not in s for s in run["routine"]["steps"])
+
+
+@pytest.mark.parametrize(("bad", "why"), [
+    (step("shopify_find_order", "x", query={"number": "1940"}), "The shopify_find_order step's query is not text."),
+    (step("shopify_list_orders", "x", days="7"), "The shopify_list_orders step's days is not a whole number."),
+    (step("shopify_list_orders", "x", days=True), "The shopify_list_orders step's days is not a whole number."),
+    (step("shopify_list_orders", "x", days=None), "The shopify_list_orders step's days is not a whole number."),
+    (step("shopify_list_orders", "x", unfulfilled_only="yes"), "The shopify_list_orders step's unfulfilled_only is not yes or no."),
+    (step("screen_show", "x", screen="Office TV", lines="one line"), "The screen_show step's lines is not a list."),
+    (step("screen_show", "x", screen="Office TV", lines=["one", 2]), "The screen_show step's lines is not text."),
+    (step("screen_show", "x", screen="Office TV", replace="third"), "The screen_show step's replace is not one of first, second."),
+    (step("objective_open", "x", title="Drop", request="x", tasks=[{"who": "Ana", "text": "x", "colour": "red"}]),
+     "The objective_open step's tasks is holding colour, which it does not take."),
+    (step("commerce_query", "x", filters={"fulfillment": "unfulfilled"}),
+     "The commerce_query step's filters is holding fulfillment, which it does not take."),
+    (step("commerce_query", "x", period={"days": 7}), "The commerce_query step's period is not a plain value."),
+    (step("work_note", "x", action="counts", counts=[{"item": "Hoodie", "counted": 3}]),
+     "The work_note step's counts is a list of a shape CLIVE does not keep."),
+])
+async def test_each_argument_is_the_type_its_schema_declares_or_the_step_is_refused(bad, why):
+    with owner(), pytest.raises(ToolError, match=re.escape(why)):
+        await save(steps=[bad])
+    assert book.of("owner") == []
+
+
+async def test_arguments_of_the_declared_types_are_kept():
+    steps = [step("shopify_list_orders", "Unshipped this week", days=7, unfulfilled_only=True),
+             step("commerce_query", "This month's orders", period="this_month", sort="total desc"),
+             step("screen_show", "The plan on the office TV", screen="Office TV", title="Drop", lines=["Pack", "Post"]),
+             step("objective_open", "Open the drop", title="Drop", request="x", tasks=[{"who": "Ana", "text": "Pack"}])]
+    with owner():
+        said = await save(steps=steps)
+    assert [json.loads(s["args_json"]) for s in said["routine"]["steps"]] == [s["args"] for s in steps]
+
+
 # ------------------------------------------------------------------ running one
 
 
@@ -303,7 +419,7 @@ async def test_run_hands_over_the_steps_and_executes_nothing(monkeypatch):
     assert run["view"] == "run" and run["routine"]["name"] == "Friday drop"
     assert [(r["step"], r["tool"], r["change"]) for r in run["run"]] == [
         (1, "shopify_list_orders", False), (2, "gmail_search", False), (3, "shopify_order_note_append", True)]
-    assert run["run"][2]["args"] == {"note": "Packed first"} and "skip" not in run["run"][2]
+    assert run["run"][2]["args_json"] == '{"note": "Packed first"}' and "skip" not in run["run"][2]
     assert "only ever prepared as a card" in run["do"] and "find the record first" in run["do"]
     assert called == [], "routine_run calls no tool: each step is the model's own call, through the gate"
     kept = book.of("owner")[0]

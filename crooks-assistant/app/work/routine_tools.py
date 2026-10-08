@@ -9,9 +9,14 @@ What these tools promise:
   could not call themselves is refused when it is saved, and again when it is run.
 * A step is checked against the registry and the gate when it is saved: a tool CLIVE has, that the
   gate would run or stage (never a RED read, an unreviewed write or a test tool), with arguments
-  its schema names. Whether it is a read or a change is read from the registry, not said by the
-  model. An id is never kept (the gate's issued-id arguments are dropped and the model is told so):
-  each run looks its records up again, so a routine cannot act on yesterday's order by accident.
+  its schema names, each of the type its schema declares (`args_problem`). Whether it is a read or
+  a change is read from the registry, not said by the model. An id is never kept: the gate's
+  issued-id arguments are dropped and the model is told so, and any other value under a key
+  dispatch reads as an id, at any depth, is refused (a step already saved with one is refused when
+  it is run). Each run looks its records up again, so a routine cannot act on yesterday's order by
+  accident. And no result shows a step's arguments except as one JSON string (`args_json`), so
+  dispatch's harvest never issues an id from a saved step: only a real lookup does (the review's
+  B1).
 * routine_run executes nothing. It hands the model the steps, and the model calls each tool as it
   would if he had asked in words: every call goes through dispatch and the gate (app/tools/
   dispatch.py), so a read runs and a change is only ever STAGED as a card for his gesture. A step
@@ -30,10 +35,19 @@ from typing import Any
 from app.capabilities.families import CapabilityFamily, register
 from app.people import staff
 from app.tools import gate, registry
+from app.tools.dispatch import _ID_KEYS
 from app.tools.gate import Tier
 from app.tools.registry import ToolError, tool
 from app.work import tools as work_tools
-from app.work.routines import MAX_STEPS, NamedRoutine, RoutineError, Step, book, clean_say
+from app.work.routines import (
+    MAX_STEPS,
+    NamedRoutine,
+    RoutineError,
+    Step,
+    args_json,
+    book,
+    clean_say,
+)
 from app.work.store import VIA_CLIVE
 
 TOOLS = ("routine_list", "routine_note", "routine_run")
@@ -47,8 +61,8 @@ register(CapabilityFamily(
 
 # What the model is told to do with a routine's steps. In the result, not the description, so a
 # turn that never runs a routine pays nothing for it.
-RUN = ("Carry out every step now, in order, by calling its tool with its args; a step marked `skip` is not "
-       "called, and you say why. A step's args name no record by id: find the record first, as you would "
+RUN = ("Carry out every step now, in order, by calling its tool with the arguments in its `args_json`; a step "
+       "marked `skip` is not called, and you say why. A step names no record by id: find the record first, as you would "
        "if he had asked in words, and act on the one its `say` describes. Reads that do not depend on each "
        "other may go together. A change is only ever prepared as a card for the gesture: never say one was "
        "done. Add no step of your own. Then say in a sentence or two what ran, what is waiting on its card, "
@@ -105,8 +119,84 @@ def _issued(name: str, spec: Any) -> set[str]:
     return set(spec.issued_id_args) | set(gate._ISSUED_ID_ARGS.get(name, ()))
 
 
+def _id_key_in(value: Any) -> str:
+    """The first key anywhere in `value` that dispatch reads as an id (its `_ID_KEYS`), or ""."""
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            found = str(key) if key in _ID_KEYS else _id_key_in(inner)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for inner in value:
+            found = _id_key_in(inner)
+            if found:
+                return found
+    return ""
+
+
+def _shape_problem(value: Any, schema: Any) -> str:
+    """Why `value` is not what its schema property declares, or "". Only what the schema says is
+    taken: a value of its declared type (one of its `enum`, when it has one); an object only where
+    it says object, holding only the keys it names, each checked the same way; a list only of its
+    declared item type. A property that declares no type takes a plain value. Any other shape is
+    refused, because what a routine keeps is replayed on every run."""
+    if not isinstance(schema, dict):
+        return "of a shape CLIVE does not keep"
+    kind = schema.get("type")
+    if kind is None and not ({"properties", "items", "anyOf", "oneOf", "allOf"} & set(schema)):
+        return "" if isinstance(value, (str, int, float, bool)) else "not a plain value"
+    if kind in _PLAIN:
+        wanted, words = _PLAIN[kind]
+        if isinstance(value, bool) is not (kind == "boolean") or not isinstance(value, wanted):
+            return f"not {words}"
+        enum = schema.get("enum")
+        return "not one of " + ", ".join(map(str, enum[:8])) if isinstance(enum, list) and value not in enum else ""
+    if kind == "array":
+        items = schema.get("items")
+        if not isinstance(value, list):
+            return "not a list"
+        if not isinstance(items, dict) or items.get("type") is None:
+            return "a list of a shape CLIVE does not keep"
+        return next((p for p in (_shape_problem(v, items) for v in value) if p), "")
+    if kind == "object":
+        named = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+        if not isinstance(value, dict):
+            return "not a set of named values"
+        for key, inner in value.items():
+            if key not in named:
+                return f"holding {str(key)[:30]}, which it does not take"
+            problem = _shape_problem(inner, named[key])
+            if problem:
+                return problem
+        return ""
+    return "of a shape CLIVE does not keep"
+
+
+_PLAIN = {"string": (str, "text"), "integer": (int, "a whole number"), "number": ((int, float), "a number"),
+          "boolean": (bool, "yes or no")}
+NO_ID = "A routine doesn't keep a record's id; say what to look for and each run finds it again."
+
+
+def args_problem(name: str, spec: Any, args: dict[str, Any]) -> str:
+    """Why these arguments cannot be kept as, or run from, a step of `name`, or "". The tool's own
+    issued-id arguments are left out before a step is saved; any of them still here, or any value
+    anywhere under a key dispatch reads as an id, is refused: kept, it would be the same record on
+    every run, and shown in a result it could be issued without a lookup (the review's B1)."""
+    known = (spec.input_schema or {}).get("properties") or {}
+    unknown = [str(k) for k in args if k not in known]
+    if unknown:
+        return f"{name} does not take an argument called {unknown[0][:30]}."
+    if set(args) & _issued(name, spec) or _id_key_in(args):
+        return NO_ID
+    for key, value in args.items():
+        problem = _shape_problem(value, known[key])
+        if problem:
+            return f"The {name} step's {str(key)[:30]} is {problem}."
+    return ""
+
+
 def checked_step(raw: Any, *, owner: bool) -> tuple[Step, list[str]]:
-    """One step as it is kept, and the id arguments left out of it."""
+    """One step as it is kept, and the tool's own id arguments left out of it."""
     if not isinstance(raw, dict):
         raise ToolError("Each step is {tool, args, say}.")
     name = registry.normalise_tool_name(str(raw.get("tool") or "").strip())
@@ -117,18 +207,17 @@ def checked_step(raw: Any, *, owner: bool) -> tuple[Step, list[str]]:
     args = raw.get("args") if raw.get("args") is not None else {}
     if not isinstance(args, dict):
         raise ToolError(f"The args of the {name} step are not a set of named values.")
-    known = (spec.input_schema or {}).get("properties") or {}
-    unknown = [str(k) for k in args if k not in known]
-    if unknown:
-        raise ToolError(f"{name} does not take an argument called {unknown[0][:30]}.")
     ids = _issued(name, spec)
+    kept = {k: v for k, v in args.items() if k not in ids}
+    problem = args_problem(name, spec, kept)
+    if problem:
+        raise ToolError(problem)
     try:
         say = clean_say(raw.get("say"))
     except RoutineError as exc:
         raise ToolError(_sentence(exc)) from None
     kind = "change" if spec.write is not None or spec.batch is not None else "read"
-    return Step(tool=name, say=say, args={k: v for k, v in args.items() if k not in ids}, kind=kind), sorted(
-        str(k) for k in args if k in ids)
+    return Step(tool=name, say=say, args=kept, kind=kind), sorted(str(k) for k in args if k in ids)
 
 
 def _steps(raw: Any, *, owner: bool) -> tuple[list[Step], list[str]]:
@@ -269,7 +358,7 @@ async def routine_run(name: str) -> dict[str, Any]:
         raise ToolError(f"{routine.name} has no steps yet.")
     run = []
     for number, step in enumerate(routine.steps, start=1):
-        row: dict[str, Any] = {"step": number, "say": step.say, "tool": step.tool, "args": dict(step.args),
+        row: dict[str, Any] = {"step": number, "say": step.say, "tool": step.tool, "args_json": args_json(step.args),
                                "change": step.kind == "change"}
         why = unavailable(step, owner=owner)
         if why:
@@ -288,6 +377,13 @@ def unavailable(step: Step, *, owner: bool) -> str:
     spec = registry.get(step.tool)
     if (spec.write is not None or spec.batch is not None) and step.kind != "change":
         return "it was saved as a read and is now a change"
+    problem = args_problem(step.tool, spec, step.args)
+    if problem == NO_ID:
+        # Saved before ids were refused, or written into the file by hand: never run, never shown
+        # as anything but text (Step.public), and said, so he can say again what to look for.
+        return "it keeps a record's id; say again what it should look for"
+    if problem:
+        return "its details are not ones its tool takes now"
     runtime = work_tools._RUNTIME[0]
     if runtime is None:
         return ""
