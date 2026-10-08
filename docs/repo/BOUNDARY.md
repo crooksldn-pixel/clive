@@ -51,7 +51,8 @@ branches until they are archived with a tag.
 ## The order of operations (for the Termius Claude)
 
 0. **Before you start:** this change is on `clive/trunk` (it carries the imported history; without
-   it the 9 knowledge-only branches wait). George has made `clive/trunk` the default branch.
+   it the 9 knowledge-only branches and the 2 other branches of pull requests #1 and #2 wait).
+   George has made `clive/trunk` the default branch.
 1. **Create the empty private repository** `crooksldn-pixel/crooksldn-theme`: no README, no
    .gitignore, no licence.
 2. **`scripts/repo/move_theme.sh`**, then **`scripts/repo/move_theme.sh --apply`.** It pushes the
@@ -67,8 +68,12 @@ branches until they are archived with a tag.
 
 ### Closing pull requests #1 and #2
 
-Both are drafts from 18 and 19 September against branches that no longer matter. Close them after
-this change is on `clive/trunk`, before `archive_branches.sh` deletes their branches:
+PR #1 (a draft of 18 September) and PR #2 (19 September) are stale, against branches that no longer
+matter. Close them after this change is on `clive/trunk`, before `archive_branches.sh` deletes
+their branches. Deleting a pull request's head or base branch makes GitHub close it without a
+word, so all three of their branches wait on the archive list for the same path step 5 checks:
+`claude/product-memory-foundation` (head of #1, base of #2), `chatgpt/ops-memory-2026-09-19`
+(head of #2) and `claude/crooks-assistant-build-lgxlau` (base of #1).
 
 ```bash
 gh api -X POST repos/crooksldn-pixel/clive/issues/1/comments -f body='Closed as stale: everything here reached clive/trunk (staged in _incoming/truth by PR #10 and folded in by PR #14). The branch is kept as the tag archive/claude-product-memory-foundation.'
@@ -116,7 +121,9 @@ claude/compassionate-dirac-44hnee, claude/venture-engine-v1-2026-09-29 or claude
    this step and say so.
 6. Archive the landed and superseded branches:
      scripts/repo/archive_branches.sh           (dry run: expect 229 on the list and "Refused: 0";
-                                                 9 WAITING lines are expected if step 5 was skipped)
+                                                 11 WAITING lines are expected if step 5 was skipped:
+                                                 the 9 knowledge-only branches and the 2 other
+                                                 branches of pull requests #1 and #2)
      scripts/repo/archive_branches.sh --apply 2>&1 | tee ~/archive-branches-$(date +%F).log
 7. Only if step 1 said clive/trunk: delete the theme from clive:
      scripts/repo/move_theme.sh --apply --delete-public   (expect "Deleted from clive: 12")

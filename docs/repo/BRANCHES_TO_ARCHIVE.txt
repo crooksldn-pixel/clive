@@ -10,6 +10,10 @@
 # One branch per line, fields separated by single spaces:
 #   branch   sha (40 hex)   requires   reason (the rest of the line)
 # requires: a path that must already be on clive/trunk before the branch may go, or - for none.
+# The knowledge-only lines wait for their imported documents. The three branches of the open pull
+# requests #1 and #2 (head and base of each) wait for the same path, because deleting a pull
+# request's head or base branch makes GitHub close it without a word: BOUNDARY.md step 5 closes
+# both with a comment once that path is on trunk, and only then may their branches go.
 
 # Landed: an ancestor of clive/trunk (153)
 chatgpt/clive-live-experience-v0-5 ff7e22790e32eac590c92b60264b5d8e2c25b076 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
@@ -38,7 +42,7 @@ claude/clive-voice-assistant-review-1c6kfx 8fe2b3dd6b3c7d36667676fedc1d41f9f3042
 claude/control-plane-producers-2026-09-22 18c3153a2eec10c6343153b550776afed3bec2ba - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
 claude/control-plane-vnext-phase1-repair2-2026-09-21 e8830c44bcae917b7c711b081a8adf003832bc9d - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
 claude/crooks-appliance-phase6 93dcd5dad6ebb2ee6191caa7ca7951e826c33ca4 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
-claude/crooks-assistant-build-lgxlau e43aecdb39b87b622f64b6ab434e428d216ef157 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
+claude/crooks-assistant-build-lgxlau e43aecdb39b87b622f64b6ab434e428d216ef157 crooks-assistant/docs/history/branches/README.md landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk; base of open draft PR #1, so it waits until BOUNDARY.md step 5 has closed it with a comment
 claude/crooks-assistant-mac-local 697db8c4a991ec67469b25c4163c6fa497b46d65 - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
 claude/deploy-candidate-4d2dc00f 4d2dc00f0cd3ef17ff04e885c595ae9cacbb662b - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
 claude/deploy-status-2026-09-27 aa167840b00252af333165d8bbe59986769b74ee - landed: an ancestor of clive/trunk (a68536c6), so every commit is on trunk
@@ -191,7 +195,7 @@ claude/objectives-number 5058fe4b3c801bb2e6f29a040ebb71a769fdc7a1 - landed: PR #
 claude/overnight-build 1293928cbd5091e9e8ea32e5d7f34fe23afdd6fd - landed: PR #94; every file it changed is on trunk
 claude/post-deploy-fixes d37a5f8195f8dfa9ee27caf6c23fd9b2ed604049 - landed: PR #95; every file it changed is on trunk
 claude/product-memory-2026-09-24 2f7d51a9ad168c6346e2142f4939f2fe8e13e348 - landed: PR #6; only one index line of the product-memory README is worded differently on trunk
-claude/product-memory-foundation 8d6b111259f66a4d6a0704146da29b6e54d1c57e - landed: staged in _incoming/truth (PR #10) and folded in by PR #14; open draft PR #1 is stale (close it first)
+claude/product-memory-foundation 8d6b111259f66a4d6a0704146da29b6e54d1c57e crooks-assistant/docs/history/branches/README.md landed: staged in _incoming/truth (PR #10) and folded in by PR #14; head of open draft PR #1 and base of open PR #2, so it waits like chatgpt/ops-memory-2026-09-19 until BOUNDARY.md step 5 has closed both with a comment
 claude/product-memory-truth-2026-09-23 07459b85df00f806d641d924499a207ad41cbe8b - landed: product-memory truth of 23 Sep, folded into trunk by PR #10 and PR #14; its root README change was superseded by trunk's README
 claude/product-memory-truth-2026-09-23-r2 5d12aa5e9ef92e5aee5a7ba40242557e7587deb7 - landed: product-memory truth of 23 Sep, folded into trunk by PR #10 and PR #14; its root README change was superseded by trunk's README
 claude/product-memory-truth-2026-09-23-r3 4a4633767e15120f9edea275f3cb646177496995 - landed: product-memory truth of 23 Sep, folded into trunk by PR #10 and PR #14; its root README change was superseded by trunk's README

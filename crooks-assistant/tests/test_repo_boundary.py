@@ -43,6 +43,8 @@ KEPT = re.compile(r"^(clive/trunk|clive/control/.*|clive/evidence/.*|clive/engin
                   r"claude/compassionate-dirac-44hnee|claude/crooksldn-theme-init-bnen7a|"
                   r"claude/venture-engine-v1-2026-09-29|claude/n2-.*)$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
+OPEN_PR = re.compile(r"\bopen (draft )?PR #\d+")
+HISTORY_INDEX = "crooks-assistant/docs/history/branches/README.md"
 IDENTITY = {"GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.invalid",
             "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "test@example.invalid"}
 
@@ -86,7 +88,21 @@ def test_the_archive_list_is_well_formed_and_names_no_branch_that_is_kept():
         assert not KEPT.match(branch), branch
         assert reason.split(":")[0] in ("landed", "superseded", "knowledge-only"), branch
         assert requires == "-" or (REPO / requires).is_file(), (branch, requires)
-        assert (requires != "-") == reason.startswith("knowledge-only"), branch
+        assert (requires != "-") == (reason.startswith("knowledge-only") or bool(OPEN_PR.search(reason))), branch
+        if OPEN_PR.search(reason):
+            assert requires == HISTORY_INDEX, branch
+
+
+def test_the_branches_of_open_pull_requests_1_and_2_wait_until_step_5_has_closed_them():
+    """Deleting a pull request's head or base branch closes it without a word, so each of the three
+    branches waits on the path BOUNDARY.md's step 5 checks before it closes #1 and #2 with a comment."""
+    requires = {row[0]: row[2] for row in _rows(ARCHIVE_LIST)}
+    for branch in ("claude/product-memory-foundation", "chatgpt/ops-memory-2026-09-19",
+                   "claude/crooks-assistant-build-lgxlau"):
+        assert requires[branch] == HISTORY_INDEX, branch
+    boundary = (REPO / "docs" / "repo" / "BOUNDARY.md").read_text(encoding="utf-8")
+    assert f"git cat-file -e origin/clive/trunk:{HISTORY_INDEX} succeeds" in boundary
+    assert "11 WAITING lines are expected if step 5 was skipped" in boundary
 
 
 def test_a_loop_objective_branch_is_listed_only_once_landed_or_superseded_as_boundary_says():
