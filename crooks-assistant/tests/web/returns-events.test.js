@@ -72,6 +72,29 @@ test('one kind arriving together is one message, at most three said and the rest
   assert.equal(calls[0].tone, 'warn');
 });
 
+test('a notice of a kind already on screen joins that row; once he dismissed it, a new row starts', async () => {
+  store();
+  const live = [];
+  const calls = [];
+  globalThis.CrooksNotify = {
+    show: (m) => { const entry = { id: `note_${calls.length + 1}`, code: m.code }; calls.push(m); live.push(entry); return entry; },
+    list: () => live.slice(),
+    dismiss: (noteId) => { const i = live.findIndex((e) => e.id === noteId); if (i >= 0) live.splice(i, 1); return i >= 0; },
+  };
+  const R = fresh();
+  serve(BRIEF([{ id: id(31), code: 'return_to_approve', words: 'Return on #2131: waiting for your approval.' }]));
+  await R.brief();
+  serve(BRIEF([{ id: id(32), code: 'return_to_approve', words: 'Return on #2140: waiting for your approval.' },
+    { id: id(31), code: 'return_to_approve', words: 'Return on #2131: waiting for your approval.' }]));
+  await R.brief();
+  assert.equal(live.length, 1, 'one row for the kind');
+  assert.equal(calls[1].text, 'Return on #2131: waiting for your approval. Return on #2140: waiting for your approval.');
+  globalThis.CrooksNotify.dismiss(live[0].id);   // he dismisses it
+  serve(BRIEF([{ id: id(33), code: 'return_to_approve', words: 'Return on #2150: waiting for your approval.' }]));
+  await R.brief();
+  assert.deepEqual([live.length, calls[2].text], [1, 'Return on #2150: waiting for your approval.']);
+});
+
 test('anything malformed is not said', async () => {
   store();
   const calls = said();

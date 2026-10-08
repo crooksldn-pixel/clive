@@ -266,6 +266,9 @@
   const SEEN_KEY = 'clive.returns.notices';
   const MAX_SAID = 3;
   let seen = null;
+  // The row each name has on screen and the sentences it holds: a notice of the same kind joins the
+  // row that is still up, rather than web/notify.js folding it in and keeping only the newest words.
+  const up = {};
 
   function seenIds() {
     if (seen) return seen;
@@ -289,10 +292,16 @@
     for (const code of Object.keys(NOTICE_TONE)) {
       const mine = fresh.filter((n) => text(n.code) === code);
       if (!mine.length) continue;
-      const words = mine.slice(0, MAX_SAID).map((n) => text(n.words).trim());
-      if (mine.length > MAX_SAID) words.push(`And ${mine.length - MAX_SAID} more.`);
+      const before = up[code];
+      const still = before && typeof say.list === 'function' && say.list().some((e) => e.id === before.id);
+      const all = (still ? before.words : []).concat(mine.map((n) => text(n.words).trim()))
+        .filter((w, i, every) => every.indexOf(w) === i);
+      const words = all.slice(0, MAX_SAID);
+      if (all.length > MAX_SAID) words.push(`And ${all.length - MAX_SAID} more.`);
+      if (still && typeof say.dismiss === 'function') say.dismiss(before.id);
       const drawn = say.show({ class: 'workspace', code, tone: NOTICE_TONE[code], text: words.join(' '), persist: true });
       if (!drawn) continue;   // refused or nowhere to draw it: asked again at the next brief
+      up[code] = { id: drawn.id, words: all };
       for (const n of mine) seenIds().add(text(n.id));
       shown.push(code);
     }
