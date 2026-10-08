@@ -193,13 +193,15 @@ def _sha(text: str) -> str:
     return hashlib.sha256(str(text or "").replace("\r\n", "\n").strip().encode("utf-8")).hexdigest()[:16]
 
 
-def _draft_sha(body: str, headers: dict[str, str]) -> str:
+def _draft_sha(body: str, headers: dict[str, str], message_id: str) -> str:
     """[inbox, the review of 8 October] What a waiting draft would send, as one fingerprint: who it
-    goes to (To, Cc, Bcc), its subject and its words. The card printed all of them; a change to any
-    after it was drawn — a draft readdressed in Gmail with the same words — makes the hold stale and
-    nothing is sent. Header whitespace is not a change (Gmail refolds long headers)."""
+    goes to (To, Cc, Bcc), its subject and its words — and the message id Gmail gives the draft,
+    which Gmail changes on every save, so a change the words do not show (an attachment added, the
+    HTML part edited) is a change too. The card printed the draft as it then was; any change after it
+    was drawn makes the hold stale and nothing is sent. Header whitespace is not a change (Gmail
+    refolds long headers)."""
     said = [" ".join(str(headers.get(name) or "").split()) for name in ("to", "cc", "bcc", "subject")]
-    return _sha("\n".join([*said, str(body or "")]))
+    return _sha("\n".join([str(message_id or ""), *said, str(body or "")]))
 
 
 # ----------------------------------------------------------------------- the thread
@@ -264,14 +266,21 @@ def _thread_fingerprint(ctx: dict[str, Any], token: str, sent_message_id: str = 
     return {"last": ctx["last"], "drafts": len(ours), "sent": 1 if sent else 0}
 
 
-async def _draft_text(draft_id: str) -> tuple[str, dict[str, str]]:
-    """A draft's body and headers, as Gmail holds them now."""
+async def _draft_read(draft_id: str) -> tuple[str, dict[str, str], str]:
+    """A draft's body, headers and Gmail message id (new on every save), as Gmail holds it now."""
     draft = await asyncio.to_thread(_g().get_draft, draft_id)
-    payload = (draft.get("message") or {}).get("payload") or {}
+    message = draft.get("message") or {}
+    payload = message.get("payload") or {}
     headers: dict[str, str] = {}
     for h in payload.get("headers") or []:
         headers.setdefault(str(h.get("name", "")).lower(), str(h.get("value", "")))
-    return _extract_body(payload, limit=MAX_BODY_CHARS * 2), headers
+    return _extract_body(payload, limit=MAX_BODY_CHARS * 2), headers, str(message.get("id") or "")
+
+
+async def _draft_text(draft_id: str) -> tuple[str, dict[str, str]]:
+    """A draft's body and headers, as Gmail holds them now."""
+    body, headers, _message_id = await _draft_read(draft_id)
+    return body, headers
 
 
 async def _observe_thread(execution: dict) -> Observed:
@@ -279,10 +288,9 @@ async def _observe_thread(execution: dict) -> Observed:
     fingerprint = _thread_fingerprint(ctx, str(execution["token"]), str(execution.get("sent_message_id") or ""), str(execution.get("drafted_message_id") or ""))
     if execution.get("draft_id"):
         # The card printed the draft's recipients, subject and text; the draft must still be all of
-        # them when it goes.
+        # them, unsaved since (its Gmail message id), when it goes.
         try:
-            body, headers = await _draft_text(str(execution["draft_id"]))
-            fingerprint["draft_sha"] = _draft_sha(body, headers)
+            fingerprint["draft_sha"] = _draft_sha(*await _draft_read(str(execution["draft_id"])))
         except (ToolError, GmailError):
             fingerprint["draft_sha"] = ""
     return Observed(fingerprint=fingerprint, entity=None)
@@ -321,8 +329,7 @@ async def _observe_token(execution: dict) -> Observed:
     fingerprint = await _token_state(str(execution["token"]), str(execution.get("sent_message_id") or ""), str(execution.get("drafted_draft_id") or ""))
     if execution.get("draft_id"):
         try:
-            body, headers = await _draft_text(str(execution["draft_id"]))
-            fingerprint["draft_sha"] = _draft_sha(body, headers)
+            fingerprint["draft_sha"] = _draft_sha(*await _draft_read(str(execution["draft_id"])))
         except (ToolError, GmailError):
             fingerprint["draft_sha"] = ""
     return Observed(fingerprint=fingerprint, entity=None)
@@ -564,13 +571,13 @@ async def _the_one_draft(ctx: dict[str, Any], where: str) -> dict[str, Any]:
     listed = await asyncio.to_thread(_g().list_drafts, f"rfc822msgid:{token.strip('<>')}")
     if len(listed) != 1:
         raise ToolError("That draft could not be found in Gmail.")
-    body, headers = await _draft_text(listed[0]["draft_id"])
+    body, headers, message_id = await _draft_read(listed[0]["draft_id"])
     to_name, to_email = parseaddr(headers.get("to", ""))
     if "@" not in to_email or headers.get("cc") or headers.get("bcc"):
         raise ToolError("That draft has no single recipient; fix it in Gmail or say what the email should say.")
     return {
         "draft_id": listed[0]["draft_id"], "token": token, "body": body, "to": to_email.strip().lower(), "to_name": to_name.strip(),
-        "subject": " ".join(str(headers.get("subject") or "").split()), "sha": _draft_sha(body, headers),
+        "subject": " ".join(str(headers.get("subject") or "").split()), "sha": _draft_sha(body, headers, message_id),
     }
 
 
@@ -1073,11 +1080,11 @@ async def gmail_send_new(subject: str = "", body: str = "", order_id: str = "", 
         listed = await asyncio.to_thread(client.list_drafts, f"in:draft to:{customer['email']}")
         ours = []
         for d in listed:
-            body_text, headers = await _draft_text(d["draft_id"])
+            body_text, headers, message_id = await _draft_read(d["draft_id"])
             token = headers.get("message-id", "").strip()
             to_name, to_email = parseaddr(headers.get("to", ""))
             if _MESSAGE_ID.match(token) and not headers.get("in-reply-to") and to_email.strip().lower() == customer["email"] and not headers.get("cc") and not headers.get("bcc"):
-                ours.append({"draft_id": d["draft_id"], "token": token, "subject": " ".join(str(headers.get("subject") or "").split()), "body": body_text, "to_name": to_name.strip(), "sha": _draft_sha(body_text, headers)})
+                ours.append({"draft_id": d["draft_id"], "token": token, "subject": " ".join(str(headers.get("subject") or "").split()), "body": body_text, "to_name": to_name.strip(), "sha": _draft_sha(body_text, headers, message_id)})
         who = customer.get("name") or customer["email"]
         if not ours:
             raise ToolError(f"There is no draft waiting for {who}. Say what the email should say.")

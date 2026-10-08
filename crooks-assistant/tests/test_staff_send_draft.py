@@ -25,7 +25,7 @@ from app.tools.gate import Disposition, Tier, classify
 from app.work import hooks
 from app.work.store import work
 from tests.test_gmail_drafts_tidy import Inbox
-from tests.test_gmail_writes import THREAD, Policy, customer_of
+from tests.test_gmail_writes import THREAD, Policy, customer_of, resaved_in_gmail
 
 MIA = "mia@example.com"
 ME = "team@crooksldn.com"
@@ -309,6 +309,22 @@ async def test_a_draft_readdressed_after_mias_card_is_not_sent(engine, box):
         result = await held(engine, proposal, MIA)
     assert result.code == "stale" and result.spoken == "That draft changed since this was prepared. Nothing was sent."
     assert not [c for c in box.calls if c[0] in ("send_draft", "send")] and draft_id in box.drafts
+
+
+async def test_a_draft_saved_again_after_mias_card_is_not_sent(engine, box):
+    """The re-review of 8 October (note 1): George adds an attachment to his draft in Gmail (or edits
+    only its HTML part) after Mia's card was drawn. Its plain words read the same; Gmail gave it a new
+    message id. Her hold reports stale and sends nothing."""
+    draft_id = georges_draft(box)
+    talk = Talk("m11")
+    talk.session.issue(THREAD)
+    with as_staff("mia-fixture"):
+        _, proposal = await call(talk, "gmail_send_draft", thread_id=THREAD)
+        assert proposal is not None
+        resaved_in_gmail(box, draft_id)
+        result = await held(engine, proposal, MIA)
+    assert result.code == "stale" and result.spoken == "That draft changed since this was prepared. Nothing was sent."
+    assert not [c for c in box.calls if c[0] in ("send_draft", "send")]
 
 
 async def test_two_drafts_in_a_thread_are_never_guessed_between(engine, box):
