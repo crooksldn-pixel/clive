@@ -325,9 +325,10 @@ async def _kf_route() -> Route:
     if not managed:
         return Route("kf", label, "off", can, "This app manages none of your customer-service accounts. " + switch)
     names = ", ".join(" ".join(str(a.get("name") or "").split())[:30] for a in managed[:3])
+    # Neutral words: who should write in is on his people's cards, never in code (review note 7, 8 Oct).
     return Route("kf", label, "ready", f"{can} Account{'s' if len(managed) > 1 else ''}: {names}.",
-                 "Send Jessica and the forwarder the account's link (微信客服 → the account → 客服链接) so they "
-                 "message it from WeChat.")
+                 "Send the account's link (微信客服 → the account → 客服链接) to each supplier who should reach "
+                 "CROOKS here, so they message it from WeChat.")
 
 
 def _unused() -> list[Route]:

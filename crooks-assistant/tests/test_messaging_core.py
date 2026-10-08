@@ -216,6 +216,39 @@ async def test_the_probe_says_each_route_plainly_and_what_to_switch_on(monkeypat
     assert member.state == "off" and "203.0.113.9" in member.switch_on
 
 
+async def test_no_word_the_probe_or_the_connections_test_says_names_a_person_from_code(monkeypatch):
+    """Review note 7 (8 Oct): the ready customer-service route said "Send Jessica and the forwarder the
+    account's link". Every word on a screen comes from a record or is neutral: who should write in is
+    on George's people's cards, not in code. Checked on what the probe says, and on every string the
+    messaging code could put on a screen (docstrings and comments aside)."""
+    import ast
+    from pathlib import Path
+
+    fake = wecom_world.install(monkeypatch)
+    routes = {r.key: r for r in await channel.probe_routes()}
+    assert routes["kf"].state == "ready"
+    assert routes["kf"].switch_on == ("Send the account's link (微信客服 → the account → 客服链接) to each supplier "
+                                      "who should reach CROOKS here, so they message it from WeChat.")
+    said = [*(f"{r.label} {r.can} {r.switch_on}" for r in routes.values()),
+            (await testers.run("wecom", dict(wecom_world.VALUES), None)).detail]
+    fake.refuse["/kf/account/list"] = [48002]
+    said.append((await testers.run("wecom", dict(wecom_world.VALUES), None)).detail)
+    for words in said:
+        assert "Jessica" not in words and "jessica" not in words.lower(), words
+    root = Path(__file__).resolve().parents[1]
+    sources = [*sorted((root / "app" / "messaging").glob("*.py")), root / "app" / "clients" / "wecom.py",
+               root / "app" / "tools" / "messaging_tools.py", root / "app" / "connections" / "catalog.py",
+               root / "app" / "connections" / "testers.py"]
+    for source in sources:
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        docstrings = {id(node.body[0].value) for node in ast.walk(tree)
+                      if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+                      and node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant)}
+        named = [node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, str)
+                 and id(node) not in docstrings and "jessica" in node.value.lower()]
+        assert named == [], (source.name, named)
+
+
 async def test_the_connections_test_runs_the_probe_with_the_values_being_tried(monkeypatch):
     fake = wecom_world.install(monkeypatch, values={})                      # nothing stored yet
     outcome = await testers.run("wecom", dict(wecom_world.VALUES), None)
