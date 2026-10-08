@@ -45,8 +45,10 @@ model knows what he asked; nothing here reads his words), the cards are chosen b
   emails is not naming the "cap" search that found a customer's thread;
 - a card he did not ask for shows only when it is a record in its own right (never a search, a
   list or a one-line find) about the same customer, order or thread as what he asked for or the
-  change being made: the same id, order number, email address or full name, followed from card
-  to card (`about`). That customer's tracking or Instagram message beside their email stays;
+  change being made: the same id, order number, email address or full name (`about`). A card
+  added for that carries it on to the next only by its ids and order numbers, never by an email
+  address or a name on it, and a thread is about its linked customer or else its first inbound
+  sender, never everyone who wrote on it (the review of DEC-073, note 3). That customer's tracking or Instagram message beside their email stays;
   other people's emails today, and today's orders when he asked about one customer, do not;
 - beside a change, a customer's record he did not name is never added: "it showed [a customer]'s
   total orders as a customer" was his 7 October complaint about the reply;
@@ -412,14 +414,18 @@ def about(item: Any) -> frozenset[str]:
         emails(data.get("email"))
         person(data.get("name"))
     if kind == "email_thread":
-        for message in _rows(data, "messages"):
-            if not message.get("outbound"):          # what we sent says who we are, not who they are
-                emails(message.get("from_email"))
-                person(message.get("from"))
+        # Who a thread is about: its linked customer, or else whoever wrote to us first — not every
+        # sender on it (somebody replying on his thread is not what he asked about). What we sent
+        # says who we are, not who they are.
+        linked = data.get("linked_customer") if isinstance(data.get("linked_customer"), dict) else {}
+        first = next((m for m in _rows(data, "messages") if not m.get("outbound")), {})
+        if linked.get("customer_id"):
+            record(linked)
+            person(linked.get("name"))
+        else:
+            emails(first.get("from_email"))
+            person(first.get("from"))
         record(data.get("linked_order"))
-        record(data.get("linked_customer"))
-        if isinstance(data.get("linked_customer"), dict):
-            person(data["linked_customer"].get("name"))
     history = data.get("history") if isinstance(data.get("history"), dict) else {}
     record(history)
     person(history.get("name"))
@@ -437,6 +443,13 @@ def about(item: Any) -> frozenset[str]:
         for ref in identity(item):
             ident(ref)
     return frozenset(out)
+
+
+def _ids_and_numbers(marks: frozenset[str]) -> frozenset[str]:
+    """What a card added for the subject carries on to the next: its ids and order numbers, never
+    an email address or a name on it — the order his email is linked to brings its tracking, not
+    its buyer's other emails (the review of DEC-073, note 3)."""
+    return frozenset(mark for mark in marks if mark.startswith(("id:", "n:")))
 
 
 def _addable(item: dict[str, Any], read_whole: frozenset[str] | None, *, beside_a_change: bool = False) -> bool:
@@ -498,8 +511,8 @@ def _as_asked(cards: list[dict[str, Any]], said: Asked, *, read_whole: frozenset
     subject: set[str] = set()
     for item in changes + [item for item in asked if not list_kind(item) and _kind(item) not in LISTINGS]:
         subject |= about(item)
-    # What he did not ask for, added when it is about that subject — and then it is part of it:
-    # the order his email is about brings the order's customer, and that customer's messages.
+    # What he did not ask for, added when it is about that subject — and then its ids and order
+    # numbers are part of it: the order his email is about brings that order's tracking.
     added: list[dict[str, Any]] = []
     grew = True
     while grew:
@@ -509,7 +522,7 @@ def _as_asked(cards: list[dict[str, Any]], said: Asked, *, read_whole: frozenset
                 continue
             if _related(item, subject):
                 added.append(item)
-                subject |= about(item)
+                subject |= _ids_and_numbers(about(item))
                 grew = True
     # Beside a change, as rule 1 keeps them: a screen's remote, and the records he had up when the
     # turn began, drawn again (their attention lines follow them below).

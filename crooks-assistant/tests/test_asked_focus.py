@@ -318,6 +318,42 @@ def test_a_customer_he_did_not_name_is_added_only_when_no_change_is_on_screen():
     assert focus.answer_cards([HIS_HISTORY, reply], said=named) == [reply, HIS_HISTORY]
 
 
+ANA = "ana.fixture@example.com"           # an invented second person on his thread
+ANAS_THREAD = {"type": "email_thread", "data": {"thread_id": "thread_fixture_ana", "messages": [
+    {"from": "Ana Fixture", "from_email": ANA, "body": "Separate question about returns.", "outbound": False}]}}
+ANAS_DM = {"type": "messages", "data": {"view": "thread", "thread": {"chat_id": "chat_fixture_ana", "who": "@ana.fixture"}}}
+
+
+def test_a_second_person_on_his_thread_does_not_bring_in_their_other_emails():
+    """The review's note 3: a thread is about its linked customer, or else its first inbound sender,
+    not everyone who wrote on it. Somebody else replying on his thread (a partner, staff forwarding
+    it) does not make their own email today part of what he asked about."""
+    said = focus.Asked(records=frozenset({DAVIDS_THREAD}), lists=frozenset())
+    his = {"type": "email_thread", "data": {"thread_id": DAVIDS_THREAD, "messages": [
+        {"from": "David Replica", "from_email": data.DAVID.email, "body": "Where is 1939?", "outbound": False},
+        {"from": "Ana Fixture", "from_email": ANA, "body": "Following up for David.", "outbound": False}]}}
+    assert focus.answer_cards([his, ANAS_THREAD, ANAS_DM, ORDER_1939], said=said) == [his, ORDER_1939]
+    # Linked to a customer, the thread is about that customer, whoever wrote first.
+    forwarded = {"type": "email_thread", "data": {"thread_id": DAVIDS_THREAD, "messages": [
+        {"from": "Ana Fixture", "from_email": ANA, "body": "Forwarding David's question.", "outbound": False}],
+        "linked_customer": {"customer_id": data.DAVID.customer_id, "name": "David Replica"}}}
+    assert focus.answer_cards([forwarded, ANAS_THREAD, ORDER_1939, HIS_DM], said=said) == [forwarded, ORDER_1939, HIS_DM]
+
+
+def test_a_card_added_for_the_subject_extends_it_by_ids_and_order_numbers_only():
+    """An order linked to his email is added, and its id and number follow on (its tracking); its
+    customer's email address and name do not, so another person's email and conversation stay off."""
+    said = focus.Asked(records=frozenset({DAVIDS_THREAD}), lists=frozenset())
+    his = {"type": "email_thread", "data": {"thread_id": DAVIDS_THREAD, "messages": [
+        {"from": "David Replica", "from_email": data.DAVID.email, "body": "Where is 1977?", "outbound": False}],
+        "linked_order": {"order_id": "gid://shopify/Order/fixture1977", "order_number": "#1977"}}}
+    gift = {"type": "order", "data": {"order_id": "gid://shopify/Order/fixture1977", "order_number": "#1977", "detail": True,
+                                      "customer_email": ANA, "customer_name": "Ana Fixture"}}
+    tracking = {"type": "shipping", "data": {"view": "one", "order_number": "#1977",
+                                             "shipments": [{"shipment_id": "shp_fixture1977", "order_number": "#1977"}]}}
+    assert focus.answer_cards([his, gift, ANAS_THREAD, ANAS_DM, tracking], said=said) == [his, gift, tracking]
+
+
 def test_a_first_name_alone_is_not_the_same_person():
     """A conversation carries no email or customer id: only a full name (or a handle that spells
     one) ties it to a customer. "David" could be anyone."""

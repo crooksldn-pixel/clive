@@ -54,7 +54,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 <!-- map:parts -->
 | Package | Lines | State | Not loaded by the app | Owner doc |
 |---|---:|---|---|---|
-| (top-level modules) | 12,653 | live | `engineering_measures` | none |
+| (top-level modules) | 12,666 | live | `engineering_measures` | none |
 | `actions` | 3,051 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,478 | live | — | none |
