@@ -46,6 +46,8 @@ model knows what he asked; nothing here reads his words), the cards are chosen b
   change being made: the same id, order number, email address or full name, followed from card
   to card (`about`). That customer's tracking or Instagram message beside their email stays;
   other people's emails today, and today's orders when he asked about one customer, do not;
+- beside a change, a customer's record he did not name is never added: "it showed [a customer]'s
+  total orders as a customer" was his 7 October complaint about the reply;
 - a change waiting for his hold still comes first, the records he had up still stay beside a
   change to one of them, and errors are still never set aside.
 
@@ -388,13 +390,18 @@ def about(item: Any) -> frozenset[str]:
     return frozenset(out)
 
 
-def _addable(item: dict[str, Any], read_whole: frozenset[str] | None) -> bool:
+def _addable(item: dict[str, Any], read_whole: frozenset[str] | None, *, beside_a_change: bool = False) -> bool:
     """Whether a card he did not ask for may be added for being about the same subject: a record
     in its own right — an order or a customer read in full, a thread, a conversation, a shipment,
     a return, an objective. Never a search or a list, a one-line find, an empty answer, or a card
-    about no customer, order or thread (numbers, products)."""
+    about no customer, order or thread (numbers, products). And never a customer's record beside
+    a change waiting for his hold (`beside_a_change`): that is the card of his 7 October line, "it
+    showed [a customer]'s total orders as a customer ... when all I wanted to see was the reply"
+    (the review of DEC-073, note 1). Their order, tracking and messages may still be added."""
     kind, data = _kind(item), _data(item)
     if data.get("empty") or data.get("shell") or kind in LISTINGS or kind == "summary_list":
+        return False
+    if beside_a_change and kind in ("customer", "customer_workspace"):
         return False
     if kind in ("order", "customer") or kind in COMPOSED:
         return in_full(item, read_whole)
@@ -439,7 +446,7 @@ def _as_asked(cards: list[dict[str, Any]], said: Asked, *, read_whole: frozenset
     while grew:
         grew = False
         for item in cards:
-            if _among(item, asked + changes + added) or not _addable(item, read_whole):
+            if _among(item, asked + changes + added) or not _addable(item, read_whole, beside_a_change=bool(changes)):
                 continue
             if _related(item, subject):
                 added.append(item)

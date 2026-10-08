@@ -191,6 +191,25 @@ async def test_the_reply_with_nothing_said_is_still_the_reply_alone(world):
     assert _kinds(said) == ["confirmation"], _kinds(said)
 
 
+async def test_beside_the_reply_her_customer_record_he_did_not_name_stays_off(world):
+    """The review's note 1, and his 7 October line: "it showed [a customer]'s total orders as a
+    customer ... when all I wanted to see was the reply". Her whole history read on the way, the
+    reply prepared, the thread named as what he asked for: the reply card alone. Priya Raman is
+    the golden world's invented customer (experience/fixtures/data.py)."""
+    said = await world.ask(
+        "show me the email reply to priya",
+        ("shopify_find_customer", {"query": "Priya Raman"}),
+        ("shopify_customer_history", {"customer_id": data.PRIYA.customer_id}),
+        ("gmail_search", {"query": "cap"}),
+        ("gmail_search", {"query": "newer_than:1d"}),
+        ("gmail_send_reply", {"thread_id": PRIYAS_THREAD, "body": "Hi Priya, yes: the black cap is the adjustable one."}),
+        _asked(records=[PRIYAS_THREAD]),
+        session_id="reply-history", reply="Here's the reply to Priya.")
+    assert all(c.get("ok") for c in said.raw["tool_calls"]), said.raw["tool_calls"]
+    assert _kinds(said) == ["confirmation"], _kinds(said)
+    assert _cards(said)[0]["data"]["entity_ref"] == PRIYAS_THREAD
+
+
 # ---------------------------------------------------------------- two orders, and a list walked
 
 
@@ -244,6 +263,25 @@ def test_an_unasked_card_shows_only_when_it_is_a_record_about_the_same_customer_
     assert kept == [HIS_EMAIL, ORDER_1939, LINES_1939, TRACKING, HIS_DM], [c["type"] for c in kept]
     assert why == {"rule": "asked", "set_aside": ["email_list", "order_list", "customer", "email_thread", "metric_group"],
                    "added": ["order", "attention", "shipping", "messages"]}
+
+
+HIS_HISTORY = {"type": "customer", "data": {"customer_id": data.DAVID.customer_id, "name": "David Replica",
+                                            "email": data.DAVID.email, "history": {"orders": 2, "spent": "104.00"}}}
+
+
+def test_a_customer_he_did_not_name_is_added_only_when_no_change_is_on_screen():
+    """With nothing waiting for his hold, his customer read in full is about the same person as his
+    email and is added (ruling 25). Beside a change it is not: the change is the screen, and a
+    customer record there is the 7 October "total orders as a customer" card. Named, it shows."""
+    said = focus.Asked(records=frozenset({DAVIDS_THREAD}), lists=frozenset())
+    assert focus.answer_cards([HIS_EMAIL, HIS_HISTORY], said=said) == [HIS_EMAIL, HIS_HISTORY]
+    reply = {"type": "confirmation", "data": {"proposal_id": "p1", "entity_ref": DAVIDS_THREAD,
+                                              "message": {"channel": "email", "kind": "reply", "to": data.DAVID.email}}}
+    workspace = {"type": "customer_workspace", "data": {"ref": data.DAVID.customer_id, "title": "David Replica",
+                                                        "email": data.DAVID.email}}
+    assert focus.answer_cards([HIS_HISTORY, workspace, reply], said=said, read_whole=frozenset({data.DAVID.customer_id})) == [reply]
+    named = focus.Asked(records=frozenset({DAVIDS_THREAD, focus._norm(data.DAVID.customer_id)}), lists=frozenset())
+    assert focus.answer_cards([HIS_HISTORY, reply], said=named) == [reply, HIS_HISTORY]
 
 
 def test_a_first_name_alone_is_not_the_same_person():
