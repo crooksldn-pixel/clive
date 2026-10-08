@@ -64,7 +64,8 @@ GIVEN_HEX = 32                    # of each superseded hash, kept: 128 bits, eno
 COPIED = "a copy of this phone's sign-in was used"
 KEEP_ENDED_S = 30 * 86400         # ended links and phones stay on the owner's screen this long
 
-# Joins that fail, counted in memory (a restart clears them; the per-link count is on disk).
+# Joins that fail, counted in memory (a restart clears them; the per-link count is on disk). They
+# hold back only joins without an open link (redeem).
 ADDRESS_FAILS, ADDRESS_WINDOW_S = 10, 15 * 60
 ALL_FAILS, ALL_WINDOW_S = 200, 15 * 60
 
@@ -350,14 +351,16 @@ def redeem(token: str, code: str, *, address: str, kind: str = "phone", now: flo
     """The link and the code, from the join page: this phone is signed in as the link's person, and any
     other phone of theirs is signed out (a new phone joining means the old one is gone). Raises
     JoinRefused, the same way for every link that is not open (unknown, used, cancelled, run out,
-    or its person no longer on the team)."""
+    or its person no longer on the team).
+
+    The per-address and overall limits hold back only joins that carry no open link: a link that is
+    open has its own lock (MAX_CODE_TRIES wrong codes), so made-up joins, however many and from
+    wherever, never keep a real one out."""
     now = time.time() if now is None else now
     address = str(address or "unknown")[:64]
     token = str(token or "")
     code = re.sub(r"[\s-]", "", str(code or ""))[:12]
     with _LOCK:
-        if _throttled(address, now):
-            raise JoinRefused("too_many", TOO_MANY)
         data = _copy()
         key = _digest(token) if TOKEN.fullmatch(token) else ""
         invite = data["invites"].get(key) if key else None
@@ -366,6 +369,8 @@ def redeem(token: str, code: str, *, address: str, kind: str = "phone", now: flo
             _save(data)
         person = _on_the_team(str(invite.get("person_id") or "")) if invite else None
         if invite is None or invite.get("state") != "open" or person is None:
+            if _throttled(address, now):
+                raise JoinRefused("too_many", TOO_MANY)
             _failed(address, now)
             raise JoinRefused("not_valid", NOT_VALID)
         if not (CODE.fullmatch(code) and _same(_code_digest(str(invite["salt"]), code), str(invite.get("code") or ""))):

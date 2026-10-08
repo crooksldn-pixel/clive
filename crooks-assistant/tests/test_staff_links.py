@@ -225,17 +225,37 @@ async def test_failed_joins_are_limited_per_address_and_overall(door, monkeypatc
     for _ in range(links.ADDRESS_FAILS):
         await door.post("/join", json={"token": "y" * 43, "code": "123456"}, headers=POST)
     token, code, _ = links.make("mia", by="owner")
-    held = await door.post("/join", json={"token": token, "code": code}, headers=POST)
-    assert held.status_code == 429 and held.json()["code"] == "too_many"               # even the right code, from there
+    held = await door.post("/join", json={"token": "w" * 43, "code": "123456"}, headers=POST)
+    assert held.status_code == 429 and held.json()["code"] == "too_many"               # another guess, from there
     elsewhere = await door.post("/join", json={"token": token, "code": code}, headers={**POST, "X-Forwarded-For": "203.0.113.4"})
     assert elsewhere.status_code == 200                                                 # the link was not spent by it
     links.configure(state_dir=links._CONFIG["state_dir"])
     monkeypatch.setattr(links, "ALL_FAILS", 3)
     for n in range(3):
         await door.post("/join", json={"token": "z" * 43, "code": "1"}, headers={**POST, "X-Forwarded-For": f"192.0.2.{n}"})
-    token, code, _ = links.make("mia", by="owner")
-    overall = await door.post("/join", json={"token": token, "code": code}, headers={**POST, "X-Forwarded-For": "192.0.2.99"})
+    overall = await door.post("/join", json={"token": "v" * 43, "code": "123456"}, headers={**POST, "X-Forwarded-For": "192.0.2.99"})
     assert overall.status_code == 429
+
+
+async def test_made_up_joins_never_keep_a_real_link_out(door, monkeypatch):
+    """The review's N2: the limits hold back joins with no open link, never one that is open (its own
+    five-code lock holds that). Floods from one address and from everywhere, then the real link."""
+    monkeypatch.setattr(links, "ALL_FAILS", 5)
+    for n in range(links.ALL_FAILS):
+        await door.post("/join", json={"token": "z" * 43, "code": "1"}, headers={**POST, "X-Forwarded-For": f"192.0.2.{n}"})
+    for _ in range(links.ADDRESS_FAILS):
+        await door.post("/join", json={"token": "y" * 43, "code": "123456"}, headers=POST)
+    for token in ("x" * 43, "", "short"):
+        guess = await door.post("/join", json={"token": token, "code": "123456"}, headers=POST)
+        assert guess.status_code == 429 and guess.json()["code"] == "too_many", token     # unknown or none: held back
+    token, code, _ = links.make("mia", by="owner")
+    wrong = f"{(int(code) + 1) % 10 ** 6:06d}"
+    slip = await door.post("/join", json={"token": token, "code": wrong}, headers=POST)
+    assert slip.status_code == 403 and slip.json()["code"] == "wrong_code" and slip.json()["tries_left"] == 4
+    real = await door.post("/join", json={"token": token, "code": code}, headers=POST)
+    assert real.status_code == 200 and real.json()["name"] == "Mia"
+    spent = await door.post("/join", json={"token": token, "code": code}, headers=POST)
+    assert spent.status_code == 429                                                     # used: no longer open
 
 
 # ------------------------------------------------------------------ the phone's sign-in

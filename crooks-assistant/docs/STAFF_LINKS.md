@@ -82,7 +82,8 @@ the server.
 | Using the team's own owner-only steps (hand out, people, access, links) | Not on the door's list (404); on the tailnet the existing `_owner_only` refusal stands | as above |
 | Pretending to be George through the door (a forged `Tailscale-User-Login`, the local key, an `X-Forwarded-For`) | The door strips those headers and marks the request `TEAM_DOOR`, which the owner rule, the write boundary and session binding all refuse as the owner and never treat as local | forged headers through the door |
 | Guessing a link | 256-bit tokens; every refusal looks the same (used, expired, cancelled, unknown) | replay, expiry |
-| Guessing the code of a real link | 5 wrong codes lock the invite for good; at most 10 failed joins per address per 15 minutes and 200 in all, then joining waits | brute force |
+| Guessing the code of a real link | 5 wrong codes lock the invite for good | brute force |
+| Guessing links, or flooding joins to keep real ones out | At most 10 failed joins per address per 15 minutes and 200 in all, then joins with no open link wait; a join carrying an open link skips both limits (its own five-code lock holds it), so made-up joins never keep a real one out | limits; made-up joins never keep a real link out |
 | Using a link twice, or after it is cancelled or expired, or after the person is taken off | Single-use; cancelled when a new one is made or access is taken away; refused if the card is no longer active staff | lifecycle |
 | A link and code reaching someone else | The code is never in the message with the link; joining with a new link signs out the person's other phone; George sees every phone and when it was last used, and signs it out | revocation |
 | A stolen cookie | `HttpOnly` (no script can read it); rotated hourly; any sign-in the phone has moved past, used after two minutes, signs the phone out for both holders and shows on People; 14 days idle and 90 days in all | rotation and replay; a copy renewed twice while the real phone sleeps; a copy whose renewal empties the waiting list; past what a phone remembers |
@@ -110,11 +111,12 @@ the server.
    of its sign-in" on People. If the real phone is not opened at all, the copy keeps working until it
    is, until George signs that phone out, or until 90 days pass; People shows when the phone was last
    used, and an unfamiliar "last used" is the sign.
-5. **Being online is the point.** The door is on the public internet: denial of service (flooding
-   joins so real ones wait 15 minutes, or load on the server) is possible, as for any public site.
-   Caddy and the per-address limit absorb the casual kind.
-6. **The rate limits live in memory.** A restart clears the per-address and overall counts (the
-   per-link lockout is on disk and survives).
+5. **Being online is the point.** The door is on the public internet, so load on the server is
+   possible, as for any public site. Flooding joins with made-up links does not keep real ones out:
+   a join carrying an open link is never held back by the per-address or overall limits, only by its
+   own five wrong codes. What a flood can still do is make the join page slow while it lasts.
+6. **The rate limits live in memory.** A restart clears the per-address and overall counts, which
+   only matter for guessing a 256-bit link (the per-link lockout is on disk and survives).
 7. **Caddy is trusted** to set `X-Clive-Door` and pass the right `Host`. If the site were edited to
    forward without both, a request from the internet would look like one made on the server itself:
    still refused every owner route unless `CROOKS_LOCAL_OWNER` is on, which production does not set.
