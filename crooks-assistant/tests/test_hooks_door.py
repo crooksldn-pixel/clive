@@ -219,3 +219,19 @@ def test_the_hooks_query_never_reaches_the_access_log():
                                ("203.0.113.1:5", "POST", "/hooks/wecom?msg_signature=abc&timestamp=1&nonce=n", "1.1", 200), None)
     assert QuietPollsFilter().filter(record)
     assert record.args[2] == "/hooks/wecom?[not logged]"
+
+
+async def test_a_body_in_utf16_is_refused_before_any_parser_sees_it(client, world, monkeypatch):  # noqa: F811
+    """Review note 2 (8 Oct): a UTF-16 body declaring an entity reached the XML parser, and its
+    entity was expanded, before the signature was checked. Now it is refused unread."""
+    from app.clients import wecom
+
+    parsed = []
+    monkeypatch.setattr(wecom.ET, "fromstring", lambda *a, **kw: parsed.append(a) or None)
+    _closed_to_the_public(client)
+    query, _ = wecom_world.kf_event()
+    body = '<!DOCTYPE x [<!ENTITY a "expanded">]><xml><Encrypt>&a;</Encrypt></xml>'.encode("utf-16")
+    for headers in ({}, STRANGER):
+        response = await client.post("/hooks/wecom", params=query, content=body, headers=headers)
+        assert (response.status_code, response.content) == (403, b""), headers
+    assert parsed == [] and guard_module.GUARD.refused.get("wecom:unreadable", 0) >= 2

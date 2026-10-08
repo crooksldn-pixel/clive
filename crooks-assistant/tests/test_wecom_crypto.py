@@ -133,3 +133,30 @@ def test_the_envelope_is_read_from_xml_or_json_and_a_doctype_is_refused():
     for bad in (bomb, b"<xml><ToUserName>x</ToUserName></xml>", b"<xml", b"{}"):
         with pytest.raises(wecom.CryptoError):
             wecom.envelope(bad)
+
+
+def test_a_body_in_another_encoding_never_reaches_the_xml_parser(monkeypatch):
+    """Review note 2 (8 Oct): the document-type guard ran on raw bytes, so a UTF-16 body declaring an
+    entity slipped past it and expat expanded the entity before the signature was checked. Now a
+    body must be strict UTF-8 and start `<xml` or `{` (all WeCom sends) before any parser sees it."""
+    parsed = []
+    real = wecom.ET.fromstring
+    monkeypatch.setattr(wecom.ET, "fromstring", lambda data, *a, **kw: parsed.append(data) or real(data, *a, **kw))
+    declared = '<!DOCTYPE x [<!ENTITY a "expanded">]><xml><Encrypt>&a;</Encrypt></xml>'
+    plain = f"<xml><Encrypt><![CDATA[{POST_ENCRYPT}]]></Encrypt></xml>"
+    for bad in (
+        declared.encode("utf-16"),                     # with its byte-order mark
+        declared.encode("utf-16-le"), declared.encode("utf-16-be"), plain.encode("utf-16-le"),
+        ('<?xml version="1.0" encoding="UTF-16"?>' + plain).encode(),   # a declaration in front
+        b"\xef\xbb\xbf" + plain.encode(),              # a UTF-8 byte-order mark in front
+        plain.encode().replace(b"<Encrypt>", b"<Encrypt>\xe9"),          # not UTF-8 at all
+        b"<!-- x --><xml><Encrypt>e</Encrypt></xml>", b"[]",
+    ):
+        with pytest.raises(wecom.CryptoError) as refused:
+            wecom.envelope(bad)
+        assert refused.value.code == -40002, bad[:40]
+    for opened in (declared, '<?xml version="1.0"?>' + plain, "﻿" + plain, "<!-- x -->" + plain):
+        with pytest.raises(wecom.CryptoError):
+            wecom.message_fields(opened)
+    assert parsed == []
+    assert wecom.envelope(plain.encode())["Encrypt"] == POST_ENCRYPT and len(parsed) == 1

@@ -338,28 +338,46 @@ def crypto() -> CallbackCrypto:
 
 # ------------------------------------------------------------------ the envelope and the message
 
-_FORBIDDEN_XML = re.compile(rb"<!\s*(?:DOCTYPE|ENTITY)", re.I)
+_FORBIDDEN_XML = re.compile(r"<!\s*(?:DOCTYPE|ENTITY)", re.I)
 
 
-def _xml(raw: bytes | str) -> ET.Element:
-    """XML from WeCom, refused if it declares a document type or an entity (nothing WeCom sends
-    does), so no entity can expand however the parser is built."""
-    data = raw.encode("utf-8") if isinstance(raw, str) else bytes(raw)
-    if _FORBIDDEN_XML.search(data):
+def _wecoms_text(raw: bytes | str) -> str:
+    """Text as WeCom sends it, or refused before any parser sees it: strict UTF-8, and starting
+    with `<xml` or `{`, which is all WeCom ever sends (90238, 90239). A body in UTF-16, with a
+    byte-order mark, an XML declaration or a document type in front, never reaches a parser, so
+    a document type can't hide in another encoding (review note 2, 8 Oct)."""
+    if isinstance(raw, str):
+        text = raw
+    else:
+        try:
+            text = bytes(raw or b"").decode("utf-8")
+        except UnicodeDecodeError:
+            raise CryptoError(-40002, "the body is not UTF-8") from None
+    text = text.strip()
+    if not text.startswith(("<xml", "{")):
+        raise CryptoError(-40002, "the body is neither WeCom's XML nor its JSON")
+    return text
+
+
+def _xml(text: str) -> ET.Element:
+    """XML from WeCom, already checked by _wecoms_text, refused if it declares a document type or
+    an entity anywhere (nothing WeCom sends does), so no entity can expand however the parser is
+    built. Parsed from text, so expat reads it as UTF-8 whatever an XML declaration might claim."""
+    if _FORBIDDEN_XML.search(text):
         raise CryptoError(-40002, "the XML declares a document type")
     try:
-        return ET.fromstring(data)
+        return ET.fromstring(text)
     except ET.ParseError:
         raise CryptoError(-40002, "the XML does not parse") from None
 
 
 def envelope(body: bytes) -> dict[str, str]:
     """The outer callback (xml or json, 90238): ToUserName, AgentID and the Encrypt field."""
-    text = bytes(body or b"").strip()
-    if text.startswith(b"{"):
+    text = _wecoms_text(body)
+    if text.startswith("{"):
         try:
-            data = json.loads(text.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError, RecursionError):
+            data = json.loads(text)
+        except (ValueError, RecursionError):
             # RecursionError: JSON nested thousands deep fits under the body cap and would otherwise
             # end the request in a 500 (review note 1, 8 Oct).
             raise CryptoError(-40002, "the JSON does not parse") from None
@@ -378,7 +396,7 @@ def envelope(body: bytes) -> dict[str, str]:
 
 def message_fields(plaintext: str) -> dict[str, str]:
     """A decrypted message or event (90239, 90240, 94670), one level deep: tag → text."""
-    stripped = plaintext.strip()
+    stripped = _wecoms_text(str(plaintext))
     if stripped.startswith("{"):
         try:
             data = json.loads(stripped)
