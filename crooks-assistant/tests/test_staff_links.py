@@ -346,6 +346,85 @@ def test_past_what_a_phone_remembers_any_sign_in_it_does_not_know_is_a_copy(door
     _caught([first, held], t0 + 3 * (links.ROTATE_S + 60) + 600, t0)
 
 
+def _page_read_limit_s() -> float:
+    """READ_LIMIT_MS in web/today.js: how long the page waits for a read of /today/state."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "web" / "today.js").read_text(encoding="utf-8")
+    found = re.search(r"const READ_LIMIT_MS = (\d+);", source)
+    assert found, "web/today.js no longer abandons a read kept waiting"
+    return int(found.group(1)) / 1000
+
+
+def _honest_phone(*, one_read_at_a_time: bool, limit_s: float | None, tabs: int, day: int, hours: float = 6) -> tuple[str, int]:
+    """The re-review's simulation (R1), against the real server's check(): an honest phone whose tabs
+    share one cookie jar and read /today/state every 30 seconds, every other renewal answer held up in
+    the network for 200 seconds. With the page's rule a tab starts no read while its last is out, and
+    abandons one after `limit_s`, whose cookie the browser then never stores. (how it ended, renewals)."""
+    import heapq
+
+    t0 = 1_800_000_000.0 + day * 86400
+    token, code, _ = links.make("mia", by="owner", now=t0)
+    jar = [_value(links.redeem(token, code, address="a", now=t0).cookie)]
+    events, out, renewals, n = [], [None] * tabs, [0], [0]
+
+    def at(when, *what):
+        n[0] += 1
+        heapq.heappush(events, (when, n[0], *what))
+
+    for tab in range(tabs):
+        at(t0 + 30 + 13 * tab, "poll", tab)
+    while events:
+        when, _, kind, tab, *rest = heapq.heappop(events)
+        if when > t0 + hours * 3600:
+            break
+        if kind == "poll":
+            at(when + 30, "poll", tab)
+            if one_read_at_a_time and out[tab] is not None:
+                continue
+            read = n[0] + 1
+            out[tab] = read
+            at(when + 0.5, "server", tab, read, jar[0], when)
+            if limit_s is not None:
+                at(when + limit_s, "abandon", tab, read)
+        elif kind == "server":
+            read, sent, started = rest
+            seen = links.check(sent, now=when)
+            if seen.refused:
+                return f"signed out {round((when - t0) / 60)} minutes in", renewals[0]
+            late = bool(seen.set_cookie) and renewals[0] % 2 == 0
+            renewals[0] += bool(seen.set_cookie)
+            at(when + (200 if late else 0.5), "answer", tab, read, seen.set_cookie, started)
+        elif kind == "answer":
+            read, cookie, started = rest
+            if limit_s is not None and when - started > limit_s:
+                continue                                    # abandoned: the browser stored nothing
+            if cookie:
+                jar[0] = _value(cookie)
+            if out[tab] == read:
+                out[tab] = None
+        elif kind == "abandon" and out[tab] == rest[0]:
+            out[tab] = None
+    return "still signed in", renewals[0]
+
+
+def test_an_honest_phone_whose_renewal_answers_are_held_up_is_never_taken_for_a_copy(door):
+    """The re-review's R1, replayed against the real server. As the page polled before (a read every 30
+    seconds whether or not the last had come back), a renewal answer held up 200 seconds lands after a
+    newer sign-in and the honest phone is signed out as a copy about 65 minutes in. With the page's
+    rule (web/today.js: one read at a time, abandoned after READ_LIMIT_MS, which must be under the two
+    minutes the server leaves between renewals), it never is, with one tab or two sharing the jar."""
+    limit = _page_read_limit_s()
+    assert 0 < limit < links.GRACE_S
+    before, _ = _honest_phone(one_read_at_a_time=False, limit_s=None, tabs=1, day=0)
+    assert before == "signed out 65 minutes in"
+    assert links.summary()["mia"]["copied"] is not None
+    for tabs in (1, 2):
+        ended, renewals = _honest_phone(one_read_at_a_time=True, limit_s=limit, tabs=tabs, day=tabs)
+        assert ended == "still signed in" and renewals >= 10, (tabs, ended, renewals)
+        assert links.summary()["mia"]["copied"] is None
+
+
 async def test_a_new_sign_in_goes_out_only_with_todays_quick_read_never_with_a_turn(door, monkeypatch):
     """A turn's answer can take minutes. If it carried the new cookie, that cookie could land after a
     newer one and put an honest phone back on a sign-in it had moved past, which reads as a copy. So

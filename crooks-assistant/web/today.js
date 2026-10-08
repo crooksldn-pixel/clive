@@ -81,6 +81,7 @@
       init.body = JSON.stringify(body);
     }
     Object.assign(init.headers, (options && options.headers) || {});
+    if (options && options.signal) init.signal = options.signal;
     let response;
     try { response = await fetch(path, init); } catch (error) {
       // [staff-links] A phone that joined by a staff link is not on Tailscale (DEC-075).
@@ -909,8 +910,43 @@
 
   // ------------------------------------------------------------ load
 
-  async function load(fresh) {
-    const data = await call('/today/state' + (fresh ? '?fresh=true' : ''));
+  // [staff-links] One read of the work list at a time, and none kept waiting longer than READ_LIMIT_MS
+  // (the re-review of staff links, R1). Through the team's door a read can carry the phone's renewed
+  // sign-in (app/people/links.py check). An answer held up in the network that landed after a later
+  // read's newer sign-in would put the phone back on one it had moved past, which CLIVE takes for a
+  // copy and signs the phone out. So a poll never starts while a read is on its way; any other load
+  // waits for it and is then made once; and a read not answered within a minute is abandoned. A
+  // browser keeps no cookie from an answer abandoned before it arrived (checked in Chromium), and the
+  // server hands a new sign-in no sooner than two minutes after the last one, so none can land late.
+  const READ_LIMIT_MS = 60000;
+  const reads = { current: null, next: null };
+
+  function load(fresh) {
+    if (reads.current) {
+      if (!reads.next) {
+        const next = { fresh: false };
+        next.promise = reads.current.catch(() => false).then(() => {
+          reads.next = null;
+          return load(next.fresh);
+        });
+        reads.next = next;
+      }
+      reads.next.fresh = reads.next.fresh || Boolean(fresh);
+      return reads.next.promise;
+    }
+    reads.current = read(fresh).finally(() => { reads.current = null; });
+    return reads.current;
+  }
+
+  async function read(fresh) {
+    const stop = new AbortController();
+    const timer = window.setTimeout(() => stop.abort(), READ_LIMIT_MS);
+    let data;
+    try {
+      data = await call('/today/state' + (fresh ? '?fresh=true' : ''), undefined, { signal: stop.signal });
+    } finally {
+      window.clearTimeout(timer);
+    }
     // [staff-links] A phone the team's door does not know, or signed out by George: the join page says
     // what to do (app/people/team_door.py, DEC-075).
     if (data.code === 'signed_out') { window.location.replace('/join'); return false; }
@@ -939,6 +975,7 @@
   }
 
   function poll() {
+    if (reads.current) return;                  // a read is still on its way: never a second (R1)
     if (document.visibilityState !== 'visible' || busy || (voice && voice.listening)) return;
     if ($('#ask-text').value.trim() || $('#now').classList.contains('holding')) return;
     load();
@@ -958,7 +995,7 @@
 
   // What the owner's side (web/today-owner.js) shares with this page.
   window.CliveToday = {
-    call, post, element, button, when, sentence, recordLine, jobNotes, heading, cardOf, load, line, waitingForTracking,
+    call, post, element, button, when, sentence, recordLine, jobNotes, heading, cardOf, load, poll, line, waitingForTracking,
     ask: askClive, handle, offerUndo, bar: () => bar, state: () => state, RECORD_WORDS, VIA_CLIVE,
     prefill, showWork, guidanceNow: () => (state ? guidance(focused(board())) : ''),
   };
