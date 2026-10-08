@@ -1291,7 +1291,7 @@ He wants "the flow from actually asking a question to the action happening to be
 
 **Reason:** his ruling, and the rules that never bend: anything outward waits for a gesture on its card (rule 2), unknown is RED (rule 3), verified or it is an error (rule 1).
 
-**Consequences:** three tools on the gate's read allow-list (`routine_list`, `routine_note`, `routine_run`), named without a mutation verb and changing only CLIVE's own records, like `work_note` and `objective_note`. They are in the staff tool set; no write, operation or authority is added. The tool block grows by 1,381 bytes. Not built: routines on a schedule (he asked for "started by name"), a routine started from a tap, and the owner seeing the team's routines.
+**Consequences:** three tools on the gate's read allow-list (`routine_list`, `routine_note`, `routine_run`), named without a mutation verb and changing only CLIVE's own records, like `work_note` and `objective_note`. Because they are on that list, a routine's saved words reach the model again on every run: their results frame each step's `say` and arguments as what was saved, possibly from text CLIVE read, and never an instruction beyond running that step through the gate; and every change `routine_note` makes (a save, a step changed, added, moved or taken out, a rename, a routine forgotten) is a line on his screen naming what changed, never set aside by what the turn is about. They are in the staff tool set; no write, operation or authority is added. The tool block grows by 1,381 bytes. Not built: routines on a schedule (he asked for "started by name"), a routine started from a tap, and the owner seeing the team's routines.
 
 ---
 

@@ -319,6 +319,9 @@ def present(
         else:
             items = answer_cards(items, focus_why, read_whole=read_whole, asked=records_asked_for(calls), before=before,
                                  said=asked_by_the_model(calls), drawn=drawn)
+    # [routines, DEC-074] A routine kept, changed or forgotten is a line on his screen naming what
+    # changed, whatever this turn's focus set aside: never silent (the review's N2).
+    items = routine_cards.never_set_aside(items, calls)
     if session is not None:
         _remember(items, session)
         # §18, as a SWEEP rather than one renderer at a time. After `_remember`, which is

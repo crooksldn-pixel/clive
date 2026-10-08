@@ -14,7 +14,8 @@
  *     ran (two reads done, the change waiting for him), then what the reads found; and the card
  *     still waits: nothing is applied;
  *   - "take step 2 out of my friday drop routine" and "forget my friday drop routine" say what
- *     they did, read back from the store, each a screen of its own (nothing of the run left under it);
+ *     they did, naming the step taken out and the routine forgotten, read back from the store, each a
+ *     screen of its own (nothing of the run left under it);
  *   - nothing leaves the card's edge, the page does not scroll sideways, and nothing throws.
  *
  * Prints one JSON object: { ok, checks: [{name, ok, detail}], shots: [...] }.
@@ -98,8 +99,9 @@ async function run(browser, size) {
       return r.width > 0 && (r.right > box.right + 1 || r.left < box.left - 1);
     }).map((e) => e.className).slice(0, 5);
     const doc = document.documentElement;
-    const dots = Array.from(card.querySelectorAll('.rn-row')).map((r) => ['is-ask', 'is-warn', 'is-bad', 'is-quiet', 'is-change', 'is-read', 'is-pending'].find((c) => r.classList.contains(c)) || '');
-    return { found: true, past, dots, sideways: doc.scrollWidth > doc.clientWidth + 1, text: card.innerText.replace(/\s+/g, ' ').trim() };
+    const dots = Array.from(card.querySelectorAll('.rn-row')).map((r) => ['is-ask', 'is-warn', 'is-bad', 'is-quiet', 'is-change', 'is-acts', 'is-read', 'is-pending'].find((c) => r.classList.contains(c)) || '');
+    const rows = Array.from(card.querySelectorAll('.rn-row')).map((r) => r.innerText.replace(/\s+/g, ' ').trim());
+    return { found: true, past, dots, rows, sideways: doc.scrollWidth > doc.clientWidth + 1, text: card.innerText.replace(/\s+/g, ' ').trim() };
   }, sel);
   const fits = (card) => card.found && !card.past.length && !card.sideways;
 
@@ -147,8 +149,9 @@ async function run(browser, size) {
   // 4. Edited, then forgotten: each said from what the store now holds.
   await say(SAID.drop, ROUTINE);
   card = await seen(ROUTINE);
-  check(`${tag}: a step taken out, read back`, card.found && /Took out step 2\. 2 steps, 1 change/.test(card.text)
-    && !/Who wrote today/.test(card.text), JSON.stringify(card));
+  check(`${tag}: a step taken out, named on the card, and read back`, card.found
+    && /Took out step 2: Who wrote today\. 2 steps, 1 change/.test(card.text)
+    && card.rows.length === 2 && !card.rows.some((r) => /Who wrote today/.test(r)), JSON.stringify(card));
   await say(SAID.forget, ROUTINE);
   card = await seen(ROUTINE);
   check(`${tag}: forgotten, and none saved`, card.found && /Forgot Friday drop\. None saved yet/.test(card.text), JSON.stringify(card));

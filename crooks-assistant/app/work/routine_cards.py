@@ -34,6 +34,7 @@ from app.work.routine_words import did
 
 TOOLS = frozenset({"routine_list", "routine_note", "routine_run"})
 RUN_TOOL = "routine_run"
+NOTE_TOOL = "routine_note"
 STATES = ("done", "waiting", "acted", "failed", "skipped", "not_done", "pending")
 KINDS = ("read", "change", "acts")
 MAX_ROWS = 30
@@ -60,7 +61,7 @@ def card(name: str, result: dict[str, Any], later: list[Any] | None) -> dict[str
     """The card's data for one routine tool's result. `later` is the calls the turn made after it,
     or None when they are not known yet (the early drawing of one read, app/progressive.py)."""
     view = str(result.get("view") or "")
-    said = _text(result.get("said"), 80)
+    said = _text(result.get("said"))
     if view == "list":
         rows = []
         for routine in [r for r in (result.get("routines") or []) if isinstance(r, dict)][:MAX_ROWS]:
@@ -173,6 +174,36 @@ def lookups_on_the_way(calls: list[Any] | None) -> frozenset[int]:
                     and getattr(later, "name", "") not in TOOLS:
                 out.add(start + 1 + offset)
     return frozenset(out)
+
+
+def never_set_aside(items: list[dict[str, Any]], calls: list[Any] | None) -> list[dict[str, Any]]:
+    """Every routine kept, changed or forgotten this turn as a line on his screen naming what changed,
+    whatever this turn's focus set aside (the review's N2): routine_note changes CLIVE's own records
+    with no gesture, from words the model may have read in an email, so it is never silent. One card
+    per routine (its `key`), as the last change left it, with every change's line in the order made;
+    where focus kept that routine's card it is replaced in place, otherwise it is added at the end."""
+    noted: dict[str, dict[str, Any]] = {}
+    for call in calls or []:
+        result = getattr(call, "result", None)
+        if getattr(call, "name", "") != NOTE_TOOL or not getattr(call, "ok", False) or not isinstance(result, dict):
+            continue
+        data = card(NOTE_TOOL, result, [])
+        earlier = noted.get(data["key"])
+        if earlier is not None and earlier["data"].get("said"):
+            data["said"] = _text(" · ".join(x for x in (earlier["data"]["said"], data.get("said")) if x), 2 * MAX_TEXT)
+        noted[data["key"]] = {"type": "routine", "data": data}
+    if not noted:
+        return items
+    out: list[dict[str, Any]] = []
+    for item in items or []:
+        key = (item.get("data") or {}).get("key") if isinstance(item, dict) and item.get("type") == "routine" else None
+        if key in noted:
+            if not any(o.get("type") == "routine" and (o.get("data") or {}).get("key") == key for o in out):
+                out.append(noted[key])
+            continue
+        out.append(item)
+    placed = {(o.get("data") or {}).get("key") for o in out if o.get("type") == "routine"}
+    return out + [card_ for key, card_ in noted.items() if key not in placed]
 
 
 def answer_cards(items: list[dict[str, Any]], why: dict[str, Any] | None = None) -> list[dict[str, Any]]:
