@@ -201,6 +201,40 @@ async def test_a_reply_is_only_staged_and_nothing_is_sent_until_the_hold(world, 
     assert refused.code == "not_armed" and world.sent == []
 
 
+async def test_a_linked_conversation_shows_its_wechat_name_beside_the_person_before_the_hold(world, engine, caplog):
+    """Review note 6 (8 Oct): message_contact runs on the model's reading of "that's Jessica". Linked
+    to the wrong card, the hold card said "To: Jessica" and the message went to someone else. Now
+    the channel's own name for the contact is printed beside the person's, as a fact's text and
+    nowhere else, so a wrong link shows before the hold."""
+    import logging
+
+    caplog.set_level(logging.DEBUG)
+    thread = jessica_wrote()
+    held = store.thread(thread.chat_id)
+    held.who = "Chen Forwarding"                       # WeChat's name for whoever this really is
+    store.upsert(held)
+    people.note({"name": "Jessica", "kind": "contact", "role": "manufacturer"})
+    await tools.message_contact(thread.chat_id, "Jessica")
+    session = session_for(thread)
+    _, proposal = await stage(engine, session, thread)
+    card = registry.get("message_reply").write.present(proposal)
+    assert {"label": "To", "value": "Jessica (WeChat name: Chen Forwarding)"} in card["facts"]
+    assert [f for f in card["facts"] if "Chen Forwarding" in json.dumps({k: v for k, v in f.items() if k != "value"})] == []
+    assert "Chen Forwarding" not in json.dumps({k: v for k, v in card.items() if k != "facts"})
+    assert "Chen Forwarding" in session.pii_seen and "Chen Forwarding" not in caplog.text
+    assert proposal.summary["to"] == "Jessica" and "Chen Forwarding" not in proposal.entity_label
+    # Linked, with no name from WeChat to check against: it says so.
+    other = kf_thread(wecom_world.KF, "wmTESTOTHER0000000000000000000")
+    store.upsert(other)
+    store.add(other, Message(message_id="m_other", chat_id=other.chat_id, direction="in", origin="contact", text="你好",
+                             at=time.time(), language="zh", english="Hello", translation_state="done", remote_id="r_other"))
+    people.note({"name": "Wei", "kind": "contact", "role": "forwarder"})
+    await tools.message_contact(other.chat_id, "Wei")
+    session.issue(other.chat_id)
+    _, second = await stage(engine, session, store.thread(other.chat_id))
+    assert {"label": "To", "value": "Wei (WeChat gave no name)"} in registry.get("message_reply").write.present(second)["facts"]
+
+
 async def test_held_it_is_sent_once_proven_by_wecoms_message_id_and_recorded(world, engine, clock, tmp_path):
     thread = jessica_wrote()
     session = session_for(thread)

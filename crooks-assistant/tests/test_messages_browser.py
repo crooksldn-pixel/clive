@@ -147,8 +147,9 @@ async def test_wechat_messages_in_a_real_browser(monkeypatch, tmp_path):
     assert payload is not None, (result.stdout + result.stderr)[-1500:]
     failed = [c for c in payload.get("checks") or [] if not c.get("ok")]
     assert payload.get("ok"), "\n".join(f"  - {c['name']} :: {c.get('detail', '')}" for c in failed)
-    # Eight checks at each size, and the phone's ninth: the conversation after its send.
-    assert len(payload["checks"]) == 8 + 9, [c["name"] for c in payload["checks"]]
+    # Nine checks at each size (the ninth since 8 Oct: WeChat's name for her beside his card's on the
+    # reply card), and the phone's tenth: the conversation after its send.
+    assert len(payload["checks"]) == 9 + 10, [c["name"] for c in payload["checks"]]
     # Only the phone's hold sent anything: one message, Chinese first, through customer service.
     sends = [body for path, _params, body in fake.calls if path == "/kf/send_msg"]
     assert len(sends) == 1 and sends[0]["text"]["content"] == f"{REPLY_ZH}\n\n{REPLY_EN}", sends

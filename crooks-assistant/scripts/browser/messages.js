@@ -14,7 +14,8 @@
  *   - the message the model could not translate says "Translation missing" and shows the original;
  *   - her conversation in full names her as his card does, and says how long WeChat takes a reply;
  *   - the reply card prints the exact message, Chinese first, says the Chinese is a machine
- *     translation, and waits for the hold; on the tablet nothing is sent; on the phone the hold and
+ *     translation, names her as his card does with WeChat's own name for her beside it (so a
+ *     conversation linked to the wrong person shows before the hold), and waits for the hold; on the tablet nothing is sent; on the phone the hold and
  *     the tap send it, the card says Sent, and the conversation shows it with its Chinese behind a tap;
  *   - nothing leaves the card's edge, the page does not scroll sideways, and nothing throws.
  *
@@ -153,6 +154,9 @@ async function run(browser, size) {
     card.found && /Send on WeChat/.test(card.text) && /周一可以。寄出前请发样衣照片。 Monday is fine\. Please send photos of the sample before it ships\./.test(card.text)
       && /Jessica/.test(card.text) && /machine translation/i.test(card.text) && /hold/i.test(card.text) && !card.past.length && !card.sideways,
     JSON.stringify(card));
+  // Review note 6 (8 Oct): WeChat's own name for her beside his card's, so a wrong link shows before the hold.
+  check(`${tag}: the card says who WeChat says she is beside the name on his card`,
+    card.found && /\b(?:To|TO)\s*Jessica \(WeChat name: Jessica Factory\)/.test(card.text), JSON.stringify(card));
   await shot('4-reply-card', HOLD);
 
   if (size.commit) {

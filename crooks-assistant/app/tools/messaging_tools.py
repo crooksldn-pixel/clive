@@ -234,9 +234,20 @@ def _verify(before: dict, observed: dict, execution: dict) -> tuple[bool, str]:
     return observed.get("sent") == 1, ""
 
 
+def to_line(thread, person, who: str) -> str:
+    """Who the card says it goes to. Linked to a card, the channel's own name for the contact is
+    printed beside it, so a conversation linked to the wrong person shows before the hold, not
+    after the send (review note 6, 8 Oct): "Jessica (WeChat name: 李伟)". Drawn as text only."""
+    if person is None:
+        return who
+    words = contacts.channel_words(thread)
+    nick = " ".join(str(thread.who or "").split())[:60]
+    return f"{person.name} ({words} name: {nick})" if nick else f"{person.name} ({words} gave no name)"
+
+
 def _present(proposal) -> dict:
     s = proposal.summary
-    facts = [{"label": "To", "value": str(s.get("to") or "")},
+    facts = [{"label": "To", "value": str(s.get("to_line") or s.get("to") or "")},
              {"label": "On", "value": str(s.get("on") or "")},
              {"label": "Chinese", "value": "CLIVE's translation of your English: a machine translation", "tone": "warn"}]
     if s.get("window"):
@@ -312,10 +323,12 @@ async def message_reply(chat_id: str, english: str, chinese: str) -> Prepared:
         # Never a name: the ledger and the log carry this label.
         entity_label=f"on {contacts.channel_words(thread)}",
         summary={
-            "to": who, "spoken_to": (who.split() or ["them"])[0], "on": on, "route": thread.route, "text": text,
+            "to": who, "to_line": to_line(thread, person, who),
+            "spoken_to": (who.split() or ["them"])[0], "on": on, "route": thread.route, "text": text,
             "linked": person is not None, "window": views.reply_window(thread) if thread.route == "kf" else "",
             "read_back": f"send {who} a message on {contacts.channel_words(thread)}",
-            "pii": [who] if person is not None or thread.who else [],
+            # Kept out of the turn's record and the log: the name, and the channel's own name for them.
+            "pii": [v for v in dict.fromkeys((who if person is not None or thread.who else "", thread.who)) if v],
             "ledger": {"channel": thread.channel, "route": thread.route, "chars": len(text)},
         },
     )
