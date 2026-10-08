@@ -29,6 +29,14 @@ async def _probe(_runtime: Any) -> dict[str, Any]:
     from app.shipping import current as provider_current
 
     provider = provider_current()
+    # [shipping] Labels and tracking for international orders are CLIVE Shipping's now
+    # (app/tools/shipping_tools.py). With its read key stored, this parked Easyship row (whose
+    # adapter app/runtime.py installs, never connected) must not tell the model, on every turn, that
+    # shipping labels are disconnected. A provider that is genuinely connected still speaks for itself.
+    from app.clients import crooks_shipping
+
+    if crooks_shipping.read_key() and (provider is None or not provider.connected()):
+        return {"state": "READY", "detail": "labels and tracking for international orders are CLIVE Shipping's"}
     if provider is None:
         from app.shipping.easyship import CLIENT, TOKEN_ENV
 

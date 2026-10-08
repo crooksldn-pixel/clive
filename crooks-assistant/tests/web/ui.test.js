@@ -49,6 +49,8 @@ test('the vocabulary is exactly the presentation layer\'s', () => {
     'returns',
     // [messaging] WeChat and WeCom conversations, the original one tap away (web/messages.js).
     'messages',
+    // CLIVE Shipping: the international orders, one order, what changed (web/shipping.js).
+    'shipping',
   ]));
 });
 

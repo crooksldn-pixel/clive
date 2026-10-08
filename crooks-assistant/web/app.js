@@ -359,6 +359,12 @@ const DETAIL_WORDS = {
   // CROOKS Returns (app/tools/returns_tools.py): reading returns, and an action prepared for his approval.
   returns_open: ['Checking', 'returns'], return_find: ['Finding', 'the return'],
   returns_stats: ['Counting', 'returns'], return_action: ['Preparing', 'the return step', true],
+  // [shipping] CLIVE Shipping (app/tools/shipping_tools.py): reading international orders, and a label
+  // bought or printed, prepared for his approval.
+  shipments_open: ['Checking', 'shipping'], shipment_find: ['Finding', 'the shipment'],
+  shipment_tracking: ['Tracking', 'the parcel'], shipping_events: ['Checking', 'what changed'],
+  shipping_label_buy: ['Pricing', 'the label', true], shipping_label_print: ['Preparing', 'the print', true],
+  shipping_label_reprint: ['Preparing', 'another copy', true],
   skill_list: ['Listing', 'skills'], skill_read: ['Reading', 'the skill'],
   // [messaging] WeChat and WeCom (app/tools/messaging_tools.py): reading conversations, saying who one is
   // with, and a reply prepared for his hold.

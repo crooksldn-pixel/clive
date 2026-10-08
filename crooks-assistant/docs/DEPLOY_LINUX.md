@@ -63,7 +63,8 @@ it?**
 ### Static — encrypted credentials
 
 `elevenlabs_api_key`, `shopify_client_id`, `shopify_client_secret`, `shopify_static_token`,
-`claude_oauth_token`, `youtube_api_key`, `ship24_api_key`, `crooks_returns_read_key`, `crooks_returns_write_key`.
+`claude_oauth_token`, `youtube_api_key`, `ship24_api_key`, `crooks_returns_read_key`, `crooks_returns_write_key`,
+`crooks_shipping_read_key`, `crooks_shipping_write_key`.
 
 `youtube_api_key` is optional. It is a YouTube Data API v3 key that CLIVE uses to search YouTube
 when the owner asks for a video on a screen ("play the Heat trailer on the TV"). Without it, a
@@ -80,6 +81,16 @@ returns service, lists for CLIVE (`grep CLIVE /opt/clive/crooks-returns/.env`:
 sends the second only with an action the owner approved on its card (app/clients/crooks_returns.py);
 without them, returns read as not connected. Where the service answers is the setting
 `CROOKS_RETURNS_BASE_URL` (default `https://returns.crooksldn.com`).
+
+`crooks_shipping_read_key` and `crooks_shipping_write_key` are optional too, and normally pasted on
+the Connections screen. They are the keys CLIVE Shipping, the owner's own international shipping
+service, lists for CLIVE (`grep CLIVE /opt/clive/clive-shipping/.env`: `SHIPPING_CLIVE_READ_KEYS`
+and `SHIPPING_CLIVE_WRITE_KEYS`). CLIVE reads orders, prices and tracking with the first and sends
+the second only with a label bought or printed on a card the owner approved
+(app/clients/crooks_shipping.py); without them, shipping reads as not connected. CLIVE holds no
+PrintNode key: labels print through the service's own `PRINTNODE_API_KEY` and
+`PRINTNODE_PRINTER_ID`. Where the service answers is the setting `CROOKS_SHIPPING_BASE_URL`
+(default `https://returns.crooksldn.com/shipping`).
 
 Read at runtime and never written. Encrypted with `systemd-creds encrypt`, which binds the
 blob to this host, and mounted read-only into the service's own private tmpfs by

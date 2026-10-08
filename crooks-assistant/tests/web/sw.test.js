@@ -148,6 +148,8 @@ const SHELL = ['/', '/static/style.css', '/static/app.js', '/static/ui.js', '/st
   '/static/returns.js', '/static/returns.css',
   // [messaging] WeChat and WeCom conversations, the original one tap away (web/messages.js).
   '/static/messages.js', '/static/messages.css',
+  // CLIVE Shipping: the international orders, one order in full, what changed (web/shipping.js).
+  '/static/shipping.js', '/static/shipping.css',
   // The design pass of 3 Oct (web/design.css).
   '/static/design.css',
   '/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png', '/static/icon-maskable-192.png', '/static/icon-maskable-512.png'];

@@ -3352,6 +3352,26 @@
     ].concat(kit.body(d)), opts);
   }
 
+  // [shipping] CLIVE Shipping (web/shipping.js, loaded beside this file): the international orders by
+  // stage, one order's payment, label, print and carrier, or what changed. Without that file nothing is drawn.
+  function shippingKit() {
+    const kit = typeof window !== 'undefined' ? window.CliveShipping : globalThis.CliveShipping;
+    return kit && typeof kit.body === 'function' ? kit : null;
+  }
+
+  function renderShipping(d, opts) {
+    const kit = shippingKit();
+    if (!kit) return null;
+    const said = kit.sub(d);
+    return card('shipping', [
+      h('div', { class: 'card-head' }, [h('div', {}, [
+        kicker('CLIVE Shipping'),
+        h('h2', { class: 'card-title', text: kit.title(d) }),
+        said ? h('p', { class: 'card-sub', text: said }) : null,
+      ])]),
+    ].concat(kit.body(d)), opts);
+  }
+
   // One of the owner's objectives, in the shape of its kind (round 12). Drawn by
   // web/objective-cards.js, which the page loads beside this file; without it nothing is drawn.
   function renderObjective(d, opts) {
@@ -3399,6 +3419,7 @@
     returns: renderReturns,
     // [messaging] WeChat and WeCom conversations (web/messages.js).
     messages: renderMessages,
+    shipping: renderShipping,
   };
   const TYPES = Object.keys(RENDERERS).concat(['context_stack']);
   // Both Phase 5 workstreams added to this list and the merge produced two declarations of
@@ -3420,7 +3441,9 @@
     // CROOKS Returns: what needs him, one return, a period's numbers (web/returns.js).
     'returns',
     // [messaging] WeChat and WeCom conversations (web/messages.js).
-    'messages'];
+    'messages',
+    // [shipping] CLIVE Shipping: the orders by stage, one order, what changed (web/shipping.js).
+    'shipping'];
 
   function isValid(item) {
     return Boolean(item) && typeof item === 'object' && typeof item.type === 'string'
@@ -3571,6 +3594,7 @@
     returns: ['key'],
     // [messaging]
     messages: ['key'],
+    shipping: ['key'],
   };
   const NESTED_KEY_OF = { product: ['products', 'product_id'], inventory: ['products', 'product_id'] };
   const SHELL_SUFFIX = '~shell';

@@ -1,0 +1,52 @@
+/* CLIVE Shipping (web/shipping.js): the international orders, one order in full, what changed.
+ *
+ * Dots that mean something and nothing else: blue is something for him to do (a label to buy or to
+ * print), iOS orange is something stopping an order, red is a print that failed or may not have or
+ * an error the service recorded, and a quiet dot needs nothing. On the timeline a filled blue dot
+ * was checked against Shopify, the courier or the printer; a hollow one was only recorded.
+ */
+
+.sh-rows{list-style:none;margin:0;padding:0}
+.sh-row{display:grid;grid-template-columns:14px 1fr auto;column-gap:10px;align-items:baseline;padding:11px 0;border-top:1px solid var(--line)}
+.sh-rows > .sh-row:first-child{border-top:0}
+.sh-row.tappable{cursor:pointer;border-radius:var(--radius-control)}
+.sh-row.tappable:active{background:var(--glass-control-active)}
+.sh-dot{width:9px;height:9px;border-radius:50%;background:var(--ink-4);align-self:center}
+.is-ask > .sh-dot{background:#0a84ff;box-shadow:0 0 0 3px rgba(10,132,255,.18)}
+.is-warn > .sh-dot{background:var(--warn);box-shadow:0 0 0 3px var(--warn-dim)}
+.is-bad > .sh-dot{background:var(--bad);box-shadow:0 0 0 3px var(--bad-dim)}
+.sh-main{font-size:16px;color:var(--ink);min-width:0;word-break:break-word}
+.sh-number{font-variant-numeric:tabular-nums;font-weight:600}
+.sh-country{color:var(--ink-3);font-size:13px;letter-spacing:.04em}
+.sh-side{font-size:15px;color:var(--ink-2);white-space:nowrap;font-variant-numeric:tabular-nums}
+.sh-state,.sh-meta{grid-column:2 / -1;margin:3px 0 0;word-break:break-word}
+.sh-state{font-size:14px;color:var(--ink)}
+.is-ask .sh-state{color:#0a84ff}
+.is-warn .sh-state{color:var(--warn)}
+.is-bad .sh-state{color:var(--bad)}
+.sh-meta{font-size:13px;color:var(--ink-3)}
+
+.sh-counts{display:flex;flex-wrap:wrap;gap:8px 16px;list-style:none;margin:0 0 6px;padding:0}
+.sh-count{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--ink-2)}
+.sh-count-n{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+
+.sh-one + .sh-one{margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}
+.sh-facts{margin:6px 0 0;display:flex;flex-direction:column}
+.sh-fact{display:grid;grid-template-columns:76px 1fr;column-gap:12px;padding:8px 0;border-top:1px solid var(--line)}
+.sh-fact-l{margin:0;font-size:13px;color:var(--ink-3)}
+.sh-fact-v{margin:0;font-size:15px;color:var(--ink);word-break:break-word;font-variant-numeric:tabular-nums}
+.sh-fact-x{display:block;margin-top:2px;font-size:13px;color:var(--ink-3)}
+.sh-fact.is-bad .sh-fact-v{color:var(--bad)}
+.sh-error{margin:6px 0 0;font-size:13px;color:var(--bad);word-break:break-word}
+.sh-alerts{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.sh-alert{display:grid;grid-template-columns:14px 1fr;column-gap:10px;align-items:baseline;font-size:14px;color:var(--ink)}
+.sh-alert > .sh-dot{background:var(--warn);box-shadow:0 0 0 3px var(--warn-dim)}
+
+.sh-tl{list-style:none;margin:4px 0 0;padding:0 0 0 2px;position:relative}
+.sh-tl::before{content:"";position:absolute;left:5px;top:10px;bottom:10px;width:1px;background:var(--line)}
+.sh-ev{display:grid;grid-template-columns:14px 92px 1fr;column-gap:10px;align-items:baseline;padding:7px 0;position:relative}
+.sh-ev-dot{width:9px;height:9px;border-radius:50%;background:var(--bg-2);border:1.5px solid var(--ink-4);align-self:center;position:relative;z-index:1}
+.sh-ev.is-verified .sh-ev-dot{background:#0a84ff;border-color:#0a84ff}
+.sh-ev-when{font-size:12px;color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
+.sh-ev-what{font-size:14px;color:var(--ink);word-break:break-word}
+.sh-ev-detail{grid-column:3;font-size:12px;color:var(--ink-3);word-break:break-word;margin-top:1px}

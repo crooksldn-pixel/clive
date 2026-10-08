@@ -87,6 +87,14 @@ HELP = {
     ),
     "wecom_callback_token": "The app's page -> Receive Messages (接收消息) -> Set API Receive: the Token.",
     "wecom_encoding_aes_key": "Same place: the EncodingAESKey (43 letters and digits).",
+    "crooks_shipping_read_key": (
+        "On this server: grep CLIVE /opt/clive/clive-shipping/.env, and paste what follows "
+        "SHIPPING_CLIVE_READ_KEYS= (one key). CLIVE reads your international orders with it."
+    ),
+    "crooks_shipping_write_key": (
+        "Same command: paste what follows SHIPPING_CLIVE_WRITE_KEYS= (one key). CLIVE sends it only "
+        "with a label bought or printed on a card you approved."
+    ),
     "instagram_access_token": (
         "Meta for Developers -> the CLIVE app -> Instagram -> API setup with Instagram login -> "
         "Generate token for the crooksldn account (a long-lived token, 60 days). CLIVE reads "

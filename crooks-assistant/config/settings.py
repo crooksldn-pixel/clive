@@ -214,6 +214,12 @@ class Settings(BaseSettings):
     # stored from the Connections screen, never settings.
     returns_base_url: str = "https://returns.crooksldn.com"
 
+    # --- CLIVE Shipping (the owner's own international shipping service; app/clients/crooks_shipping.py) ---
+    # Where its /api/v1 answers: behind the same address as CROOKS Returns, under /shipping. Its two
+    # keys are secrets (crooks_shipping_read_key, crooks_shipping_write_key), stored from the
+    # Connections screen, never settings.
+    shipping_base_url: str = "https://returns.crooksldn.com/shipping"
+
     # --- test mode, always on ---
     # On, every day is one test session that the backend starts itself ("always-on"), closes
     # at local midnight and follows with the next: nothing has to be started on the host for

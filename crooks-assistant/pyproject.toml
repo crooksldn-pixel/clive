@@ -27,7 +27,10 @@ dependencies = [
 [project.optional-dependencies]
 # pyyaml is test-only: the CI workflow is now part of the repository's tested
 # surface, and tests/test_ci_workflow.py parses it rather than grepping it.
-dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.7", "pyyaml>=6.0"]
+# pypdf and reportlab are test-only too: tests/test_crooks_shipping_contract.py runs the CLIVE Shipping
+# service's own code (tests/shipping_service.py), which reads and draws label PDFs with them. CLIVE
+# itself never imports them, so the server needs neither.
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.7", "pyyaml>=6.0", "pypdf>=6.0", "reportlab>=4.0"]
 
 [build-system]
 requires = ["setuptools>=68"]

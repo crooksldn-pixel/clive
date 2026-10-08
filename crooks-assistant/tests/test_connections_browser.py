@@ -33,7 +33,8 @@ from experience.browser import _stop, available
 from tests import connections_world
 
 # Every check the script makes must be made: a run that stopped early is not a pass.
-EXPECTED_CHECKS = 70   # 64, then CROOKS Returns as something to add, at each of the three sizes (+3), then WeCom (+3)
+EXPECTED_CHECKS = 73   # 64, then CROOKS Returns as something to add, at each of the three sizes (+3), then WeCom (+3),
+# then CLIVE Shipping the same way (+3)
 
 
 async def test_the_connections_screen_in_a_real_browser(tmp_path):

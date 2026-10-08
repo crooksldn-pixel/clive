@@ -287,6 +287,15 @@ class Runtime:
             if not wecom.configured():
                 return WriteStatus("blocked", "blocked — WeCom is not connected on this server")
             return WriteStatus("ready", f"ready — {operation.replace('_', ' ')}")
+        if operation is not None and operation in self._shipping_operations():
+            # [shipping] A CLIVE Shipping change (a label bought or printed) needs no store scope: the
+            # service holds its own Shopify app and its own PrintNode. It needs the write key, read
+            # when the change runs.
+            from app.clients import crooks_shipping
+
+            if not crooks_shipping.write_key():
+                return WriteStatus("blocked", "blocked — CLIVE Shipping has no write key on this server")
+            return WriteStatus("ready", f"ready — {operation.replace('_', ' ')}")
         needed = {scope for op, scope in self._write_scopes().items() if operation is None or op == operation}
         if operation is not None and operation not in self._write_scopes():
             return WriteStatus("blocked", f"blocked — {operation.replace('_', ' ')} is not a change the assistant can make")
@@ -376,6 +385,16 @@ class Runtime:
             s.write.operation
             for s in all_specs()
             if s.write is not None and s.write.mutation.startswith("returns:") and not s.name.startswith("mock_")
+        }
+
+    def _shipping_operations(self) -> set[str]:
+        """[shipping] Every registered CLIVE Shipping write (app/tools/shipping_tools.py)."""
+        from app.tools.registry import all_specs
+
+        return {
+            s.write.operation
+            for s in all_specs()
+            if s.write is not None and s.write.mutation.startswith("shipping:") and not s.name.startswith("mock_")
         }
 
     async def _gmail_capabilities(self) -> dict[str, dict[str, str]]:
@@ -607,6 +626,7 @@ def build(settings: Settings | None = None) -> Runtime:
         mock,
         returns_tools,
         ship24_tools,
+        shipping_tools,
         shopify_tools,
         shopify_writes,
         show_again,
@@ -689,6 +709,12 @@ def build(settings: Settings | None = None) -> Runtime:
     from app.messaging.store import store as messaging_store
 
     messaging_store.configure(Path(settings.objectives_dir).parent / "messaging")
+    # [shipping] CLIVE Shipping, the owner's international shipping service: where it answers
+    # (CROOKS_SHIPPING_BASE_URL). Its keys are read from the secret store at each call
+    # (app/clients/crooks_shipping.py).
+    from app.clients import crooks_shipping
+
+    crooks_shipping.configure(base_url=settings.shipping_base_url)
     # The Connections screen (app/connections): the owner's passkeys and the record of changes to
     # connections live beside the keys stored from the app, in the root-only secret directory on
     # Linux; on a Mac, whose keys are in the Keychain, beside CLIVE's other records.

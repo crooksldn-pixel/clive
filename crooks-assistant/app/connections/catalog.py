@@ -154,6 +154,23 @@ CONNECTIONS: tuple[Connection, ...] = (
         unlocks=("messaging_reads", "messaging_replies"),
         without="Without it CLIVE can't see or answer WeChat messages from your manufacturer and forwarder.",
     ),
+    # [shipping] CLIVE Shipping, the owner's international shipping service (app/clients/crooks_shipping.py).
+    Connection(
+        name="shipping", label="CLIVE Shipping",
+        what="Your international orders: what each needs, buying the label at the price checked, and printing it.",
+        fields=(
+            Field("crooks_shipping_read_key", "Read key", env="SHIPPING_CLIVE_READ_KEYS",
+                  hint="On the server, run grep CLIVE /opt/clive/clive-shipping/.env and paste what follows "
+                       "SHIPPING_CLIVE_READ_KEYS= (one key, if there are several)."),
+            Field("crooks_shipping_write_key", "Write key", env="SHIPPING_CLIVE_WRITE_KEYS",
+                  hint="Same command: paste what follows SHIPPING_CLIVE_WRITE_KEYS=. CLIVE uses it only for a label "
+                       "you approve on its card."),
+        ),
+        requires=("crooks_shipping_read_key", "crooks_shipping_write_key"), family="shipping_reads",
+        unlocks=("shipping_reads", "shipping_labels"),
+        without="Without it CLIVE can't see your international orders, and labels are bought and printed in Shopify "
+                "admin (Apps, then the CROOKS app's Shipping).",
+    ),
     Connection(
         name="youtube", label="YouTube",
         what="Finds videos to play on your screens.",

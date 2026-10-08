@@ -279,6 +279,7 @@ def test_each_connection_says_what_it_unlocks_from_the_registry_and_what_stops_w
         messaging_tools,
         returns_tools,
         ship24_tools,
+        shipping_tools,
     )
 
     load_all()

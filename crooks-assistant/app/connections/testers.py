@@ -14,6 +14,9 @@ What each asks (read-only, and spending nothing):
                keys?), then GET /api/v1/returns?limit=1 with each key: a read, which changes
                nothing. A write key can read, so this proves it is a key the service holds; whether
                it may act is said the first time an approved action is sent (app/clients/crooks_returns.py)
+  CLIVE Shipping  GET /shipping/health, which needs no key, then GET /api/v1/capabilities with the
+               read key: a read, which changes nothing and names the service. The write key is
+               proven the first time a label is bought or printed (app/clients/crooks_shipping.py)
 
 The key goes in a header or a request body, never in an address. What comes back is described
 in our own words; nothing a service wrote is quoted, and no key appears in any detail.
@@ -290,6 +293,46 @@ def summary(routes) -> str:
     return detail[:600]
 
 
+async def _shipping(values: dict[str, str], settings: Any) -> Outcome:
+    """[shipping] CLIVE Shipping (app/clients/crooks_shipping.py): is it there, and does it take the
+    read key? The service answers nothing to any key until its own .env lists CLIVE's keys, so a
+    refusal names both the key and that setting."""
+    from app.clients import crooks_shipping
+
+    base = crooks_shipping.clean_base(getattr(settings, "shipping_base_url", "") or crooks_shipping.DEFAULT_BASE_URL)
+    host = base.split("://", 1)[-1]
+    async with http_client() as client:
+        health = await client.get(f"{base}/health", headers={"Accept": "application/json"})
+        if health.status_code != 200:
+            return Outcome(False, f"CLIVE Shipping didn't answer at {host} ({health.status_code}). Check the service is "
+                                  "running: docker compose ps, in /opt/clive/crooks-returns.", fix="retry")
+        try:
+            said = health.json()
+        except ValueError:
+            said = None
+        if not isinstance(said, dict) or said.get("ok") is not True:
+            return Outcome(False, f"Something answered at {host}, but not CLIVE Shipping. Check "
+                                  "CROOKS_SHIPPING_BASE_URL on this server.", fix="service")
+        # The read key only: the write key travels only with a label the owner approved.
+        answer = await client.get(f"{base}/api/v1/capabilities", headers={
+            "Authorization": f"Bearer {values[crooks_shipping.READ_KEY]}", "Accept": "application/json"})
+        if answer.status_code in (401, 403):
+            return Outcome(False, f"CLIVE Shipping refused the read key. Check {crooks_shipping.READ_ENV} is set in "
+                                  f"{crooks_shipping.ENV_FILE} (then docker compose up -d shipping) and paste it again.",
+                           fix="key", refused=(crooks_shipping.READ_KEY,))
+        if answer.status_code != 200:
+            return Outcome(False, crooks_shipping.refusal(answer).args[0], fix="retry")
+        try:
+            named = answer.json().get("service")
+        except (ValueError, AttributeError):
+            named = None
+        if named != crooks_shipping.NAME:
+            return Outcome(False, f"Something at {host} took the key, but it isn't CLIVE Shipping. Check "
+                                  "CROOKS_SHIPPING_BASE_URL on this server.", fix="service")
+    return Outcome(True, "CLIVE Shipping accepted the read key. The write key is checked the first time you buy or "
+                         "print a label.", who=host)
+
+
 TESTERS = {
     "elevenlabs": _elevenlabs,
     "youtube": _youtube,
@@ -299,6 +342,7 @@ TESTERS = {
     "ship24": _ship24,
     "returns": _returns,
     "wecom": _wecom,
+    "shipping": _shipping,
 }
 
 

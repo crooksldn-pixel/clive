@@ -188,6 +188,7 @@ def test_the_tool_block_stays_within_its_budget():
         messaging_tools,
         returns_tools,
         ship24_tools,
+        shipping_tools,
         shopify_writes,
         show_again,
         skill_tools,
@@ -213,5 +214,6 @@ def test_the_tool_block_stays_within_its_budget():
     # 51,222 with CROOKS Returns (returns_open, return_find, returns_stats, return_action, +1,950,
     # measured), and 51,913 with the installed skills (skill_list 269 bytes, skill_read 422: +691,
     # measured), and 53,212 with messaging (messages_recent, message_thread, message_contact,
-    # message_reply: +1,299, measured).
-    assert total <= 53_212, f"the tool block is {total} bytes"
+    # message_reply: +1,299, measured), and 55,325 with CLIVE Shipping (four reads and three staged
+    # writes, +2,113, measured on the chain after messaging; tests/test_registry.py has them tool by tool).
+    assert total <= 55_325, f"the tool block is {total} bytes"
