@@ -15,7 +15,8 @@ What it promises — nothing the model says is taken on trust:
   removed. A recommendation left citing nothing is never recommended for adoption or rejection: it
   is parked, citing DEC-017 (an idea is not an approval).
 - The rules that never bend are checked again without the model (rules.vetoes): words that ask
-  CLIVE to break one make the recommendation "reject", citing that rule.
+  CLIVE to break one, in the recommendation or in what it calls done (filed as the build's
+  acceptance criteria if he adopts it), make the recommendation "reject", citing that rule.
 - "Would touch" holds only parts of CLIVE a build may change; parts the loop protects are kept
   apart, and an adoption that needs them is parked for George instead.
 - An idea or feature it repeats is linked (from the model, checked, and from the digester's own
@@ -261,14 +262,18 @@ def _proposal(item: dict[str, Any], *, n: int, artifact_id: str, name: str, the_
     done_when = tuple(_line(x, 200) for x in (item.get("done_when") or [])[:3] if isinstance(x, str) and x.strip())
     checked_by = "model"
 
-    hits = vetoes(" ".join((title, says, quote)))
+    hits, whose = vetoes(" ".join((title, says, quote))), "it"
+    if not hits:
+        # What "done" means becomes the build request's acceptance criteria if he adopts it, whatever
+        # CLIVE's view, so it is held to the rules as the recommendation is (review note 1, 8 Oct).
+        hits, whose = next(([hit] for line in done_when for hit in vetoes(line)), []), "its “done when”"
     if hits:
         veto, words = hits[0]
         rule = the_map.get(veto.rule)
         already = verdict == "reject" and veto.rule in cites
         if not already:
             rule_name = rule.title if rule else veto.rule
-            reason = f"Breaks rule {veto.rule.split('-')[1]} ({rule_name}): it {veto.words} (“{_line(words, 60)}”)."
+            reason = f"Breaks rule {veto.rule.split('-')[1]} ({rule_name}): {whose} {veto.words} (“{_line(words, 60)}”)."
             checked_by = "rule"
         verdict = "reject"
         cites = _unique((veto.rule, *(c for c in veto.also if the_map.get(c)), *cites))

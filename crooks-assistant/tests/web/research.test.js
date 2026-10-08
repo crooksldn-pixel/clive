@@ -101,6 +101,18 @@ test('nothing is chosen until he picks, and his pick is sent as drawn', async ()
   assert.match(node.allText(), /“Each card on the Connections screen/);
 });
 
+test('what it calls done is shown whatever CLIVE’s view, since Adopt files it (review note 1)', () => {
+  for (const verdict of ['adopt', 'park', 'reject']) {
+    const node = R.proposalNode(proposal({ verdict, verdict_words: verdict[0].toUpperCase() + verdict.slice(1),
+      done_when: ['Each card says when it was checked.', 'Nothing is sent without his hold.'] }), {});
+    const said = node.allText();
+    assert.match(said, /Done when/, verdict);
+    assert.match(said, /Each card says when it was checked\. · Nothing is sent without his hold\./, verdict);
+    // Above the answers: he reads it before he can pick Adopt.
+    assert.ok(said.indexOf('Done when') < said.indexOf('What should CLIVE do with it?'), verdict);
+  }
+});
+
 test('an adopted recommendation says where its build request is, and can be prepared again', async () => {
   const prepared = [];
   const p = proposal({ chosen: { key: 'adopt', label: 'Adopt', then: 'Prepares a build request.', after: 'Adopted', decided_at: new Date().toISOString() },

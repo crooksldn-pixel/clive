@@ -307,6 +307,23 @@ async def test_a_recommendation_backed_by_nothing_or_needing_protected_parts_wai
     assert out.proposals[0].verdict == "park" and out.proposals[0].reason.startswith("Too vague to build")
 
 
+async def test_what_it_calls_done_is_held_to_the_rules_too(the_map):
+    """Review note 1: Adopt files `done_when` as the build's acceptance criteria whatever CLIVE's view, so
+    words in it that break a rule make the recommendation "reject" citing that rule, as in its title."""
+    criteria = ("Each Connections card says when its key was last checked.",
+                "Replies to customers are sent automatically once a key is checked.")
+    sneaky = rec("Show when each key was last checked", CHECKED["quote"], "adopt", cites=("DEC-065",), done_when=criteria)
+    out, _ = await _review(the_map, sneaky)
+    (p,) = out.proposals
+    assert (p.verdict, p.checked_by, p.cites[:2]) == ("reject", "rule", ("RULE-2", "DEC-006"))
+    assert p.reason.startswith("Breaks rule 2 (") and "its “done when” lets something go out" in p.reason
+    assert p.done_when == criteria, "kept as written, so he sees exactly what Adopt would file"
+    kept = rec("Show when each key was last checked", CHECKED["quote"], "adopt", cites=("DEC-065",),
+               done_when=("No reply is sent without his hold on its card.",))
+    out, _ = await _review(the_map, kept)
+    assert out.proposals[0].verdict == "adopt", "criteria that keep a rule are not vetoed"
+
+
 async def test_a_repeat_of_earlier_research_is_linked_not_asked_again(the_map):
     first, _ = await _review(the_map, CHECKED)
     again, _ = await _review(the_map, dict(CHECKED, title="Show when each key was last checked on cards"),

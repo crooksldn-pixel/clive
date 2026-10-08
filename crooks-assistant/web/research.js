@@ -13,7 +13,8 @@
  *     read, red when the safety scan stopped it or it could not be read) and why, in the server's words;
  *   - the recommendations, those waiting on him first: what the research says, its own words, CLIVE's
  *     view (adopt, park or reject) with the one-line reason and what it cites, what building it would
- *     touch, and the ideas or features it repeats. Three answers, CLIVE's marked as recommended; a tap
+ *     touch, what it calls done (for every view: Adopt files it as the build's acceptance criteria),
+ *     and the ideas or features it repeats. Three answers, CLIVE's marked as recommended; a tap
  *     picks one and a second tap on the button records it, bound to the proposal exactly as drawn.
  *   - Adopt prepares a build request: the card comes back to the conversation (window.CliveCards,
  *     web/app.js), the screen steps aside, and nothing is filed until he holds the card.
@@ -208,7 +209,8 @@
       fact('Already written down', citeWords(p.same_as)),
       fact('Building it would touch', words(p.touches).join(', ')),
       fact('It would also need', words(p.protected).length ? `${words(p.protected).join(', ')}: protected, so builds from CLIVE can’t change them` : ''),
-      p.verdict === 'reject' ? null : fact('Done when', words(p.done_when).join(' · ')),
+      // Whatever CLIVE's view: Adopt files these as the build's acceptance criteria, so he sees them first.
+      fact('Done when', words(p.done_when).join(' · ')),
       fact('Also recommended in', words(p.also_in).join(', ')));
     body.appendChild(p.chosen ? chosenNode(p, o) : decisionNode(p, o));
     item.appendChild(body);
