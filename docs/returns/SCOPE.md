@@ -178,7 +178,9 @@ POST /api/v1/returns/{id}/note
 
 **Push:** signed webhooks to CLIVE for `return.requested`, `return.approved`,
 `label.created`, `return.awaiting_label.overdue`, `return.in_transit`, `return.received`,
-`refund.issued`, `credit.issued`, `exchange.created` and `exchange.shipped`.
+`refund.issued`, `credit.issued`, `exchange.created` and `exchange.shipped`. (As built since
+8 October: every recorded event, by id and type only, to CLIVE's hooks door; `BRIEF_CLIVE.md`
+section 5.)
 
 Keys are scoped: CLIVE gets read access first, and write access only once its authorisation
 cards for returns exist.

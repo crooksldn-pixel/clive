@@ -10,7 +10,6 @@ timeline of a return always says who did what and whether it was confirmed.
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 import logging
 from collections import Counter
@@ -18,9 +17,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import httpx
-
 from returns import policy, verify
+from returns.doorbell import Doorbell
 from returns.labels import Label, LabelError, LabelPort, tracking_url
 from returns.models import (
     REASON_LABELS,
@@ -96,31 +94,21 @@ def _after(stamp: str | None, since: datetime, *, slack_s: int) -> bool:
 
 
 class Notifier:
-    """Signed webhooks to CLIVE. Delivery never blocks or fails an action."""
+    """Says a return changed, so CLIVE hears of it now rather than at the doorbell's next look.
+
+    It used to post the whole return (the customer's name, email and address with it) to CLIVE,
+    once, from the request itself. Since 8 October what CLIVE is sent is the doorbell's
+    (returns/doorbell.py): each recorded event, from the store's outbox, by id and type only,
+    retried, never in the user's way. Every place that changes a return still calls `send`;
+    it only wakes the doorbell. Never blocks, never raises."""
 
     def __init__(self, settings: Settings) -> None:
         self.s = settings
-        self._http = httpx.Client(timeout=5)
+        self.doorbell: Doorbell | None = None
 
     def send(self, event: str, ret: Return) -> None:
-        if not self.s.clive_webhook_url:
-            return
-        body = json.dumps(
-            {"event": event, "at": now().isoformat(), "return": json.loads(ret.model_dump_json())}
-        ).encode()
-        sig = hmac.new(self.s.clive_webhook_secret.encode(), body, hashlib.sha256).hexdigest()
-        try:
-            self._http.post(
-                self.s.clive_webhook_url,
-                content=body,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Crooks-Returns-Event": event,
-                    "X-Crooks-Returns-Signature": sig,
-                },
-            )
-        except httpx.HTTPError as exc:
-            log.warning("webhook %s for %s not delivered: %s", event, ret.id, exc)
+        if self.doorbell is not None:
+            self.doorbell.wake()
 
 
 class ReturnsService:
@@ -138,6 +126,10 @@ class ReturnsService:
         self.shopify = shopify
         self.labels = labels
         self.notifier = notifier or Notifier(settings)
+        # Every event a save records goes to CLIVE's door from the outbox (off when no URL is set).
+        self.doorbell = Doorbell(settings, store)
+        store.outbox = self.doorbell.on
+        self.notifier.doorbell = self.doorbell
         self.clock = clock
         self.by_order = verify.RateLimiter(limit=settings.lookup_order_limit, window_s=900)
         self.by_ip = verify.RateLimiter(limit=settings.lookup_ip_limit, window_s=900)

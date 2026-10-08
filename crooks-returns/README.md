@@ -98,11 +98,12 @@ Each return carries `summary` (one line, for example
 `awaiting_label_overdue`, `needs_decision`, `error`), the money, the Shopify IDs that prove it
 and a timeline in which every entry names its actor and says whether it was verified.
 
-Webhooks to `RETURNS_CLIVE_WEBHOOK_URL` are signed:
-`X-Crooks-Returns-Signature` is the hex HMAC-SHA256 of the body with
-`RETURNS_CLIVE_WEBHOOK_SECRET`. Events: `return.requested`, `return.approve`, `return.label`,
-`return.tracking`, `return.receive`, `return.complete`, `return.decline`, `return.cancel`,
-`return.note`, `return.awaiting_label.overdue`, `return.synced`.
+Each event a return records is posted to `RETURNS_CLIVE_WEBHOOK_URL` (CLIVE's door,
+`https://hooks.crooksldn.com/hooks/returns`) by `returns/doorbell.py`: its id, type, return id and
+time only, signed `X-Crooks-Returns-Signature: sha256=<hex HMAC-SHA256 of the raw body>` with
+`RETURNS_CLIVE_WEBHOOK_SECRET`, from an outbox written with the return, retried with backoff for a
+day, never on the request path. Off when the URL is unset. `returns-ctl doorbell` says whether it is
+getting through. The contract is `docs/returns/BRIEF_CLIVE.md`, section 5.
 
 ## Run it
 

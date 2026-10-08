@@ -121,20 +121,44 @@ GET  /api/docs                          OpenAPI
 - **Lost replies.** If Shopify doesn't answer a change (`returnCreate`, the label hand-over), the return says so (`approve_unknown`, `shipping_attach_unknown`) and nothing is sent again blindly: the next attempt reads Shopify back first and adopts what it finds. The intent is saved before the change is sent, so a crash is treated the same way. Finding nothing only counts as "safe to send" two minutes after the unanswered attempt; sooner, the action stops and says to try again shortly. Declining or cancelling after an unknown approval checks first, and cancels in Shopify any return the approval made. An action interrupted by an unexpected error answers 503 and keeps what it did (a paid label is settled, never bought twice).
 - **`GET /events`** returns `{"events": [{at, return_id, order, type, actor, source, verified, detail, status_now}]}`, oldest first. Poll it with the last `at` you saw as `since`: it is the record of what changed, so CLIVE never has to keep its own.
 
-## 5. Webhooks from the service to CLIVE
+## 5. Events from the service to CLIVE (the doorbell)
 
-Set `RETURNS_CLIVE_WEBHOOK_URL` and `RETURNS_CLIVE_WEBHOOK_SECRET` in the server `.env`.
+Since 8 October (CLIVE's DEC-071, ruling 20) the service posts each event it records to CLIVE's
+public hooks door. The post is a doorbell, not the record: CLIVE reads the return through `/api/v1`
+with its own key after it. Code: `crooks-returns/returns/doorbell.py`; the outbox is in `returns/store.py`.
 
-- **Request:** `POST` with body `{"event", "at", "return": {…full return…}}`.
-- **Headers:** `X-Crooks-Returns-Event`, and `X-Crooks-Returns-Signature`, which is hex HMAC-SHA256 of the raw body with the secret.
-- **Delivery:** at most once, best effort. A failure is logged, never retried, and never blocks the action. Reconcile with `GET /returns?since=`.
+Set both in `/opt/clive/crooks-returns/.env`, then `docker compose up -d`:
 
-**Events:**
-- `return.requested`
-- `return.approve`, `return.decline`, `return.label`, `return.tracking`, `return.receive`, `return.complete`, `return.cancel`, `return.note`
-- `return.awaiting_label.overdue`
-- `return.synced` (changed in Shopify admin)
-- `return.courier.droppedoff`, `return.courier.intransit`, `return.courier.delivered` and the other Parcel2Go stages
+- `RETURNS_CLIVE_WEBHOOK_URL=https://hooks.crooksldn.com/hooks/returns`
+- `RETURNS_CLIVE_WEBHOOK_SECRET=` a long random string (`openssl rand -hex 32`), pasted on CLIVE's
+  Connections screen, CROOKS Returns, "Events secret".
+
+- **Request:** `POST`, `Content-Type: application/json`, body exactly
+  `{"id":"evt_…","type":"label_bought","return_id":"ret_…","at":"<when it happened, ISO>","sent_at":<unix seconds>}`.
+  No customer's name, email, address or order, and nothing else of the return.
+- **Signature:** `X-Crooks-Returns-Signature: sha256=<hex HMAC-SHA256 of the raw body with the secret>`.
+  `sent_at` is inside the signed body; CLIVE refuses a post more than five minutes from its clock.
+- **Every event, once each:** one outbox row per timeline event, written in the same transaction as
+  the return, so nothing is recorded without its row; `returns-ctl` actions are sent too. The `id`
+  is fixed per event, so CLIVE drops a repeat.
+- **Delivery:** on its own thread, never on the request path and never under the store's lock; a
+  five-second timeout; anything but a 2xx is tried again after 30 s, 1, 2, 4 … minutes, at most an
+  hour apart, each try signed afresh, and given up after a day. Redirects are not followed.
+- **Off when unset:** no URL, no rows and no thread. No secret: nothing is sent unsigned; the rows
+  wait (and are given up after a day).
+- **Is it working?** `docker compose exec returns returns-ctl doorbell`: waiting, delivered and
+  given up, and the last answer CLIVE gave (403 means the secrets differ or the clocks are apart).
+
+**Types:** the timeline's own: `requested`, `approved`, `approve_failed`, `approve_unknown`,
+`awaiting_label`, `label_bought`, `label_overdue`, `label_payment_not_taken`, `label_paid_not_collected`,
+`shipping_attached`, `shipping_attach_failed`, `shipping_attach_unknown`, `in_transit`,
+`delivered_to_us`, `received`, `processed`, `process_failed`, `bonus_credited`, `bonus_failed`,
+`completed`, `declined`, `cancelled`, `cancel_failed`, `cancel_unknown`, `note`, `no_return`,
+`action_interrupted`, and the rest the service records.
+
+Until 8 October this section described a post of the whole return, sent once from the request
+itself and never retried. Nothing received it (CLIVE had no door for it), and it carried the
+customer's details; it is gone.
 
 ## 6. How CLIVE should integrate (fits proposed ≠ authorised ≠ started ≠ completed ≠ verified)
 

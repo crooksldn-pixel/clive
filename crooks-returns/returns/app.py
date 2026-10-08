@@ -65,7 +65,11 @@ def create_app(settings: Settings | None = None, service: ReturnsService | None 
                     logging.getLogger("returns.tick").exception("overdue check failed")
 
         task = asyncio.create_task(ticker()) if settings.tick_interval_s > 0 else None
+        # Each recorded event to CLIVE's door, on its own thread (off without
+        # RETURNS_CLIVE_WEBHOOK_URL): returns/doorbell.py.
+        service.doorbell.start()
         yield
+        service.doorbell.stop()
         if task:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

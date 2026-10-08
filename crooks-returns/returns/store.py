@@ -1,10 +1,16 @@
 """Persistence: one SQLite file. A return is stored whole as JSON with its indexed fields beside
 it; every change appends to its timeline, and idempotency keys remember the answer to an
-action so a retried request never repeats a refund."""
+action so a retried request never repeats a refund.
+
+The outbox (on only when CLIVE's hook is configured, `outbox=True`): every event a save adds to a
+return's timeline gets one row in the same transaction, which the doorbell (returns/doorbell.py)
+posts to CLIVE. A row that cannot be written never stops the return being saved."""
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import secrets
 import sqlite3
 import threading
@@ -43,7 +49,22 @@ CREATE TABLE IF NOT EXISTS files (
   at TEXT NOT NULL,
   body BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS outbox (
+  id TEXT PRIMARY KEY,
+  return_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  at TEXT NOT NULL,
+  queued_at TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_at TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'waiting',
+  tried_at TEXT,
+  last_answer TEXT
+);
+CREATE INDEX IF NOT EXISTS outbox_due ON outbox(state, next_at);
 """
+
+log = logging.getLogger("returns.store")
 
 
 def now() -> datetime:
@@ -54,12 +75,20 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(5)}"
 
 
+def event_id(return_id: str, index: int, at: str, kind: str) -> str:
+    """An event's id for CLIVE: the same event always gets the same id, two never share one."""
+    digest = hashlib.sha256(f"{return_id}|{index}|{at}|{kind}".encode()).hexdigest()
+    return f"evt_{digest[:24]}"
+
+
 class Store:
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, *, outbox: bool = False) -> None:
         self._db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(SCHEMA)
         self._lock = threading.RLock()
+        # Whether a save writes its new events to the outbox (CLIVE's hook is configured).
+        self.outbox = outbox
 
     # One writer at a time: an action reads, decides and writes under this lock.
     @property
@@ -69,24 +98,126 @@ class Store:
     def save(self, ret: Return) -> Return:
         ret.updated_at = now()
         with self._lock:
-            self._db.execute(
-                "INSERT INTO returns (id, order_id, order_name, status, shopify_return_id, "
-                "created_at, updated_at, doc) VALUES (?,?,?,?,?,?,?,?) "
-                "ON CONFLICT(id) DO UPDATE SET status=excluded.status, "
-                "shopify_return_id=excluded.shopify_return_id, updated_at=excluded.updated_at, "
-                "doc=excluded.doc",
-                (
-                    ret.id,
-                    ret.order_id,
-                    ret.order_name,
-                    ret.status.value,
-                    ret.shopify.return_id,
-                    ret.created_at.isoformat(),
-                    ret.updated_at.isoformat(),
-                    ret.model_dump_json(),
-                ),
-            )
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                known = self._events_saved(ret.id) if self.outbox else 0
+                self._db.execute(
+                    "INSERT INTO returns (id, order_id, order_name, status, shopify_return_id, "
+                    "created_at, updated_at, doc) VALUES (?,?,?,?,?,?,?,?) "
+                    "ON CONFLICT(id) DO UPDATE SET status=excluded.status, "
+                    "shopify_return_id=excluded.shopify_return_id, updated_at=excluded.updated_at, "
+                    "doc=excluded.doc",
+                    (
+                        ret.id,
+                        ret.order_id,
+                        ret.order_name,
+                        ret.status.value,
+                        ret.shopify.return_id,
+                        ret.created_at.isoformat(),
+                        ret.updated_at.isoformat(),
+                        ret.model_dump_json(),
+                    ),
+                )
+                if self.outbox:
+                    self._queue_new_events(ret, known)
+                self._db.execute("COMMIT")
+            except BaseException:
+                self._db.execute("ROLLBACK")
+                raise
         return ret
+
+    # ---------------------------------------------------------------------- the outbox
+
+    def _events_saved(self, return_id: str) -> int:
+        """How many timeline events the stored copy already has: the ones after are new."""
+        row = self._db.execute("SELECT doc FROM returns WHERE id=?", (return_id,)).fetchone()
+        if not row:
+            return 0
+        try:
+            return len(json.loads(row[0]).get("timeline") or [])
+        except (ValueError, AttributeError):
+            return 0
+
+    def _queue_new_events(self, ret: Return, known: int) -> None:
+        """One outbox row per new event, inside the save's transaction. A row that cannot be
+        written is logged and the return is saved regardless (a savepoint undoes only the rows)."""
+        new = list(enumerate(ret.timeline))[known:]
+        if not new:
+            return
+        queued = now().isoformat(timespec="microseconds")
+        self._db.execute("SAVEPOINT outbox")
+        try:
+            for index, event in new:
+                at = event.at.isoformat()
+                self._db.execute(
+                    "INSERT OR IGNORE INTO outbox (id, return_id, type, at, queued_at, next_at) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (
+                        event_id(ret.id, index, at, event.type),
+                        ret.id,
+                        event.type,
+                        at,
+                        queued,
+                        queued,
+                    ),
+                )
+            self._db.execute("RELEASE outbox")
+        except sqlite3.Error:
+            self._db.execute("ROLLBACK TO outbox")
+            self._db.execute("RELEASE outbox")
+            log.exception("outbox: %d event(s) of %s were not queued for CLIVE", len(new), ret.id)
+
+    def outbox_due(self, at: str, limit: int) -> list[dict]:
+        """The waiting rows whose time has come, oldest first."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, return_id, type, at, queued_at, attempts FROM outbox "
+                "WHERE state='waiting' AND next_at <= ? ORDER BY queued_at, id LIMIT ?",
+                (at, limit),
+            ).fetchall()
+        keys = ("id", "return_id", "type", "at", "queued_at", "attempts")
+        return [dict(zip(keys, r, strict=True)) for r in rows]
+
+    def outbox_retry(
+        self, row_id: str, attempts: int, next_at: str, answer: str, tried_at: str
+    ) -> None:
+        with self._lock:
+            self._db.execute(
+                "UPDATE outbox SET attempts=?, next_at=?, tried_at=?, last_answer=? "
+                "WHERE id=? AND state='waiting'",
+                (attempts, next_at, tried_at, answer, row_id),
+            )
+
+    def outbox_done(
+        self, row_id: str, state: str, answer: str, tried_at: str, attempts: int | None = None
+    ) -> None:
+        """Delivered, or given up: never sent again."""
+        with self._lock:
+            self._db.execute(
+                "UPDATE outbox SET state=?, last_answer=?, attempts=COALESCE(?, attempts + 1), "
+                "tried_at=? WHERE id=?",
+                (state, answer, attempts, tried_at, row_id),
+            )
+
+    def outbox_prune(self, before: str) -> None:
+        """Forget delivered and given-up rows older than `before`; waiting ones are kept."""
+        with self._lock:
+            self._db.execute(
+                "DELETE FROM outbox WHERE state != 'waiting' AND tried_at < ?", (before,)
+            )
+
+    def outbox_counts(self) -> dict[str, int]:
+        rows = self._db.execute("SELECT state, COUNT(*) FROM outbox GROUP BY state").fetchall()
+        return {state: count for state, count in rows}
+
+    def outbox_last(self) -> dict | None:
+        """The most recent try, for returns-ctl doorbell."""
+        row = self._db.execute(
+            "SELECT type, state, attempts, last_answer, tried_at FROM outbox "
+            "WHERE tried_at IS NOT NULL ORDER BY tried_at DESC LIMIT 1"
+        ).fetchone()
+        keys = ("type", "state", "attempts", "last_answer", "at")
+        return dict(zip(keys, row, strict=True)) if row else None
 
     # Settings staff change from the admin screen; these win over the .env value once set.
     def get_option(self, key: str) -> str | None:
@@ -192,4 +323,4 @@ def is_open(ret: Return) -> bool:
     return ret.status in OPEN_STATUSES
 
 
-__all__ = ["Store", "new_id", "now", "is_open", "Status"]
+__all__ = ["Store", "event_id", "new_id", "now", "is_open", "Status"]

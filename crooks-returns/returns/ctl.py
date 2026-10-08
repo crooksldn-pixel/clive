@@ -8,6 +8,7 @@ line. Run inside the container:
     docker compose exec returns returns-ctl approve ret_1a2b3c4d5e self_ship
     docker compose exec returns returns-ctl receive ret_1a2b3c4d5e
     docker compose exec returns returns-ctl collect   (send labels that are bought but stuck)
+    docker compose exec returns returns-ctl doorbell  (whether events are reaching CLIVE)
 
 Every action prints what it will do and asks before doing it (add --yes to skip the question).
 """
@@ -119,11 +120,35 @@ def collect(svc: ReturnsService) -> int:
     return 0
 
 
+def doorbell(svc: ReturnsService) -> int:
+    """Whether events are reaching CLIVE's door: off, or how many are waiting, delivered and
+    given up, and the last answer CLIVE gave. Names no return and no customer."""
+    if not svc.doorbell.on:
+        print("Off: RETURNS_CLIVE_WEBHOOK_URL is not set, so CLIVE is not sent events.")
+        return 0
+    if not svc.s.clive_webhook_secret:
+        print("RETURNS_CLIVE_WEBHOOK_SECRET is not set: events wait and nothing is sent unsigned.")
+    counts = svc.store.outbox_counts()
+    print(
+        f"To {svc.s.clive_webhook_url}: {counts.get('waiting', 0)} waiting, "
+        f"{counts.get('delivered', 0)} delivered, {counts.get('given_up', 0)} given up "
+        "(the last 7 days)."
+    )
+    last = svc.store.outbox_last()
+    if last:
+        print(
+            f"Last try {last['at']}: a {last['type']} event, answer {last['last_answer']} "
+            f"({last['state']}, try {last['attempts']})."
+        )
+    return 0 if not counts.get("given_up") else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="returns-ctl", description="CROOKS Returns staff tool")
     parser.add_argument(
         "command",
-        help="check, list, show, labels POSTCODE, collect, or an action: " + ", ".join(ACTIONS),
+        help="check, list, show, labels POSTCODE, collect, doorbell, or an action: "
+        + ", ".join(ACTIONS),
     )
     parser.add_argument("args", nargs="*")
     parser.add_argument("--all", action="store_true", help="list: include finished returns")
@@ -140,6 +165,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if ns.command == "collect":
         return collect(svc)
+
+    if ns.command == "doorbell":
+        return doorbell(svc)
 
     if ns.command == "list":
         rows = svc.store.search(open_only=not ns.all, limit=200)
