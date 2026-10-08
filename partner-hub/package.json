@@ -9,9 +9,12 @@
     "build": "node scripts/build.mjs",
     "smoke": "deno run --allow-env --allow-read --allow-net scripts/smoke.ts",
     "graphql": "deno run --allow-read scripts/print-graphql.ts",
-    "verify": "npm run check && npm test && npm run build && npm run smoke"
+    "verify": "npm run check && npm test && npm run build && npm run smoke",
+    "setup": "bash scripts/server-setup.sh",
+    "test:setup": "bash scripts/test-setup.sh"
   },
   "devDependencies": {
+    "base44": "0.1.32",
     "deno": "2.9.6",
     "esbuild": "0.25.9"
   }

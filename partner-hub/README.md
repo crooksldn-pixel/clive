@@ -69,6 +69,41 @@ those scopes (the "Threads software" app made CROOKS-1869)? You can use its
 token instead of steps 1–5: set `SHOPIFY_ADMIN_ACCESS_TOKEN` and, for
 webhooks, `SHOPIFY_WEBHOOK_SECRET` (that app's API secret key).
 
+### Steps 2, 3 and 5 in one go: the setup script
+
+On any Linux server (e.g. over SSH in Termius), Mac, or Cowork's shell:
+
+```bash
+git clone --depth 1 -b claude/compassionate-planck-9xe5of https://github.com/crooksldn-pixel/clive.git
+cd clive/partner-hub
+bash scripts/server-setup.sh
+```
+
+It installs what it needs for your user only, with no sudo: Node 22 through
+nvm if yours is too old, plus the pinned Base44 CLI and Deno. Then it:
+
+- runs the tests;
+- signs you in to Base44 with a code you confirm on your phone;
+- backs up the current functions;
+- asks for the Shopify Client ID and secret (the secret is typed hidden);
+- makes the CLIVE API key and keeps a copy in
+  `~/.config/crooks-partner-hub/partner-api-key`;
+- deploys the nine functions and replaces any builder copies of them;
+- checks Base44 is running exactly this version;
+- connects to Shopify and registers the webhooks;
+- calls the CLIVE API from outside to prove it answers.
+
+It never creates an order. Re-running it is safe.
+
+Then do step 4 (paste the prompt), and run `bash scripts/server-setup.sh --sync`
+for the first SYNC. `--check` re-tests the connection later. Both first make
+sure the builder hasn't changed the functions, and redeploy any it has.
+
+To let Cowork do everything, including steps 1 and 4 in Chrome, give it
+[COWORK_PROMPT.md](COWORK_PROMPT.md).
+
+The manual steps below do the same by hand.
+
 ### 2. Add the secrets in Base44
 
 Base44 dashboard → your app → **Settings → Secrets** (or `npx base44 secrets set NAME=value`):

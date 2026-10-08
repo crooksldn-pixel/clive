@@ -439,6 +439,7 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
+        "npm:base44@0.1.32",
         "npm:deno@2.9.6",
         "npm:esbuild@0.25.9"
       ]
