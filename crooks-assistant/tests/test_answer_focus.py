@@ -142,6 +142,20 @@ async def test_a_failure_is_never_set_aside(world):
     assert "confirmation" in kinds and "error" in kinds and "email_list" not in kinds, kinds
 
 
+async def test_the_first_answer_about_a_customer_offers_to_email_them(world):
+    """The checker's defect 2 (8 Oct): the workspace offers "Email <name>" only over a record the
+    Mac is holding (app/workspace.py `_still_held`), and the turn kept what the model read only
+    after drawing the cards — so the first answer composing her workspace had no way to write to
+    her, and asking a second time did. What was read is kept before the cards are drawn now."""
+    said = await world.ask(
+        "pull up priya's history and see if she's in gmail", ("shopify_find_customer", {"query": "Priya Raman"}),
+        ("shopify_customer_history", {"customer_id": data.PRIYA.customer_id}),
+        ("gmail_search", {"query": f"from:{data.PRIYA.email}"}), session_id="first", reply="Here's Priya.")
+    (workspace,) = [c for c in _cards(said) if c["type"] == "customer_workspace"]
+    write = [a for a in workspace["data"].get("actions") or [] if a.get("command") == "compose.to_person"]
+    assert write and write[0]["label"] == "Email Priya Raman" and write[0]["enabled"] is True, workspace["data"].get("actions")
+
+
 def test_the_rules_in_order_change_then_record_then_listing():
     """The three rules over cards alone (app/focus.py), with the kinds they set aside said."""
     change = {"type": "confirmation", "data": {"proposal_id": "p1"}}

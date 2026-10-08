@@ -1941,6 +1941,12 @@ async def _answer(
     # [flow, DEC-067] Which rule chose the answer's cards out of everything the turn read
     # (app/focus.py), for the interaction record.
     focus_why: dict[str, Any] = {}
+    # The records the model read, kept where a tap finds them, BEFORE the cards are drawn: a
+    # card offers a write only over a record the Mac is already holding (app/workspace.py
+    # `_still_held`), so drawn first, the first answer about a customer had no "Email <name>",
+    # and asking a second time did. Kept whether or not this answer is still wanted: reads are
+    # facts, and Back onto that order later need not ask the shop again.
+    _keep_what_was_read(calls)
     if not abandoned:
         # What the screen shows beside the answer: cards chosen from the tool results, never
         # from the prose. See app/presentation.py for the vocabulary and the bounds. Only what
@@ -1989,8 +1995,9 @@ async def _answer(
         # new; no `shown`, so tapping the half does not redraw it; no cursor, so "cancel it"
         # and a tapped Add a note act on what the newer answer showed and not on the order
         # this one read; and no reconciliation, because the live workspace on this half is
-        # the newer turn's. What it read is still kept where a replay finds it — reads are
-        # facts, and Back onto that order later need not ask the shop again.
+        # the newer turn's. What it read is still kept where a replay finds it (above, before
+        # any card was drawn) — reads are facts, and Back onto that order later need not ask the
+        # shop again.
         # The newer turn's answer says what happens to the screen; this one leaves it alone.
         screen_state = screen.SCREEN_KEPT
         timings["workspace"] = (time.perf_counter() - started) * 1000
@@ -1998,7 +2005,6 @@ async def _answer(
             if seq is not None:
                 branch.end_turn()
             branch.idle()
-        _keep_what_was_read(calls)
         glass: dict[str, Any] = {}
     else:
         if speak and answer:
@@ -2056,7 +2062,6 @@ async def _answer(
         for call in calls or []:
             if branch is not None and getattr(call, "ok", False):
                 branch.remember_result(call.name, summary=_call_summary(call), ref=_call_ref(call), ms=float(getattr(call, "duration_ms", 0.0) or 0.0))
-        _keep_what_was_read(calls)
         # The turn's own cards, reconciled against what the progressive workspace already put
         # on the glass (§7, §25). A card that is unchanged is NOT redrawn — the whole point —
         # and one that gained its rail or an enrichment is patched in place. The numbers come
