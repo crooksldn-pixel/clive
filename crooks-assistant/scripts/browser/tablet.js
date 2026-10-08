@@ -22,6 +22,9 @@ const checks = [];
 const shots = [];
 const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail: detail === undefined ? '' : String(detail).slice(0, 300) });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// [checker, 8 Oct 2026, review note N4] The one console error from /voice/live that is by design: its
+// 503, with no ElevenLabs key in a fixture world (app/routes/voice.py). Any other, a 500, counts.
+const voiceLiveByDesign = (from, said) => String(from).includes('/voice/live') && /\b503\b/.test(String(said));
 
 async function main() {
   const browser = await chromium.launch({ executablePath: process.env.CROOKS_CHROMIUM || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
@@ -35,8 +38,8 @@ async function main() {
     if (from.includes('/speak')) return;
     // [checker, 8 Oct 2026] Nor /voice/live's 503: with no ElevenLabs key in the fixture world it
     // answers 503 by design (app/routes/voice.py), the page holds on without live words, and the
-    // browser logs the refusal as a failed resource. Matched on the URL, as /speak is.
-    if (from.includes('/voice/live')) return;
+    // browser logs the refusal as a failed resource. Matched on the URL and the 503 (N4).
+    if (voiceLiveByDesign(from, m.text())) return;
     // With the resource that failed. "Failed to load resource: 400" names nothing, and a
     // browser run that cannot say WHAT failed costs an hour to read.
     errors.push(`console: ${m.text()}${from ? ` <- ${from}` : ''}`);

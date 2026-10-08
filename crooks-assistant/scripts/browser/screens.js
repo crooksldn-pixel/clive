@@ -50,6 +50,9 @@ const missing = [];
 const manifest = [];
 const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail: detail === undefined ? '' : String(detail).slice(0, 400) });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// [checker, 8 Oct 2026, review note N4] The one console error from /voice/live that is by design: its
+// 503, with no ElevenLabs key in a fixture world (app/routes/voice.py). Any other, a 500, counts.
+const voiceLiveByDesign = (from, said) => String(from).includes('/voice/live') && /\b503\b/.test(String(said));
 
 const live = (id) => {
   const all = JSON.parse(fs.readFileSync(LIVE, 'utf8')).states || [];
@@ -313,8 +316,8 @@ async function capture(browser, vp, matrix) {
     if (from.includes('/speak')) return;
     // [checker, 8 Oct 2026] Nor /voice/live's 503: with no ElevenLabs key in the fixture world it
     // answers 503 by design (app/routes/voice.py), and 02's hold goes on without live words. Seen
-    // once 02's hold reached the orb (holdOpen); matched on the URL, as /speak is.
-    if (from.includes('/voice/live')) return;
+    // once 02's hold reached the orb (holdOpen); matched on the URL and the 503 (N4).
+    if (voiceLiveByDesign(from, m.text())) return;
     errors.push(`console: ${m.text()}`);
   });
   await page.route('**/speak', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: '{"ok":false,"kind":"no_key","reason":"no voice under test"}' }));

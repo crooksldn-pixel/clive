@@ -7,6 +7,10 @@ between a suite that is green and a suite that is honest.
 
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
+
 import pytest
 
 from experience.browser import (
@@ -106,3 +110,26 @@ async def test_the_page_works_in_a_real_browser():
                    "tap Next on an order opened from a list asked for out loud",
                    "tap Home on an order opened from a list asked for out loud"):
         assert walked in names, f"the spoken-list walk did not run: {walked}"
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed here")
+def test_only_the_by_design_503_from_voice_live_is_forgiven():
+    """Review note N4 (8 October 2026). The fixture world's /voice/live answers 503 by design (no
+    ElevenLabs key, app/routes/voice.py), and the gates skipped every console error from that URL,
+    so a 500 from it passed them silently. Each gate's own predicate is run here under Node: the
+    503 is skipped; a 500, or a 503 from anywhere else, still counts."""
+    from experience import browser
+
+    cases = [["http://127.0.0.1:1/voice/live", "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"],
+             ["http://127.0.0.1:1/voice/live", "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"],
+             ["http://127.0.0.1:1/turn", "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"]]
+    for name in ("screens.js", "tablet.js", "touch.js", "walk.js"):
+        source = (browser.ROOT / "scripts" / "browser" / name).read_text(encoding="utf-8")
+        line = next((ln for ln in source.splitlines() if ln.startswith("const voiceLiveByDesign = ")), None)
+        assert line, f"{name} has no voiceLiveByDesign"
+        assert "from.includes('/voice/live')) return" not in source, f"{name} still skips all of /voice/live"
+        assert "voiceLiveByDesign(from, m.text())) return;" in source, f"{name} does not use it"
+        run = subprocess.run(["node", "-e", f"{line}\nconsole.log(JSON.stringify({json.dumps(cases)}.map(([f, t]) => voiceLiveByDesign(f, t))))"],
+                             capture_output=True, text=True, timeout=60)
+        assert run.returncode == 0, run.stderr
+        assert json.loads(run.stdout) == [True, False, False], (name, run.stdout)

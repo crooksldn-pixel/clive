@@ -40,6 +40,9 @@ const checks = [];
 const shots = [];
 const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail: detail === undefined ? '' : String(detail).slice(0, 400) });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// [checker, 8 Oct 2026, review note N4] The one console error from /voice/live that is by design: its
+// 503, with no ElevenLabs key in a fixture world (app/routes/voice.py). Any other, a 500, counts.
+const voiceLiveByDesign = (from, said) => String(from).includes('/voice/live') && /\b503\b/.test(String(said));
 
 // ---- the runner's side: a request a line, its answer a line (as scripts/browser/tv_flow.js asks)
 const waiting = [];
@@ -60,8 +63,9 @@ async function open(browser, size, headers) {
   page.on('console', (m) => {
     if (m.type() !== 'error') return;
     const from = (m.location && m.location() && m.location().url) || '';
-    // No voice in a fixture world: /speak and /voice/live answer 503 by design.
-    if (from.includes('/speak') || from.includes('/voice/live')) return;
+    // No voice in a fixture world: /speak and /voice/live answer 503 by design. /speak is this
+    // file's own 503 (below); /voice/live is skipped only for its 503 (N4).
+    if (from.includes('/speak') || voiceLiveByDesign(from, m.text())) return;
     errors.push(`console: ${m.text()}${from ? ` <- ${from.replace(BASE, '')}` : ''}`);
   });
   await page.route('**/speak', (r) => r.fulfill({ status: 503, contentType: 'application/json', body: '{"ok":false,"kind":"no_key","reason":"no voice under test"}' }));

@@ -54,6 +54,9 @@ const checks = [];
 const shots = [];
 const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail: detail === undefined ? '' : String(detail).slice(0, 400) });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// [checker, 8 Oct 2026, review note N4] The one console error from /voice/live that is by design: its
+// 503, with no ElevenLabs key in a fixture world (app/routes/voice.py). Any other, a 500, counts.
+const voiceLiveByDesign = (from, said) => String(from).includes('/voice/live') && /\b503\b/.test(String(said));
 // [checker, 8 Oct 2026, review note N2] A check held as a STRICT expected failure, named for its
 // defect (pytest's xfail(strict=True), for a script). While the defect is there it is reported
 // as an expected failure and the gate stays green. The day it passes, the gate goes RED and says
@@ -79,8 +82,8 @@ async function atSize(browser, size) {
     const from = (m.location && m.location() && m.location().url) || '';
     if (from.includes('/speak')) return;
     // [checker, 8 Oct 2026] Nor /voice/live's 503: with no ElevenLabs key in the fixture world it
-    // answers 503 by design (app/routes/voice.py), and the hold goes on without live words.
-    if (from.includes('/voice/live')) return;
+    // answers 503 by design (app/routes/voice.py), and the hold goes on without live words (N4).
+    if (voiceLiveByDesign(from, m.text())) return;
     errors.push(`console: ${m.text()}`);
   });
   const posts = [];
