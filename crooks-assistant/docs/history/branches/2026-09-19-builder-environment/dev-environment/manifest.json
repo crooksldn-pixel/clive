@@ -1,0 +1,298 @@
+{
+  "$comment": [
+    "The CROOKS BUILDER development environment, as data. This file is the source of truth for",
+    "scripts/dev_env.py (doctor and bootstrap). Nothing here is installed on the production",
+    "server or by the CROOKS service; this is tooling for an engineering worktree only.",
+    "",
+    "Every entry is PINNED. Nothing self-updates. The update policy is:",
+    "  upstream update -> security scan -> diff -> test -> review -> update this manifest."
+  ],
+  "manifest_version": 1,
+  "generated": "2026-09-18",
+  "generated_on_branch": "claude/bridge-builder",
+  "install_root": ".tooling",
+  "notes": {
+    "scope": "builder worktree only (/opt/crooks-builder)",
+    "system_packages": "none — /usr is read-only in the watcher sandbox and is never modified",
+    "network_listeners": "none — no tool here opens a listening socket",
+    "secrets": "none — no tool here requires an API key. SkillSpector runs --no-llm."
+  },
+
+  "reconstruction_inputs": {
+    "$comment": [
+      "Everything `scripts/dev_env.py plan` reads, all of it COMMITTED beside this file. `.tooling/`",
+      "is gitignored, so an input that lives only there cannot be read on a fresh checkout — which",
+      "is exactly what the rejected candidate's step 1 did when it opened .tooling/node/package.json.",
+      "Paths are relative to crooks-assistant/docs/dev-environment/."
+    ],
+    "node_package": "node-package.json",
+    "node_lock": "node-package-lock.json",
+    "sysroot_packages": "sysroot-packages.txt",
+    "sysroot_checksums": "sysroot-packages.sha256",
+    "binary_checksums": "binaries.sha256",
+    "binary_assets": "binary-assets.sha256",
+    "integrity_note": "sysroot-packages.sha256 and binaries.sha256 were OBSERVED digests, read off the artifacts installed on the builder at 9a27bc441adad1e98e8a9ca257d1883246ee7eec. Every one of the nine binary digests has since been REPRODUCED from the pinned upstream release assets recorded below, so binaries.sha256 is no longer observation alone. sysroot-packages.sha256 remains observed: it is enforced against what apt-get download returns, and a mirror that returns other bytes fails the check.",
+    "fetch_policy": {
+      "$comment": [
+        "The owner approved bounded, read-only package fetching for reconstruction only. The rule",
+        "is encoded rather than described: every asset_url below must begin with its own tool's",
+        "`upstream` repository followed by /releases/download/<release_tag>/<asset>, and",
+        "scripts/dev_env.py refuses to emit a fetch step for any entry that does not.",
+        "A URL cannot therefore point somewhere the manifest has not already declared as that",
+        "tool's authoritative upstream."
+      ],
+      "hosts": ["github.com", "registry.npmjs.org", "cdn.playwright.dev", "pypi.org", "the configured apt mirror"],
+      "credentials": "none — every fetch is anonymous and read-only",
+      "fail_closed": "sha256 is verified before extraction and again after install; either mismatch stops the plan"
+    }
+  },
+
+  "environment": {
+    "$comment": "Exported by `eval \"$(python3 scripts/dev_env.py env)\"`. Required for Chromium and for CROOKS's own scripts/browser/*.js to resolve playwright.",
+    "PLAYWRIGHT_BROWSERS_PATH": ".tooling/browsers",
+    "NODE_PATH": ".tooling/node/node_modules",
+    "CROOKS_CHROMIUM": ".tooling/browsers/chromium-1194/chrome-linux/chrome",
+    "LD_LIBRARY_PATH": ".tooling/sysroot/root/usr/lib/x86_64-linux-gnu:.tooling/sysroot/root/lib/x86_64-linux-gnu",
+    "UV_TOOL_DIR": ".tooling/uv-tools",
+    "PATH_PREPEND": ".tooling/bin"
+  },
+
+  "binaries": {
+    "$comment": [
+      "Single static binaries, fetched from upstream GitHub releases into .tooling/bin.",
+      "",
+      "`release_tag`, `asset` and `asset_url` are PINNED, not derived. The rejected plan could not",
+      "name them at all, so step 4 was prose; deriving them from convention at run time would put",
+      "the URL outside review, which is the same defect one layer down. `install` maps the name",
+      "that ends up in .tooling/bin to the member path inside the downloaded asset — for a raw",
+      "(unarchived) asset that member is the downloaded file itself.",
+      "",
+      "`upstream_checksums` is present only where the project publishes one. Where it is absent",
+      "the committed digest in binary-assets.sha256 is still enforced; doctor reports the missing",
+      "upstream attestation as an advisory naming the tools, because it is a real gap and",
+      "pretending otherwise is what BE-02 was."
+    ],
+    "shellcheck": {
+      "version": "0.11.0",
+      "purpose": "shell static analysis; CROOKS ships shell in mac/ and launchd/",
+      "upstream": "https://github.com/koalaman/shellcheck",
+      "release_tag": "v0.11.0",
+      "asset": "shellcheck-v0.11.0.linux.x86_64.tar.xz",
+      "asset_url": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz",
+      "archive": "tar.xz",
+      "install": { "shellcheck": "shellcheck-v0.11.0/shellcheck" },
+      "scope": ".tooling/bin/shellcheck",
+      "trigger": "explicit",
+      "network": "none at run time",
+      "verify": "shellcheck --version"
+    },
+    "shfmt": {
+      "version": "3.12.0",
+      "purpose": "shell formatting — CHECK ONLY (-d), never -w on existing CROOKS shell",
+      "upstream": "https://github.com/mvdan/sh",
+      "release_tag": "v3.12.0",
+      "asset": "shfmt_v3.12.0_linux_amd64",
+      "asset_url": "https://github.com/mvdan/sh/releases/download/v3.12.0/shfmt_v3.12.0_linux_amd64",
+      "archive": "raw",
+      "install": { "shfmt": "shfmt_v3.12.0_linux_amd64" },
+      "upstream_checksums": "https://github.com/mvdan/sh/releases/download/v3.12.0/sha256sums.txt",
+      "scope": ".tooling/bin/shfmt",
+      "trigger": "explicit",
+      "network": "none at run time",
+      "verify": "shfmt --version"
+    },
+    "gitleaks": {
+      "version": "8.30.1",
+      "purpose": "secret scanning before any commit or publication",
+      "upstream": "https://github.com/gitleaks/gitleaks",
+      "release_tag": "v8.30.1",
+      "asset": "gitleaks_8.30.1_linux_x64.tar.gz",
+      "asset_url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz",
+      "archive": "tar.gz",
+      "install": { "gitleaks": "gitleaks" },
+      "upstream_checksums": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_checksums.txt",
+      "scope": ".tooling/bin/gitleaks",
+      "trigger": "explicit, and recommended as a pre-publication gate",
+      "network": "none at run time",
+      "verify": "gitleaks version",
+      "policy": "findings are reported by RULE and PATH only. A secret value is never printed, echoed or committed."
+    },
+    "fd": {
+      "version": "10.3.0",
+      "purpose": "fast file discovery",
+      "upstream": "https://github.com/sharkdp/fd",
+      "release_tag": "v10.3.0",
+      "asset": "fd-v10.3.0-x86_64-unknown-linux-gnu.tar.gz",
+      "asset_url": "https://github.com/sharkdp/fd/releases/download/v10.3.0/fd-v10.3.0-x86_64-unknown-linux-gnu.tar.gz",
+      "archive": "tar.gz",
+      "install": { "fd": "fd-v10.3.0-x86_64-unknown-linux-gnu/fd" },
+      "scope": ".tooling/bin/fd",
+      "trigger": "explicit",
+      "network": "none",
+      "verify": "fd --version"
+    },
+    "ast-grep": {
+      "version": "0.40.0",
+      "purpose": "structural (AST) search and refactoring across Python and JS",
+      "upstream": "https://github.com/ast-grep/ast-grep",
+      "release_tag": "0.40.0",
+      "asset": "app-x86_64-unknown-linux-gnu.zip",
+      "asset_url": "https://github.com/ast-grep/ast-grep/releases/download/0.40.0/app-x86_64-unknown-linux-gnu.zip",
+      "archive": "zip",
+      "install": { "ast-grep": "ast-grep" },
+      "scope": ".tooling/bin/ast-grep",
+      "trigger": "explicit",
+      "network": "none",
+      "verify": "ast-grep --version",
+      "policy": "the asset also contains an `sg` alias, and `install` deliberately does not name it, so it is never copied into .tooling/bin at all. /usr/bin/sg is newgrp and shadowing it from a PATH prepend is a real hazard. Use `ast-grep`. (The rejected install extracted `sg` and then deleted it, which only works if the delete is not forgotten.)"
+    },
+    "hyperfine": {
+      "version": "1.20.0",
+      "purpose": "command benchmarking with warmup and statistics; used for the pytest-xdist work",
+      "upstream": "https://github.com/sharkdp/hyperfine",
+      "release_tag": "v1.20.0",
+      "asset": "hyperfine-v1.20.0-x86_64-unknown-linux-gnu.tar.gz",
+      "asset_url": "https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-v1.20.0-x86_64-unknown-linux-gnu.tar.gz",
+      "archive": "tar.gz",
+      "install": { "hyperfine": "hyperfine-v1.20.0-x86_64-unknown-linux-gnu/hyperfine" },
+      "scope": ".tooling/bin/hyperfine",
+      "trigger": "explicit",
+      "network": "none",
+      "verify": "hyperfine --version"
+    },
+    "trivy": {
+      "version": "0.74.0",
+      "purpose": "dependency/filesystem vulnerability scanning",
+      "upstream": "https://github.com/aquasecurity/trivy",
+      "release_tag": "v0.74.0",
+      "asset": "trivy_0.74.0_Linux-64bit.tar.gz",
+      "asset_url": "https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz",
+      "archive": "tar.gz",
+      "install": { "trivy": "trivy" },
+      "upstream_checksums": "https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_checksums.txt",
+      "scope": ".tooling/bin/trivy",
+      "trigger": "explicit",
+      "network": "downloads a vulnerability DB on first use",
+      "verify": "trivy --version"
+    },
+    "uv": {
+      "version": "0.9.9",
+      "purpose": "fast Python installer; provides the isolated tool env for SkillSpector",
+      "upstream": "https://github.com/astral-sh/uv",
+      "release_tag": "0.9.9",
+      "asset": "uv-x86_64-unknown-linux-gnu.tar.gz",
+      "asset_url": "https://github.com/astral-sh/uv/releases/download/0.9.9/uv-x86_64-unknown-linux-gnu.tar.gz",
+      "archive": "tar.gz",
+      "install": {
+        "uv": "uv-x86_64-unknown-linux-gnu/uv",
+        "uvx": "uv-x86_64-unknown-linux-gnu/uvx"
+      },
+      "upstream_checksums": "https://github.com/astral-sh/uv/releases/download/0.9.9/uv-x86_64-unknown-linux-gnu.tar.gz.sha256",
+      "scope": ".tooling/bin/uv, .tooling/bin/uvx",
+      "trigger": "explicit",
+      "network": "PyPI on install only",
+      "verify": "uv --version"
+    }
+  },
+
+  "node": {
+    "$comment": "npm project at .tooling/node. Exact versions; PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 at install, browsers fetched separately into .tooling/browsers.",
+    "playwright": {
+      "version": "1.56.1",
+      "purpose": "browser automation. NOT NEW to CROOKS — crooks-assistant/scripts/browser/*.js already require('playwright'/'playwright-core'). This pin REVIVES the existing 11-script harness, which was inert on this server.",
+      "upstream": "https://github.com/microsoft/playwright",
+      "scope": ".tooling/node/node_modules",
+      "trigger": "explicit",
+      "verify": "npx --no-install playwright --version",
+      "pin_ration": "1.56.1 ships Chromium build 1194, which is exactly the build experience/browser.py already expects at chromium-1194. The pin was chosen to match existing CROOKS source, not the newest release."
+    },
+    "@axe-core/playwright": {
+      "version": "4.11.1",
+      "purpose": "WCAG/ARIA automated auditing inside a Playwright page",
+      "upstream": "https://github.com/dequelabs/axe-core-npm",
+      "scope": ".tooling/node/node_modules",
+      "trigger": "explicit",
+      "policy": "supplements the CROOKS collision and touch harnesses; does not replace them. axe cannot see two boxes that are each the right size and in the same place."
+    },
+    "axe-core": { "version": "4.11.1", "purpose": "axe rule engine", "upstream": "https://github.com/dequelabs/axe-core" },
+    "@biomejs/biome": {
+      "version": "2.5.14",
+      "purpose": "JS/CSS lint and format",
+      "upstream": "https://github.com/biomejs/biome",
+      "scope": ".tooling/node/node_modules",
+      "trigger": "explicit",
+      "policy": "ADVISORY / CHECK-ONLY. Never `biome format --write` and never `biome check --apply` over web/. A baseline has NOT been established; this is not a gate."
+    }
+  },
+
+  "browsers": {
+    "chromium": {
+      "playwright_build": "1194",
+      "chromium_version": "141.0.7390.37",
+      "scope": ".tooling/browsers/chromium-1194",
+      "install": "PLAYWRIGHT_BROWSERS_PATH=.tooling/browsers npx --no-install playwright install chromium",
+      "verify": "chrome --version (with LD_LIBRARY_PATH set)"
+    },
+    "chromium_headless_shell": { "playwright_build": "1194", "scope": ".tooling/browsers/chromium_headless_shell-1194" },
+    "ffmpeg": { "playwright_build": "1011", "scope": ".tooling/browsers/ffmpeg-1011" }
+  },
+
+  "sysroot": {
+    "$comment": [
+      "Chromium needs 12 shared libraries that are not present on this host. `apt-get install`",
+      "cannot be used: /usr is READ-ONLY in the watcher sandbox, by design, and must stay that way.",
+      "So the .deb payloads are extracted into a builder-local prefix and reached with",
+      "LD_LIBRARY_PATH. Nothing outside /opt/crooks-builder is written, and the sandbox is not",
+      "weakened. libc6/libgcc-s1/libstdc++6/gcc-14-base are deliberately EXCLUDED so the system",
+      "C runtime is never shadowed."
+    ],
+    "scope": ".tooling/sysroot/root",
+    "distribution": "Ubuntu 24.04 noble",
+    "directly_required": [
+      "libnspr4", "libnss3", "libatk1.0-0t64", "libatk-bridge2.0-0t64", "libcups2t64",
+      "libatspi2.0-0t64", "libxdamage1", "libcairo2", "libpango-1.0-0", "libasound2t64"
+    ],
+    "packages_extracted": 89,
+    "excluded": ["libc6", "libgcc-s1", "libstdc++6", "gcc-14-base"],
+    "owner_approved_alternative": {
+      "$comment": "If the owner prefers a real system install instead of the local sysroot, this is the exact command. It requires a writable /usr and is NOT run by bootstrap.",
+      "command": "apt-get install -y libnspr4 libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libatspi2.0-0t64 libxdamage1 libcairo2 libpango-1.0-0 libasound2t64",
+      "status": "NOT RUN — needs owner approval and a writable /usr"
+    }
+  },
+
+  "python": {
+    "$comment": "venv at crooks-assistant/.venv, created by `make venv` (pip install -e '.[dev]'), plus builder-only test tooling. The builder had NO venv before this round; the browser and experience suites could not run here at all.",
+    "interpreter": "3.12.3",
+    "project": { "install": "pip install -e \".[dev]\"", "gives": ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.7"] },
+    "builder_only": {
+      "pytest-xdist": { "version": "3.8.0", "purpose": "parallel test execution", "trigger": "explicit (-n)", "policy": "ADOPT ONLY on evidence of determinism across repeated runs. Not enabled by default." },
+      "pytest-timeout": { "version": "2.4.0", "purpose": "bound a hung test", "trigger": "explicit" },
+      "pytest-cov": { "version": "7.0.0", "purpose": "coverage measurement", "trigger": "explicit" },
+      "hypothesis": { "version": "6.145.1", "purpose": "property-based testing", "trigger": "explicit", "policy": "apply only where property testing genuinely helps — parsers, serialization, the proposal/action state machine, future Event Ledger logic. Do NOT rewrite existing tests to claim usage." },
+      "pyright": { "version": "1.1.407", "purpose": "static type checking", "trigger": "explicit", "policy": "ADVISORY / CHECK-ONLY. No baseline established; not a gate." }
+    },
+    "policy": "NO retry plugin. A flaky test is never hidden behind a rerun."
+  },
+
+  "uv_tools": {
+    "skillspector": {
+      "version": "2.11.2",
+      "commit": "d162d9b343e559be13df8ebba093df3bc9d58c90",
+      "purpose": "security gate for third-party Agent Skills — the required scan before any skill is installed",
+      "upstream": "https://github.com/NVIDIA/skillspector",
+      "license": "Apache-2.0",
+      "scope": ".tooling/uv-tools/skillspector (isolated venv), shim at .tooling/bin/skillspector",
+      "trigger": "explicit",
+      "verify": "skillspector --version",
+      "requirement": "git+https://github.com/NVIDIA/skillspector@d162d9b343e559be13df8ebba093df3bc9d58c90",
+      "commit_verifiable": true,
+      "commit_note": "The rejected install was `uv tool install --from <local clone>`, which records a filesystem path and no revision, so nothing on the machine could be compared with this pin and doctor could only report it ADVISORY. Installing from the pinned git requirement above makes uv record PEP 610 provenance in the tool venv's skillspector-<version>.dist-info/direct_url.json, including vcs_info.commit_id. doctor now reads that file and FAILS if it is absent, if it records a directory install, or if the commit differs from this pin.",
+      "provenance": "lib/python*/site-packages/skillspector-2.11.2.dist-info/direct_url.json",
+      "provenance_note": "A glob relative to the tool venv under UV_TOOL_DIR, because the interpreter directory carries the minor version and pinning 3.12 here would make doctor's answer depend on something this manifest does not pin.",
+      "invocation": "skillspector scan <path> --no-llm --format json --output <report>",
+      "network": "api.osv.dev for the SC4 supply-chain check; falls back to a bundled list offline. Sends dependency COORDINATES only, never file contents.",
+      "policy": "--no-llm is MANDATORY here. It keeps file contents local and needs no API key. No API key is provisioned for this tool."
+    }
+  }
+}

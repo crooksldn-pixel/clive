@@ -1,0 +1,15 @@
+# Starts the CLIVE release service every five minutes. NOT installed by `make install`; installed
+# once, by hand, by the steps in docs/RELEASE_SERVICE.md. A tick that finds the service switched off
+# writes one status line and stops; a tick that finds a deploy still running does nothing.
+
+[Unit]
+Description=CLIVE release service, every five minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+Unit=clive-release.service
+
+[Install]
+WantedBy=timers.target

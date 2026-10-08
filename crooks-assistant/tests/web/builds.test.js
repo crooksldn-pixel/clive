@@ -15,6 +15,8 @@
  *   an answered build says what he chose, that it waits to be acted on, and lets him change it;
  * - a reviewer's finding as What's wrong, Why it matters, What fixes it;
  * - which turns open the screen: CLIVE reading the build queue for him, never while filing a build;
+ * - the release service's line (app/release/status.py): its own words, how long ago, and a dot from a
+ *   fixed table (blue moving or waiting on him, steel live, red rolled back, a ring when off);
  * - every word from the Mac lands as text, even a hostile one, and no attribute carries it.
  */
 'use strict';
@@ -208,4 +210,30 @@ test('every word from the Mac lands as text, and no attribute carries it', () =>
   assert.ok(screen.allText().includes(HOSTILE));
   for (const value of attributesOf(screen)) assert.ok(!value.includes('<') && !value.includes('alert'), value);
   for (const n of screen.querySelectorAll('.bd-build')) assert.ok(/^bd-build is-[a-z_]*$/.test(n.className), n.className);
+});
+
+// ---------------------------------------------------------------- deploys
+
+test('the release service\'s line: its own words, when, and a dot that means where a deploy is', () => {
+  const at = local(2026, 9, 2, 14, 56);
+  const deployed = B.draw(host(), { summary: 's', groups: [], release: { installed: true, state: 'deployed', line: 'Deployed “Days left count London’s day”. Open /whoami on your phone to keep it.', at, mode: 'live' } }, { now: NOW });
+  const row = deployed.querySelector('.bd-release');
+  assert.ok(row, 'drawn even with nothing in the build queue');
+  assert.equal(row.querySelector('.bd-rline').textContent, 'Deployed “Days left count London’s day”. Open /whoami on your phone to keep it.');
+  assert.equal(row.querySelector('.bd-rwhen').textContent, 'Deploys · 4 min ago');
+  assert.equal(row.querySelector('.bd-rdot').className, 'bd-rdot is-blue');
+  const dots = { up_to_date: 'is-steel', rolled_back: 'is-red', halted: 'is-red', waiting: 'is-blue', off: 'is-off', no_rule: 'is-off', '': 'is-off', [HOSTILE]: 'is-off', constructor: 'is-off' };
+  for (const [state, cls] of Object.entries(dots)) {
+    const node = B.releaseNode({ state, line: 'x', at: '' }, NOW);
+    assert.equal(node.querySelector('.bd-rdot').className, `bd-rdot ${cls}`, state);
+  }
+  const dry = B.releaseNode({ state: 'would_deploy', line: 'Dry run: it would deploy “X” now. Nothing was changed.', at: '', mode: 'dry_run' }, NOW);
+  assert.equal(dry.querySelector('.bd-rwhen').textContent, 'Deploys, dry run');
+  const absent = B.draw(host(), { summary: 's', groups: [], release: { installed: false, state: '', line: 'The release service is not installed on this server, so deploys are done by hand.', at: '' } }, { now: NOW });
+  assert.equal(absent.querySelector('.bd-rline').textContent, 'The release service is not installed on this server, so deploys are done by hand.');
+  assert.equal(B.releaseNode(null, NOW), null);
+  assert.equal(B.releaseNode({ state: 'deployed', line: '' }, NOW), null, 'no words, no row');
+  const hostile = B.draw(host(), { summary: 's', groups: [], connected: false, release: { state: HOSTILE, line: HOSTILE, at: HOSTILE, mode: HOSTILE } }, { now: NOW });
+  assert.ok(hostile.allText().includes(HOSTILE));
+  for (const value of attributesOf(hostile)) assert.ok(!value.includes('<') && !value.includes('alert'), value);
 });

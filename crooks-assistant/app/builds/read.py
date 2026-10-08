@@ -199,7 +199,13 @@ async def current() -> dict[str, Any]:
     one client for the whole board, four at a time (EngineeringInbox.session)."""
     inbox = engineering_tools._client()
     async with inbox.session():
-        return await _current(inbox)
+        payload = await _current(inbox)
+    # The release service's line (app/release/status.py): what it last did about deploys, read from
+    # its own status file on this server, never from GitHub. Read-only; nothing here can start a deploy.
+    from app.release import status as release_status
+
+    payload["release"] = release_status.read()
+    return payload
 
 
 async def _current(inbox) -> dict[str, Any]:

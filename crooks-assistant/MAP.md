@@ -56,16 +56,16 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `actions` | 3,039 | live | — | [`DECISIONS.md`](docs/product-memory/DECISIONS.md) DEC-005–007 |
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,501 | live | — | none |
-| `builds` | 1,339 | live | — | none |
+| `builds` | 1,345 | live | — | none |
 | `capabilities` | 759 | live | `surface` | none |
 | `clients` | 4,930 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
 | `connections` | 1,762 | live | — | [`CONNECTIONS.md`](docs/CONNECTIONS.md) |
 | `context` | 1,211 | live | — | none |
 | `customers` | 1,596 | live | — | none |
-| `digest` | 18,931 | live | 19 modules | [`KNOWLEDGE_DIGESTER_V1.md`](docs/product-memory/KNOWLEDGE_DIGESTER_V1.md) |
+| `digest` | 18,960 | live | 19 modules | [`KNOWLEDGE_DIGESTER_V1.md`](docs/product-memory/KNOWLEDGE_DIGESTER_V1.md) |
 | `displays` | 2,363 | live | — | none |
 | `engineering_bridge` | 595 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
-| `families` | 9,844 | live | — | none |
+| `families` | 9,808 | live | — | none |
 | `kb` | 442 | live | — | [`OWNER_DECISIONS_2026-10-01.md`](docs/product-memory/OWNER_DECISIONS_2026-10-01.md) the voice spec |
 | `logging` | 193 | live | — | none |
 | `memory` | 586 | live | — | none |
@@ -75,14 +75,15 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `people` | 745 | live | — | [`TEAM.md`](docs/TEAM.md) |
 | `providers` | 973 | live | `anthropic_api` | none |
 | `reads` | 1,451 | live | — | none |
+| `release` | 2,088 | live | 9 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
 | `remote_engineering` | 2,066 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
-| `returns` | 809 | live | — | none |
+| `returns` | 818 | live | — | none |
 | `routes` | 8,009 | live | — | none |
 | `scenes` | 2,579 | off (`CLIVE_SCENES` off, default) | — | [`GENERATIVE_UI_V1.md`](docs/product-memory/GENERATIVE_UI_V1.md) |
 | `secrets` | 914 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) |
 | `session` | 1,242 | live | — | none |
 | `shipping` | 335 | live | `fixture` | none |
-| `skills` | 905 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
+| `skills` | 979 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
 | `speech` | 844 | live | — | none |
 | `support` | 1,693 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
 | `tools` | 13,684 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
@@ -126,6 +127,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | Anticipation | `anticipation/transitions.json` | `anticipation/learning.py` | always |
 | Keys stored from the app | `<secret dir>/app/<key>.cred` | `secrets/vault.py` | always |
 | Digest store | `one folder per artifact` | `digest/store.py` | always |
+| Release service | `status.json, deploys/, failed/, HALT` | `release/state.py` | `CLIVE_RELEASE_ENABLED` off (default) |
 <!-- /map:stores -->
 
 ## Switches
@@ -135,6 +137,9 @@ Production is as recorded by [`reports/deploy-66d3e05d.md`](reports/deploy-66d3e
 
 | Switch | Code default | Template | Production |
 |---|---|---|---|
+| `CLIVE_RELEASE_DRY_RUN` | on | absent | not recorded |
+| `CLIVE_RELEASE_ENABLED` | off | absent | not recorded |
+| `CLIVE_RELEASE_RULE` | off | absent | not recorded |
 | `CLIVE_SCENES` | off | absent | not recorded |
 | `CROOKS_CANCEL_NOTIFY` | on | on | not recorded |
 | `CROOKS_CANCEL_REFUND` | on | on | not recorded |
@@ -182,6 +187,7 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 - **What is live now:** [`CURRENT_TRUTH.md`](docs/product-memory/CURRENT_TRUTH.md).
 - **Every decision and its reason:** [`DECISIONS.md`](docs/product-memory/DECISIONS.md). Add a new decision; never edit an old one's text.
 - **Deploy, the server, secrets and rollback:** [`docs/DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md). Each deploy's record is in `reports/`.
+- **Deploys done by a program instead (built, switched off, DEC-067):** [`docs/RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md).
 - **Doctrine:** [`PRODUCT_BRAIN.md`](docs/product-memory/PRODUCT_BRAIN.md), and the product-memory [index](docs/product-memory/README.md).
 - **The team, keys and recording:** [`TEAM.md`](docs/TEAM.md), [`CONNECTIONS.md`](docs/CONNECTIONS.md) and [`RECORDING.md`](docs/RECORDING.md).
 - **The build loop:** [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md). Its live status is on the branch `clive/control/worker-01-status`.
@@ -190,5 +196,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 3,073 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 3,156 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->
