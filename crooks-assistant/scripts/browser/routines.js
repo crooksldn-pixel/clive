@@ -14,7 +14,7 @@
  *     ran (two reads done, the change waiting for him), then what the reads found; and the card
  *     still waits: nothing is applied;
  *   - "take step 2 out of my friday drop routine" and "forget my friday drop routine" say what
- *     they did, read back from the store;
+ *     they did, read back from the store, each a screen of its own (nothing of the run left under it);
  *   - nothing leaves the card's edge, the page does not scroll sideways, and nothing throws.
  *
  * Prints one JSON object: { ok, checks: [{name, ok, detail}], shots: [...] }.
@@ -152,6 +152,8 @@ async function run(browser, size) {
   await say(SAID.forget, ROUTINE);
   card = await seen(ROUTINE);
   check(`${tag}: forgotten, and none saved`, card.found && /Forgot Friday drop\. None saved yet/.test(card.text), JSON.stringify(card));
+  const left = await page.evaluate(() => Array.from(document.querySelectorAll('#cards .card')).map((c) => c.dataset.type));
+  check(`${tag}: the list is the screen, with nothing of the run left under it`, JSON.stringify(left) === '["routine"]', JSON.stringify(left));
   await shot('5-forgotten', ROUTINE);
 
   check(`${tag}: no page errors`, errors.length === 0, errors.join(' | '));

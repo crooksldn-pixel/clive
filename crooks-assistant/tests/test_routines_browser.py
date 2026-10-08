@@ -93,7 +93,7 @@ async def test_routines_in_a_real_browser(tmp_path):
     assert payload is not None, (result.stdout + result.stderr)[-1500:]
     failed = [c for c in payload.get("checks") or [] if not c.get("ok")]
     assert payload.get("ok"), "\n".join(f"  - {c['name']} :: {c.get('detail', '')}" for c in failed)
-    assert len(payload["checks"]) == 2 * 11, [c["name"] for c in payload["checks"]]
+    assert len(payload["checks"]) == 2 * 12, [c["name"] for c in payload["checks"]]
     # One note staged per size, waiting for a gesture nobody gave until his next sentence moved on from
     # it (REVOKED, as every waiting card is): never executed, and the shop was not asked to change.
     assert pending == [("order_note_append", "REVOKED")] * 2, pending

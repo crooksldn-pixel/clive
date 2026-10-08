@@ -3699,6 +3699,8 @@
     // [messaging]
     messages: ['key'],
     shipping: ['key'],
+    // [routines, DEC-074] One card for the list, one per routine as saved, one per routine as it ran.
+    routine: ['key'],
   };
   const NESTED_KEY_OF = { product: ['products', 'product_id'], inventory: ['products', 'product_id'] };
   const SHELL_SUFFIX = '~shell';

@@ -95,6 +95,10 @@ KEY_OF: dict[str, tuple[str, ...]] = {
     # [shipping] CLIVE Shipping (app/tools/shipping_views.py `card`): one card per stage asked for, one
     # per order, one per window of what changed, each patched when asked again.
     "shipping": ("key",),
+    # [routines, DEC-074] A named routine (app/work/routine_cards.py `card`): one card for the list
+    # ("list"), one per routine as saved ("one <routine id>") and one per routine as it ran ("run
+    # <routine id>"), so a run, an edit and the list are each a screen of their own.
+    "routine": ("key",),
 }
 
 # A product or an inventory card is about a product, and the query that found it is not its

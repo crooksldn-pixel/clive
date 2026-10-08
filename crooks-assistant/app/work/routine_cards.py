@@ -24,6 +24,7 @@ Every string is bounded here, and the page writes it with textContent.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 TOOLS = frozenset({"routine_list", "routine_note", "routine_run"})
@@ -31,6 +32,8 @@ RUN_TOOL = "routine_run"
 STATES = ("done", "waiting", "failed", "skipped", "not_done", "pending")
 MAX_ROWS = 30
 MAX_TEXT = 160
+# The routine's own id (app/work/routines.py), the card's identity on the glass: never its name.
+_ID = re.compile(r"^nr_[0-9a-f]{8}$")
 _CHANGE_CARDS = frozenset({"confirmation", "batch_action", "variant_picker", "email_compose", "workspace"})
 
 
@@ -59,16 +62,18 @@ def card(name: str, result: dict[str, Any], later: list[Any] | None) -> dict[str
             rows.append({"name": _text(routine.get("name"), 60), "count": len(steps),
                          "changes": sum(1 for s in steps if s.get("kind") == "change"),
                          "says": [_text(s.get("say"), 80) for s in steps[:3]], "more": max(0, len(steps) - 3)})
-        return {"view": "list", "title": "Routines", "said": said, "routines": rows}
+        return {"view": "list", "key": "list", "title": "Routines", "said": said, "routines": rows}
     routine = _routine(result)
     title = _text(routine.get("name"), 60)
+    ident = str(routine.get("routine_id") or "")
+    ident = ident if _ID.fullmatch(ident) else ""
     if view == "run" and name == RUN_TOOL:
         rows = progress(result.get("run"), _until_next_run(later) if later is not None else None)
         counts = {state: sum(1 for r in rows if r["state"] == state) for state in STATES}
-        return {"view": "run", "title": title, "steps": rows, "counts": counts}
+        return {"view": "run", "key": f"run {ident}".strip(), "title": title, "steps": rows, "counts": counts}
     steps = [{"n": n, "say": _text(s.get("say")), "kind": "change" if s.get("kind") == "change" else "read"}
              for n, s in enumerate(_steps(routine), start=1)]
-    out: dict[str, Any] = {"view": "one", "title": title, "said": said, "steps": steps}
+    out: dict[str, Any] = {"view": "one", "key": f"one {ident}".strip(), "title": title, "said": said, "steps": steps}
     if result.get("ids_not_kept"):
         out["looked_up"] = True       # an id he gave is looked up again each run, never kept
     return out

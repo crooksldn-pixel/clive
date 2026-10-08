@@ -447,3 +447,36 @@ def test_a_routine_tool_that_failed_says_nothing_was_changed():
         (card,) = present([ToolCall(name=name, args={}, ok=False, error="There is no routine called sunday.")])
         assert card["type"] == "error" and card["data"]["service"] == "routines"
         assert card["data"]["title"] == title and card["data"]["recovery"] == "Nothing was changed; the answer says why."
+
+
+def test_the_drawings_under_node():
+    """tests/web/routines.test.js: the list, a saved routine and a run, each dot meaning one thing,
+    nothing tappable, every string as text."""
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node") or ("/opt/node22/bin/node" if Path("/opt/node22/bin/node").exists() else None)
+    if node is None:
+        pytest.skip("node is not installed here")
+    root = Path(__file__).resolve().parent.parent
+    result = subprocess.run([node, "--test", str(root / "tests" / "web" / "routines.test.js")],
+                            capture_output=True, text=True, timeout=120, cwd=root)
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+    assert "# fail 0" in result.stdout
+
+
+def test_each_routine_card_is_a_screen_of_its_own_named_by_its_id_never_its_name():
+    """The list, a routine as saved and a routine as it ran are three cards on the glass (app/render.py
+    KEY_OF), so a run's orders are not carried under the list he asks for next; and a card is named by
+    the routine's id, never by the name he gave it."""
+    from app.render import KEY_OF, render_id
+
+    assert KEY_OF["routine"] == ("key",)
+    saved = NamedRoutine("nr_0000abcd", "Friday drop", "owner", [Step("a", "One", {}, "read")]).public()
+    one = {"type": "routine", "data": routine_cards.card("routine_note", {"view": "one", "routine": saved}, [])}
+    run = {"type": "routine", "data": routine_cards.card("routine_run", {"view": "run", "routine": saved, "run": []}, [])}
+    listed = {"type": "routine", "data": routine_cards.card("routine_list", {"view": "list", "routines": [saved]}, [])}
+    assert [render_id(c) for c in (one, run, listed)] == ["routine:one nr_0000abcd", "routine:run nr_0000abcd", "routine:list"]
+    forged = routine_cards.card("routine_note", {"view": "one", "routine": {**saved, "routine_id": "Friday drop"}}, [])
+    assert forged["key"] == "one"
