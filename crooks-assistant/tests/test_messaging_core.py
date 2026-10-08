@@ -137,6 +137,48 @@ async def test_a_team_members_message_to_the_app_is_stored_from_the_callback_its
     assert (await ingest.process(channel.ADAPTER, inbound)) == {"stored": 0}       # the same MsgId again
 
 
+async def test_a_team_members_message_is_stored_at_the_door_even_when_every_run_is_busy(monkeypatch, private_store, no_model):
+    """Review note 5 (8 Oct): with MAX_RUNNING callbacks already being processed, the next was turned
+    away, and a team member's message (which is in the callback itself, not read later through
+    WeCom's cursor) was never stored. Now it is stored at the door, and only its translation waits:
+    a run already going makes it before it ends."""
+    import asyncio
+
+    wecom_world.install(monkeypatch)
+    ingest._WAITING.clear()
+    asked = []
+
+    async def model(system, text, **kw):
+        asked.append(text)
+        return "The parcel has gone."
+
+    translate.bind(model)
+    release = asyncio.Event()
+
+    async def slow_read(inbound):
+        await release.wait()
+        return []
+
+    monkeypatch.setattr(channel.ADAPTER, "receive", slow_read)
+    for n in range(ingest.MAX_RUNNING):
+        busy = Inbound(channel="wecom", key=f"k{n}", fields={"MsgType": "event", "Event": "kf_msg_or_event",
+                                                             "OpenKfId": wecom_world.KF, "Token": "t"})
+        assert ingest.start(channel.ADAPTER, busy) is True
+    member = Inbound(channel="wecom", key="km", fields={
+        "ToUserName": wecom_world.CORP, "FromUserName": "emily", "MsgType": "text", "Content": "包裹已经寄出了",
+        "MsgId": "88", "AgentID": wecom_world.AGENT, "CreateTime": str(int(time.time()))})
+    assert ingest.start(channel.ADAPTER, member) is False                 # every run busy: turned away...
+    [thread] = store.threads()                                            # ...and stored all the same, at once
+    [message] = store.messages(thread.chat_id)
+    assert (thread.route, message.text, message.translation_state) == ("member", "包裹已经寄出了", "pending")
+    assert asked == []
+    release.set()
+    await ingest.settle()
+    [message] = store.messages(thread.chat_id)
+    assert (message.english, message.translation_state) == ("The parcel has gone.", "done") and len(asked) == 1
+    assert not ingest._WAITING
+
+
 async def test_a_message_wecom_later_says_did_not_arrive_is_marked_failed_with_its_reason(monkeypatch, private_store, no_model):
     fake = wecom_world.install(monkeypatch)
     thread = channel.kf_thread(wecom_world.KF, wecom_world.JESSICA)

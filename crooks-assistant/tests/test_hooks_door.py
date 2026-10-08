@@ -235,3 +235,23 @@ async def test_a_body_in_utf16_is_refused_before_any_parser_sees_it(client, worl
         response = await client.post("/hooks/wecom", params=query, content=body, headers=headers)
         assert (response.status_code, response.content) == (403, b""), headers
     assert parsed == [] and guard_module.GUARD.refused.get("wecom:unreadable", 0) >= 2
+
+
+async def test_a_team_members_message_is_stored_before_the_door_answers_however_busy(client, world, monkeypatch):  # noqa: F811
+    """Review note 5 (8 Oct), through the real door: with no run free, a team member's message is on
+    disk before WeCom gets its 200, and only its translation waits for the next run."""
+    fake, said = world
+    ingest._WAITING.clear()
+    monkeypatch.setattr(ingest, "MAX_RUNNING", 0)
+    query, body = wecom_world.member_text("样衣明天到。", msgid="m9001")
+    response = await client.post("/hooks/wecom", params=query, content=body, headers=STRANGER)
+    assert (response.status_code, response.content) == (200, b"")
+    [thread] = store.threads()
+    [message] = store.messages(thread.chat_id)
+    assert (thread.route, message.text, message.translation_state, said) == ("member", "样衣明天到。", "pending", [])
+    monkeypatch.setattr(ingest, "MAX_RUNNING", 4)
+    query, body = wecom_world.kf_event(nonce="later")
+    await client.post("/hooks/wecom", params=query, content=body)        # the next run makes it
+    await ingest.settle()
+    assert store.message(thread.chat_id, message.message_id).translation_state == "done"
+    assert "<message>\n样衣明天到。\n</message>" in said

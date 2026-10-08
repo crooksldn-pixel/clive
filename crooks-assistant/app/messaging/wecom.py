@@ -14,6 +14,8 @@ What it promises:
   timestamp (five minutes) and that it is new (app/messaging/guard.py); then it is decrypted, and
   it must be for this company's CorpID. Anything else, a body that cannot be read at all included,
   is Refused, which the door answers with an empty 403, never an error.
+- carried: a team member's message to the app is in the callback itself, so the door stores it
+  before it answers (app/messaging/ingest.py), however busy the server is.
 - receive: each WeChat message is stored once (by WeCom's msgid), with the read position kept
   after every page, so a restart reads on from where it was. A message WeCom later says did not
   arrive (msg_send_fail) is marked failed, with WeCom's reason in plain words.
@@ -141,13 +143,18 @@ class WeComAdapter:
 
     # ------------------------------------------------------------------ what a callback stands for
 
-    async def receive(self, inbound: Inbound) -> list[Received | Failure]:
+    def carried(self, inbound: Inbound) -> list[Received]:
+        """A team member's message to the app, which the callback carries itself: no call to make."""
         fields = inbound.fields
-        kind = fields.get("MsgType", "")
-        if kind == "event" and fields.get("Event") == "kf_msg_or_event":
-            return await self._kf(fields.get("OpenKfId", ""), fields.get("Token", ""))
-        if kind in MEMBER_KINDS and fields.get("FromUserName"):
+        if fields.get("MsgType", "") in MEMBER_KINDS and fields.get("FromUserName"):
             return [self._member(fields)]
+        return []
+
+    async def receive(self, inbound: Inbound) -> list[Received | Failure]:
+        """What WeCom said is waiting in customer service, read with kf/sync_msg."""
+        fields = inbound.fields
+        if fields.get("MsgType", "") == "event" and fields.get("Event") == "kf_msg_or_event":
+            return await self._kf(fields.get("OpenKfId", ""), fields.get("Token", ""))
         return []
 
     def _member(self, fields: dict[str, str]) -> Received:

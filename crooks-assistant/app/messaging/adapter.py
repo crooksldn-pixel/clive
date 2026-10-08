@@ -6,8 +6,11 @@ Connections card never need to know which app a message came through:
 
     verify_inbound   is this request really from the channel? (signature first, then the
                      channel's own checks); returns what it carried, or raises Refused
-    receive          turn a verified callback into the messages it stands for (for WeCom's
-                     customer service that means reading them with sync_msg)
+    carried          the messages a verified callback carries itself, read with no call (a
+                     team member's message to WeCom's app): stored at the door, before it
+                     answers, so a busy server never loses one (app/messaging/ingest.py)
+    receive          the rest of what a verified callback stands for, after the door has
+                     answered (for WeCom's customer service: reading them with sync_msg)
     send             one text to one thread; returns the channel's own message id only when
                      its API confirmed the send, and raises (with `refused` and plain words)
                      otherwise; why_not says beforehand why the channel would not take it
@@ -86,6 +89,8 @@ class Adapter(Protocol):
     def configured(self) -> bool: ...
 
     def verify_inbound(self, method: str, query: Mapping[str, str], body: bytes) -> Inbound: ...
+
+    def carried(self, inbound: Inbound) -> list[Received]: ...
 
     async def receive(self, inbound: Inbound) -> list[Received | Failure]: ...
 

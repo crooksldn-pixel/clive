@@ -11,9 +11,11 @@ What it promises, in this order, for every request:
    then the timestamp window and that it is new (app/messaging/guard.py), then decrypts it.
 3. Anything refused gets 403 with an empty body: no reason, no echo, nothing to learn from.
 4. WeCom's URL check (the GET when the URL is saved) gets the decrypted echo, as plain text.
-5. A message gets 200 with an empty body at once, as WeCom asks (answer in five seconds; 90238),
-   and is stored and translated after (app/messaging/ingest.py). A repeat of one already
-   accepted gets the same 200 and is dropped.
+5. A message gets 200 with an empty body at once, as WeCom asks (answer in five seconds; 90238).
+   What the callback carries itself (a team member's message) is stored before that answer,
+   however busy the server is; what has to be read from WeCom, and every translation, comes
+   after (app/messaging/ingest.py). A repeat of one already accepted gets the same 200 and is
+   dropped.
 6. Nothing a request carried is logged: app/logging/quiet.py keeps the query off the access line.
 
 WhatsApp and Instagram add their own paths here when they land, each with its own adapter.

@@ -115,3 +115,9 @@ def sealed_callback(fields: dict[str, str], *, timestamp: int | None = None, non
 def kf_event(*, token: str = "ENCtoken", timestamp: int | None = None, nonce: str = "nonce1") -> tuple[dict[str, str], bytes]:
     return sealed_callback({"ToUserName": CORP, "CreateTime": str(int(time.time())), "MsgType": "event",
                             "Event": "kf_msg_or_event", "Token": token, "OpenKfId": KF}, timestamp=timestamp, nonce=nonce)
+
+
+def member_text(text: str, *, msgid: str, userid: str = "emily", nonce: str = "member1") -> tuple[dict[str, str], bytes]:
+    """A team member's message to the app, sealed as WeCom sends it: the words are in the callback."""
+    return sealed_callback({"ToUserName": CORP, "FromUserName": userid, "CreateTime": str(int(time.time())),
+                            "MsgType": "text", "Content": text, "MsgId": msgid, "AgentID": AGENT}, nonce=nonce)

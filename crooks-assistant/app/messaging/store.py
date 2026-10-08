@@ -178,6 +178,13 @@ class MessageStore:
             self._save(current, messages)
             return True
 
+    def message(self, chat_id: str, message_id: str) -> Message | None:
+        """One message, by CLIVE's own id for it."""
+        for message in self.messages(chat_id, limit=MAX_PER_THREAD):
+            if message.message_id == message_id:
+                return message
+        return None
+
     def outgoing(self, chat_id: str, client_id: str) -> Message | None:
         """CLIVE's own outgoing message, by the id CLIVE gave it when the card was prepared."""
         for message in self.messages(chat_id, limit=MAX_PER_THREAD):
