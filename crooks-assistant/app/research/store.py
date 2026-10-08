@@ -16,6 +16,8 @@ What it promises:
 - A record's proposals, once written, are never rewritten: George's answers live in the owner's
   judgment ledger (app/builds/decisions.py), not here.
 - The server path is never shown or stored in a record: a document is its own file name.
+- A long file name is cut in its stem, never its suffix, which is what says what kind of file it
+  is (review note 4, 8 Oct).
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ import tempfile
 import threading
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 DOCUMENT_SUFFIX = ".research.json"
@@ -68,12 +70,12 @@ class ResearchStore:
     def new_document(self, name: str, data: bytes, *, via: str) -> dict[str, Any]:
         """Keep the file as given and open its record, queued to be read."""
         doc_id = f"doc-{uuid.uuid4().hex[:20]}"
-        safe = re.sub(r"[^A-Za-z0-9._-]+", "-", Path(str(name)).name).strip("-.") or "research"
+        safe = safe_name(name)
         received = self.folder("received") / doc_id
         received.mkdir(mode=0o700)
-        _write_bytes(received / safe[:120], data)
-        record = {"id": doc_id, "name": Path(str(name)).name[:200] or "research", "via": via, "received_at": now(),
-                  "state": "queued", "why": "", "file": safe[:120], "bytes": len(data), "artifact_id": "",
+        _write_bytes(received / safe, data)
+        record = {"id": doc_id, "name": fit(Path(str(name)).name, 200) or "research", "via": via, "received_at": now(),
+                  "state": "queued", "why": "", "file": safe, "bytes": len(data), "artifact_id": "",
                   "notes": [], "proposals": [], "dropped": [], "model": "", "map_digest": "", "finished_at": "",
                   "repeat_of": ""}
         self.save(record)
@@ -81,7 +83,7 @@ class ResearchStore:
 
     def refused_document(self, name: str, why: str, *, via: str) -> dict[str, Any]:
         """A file that could not be taken in at all: its record says why, and nothing is kept."""
-        record = {"id": f"doc-{uuid.uuid4().hex[:20]}", "name": Path(str(name)).name[:200] or "research", "via": via,
+        record = {"id": f"doc-{uuid.uuid4().hex[:20]}", "name": fit(Path(str(name)).name, 200) or "research", "via": via,
                   "received_at": now(), "state": "failed", "why": why[:400], "file": "", "bytes": 0,
                   "artifact_id": "", "notes": [], "proposals": [], "dropped": [], "model": "", "map_digest": "",
                   "finished_at": now(), "repeat_of": ""}
@@ -159,6 +161,21 @@ class ResearchStore:
         prepared[proposal_id] = {"request_id": request_id, "at": now()}
         record["prepared"] = prepared
         self.save(record)
+
+
+def safe_name(name: str) -> str:
+    """A file name as kept on the server: letters, digits, dots, dashes and underscores, at most 120."""
+    return fit(re.sub(r"[^A-Za-z0-9._-]+", "-", Path(str(name)).name).strip("-."), 120) or "research"
+
+
+def fit(name: str, limit: int) -> str:
+    """`name` cut to `limit` characters in its stem, keeping its suffix (".md", ".docx"), which is what
+    says what kind of file it is."""
+    if len(name) <= limit:
+        return name
+    path = PurePosixPath(name)
+    suffix = path.suffix if 1 < len(path.suffix) <= 16 else ""
+    return path.stem[: limit - len(suffix)].rstrip(" .-") + suffix
 
 
 def _write_bytes(path: Path, data: bytes) -> None:

@@ -31,7 +31,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from app.research.store import ResearchStore, now
+from app.research.store import ResearchStore, now, safe_name
 
 log = logging.getLogger("crooks.research")
 
@@ -67,8 +67,10 @@ def sweep(store: ResearchStore) -> list[dict[str, Any]]:
         except (OSError, ValueError) as exc:
             record = store.refused_document(path.name, str(exc), via="folder")
         records.append(record)
+        # Its kept name is short and plain, so the move can't fail on a long one and leave it to be
+        # taken in again on every sweep (review note 4, 8 Oct).
         with contextlib.suppress(OSError):
-            shutil.move(str(path), str(taken / f"{record['id']}-{path.name}"))
+            shutil.move(str(path), str(taken / f"{record['id']}-{safe_name(path.name)}"))
     return records
 
 
