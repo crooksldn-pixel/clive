@@ -12,7 +12,9 @@
  *   - the file given through that way is taken in, read and weighed while he watches: the document says
  *     it is read, with four recommendations, the first open;
  *   - each recommendation says what the research says, CLIVE's view with its reason and what it rests
- *     on, and offers Adopt, Park and Reject with CLIVE's marked;
+ *     on, and what it calls done whatever the view (review note 1), and offers Adopt, Park and Reject
+ *     with CLIVE's marked; Adopt says, before it is picked, that its request goes to the public
+ *     repository in CLIVE's words (review note 6);
  *   - Park and Reject are recorded and move the recommendation out of Waiting on you;
  *   - Adopt puts a build request's card in front of him on the conversation, waiting for his hold, and
  *     the Builds screen steps aside; reopened, the recommendation says its build request waits for his hold;
@@ -118,6 +120,8 @@ async function run(browser) {
   const apiWords = await api.textContent();
   check('a recommendation that breaks a rule says which, and that CLIVE’s own check set it',
     /CLIVE’s view: Reject/.test(apiWords) && /Breaks rule 5/.test(apiWords) && /own check of the map’s rules/.test(apiWords), apiWords.slice(0, 200));
+  check('a recommendation CLIVE would reject still shows what it calls done, which Adopt would file',
+    /Done when/.test(apiWords) && /It is there\./.test(apiWords), apiWords.slice(0, 300));
   const rec = await api.locator('.bd-ans.is-recommended').textContent();
   check('CLIVE’s own view is the answer marked', /Reject/.test(rec) && /CLIVE recommends/.test(rec), rec);
   await shot(page, 'research-03-rule-check');
@@ -137,6 +141,9 @@ async function run(browser) {
   const adoptWords = await adopt.textContent();
   check('the one to adopt says what building it would touch and what it rests on',
     /Building it would touch/.test(adoptWords) && /web\/connections\.js/.test(adoptWords) && /It rests on/.test(adoptWords), '');
+  const adoptSays = await adopt.locator('.bd-ans', { hasText: 'Adopt' }).first().textContent();
+  check('before he picks Adopt, it says the request goes to CLIVE’s public repository, never in the research’s words',
+    /CLIVE's public repository/.test(adoptSays) && /never the research's own/.test(adoptSays), adoptSays);
   await shot(page, 'research-04-adopt');
   await answer(page, 'last checked', 'Adopt');
   await page.waitForSelector('.bd:not(.is-open)', { state: 'attached', timeout: 20000 });

@@ -34,7 +34,7 @@ from tests import builds_fixture
 from tests.test_research import API, CHECKED, FIXTURE, REFUNDS, WHATSAPP, answer
 
 SCRIPT = ROOT / "scripts" / "browser" / "research.js"
-EXPECTED_CHECKS = 20
+EXPECTED_CHECKS = 22
 
 
 class WatchedLoop(builds_fixture.FakeLoop):
