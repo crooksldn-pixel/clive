@@ -14,7 +14,10 @@ What reduces the worker's capability is the launch itself, not the prompt:
   Shopify, Gmail or cloud tokens, no proxy secrets, no owner config);
 - ``--restricted``: user, project and local settings are ignored and file tools are
   confined to the workspace; ``--setting-sources ""`` and ``--disable-slash-commands``
-  load no settings, skills or commands;
+  load no settings, skills or commands. A launch that carries the owner's skills
+  (workers/skills.py, config/builder_skills.json) instead loads exactly the folder CLIVE
+  built with ``--plugin-dir``, switches the CLI's own bundled skills off (``--settings``
+  and ``CLAUDE_CODE_DISABLE_BUNDLED_SKILLS``) and adds the ``Skill`` tool;
 - ``--strict-mcp-config --mcp-config``: no MCP server, so no connector, however the
   host is configured, with one exception: when the objective declares checks, the
   config names exactly CLIVE's own ``run_checks`` server (``check_server.py``), started
@@ -30,7 +33,9 @@ What reduces the worker's capability is the launch itself, not the prompt:
 
 Then the launch is checked, fail-closed: ``verify_started`` compares the init
 event against what was asked for, and any extra tool, any MCP server but that one
-(and it only when asked for), any non-builtin plugin, any skill, another cwd or another session is a deterministic
+(and it only when asked for), any plugin but the CLI's own built-ins named in ``ALLOWED_PLUGINS``
+(each reported with path "builtin") and CLIVE's skills folder when asked for, any skill but exactly the owner's
+skills CLIVE gave it (none, without skills), another cwd or another session is a deterministic
 refusal; the dispatcher kills the worker and blocks the task. A launch that asked for the
 checks server must also show it: its ``run_checks`` tool in the roster and the server itself
 ``connected``; a builder told it has run_checks and started without it is refused the same way
@@ -61,6 +66,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import check_server
+from . import skills as builder_skills
 from .base import (
     Activity,
     Finished,
@@ -81,7 +87,22 @@ FILE_TOOLS = ("Read", "Edit", "Write", "Glob", "Grep")
 # any file on the host, ``git log --output`` writes one), and ``--restricted`` confines
 # the file tools, not shell commands. CLIVE runs the objective's checks itself.
 DEFAULT_BASH: tuple[str, ...] = ()
-ALLOWED_PLUGINS = frozenset({"telemetry@builtin"})
+# The plugins Claude Code carries inside its own binary, by exact source, as each pinned CLI reported them for a
+# builder's launch: telemetry@builtin (2.1.280, 23 Sep), cc-plugin-agents-md@builtin (2.1.285, 30 Sep; PRs #63 and
+# #85 found the old one-name list refusing it), and the four 2.1.293 printed on 7 Oct 2026. Each is accepted only as
+# a built-in: the init event must give it path "builtin" (or no path at all). Any other plugin is refused, whatever
+# it calls itself: a deliberate CLI update that brings a new built-in is refused at launch until its name is added
+# here by a reviewed change, and ``engineering_dispatcher.py probe-launch`` says which before the re-pin. Whatever
+# surface a built-in brings (a tool, a server, a skill, a command) is still checked on its own below.
+ALLOWED_PLUGINS = frozenset({
+    "telemetry@builtin",                    # 2.1.280
+    "cc-plugin-agents-md@builtin",          # 2.1.285, 2.1.293
+    "cc-plugin-sec-default@builtin",        # 2.1.293
+    "cc-plugin-telemetry@builtin",          # 2.1.293
+    "cc-plugin-plugin-authoring@builtin",   # 2.1.293 (its one skill is switched off: config/builder_skills.json)
+})
+BUILTIN_PATH = "builtin"
+SKILL_TOOL = "Skill"
 REPORT_TOOL = "StructuredOutput"
 CHECK_SERVER = check_server.SERVER_NAME
 CHECK_TOOL = check_server.QUALIFIED_TOOL
@@ -138,12 +159,15 @@ class ClaudeCodeWorker:
         self._children: dict[int, subprocess.Popen] = {}
 
     # ---- launch --------------------------------------------------------------
-    def builtin_tools(self) -> tuple[str, ...]:
-        return (*FILE_TOOLS, "Bash") if self.bash_prefixes else FILE_TOOLS
+    def builtin_tools(self, spec: LaunchSpec | None = None) -> tuple[str, ...]:
+        tools = (*FILE_TOOLS, "Bash") if self.bash_prefixes else FILE_TOOLS
+        return (*tools, SKILL_TOOL) if _with_skills(spec) else tools
 
     def allowed_tools(self, spec: LaunchSpec | None = None) -> tuple[str, ...]:
         extra = (CHECK_TOOL,) if spec is not None and spec.check_config is not None else ()
-        return (*FILE_TOOLS, *(f"Bash({p}:*)" for p in self.bash_prefixes), *extra)
+        skills = tuple(f"{SKILL_TOOL}({builder_skills.skill_id(name)})" for name in spec.skills) \
+            if _with_skills(spec) else ()
+        return (*FILE_TOOLS, *(f"Bash({p}:*)" for p in self.bash_prefixes), *extra, *skills)
 
     def mcp_config(self, spec: LaunchSpec) -> str:
         """No MCP server, or exactly CLIVE's run_checks server bound to this attempt's declared checks."""
@@ -163,12 +187,16 @@ class ClaudeCodeWorker:
             "--output-format", "stream-json", "--verbose",
             "--session-id", spec.session_id,
             "--restricted",
-            "--tools", ",".join(self.builtin_tools()),
+            "--tools", ",".join(self.builtin_tools(spec)),
             "--allowedTools", *self.allowed_tools(spec),
             "--permission-mode", "dontAsk",
             "--strict-mcp-config", "--mcp-config", self.mcp_config(spec),
             "--setting-sources", "",
-            "--disable-slash-commands",
+            # Skills need the CLI's skill machinery, so a launch with the owner's skills keeps it and loads exactly
+            # CLIVE's folder; its bundled skills are switched off by --settings, and the launch check holds the
+            # roster to the folder. Without skills, nothing changes: no skill and no command loads at all.
+            *(("--plugin-dir", str(spec.skills_dir), "--settings", spec.skills_settings or _NO_BUNDLED)
+              if _with_skills(spec) else ("--disable-slash-commands",)),
             "--no-session-persistence",
             "--max-turns", str(self.max_turns),
             "--json-schema", json.dumps(WORKER_REPORT_SCHEMA, separators=(",", ":")),
@@ -196,6 +224,8 @@ class ClaudeCodeWorker:
         }
         if spec.check_config is not None:
             env["MCP_TOOL_TIMEOUT"] = CHECK_TOOL_TIMEOUT_MS
+        if _with_skills(spec):
+            env["CLAUDE_CODE_DISABLE_BUNDLED_SKILLS"] = "1"   # the CLI's own bundled skills, off as in --settings
         if self.oauth_token_file is not None:
             try:
                 token = Path(self.oauth_token_file).read_text(encoding="utf-8").strip()
@@ -249,7 +279,7 @@ class ClaudeCodeWorker:
             problems.append(f"session {started.session_id} is not the assigned session {spec.session_id}")
         if os.path.realpath(started.cwd) != os.path.realpath(spec.workspace):
             problems.append(f"cwd {started.cwd} is not the attempt workspace {spec.workspace}")
-        allowed = set(self.builtin_tools()) | {REPORT_TOOL}
+        allowed = set(self.builtin_tools(spec)) | {REPORT_TOOL}
         allowed_servers = set()
         if spec.check_config is not None:
             allowed.add(CHECK_TOOL)
@@ -261,14 +291,43 @@ class ClaudeCodeWorker:
         foreign_servers = sorted(set(started.mcp_servers) - allowed_servers)
         if foreign_servers:
             problems.append("MCP servers present: " + ", ".join(foreign_servers))
-        foreign = sorted(set(started.plugins) - ALLOWED_PLUGINS)
-        if foreign:
-            problems.append("plugins beyond the builtin allowance: " + ", ".join(foreign))
-        if started.skills or started.slash_commands:
+        problems += _plugin_problems(started, spec)
+        if _with_skills(spec):
+            problems += _skill_problems(started, spec)
+        elif started.skills or started.slash_commands:
             problems.append(f"{started.skills} skills and {started.slash_commands} slash commands loaded; expected none")
         if started.permission_mode != "dontAsk":
             problems.append(f"permission mode {started.permission_mode!r}, expected 'dontAsk'")
         return problems
+
+    def probe(self, spec: LaunchSpec, *, timeout_s: float = 60.0) -> tuple[Started | None, list[str], str]:
+        """Launch exactly as an attempt would, read the init event, stop the process before it does any work.
+
+        For the operator, before a re-pin or after a deliberate CLI update (``engineering_dispatcher.py
+        probe-launch``): it answers whether this CLI, with this launch, passes the launch check. Returns the
+        init event (None if none came within ``timeout_s``), the launch check's problems, and the end of stderr.
+        The process is stopped (and confirmed gone) as soon as the init event is read; the prompt is never
+        answered, because the model is asked nothing before that event is printed."""
+        record = self.launch(spec)
+        started: Started | None = None
+        deadline = time.monotonic() + timeout_s
+        try:
+            while started is None and time.monotonic() < deadline:
+                observations, _ = self.read(spec.log_path, 0)
+                started = next((o for o in observations if isinstance(o, Started)), None)
+                if started is None:
+                    if not self.live_pids(spec.marker) and record.pid not in self._children:
+                        break
+                    time.sleep(0.05)
+        finally:
+            self.kill(spec.marker)
+        try:
+            stderr = Path(spec.stderr_path).read_text(encoding="utf-8", errors="replace")[-600:]
+        except OSError:
+            stderr = ""
+        problems = self.verify_started(started, spec) if started is not None else [
+            f"no init event within {timeout_s:.0f}s"]
+        return started, problems, stderr
 
     def diagnose_exit(self, stderr_path: Path) -> tuple[str, bool]:
         """Why a worker died without a result, and whether it is worth retrying."""
@@ -334,6 +393,85 @@ def _signal(pids: list[int], sig: signal.Signals) -> None:
             pass
 
 
+_NO_BUNDLED = builder_skills.settings_json(builder_skills.AllowList(skills=()))
+
+
+def _with_skills(spec: LaunchSpec | None) -> bool:
+    """Whether this launch carries the owner's skills: a folder CLIVE built and at least one skill in it."""
+    return spec is not None and spec.skills_dir is not None and bool(spec.skills)
+
+
+def _cli_builtin(source: str, path: str) -> bool:
+    """One of the CLI's own plugins by its exact source (``ALLOWED_PLUGINS``), reported as a built-in: a plugin that
+    takes a listed name from a folder or a marketplace has a filesystem path, and is refused."""
+    return source in ALLOWED_PLUGINS and path in (BUILTIN_PATH, "")
+
+
+def _plugin_problems(started: Started, spec: LaunchSpec) -> list[str]:
+    """Plugins beyond the CLI's own and, when the launch asked for skills, exactly CLIVE's skills folder."""
+    origins = started.plugin_origins or tuple((source, "", "") for source in started.plugins)
+    ours = os.path.realpath(spec.skills_dir) if _with_skills(spec) else None
+    foreign, seen_ours = [], False
+    for source, path, _name in origins:
+        if _cli_builtin(source, path):
+            continue
+        if ours is not None and source == f"{builder_skills.PLUGIN_NAME}@inline" and path \
+                and os.path.realpath(path) == ours:
+            seen_ours = True
+            continue
+        foreign.append(source)
+    problems = []
+    if foreign:
+        problems.append("plugins beyond the builtin allowance: " + ", ".join(sorted(foreign)))
+    if ours is not None and not seen_ours:
+        problems.append(f"the skills folder CLIVE built ({builder_skills.PLUGIN_NAME}) is not in the init roster")
+    return problems
+
+
+def _skill_problems(started: Started, spec: LaunchSpec) -> list[str]:
+    """A launch with the owner's skills: exactly those skills, the Skill tool to use them, and no command from
+    anywhere but the CLI itself.
+
+    The skills must be exactly ``clive-skills:<name>`` for the skills CLIVE put in the folder: one more is a skill
+    nobody approved, one fewer a builder told it has a skill it does not. The CLI keeps its own built-in commands
+    whenever skills are on (/compact, /model ...): they are not skills, the CLI refuses them to the Skill tool, and
+    with ``disableBundledSkills`` they are hidden from the model. Any other command is refused: one a plugin
+    brings (``<plugin>:<name>``) that is not one of the skills, or one named by a command or skill file in the
+    workspace (``--restricted`` keeps those out; this checks that it did)."""
+    problems = []
+    wanted = {builder_skills.skill_id(name) for name in spec.skills}
+    loaded = set(started.skill_names)
+    if loaded - wanted:
+        problems.append("skills beyond the owner's list: " + ", ".join(sorted(loaded - wanted)))
+    if wanted - loaded:
+        problems.append("the owner's skills CLIVE gave this builder are missing from the init roster: "
+                        + ", ".join(sorted(wanted - loaded)))
+    if SKILL_TOOL not in started.tools:
+        problems.append(f"the {SKILL_TOOL} tool is missing from the init roster, so the skills cannot be used")
+    commands = set(started.slash_command_names)
+    foreign = sorted(c for c in commands - wanted if ":" in c)
+    local = sorted(commands & _workspace_commands(spec.workspace))
+    if foreign:
+        problems.append("plugin commands beyond the owner's skills: " + ", ".join(foreign))
+    if local:
+        problems.append("commands from the workspace loaded: " + ", ".join(local))
+    return problems
+
+
+def _workspace_commands(workspace: Path) -> set[str]:
+    """The names a command or skill file in the workspace's .claude folder would be loaded under."""
+    names: set[str] = set()
+    root = Path(workspace) / ".claude"
+    commands, skills = root / "commands", root / "skills"
+    if commands.is_dir() and not commands.is_symlink():
+        for path in commands.rglob("*.md"):
+            names.add(path.stem)
+            names.add(":".join(path.relative_to(commands).with_suffix("").parts))
+    if skills.is_dir() and not skills.is_symlink():
+        names.update(child.name for child in skills.iterdir() if child.is_dir())
+    return names
+
+
 def _declared_checks_missing(started: Started) -> list[str]:
     """What a launch that asked for the checks server lacks: the tool in the roster, or the server connected.
 
@@ -349,6 +487,18 @@ def _declared_checks_missing(started: Started) -> list[str]:
         problems.append(f"the declared checks' MCP server {CHECK_SERVER} is not connected "
                         f"(status {', '.join(s or 'not reported' for s in states)})")
     return problems
+
+
+def _plugin_origin(plugin: object) -> tuple[str, str, str]:
+    """(source, path, name) as the init event reports them; a bare string is a source with no path."""
+    if isinstance(plugin, dict):
+        return (str(plugin.get("source") or plugin.get("name")), str(plugin.get("path") or ""),
+                str(plugin.get("name") or ""))
+    return str(plugin), "", ""
+
+
+def _entry_name(entry: object) -> str:
+    return str(entry.get("name", entry)) if isinstance(entry, dict) else str(entry)
 
 
 def _server_name(server: object) -> str:
@@ -394,6 +544,9 @@ def parse_events(text: str) -> list[Observation]:
                 slash_commands=len(event.get("slash_commands") or ()),
                 permission_mode=event.get("permissionMode"),
                 api_key_source=event.get("apiKeySource"),
+                plugin_origins=tuple(_plugin_origin(p) for p in event.get("plugins") or ()),
+                skill_names=tuple(_entry_name(s) for s in event.get("skills") or ()),
+                slash_command_names=tuple(_entry_name(c) for c in event.get("slash_commands") or ()),
             ))
         elif kind == "system" and sub == "permission_denied":
             out.append(Activity(at=_at(event), kind="tool_result", detail="permission denied", denied=True))

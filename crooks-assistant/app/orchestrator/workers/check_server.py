@@ -131,7 +131,9 @@ class CheckService:
             box = config.get("sandbox") or {}
             runner = NamespaceSandbox(ro_paths=tuple(box.get("ro_paths", ())),
                                       **{k: int(box[k]) for k in ("memory_bytes", "file_bytes", "open_files",
-                                                                  "processes") if k in box})
+                                                                  "processes") if k in box},
+                                      # browser checks, exactly as the dispatcher's own sandbox has them
+                                      **{k: str(box[k]) for k in ("browsers", "node_path") if box.get(k)})
         self.runner = runner
 
     def run(self, arguments: object = OMITTED) -> tuple[bool, dict]:

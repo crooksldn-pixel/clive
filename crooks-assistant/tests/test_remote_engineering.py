@@ -2969,3 +2969,281 @@ def test_run_restarted_between_the_red_repair_block_and_its_revision_routes_the_
         assert _git(host.state, "status", "--porcelain", "--untracked-files=all") == ""
     finally:
         _kill_builders(host.store)
+
+
+# ------------------------------------------------ the owner's loop upgrade of 7 October: why a build stopped, privately
+
+from app.remote_engineering import (  # noqa: E402
+    PRIVATE_SCHEMA,
+    PRIVATE_UNAVAILABLE,
+    PeerCheck,
+    PrivateChannel,
+    PrivateDocument,
+    build_private,
+    parse_listen,
+)
+
+PROD = "crooks-os-prod-1"
+
+
+def _whois(names: dict[str, str]):
+    """A stand-in for ``tailscale whois --json``: the node each address belongs to, by the shape Tailscale prints."""
+    asked: list[str] = []
+
+    def run(_cli: str, address: str) -> str:
+        asked.append(address)
+        if address not in names:
+            raise RuntimeError("tailscale could not place the address")
+        return json.dumps({"Node": {"Name": f"{names[address]}.tail1234.ts.net.", "ComputedName": names[address]},
+                           "UserProfile": {"LoginName": "owner@example.invalid"}})
+    run.asked = asked
+    return run
+
+
+def _stop_report(**overrides) -> dict:
+    report = {
+        "schema": "clive.stop_report.v1", "objective_id": "obj-1", "revision": 2, "attempt_id": "obj-1-a3",
+        "stage": "BLOCKED", "cause": "review_limit", "at": "2026-10-07T21:00:00+00:00",
+        "blocker": f"convergence limit: 2 repair round(s) used of 2; key {LEAKED_KEY}",
+        "candidate_sha": "c" * 40, "max_repair_rounds": 2,
+        "review_rounds": [{"revision": 2, "attempt_id": "obj-1-a3", "candidate_sha": "c" * 40, "reviewer": "gpt",
+                           "summary": "MARKER-SUMMARY",
+                           "findings": [{"finding_id": "F-01", "material": True,
+                                         "finding": "MARKER-FINDING emails jane.doe@example.com\x07 on refund",
+                                         "evidence_ref": "app/x.py:12", "required_repair": "MARKER-REPAIR"}]}],
+        "failed_checks": [{"attempt_id": "obj-1-a2", "what": "check", "name": "tests", "exit_code": 1,
+                           "tail": "line one\nE   AssertionError: MARKER-TAIL\n"}],
+        "github_failure": None,
+        "builder_report": {"attempt_id": "obj-1-a3", "status": "blocked", "summary": "MARKER-BUILDER",
+                           "reason": f"token {URL_TOKEN} in the log"},
+    }
+    report.update(overrides)
+    return report
+
+
+def test_the_private_document_carries_each_stop_in_full_redacted_by_its_request_id(tmp_path):
+    receipts = ReceiptLog(tmp_path / "remote_engineering")
+    receipts.put(Receipt(request_id="r-obj-1", request_sha256="0" * 64, outcome="accepted", objective_id="obj-1",
+                         task_id="obj-1", source="requests/r-obj-1.json", recorded_at=NOW))
+    document = build_private([_stop_report(), _stop_report(objective_id="no such/id"),
+                              _stop_report(objective_id="obj-9", cause="made-up", stage="RUNNING")],
+                             receipts=receipts, now=NOW)
+    assert document["schema_version"] == PRIVATE_SCHEMA and document["generated_at"] == NOW.isoformat()
+    # by request id, the one the loop took the request in under; with no receipt, the objective's own id
+    assert [s["request_id"] for s in document["stops"]] == ["obj-9", "r-obj-1"]
+    second, first = document["stops"]
+    assert (second["cause"], second["stage"]) == (None, None)                     # never a word outside the set
+    text = json.dumps(document)
+    assert LEAKED_KEY not in text and URL_TOKEN not in text and "jane.doe@example.com" not in text
+    assert "\x07" not in text
+    finding = first["review_rounds"][0]["findings"][0]
+    assert finding["finding"].startswith("MARKER-FINDING emails ") and finding["required_repair"] == "MARKER-REPAIR"
+    assert first["failed_checks"][0]["tail"] == "line one\nE   AssertionError: MARKER-TAIL\n"   # lines kept
+    assert first["builder_report"]["summary"] == "MARKER-BUILDER" and first["cause"] == "review_limit"
+
+
+@pytest.mark.parametrize("listen, ok", [
+    ("100.101.102.103:8765", True), ("[fd7a:115c:a1e0::1]:8765", True), ("127.0.0.1:8765", True),
+    ("0.0.0.0:8765", False), ("[::]:8765", False), ("192.168.1.20:8765", False), ("8.8.8.8:80", False),
+    ("100.101.102.103:0", False), ("100.101.102.103:70000", False), ("crooks-worker-01:8765", False), ("", False),
+])
+def test_the_private_channel_listens_only_on_a_tailnet_or_loopback_address(listen, ok):
+    if ok:
+        assert parse_listen(listen)[1] == 8765
+    else:
+        with pytest.raises(ValueError) as caught:
+            parse_listen(listen)
+        assert listen not in str(caught.value) or not listen
+
+
+def test_only_the_tailnet_machines_the_operator_named_may_read_it():
+    with pytest.raises(ValueError):
+        PeerCheck([])
+    with pytest.raises(ValueError):
+        PeerCheck(["Crooks OS"])
+    whois = _whois({"100.64.0.2": PROD, "100.64.0.3": "someones-laptop"})
+    now = [0.0]
+    peers = PeerCheck([PROD], cli="/usr/bin/tailscale", runner=whois, clock=lambda: now[0])
+    assert peers.allows("100.64.0.2") and not peers.allows("100.64.0.3") and not peers.allows("100.64.0.9")
+    now[0] = 59.0
+    assert peers.allows("100.64.0.2") and not peers.allows("100.64.0.3")     # answered from the minute's cache
+    assert whois.asked == ["100.64.0.2", "100.64.0.3", "100.64.0.9"]
+    now[0] = 61.0
+    assert peers.allows("100.64.0.2") and whois.asked[-1] == "100.64.0.2"   # a minute on, asked again
+    assert not PeerCheck([PROD], cli=None, runner=whois).allows("100.64.0.2")   # no tailscale: nobody
+
+
+def _free_port() -> int:
+    import socket
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def _ask(port: int, method: str = "GET", path: str = "/v1/stops") -> tuple[int, bytes]:
+    import http.client
+
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    try:
+        conn.request(method, path)
+        response = conn.getresponse()
+        return response.status, response.read()
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("allowed", [True, False])
+def test_the_private_channel_serves_one_read_only_document_to_a_named_node(allowed):
+    port = _free_port()
+    whois = _whois({"127.0.0.1": PROD if allowed else "someones-laptop"})
+    channel = PrivateChannel(f"127.0.0.1:{port}", PeerCheck([PROD], cli="tailscale", runner=whois))
+    channel.document.set({"schema_version": PRIVATE_SCHEMA, "generated_at": NOW.isoformat(),
+                          "stops": [{"request_id": "r-obj-1", "blocker": "MARKER"}]})
+    try:
+        assert channel.ensure() is None and channel.ensure() is None
+        if not allowed:
+            for method in ("GET", "POST", "DELETE"):
+                code, body = _ask(port, method)
+                assert code == 403 and b"MARKER" not in body
+            return
+        code, body = _ask(port)
+        assert code == 200 and json.loads(body)["stops"][0]["blocker"] == "MARKER"
+        assert _ask(port, path="/v1/stops/../status")[0] == 404 and _ask(port, path="/")[0] == 404
+        for method in ("POST", "PUT", "DELETE", "PATCH"):
+            assert _ask(port, method)[0] == 405
+    finally:
+        channel.close()
+
+
+def test_a_channel_that_cannot_bind_never_stops_the_loop_and_tries_again_a_minute_later():
+    import socket
+
+    taken = socket.socket()
+    taken.bind(("127.0.0.1", 0))
+    taken.listen(1)
+    port = taken.getsockname()[1]
+    now = [0.0]
+    channel = PrivateChannel(f"127.0.0.1:{port}", PeerCheck([PROD], cli="tailscale", runner=_whois({})),
+                             clock=lambda: now[0])
+    try:
+        assert channel.ensure() == PRIVATE_UNAVAILABLE and channel.server is None
+        taken.close()
+        now[0] = 30.0
+        assert channel.ensure() == PRIVATE_UNAVAILABLE and channel.server is None   # not before the minute
+        now[0] = 61.0
+        assert channel.ensure() is None and channel.server is not None
+    finally:
+        taken.close()
+        channel.close()
+    with pytest.raises(ValueError):
+        PrivateChannel("0.0.0.0:8765", PeerCheck([PROD]))
+
+
+class _Stopping(_Ticker):
+    def __init__(self, reports=None, error: Exception | None = None):
+        super().__init__()
+        self.reports = reports
+        self.stop_error = error
+
+    def stop_reports(self):
+        if self.stop_error is not None:
+            raise self.stop_error
+        return self.reports
+
+
+def test_the_loop_rebuilds_the_private_document_each_cycle_and_publishes_counts_only(tmp_path):
+    class Quiet:
+        def poll_once(self):
+            return []
+
+    store = LifecycleStore(tmp_path / "engineering")
+    document = PrivateDocument()
+    published: list[dict] = []
+    loop = RemoteEngineeringLoop(controller=Quiet(), dispatcher=_Stopping([_stop_report()]), store=store,
+                                 receipts=ReceiptLog(store.root / "remote_engineering"),
+                                 publish=lambda status: published.append(status) or "d" * 40, clock=lambda: NOW,
+                                 private=document)
+    loop.cycle()
+    served = json.loads(document.get())
+    assert served["stops"][0]["review_rounds"][0]["findings"][0]["required_repair"] == "MARKER-REPAIR"
+    assert "MARKER" not in json.dumps(published)
+
+    # a report that cannot be built leaves the last document and never ends supervision
+    before = document.get()
+    loop.dispatcher = _Stopping(error=ValueError("unreadable"))
+    assert loop.cycle()["publish_error"] is None and document.get() == before
+    # the store's own failures still stop the loop, as they do from the tick
+    loop.dispatcher = _Stopping(error=LifecycleError("store refused"))
+    with pytest.raises(LifecycleError):
+        loop.cycle()
+
+
+def test_the_stops_verb_prints_what_the_running_loop_recorded_redacted(tmp_path, capsys):
+    stops = tmp_path / "runtime" / "stops"
+    stops.mkdir(parents=True)
+    (stops / "obj-1.json").write_text(json.dumps(_stop_report()))
+    (stops / "junk.json").write_text("{not json")
+    common = ["--store", str(tmp_path / "engineering"), "--repo", str(tmp_path), "--runtime-root",
+              str(tmp_path / "runtime")]
+    assert cli.run([*common, "stops", "--json"]) == 0
+    out = capsys.readouterr().out
+    document = json.loads(out)
+    assert [s["request_id"] for s in document["stops"]] == ["obj-1"]
+    assert LEAKED_KEY not in out and URL_TOKEN not in out and "MARKER-FINDING" in out
+    assert cli.run([*common, "stops"]) == 0
+    text = capsys.readouterr().out
+    assert "[F-01] MARKER-FINDING" in text and "required repair: MARKER-REPAIR" in text and LEAKED_KEY not in text
+
+
+@pytest.mark.parametrize("flags, says", [
+    (["--private-allow-node", PROD], "--private-allow-node needs --private-listen"),
+    (["--private-listen", "0.0.0.0:8765", "--private-allow-node", PROD], "tailnet address"),
+    (["--private-listen", "100.64.0.1:8765"], "names at least one tailnet machine"),
+])
+def test_run_refuses_a_private_channel_that_is_not_tailnet_only_before_anything_starts(tmp_path, capsys, flags, says):
+    common = ["--store", str(tmp_path / "engineering"), "--repo", str(tmp_path), "--publish-remote", "origin",
+              "--runtime-root", str(tmp_path / "runtime"), "--workspace-root", str(tmp_path / "workers")]
+    tail = ["run", "--repository", "crooksldn-pixel/clive", "--product-memory-ref", "main", "--max-cycles", "1",
+            *flags]
+    assert cli.run([*common, *tail]) == 2
+    err = capsys.readouterr().err
+    assert says in err and "0.0.0.0" not in err
+    assert not (tmp_path / "engineering" / "remote_engineering" / "claims").exists()
+
+
+# ------------------------------------------------ the owner's loop upgrade of 7 October: more repair rounds
+
+def _config(env, **kw) -> RemoteControllerConfig:
+    return RemoteControllerConfig(repo=env.checkout, repository="crooksldn-pixel/clive", product_memory_ref="main",
+                                  **kw)
+
+
+def test_a_request_that_names_no_repair_rounds_gets_the_hosts_default_and_one_that_does_keeps_its_own(env, tmp_path):
+    unnamed = valid_request(env, request_id="r-default")
+    del unnamed["max_repair_rounds"]
+    commit_request(env.origin, "r-default", unnamed)
+    commit_request(env.origin, "r-named", valid_request(env, request_id="r-named", max_repair_rounds=1))
+    kernel, objectives, receipts, _controller = make_controller(env, tmp_path)
+    controller = RemoteController(kernel=kernel, objectives=objectives, config=_config(env, default_repair_rounds=4),
+                                  receipts=receipts, clock=lambda: NOW)
+    assert {o["outcome"] for o in controller.poll_once()} == {"accepted"}
+    assert objectives.read("r-default").max_repair_rounds == 4
+    assert objectives.read("r-named").max_repair_rounds == 1
+    # the owner raising the default later changes nothing already admitted: a replay is the same objective
+    again = RemoteController(kernel=kernel, objectives=objectives, config=_config(env, default_repair_rounds=5),
+                             receipts=receipts, clock=lambda: NOW)
+    again.poll_once()
+    assert objectives.read("r-default").max_repair_rounds == 4
+
+
+def test_the_hosts_default_is_the_convergence_doctrines_two_and_stays_within_the_objectives_bound(env):
+    assert _config(env).default_repair_rounds == 2
+    for bad in (-1, 6, True, 2.5):
+        with pytest.raises(ValueError):
+            _config(env, default_repair_rounds=bad)
+    parsed = cli.build_parser().parse_args(["--store", "x", "--repo", "y", "run", "--repository",
+                                            "crooksldn-pixel/clive", "--default-repair-rounds", "4"])
+    assert parsed.default_repair_rounds == 4
+    assert cli.build_parser().parse_args(["--store", "x", "--repo", "y", "poll", "--repository",
+                                          "crooksldn-pixel/clive"]).default_repair_rounds == 2

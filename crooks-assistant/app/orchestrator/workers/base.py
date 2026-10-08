@@ -60,6 +60,13 @@ class LaunchSpec:
     # Host-side config of the objective's declared checks for the builder's run_checks tool
     # (see workers/check_server.py); None when the objective declares no checks.
     check_config: Path | None = None
+    # The builder's skills (workers/skills.py): the plugin folder CLIVE built outside the workspace from the
+    # owner's allow-list (config/builder_skills.json), and the skill names in it. None and () launch with no
+    # skills at all, exactly as before skills existed.
+    skills_dir: Path | None = None
+    skills: tuple[str, ...] = ()
+    # The ``--settings`` a skills launch passes (skills.settings_json): the CLI's own skills switched off.
+    skills_settings: str = ""
 
     @property
     def marker(self) -> str:
@@ -102,6 +109,12 @@ class Started:
     # Each MCP server's own status word as the init event reports it (``connected``, ``failed``,
     # ``pending``, ...), "" when none is reported: a server that is listed is not yet one that works.
     mcp_server_status: tuple[tuple[str, str], ...] = ()
+    # Each plugin as (source, path, name) exactly as reported: a plugin the CLI carries inside its own binary says
+    # path "builtin"; one loaded from a folder says that folder.
+    plugin_origins: tuple[tuple[str, str, str], ...] = ()
+    # The names behind ``skills`` and ``slash_commands``.
+    skill_names: tuple[str, ...] = ()
+    slash_command_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

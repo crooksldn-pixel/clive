@@ -444,3 +444,20 @@ def test_the_server_refuses_to_run_checks_where_the_sandbox_is_refused(tmp_path,
                         lambda name, path=None: str(refusing) if name == "unshare" else real_which(name, path=path))
     ok, out = CheckService(config(tmp_path), NamespaceSandbox()).run({})
     assert not ok and "none ran" in out["error"] and "Operation not permitted" in out["error"]
+
+
+def test_the_builders_own_runs_get_the_same_browser_settings_as_the_dispatchers(tmp_path):
+    """run_checks builds its sandbox from the dispatcher's config: browser checks (item 4 of the owner's loop
+    upgrade) are on for the builder's advisory runs exactly when they are on for the runs that count."""
+    browsers, modules = tmp_path / "pw", tmp_path / "node_modules"
+    browsers.mkdir()
+    modules.mkdir()
+    cfg = config(tmp_path)
+    cfg["sandbox"] = {"ro_paths": [str(tmp_path)], "memory_bytes": 1024, "browsers": str(browsers),
+                      "node_path": str(modules)}
+    runner = CheckService(cfg).runner
+    assert (runner.browsers, runner.node_path, runner.ro_paths, runner.memory_bytes) == (
+        str(browsers), str(modules), (str(tmp_path),), 1024)
+    cfg["sandbox"] = {"ro_paths": [], "browsers": None, "node_path": None}
+    runner = CheckService(cfg).runner
+    assert runner.browsers is None and runner.node_path is None

@@ -148,6 +148,19 @@ On 30 Sep a request named a trunk commit merged minutes earlier; the engineering
 
 CLIVE reads these (`engineering_status`, `app/tools/engineering_tools.py`). The headline `words` of each line are as before; `history` says what the build went through ("Built 3 times; the review asked for changes twice; now waiting for GitHub.", "... blocked after 2 repair rounds: <the blocker in full, up to 1,000 characters>", "... landed on the trunk as abc1234"), and `next_step` whether the loop will try again by itself: yes, with the repair rounds left, while it builds; no once it is blocked -- "a blocked build needs the Director. Filing the same request again will fail the same way unless the cause is different." A deferred request reads as waiting for its base commit to reach the build server, with nothing to re-file. The tool redacts secrets and customer shapes again in everything it repeats, whichever loop wrote the status. CLIVE's runtime prompt says the loop's builders write a build, CLIVE's tests and a reviewer check it, the loop repairs it by itself when the checks, GitHub's tests or the review fail, up to a limit, and lands it on the trunk when its landing is on; deploying stays the owner's; CLIVE says what happened from `engineering_status` and does not suggest re-filing a blocked build unless the request itself was the cause.
 
+## The private channel (loop update part 4, owner-approved 2026-10-07; in force only at the re-pin)
+
+The repository is public, so the status branch stays a projection of counts and fixed words: it never carries review findings text, check output or a builder's report. Why each stopped build stopped, in full (`Dispatcher.stop_reports`, ENGINEERING_DISPATCHER_V1.md "Loop update part 4"), is served from the build server itself:
+
+- `remote_engineering.py run --private-listen <tailnet address>:<port> --private-allow-node <machine>` (repeatable) serves `GET /v1/stops`, a `clive.remote_engineering_private.v1` document with one entry per stopped request, keyed by the request id the loop took it in under (`app/remote_engineering/private.py`). Off unless both are given.
+- It binds only a Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48) or loopback, never a wildcard or public one. Each connection's address is put to `tailscale whois`, and only a machine the operator named may read it; every other gets 403, whatever it asks. It is GET of one path only, logs nothing about who asked, and drops a silent connection after ten seconds.
+- Every text field is rebuilt through the status projection's redaction seam (`status._clean`: credentials, URL userinfo, token shapes, and the app's customer shapes) and bounded. Output tails keep their lines.
+- The loop starts the server itself and never stops for it. If the address is not up yet or the port is taken, the cycle line says `private_error`, and the loop tries again a minute later. The document is rebuilt every cycle.
+- On the host, `remote_engineering.py stops [--json]` prints what the running loop last recorded.
+- CLIVE reads it for the owner's Builds screen when `CROOKS_ENGINEERING_PRIVATE_URL` names it (`app/engineering_bridge/private.py`): at most once a minute, a failed read said in a fixed sentence, the reviewer's findings on the candidate that stopped shown as What's wrong, Why it matters and What fixes it, and the failing check's output and the builder's own words in the technical details.
+
+`poll` and `run` also take `--default-repair-rounds` (0 to 5, default 2): the repair rounds a request gets when it names none.
+
 ## Safety and process execution
 
 - No arbitrary shell execution from inbox content.

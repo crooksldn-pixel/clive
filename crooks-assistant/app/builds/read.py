@@ -1,6 +1,6 @@
 """What the Builds screen is drawn from, read from GitHub sparingly and kept.
 
-Four sources, each read the cheapest way that keeps it true:
+Five sources, each read the cheapest way that keeps it true:
 
 - the loop's published status: through engineering_tools, at most once a minute, the same read
   engineering_status and the home's build rows share;
@@ -12,7 +12,12 @@ Four sources, each read the cheapest way that keeps it true:
   `running_sha`, read from the checkout's own git files): GitHub's compare, at most once a minute per
   commit until it says yes, which is kept, since the trunk is only ever merged into;
 - CLIVE's own records: the objectives a request was filed for, the capability gaps its build
-  closes (app/objectives/gaps.py), and the owner's answers in the judgment ledger.
+  closes (app/objectives/gaps.py), and the owner's answers in the judgment ledger;
+- why each stopped build stopped, in full, from the build server's private channel over the tailnet
+  (app/engineering_bridge/private.py; the owner's loop upgrade of 7 October 2026), at most once a
+  minute, when CROOKS_ENGINEERING_PRIVATE_URL names it: the reviewer's findings on the candidate that
+  stopped, what the failing checks printed, and the builder's own words. The repository is public, so
+  these never come through GitHub; off, the screen says they are kept on the build server.
 
 A source that cannot be read leaves its part of the board saying so (`problems`), never guessed;
 nothing here writes anywhere, and no customer detail is read.
@@ -29,6 +34,7 @@ from typing import Any
 
 from app.builds import board as board_module
 from app.builds import decisions
+from app.engineering_bridge import private
 from app.engineering_bridge.github import TRUNK_REF, GitHubError, NotConnected
 from app.engineering_bridge.requests import valid_request_id
 from app.tools import engineering_tools
@@ -182,6 +188,47 @@ def links() -> dict[str, dict[str, Any]]:
     return out
 
 
+# ------------------------------------------------------------------ the build server's private record
+
+
+def _stopped_findings(stop: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """The reviewer's findings on the candidate that stopped: the last review round of that commit (any round,
+    when the stop is the repair limit itself). A round on an earlier candidate was already repaired."""
+    rounds = [r for r in stop.get("review_rounds") or [] if isinstance(r, dict)]
+    candidate = stop.get("candidate_sha")
+    on_it = [r for r in rounds if candidate and r.get("candidate_sha") == candidate]
+    chosen = on_it[-1] if on_it else (rounds[-1] if rounds and stop.get("cause") == "review_limit" else None)
+    if chosen is None:
+        return None
+    return [f for f in chosen.get("findings") or [] if isinstance(f, dict)] or None
+
+
+def _private_part(stop: dict[str, Any]) -> dict[str, Any]:
+    checks = [c for c in stop.get("failed_checks") or [] if isinstance(c, dict)]
+    builder = stop.get("builder_report") if isinstance(stop.get("builder_report"), dict) else {}
+    return {"checks": checks[:3], "builder": builder}
+
+
+def with_private(items: list[dict[str, Any]], stops: dict[str, dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """The loop's published items, each stopped one with its private record beside it (copies; the published
+    status is never changed): ``findings`` for the screen's translator (plain.findings_of), ``private`` for the
+    technical details."""
+    if not stops:
+        return items
+    out = []
+    for item in items:
+        stop = stops.get(str(item.get("request_id") or ""))
+        if not isinstance(stop, dict):
+            out.append(item)
+            continue
+        extra: dict[str, Any] = {"private": _private_part(stop)}
+        findings = _stopped_findings(stop)
+        if findings is not None and not isinstance(item.get("findings"), list):
+            extra["findings"] = findings
+        out.append({**item, **extra})
+    return out
+
+
 # ------------------------------------------------------------------ the board
 
 
@@ -218,6 +265,10 @@ async def _current(inbox) -> dict[str, Any]:
     problems = []
     if problem:
         problems.append(f"Showing the status as last read: a fresh read failed ({problem})")
+    stops, private_problem = await private.stops()
+    if private_problem:
+        problems.append(private_problem)
+    items = with_private(items, stops)
     unread = await request_files(inbox, items)
     if unread:
         problems.append(f"{unread} request{'s' if unread != 1 else ''} could not be read from GitHub yet, so "
@@ -233,7 +284,7 @@ async def _current(inbox) -> dict[str, Any]:
                              links=links(), judgments=judgments, as_of=str(data.get("generated_at") or ""))
     if not status.published:
         out["summary"] = "The engineering loop has not published a status yet."
-    out.update(connected=True, problems=problems)
+    out.update(connected=True, problems=problems, private=private.configured())
     return out
 
 

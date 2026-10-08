@@ -1,0 +1,40 @@
+{
+  "schema": "clive.builder_skills.v1",
+  "why": "The skills the engineering loop's builders get, and no others (app/orchestrator/workers/skills.py). The owner's decision of 30 September 2026: his curated skill list is his approval (OWNER_DECISIONS_2026-09-30.md). These are the four design skills he vendored into the repository (.claude/skills/README.md), each pinned by the sha256 of every file. A protected path: a builder can never change it; a Director changes it through a reviewed pull request, and it takes effect at the loop's next re-pin.",
+  "skills": [
+    {
+      "name": "design-taste-frontend",
+      "source": "repo",
+      "path": ".claude/skills/design-taste-frontend",
+      "files": {
+        "SKILL.md": "aa194351b246b8b4799099d4ed7b033d29eab6e6e3d58d8d2172978be7b3ec89"
+      }
+    },
+    {
+      "name": "high-end-visual-design",
+      "source": "repo",
+      "path": ".claude/skills/high-end-visual-design",
+      "files": {
+        "SKILL.md": "e1e32f5e2d420872c6c7332b53d5ff7721946766b78c4822b424c2d512c8fdbc"
+      }
+    },
+    {
+      "name": "image-to-code",
+      "source": "repo",
+      "path": ".claude/skills/image-to-code",
+      "files": {
+        "SKILL.md": "4c060a8064a8b13380bc2ef3d6e6a1d0b1e316aa093cd9807d0ce9e4eeb037fa"
+      }
+    },
+    {
+      "name": "web-design-guidelines",
+      "source": "repo",
+      "path": ".claude/skills/web-design-guidelines",
+      "files": {
+        "SKILL.md": "f4647ca866a3accf763777f83e7682954f0187cd6bea7eea0399796652414e8f",
+        "web-interface-guidelines.command.md": "5a775e6411f790f518dbc9c1fa7c50a89e6873502d9a3530a6eb223a590bcfe8"
+      }
+    }
+  ],
+  "cli_skills_off": ["design", "doctor", "plugin-authoring"]
+}

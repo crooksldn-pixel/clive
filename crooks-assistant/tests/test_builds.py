@@ -647,3 +647,82 @@ def test_the_builds_screen_under_node(tmp_path):
                             env={**os.environ, "BUILDS_BOARD": str(board)})
     assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
     assert "# fail 0" in result.stdout and "# skipped 0" in result.stdout
+
+
+# ------------------------------------------------------------------ the build server's private record (7 Oct)
+
+STOPPED_ON = "2738f2543a9650b469c6dc637a43fb68f5c6acb9"   # the candidate status-publishes-findings stopped on
+
+
+def _private_stop(**over) -> dict:
+    stop = {
+        "request_id": "status-publishes-findings", "cause": "review_limit", "stage": "BLOCKED",
+        "candidate_sha": STOPPED_ON,
+        "review_rounds": [
+            {"candidate_sha": "1" * 40, "findings": [{"finding_id": "F-00", "material": True,
+                                                       "finding": "MARKER-OLD a finding the next round repaired",
+                                                       "evidence_ref": "a.py", "required_repair": "fix a.py"}]},
+            {"candidate_sha": STOPPED_ON, "findings": [O1_01]},
+        ],
+        "failed_checks": [{"what": "check", "name": "tests", "exit_code": 1,
+                           "tail": "collected 3 items\nE   AssertionError: MARKER-TAIL for owner@example.com\n"}],
+        "builder_report": {"status": "completed", "summary": "MARKER-BUILDER made the change", "reason": None},
+    }
+    stop.update(over)
+    return stop
+
+
+def test_a_stopped_build_shows_the_reviewers_own_words_from_the_build_servers_private_record():
+    """The owner's loop upgrade of 7 Oct, item 1: the findings reach the screen through the build server's private
+    channel, never GitHub. The round shown is the one on the candidate that stopped; an earlier, repaired one is
+    not."""
+    items = read.with_private(_items(), {"status-publishes-findings": _private_stop()})
+    build = next(b for b in _all(_board_of(items)) if b["key"] == "status-publishes-findings")
+    assert [f["id"] for f in build["findings"]] == ["O1-01"]
+    assert build["findings"][0] == plain.finding(O1_01)
+    details = build["details"]
+    [printed] = details["check_output"]
+    assert printed.startswith("tests (exit 1)\ncollected 3 items\nE   AssertionError: MARKER-TAIL")
+    assert "owner@example.com" not in printed
+    assert details["builder_said"] == "MARKER-BUILDER made the change"
+    assert not HEX.search(_face(build)) and not BRANCH.search(_face(build))
+    # the published status itself is never changed, and a build with no private record reads as before
+    assert _by_id("status-publishes-findings").get("findings") is None
+    plain_board = _board_of(_items())
+    before = next(b for b in _all(plain_board) if b["key"] == "status-publishes-findings")
+    assert before["findings"] is None and before["details"]["check_output"] == [] and before["details"]["builder_said"] == ""
+
+
+def test_a_stop_for_another_reason_shows_no_findings_from_a_round_already_repaired():
+    stop = _private_stop(cause="github_red", candidate_sha="3" * 40)
+    items = read.with_private(_items(), {"status-publishes-findings": stop})
+    build = next(b for b in _all(_board_of(items)) if b["key"] == "status-publishes-findings")
+    assert build["findings"] is None and build["details"]["check_output"]
+
+
+def _board_of(items: list[dict]) -> dict:
+    return board_module.board(items, requests=_requests(), commits=_commits(), running_known=True, links={},
+                              judgments={}, as_of=builds_fixture.status()["generated_at"])
+
+
+async def test_the_board_reads_the_private_record_and_says_when_it_cannot(loop, monkeypatch):
+    from app.engineering_bridge import private
+
+    answers = [({"status-publishes-findings": _private_stop()}, ""), (None, private.UNREADABLE)]
+
+    async def stops():
+        return answers.pop(0)
+    monkeypatch.setattr(private, "stops", stops)
+    monkeypatch.setattr(private, "configured", lambda: True)
+    payload = await read.current()
+    build = next(b for b in _all(payload) if b["key"] == "status-publishes-findings")
+    assert payload["private"] is True and payload["problems"] == [] and build["findings"][0]["id"] == "O1-01"
+    payload = await read.current()
+    assert payload["problems"] == [private.UNREADABLE]
+    build = next(b for b in _all(payload) if b["key"] == "status-publishes-findings")
+    assert build["findings"] is None
+
+
+async def test_with_the_private_channel_off_the_board_is_as_it_was(loop):
+    payload = await read.current()
+    assert payload["private"] is False and payload["problems"] == []

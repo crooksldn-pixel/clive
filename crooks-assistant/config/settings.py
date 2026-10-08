@@ -198,6 +198,11 @@ class Settings(BaseSettings):
     engineering_host: str = "off"
     # The interpreter the building host runs a request's checks with, when CLIVE fills them in.
     engineering_check_python: str = "/home/user/clive/crooks-assistant/.venv/bin/python"
+    # Where the building host serves why each stopped build stopped, in full (the reviewer's findings, the
+    # failing output, the builder's report): its private channel over the tailnet, e.g. "http://100.x.y.z:8765"
+    # (app/engineering_bridge/private.py; the loop's `run --private-listen`). The repository is public, so this
+    # never travels through GitHub. Unset is "off": the Builds screen says the findings are kept on the server.
+    engineering_private_url: str = "off"
 
     # --- Instagram (read-only; app/clients/instagram.py) ---
     # The Graph API version its calls name on graph.instagram.com. The token is a secret

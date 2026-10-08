@@ -648,6 +648,11 @@ def build(settings: Settings | None = None) -> Runtime:
 
     engineering_tools.bind(engineering_switch.inbox_for(settings.engineering_host))
     engineering_tools.configure(check_python=settings.engineering_check_python)
+    # [loop upgrade, 7 Oct] Why each stopped build stopped, in full, from the build server's private channel over
+    # the tailnet, for the Builds screen; off unless CROOKS_ENGINEERING_PRIVATE_URL names it.
+    from app.engineering_bridge import private as engineering_private
+
+    engineering_private.configure(settings.engineering_private_url)
     # Instagram (read-only): its token is read from the secret store at each call, so a server
     # without one builds the same and says it is not connected. What is known about the token's
     # life (never the token) is kept beside CLIVE's other records, for /health.

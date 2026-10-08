@@ -5,9 +5,14 @@ poll
     Fetch the dedicated inbox once and intake immutable repository-only requests.
 status
     Print a read-only projection of authoritative lifecycle records.
+stops
+    Print why each stopped build stopped, in full, as the running loop last recorded it
+    (private: the reviewer's findings, failing output, the builder's report; never pushed).
 run
     Long-lived control loop: poll inbox, advance the existing Dispatcher once,
-    publish a disposable GitHub status projection, sleep, repeat.
+    publish a disposable GitHub status projection, sleep, repeat. With --private-listen it
+    also serves the stops, over the tailnet, to the machines --private-allow-node names
+    (app/remote_engineering/private.py).
 
 GitHub is transport/projection only. Objective/task/review/integration authority
 remains in the existing engineering store and frozen lifecycle kernel. The one thing
@@ -33,6 +38,8 @@ sys.path.insert(0, str(ROOT))
 
 from app.orchestrator.checks import NamespaceSandbox  # noqa: E402
 from app.orchestrator.dispatcher import (  # noqa: E402
+    STOP_SCHEMA,
+    STOPS_DIR,
     Dispatcher,
     DispatcherBusy,
     DispatcherConfig,
@@ -64,15 +71,19 @@ from app.remote_engineering import (  # noqa: E402
     MAX_HEARTBEAT_S,
     MIN_HEARTBEAT_S,
     InboxError,
+    PeerCheck,
+    PrivateChannel,
     ReceiptLog,
     RemoteController,
     RemoteControllerConfig,
     RemoteEngineeringLoop,
     adapter_root_preconditions,
+    build_private,
     build_status,
     publish_status,
     validate_seconds,
 )
+from app.remote_engineering.controller import DEFAULT_REPAIR_ROUNDS, MAX_REPAIR_ROUNDS  # noqa: E402
 
 DEFAULT_REGISTRY = ROOT / "config" / "review_principals.json"
 PRODUCT_MEMORY_REF = "origin/clive/trunk"
@@ -89,6 +100,9 @@ def _add_transport_args(parser: argparse.ArgumentParser) -> None:
                              "where canonical product memory lives since the 2026-09-25 consolidation)")
     parser.add_argument("--remote", default="origin", help="configured remote name, never a URL")
     parser.add_argument("--branch", default=DEFAULT_INBOX_BRANCH)
+    parser.add_argument("--default-repair-rounds", type=int, default=DEFAULT_REPAIR_ROUNDS,
+                        help=f"repair rounds for a request that names none (0-{MAX_REPAIR_ROUNDS}; default "
+                             f"{DEFAULT_REPAIR_ROUNDS}); a request's own limit is always kept")
 
 
 # The 2026-09-26 re-pin review, F-02: the loop is GitHub-gated, and GitHub only sees what is pushed.
@@ -128,7 +142,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--worker-max-turns", type=int, default=200)
     parser.add_argument("--worker-token-file", default=None)
     parser.add_argument("--check-ro-path", action="append", default=[])
+    parser.add_argument("--sandbox-browsers", default=None,
+                        help="where Playwright's browsers are installed on this host: checks may drive Chromium, "
+                             "read-only, inside the same sandbox")
+    parser.add_argument("--sandbox-node-path", default=None,
+                        help="the node_modules folder holding playwright-core for browser checks, read-only")
     parser.add_argument("--max-concurrent", type=int, default=1)
+    parser.add_argument("--no-builder-skills", action="store_true",
+                        help="launch builders with no skills at all, exactly as before config/builder_skills.json")
+    parser.add_argument("--builder-skills-dir", default=None,
+                        help="where the skill installer put the curated skills on this host (<dir>/<name>/skill)")
 
     sub = parser.add_subparsers(dest="verb", required=True)
 
@@ -140,6 +163,9 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("status", help="print the read-only lifecycle projection")
     s.add_argument("--json", action="store_true")
 
+    st = sub.add_parser("stops", help="why each stopped build stopped, in full (private: never pushed)")
+    st.add_argument("--json", action="store_true")
+
     r = sub.add_parser("run", help="poll, advance existing Dispatcher, publish status, repeat")
     _add_transport_args(r)
     r.add_argument("--status-branch", default=DEFAULT_STATUS_BRANCH)
@@ -150,6 +176,11 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--interval", type=float, default=15.0,
                    help=f"seconds between cycles; {MIN_INTERVAL_S}-{MAX_INTERVAL_S}s")
     r.add_argument("--max-cycles", type=int, default=0, help="0 means run until stopped")
+    r.add_argument("--private-listen", default=None,
+                   help="serve why stopped builds stopped (GET /v1/stops) on this host's TAILNET_ADDRESS:PORT; "
+                        "off by default; never a public or wildcard address")
+    r.add_argument("--private-allow-node", action="append", default=[],
+                   help="a tailnet machine allowed to read it, by `tailscale whois` (repeat; e.g. crooks-os-prod-1)")
     _add_land_arg(r)
     return parser
 
@@ -190,6 +221,7 @@ def _controller(args, kernel: Kernel, objectives: ObjectiveStore, receipts: Rece
         product_memory_ref=args.product_memory_ref,
         remote=args.remote,
         inbox_branch=args.branch,
+        default_repair_rounds=args.default_repair_rounds,
     )
     return RemoteController(kernel=kernel, objectives=objectives, config=config, receipts=receipts)
 
@@ -224,8 +256,11 @@ def _dispatcher(args, kernel: Kernel, objectives: ObjectiveStore) -> Dispatcher:
         publish_remote=args.publish_remote,
         max_concurrent=args.max_concurrent,
         land=not getattr(args, "no_land", False),
+        builder_skills=not args.no_builder_skills,
+        installed_skills_dir=Path(args.builder_skills_dir) if args.builder_skills_dir else None,
     )
-    sandbox = NamespaceSandbox(ro_paths=tuple(args.check_ro_path))
+    sandbox = NamespaceSandbox(ro_paths=tuple(args.check_ro_path), browsers=args.sandbox_browsers,
+                               node_path=args.sandbox_node_path)
     # The GitHub acceptance gate asks with the credential git already holds for the remote the
     # candidates are published to (else the inbox remote): no credential of its own.
     acceptance = GitHubAcceptance(git_remote_token(Path(args.repo), args.publish_remote or args.remote))
@@ -241,6 +276,34 @@ def _recorded_gates(store: LifecycleStore, runtime_root: Path) -> dict[str, dict
         return recorded_acceptance_gates(store, runtime_root)
     except (OSError, ValueError):
         return {}
+
+
+def _recorded_stops(runtime_root: Path) -> list[dict]:
+    """The stop reports the running loop last wrote (``<runtime>/stops``): read-only, nothing is rebuilt here."""
+    out = []
+    for path in sorted((runtime_root / STOPS_DIR).glob("*.json")):
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(report, dict) and report.get("schema") == STOP_SCHEMA:
+            out.append(report)
+    return out
+
+
+def _print_stops(document: dict) -> None:
+    for stop in document["stops"]:
+        print(f"{stop['request_id']}  {stop.get('stage')}  {stop.get('cause')}")
+        print(f"    {stop.get('blocker') or ''}")
+        for rnd in stop.get("review_rounds") or []:
+            for f in rnd.get("findings") or []:
+                print(f"    [{f.get('finding_id')}] {f.get('finding')}")
+                print(f"        required repair: {f.get('required_repair')}")
+        for check in stop.get("failed_checks") or []:
+            print(f"    failed {check.get('what')} {check.get('name')} (exit {check.get('exit_code')})")
+        report = stop.get("builder_report") or {}
+        if report:
+            print(f"    builder ({report.get('status')}): {report.get('summary') or ''} {report.get('reason') or ''}")
 
 
 def _print_status(status: dict) -> None:
@@ -268,9 +331,20 @@ def run(argv: list[str] | None = None) -> int:
                 print(json.dumps(status, indent=2, sort_keys=True, default=str))
             else:
                 _print_status(status)
+        elif args.verb == "stops":
+            document = build_private(_recorded_stops(Path(args.runtime_root)), receipts=receipts, now=datetime.now(UTC))
+            if args.json:
+                print(json.dumps(document, indent=2, sort_keys=True))
+            else:
+                _print_stops(document)
         elif args.verb == "run":
             if args.status_branch == args.branch:
                 raise InboxError("status branch must be separate from the owner inbox branch")
+            # Refused before anything starts: a tailnet or loopback address, and named machines only.
+            if args.private_allow_node and not args.private_listen:
+                raise InboxError("--private-allow-node needs --private-listen")
+            channel = PrivateChannel(args.private_listen, PeerCheck(args.private_allow_node)) \
+                if args.private_listen else None
             # Refused before anything starts: argparse accepts nan and inf for a float, and
             # neither a NaN sleep (which raises) nor an infinite one is a bounded loop.
             interval = validate_seconds(
@@ -296,21 +370,29 @@ def run(argv: list[str] | None = None) -> int:
                     path=args.status_path,
                     heartbeat_s=heartbeat_s,
                 ),
+                private=channel.document if channel is not None else None,
             )
             cycles = 0
-            while True:
-                result = loop.cycle()
-                print(json.dumps({
-                    "outcomes": result["outcomes"],
-                    "dispatcher_events": result["dispatcher_events"],
-                    "projection_commit": result["projection_commit"],
-                    "intake_error": result["intake_error"],
-                    "publish_error": result["publish_error"],
-                }, sort_keys=True, default=str), flush=True)
-                cycles += 1
-                if args.max_cycles and cycles >= args.max_cycles:
-                    break
-                time.sleep(interval)
+            try:
+                while True:
+                    # The private channel never stops the loop: not serving yet is said, and tried again.
+                    private_error = channel.ensure() if channel is not None else None
+                    result = loop.cycle()
+                    print(json.dumps({
+                        "outcomes": result["outcomes"],
+                        "dispatcher_events": result["dispatcher_events"],
+                        "projection_commit": result["projection_commit"],
+                        "intake_error": result["intake_error"],
+                        "publish_error": result["publish_error"],
+                        **({"private_error": private_error} if channel is not None else {}),
+                    }, sort_keys=True, default=str), flush=True)
+                    cycles += 1
+                    if args.max_cycles and cycles >= args.max_cycles:
+                        break
+                    time.sleep(interval)
+            finally:
+                if channel is not None:
+                    channel.close()
         else:  # pragma: no cover
             raise SystemExit(f"unknown verb {args.verb}")
     except DispatcherBusy as exc:

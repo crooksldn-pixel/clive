@@ -24,6 +24,12 @@ gives every check:
 - bounded resources: wall-clock timeout (the whole PID namespace dies with it),
   CPU, address space, file size, open files, and process count where it is per-uid.
 
+Browser checks (Playwright driving Chromium), only when the operator names the installed
+browsers (``browsers``) and the Node modules that drive them (``node_path``): both bound
+read-only, their locations in the check's environment, a private /dev/shm, the host's font
+configuration, and memory bounded by written data instead of address space, which Chromium
+reserves by the terabyte (``browser_env``). The isolation is unchanged.
+
 The runner is established fail-closed. ``availability`` runs a canary inside the
 sandbox that must fail to read a host sentinel, fail to write outside its tree
 and ``/tmp``, fail to connect to a listener on the host's loopback, and run as the
@@ -36,6 +42,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import resource
 import shutil
 import signal
@@ -55,11 +62,14 @@ UNPRIVILEGED_UID = 65534
 # root, then execs the check through chroot and setpriv. Every argument is passed positionally.
 _SETUP = r'''
 set -eu
-tree="$1"; drop="$2"; shift 2
+tree="$1"; drop="$2"; browser="$3"; shift 3
 nro="$1"; shift
 ro=""
 i=0; while [ "$i" -lt "$nro" ]; do ro="$ro
 $1"; shift; i=$((i+1)); done
+nenv="$1"; shift
+envs=""
+i=0; while [ "$i" -lt "$nenv" ]; do envs="$envs $1"; shift; i=$((i+1)); done
 # The new root is a tmpfs over /mnt, visible only in this mount namespace: nothing is left on the host.
 R=/mnt
 mount -t tmpfs -o mode=0755,nosuid,nodev,size=16m tmpfs "$R"
@@ -73,6 +83,12 @@ for f in passwd group hosts nsswitch.conf ld.so.cache localtime; do
 done
 mount -t tmpfs -o mode=1777,nosuid,nodev,size=512m tmpfs "$R/tmp"
 for n in null zero random urandom; do touch "$R/dev/$n"; mount --bind "/dev/$n" "$R/dev/$n"; done
+# Browser checks only: Chromium's shared memory gets a private /dev/shm of its own (a size-bounded tmpfs in this
+# mount namespace, nothing of the host's), and text renders with the host's font configuration (read-only copy).
+if [ "$browser" = "yes" ]; then
+  mkdir -p "$R/dev/shm"; mount -t tmpfs -o mode=1777,nosuid,nodev,size=512m tmpfs "$R/dev/shm"
+  if [ -d /etc/fonts ]; then cp -RL /etc/fonts "$R/etc/fonts"; fi
+fi
 printf '%s\n' "$ro" | while IFS= read -r p; do
   [ -n "$p" ] || continue
   mkdir -p "$R$p"; mount --rbind "$p" "$R$p"; mount -o remount,bind,ro,nosuid,nodev "$R$p"
@@ -95,7 +111,7 @@ if [ "$drop" = "yes" ]; then who="--reuid 65534 --regid 65534 --clear-groups"; e
 # shellcheck disable=SC2086
 exec chroot "$R" /usr/bin/setpriv $who --no-new-privs --inh-caps=-all --bounding-set=-all -- \
   /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp TMPDIR=/tmp LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 \
-  /bin/sh -c 'cd "$0" && exec "$@"' "$@"
+  $envs /bin/sh -c 'cd "$0" && exec "$@"' "$@"
 '''
 
 _CANARY = r'''
@@ -130,6 +146,18 @@ out["expect_uid"] = expect_uid
 open("tree_write_ok", "w").write("ok"); open("/tmp/tmp_write_ok", "w").write("ok")
 print(json.dumps(out))
 '''
+
+
+_PLAIN = re.compile(r"^/[A-Za-z0-9_./-]{1,300}$")
+
+
+def _plain_dir(path: str, what: str) -> str:
+    """A host folder a check may read, by its real path: absolute, plain characters only (it travels as one word of
+    the check's environment), and a folder."""
+    real = os.path.realpath(path)
+    if not _PLAIN.fullmatch(real) or not Path(real).is_dir():
+        raise SandboxUnavailable(f"the {what} folder {path} is not a plain absolute path to a directory")
+    return real
 
 
 def _children(pid: int) -> list[int]:
@@ -189,11 +217,36 @@ class NamespaceSandbox:
     open_files: int = 1024
     processes: int = 512
     kind: str = "linux-namespaces"
+    # Browser checks (Playwright and its Chromium), only when the operator names where they are installed on this
+    # host (``--sandbox-browsers``, ``--sandbox-node-path``): see ``browser_env``.
+    browsers: str | None = None
+    node_path: str | None = None
     _verdict: tuple[bool, str] | None = field(default=None, init=False, repr=False)
 
     @property
     def as_root(self) -> bool:
         return os.geteuid() == 0
+
+    def browser_env(self) -> dict[str, str]:
+        """What a browser check needs inside, when the operator installed one: the browsers folder
+        (``PLAYWRIGHT_BROWSERS_PATH``), the Node modules that drive it (``NODE_PATH``, for playwright-core), and the
+        one Chromium in that folder (``CROOKS_CHROMIUM``, which experience/browser.py reads). Both folders are bound
+        read-only, like every ``ro_paths`` entry. With browsers on, the check also gets a private /dev/shm and the
+        host's font configuration, and its memory is bounded by the data it writes (RLIMIT_DATA) rather than by
+        address space (RLIMIT_AS): Chromium reserves terabytes of address space it never touches, so an
+        address-space bound kills it at start (SIGTRAP), while the data bound is the same number of bytes of what
+        it actually uses. Nothing else changes: same namespaces, no network, uid 65534, no capabilities."""
+        env: dict[str, str] = {}
+        if self.browsers:
+            browsers = _plain_dir(self.browsers, "browsers")
+            env["PLAYWRIGHT_BROWSERS_PATH"] = browsers
+            chromes = sorted(Path(browsers).glob("chromium-*/chrome-linux/chrome"))
+            # One Chromium, by a plain path (it travels as one word of the check's environment), or none is named.
+            if len(chromes) == 1 and _PLAIN.fullmatch(str(chromes[0])):
+                env["CROOKS_CHROMIUM"] = str(chromes[0])
+        if self.node_path:
+            env["NODE_PATH"] = _plain_dir(self.node_path, "node path")
+        return env
 
     def _argv(self, tree: Path, argv: tuple[str, ...]) -> list[str]:
         unshare = shutil.which("unshare", path="/usr/bin:/bin:/usr/sbin:/sbin")
@@ -202,18 +255,24 @@ class NamespaceSandbox:
         ns = ["--mount", "--net", "--pid", "--ipc", "--uts", "--fork", "--kill-child", "--propagation", "private"]
         if not self.as_root:
             ns = ["--user", "--map-root-user", *ns]
+        env = self.browser_env()
         ro = [str(Path(p).resolve()) for p in self.ro_paths]
+        ro += [v for k, v in env.items() if k in ("PLAYWRIGHT_BROWSERS_PATH", "NODE_PATH") and v not in ro]
         for p in ro:
             if not Path(p).is_dir():
                 raise SandboxUnavailable(f"read-only path {p} is not a directory")
+        envs = [f"{k}={v}" for k, v in sorted(env.items())]
         return [unshare, *ns, "/bin/sh", "-c", _SETUP, "clive-check",
-                str(tree), "yes" if self.as_root else "no", str(len(ro)), *ro, *argv]
+                str(tree), "yes" if self.as_root else "no", "yes" if self.browsers else "no",
+                str(len(ro)), *ro, str(len(envs)), *envs, *argv]
 
     def _limits(self, timeout_s: int):
+        memory = resource.RLIMIT_DATA if self.browsers else resource.RLIMIT_AS
+
         def apply() -> None:
             os.setsid()
             resource.setrlimit(resource.RLIMIT_CPU, (timeout_s + 5, timeout_s + 10))
-            resource.setrlimit(resource.RLIMIT_AS, (self.memory_bytes, self.memory_bytes))
+            resource.setrlimit(memory, (self.memory_bytes, self.memory_bytes))
             resource.setrlimit(resource.RLIMIT_FSIZE, (self.file_bytes, self.file_bytes))
             resource.setrlimit(resource.RLIMIT_NOFILE, (self.open_files, self.open_files))
             if self.as_root:  # RLIMIT_NPROC counts per real uid: meaningful once the check is uid 65534
@@ -271,6 +330,9 @@ class NamespaceSandbox:
             python = shutil.which("python3", path="/usr/local/bin:/usr/bin:/bin")
             if python is None:
                 raise SandboxUnavailable("no python3 under /usr to run the sandbox canary")
+            # Followed to the interpreter itself: a Debian-style /usr/bin/python3 -> /etc/alternatives/python3
+            # link points into the host's /etc, which the sandbox's curated /etc does not hold.
+            python = os.path.realpath(python)
             listener = socket.socket()
             listener.bind(("127.0.0.1", 0))
             listener.listen(1)

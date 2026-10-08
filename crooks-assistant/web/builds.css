@@ -157,6 +157,7 @@ html[data-lite] .bd-list{-webkit-backdrop-filter:none;backdrop-filter:none;backg
 .bd-tk{margin:8px 0 2px;font-size:12px;font-weight:600;color:rgba(235,235,245,.5)}
 .bd-tv{margin:0;font-size:14px;line-height:1.45;color:rgba(235,235,245,.78);overflow-wrap:anywhere}
 .bd-tv.is-code{font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.bd-tv.is-lines{white-space:pre-wrap;max-height:16em;overflow:auto}
 
 html[data-lite] .bd-n.is-now,html[data-lite] .bd-n.is-you{animation:none}
 @media (prefers-reduced-motion:reduce){

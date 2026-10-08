@@ -14,6 +14,8 @@
  *   true of an answer that asks for action said before he picks (nothing acts on it by itself yet);
  *   an answered build says what he chose, that it waits to be acted on, and lets him change it;
  * - a reviewer's finding as What's wrong, Why it matters, What fixes it;
+ * - the build server's private record (the loop upgrade of 7 Oct): what the failing check printed, line by line,
+ *   and the builder's own words, in the technical details; without the record, why the wording is missing;
  * - which turns open the screen: CLIVE reading the build queue for him, never while filing a build;
  * - the release service's line (app/release/status.py): its own words, how long ago, and a dot from a
  *   fixed table (blue moving or waiting on him, steel live, red rolled back, a ring when off);
@@ -179,6 +181,31 @@ test('a reviewer\'s finding reads as what\'s wrong, why it matters and what fixe
   assert.deepEqual(node.querySelectorAll('.bd-ftext').map((l) => l.textContent), [
     'Writers hold shared locks.', 'This can lose already-written production timeline data. Found in timeline.py, line 234.', 'Serialize append per file.']);
   assert.match(node.querySelector('.bd-tech').allText(), /timeline\.py:234-244/);
+});
+
+// ---------------------------------------------------------------- the build server's private record
+
+test('the private record: what the failing check printed and the builder\'s words, in the details', () => {
+  const build = {
+    key: 'k', title: 'A stopped build', state: 'stopped', group: 'stopped', words: 'Stopped', when: {},
+    road: { lit: 1, mark: 1, mark_kind: 'stop' }, why: { says: 'The loop stopped it.', who: 'director' },
+    finding_ids: ['F-01'], findings: null, details: {
+      check_output: [`tests (exit 1)\nE   AssertionError: ${HOSTILE}\nline three`], builder_said: `It could not: ${HOSTILE}`,
+    },
+  };
+  const off = B.draw(host(), { groups: [{ key: 'stopped', title: 'Stopped', builds: [build] }] }, { now: NOW });
+  const tech = off.querySelector('.bd-tech');
+  const labels = tech.querySelectorAll('.bd-tk').map((n) => n.textContent);
+  assert.ok(labels.includes('What the failing check printed') && labels.includes('The builder’s own words'), labels);
+  const printed = tech.querySelectorAll('.bd-tv').find((n) => n.classList.contains('is-lines'));
+  assert.equal(printed.textContent, `tests (exit 1)\nE   AssertionError: ${HOSTILE}\nline three`, 'kept as printed');
+  for (const value of attributesOf(off)) assert.ok(!value.includes('<') && !value.includes('alert'), value);
+  assert.match(off.allText(), /isn't linked to the server's private record yet/);
+  const on = B.draw(host(), { private: true, groups: [{ key: 'stopped', title: 'Stopped', builds: [build] }] }, { now: NOW });
+  assert.match(on.allText(), /private record didn't have the wording when CLIVE last read it/);
+  assert.ok(!/isn't linked/.test(on.allText()));
+  const plain = B.draw(host(), { groups: [{ key: 'stopped', title: 'Stopped', builds: [{ ...build, details: {} }] }] }, { now: NOW });
+  assert.ok(!plain.querySelector('.bd-tech').allText().includes('What the failing check printed'));
 });
 
 // ---------------------------------------------------------------- which turns open it

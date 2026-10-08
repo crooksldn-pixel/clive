@@ -39,7 +39,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.builds import decisions, plain
-from app.tools.engineering_tools import _said
+from app.logging.turnlog import redact_text
+from app.orchestrator.workers.check_server import redact as _redact_secrets
+from app.tools.engineering_tools import _URL_USERINFO, _said
 
 STAGES = ("Filed", "Built", "Reviewed", "On the trunk", "Live")
 GROUPS = ("needs_you", "in_progress", "queued", "stopped", "landed", "live")
@@ -349,6 +351,7 @@ def _details(members: list[dict[str, Any]], latest: dict[str, Any], request: dic
                       "words": _try_words(m), "loop_words": plain.why_stopped(m)["loop_words"] if _stopped(m) else "",
                       "filed": _iso(m.get("recorded_at"))})
     rid = _str(latest.get("request_id"))
+    private = _dict(latest.get("private"))
     return {
         "request_id": _said(rid, 80),
         "branch": _said(integration.get("target_branch") or request.get("target_branch") or f"clive/objective/{rid}", 120),
@@ -361,7 +364,32 @@ def _details(members: list[dict[str, Any]], latest: dict[str, Any], request: dic
         "loop_words": plain.why_stopped(latest)["loop_words"] if _str(latest.get("blocker") or latest.get("reason")) else "",
         "asked": _said(request.get("asked"), ASKED_CHARS),
         "tries": tries,
+        # From the build server's private channel only (app/builds/read.py ``with_private``): what the failing
+        # checks printed, and the builder's own words.
+        "check_output": [_check_output(c) for c in private.get("checks") or [] if isinstance(c, dict)],
+        "builder_said": _builder_said(_dict(private.get("builder"))),
     }
+
+
+CHECK_LINES = 40
+CHECK_CHARS = 3000
+
+
+def _check_output(check: dict[str, Any]) -> str:
+    """One failing check as its name and exit, then the end of what it printed, as printed (its lines and their
+    spacing), redacted like the loop's words before it is cut."""
+    code = check.get("exit_code")
+    head = f"{_said(check.get('name'), 80) or 'a check'} (exit {code if isinstance(code, int) else '?'})"
+    tail = str(check.get("tail") or "")[-2 * CHECK_CHARS:]
+    tail = redact_text(_redact_secrets(_URL_USERINFO.sub(r"\1[redacted]@", tail)))
+    lines = [line[:300].rstrip() for line in tail.splitlines()[-CHECK_LINES:]]
+    body = "\n".join(line for line in lines if line.strip())[-CHECK_CHARS:]
+    return f"{head}\n{body}" if body else head
+
+
+def _builder_said(report: dict[str, Any]) -> str:
+    words = [_said(report.get("summary"), 600), _said(report.get("reason"), 600)]
+    return " ".join(w for w in words if w)
 
 
 # ------------------------------------------------------------------ the board
