@@ -232,6 +232,69 @@ async def test_one_thread_from_a_customer_or_our_own_is_refused(engine, session,
     assert proposal is None and "already in Spam" in text
 
 
+# ------------------------------------------------------------------- every sender, every Reply-To
+#
+# The review of 8 October (note 1): the check looked only at the latest inbound message's From, so a
+# Shopify contact-form thread (From mailer@shopify.com, Reply-To the customer) and a thread a customer
+# began and someone else wrote last were both staged. Every sender and every Reply-To is checked now.
+
+CONTACT_FORM = "18f00000000000b1"
+CUSTOMER_FIRST = "18f00000000000b2"
+
+
+def contact_form(box):
+    box.threads[CONTACT_FORM] = [msg("b1", from_="Shopify <mailer@shopify.com>", subject="New customer message on 8 Oct", mid="<b1@x>",
+                                     labels=["INBOX", "UNREAD"], reply_to="Ana Fixture <ana@example.com>")]
+
+
+def customer_first(box):
+    box.threads[CUSTOMER_FIRST] = [
+        msg("b2", from_="Ana Fixture <ana@example.com>", subject="Where is my order?", mid="<b2@x>", labels=["INBOX"]),
+        msg("b3", from_="Promo Bot <deals@example.net>", subject="Re: Where is my order?", mid="<b3@x>", labels=["INBOX"]),
+    ]
+
+
+async def test_a_contact_form_thread_whose_reply_to_is_a_customer_is_never_junked(engine, batches, session, box):
+    contact_form(box)
+    session.issue(CONTACT_FORM)
+    text, proposal = await stage_one(session, "gmail_thread_junk", thread_id=CONTACT_FORM)
+    assert proposal is None and "from a customer of the shop" in text, text
+    ws = sets.create(session, kind="emails", members=[CONTACT_FORM, "18f00000000000a1"], label="email: today",
+                     labels={CONTACT_FORM: "New customer message on 8 Oct", "18f00000000000a1": "WIN A PRIZE"})
+    _, batch, _ = await stage(session, "batch_email_junk", set_id=ws.set_id)
+    assert [c.label for c in batch.eligible] == ["WIN A PRIZE"]
+    assert {c.label: c.excluded for c in batch.excluded}["New customer message on 8 Oct"].startswith("from a customer of the shop")
+    await gesture(batches, batch)
+    assert "INBOX" in box.thread_labels(CONTACT_FORM) and "SPAM" not in box.thread_labels(CONTACT_FORM), "the customer's message stays"
+    assert not [c for c in box.calls if c[0] == "modify" and c[1] == CONTACT_FORM]
+
+
+async def test_a_thread_a_customer_began_is_never_junked_whoever_wrote_last(engine, batches, session, box):
+    customer_first(box)
+    session.issue(CUSTOMER_FIRST)
+    text, proposal = await stage_one(session, "gmail_thread_junk", thread_id=CUSTOMER_FIRST)
+    assert proposal is None and "from a customer of the shop" in text, text
+    ws = sets.create(session, kind="emails", members=[CUSTOMER_FIRST, "18f00000000000a1"], label="email: today",
+                     labels={CUSTOMER_FIRST: "Re: Where is my order?", "18f00000000000a1": "WIN A PRIZE"})
+    _, batch, _ = await stage(session, "batch_email_junk", set_id=ws.set_id)
+    assert [c.label for c in batch.eligible] == ["WIN A PRIZE"]
+    assert "Re: Where is my order?" in {c.label for c in batch.excluded}
+    assert "INBOX" in box.thread_labels(CUSTOMER_FIRST)
+
+
+async def test_a_reply_to_the_shop_could_not_be_asked_about_is_not_junked(engine, session, box, monkeypatch):
+    async def ana_unknown(email: str) -> bool:
+        if email == "ana@example.com":
+            raise RuntimeError("Shopify is down")
+        return False
+
+    monkeypatch.setattr(gmail_tools, "_customer_lookup", ana_unknown)
+    contact_form(box)
+    session.issue(CONTACT_FORM)
+    text, proposal = await stage_one(session, "gmail_thread_junk", thread_id=CONTACT_FORM)
+    assert proposal is None and "could not be checked against the shop's customers" in text, "unknown is RED, in Reply-To too"
+
+
 async def test_the_junk_keeps_the_subject_off_the_ledger(engine, session, box, tmp_path):
     from app.actions.ledger import ActionLedger
     engine.ledger = ActionLedger(tmp_path)

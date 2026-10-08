@@ -14,7 +14,7 @@ engine's commit, and nothing a customer wrote is ever an instruction.
 from __future__ import annotations
 
 import asyncio
-from email.utils import parseaddr
+from email.utils import getaddresses, parseaddr
 
 from app.actions.models import Observed, Prepared
 from app.tools import gmail_drafts
@@ -43,9 +43,10 @@ from app.tools.registry import ToolError, WriteSpec, tool
 # George, 8 October (DEC-071, ruling 27): archive or junk many threads at once, on one card and one
 # hold. Junk is Gmail's own "Report spam": the thread leaves the inbox for Spam, and Gmail learns from
 # it — its sender's next email may land in Spam too, and Gmail empties Spam after 30 days. So it is a
-# hold even for one thread (RED), and it is never done to a customer of the shop: a thread from
-# someone with orders, or from someone the shop could not be asked about, is refused here (and so
-# left out of a batch, with that reason on the card). Undo is Gmail's "Not spam": back in the inbox.
+# hold even for one thread (RED), and it is never done to a customer of the shop: a thread in which
+# anyone who wrote (any inbound From) or any Reply-To has orders, or could not be checked against the
+# shop, is refused here (and so left out of a batch, with that reason on the card). Undo is Gmail's
+# "Not spam": back in the inbox.
 
 
 async def _observe_junk(execution: dict) -> Observed:
@@ -80,6 +81,30 @@ async def junk_refusal(email: str) -> str:
     return ""
 
 
+def everyone_writing(inbound: list[dict], me: str) -> list[str]:
+    """Every address in a thread that a junk would teach Gmail about: each inbound message's From
+    and its Reply-To, not only the latest's. A contact form's mailer (mailer@shopify.com) writes the
+    From and puts the customer in Reply-To, and a customer who wrote first is still in the thread
+    when someone else wrote last (the review of 8 October, note 1)."""
+    out: list[str] = []
+    for m in inbound:
+        for header in ("from", "reply-to"):
+            for _name, address in getaddresses([str(m["headers"].get(header, "") or "")]):
+                address = address.strip().lower()
+                if address and address != me and address not in out:
+                    out.append(address)
+    return out
+
+
+async def junk_refusal_for(addresses: list[str]) -> str:
+    """Why a thread is not junked, or "" when it may be: refused when ANY sender or Reply-To in it is
+    a customer of the shop, or could not be checked against the shop (unknown is RED)."""
+    if not addresses:
+        return await junk_refusal("")
+    said = await asyncio.gather(*(junk_refusal(address) for address in addresses))
+    return next((why for why in said if why), "")
+
+
 @tool(
     name="gmail_thread_junk",
     description="Junk an email thread (Gmail's Report spam): it leaves the inbox for Spam. Never a customer's. Undo puts it back.",
@@ -102,14 +127,15 @@ async def gmail_thread_junk(thread_id: str) -> Prepared:
     if "INBOX" not in labels:
         raise ToolError("That thread is not in the inbox.")
     messages = await asyncio.to_thread(client.thread_messages, str(thread_id))
-    me = (await asyncio.to_thread(client.address)) or ""
+    me = str((await asyncio.to_thread(client.address)) or "").strip().lower()
     inbound = [m for m in messages if "SENT" not in m["labels"] and "DRAFT" not in m["labels"]]
     head = (inbound[-1] if inbound else messages[-1] if messages else {"headers": {}})["headers"]
     name, email = parseaddr(head.get("from", ""))
     email = email.strip().lower()
-    if email and email == str(me).strip().lower():
+    if email and email == me:
         raise ToolError("That thread is our own mail, so it is not junked.")
-    why = await junk_refusal(email)
+    # Never a customer's: every sender and every Reply-To in the thread is checked, not the latest From.
+    why = await junk_refusal_for(everyone_writing(inbound, me))
     if why:
         raise ToolError(why)
     subject = head.get("subject", "")
