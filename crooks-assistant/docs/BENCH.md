@@ -179,13 +179,20 @@ the turn log redacts them.
 
 Settings → **Test bench** (`/bench`, owner only: the door refuses everyone else, the team included). The
 screen reads the data directory of the CLIVE that serves it. A run made on worker-01 shows on CLIVE in
-production once its folder is copied there, after this screen is deployed:
+production once its folder is copied there, after this screen is deployed. On crooks-os-prod-1, as root
+(the user CLIVE runs as today):
 
 ```
-rsync -a <worker-01>:<data dir>/bench/runs/<run id> <crooks-os-prod-1>:/var/lib/crooks-assistant/bench/runs/
+install -d -m 700 /var/lib/crooks-assistant/bench /var/lib/crooks-assistant/bench/runs
+rsync -a worker-01:<data dir>/bench/runs/<run id> /var/lib/crooks-assistant/bench/runs/
 ```
 
-(the fake shop's data only: nothing private travels). Open the run: **Rate these** lists ten unrated
+`<data dir>/bench/runs/<run id>` is the folder the run printed on its last line (`files: …`). rsync copies
+between this host and one other, never two remote ones, so it runs on prod and pulls from worker-01 over
+ssh; `install` names `bench/` as well as `runs/`, because it gives its mode only to the folders it is
+named, and both are 0700. Once CLIVE runs as its own user (`docs/DEPLOY_LINUX.md`'s hardening item), add
+`-o <that user> -g <its group>` to `install` and `--chown=<that user>:<its group>` to `rsync`. The fake
+shop's data only: nothing private travels. Open the run: **Rate these** lists ten unrated
 results, taken in turn from each person, the judge's lowest first. Open one: what they wanted, the
 conversation, the tools and their arguments, what was staged and waiting for the hold, the cards CLIVE drew
 (drawn by CLIVE's own card renderer, `web/ui.js`; nothing on them works there), the judge's six scores with

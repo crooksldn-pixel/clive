@@ -107,3 +107,28 @@ def test_a_folder_this_user_may_not_write_is_one_plain_line(tmp_path, monkeypatc
     assert _one_line(None, capsys.readouterr().err) == (
         f"bench: not allowed to use {data / 'bench' / 'questions'} as this user: run it as the user that owns it, "
         "or give --data-dir a folder this user can write")
+
+
+def test_the_runbook_commands_are_ones_that_work():
+    """docs/BENCH.md, run as written. Review note N2 (8 Oct): its rsync named two remote hosts, which rsync
+    refuses, and copied into a folder nothing had made. Every rsync now names at most one remote, after an
+    install that makes every bench folder it copies into, 0700; every `app.bench` line parses as the CLI's."""
+    from app.bench.cli import parser
+
+    blocks = (ROOT / "docs" / "BENCH.md").read_text(encoding="utf-8").split("```")[1::2]
+    lines = [line.split("#", 1)[0].strip() for block in blocks for line in block.splitlines()]
+    made: set[str] = set()
+    rsyncs = commands = 0
+    for words in (line.split() for line in lines if line):
+        if words[:3] == ["install", "-d", "-m"] and words[3] == "700":
+            made.update(w.rstrip("/") for w in words[4:])
+        elif words[0] == "rsync":
+            rsyncs += 1
+            remote = [w for w in words[1:] if not w.startswith("-") and ":" in w.split("/", 1)[0]]
+            assert len(remote) <= 1, f"rsync copies between this host and one other: {words}"
+            target = words[-1].rstrip("/")
+            assert {target, target.rsplit("/", 1)[0]} <= made, f"nothing made {target} (and its bench folder) 0700 first"
+        elif words[1:3] == ["-m", "app.bench"]:
+            parser().parse_args(words[3:])
+            commands += 1
+    assert rsyncs == 1 and commands >= 6
