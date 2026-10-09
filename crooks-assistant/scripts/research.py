@@ -189,13 +189,15 @@ async def _apply(research, gen: str, *, accept_unmatched: bool = False) -> int:
            f"with {done['history_carried']} line(s) of their history.")
     for lost in done.get("unmatched") or []:
         _print(f"  Accepted: {lost['said']}")
+    for gone in done.get("missing") or []:
+        _print(f"  Not in it: {gone['name']}: {gone['why']}")
     return 0
 
 
 def _export(research, path: str, gen: str) -> int:
     from app.research.synthesis.apply import export
     from app.research.synthesis.ask import SynthesisError
-    from app.research.synthesis.store import synthesis_store
+    from app.research.synthesis.store import ReadProblem, synthesis_store
 
     synth = synthesis_store(research)
     gen = gen or (synth.generations() or [""])[-1]
@@ -205,6 +207,14 @@ def _export(research, path: str, gen: str) -> int:
         print(f"research: nothing exported: {exc}", file=sys.stderr)
         return 1
     _print(f"{gen} exported to {written}")
+    try:
+        missing = list(((synth.run(gen) or {}).get("failed") or {}).values())
+    except ReadProblem as exc:
+        _print(f"Which documents are missing from it couldn't be read: {exc}")
+        return 0
+    _print(f"Not in it: {len(missing)} document(s) Claude couldn't read." if missing else "Every document read is in it.")
+    for gone in missing:
+        _print(f"  - {gone['name']}: {gone['why']}")
     return 0
 
 

@@ -879,6 +879,76 @@ async def test_every_model_call_is_asked_once_more_after_a_failure_or_a_timeout(
     assert ask_module.RETRY_PAUSE_S == 30.0
 
 
+async def test_a_document_claude_cant_read_twice_is_left_out_said_and_tried_again(place, the_map, capsys):
+    """[review 15] A document whose extraction fails twice is left out of the run with why, the others go
+    on; the report and the export say which; --resume tries it again."""
+    import importlib.util
+    import shutil
+    import tempfile
+
+    class GarblesGamma(fx.Scripted):
+        garbling = True
+
+        async def ask(self, system, prompt):
+            if self.garbling and self.step(system) == "extract" and "test-note-gamma.md" in prompt:
+                self.prompts.append((system, prompt))
+                return "Sorry, here is some prose instead of the JSON."
+            return await super().ask(system, prompt)
+
+    store, _ledger = place
+    model = GarblesGamma()
+    await fx.read_old_way(store, model, *FIRST_THREE)
+    gen = await synthesise(store, model=model, the_map=the_map)
+    synth = synthesis_store(store)
+    run = synth.run(gen)
+    assert run["stage"] == "done" and [f["name"] for f in run["failed"].values()] == ["test-note-gamma.md"]
+    assert "even after trying again" in next(iter(run["failed"].values()))["why"]
+    assert len([p for p in model.asked("extract") if "test-note-gamma.md" in p]) == 2, "tried twice"
+    assert "Answers stay on the Max plan" not in _active(store, gen) and "Supplier messages in one thread" in _active(store, gen)
+    from app.research.synthesis.run import report_lines
+    lines = report_lines(run["report"])
+    assert lines[0] == "Not in it: 1 document(s) Claude couldn't read; --resume tries them again."
+    assert lines[1].startswith("   - test-note-gamma.md: what it recommends couldn't be read")
+    spec = importlib.util.spec_from_file_location("research_script", Path(__file__).resolve().parent.parent / "scripts" / "research.py")
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    outside = Path(tempfile.mkdtemp(prefix="clive-export-test-"))
+    try:
+        assert script._export(store, str(outside / "x.tgz"), gen) == 0
+    finally:
+        shutil.rmtree(outside, ignore_errors=True)
+    out = capsys.readouterr().out
+    assert "Not in it: 1 document(s) Claude couldn't read." in out and "  - test-note-gamma.md: " in out
+    model.garbling = False
+    again = await synthesise(store, model=model, the_map=the_map, resume=True)
+    assert len([p for p in model.asked("extract") if "test-note-gamma.md" in p]) == 3, "tried again on --resume"
+    assert again == gen and synth.run(gen)["failed"] == {} and synth.run(gen)["stage"] == "done"
+    assert "Answers stay on the Max plan" in _active(store, gen)
+    assert report_lines(synth.run(gen)["report"])[0] == "Every document read is in it."
+
+
+async def test_applying_a_run_with_a_document_it_couldnt_read_tries_it_once_more_and_says_so(place, the_map):
+    """[review 15] Applying tries the document the run couldn't read once more; still unreadable, the
+    generation goes live without it, and says so."""
+    from app.research.model import ModelError
+
+    class FailsOnGamma(fx.Scripted):
+        async def ask(self, system, prompt):
+            if self.step(system) == "extract" and "test-note-gamma.md" in prompt:
+                self.prompts.append((system, prompt))
+                raise ModelError("The scripted model can't read gamma.")
+            return await super().ask(system, prompt)
+
+    store, _ledger = place
+    model = FailsOnGamma()
+    await fx.read_old_way(store, model, *FIRST_THREE)
+    gen = await synthesise(store, model=model, the_map=the_map)
+    (failed,) = synthesis_store(store).run(gen)["failed"].values()
+    done = await apply(store, gen, model=model, the_map=the_map)
+    assert [m["name"] for m in done["missing"]] == [failed["name"]] == ["test-note-gamma.md"]
+    assert synthesis_store(store).live() == gen and len([p for p in model.asked("extract") if "test-note-gamma.md" in p]) == 4
+
+
 async def test_a_resumed_run_says_every_document_that_joined_an_idea_once(place, the_map, monkeypatch):
     """[review 10] A run stopped between two match batches of one document, then resumed: the ideas the
     first batch added to still say the document joined them, once."""

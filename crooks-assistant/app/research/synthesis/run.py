@@ -354,10 +354,12 @@ def run_lock(synth: SynthesisStore):
 
 
 def unfinished(synth: SynthesisStore) -> str:
-    """The newest generation whose run hasn't finished, or ""."""
+    """The newest generation whose run hasn't finished, or finished without a document it couldn't read
+    and isn't live yet, or ""."""
+    live = synth.live()
     for gen in reversed(synth.generations()):
         run = synth.run(gen) or {}
-        if run.get("mode") == "full" and run.get("stage") != "done":
+        if run.get("mode") == "full" and (run.get("stage") != "done" or (run.get("failed") and gen != live)):
             return gen
     return ""
 
@@ -384,6 +386,11 @@ async def synthesise(research_store, *, model, the_map, resume: bool = False, ti
             work.carried = carried_answers(synth)
         except SynthesisError as exc:      # merging may then join ideas he answered differently; apply refuses those
             _error(work, run, str(exc))
+        run.setdefault("failed", {})
+        if resume and run["failed"] and run["stage"] != STAGES[0]:
+            # [review 15] --resume tries the documents that failed again, then carries every later step on.
+            say(f"Trying again: {', '.join(f['name'] for f in run['failed'].values())}")
+            run["stage"], run["done"], run["of"], run["finished_at"] = STAGES[0], 0, 0, ""
         work.changed = bool(run.get("changed"))
         work.base = (int(run.get("calls") or 0), dict(run.get("calls_by_stage") or {}), int(run.get("retries") or 0))
         say(f"Synthesis {gen}: {'carrying on from ' + STAGE_WORDS[run['stage']] if resume else 'started'}.")
@@ -396,6 +403,21 @@ async def synthesise(research_store, *, model, the_map, resume: bool = False, ti
             _count(work, run)
             synth.save_run(gen, run)
         return gen
+
+
+async def extract_twice(work: Work, record: dict[str, Any], text: str) -> None:
+    """What the document says, read (and cached) before it is matched: an answer that isn't the JSON asked
+    for is asked for once more, whole (a failed or timed-out call is already asked again by Calls)."""
+    try:
+        await read_claims(work.synth, record, text, work.calls)
+    except SynthesisError:
+        await read_claims(work.synth, record, text, work.calls)
+
+
+def _failed(work: Work, run: dict[str, Any], record: dict[str, Any], why: str) -> None:
+    run["documents"][record["id"]] = "failed"
+    run.setdefault("failed", {})[record["id"]] = {"name": record.get("name") or "", "why": why[:400]}
+    _error(work, run, f"{record.get('name')}: {why}.")
 
 
 def _error(work: Work, run: dict[str, Any], said: str) -> None:
@@ -422,18 +444,27 @@ async def _stages(research_store, work: Work, run: dict[str, Any], say) -> None:
         records = documents_done(research_store)
         run["of"] = len(records)
         for record in records:
-            if run["documents"].get(record["id"]) in ("in", "failed"):
+            if run["documents"].get(record["id"]) == "in":
                 continue
             try:
                 text = document_text(research_store, record)
             except (OSError, ValueError) as exc:
-                run["documents"][record["id"]] = "failed"
-                _error(work, run, f"{record.get('name')}: its sections couldn't be read from the digester's store ({exc}).")
+                _failed(work, run, record, f"its sections couldn't be read from the digester's store ({exc})")
                 save()
                 continue
             say(f"Reading {record.get('name')} ({len([v for v in run['documents'].values() if v == 'in']) + 1} of {len(records)})")
+            try:
+                await extract_twice(work, record, text)
+            except (SynthesisError, ModelError) as exc:
+                # [review 15] One document Claude can't read twice doesn't stop the others: it is said, and
+                # --resume tries it again.
+                _failed(work, run, record, f"what it recommends couldn't be read, even after trying again ({exc})")
+                say(f"  {record.get('name')}: left out for now; --resume tries it again")
+                save()
+                continue
             await absorb(work, record, text)
             run["documents"][record["id"]] = "in"
+            run["failed"].pop(record["id"], None)
             run["done"] = sum(1 for v in run["documents"].values() if v == "in")
             save()
         run["stage"], run["done"], run["of"] = "consolidate", 0, 0
@@ -504,12 +535,17 @@ def report(work: Work, run: dict[str, Any]) -> dict[str, Any]:
         "8 DEC-018": resorted["dec_018"],
         "placed": counts["claims"], "unplaced": counts["unplaced"], "judgments": counts["judgments"],
         "relationships": counts["relationships"], "documents": counts["documents"],
+        "missing documents": list((run.get("failed") or {}).values()),
     }
 
 
 def report_lines(rep: dict[str, Any]) -> list[str]:
     """The eight-item report as the script prints it."""
-    out = [f"1. Raw recommendations: {rep['1 raw recommendations']} ({rep['placed']} placed, {rep['unplaced']} couldn't be placed)",
+    missing = rep.get("missing documents") or []
+    out = [f"Not in it: {len(missing)} document(s) Claude couldn't read; --resume tries them again." if missing else
+           "Every document read is in it."]
+    out += [f"   - {m['name']}: {m['why']}" for m in missing]
+    out += [f"1. Raw recommendations: {rep['1 raw recommendations']} ({rep['placed']} placed, {rep['unplaced']} couldn't be placed)",
            f"2. Distinct ideas: {rep['2 distinct ideas']}",
            f"3. Converged (two or more documents): {rep['3 converged']}",
            f"4. Disagreements: {rep['4 disagreements']}",

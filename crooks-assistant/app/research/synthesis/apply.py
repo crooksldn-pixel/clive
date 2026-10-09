@@ -26,6 +26,7 @@ import tarfile
 from pathlib import Path
 from typing import Any
 
+from app.research.model import ModelError
 from app.research.review import normalise
 from app.research.synthesis.ask import SynthesisError
 from app.research.synthesis.ideas import finish
@@ -130,20 +131,36 @@ async def apply(research_store, gen: str, *, model, the_map, say=lambda _t: None
     with _store_lock(research_store), run_module.run_lock(synth):
         calls = run_module.Calls(model)
         work = run_module.Work(synth, gen, calls, the_map, say=say)
-        taken_in = []
+        taken_in, missing = [], []
+        failed = run.get("failed") or {}
         for record in run_module.documents_done(research_store):
             if work.has_document(record):
                 continue
             say(f"Taking in {record.get('name')}, read since the run")
-            touched = await run_module.absorb(work, record, run_module.document_text(research_store, record))
+            text = run_module.document_text(research_store, record)
+            if record["id"] in failed:
+                # [review 15] One the run couldn't read gets one more try; still unreadable, it stays out, said.
+                try:
+                    await run_module.extract_twice(work, record, text)
+                except (SynthesisError, ModelError) as exc:
+                    missing.append({"name": record.get("name") or "", "why": f"what it recommends couldn't be read ({exc})"})
+                    say(f"  {record.get('name')}: still couldn't be read; it isn't in it")
+                    continue
+            touched = await run_module.absorb(work, record, text)
             await run_module.judge(work, touched)
             taken_in.append(record.get("name"))
+        if missing:
+            run["missing_at_apply"] = missing
+            synth.save_run(gen, run)
         if taken_in:
             # Their old proposals, if they were read the old way, join their ideas' history too.
             run_module.link_old_proposals(research_store, work, run)
             await run_module.summarise(work)
             run["calls"] = int(run.get("calls") or 0) + calls.made
             run["taken_in_at_apply"] = [*run.get("taken_in_at_apply", []), *taken_in]
+            for record in run_module.documents_done(research_store):
+                if record.get("name") in taken_in:
+                    (run.get("failed") or {}).pop(record["id"], None)
             synth.save_run(gen, run)
         mapping = reuse(synth.ideas(previous), synth.ideas(gen)) if previous else {}
         lost = unmatched(synth.ideas(previous), synth.ideas(gen), mapping, his_answers()) if previous else []
@@ -161,7 +178,7 @@ async def apply(research_store, gen: str, *, model, the_map, say=lambda _t: None
         synth.event(gen, "applied", said=f"Made live{', replacing ' + previous if previous else ''}.", replaced=previous,
                     unmatched=[p["idea"] for p in lost])
     return {"generation": gen, "previous": previous, "taken_in": taken_in, "kept_ids": len(mapping),
-            "renumbered": changed, "calls": calls.made, "unmatched": lost, "history_carried": carried}
+            "renumbered": changed, "calls": calls.made, "unmatched": lost, "history_carried": carried, "missing": missing}
 
 
 # ------------------------------------------------------------------ his answers across generations (review 9)
