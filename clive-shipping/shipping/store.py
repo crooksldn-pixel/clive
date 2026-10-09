@@ -472,6 +472,19 @@ class Store:
         ).fetchone()
         return json.loads(row[0]) if row else None
 
+    def move_label_purchase(
+        self, shop: str, ref: str, from_state: str, doc: dict[str, Any]
+    ) -> bool:
+        """Save `doc` only if the stored row is still in `from_state` (one atomic statement):
+        two threads can never both move a purchase out of "prepared"."""
+        with self.lock:
+            cur = self._db.execute(
+                "UPDATE label_purchases SET doc=? WHERE shop=? AND ref=? "
+                "AND json_extract(doc, '$.state') = ?",
+                (json.dumps(doc), shop, ref, from_state),
+            )
+            return cur.rowcount == 1
+
     def save_label_purchase(self, shop: str, ref: str, doc: dict[str, Any]) -> None:
         with self.lock:
             self._db.execute(

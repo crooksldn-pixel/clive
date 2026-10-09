@@ -83,12 +83,14 @@ REASONS = {
 }
 
 
-def reason(errors: Any) -> tuple[str, str]:
+def reason(errors: Any, prefer: frozenset[str] = frozenset()) -> tuple[str, str]:
     """(code, words) for Shopify's errors, without a closing full stop (callers add theirs).
-    Anything that isn't a list of objects is said as it is."""
+    The code is the first of `prefer` present, else the first given. Anything that isn't a list
+    of objects is said as it is."""
     items = errors if isinstance(errors, list) else [errors] if errors else []
     found = [e if isinstance(e, dict) else {"message": str(e)} for e in items]
-    code = next((str(e["code"]) for e in found if e.get("code")), "")
+    codes = [str(e["code"]) for e in found if e.get("code")]
+    code = next((c for c in codes if c in prefer), codes[0] if codes else "")
     words = [REASONS.get(str(e.get("code") or ""), str(e.get("message") or "")) for e in found]
     said = " ".join(dict.fromkeys(w.strip() for w in words if w.strip()))
     said = said or "Shopify gave no reason"
@@ -186,6 +188,13 @@ class ShopifyShipping:
             raise ProviderRefused("The service has no Shopify Shipping code set.", code="service")
         if p is None or p.total_weight_g <= 0:
             raise ProviderRefused("The parcel needs a package and a weight.", code="package")
+        # What the order already carries, so a label found after a lost reply is only ever a new
+        # one (a part-fulfilled order has earlier tracking numbers). A read, before anything is
+        # sent: if Shopify doesn't answer, nothing is bought and the person can try again.
+        try:
+            before = self.shopify.fulfillment_order(shipment.fulfillment_order_id)
+        except ShopifyError as exc:
+            raise ProviderUnavailable(f"Shopify didn't answer before buying: {exc}") from exc
         cfg = self.config(shipment.shop)
         purchase = {
             "fulfillmentOrderId": shipment.fulfillment_order_id,
@@ -220,6 +229,7 @@ class ShopifyShipping:
                 "fulfillment_order_id": shipment.fulfillment_order_id,
                 "service": quote.service_code,
                 "purchase": purchase,
+                "tracking_before": list(before.tracking_numbers) if before is not None else [],
                 "state": "prepared",
                 "prepared_at": self.clock().isoformat(),
                 "sent_at": None,
@@ -247,22 +257,12 @@ class ShopifyShipping:
             raise ProviderUncertain(
                 "This label purchase was already sent once; CLIVE reads it back, never resends."
             )
-        # What the order already carries, so a label found after a lost reply is only ever a
-        # new one (a part-fulfilled order has earlier tracking numbers). A read: if it fails,
-        # nothing is sent.
-        try:
-            before = self.shopify.fulfillment_order(row["fulfillment_order_id"])
-        except ShopifyError as exc:
-            self._save(ref, row, state="not_sent", error=f"pre-read failed: {exc}")
-            raise ProviderUnavailable(f"Shopify didn't answer before buying: {exc}") from exc
-        tracking_before = list(before.tracking_numbers) if before is not None else []
-        self._save(
-            ref,
-            row,
-            state="sending",
-            sent_at=self.clock().isoformat(),
-            tracking_before=tracking_before,
-        )
+        # Claimed atomically, prepared -> sending, before the request: if a sweep has settled
+        # this purchase as never sent meanwhile, the claim fails and nothing is sent.
+        claimed = {**row, "state": "sending", "sent_at": self.clock().isoformat()}
+        if not self.store.move_label_purchase(self.shop, ref, "prepared", claimed):
+            raise ProviderUncertain("This label purchase was settled meanwhile; nothing was sent.")
+        row = claimed
         try:
             payload = self.api.purchase_label(row["purchase"])
         except ShopifyNotSent as exc:
@@ -279,7 +279,7 @@ class ShopifyShipping:
         rid = result.get("id")
         errors = payload.get("userErrors") or []
         if errors and not rid:  # a result id means it started: the result decides, not these
-            code, said = reason(errors)
+            code, said = reason(errors, self.check_codes)
             self._save(ref, row, state="refused", error=said, code=code)
             raise ProviderRefused(said, code=code)
         if not rid:
@@ -293,7 +293,7 @@ class ShopifyShipping:
                 self._save(ref, row, state="purchased")
                 return
             if status == FAILED:
-                code, said = reason(result.get("errors") or [])
+                code, said = reason(result.get("errors") or [], self.check_codes)
                 self._save(ref, row, state="failed", error=said)
                 raise ProviderRefused(said, code=code or "purchase_failed")
             if self.monotonic() >= deadline:
@@ -321,12 +321,27 @@ class ShopifyShipping:
             if status == PURCHASED:
                 return OrderReadback(paid=True)
             if status == FAILED:
-                self._save(ref, row, state="failed")
-                return OrderReadback(paid=False, failed=True)
+                code, said = reason((result or {}).get("errors") or [], self.check_codes)
+                self._save(ref, row, state="failed", error=said)
+                check = (
+                    f"Shopify Shipping didn't buy this label: {said}. Check the order in "
+                    f"{self.check_where} for a label before buying again."
+                    if code in self.check_codes
+                    else ""
+                )
+                return OrderReadback(paid=False, failed=True, check=check)
             return OrderReadback(paid=False, pending=True)  # pending, or not visible yet
         if not row.get("sent_at"):
-            # "sending" is saved before the request: without it, nothing was ever sent.
-            return OrderReadback(paid=False, failed=True)
+            # "sending" is claimed before the request. Settle it as never sent only by moving
+            # the row out of "prepared" atomically, so the request can't go out afterwards.
+            if self.store.move_label_purchase(
+                self.shop, ref, "prepared", {**row, "state": "unsent"}
+            ):
+                return OrderReadback(paid=False, failed=True)
+            row = self._row(ref)  # claimed for sending a moment ago: read it as sent
+            rid = row.get("result_id")
+            if rid:
+                return OrderReadback(paid=False, pending=True)
         # The reply was lost: Shopify's result can't be found. A label shows on the order as a
         # fulfilment with a tracking number on this fulfillment order that wasn't there before.
         try:

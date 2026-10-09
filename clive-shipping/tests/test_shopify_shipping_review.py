@@ -16,6 +16,7 @@ from shipping.models import ShipmentStatus as S
 from shipping.money import Money
 from shipping.operations import Operations
 from shipping.physical_printing import PhysicalPrinting
+from shipping.providers.base import ProviderUncertain
 from shipping.providers.shopify_shipping import ShopifyShipping
 from shipping.purchase import ActionError
 from shipping.settings import Settings
@@ -54,6 +55,7 @@ INTERNAL = {
 @pytest.mark.parametrize(
     "body",
     [
+        INTERNAL,  # Shopify's usual internal-error shape: no data key at all
         {**INTERNAL, "data": None},
         {**INTERNAL, "data": {"shippingLabelPurchase": None}},
         {"errors": [{"message": "Timeout"}], "data": {"shippingLabelPurchase": None}},
@@ -165,12 +167,39 @@ def test_an_answer_without_a_result_id_is_unknown(w, clock):
     assert label_of(after).tracking_number == "RM9001GB" and len(w.ss.purchases) == 1
 
 
-def test_a_crash_before_sending_settles_as_never_sent(w):
+def test_a_crash_before_sending_settles_as_never_sent_and_then_never_sends(w):
     s = w.ready()
     order = w.uk.create_order(s, s.quote, "op_crash")  # type: ignore[arg-type]
-    assert w.uk.read_order(order.ref).failed  # "sending" never saved: nothing went out
+    assert w.uk.read_order(order.ref).failed  # never claimed for sending: nothing went out
+    with pytest.raises(ProviderUncertain):  # settled as unsent: the request can't go out now
+        w.uk.pay(order.ref)
+    assert w.ss.purchases == []
+
+
+def test_a_purchase_claimed_for_sending_is_never_settled_as_unsent(w):
+    s = w.ready()
+    order = w.uk.create_order(s, s.quote, "op_race")  # type: ignore[arg-type]
     w.uk.pay(order.ref)
-    assert w.uk.read_order(order.ref).paid and len(w.ss.purchases) == 1
+    seen = w.uk.read_order(order.ref)
+    assert seen.paid and not seen.failed and len(w.ss.purchases) == 1
+
+
+def test_the_timer_and_a_slow_buy_never_both_decide(w, clock):
+    """The sweep settles a buy interrupted before sending; the buy's thread then wakes up.
+    Exactly one of them decides, and nothing is sent after "never sent" was believed."""
+    s = w.ready()
+    real_pay = w.uk.pay
+
+    def slow_pay(ref):
+        clock.advance(minutes=6)  # the thread stalls past interrupted_after
+        w.svc.purchases.reconcile_all()  # the sweep: unknown, read back, never sent
+        return real_pay(ref)
+
+    w.uk.pay = slow_pay  # type: ignore[method-assign]
+    w.buy(s)
+    after = w.get(s.id)
+    assert w.ss.purchases == [] and w.ss.labels_bought == 0
+    assert after.status == S.ready and after.label is None
 
 
 # --------------------------------------------------------------------------- Shopify refusals
@@ -328,3 +357,70 @@ def test_an_order_shopify_no_longer_shows_is_never_taken_as_not_bought(w, clock)
     assert w.get(s.id).status == S.reconciliation_required  # still unknown, still checked
     # Only the one look made before the order vanished counts as "nothing found".
     assert w.op(s.id).state == OpState.pay_unknown and len(w.op(s.id).unpaid_reads) == 1
+
+
+def test_any_hold_code_among_several_holds_the_order(w):
+    s = w.ready()
+    w.ss.user_errors = [
+        {"code": "RATES_NOT_FOUND", "message": "x"},
+        {"code": "JOB_NOT_ENQUEUED", "message": "Another label"},
+    ]
+    w.buy(s)
+    assert w.get(s.id).status == S.needs_attention and w.get(s.id).label_check
+
+
+def test_another_purchase_running_found_on_read_back_also_holds_the_order(w, clock):
+    s = w.ready()
+    w.ss.pending_polls, w.ss.outcome = 50, "PURCHASE_FAILED"
+    w.ss.fail_errors = [{"code": "JOB_NOT_ENQUEUED", "message": "Another label"}]
+    w.buy(s)
+    w.ss._results[next(iter(w.ss._results))]["polls_left"] = 0
+    clock.advance(seconds=30)
+    w.svc.purchases.reconcile_all()
+    after = w.get(s.id)
+    assert after.status == S.needs_attention and after.label_check
+    assert "weren't charged" not in (after.last_error or "")
+
+
+def test_a_held_order_stays_listed_when_uk_labels_are_switched_off(w, clock):
+    s = w.ready()
+    w.ss.lose_reply, w.ss.outcome = True, "PURCHASE_FAILED"
+    w.buy(s)
+    for _ in range(3):
+        clock.advance(minutes=6)
+        w.svc.purchases.reconcile_all()
+    w.svc.domestic = domestic.DomesticPolicy(enabled=False)
+    assert w.get(s.id).label_check and w.svc.visible(w.get(s.id))
+
+
+def test_a_held_order_closed_in_shopify_says_a_label_may_exist(w, clock):
+    s = w.ready()
+    w.ss.lose_reply, w.ss.outcome = True, "PURCHASE_FAILED"
+    w.buy(s)
+    for _ in range(3):
+        clock.advance(minutes=6)
+        w.svc.purchases.reconcile_all()
+    w.shopify.fos[s.fulfillment_order_id].status = "CLOSED"  # Shopify finished it late
+    w.svc.sync(SHOP)
+    after = w.get(s.id)
+    assert after.status == S.cancelled
+    assert any("A label may have been bought" in a for a in after.alerts)
+
+
+def test_the_send_claim_is_atomic_against_a_sweep_between_read_and_send(w, clock):
+    """The sweep settles the purchase as never sent after the buy's thread read the row as
+    "prepared" but before it claimed it: the claim fails and nothing is sent."""
+    s = w.ready()
+    real_row, swept = w.uk._row, []
+
+    def row_then_sweep(ref):
+        row = real_row(ref)
+        if row.get("state") == "prepared" and not swept:
+            swept.append(ref)
+            clock.advance(minutes=6)
+            w.svc.purchases.reconcile_all()  # reads it back: never sent, settled as unsent
+        return row
+
+    w.uk._row = row_then_sweep  # type: ignore[method-assign]
+    w.buy(s)
+    assert swept and w.ss.purchases == [] and w.get(s.id).label is None

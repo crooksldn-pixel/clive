@@ -58,6 +58,9 @@ class OrderReadback:
     # The provider's own record of this very attempt says it failed: nothing was bought, so
     # there is nothing to wait for (Shopify's PURCHASE_FAILED). Only with paid False.
     failed: bool = False
+    # With `failed`: the provider's reason leaves a person to look before buying again (e.g.
+    # another purchase was already running for the order). The words to show them.
+    check: str = ""
 
 
 @dataclass

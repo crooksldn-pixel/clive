@@ -142,7 +142,11 @@ class ShippingService:
         """Whether the order is listed. UK orders only while UK labels are switched on; one
         whose label was already bought here stays, as history."""
         return (
-            not s.domestic or self.domestic.enabled or s.label is not None or s.money_may_have_moved
+            not s.domestic
+            or self.domestic.enabled
+            or s.label is not None
+            or s.money_may_have_moved
+            or bool(s.label_check)  # held: a label may exist in Shopify
         )
 
     # ------------------------------------------------------------------ discovery
@@ -220,6 +224,15 @@ class ShippingService:
             return self.store.save(s) if len(s.alerts) != alerts else s
         if snap is None or not snap.open:
             why = "cancelled" if snap is not None and snap.order_cancelled else "closed in Shopify"
+            if s.status in PRE_PURCHASE and s.label_check:
+                # Held because a purchase couldn't be confirmed, and now closed in Shopify: the
+                # label may have been bought after all. Say so; never silently forget it.
+                self._alert(
+                    s,
+                    f"Shopify closed this order while CLIVE was waiting for a check of an "
+                    f"unconfirmed label purchase (CLIVE reference {s.label_check}). A label may "
+                    "have been bought: look at the order in Shopify admin.",
+                )
             if s.status in PRE_PURCHASE:
                 self._to(s, S.cancelled, "order_closed", detail={"why": why})
                 s.questions, s.quote = [], None

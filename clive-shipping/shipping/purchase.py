@@ -706,7 +706,11 @@ class Purchases:
             if seen.failed or (len(op.unpaid_reads) >= 2 and at - first >= self._settle_after(op)):
                 # Some providers can only say "nothing found" for a lost reply (Shopify Shipping
                 # without its result id): they word that themselves, never as "confirmed".
-                unconfirmed = None if seen.failed else getattr(self._owner(op), "not_found", None)
+                unconfirmed = (
+                    seen.check or None
+                    if seen.failed
+                    else getattr(self._owner(op), "not_found", None)
+                )
                 with self.store.atomic():
                     op.state = OpState.abandoned
                     op.last_error = unconfirmed or (
@@ -731,7 +735,12 @@ class Purchases:
                     if unconfirmed is not None:
                         # Nothing found is not "not bought": a person checks before any rebuy.
                         s.last_error = unconfirmed
-                        self._hold_for_check(s, op, unconfirmed, event="purchase_not_found")
+                        self._hold_for_check(
+                            s,
+                            op,
+                            unconfirmed,
+                            event="purchase_failed" if seen.failed else "purchase_not_found",
+                        )
                         self.store.save(s)
                         return
                     s.last_error = (

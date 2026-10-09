@@ -541,10 +541,11 @@ class GraphQLShopify:
             codes = {(e.get("extensions") or {}).get("code") for e in errors}
             if codes and codes <= {"THROTTLED"}:
                 raise ShopifyNotSent("Shopify is busy (throttled): the purchase wasn't started.")
-            if "data" not in body or (codes and codes <= PRE_EXECUTION):
-                # Refused before the mutation ran: the query was invalid (no data at all) or
-                # the app lacks a scope. Anything else (INTERNAL_SERVER_ERROR, a timeout inside
-                # Shopify) may have happened after the purchase was queued: unknown.
+            if (codes and codes <= PRE_EXECUTION) or (codes <= {None} and "data" not in body):
+                # Refused before the mutation ran: every error is one Shopify gives before
+                # running anything (a missing scope), or the request couldn't be parsed (no
+                # code, no data). Anything else, INTERNAL_SERVER_ERROR or a timeout inside
+                # Shopify included, with or without data, may have happened: unknown.
                 raise ShopifyRefused(said)
             raise ShopifyError(f"Shopify answered with errors ({said}); it may have been done.")
         if not isinstance(payload, dict):

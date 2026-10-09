@@ -689,13 +689,16 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
      checks (owner-accepted) and the preview says the price is set by Shopify Shipping.
      `create_order` writes the exact request to `label_purchases` (fulfilment order, shipping
      time ten minutes ahead, the custom package and empty weight, total weight,
-     `preferredRateSelection`, `notifyCustomer`); nothing is sent. `pay` sends
+     `preferredRateSelection`, `notifyCustomer`) and the tracking numbers the order already
+     carries (a read); nothing is sent. `pay` sends
      `shippingLabelPurchase` once from a path that never retries
      (`GraphQLShopify.purchase_label`): connect failure, 429 or THROTTLED = not sent; other 4xx
      or a field error = refused; timeout, reset, 5xx or an unreadable body = UNKNOWN. The result
      id is saved before polling; `node(id)` is polled to PURCHASED / PURCHASE_FAILED within 60 s
      (Shopify's advice), else UNKNOWN. userErrors and PURCHASE_FAILED are refusals (nothing
-     bought, the order is ready again). The adapter refuses to send a row already sent.
+     bought, the order is ready again). The row is claimed atomically (prepared → sending)
+     before the request, so a purchase the sweep has settled as never sent can't go out later,
+     and a row already sent is never sent again.
    - **UNKNOWN.** With the result id: read back (PURCHASED = bought; PURCHASE_FAILED = settled
      at once; pending = wait, alert after an hour, never given up). Without it (lost reply): the
      fulfilment order is read; a tracking number that wasn't on it before sending (recorded with
@@ -705,12 +708,14 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
      window (two reads) is not taken as "not bought": the order waits in Needs attention ("Check
      Shopify for a label") until a person has looked in Shopify admin and says there's none.
      The same applies when Shopify refuses because another purchase is running for the order
-     (JOB_NOT_ENQUEUED, PURCHASE_IN_PROGRESS). A purchase whose "sending" mark was never saved
-     was never sent, and settles at once.
+     (JOB_NOT_ENQUEUED, PURCHASE_IN_PROGRESS among any of its errors), whether it comes back
+     from the buy or from a read-back. A purchase never claimed for sending was never sent, and
+     settles at once. An order held this way that Shopify then closes raises an alert (a label
+     may exist), and stays listed even if UK labels are switched off.
    - **Shopify's answer.** A result id means the purchase started, whatever else the answer
-     carries. A field error is a refusal only when Shopify never ran the mutation (no `data`,
-     ACCESS_DENIED, MAX_COST_EXCEEDED); an error inside Shopify (INTERNAL_SERVER_ERROR) is
-     UNKNOWN.
+     carries. A field error is a refusal only when Shopify never ran the mutation (every error
+     ACCESS_DENIED / MAX_COST_EXCEEDED, or an unparsable request: no code and no `data`); an
+     error inside Shopify (INTERNAL_SERVER_ERROR, a timeout), with or without `data`, is UNKNOWN.
    - **After buying.** Each `shippingDocument` (LABEL, CUSTOMS_FORM) is fetched server-side
      over https (streamed, capped at 10 MB), without the app token; a file that isn't a readable
      PDF is never stored and is fetched again later. A label is stored and measured. Only a portrait 4×6 PDF goes to
@@ -724,9 +729,9 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
      the delivery method it was made for. Turning UK labels off never hides an order whose label
      may have been paid for, and the provider is still built to finish it. The ledger lets a
      quote skip the amount checks only when its provider says it can't price before buying.
-   - **Verified:** 91 new tests (fake Shopify Shipping that loses replies, stays pending, fails
+   - **Verified:** 99 new tests (fake Shopify Shipping that loses replies, stays pending, fails
      and refuses; HTTP-level one-POST and error-classification tests; an independent review's
-     findings, each with a test; each guard removed once and a test failed); the admin in a real
+     findings and its re-review's, each with a test; each guard removed once and a test failed); the admin in a real
      browser (`scripts/ui_walk_uk.cjs`, 38 checks, desktop and phone,
      `docs/shipping/uk-screens/`); `M_SHIPPING_LABEL_PURCHASE` and `Q_SHIPPING_LABEL_PURCHASE`
      validated at 2026-10.
