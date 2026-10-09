@@ -1,0 +1,15 @@
+{
+  "name": "crooks-partner-hub-app",
+  "version": "1.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "The CROOKS Partner Hub Shopify app (extension only): the creator-gift theme app embed. See ../CREATOR_GIFT.md.",
+  "scripts": {
+    "shopify": "shopify",
+    "info": "shopify app info",
+    "deploy": "shopify app deploy"
+  },
+  "devDependencies": {
+    "@shopify/cli": "4.8.3"
+  }
+}
