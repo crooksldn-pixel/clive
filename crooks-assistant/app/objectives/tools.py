@@ -34,7 +34,8 @@ tool's result to the model at forty or so, as engineering_status's list of every
 (app/tools/engineering_tools.py MAX_ANSWER_BYTES says why its ceiling is 16,000 bytes). It names the
 most recently changed first, at most MAX_LISTED and MAX_LIST_BYTES, each line a listed objective
 carries cut to MAX_LINE, and says how many more there are; `search` finds any one, and objective_show
-reads it whole. Nothing is dropped from the records, and the owner's screens read the store, not this.
+reads it whole. A listing that leaves some out says to search before opening a new one, so an older
+one that is not named is not opened twice (review N4 of PR #122). Nothing is dropped from the records, and the owner's screens read the store, not this.
 """
 
 from __future__ import annotations
@@ -161,14 +162,15 @@ def _listing(out: dict[str, Any], found: list, *, closed: bool) -> dict[str, Any
     rows: list[dict[str, Any]] = []
     for obj in found[:MAX_LISTED]:
         row = _line(obj)
-        if len(json.dumps({**out, "objectives": [*rows, row], "not_listed": "x" * 160}, ensure_ascii=False,
+        if len(json.dumps({**out, "objectives": [*rows, row], "not_listed": "x" * 200}, ensure_ascii=False,
                           default=str).encode("utf-8")) > MAX_LIST_BYTES:
             break
         rows.append(row)
     left = len(found) - len(rows)
     if left:
         out["not_listed"] = (f"{left} more {'closed ' if closed else ''}objective{'' if left == 1 else 's'} not listed, "
-                             "the least recently changed: search finds one by anything in its record.")
+                             "the least recently changed: search finds one by anything in its record; search before "
+                             "opening a new one.")
     out["objectives"] = rows
     return out
 

@@ -14,8 +14,8 @@ Its answer stays small however many requests the loop has recorded (9 Oct 2026: 
 recorded made it 56 KB, the claude CLI handed the model a "too large" note in its place, and the
 owner's "yes" to filing a build failed for want of the inbox id). It always carries the counts, the
 inbox id and the base; it lists the requests waiting on the owner, those open or blocked, and the
-newest few, newest first and at most MAX_LISTED, and says how many more there are; `request_ids`
-returns named ones in full. Each line is said whole while the listing fits, and by its headline when
+newest few, newest first and at most MAX_LISTED, and says how many more there are, by state, with the
+ids of those not done (`not_listed_ids`); `request_ids` returns named ones in full. Each line is said whole while the listing fits, and by its headline when
 it would not. Whatever the loop publishes, the answer is at most MAX_ANSWER_BYTES as the model reads it
 (`_within`), so filing never depends on a read that can outgrow the CLI's limit.
 
@@ -116,6 +116,7 @@ MAX_RECENT = 5            # the newest requests, listed whatever their state
 MAX_HEADLINE_CHARS = 200  # a listed request's words, when the listing is said by headlines
 MAX_NAMED = 5             # requests one call returns in full (request_ids)
 MAX_AREAS_BYTES = 6_000   # the areas a build may change, as listed (3,918 bytes on 9 Oct)
+MAX_IDS_BYTES = 3_000     # the ids of requests not listed and not done (about 30 bytes each)
 
 _inbox: EngineeringInbox | None = None
 _check_python = DEFAULT_CHECK_PYTHON
@@ -307,8 +308,10 @@ def project(status: LoopStatus, head: InboxHead, *, branch: str = INBOX_BRANCH, 
 _OPEN_OR_BLOCKED = frozenset({"queued", "building", "in review", "blocked"})
 # The order the model reads an answer's parts in: what filing needs before any request, so a reader
 # that cuts a long answer short (an older CLI truncated instead) still has the inbox id and the base.
-_ORDER = ("connected", "summary", "inbox", "base", "host", "as_of", "not_listed", "not_found", "detail",
-          "blocked_means", "requests", "areas", "areas_not_listed", "tests")
+_ORDER = ("connected", "summary", "inbox", "base", "host", "as_of", "not_listed", "not_listed_ids", "not_found",
+          "detail", "blocked_means", "requests", "areas", "areas_not_listed", "tests")
+# The states a listing's left-out requests are counted in, in the order they are said.
+_STATES = ("needs the owner", "queued", "building", "in review", "blocked", "done")
 
 
 class _Listing:
@@ -387,7 +390,13 @@ def _headline(row: dict) -> dict:
 
 def _size(answer: dict) -> int:
     """The answer's size as the model reads it: JSON as app/tools/dispatch.py `_render` writes it."""
-    return len(json.dumps(answer, ensure_ascii=False, default=str).encode("utf-8"))
+    return _bytes(json.dumps(answer, ensure_ascii=False, default=str))
+
+
+def _bytes(text: str) -> int:
+    """UTF-8 bytes, never refused: a lone surrogate the loop published (a log cut through an emoji)
+    counts as the six bytes of its escape, as the SDK sends it, and never makes the read fail."""
+    return len(text.encode("utf-8", "backslashreplace"))
 
 
 def _within(out: dict[str, Any], listing: _Listing) -> dict[str, Any]:
@@ -421,13 +430,47 @@ def _put(listing: _Listing, kept: list[int], *, whole: bool) -> dict[str, Any]:
                                   f"{MAX_NAMED} at once, fewer when they are long.")
         return part
     if left:
-        part["not_listed"] = (f"{left} more request{'' if left == 1 else 's'} not listed (done, or older than those "
-                              "listed): name one in request_ids to see it.")
+        part.update(_left_out(listing, shown))
     if not whole:
         part["detail"] = "Each request here is its headline: request_ids returns its history and next step."
         if any(row.get("progress") == "blocked" for row in rows):
             part["blocked_means"] = f"For every blocked request: {NEEDS_THE_DIRECTOR} {REFILING_FAILS}"
     return part
+
+
+def _left_out(listing: _Listing, shown: list[int]) -> dict[str, Any]:
+    """What a listing does not name: how many, by state, and the ids of those not done (waiting on
+    the owner first, then the newest), as many as MAX_IDS_BYTES holds, so the model can name each one
+    in request_ids. A done request is counted only (review N2 of PR #122)."""
+    taken = set(shown)
+    out_of_it = sorted((n for n in range(len(listing.rows)) if n not in taken), key=lambda n: listing.place[n])
+    counts: dict[str, int] = {}
+    for n in out_of_it:
+        label = str(listing.rows[n].get("progress") or "")
+        counts[label] = counts.get(label, 0) + 1
+    said = ", ".join(f"{counts[label]} {label}" for label in [*_STATES, *sorted(set(counts) - set(_STATES))]
+                     if counts.get(label))
+    waiting = [n for n in out_of_it if _waits_on_owner(listing.rows[n])]
+    rest = [n for n in out_of_it if n not in set(waiting) and listing.rows[n].get("progress") != "done"]
+    ids: list[str] = []
+    spent = 2
+    for n in waiting + rest:
+        rid = str(listing.rows[n].get("request_id") or "")
+        spent += _bytes(json.dumps(rid, ensure_ascii=False)) + 2
+        if spent > MAX_IDS_BYTES:
+            break
+        ids.append(rid)
+    named = len(waiting) + len(rest)
+    left = len(out_of_it)
+    line = f"{left} more request{'' if left == 1 else 's'} not listed: {said}."
+    if ids and len(ids) == named:
+        line += " not_listed_ids names each one not done; name any in request_ids to see it in full."
+    elif ids:
+        line += (f" not_listed_ids names {len(ids)} of the {named} not done, the owner's first and then the newest; "
+                 "name any in request_ids to see it in full.")
+    else:
+        line += " Name any in request_ids to see it in full."
+    return {"not_listed": line, **({"not_listed_ids": ids} if ids else {})}
 
 
 def _ordered(out: dict[str, Any]) -> dict[str, Any]:
@@ -440,7 +483,7 @@ def _areas(areas: list[str]) -> dict[str, Any]:
     shown: list[str] = []
     spent = 2
     for area in areas:
-        spent += len(json.dumps(area, ensure_ascii=False).encode("utf-8")) + 2
+        spent += _bytes(json.dumps(area, ensure_ascii=False)) + 2
         if spent > MAX_AREAS_BYTES:
             break
         shown.append(area)

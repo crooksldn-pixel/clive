@@ -274,3 +274,69 @@ async def test_a_few_requests_are_still_said_whole(loop):
     out = await engineering_tools.engineering_status()
     assert len(out["requests"]) == 8 and "not_listed" not in out and "detail" not in out
     assert all("history" in row for row in out["requests"])
+
+
+# ------------------------------------------------------------------ text the loop cannot have meant
+
+
+@pytest.mark.usefixtures("owner_asking")
+async def test_a_lone_surrogate_in_the_status_never_makes_the_read_fail(loop):
+    """A log cut through an emoji leaves half of it: the read is said and filing goes on (review N1)."""
+    loop.status = _status([{"request_id": "invented-half-emoji", "outcome": "accepted", "stage": "BLOCKED",
+                            "recorded_at": _at(1), "blocker": "ci log \udcff bytes"}])
+    session = Session(session_id="eng-surrogate")
+
+    text = await dispatch(STATUS_TOOL, {"areas": True}, session=session, timeout_s=5)
+
+    assert not text.startswith("ERROR"), text
+    out = json.loads(text)
+    assert out["inbox"]["id"] == HEAD and out["requests"][0]["request_id"] == "invented-half-emoji"
+    filed = await dispatch(SUBMIT_TOOL, {"inbox_id": HEAD, **ask()}, session=session, timeout_s=5)
+    assert filed.startswith("PROPOSED ("), filed
+    assert engineering_tools._areas(["crooks-assistant/app/half\udcff"])["areas"] == ["crooks-assistant/app/half\udcff"]
+
+
+# ------------------------------------------------------------------ what a listing leaves out
+
+
+def _plain(n: int, stage: str) -> dict:
+    return {"request_id": f"invented-left-{n:03d}", "outcome": "accepted", "stage": stage, "recorded_at": _at(n),
+            "owner_gate": stage == "OWNER_GATE", "blocker": "an invented blocker" if stage != "COMPLETE" else None}
+
+
+@pytest.mark.usefixtures("owner_asking")
+async def test_what_is_left_out_is_said_by_state_and_each_one_not_done_can_be_named(loop):
+    """The review's shape (N2): 30 old requests waiting on the owner, 10 newer blocked, 80 done. Twenty of
+    the owner's are named; the rest were said to be "done, or older", which the 10 blocked were not, and
+    none of them could be named in request_ids because the model was never given an id."""
+    loop.status = _status([_plain(n, "OWNER_GATE" if n < 30 else "BLOCKED" if n < 40 else "COMPLETE")
+                           for n in range(120)])
+
+    text, out = await _read("eng-left-out")
+
+    assert len(text.encode("utf-8")) <= engineering_tools.MAX_ANSWER_BYTES and out["inbox"]["id"] == HEAD
+    assert [row["request_id"] for row in out["requests"]] == [f"invented-left-{n:03d}" for n in range(29, 9, -1)]
+    assert out["not_listed"] == ("100 more requests not listed: 10 needs the owner, 10 blocked, 80 done. "
+                                 "not_listed_ids names each one not done; name any in request_ids to see it in full.")
+    left = [f"invented-left-{n:03d}" for n in [*range(9, -1, -1), *range(39, 29, -1)]]
+    assert out["not_listed_ids"] == left, "the owner's first, then the newest"
+    for at in range(0, len(left), engineering_tools.MAX_NAMED):
+        asked = left[at:at + engineering_tools.MAX_NAMED]
+        named = await engineering_tools.engineering_status(request_ids=asked)
+        assert [row["request_id"] for row in named["requests"]] == asked
+
+
+@pytest.mark.usefixtures("owner_asking")
+async def test_the_ids_left_out_are_bounded_and_say_how_many_are_counted_only(loop):
+    loop.status = _status([_maximal(n, "BLOCKED" if n % 2 else "COMPLETE") for n in range(500)])
+
+    text, out = await _read("eng-left-many", areas=True)
+
+    assert len(text.encode("utf-8")) <= engineering_tools.MAX_ANSWER_BYTES and out["inbox"]["id"] == HEAD
+    ids = out["not_listed_ids"]
+    assert len(json.dumps(ids, ensure_ascii=False).encode("utf-8")) <= engineering_tools.MAX_IDS_BYTES
+    blocked_left = 250 - sum(1 for row in out["requests"] if row["progress"] == "blocked")
+    assert " blocked, " in out["not_listed"] and f"not_listed_ids names {len(ids)} of the {blocked_left} not done" in \
+        out["not_listed"]
+    assert ids == [_rid(n) for n in range(499, -1, -1) if n % 2 and _rid(n) not in
+                   {row["request_id"] for row in out["requests"]}][: len(ids)], "the newest first"
