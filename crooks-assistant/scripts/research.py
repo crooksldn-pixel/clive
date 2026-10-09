@@ -20,6 +20,9 @@ Learning from research as ideas (DEC-078, app/research/synthesis, docs/RESEARCH.
                                                refuses when an answer of his wouldn't stay with its idea
     python scripts/research.py --apply GEN --accept-unmatched   make it live anyway
     python scripts/research.py --ideas         the live ideas, with their four answers
+    python scripts/research.py --status [--generation GEN]
+                                               how the newest run stands: stage, how far, calls, problems,
+                                               documents not in it, and whether a run is going now
     --call-timeout SECONDS                     one time limit for every model call of a run
 
 Why this exists: the server folder (<research dir>/inbox/, docs/RESEARCH.md) is otherwise swept
@@ -73,6 +76,8 @@ async def _main(args: argparse.Namespace) -> int:
         return 0
     if args.ideas:
         return _ideas(research)
+    if getattr(args, "status", False):
+        return _status(research, args.generation)
     if args.export_synthesis:
         return _export(research, args.export_synthesis, args.generation)
     try:
@@ -218,6 +223,20 @@ def _export(research, path: str, gen: str) -> int:
     return 0
 
 
+def _status(research, gen: str) -> int:
+    """How the newest synthesis run (or GEN) stands, from its run.json, and whether a run is going now."""
+    from app.research.synthesis.run import status_lines
+    from app.research.synthesis.store import ReadProblem, synthesis_store
+
+    try:
+        for line in status_lines(synthesis_store(research), gen):
+            _print(line)
+    except (ReadProblem, ValueError) as exc:
+        print(f"research: the run's record couldn't be read: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _ideas(research) -> int:
     from app.builds import decisions
     from app.research.synthesis import answers as idea_answers
@@ -255,11 +274,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--synthesise", action="store_true", help="a new generation of ideas from every document read (not live)")
     parser.add_argument("--resume", action="store_true", help="with --synthesise: carry on the run that stopped")
     parser.add_argument("--export-synthesis", metavar="PATH", help="one generation as a .tgz, outside the repository")
-    parser.add_argument("--generation", default="", help="with --export-synthesis: which generation (the newest by default)")
+    parser.add_argument("--generation", default="", help="with --export-synthesis or --status: which generation (the newest by default)")
     parser.add_argument("--apply", metavar="GEN", help="make a generation live")
     parser.add_argument("--accept-unmatched", action="store_true",
                         help="with --apply: make it live even when an answer of his won't stay with its idea")
     parser.add_argument("--ideas", action="store_true", help="the live ideas with their four answers")
+    parser.add_argument("--status", action="store_true",
+                        help="the newest synthesis run (or --generation) in words, and whether a run is going now")
     parser.add_argument("--call-timeout", type=float, default=None, metavar="SECONDS",
                         help="one time limit for every model call of a synthesis run")
     args = parser.parse_args(argv)

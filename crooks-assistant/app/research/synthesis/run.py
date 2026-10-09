@@ -353,6 +353,52 @@ def run_lock(synth: SynthesisStore):
         os.close(fd)
 
 
+def running(synth: SynthesisStore) -> bool:
+    """[review 16] Whether a run holds the lock on this server now (a full run, or apply)."""
+    path = synth.root / ".run.lock"
+    if not path.exists():
+        return False
+    fd = os.open(path, os.O_RDWR)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
+
+
+def status_lines(synth: SynthesisStore, gen: str = "") -> list[str]:
+    """[review 16] A run's run.json in plain words, and whether a run is going now."""
+    gens = synth.generations()
+    live = synth.live()
+    going = "A run is going on this server now." if running(synth) else "No run is going on this server now."
+    if not gens:
+        return ["No synthesis has been run on this server.", going]
+    gen = gen or gens[-1]
+    run = synth.run(gen) or {}
+    stage = str(run.get("stage") or "")
+    doing = STAGE_WORDS.get(stage, stage or "no run record")
+    if run.get("of"):
+        doing += f", {run.get('done', 0)} of {run['of']}"
+    where = "live" if gen == live else f"not live; the live one is {live}" if live else "not live; none is live yet"
+    out = [f"Synthesis {gen}: {doing} ({where})."]
+    out.append(f"Started {run.get('started_at') or 'unknown'}; " + (f"finished {run['finished_at']}." if run.get("finished_at")
+                                                                    else "not finished."))
+    by = ", ".join(f"{k} {v}" for k, v in (run.get("calls_by_stage") or {}).items())
+    out.append(f"Model calls: {run.get('calls', 0)}{' (' + by + ')' if by else ''}; {run.get('retries', 0)} asked again.")
+    errors = run.get("errors") or []
+    out.append(f"Problems: {len(errors)}")
+    out += [f"  - {e.get('at', '')} {e.get('stage', '')}: {e.get('said', '')}" for e in errors[-5:]]
+    failed = list((run.get("failed") or {}).values())
+    out.append(f"Documents not in it: {len(failed)}" + (" (--resume tries them again)" if failed else ""))
+    out += [f"  - {f['name']}: {f['why']}" for f in failed]
+    out.append(going)
+    return out
+
+
 def unfinished(synth: SynthesisStore) -> str:
     """The newest generation whose run hasn't finished, or finished without a document it couldn't read
     and isn't live yet, or ""."""

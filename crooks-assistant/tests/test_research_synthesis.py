@@ -949,6 +949,43 @@ async def test_applying_a_run_with_a_document_it_couldnt_read_tries_it_once_more
     assert synthesis_store(store).live() == gen and len([p for p in model.asked("extract") if "test-note-gamma.md" in p]) == 4
 
 
+async def test_the_script_says_how_a_run_stands_and_whether_one_is_going(place, the_map, capsys):
+    """[review 16] `--status` says the newest run's stage, how far it got, its calls, its problems, the
+    documents not in it, and whether a run holds the lock now."""
+    import fcntl
+    import importlib.util
+
+    store, _ledger = place
+    spec = importlib.util.spec_from_file_location("research_script", Path(__file__).resolve().parent.parent / "scripts" / "research.py")
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    assert script._status(store, "") == 0
+    assert capsys.readouterr().out.splitlines() == ["No synthesis has been run on this server.", "No run is going on this server now."]
+    model = fx.Scripted()
+    await fx.read_old_way(store, model, *FIRST_THREE)
+    model.fail_at = "judge"
+    with pytest.raises(Stopped):
+        await synthesise(store, model=model, the_map=the_map)
+    synth = synthesis_store(store)
+    (gen,) = synth.generations()
+    fd = os.open(synth.root / ".run.lock", os.O_RDWR)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        assert script._status(store, "") == 0
+        out = capsys.readouterr().out.splitlines()
+    finally:
+        os.close(fd)
+    run = synth.run(gen)
+    assert out[0] == f"Synthesis {gen}: judging (not live; none is live yet)."
+    assert out[1].startswith(f"Started {run['started_at']}; not finished.")
+    assert out[2].startswith(f"Model calls: {run['calls']} (consolidate ") and out[2].endswith("; 1 asked again.")
+    assert out[3] == "Problems: 1" and out[4].endswith("judge: The scripted model was told to fail here.")
+    assert out[5] == "Documents not in it: 0" and out[-1] == "A run is going on this server now."
+    args = script.argparse.Namespace(files=[], list=False, try_file=None, synthesise=False, resume=False, export_synthesis=None,
+                                     generation="", apply=None, ideas=False, call_timeout=None, status=True)
+    assert await script._main(args) == 0 and capsys.readouterr().out.splitlines()[-1] == "No run is going on this server now."
+
+
 async def test_a_resumed_run_says_every_document_that_joined_an_idea_once(place, the_map, monkeypatch):
     """[review 10] A run stopped between two match batches of one document, then resumed: the ideas the
     first batch added to still say the document joined them, once."""
