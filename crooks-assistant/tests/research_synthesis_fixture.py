@@ -336,7 +336,11 @@ class Scripted:
         self.old = copy.deepcopy(OLD)
         self.summary = copy.deepcopy(SUMMARY)
         self.prompts: list[tuple[str, str]] = []
-        self.fail_at: str = ""        # a step's name: that step's next call fails, once
+        # A step's name: that step's next call fails, and so does CLIVE's one retry of it (fail_times).
+        self.fail_at: str = ""
+        self.fail_times = 2
+        self.retry_pause_s = 0.0      # CLIVE's pause before its one retry (app/research/synthesis/ask.py)
+        self._failed = 0
 
     def step(self, system: str) -> str:
         return {EXTRACT_SYSTEM: "extract", REPAIR_SYSTEM: "repair", MATCH_SYSTEM: "match", CONSOLIDATE_SYSTEM: "consolidate",
@@ -352,7 +356,9 @@ class Scripted:
         self.prompts.append((system, prompt))
         step = self.step(system)
         if self.fail_at == step:
-            self.fail_at = ""
+            self._failed += 1
+            if self._failed >= self.fail_times:
+                self.fail_at, self._failed = "", 0
             raise ModelError("The scripted model was told to fail here.")
         return json.dumps(getattr(self, f"_{step}")(prompt))
 

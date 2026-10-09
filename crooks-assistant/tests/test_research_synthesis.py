@@ -844,6 +844,41 @@ async def test_a_run_that_stops_is_said_and_resumes_where_it_stopped(place, the_
         await synthesise(store, model=model, the_map=the_map, resume=True)
 
 
+async def test_every_model_call_is_asked_once_more_after_a_failure_or_a_timeout(place, the_map, monkeypatch):
+    """[review 14] An unattended run rides out one bad call: a call that fails, or runs out of time, is asked
+    once more after a pause, counted in run.json; the run carries on and finishes."""
+    from app.research.synthesis import ask as ask_module
+
+    store, _ledger = place
+    model = fx.Scripted()
+    model.retry_pause_s = 0.25
+    await fx.read_old_way(store, model, *FIRST_THREE)
+    slept = []
+    real_sleep = asyncio.sleep
+
+    async def sleep(seconds):
+        slept.append(seconds)
+        await real_sleep(0)
+
+    monkeypatch.setattr(ask_module.asyncio, "sleep", sleep)
+    model.fail_at, model.fail_times = "extract", 1
+    original = model.ask
+    timed_out = []
+
+    async def ask(system, prompt):
+        if model.step(system) == "judge" and not timed_out:
+            timed_out.append(prompt)
+            raise TimeoutError
+        return await original(system, prompt)
+
+    model.ask = ask
+    gen = await synthesise(store, model=model, the_map=the_map)
+    run = synthesis_store(store).run(gen)
+    assert run["stage"] == "done" and run["retries"] == 2 and slept == [0.25, 0.25]
+    assert run["calls"] == len(model.prompts) - 3 + 1, "every call counted, the timed-out one too"
+    assert ask_module.RETRY_PAUSE_S == 30.0
+
+
 async def test_a_resumed_run_says_every_document_that_joined_an_idea_once(place, the_map, monkeypatch):
     """[review 10] A run stopped between two match batches of one document, then resumed: the ideas the
     first batch added to still say the document joined them, once."""

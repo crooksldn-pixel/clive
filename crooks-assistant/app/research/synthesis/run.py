@@ -70,7 +70,7 @@ class Work:
         self.carried: list[tuple[str, str]] = []
         self.changed = False
         self.say = say
-        self.base: tuple[int, dict[str, int]] = (0, {})
+        self.base: tuple[int, dict[str, int], int] = (0, {}, 0)
 
     def active(self) -> list[dict[str, Any]]:
         return [i for i in self.ideas.values() if i.get("status") == "active"]
@@ -385,7 +385,7 @@ async def synthesise(research_store, *, model, the_map, resume: bool = False, ti
         except SynthesisError as exc:      # merging may then join ideas he answered differently; apply refuses those
             _error(work, run, str(exc))
         work.changed = bool(run.get("changed"))
-        work.base = (int(run.get("calls") or 0), dict(run.get("calls_by_stage") or {}))
+        work.base = (int(run.get("calls") or 0), dict(run.get("calls_by_stage") or {}), int(run.get("retries") or 0))
         say(f"Synthesis {gen}: {'carrying on from ' + STAGE_WORDS[run['stage']] if resume else 'started'}.")
         try:
             await _stages(research_store, work, run, say)
@@ -404,9 +404,10 @@ def _error(work: Work, run: dict[str, Any], said: str) -> None:
 
 def _count(work: Work, run: dict[str, Any]) -> None:
     """The calls made so far: those before this process (a resumed run) and this process's own."""
-    before, by = work.base
+    before, by, retried = work.base
     run["calls"] = before + work.calls.made
     run["calls_by_stage"] = {k: by.get(k, 0) + work.calls.by_stage.get(k, 0) for k in sorted({*by, *work.calls.by_stage})}
+    run["retries"] = retried + work.calls.retries
     run["changed"] = work.changed
 
 

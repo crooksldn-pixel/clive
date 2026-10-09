@@ -10,11 +10,15 @@ What it promises:
   <research> or </research> tag is defused, so the research can't end its own block.
 - `Calls.ask` counts every call it makes, made or failed, and gives each its stage's time limit when
   the model can take one (MaxPlanModel.with_timeout); a scripted model is asked as it is.
+- [review 14] A call that fails (a ModelError, or a timeout) is asked once more after a pause
+  (RETRY_PAUSE_S, 30 seconds; a model may say its own, as the tests' scripted one does), so an
+  unattended run on the server rides out one bad call. A second failure is the run's to say.
 - `parse_object` returns the JSON object in an answer (fenced or bare) or raises SynthesisError.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any
@@ -29,13 +33,17 @@ class SynthesisError(Exception):
     """A synthesis step could not finish, said in words."""
 
 
+RETRY_PAUSE_S = 30.0
+
+
 class Calls:
-    """The model, and how many times it has been asked, by stage."""
+    """The model, and how many times it has been asked, by stage (a retry is a call too)."""
 
     def __init__(self, model, *, timeout_s: float | None = None) -> None:
         self.model = model
         self.timeout_s = timeout_s
         self.made = 0
+        self.retries = 0
         self.by_stage: dict[str, int] = {}
 
     @property
@@ -43,13 +51,23 @@ class Calls:
         return str(getattr(self.model, "name", "model"))
 
     async def ask(self, stage: str, system: str, prompt: str) -> str:
-        self.made += 1
-        self.by_stage[stage] = self.by_stage.get(stage, 0) + 1
+        from app.research.model import ModelError
+
         model = self.model
         limit = self.timeout_s or STAGE_TIMEOUT_S.get(stage)
         if limit and hasattr(model, "with_timeout"):
             model = model.with_timeout(limit)
-        return await model.ask(system, prompt)
+        for attempt in (1, 2):
+            self.made += 1
+            self.by_stage[stage] = self.by_stage.get(stage, 0) + 1
+            try:
+                return await model.ask(system, prompt)
+            except (ModelError, TimeoutError):
+                if attempt == 2:
+                    raise
+                self.retries += 1
+                await asyncio.sleep(float(getattr(self.model, "retry_pause_s", RETRY_PAUSE_S)))
+        raise AssertionError("unreachable")
 
 
 _TAG = re.compile(r"<(/?)(research\b)", re.IGNORECASE)
