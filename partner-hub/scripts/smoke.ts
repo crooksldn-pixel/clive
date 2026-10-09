@@ -183,8 +183,8 @@ try {
   const write = await invoke(partner, { action: "recordPost", sendId: db.Send[0].id, postedUrl: "https://www.tiktok.com/@maya.fits/video/1" }, { "X-Partner-Key": secrets.PARTNER_API_KEY });
   check(write.status === 403, "keeps writes off by default");
 
-  console.log("shopifyWebhook / portalCheckAvailable / shopifyCheckConnection / sendMarkShipped / shopifySyncUsage");
-  for (const name of ["shopifyWebhook", "portalCheckAvailable", "shopifyCheckConnection", "sendMarkShipped", "shopifySyncUsage"]) {
+  console.log("shopifyWebhook / portalCheckAvailable / shopifyCheckConnection / sendMarkShipped / shopifySyncUsage / shopifyCreateDiscount / syncPromotions");
+  for (const name of ["shopifyWebhook", "portalCheckAvailable", "shopifyCheckConnection", "sendMarkShipped", "shopifySyncUsage", "shopifyCreateDiscount", "syncPromotions"]) {
     const fn = await load(name);
     const r = await invoke(fn, {});
     check([400, 401, 403].includes(r.status), `${name} loads and rejects an empty/unauthenticated call (${r.status})`);

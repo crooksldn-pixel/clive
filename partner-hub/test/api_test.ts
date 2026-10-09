@@ -206,7 +206,7 @@ Deno.test("connection check reports missing scopes and registers webhooks at the
     .on("PartnerHubWebhookCreate", () => ({ data: { webhookSubscriptionCreate: { webhookSubscription: { id: "w" }, userErrors: [] } } }));
   const body = await readBody(await shopifyCheckConnection(post({ registerWebhooks: true }), makeDeps({ base44, shopify })));
   assertEquals(body.ok, false);
-  assertEquals(body.scopes.missing.map((m: any) => m.scope), ["write_merchant_managed_fulfillment_orders", "read_discounts"]);
+  assertEquals(body.scopes.missing.map((m: any) => m.scope), ["write_merchant_managed_fulfillment_orders", "write_discounts"]);
   assertEquals(body.webhookUrl, "https://crooks-partner-hub.base44.app/api/apps/6a96ee08b3aefa8357c55ed7/functions/shopifyWebhook");
   assertEquals(body.webhooks.map((w: any) => w.status), ["created", "created", "created"]);
   const created = shopify.calls.filter((c) => c.op === "PartnerHubWebhookCreate").map((c) => c.variables.topic);

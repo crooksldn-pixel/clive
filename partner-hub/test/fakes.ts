@@ -11,6 +11,7 @@ import type {
   Interest,
   Json,
   ProductRecord,
+  Promotion,
   SendRecord,
   SizeProfile,
   SocialAccount,
@@ -98,6 +99,7 @@ export function fakeBase44(user: AppUser | null, seed: Seed = {}, clock?: () => 
     Send: new FakeEntity<SendRecord>(rows("Send"), clock),
     Product: new FakeEntity<ProductRecord>(rows("Product"), clock),
     AffiliateCode: new FakeEntity<AffiliateCode>(rows("AffiliateCode"), clock),
+    Promotion: new FakeEntity<Promotion>(rows("Promotion"), clock),
   };
   const base44: Base44Like = {
     auth: { me: async () => user },

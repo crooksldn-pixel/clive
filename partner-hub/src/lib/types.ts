@@ -142,6 +142,19 @@ export interface AffiliateCode {
   shopifyDiscountId?: string;
   type?: string;
   value?: number;
+  created_date?: string;
+}
+
+/** A gift promotion, edited in the Hub's Promotions tab. */
+export interface Promotion {
+  id: string;
+  name?: string;
+  active?: boolean;
+  /** Gift variants in order of preference (numeric Shopify ids). */
+  giftVariantIds?: (number | string)[];
+  /** The "buys any piece" collection for the Buy X Get Y discount. */
+  qualifyingCollectionId?: string;
+  excludeProductTypes?: string[];
 }
 
 export interface Entities {
@@ -153,6 +166,7 @@ export interface Entities {
   Send: EntityApi<SendRecord>;
   Product: EntityApi<ProductRecord>;
   AffiliateCode: EntityApi<AffiliateCode>;
+  Promotion: EntityApi<Promotion>;
 }
 
 export interface AppUser {

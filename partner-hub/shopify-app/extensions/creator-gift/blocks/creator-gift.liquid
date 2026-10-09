@@ -1,0 +1,16 @@
+{%- comment -%}
+  Creator gift (app embed). Prints the gift rules the Partner Hub writes to
+  this app's metafield; assets/creator-gift.js does the rest. No settings:
+  rules only come from the Hub. See partner-hub/CREATOR_GIFT.md.
+{%- endcomment -%}
+<script type="application/json" id="crooks-gift-rules">{{ app.metafields.creator_gift.rules.value | json }}</script>
+
+{% schema %}
+{
+  "name": "Creator gift",
+  "target": "body",
+  "javascript": "creator-gift.js",
+  "stylesheet": "creator-gift.css",
+  "settings": []
+}
+{% endschema %}

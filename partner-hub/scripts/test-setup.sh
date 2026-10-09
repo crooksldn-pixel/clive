@@ -25,7 +25,7 @@ check "sets the four secrets" '[ "$(tr "\n" " " <"$FAKE_DIR/secret-names")" = "P
 check "secret file was private" '[ "$(cat "$FAKE_DIR/envfile-perms")" = 600 ]'
 check "never prints the Shopify secret" '! grep -q csecret123 "$T/out"'
 check "CLIVE key saved privately" '[ "$(stat -c %a "$T/state/partner-api-key")" = 600 ]'
-check "deploys all nine by name" '[ "$(sort -u "$FAKE_DIR/deployed" | wc -l)" = 9 ]'
+check "deploys all eleven by name" '[ "$(sort -u "$FAKE_DIR/deployed" | wc -l)" = 11 ]'
 check "never runs a full deploy or --force" '! grep -Eq "^deploy|--force|entities push" "$FAKE_DIR/calls.log"'
 check "backs up the old code first" 'grep -q "old builder version" "$T"/state/backup-*/base44/functions/shopifyCreateSend/entry.ts'
 check "replaces builder copies with the built file" 'cmp -s "$FAKE_DIR/written/functions/shopifyCreateSend.ts" "$HERE/base44/functions/shopifyCreateSend/entry.ts"'
@@ -47,6 +47,7 @@ check "exits 0" '[ "$(cat "$T/code")" = 0 ]'
 check "redeploys only the changed one" 'grep -q "Redeployed: sendMarkShipped$" "$T/out"'
 check "restored" 'cmp -s "$FAKE_DIR/code/sendMarkShipped" "$HERE/base44/functions/sendMarkShipped/entry.ts"'
 check "reports the sync" 'grep -q "CROOKS-1869 → cancelled" "$T/out" && grep -q "shopifySyncUsage: Shopify: access denied" "$T/out"'
+check "refreshes the gift rules last" 'grep -q "Gift rules: BILLYJPEG KATE; paused CROOKSLDN" "$T/out"'
 
 echo "--check with a missing Shopify permission"
 sed 's/"missing":\[\]/"missing":[{"scope":"read_discounts","why":"affiliate code usage"}]/' "$BASE44_CLI" >"$T/fake-missing.sh"

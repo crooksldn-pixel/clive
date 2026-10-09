@@ -208,6 +208,100 @@ mutation PartnerHubWebhookCreate($topic: WebhookSubscriptionTopic!, $sub: Webhoo
   }
 }`;
 
+// ---- Creator gift: discounts and gift rules (CREATOR_GIFT.md) ----
+
+export const DISCOUNT_BY_CODE = /* GraphQL */ `
+query PartnerHubDiscountByCode($code: String!) {
+  codeDiscountNodeByCode(code: $code) {
+    id
+    codeDiscount {
+      __typename
+      ... on DiscountCodeBasic {
+        title
+        status
+        customerGets { value { __typename ... on DiscountPercentage { percentage } } }
+      }
+      ... on DiscountCodeBxgy {
+        title
+        status
+        customerBuys { items { __typename ... on DiscountCollections { collections(first: 10) { nodes { id } } } } }
+        customerGets { items { __typename ... on DiscountProducts { products(first: 20) { nodes { id } } productVariants(first: 20) { nodes { id } } } } }
+      }
+      ... on DiscountCodeFreeShipping { title status }
+      ... on DiscountCodeApp { title status }
+    }
+  }
+}`;
+
+export const BXGY_CREATE = /* GraphQL */ `
+mutation PartnerHubBxgyCreateV($input: DiscountCodeBxgyInput!) {
+  discountCodeBxgyCreate(bxgyCodeDiscount: $input) { codeDiscountNode { id } userErrors { field message code } }
+}`;
+
+export const BXGY_UPDATE = /* GraphQL */ `
+mutation PartnerHubBxgyUpdate($id: ID!, $input: DiscountCodeBxgyInput!) {
+  discountCodeBxgyUpdate(id: $id, bxgyCodeDiscount: $input) { codeDiscountNode { id } userErrors { field message code } }
+}`;
+
+export const BASIC_CREATE = /* GraphQL */ `
+mutation PartnerHubBasicCreateV($input: DiscountCodeBasicInput!) {
+  discountCodeBasicCreate(basicCodeDiscount: $input) { codeDiscountNode { id } userErrors { field message code } }
+}`;
+
+export const BASIC_UPDATE = /* GraphQL */ `
+mutation PartnerHubBasicUpdate($id: ID!, $input: DiscountCodeBasicInput!) {
+  discountCodeBasicUpdate(id: $id, basicCodeDiscount: $input) { codeDiscountNode { id } userErrors { field message code } }
+}`;
+
+export const DISCOUNT_DELETE = /* GraphQL */ `
+mutation PartnerHubDiscountDelete($id: ID!) {
+  discountCodeDelete(id: $id) { deletedCodeDiscountId userErrors { field message code } }
+}`;
+
+export const DISCOUNT_ACTIVATE = /* GraphQL */ `
+mutation PartnerHubDiscountActivate($id: ID!) {
+  discountCodeActivate(id: $id) { codeDiscountNode { id } userErrors { field message code } }
+}`;
+
+export const DISCOUNT_DEACTIVATE = /* GraphQL */ `
+mutation PartnerHubDiscountDeactivate($id: ID!) {
+  discountCodeDeactivate(id: $id) { codeDiscountNode { id } userErrors { field message code } }
+}`;
+
+export const DISCOUNT_STATUSES = /* GraphQL */ `
+query PartnerHubDiscountStatuses($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    __typename
+    ... on DiscountCodeNode {
+      id
+      codeDiscount { __typename ... on DiscountCodeBasic { status } ... on DiscountCodeBxgy { status } }
+    }
+  }
+}`;
+
+export const COLLECTION = /* GraphQL */ `
+query PartnerHubCollection($id: ID!) {
+  collection(id: $id) { id title }
+}`;
+
+export const APP_INSTALLATION = /* GraphQL */ `
+query PartnerHubAppInstallation {
+  currentAppInstallation { id }
+}`;
+
+export const GIFT_VARIANTS = /* GraphQL */ `
+query PartnerHubGiftVariants($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    __typename
+    ... on ProductVariant { id title product { title handle productType } }
+  }
+}`;
+
+export const METAFIELDS_SET = /* GraphQL */ `
+mutation PartnerHubMetafieldsSet($metafields: [MetafieldsSetInput!]!) {
+  metafieldsSet(metafields: $metafields) { metafields { id key namespace } userErrors { field message code } }
+}`;
+
 export const ALL_OPERATIONS = {
   VARIANTS_FOR_SEND,
   ORDER_CREATE,
@@ -222,4 +316,17 @@ export const ALL_OPERATIONS = {
   SHOP_CHECK,
   WEBHOOKS,
   WEBHOOK_CREATE,
+  DISCOUNT_BY_CODE,
+  BXGY_CREATE,
+  BXGY_UPDATE,
+  BASIC_CREATE,
+  BASIC_UPDATE,
+  DISCOUNT_DELETE,
+  DISCOUNT_ACTIVATE,
+  DISCOUNT_DEACTIVATE,
+  DISCOUNT_STATUSES,
+  COLLECTION,
+  APP_INSTALLATION,
+  GIFT_VARIANTS,
+  METAFIELDS_SET,
 };

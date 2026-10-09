@@ -16,7 +16,7 @@ set -euo pipefail
 APP_ID="6a96ee08b3aefa8357c55ed7"
 APP_URL="https://crooks-partner-hub.base44.app"
 STORE_DOMAIN="5wn03t-nm.myshopify.com"
-FUNCTIONS=(shopifyCreateSend shopifySyncCatalog shopifySyncTracking shopifySyncUsage sendMarkShipped shopifyCheckConnection shopifyWebhook portalCheckAvailable partnerApi)
+FUNCTIONS=(shopifyCreateSend shopifySyncCatalog shopifySyncTracking shopifySyncUsage sendMarkShipped shopifyCheckConnection shopifyWebhook portalCheckAvailable partnerApi shopifyCreateDiscount syncPromotions)
 PROMPT_URL="https://github.com/crooksldn-pixel/clive/blob/claude/compassionate-planck-9xe5of/partner-hub/BASE44_PROMPT.md"
 SAMPLE_VARIANT="53075854197079" # GREY CONVICT SWEATS - XS, used for a read-only stock check
 
@@ -359,9 +359,9 @@ outside_test() {
 }
 
 run_sync() {
-  step "SYNC (catalogue, affiliate codes, tracking)"
+  step "SYNC (catalogue, affiliate codes, tracking, gift rules)"
   local fn res
-  for fn in shopifySyncCatalog shopifySyncUsage shopifySyncTracking; do
+  for fn in shopifySyncCatalog shopifySyncUsage shopifySyncTracking syncPromotions; do
     res="$(exec_result "$(invoke_script "$fn" '{}')")" || { warn "$fn didn't run (output above)"; continue; }
     if [ "$(json_get "$res" 'd.ok === false ? "err" : "ok"')" = "err" ]; then
       warn "$fn: $(json_get "$res" 'd.error')"
@@ -371,6 +371,7 @@ run_sync() {
       shopifySyncCatalog) ok "Catalogue: $(json_get "$res" 'd.products + " products, " + d.created + " new, " + d.hiddenMissing + " hidden (not in Shopify), " + d.renamed.length + " renamed with picks moved"')" ;;
       shopifySyncUsage) ok "Affiliate codes: $(json_get "$res" 'd.codes + " checked, " + d.updated + " updated" + (d.notInShopify.length ? ", not in Shopify: " + d.notInShopify.join(" ") : "")')" ;;
       shopifySyncTracking) ok "Tracking: $(json_get "$res" 'd.checked + " sends checked, " + d.updated + " updated" + (d.changes.length ? " (" + d.changes.map(c => (c.orderName || "?") + " → " + c.to).join(", ") + ")" : "")')" ;;
+      syncPromotions) ok "Gift rules: $(json_get "$res" '(d.codes.length ? d.codes.join(" ") : "no codes yet") + (d.deactivated.length ? "; paused " + d.deactivated.join(" ") : "") + (d.activated.length ? "; unpaused " + d.activated.join(" ") : "") + (d.missingInShopify.length ? "; missing in Shopify: " + d.missingInShopify.join(" ") : "")')" ;;
     esac
   done
 }

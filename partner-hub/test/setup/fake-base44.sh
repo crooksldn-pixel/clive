@@ -28,6 +28,7 @@ case "$1 ${2:-}" in
       *shopifySyncCatalog*) echo 'PARTNER_HUB_RESULT {"ok":true,"products":25,"created":3,"updated":24,"hiddenMissing":0,"renamed":[{"from":"cb1-wash-jeans","to":"grey-wash-yard-jeans","interestsMoved":2}]}' ;;
       *shopifySyncUsage*) echo 'PARTNER_HUB_RESULT {"ok":false,"error":"Shopify: access denied","status":502}' ;;
       *shopifySyncTracking*) echo 'PARTNER_HUB_RESULT {"ok":true,"checked":1,"updated":1,"changes":[{"orderName":"CROOKS-1869","to":"cancelled"}]}' ;;
+      *syncPromotions*) echo 'PARTNER_HUB_RESULT {"ok":true,"codes":["BILLYJPEG","KATE"],"updatedAt":"2026-10-09T16:30:00Z","activated":[],"deactivated":["CROOKSLDN"],"missingInShopify":[]}' ;;
     esac ;;
   *) echo "fake: unhandled $*" >&2; exit 9 ;;
 esac

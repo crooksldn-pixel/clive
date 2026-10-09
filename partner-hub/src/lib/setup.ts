@@ -9,7 +9,7 @@ export const REQUIRED_SCOPES = [
   { scope: "read_inventory", why: "stock checks" },
   { scope: "write_orders", why: "creating the gifted orders" },
   { scope: "write_merchant_managed_fulfillment_orders", why: "MARK SHIPPED with a tracking number" },
-  { scope: "read_discounts", why: "affiliate code usage" },
+  { scope: "write_discounts", why: "creator codes (free socks and % off)" },
 ];
 
 export const WEBHOOK_TOPICS = ["FULFILLMENTS_CREATE", "FULFILLMENTS_UPDATE", "ORDERS_CANCELLED"];

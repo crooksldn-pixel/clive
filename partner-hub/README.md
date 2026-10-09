@@ -21,6 +21,8 @@ names now.
 | `shopifyCheckConnection` | CHECK SHOPIFY (after the Base44 prompt) | Tests the connection, lists missing permissions, registers the webhooks. |
 | `portalCheckAvailable` | onboarding / affiliate code (after the Base44 prompt) | "Is this username/code taken?" once records are private. |
 | `partnerApi` | CLIVE | See [CLIVE_API.md](CLIVE_API.md). |
+| `shopifyCreateDiscount` | Affiliate tab, admin code override | A creator code's Shopify discount: free MOTIONTEC socks (Buy X Get Y) or % off. See [CREATOR_GIFT.md](CREATOR_GIFT.md). |
+| `syncPromotions` | SYNC, SYNC GIFT RULES, status changes | Pauses/unpauses codes with the influencer and writes the gift rules the bag script reads. |
 
 ### What stops an order failing
 
@@ -88,7 +90,7 @@ nvm if yours is too old, plus the pinned Base44 CLI and Deno. Then it:
 - asks for the Shopify Client ID and secret (the secret is typed hidden);
 - makes the CLIVE API key and keeps a copy in
   `~/.config/crooks-partner-hub/partner-api-key`;
-- deploys the nine functions and replaces any builder copies of them;
+- deploys the eleven functions and replaces any builder copies of them;
 - checks Base44 is running exactly this version;
 - connects to Shopify and registers the webhooks;
 - calls the CLIVE API from outside to prove it answers.
@@ -209,7 +211,7 @@ generated files are committed so deploying needs no build step.
 
 ```bash
 npm install
-npm run verify   # type-check, 49 tests, build, end-to-end smoke test of the built files
+TZ=UTC npm run verify   # type-check, 76 tests, build, end-to-end smoke test of the built files
 ```
 
 - `test/` uses fakes for Base44 and Shopify. The fixtures are real responses
@@ -222,3 +224,7 @@ npm run verify   # type-check, 49 tests, build, end-to-end smoke test of the bui
 - Every Shopify operation in `src/lib/queries.ts` has been validated against
   the Admin API schema, as has the exact `orderCreate` input the code builds.
   `npm run graphql` prints them for re-checking after an API version bump.
+
+`shopify-app/` is the CROOKS Partner Hub Shopify app (extension only): the
+`creator-gift` theme app embed that puts the free socks in the bag. See
+[CREATOR_GIFT.md](CREATOR_GIFT.md) section 5 for deploying it.

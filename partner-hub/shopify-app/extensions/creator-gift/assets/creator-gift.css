@@ -1,0 +1,34 @@
+/* Creator gift messages inside Horizon's cart discount box. */
+.crooks-gift {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--gap-2xs, 0.5rem) var(--gap-sm, 0.75rem);
+  font-size: var(--font-size--2xs, 0.75rem);
+  line-height: 1.4;
+}
+
+.crooks-gift--above {
+  padding-block: var(--padding-2xs, 0.25rem) 0;
+  color: rgb(var(--color-foreground-rgb, 0 0 0) / var(--opacity-subdued-text, 0.7));
+}
+
+.crooks-gift--below {
+  padding-block: 0 var(--padding-sm, 0.75rem);
+}
+
+.crooks-gift__text {
+  margin: 0;
+}
+
+.crooks-gift__swap {
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+  color: inherit;
+}
+
+.crooks-gift__swap[hidden] {
+  display: none;
+}

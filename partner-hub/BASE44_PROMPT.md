@@ -15,7 +15,8 @@ doesn't know as "Overdue".
 ```text
 The backend functions shopifyCreateSend, shopifySyncCatalog, shopifySyncTracking,
 shopifySyncUsage, sendMarkShipped, shopifyCheckConnection, shopifyWebhook,
-portalCheckAvailable and partnerApi are maintained outside the builder. Do NOT
+portalCheckAvailable, partnerApi, shopifyCreateDiscount and syncPromotions are
+maintained outside the builder. Do NOT
 create, edit, regenerate or delete any of them, and do not call Shopify from the
 frontend. Only make the frontend and entity changes below. Keep the existing
 look (purple #542578, font-heading, square corners, small uppercase labels).
@@ -130,6 +131,66 @@ look (purple #542578, font-heading, square corners, small uppercase labels).
 ```
 
 ---
+
+## Creator gift (second prompt)
+
+For [CREATOR_GIFT.md](CREATOR_GIFT.md). Paste this one after
+`shopifyCreateDiscount` and `syncPromotions` are deployed. Then run
+`bash scripts/server-setup.sh --sync`, which first checks the builder didn't
+touch the functions.
+
+```text
+The backend functions shopifyCreateDiscount and syncPromotions are maintained
+outside the builder, like shopifyCreateSend and the others. Do NOT create, edit,
+regenerate or delete shopifyCreateDiscount, syncPromotions or any other backend
+function. Only make these frontend and entity changes. Keep the existing look.
+
+1. NEW ENTITY Promotion: name (string), active (boolean), giftVariantIds (array
+   of numbers, in order), qualifyingCollectionId (string), excludeProductTypes
+   (array of strings). Only admins can read or write it. Create one record:
+   name "Creator socks", active true,
+   giftVariantIds [53455222964567, 53456567238999],
+   qualifyingCollectionId "" (empty until George adds it),
+   excludeProductTypes ["Socks"].
+
+2. ADMIN > new PROMOTIONS tab, next to INFLUENCERS, AFFILIATE and CATALOGUE:
+   - A form to edit that record: name, active (toggle), gift variant IDs (one
+     per line, in order of preference: the first one in stock is used),
+     qualifying collection ID (hint: "Shopify admin → Products → Collections →
+     Creator gift – qualifying → the number at the end of the address"), and
+     excluded product types (comma separated). Save with
+     base44.entities.Promotion.update.
+   - A table of every AffiliateCode whose type is "free_socks": code,
+     influencer username (linking to the admin influencer page), the
+     influencer's status (active, paused, pending or blocked), "In Shopify"
+     yes/no (whether shopifyDiscountId is set), and uses (usageCount).
+   - A "SYNC GIFT RULES" button calling
+     base44.functions.invoke("syncPromotions", {}). Show response.data.codes
+     (comma separated, or "none") and response.data.updatedAt, plus
+     response.data.deactivated, response.data.activated and
+     response.data.missingInShopify when they're not empty. On failure show
+     error.response.data.error.
+   - A short how-to: "Theme editor → App embeds → Creator gift must be on."
+
+3. ADMIN SYNC button: after shopifySyncCatalog, shopifySyncUsage and
+   shopifySyncTracking, also call syncPromotions, and add
+   "Gift rules: <codes>" to the summary.
+
+4. ADMIN > INFLUENCER PAGE: after the status dropdown saves a new status, call
+   base44.functions.invoke("syncPromotions", {}) so that influencer's codes
+   pause or come back in Shopify. Show error.response.data.error if it fails.
+
+5. ADMIN CODE OVERRIDE (the type/value control in an influencer's AFFILIATE
+   section): replace the hint "Old discount stays live either way." with
+   "Replaces the Shopify discount for this code." Keep its call to
+   shopifyCreateDiscount exactly as it is.
+
+6. INFLUENCER PORTAL > AFFILIATE TAB, when the primary code's type is
+   "free_socks": the share line says
+   "Use code {CODE} in your bag for free MOTIONTEC socks" and shows the link
+   crooksldn.com/discount/{CODE} with a copy button. Percentage codes stay as
+   they are. Keep its call to shopifyCreateDiscount exactly as it is.
+```
 
 ## Check the security change worked
 
