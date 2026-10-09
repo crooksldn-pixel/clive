@@ -353,28 +353,40 @@ def run_lock(synth: SynthesisStore):
         os.close(fd)
 
 
-def running(synth: SynthesisStore) -> bool:
-    """[review 16] Whether a run holds the lock on this server now (a full run, or apply)."""
-    path = synth.root / ".run.lock"
-    if not path.exists():
-        return False
-    fd = os.open(path, os.O_RDWR)
+PROC_LOCKS = "/proc/locks"
+
+
+def running(synth: SynthesisStore) -> str | None:
+    """[review 16, second review] Whether a run holds the lock on this server now (a full run, or apply),
+    read from the kernel's list of locks without ever taking it, so a run starting that instant is never
+    turned away: the holding process's id, "" when none holds it, None when it can't be read."""
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return True
-    else:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        return False
-    finally:
-        os.close(fd)
+        st = os.stat(synth.root / ".run.lock")
+    except FileNotFoundError:
+        return ""
+    except OSError:
+        return None
+    try:
+        with open(PROC_LOCKS, encoding="ascii", errors="replace") as listed:
+            lines = listed.read().splitlines()
+    except OSError:
+        return None
+    lock = f"{os.major(st.st_dev):02x}:{os.minor(st.st_dev):02x}:{st.st_ino}"
+    for line in lines:
+        parts = line.split()
+        # "1: FLOCK  ADVISORY  WRITE <pid> <major>:<minor>:<inode> 0 EOF"; a waiter's line has "->" and holds nothing.
+        if "->" not in parts and len(parts) >= 6 and parts[1] == "FLOCK" and parts[5] == lock:
+            return parts[4]
+    return ""
 
 
 def status_lines(synth: SynthesisStore, gen: str = "") -> list[str]:
     """[review 16] A run's run.json in plain words, and whether a run is going now."""
     gens = synth.generations()
     live = synth.live()
-    going = "A run is going on this server now." if running(synth) else "No run is going on this server now."
+    pid = running(synth)
+    going = (f"A run is going on this server now (process {pid})." if pid else "No run is going on this server now."
+             if pid == "" else "Whether a run is going couldn't be read on this server (no /proc/locks).")
     if not gens:
         return ["No synthesis has been run on this server.", going]
     gen = gen or gens[-1]

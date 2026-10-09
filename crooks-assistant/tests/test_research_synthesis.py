@@ -1066,10 +1066,44 @@ async def test_the_script_says_how_a_run_stands_and_whether_one_is_going(place, 
     assert out[1].startswith(f"Started {run['started_at']}; not finished.")
     assert out[2].startswith(f"Model calls: {run['calls']} (consolidate ") and out[2].endswith("; 1 asked again.")
     assert out[3] == "Problems: 1" and out[4].endswith("judge: The scripted model was told to fail here.")
-    assert out[5] == "Documents not in it: 0" and out[-1] == "A run is going on this server now."
+    assert out[5] == "Documents not in it: 0" and out[-1] == f"A run is going on this server now (process {os.getpid()})."
     args = script.argparse.Namespace(files=[], list=False, try_file=None, synthesise=False, resume=False, export_synthesis=None,
                                      generation="", apply=None, ideas=False, call_timeout=None, status=True)
     assert await script._main(args) == 0 and capsys.readouterr().out.splitlines()[-1] == "No run is going on this server now."
+
+
+async def test_status_never_takes_the_run_lock(place, the_map, monkeypatch):
+    """[second review] --status reads whether a run is going from the kernel's list of locks: it never takes
+    the run lock, even for an instant, so a run starting then is never turned away."""
+    import fcntl
+
+    from app.research.synthesis import run as run_module
+    from app.research.synthesis.run import status_lines
+
+    store, _ledger = place
+    model = fx.Scripted()
+    await fx.read_old_way(store, model, *FIRST_THREE)
+    await synthesise(store, model=model, the_map=the_map)
+    synth = synthesis_store(store)
+    fd = os.open(synth.root / ".run.lock", os.O_RDWR)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    taken = []
+
+    def flock(*args):
+        taken.append(args)
+        raise AssertionError("--status took the run lock")
+
+    monkeypatch.setattr(run_module.fcntl, "flock", flock)
+    try:
+        held = status_lines(synth)[-1]
+    finally:
+        monkeypatch.undo()
+        os.close(fd)
+    assert held == f"A run is going on this server now (process {os.getpid()})." and taken == []
+    monkeypatch.setattr(run_module.fcntl, "flock", flock)
+    assert status_lines(synth)[-1] == "No run is going on this server now." and taken == []
+    monkeypatch.setattr(run_module, "PROC_LOCKS", "/nowhere/locks")
+    assert status_lines(synth)[-1] == "Whether a run is going couldn't be read on this server (no /proc/locks)."
 
 
 async def test_a_resumed_run_says_every_document_that_joined_an_idea_once(place, the_map, monkeypatch):
