@@ -218,11 +218,12 @@ def _ideas(research) -> int:
         answered = idea_answers.keys(decisions.ledger().effective())
     except decisions.DecisionError:
         answered = {}
+    yours = {"go": "you approved the work", "later": "you said not now", "no": "you said not for CLIVE"}
     for idea in synth.ideas(gen).values():
         if idea.get("status") != "active":
             continue
         a = idea.get("answers") or {}
-        execution = "Ready" if answered.get(idea["id"]) == "go" else "Not approved"
+        execution = yours.get(answered.get(idea["id"]), "not approved")
         _print(f"{idea['id']} {idea['name']} (backed by {len(documents_backing(idea))}): "
                f"{words('judgment', a.get('judgment', ''))} / {words('relationship', a.get('relationship', ''))} / "
                f"{words('timing', a.get('timing', ''))} / {execution}")

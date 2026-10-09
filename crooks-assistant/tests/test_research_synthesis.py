@@ -264,6 +264,31 @@ async def test_the_same_file_given_again_once_live_asks_nothing(place, the_map):
     assert len(model.prompts) == asked and _events(store, world["gen"]) == events
 
 
+async def test_a_document_that_stops_once_live_is_said_and_its_ideas_are_judged_with_the_next(place, the_map):
+    store, ledger = place
+    world = await fx.build_world(store, ledger, the_map=the_map)
+    model, gen = world["model"], world["gen"]
+    model.fail_at = "judge"
+    (eta,) = [r for r in await flow.run_pending(store, model=model, the_map=the_map) if r["name"] == "test-note-eta.md"]
+    assert eta["state"] == "failed"
+    assert eta["why"] == "It was taken in safely, but couldn't be joined to CLIVE's ideas: The scripted model was told to fail here."
+    restart = _active(store, gen)["Work survives a restart"]
+    assert restart["judged_with"]["evidence_hash"] != restart["evidence_hash"], "its new evidence waits to be judged"
+    before = len(model.asked("judge"))
+    flow.receive(store, "test-note-theta.md", b"# TEST RESEARCH NOTE - invented for CLIVE's tests (theta)\n\n## TEST SECTION: Keys\n\n"
+                 b"Every key should say plainly when CLIVE last checked it.\n", via="screen")
+    model.claims["test-note-theta.md"] = [fx.claim("Say when each key was checked", "Each key says when it was last checked.",
+                                                   "Every key should say plainly when CLIVE last checked it", "TEST SECTION: Keys",
+                                                   "Each key shows when it was checked")]
+    (theta,) = await flow.run_pending(store, model=model, the_map=the_map)
+    assert theta["state"] == "done", theta["why"]
+    judged_now = " ".join(model.asked("judge")[before:])
+    assert "Work survives a restart" in judged_now and "Each key shows when it was checked" in judged_now
+    assert "Answers stay on the Max plan" not in judged_now, "an idea no document touched is not judged again"
+    restart = _active(store, gen)["Work survives a restart"]
+    assert restart["judged_with"]["evidence_hash"] == restart["evidence_hash"]
+
+
 # ------------------------------------------------------------------ the axes, enforced in code
 
 
@@ -893,6 +918,11 @@ def test_the_contract_example_is_the_real_codes_output_and_invented(tmp_path):
             return [shape(v) for v in value]
         return type(value).__name__
 
+    not_live = json.loads(fx.NOT_LIVE_EXAMPLE.read_text())
+    assert not_live["mode"] == "proposals" and not_live["synthesis"]["state"] == "not_live"
+    assert set(not_live["synthesis"]["run"]) == {"generation", "stage", "stage_words", "done", "of", "started_at", "finished_at",
+                                                 "calls", "errors"}
+    assert not_live["groups"][0]["key"] == "waiting" and not_live["groups"][0]["proposals"], "today's section, exactly"
     for payload in (example, made):     # documents given in the same second come in either order
         payload["documents"].sort(key=lambda d: d["name"])
     assert shape(example) == shape(made), "regenerate it: python -m tests.research_synthesis_fixture"

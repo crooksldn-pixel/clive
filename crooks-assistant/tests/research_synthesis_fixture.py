@@ -33,7 +33,12 @@ from app.research.synthesis.summary import SUMMARY_SYSTEM
 HERE = Path(__file__).resolve().parent
 NOTES = HERE / "fixtures" / "research" / "synthesis"
 EXAMPLE = HERE / "fixtures" / "research" / "ideas-payload.json"
+NOT_LIVE_EXAMPLE = HERE / "fixtures" / "research" / "proposals-payload.json"
 OWNER_LOGIN = "team@crooksldn.com"
+
+
+ETA = b"# TEST RESEARCH NOTE - invented for CLIVE's tests (eta)\n\n## TEST SECTION: Jobs again\n\n" \
+      b"Jobs CLIVE was running when the server stopped should be finished once it is back.\n"
 
 
 def note(name: str) -> bytes:
@@ -110,6 +115,11 @@ CLAIMS: dict[str, list[dict[str, Any]]] = {
         claim("Pick up unfinished jobs", "CLIVE picks up unfinished jobs by itself after a restart.",
               "When the server comes back, CLIVE should pick up its unfinished jobs by itself", "TEST SECTION: After a restart",
               "Work survives a restart"),
+    ],
+    "test-note-eta.md": [
+        claim("Finish jobs once back", "Jobs running when the server stopped are finished once it is back.",
+              "Jobs CLIVE was running when the server stopped should be finished once it is back", "TEST SECTION: Jobs again",
+              "Work survives a restart", centrality="supporting"),
     ],
     "test-note-epsilon.md": [
         claim("Tell the owner what changed", "Once a week CLIVE tells the owner what it now thinks differently.",
@@ -480,8 +490,7 @@ async def build_world(store, ledger, *, the_map=None, prepared_request: str = "r
     flow.receive(store, "test-note-epsilon.md", note("test-note-epsilon.md"), via="folder")
     await flow.run_pending(store, model=model, the_map=the_map)
     store.refused_document("test-note-zeta.pdf", "No text could be read from it.", via="folder")
-    flow.receive(store, "test-note-eta.md", b"# TEST RESEARCH NOTE - invented for CLIVE's tests (eta)\n\nStill being read.\n",
-                 via="screen")
+    flow.receive(store, "test-note-eta.md", ETA, via="screen")
     return {"store": store, "model": model, "gen": gen, "ledger": ledger}
 
 
@@ -505,17 +514,34 @@ async def payload(store, ledger) -> dict[str, Any]:
         section._filed = previous
 
 
-def write_example() -> Path:
+async def not_live_payload(store, ledger) -> dict[str, Any]:
+    """The section before any synthesis is live, once one has been run: today's section exactly, with
+    the mode and how far the run got."""
+    from app.builds import research as section
+    from app.builds import research_ideas
+    from app.research.rules import read_map
+    from app.research.synthesis.run import synthesise
+
+    model = Scripted()
+    await read_old_way(store, model, "test-note-alpha.md", "test-note-beta.md", "test-note-gamma.md")
+    await synthesise(store, model=model, the_map=read_map())
+    return {**await section.current(store, ledger), **research_ideas.not_live(store)}
+
+
+def write_example() -> list[Path]:
     import tempfile
 
-    with tempfile.TemporaryDirectory(prefix="ideas-example-") as folder:
-        try:
-            with isolated(Path(folder)) as (store, ledger):
-                found = asyncio.run(payload(store, ledger))
-        finally:
-            _open_up(Path(folder))
-    EXAMPLE.write_text(json.dumps(found, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
-    return EXAMPLE
+    written = []
+    for path, make in ((EXAMPLE, payload), (NOT_LIVE_EXAMPLE, not_live_payload)):
+        with tempfile.TemporaryDirectory(prefix="ideas-example-") as folder:
+            try:
+                with isolated(Path(folder)) as (store, ledger):
+                    found = asyncio.run(make(store, ledger))
+            finally:
+                _open_up(Path(folder))
+        path.write_text(json.dumps(found, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        written.append(path)
+    return written
 
 
 def _open_up(folder: Path) -> None:

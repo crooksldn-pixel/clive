@@ -58,7 +58,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,478 | live | — | none |
 | `bench` | 2,298 | live | 5 modules | [`BENCH.md`](docs/BENCH.md) |
-| `builds` | 1,739 | live | — | none |
+| `builds` | 2,135 | live | — | none |
 | `capabilities` | 759 | live | `surface` | none |
 | `clients` | 6,290 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
 | `connections` | 2,031 | live | — | [`CONNECTIONS.md`](docs/CONNECTIONS.md) |
@@ -80,9 +80,9 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `reads` | 1,451 | live | — | none |
 | `release` | 3,139 | live | 6 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
 | `remote_engineering` | 2,506 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
-| `research` | 1,884 | live | — | [`RESEARCH.md`](docs/RESEARCH.md) |
+| `research` | 4,537 | live | `apply` | [`RESEARCH.md`](docs/RESEARCH.md) |
 | `returns` | 1,084 | live | — | [`RETURNS_EVENTS.md`](docs/RETURNS_EVENTS.md) its events, DEC-077 |
-| `routes` | 8,745 | live | — | none |
+| `routes` | 8,880 | live | — | none |
 | `scenes` | 2,579 | off (`CLIVE_SCENES` off, default) | — | [`GENERATIVE_UI_V1.md`](docs/product-memory/GENERATIVE_UI_V1.md) |
 | `secrets` | 965 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) |
 | `session` | 1,194 | live | — | none |
@@ -137,6 +137,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | Keys stored from the app | `<secret dir>/app/<key>.cred` | `secrets/vault.py` | always |
 | Digest store | `one folder per artifact` | `digest/store.py` | always |
 | Research | `research/: inbox/, received/, quarantine/, digests/, documents/` | `research/store.py` | always |
+| Research ideas | `research/synthesis/: LIVE, gen-*/ (claims/, ideas/, events.jsonl, summary.json, run.json), cache/, prepared.jsonl` | `research/synthesis/store.py` | always |
 | Release service | `status.json, deploys/, failed/, approvals-used/, HALT` | `release/state.py` | `CLIVE_RELEASE_ENABLED` off (default) |
 | Deploy approvals | `release-waivers/, release-kept/` | `release/approve.py` | always |
 | Bench sets and runs | `bench/questions/, bench/runs/` | `bench/runner.py` | CLI only |
@@ -210,5 +211,5 @@ Unwired, off or dropped, but still in the code or the repository. By the expiry 
 ---
 
 <!-- map:words -->
-**Read first, before → after: 34,804 → 4,887 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
+**Read first, before → after: 34,804 → 4,970 words** (a word is a whitespace-separated token with a letter or digit in it, so table pipes do not count). Before, at `b33ccbc2`: both READMEs, CURRENT_TRUTH, DECISIONS and the 9 doctrine documents of DEC-039's start set (listed in `scripts/map.py`). After: `CLAUDE.md`, this map and CURRENT_TRUTH.
 <!-- /map:words -->

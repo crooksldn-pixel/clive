@@ -34,7 +34,7 @@ from app.research.synthesis import migrate
 from app.research.synthesis import summary as summary_step
 from app.research.synthesis.ask import Calls, SynthesisError
 from app.research.synthesis.extract import VERSION, extract
-from app.research.synthesis.ideas import finish, has_claim, judged, new_idea
+from app.research.synthesis.ideas import evidence_hash, finish, has_claim, judged, new_idea
 from app.research.synthesis.store import ReadProblem, SynthesisStore, now, synthesis_store
 
 STAGES = ("documents", "consolidate", "migrate", "judge", "summary", "done")
@@ -514,10 +514,15 @@ async def absorb_live(research_store, record: dict[str, Any], text: str, *, mode
     calls = Calls(model)
     work = Work(synth, gen, calls, the_map, answered=answered)
     touched = await absorb(work, record, text)
+    # Ideas an earlier document changed and couldn't see judged (its run stopped) are judged now too:
+    # a document touched them. Ideas no document touched are never judged again here.
+    touched |= {i["id"] for i in work.active()
+                if judged(i) and evidence_hash(i) != (i.get("judged_with") or {}).get("evidence_hash")}
     if touched:
         await judge(work, touched)
         await summarise(work)
-    doc = work.claims.get(record["id"]) or {}
+    digest = record.get("file_digest") or ""
+    doc = work.claims.get(record["id"]) or next((c for c in work.claims.values() if digest and c.get("file_digest") == digest), {})
     return {"claims": len(doc.get("claims") or []), "unplaced": len(doc.get("unplaced") or []), "touched": sorted(touched),
             "calls": calls.made, "generation": gen}
 

@@ -2,8 +2,8 @@
  "mode": "ideas",
  "summary": "10 ideas from 5 documents; 3 wait on you; 1 being read.",
  "synthesis": {
-  "generation": "gen-20261009T130653",
-  "at": "2026-10-09T13:06:53+00:00",
+  "generation": "gen-20261009T131333",
+  "at": "2026-10-09T13:13:33+00:00",
   "points": [
    "TEST RESEARCH NOTE — invented for CLIVE's tests: CLIVE's work should survive a restart.",
    "Keep every outward change behind your hold; the test notes disagree only on small refunds.",
@@ -164,27 +164,27 @@
    ],
    "history": [
     {
-     "at": "2026-10-09T13:06:53+00:00",
+     "at": "2026-10-09T13:13:33+00:00",
      "said": "Created from test-note-alpha.md: Work survives a restart."
     },
     {
-     "at": "2026-10-09T13:06:53+00:00",
+     "at": "2026-10-09T13:13:33+00:00",
      "said": "test-note-beta.md joined it: 1 recommendation (supports)."
     },
     {
-     "at": "2026-10-09T13:06:53+00:00",
+     "at": "2026-10-09T13:13:33+00:00",
      "said": "test-note-gamma.md joined it: 1 recommendation (supports)."
     },
     {
-     "at": "2026-10-09T13:06:53+00:00",
+     "at": "2026-10-09T13:13:33+00:00",
      "said": "Judged: Right direction, Builds on what exists, Now. Checked by CLIVE's rules: Not in CLIVE's code or features, so left out of where it is today: app/no_such_part/keeper.py."
     },
     {
-     "at": "2026-10-09T13:06:53+00:00",
+     "at": "2026-10-09T13:13:33+00:00",
      "said": "test-note-delta.md joined it: 1 recommendation (supports)."
     },
     {
-     "at": "2026-10-09T13:06:53+00:00",
+     "at": "2026-10-09T13:13:33+00:00",
      "said": "Judged: Right direction, Builds on what exists, Now. Checked by CLIVE's rules: Not in CLIVE's code or features, so left out of where it is today: app/no_such_part/keeper.py."
     }
    ],
@@ -336,23 +336,23 @@
    ],
    "history": [
     {
-     "at": "2026-10-09T13:06:53+00:00",
+     "at": "2026-10-09T13:13:33+00:00",
      "said": "Created from test-note-alpha.md: Send small refunds without a hold."
     },
     {
-     "at": "2026-10-09T13:06:53+00:00",
+     "at": "2026-10-09T13:13:33+00:00",
      "said": "test-note-beta.md joined it: 1 recommendation (supports)."
     },
     {
-     "at": "2026-10-09T13:06:53+00:00",
+     "at": "2026-10-09T13:13:33+00:00",
      "said": "test-note-gamma.md joined it: 1 recommendation (supports)."
     },
     {
-     "at": "2026-10-09T13:06:53+00:00",
+     "at": "2026-10-09T13:13:33+00:00",
      "said": "9 Oct, old screen: Reject, RULE-2 (Breaks rule 2 (Anything outward waits for a gesture on its card): it lets something go out, spend or change the shop without his gesture on its card (“refunds automatically”).)"
     },
     {
-     "at": "2026-10-09T13:06:53+00:00",
+     "at": "2026-10-09T13:13:33+00:00",
      "said": "Judged: Needs your call, New, Next. Checked by CLIVE's rules: CLIVE's own check of rule 2 found it asks to break it."
     }
    ],
@@ -378,7 +378,7 @@
   },
   {
    "id": "idea-0002",
-   "fingerprint": "792e6e7af39a37108568c1b313738f17b34c70803661aebd9f9da78456c72969",
+   "fingerprint": "66a7798b665d0ae815f125864c449fa6cb7c5b574bfa720f326ada0d4d4e08d3",
    "name": "Adopt a workflow engine for it",
    "statement": "Use an outside workflow engine to keep CLIVE's jobs alive.",
    "kind": "tooling-choice",
@@ -476,19 +476,19 @@
    ],
    "history": [
     {
-     "at": "2026-10-09T13:06:53+00:00",
+     "at": "2026-10-09T13:13:33+00:00",
      "said": "Created from test-note-alpha.md: Adopt a workflow engine for it."
     },
     {
-     "at": "2026-10-09T13:06:53+00:00",
+     "at": "2026-10-09T13:13:33+00:00",
      "said": "test-note-beta.md joined it: 0 recommendations (opposes)."
     },
     {
-     "at": "2026-10-09T13:06:53+00:00",
+     "at": "2026-10-09T13:13:33+00:00",
      "said": "9 Oct, old screen: Park, DEC-018 (Finishing current work comes first (DEC-018).)"
     },
     {
-     "at": "2026-10-09T13:06:53+00:00",
+     "at": "2026-10-09T13:13:33+00:00",
      "said": "Judged: Worth looking into, New, No date."
     }
    ],
@@ -658,27 +658,27 @@
      ],
      "history": [
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Created from test-note-alpha.md: Work survives a restart."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "test-note-beta.md joined it: 1 recommendation (supports)."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "test-note-gamma.md joined it: 1 recommendation (supports)."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Judged: Right direction, Builds on what exists, Now. Checked by CLIVE's rules: Not in CLIVE's code or features, so left out of where it is today: app/no_such_part/keeper.py."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "test-note-delta.md joined it: 1 recommendation (supports)."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Judged: Right direction, Builds on what exists, Now. Checked by CLIVE's rules: Not in CLIVE's code or features, so left out of where it is today: app/no_such_part/keeper.py."
       }
      ],
@@ -836,23 +836,23 @@
      ],
      "history": [
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Created from test-note-alpha.md: Send small refunds without a hold."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "test-note-beta.md joined it: 1 recommendation (supports)."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "test-note-gamma.md joined it: 1 recommendation (supports)."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "9 Oct, old screen: Reject, RULE-2 (Breaks rule 2 (Anything outward waits for a gesture on its card): it lets something go out, spend or change the shop without his gesture on its card (“refunds automatically”).)"
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Judged: Needs your call, New, Next. Checked by CLIVE's rules: CLIVE's own check of rule 2 found it asks to break it."
       }
      ],
@@ -987,38 +987,38 @@
      ],
      "history": [
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Created from test-note-alpha.md: Each key shows when it was checked."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "idea-0011 (Keys show a last-checked time) joined it: Both say every key shows when it was checked."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "9 Oct, old screen: Adopt, DEC-065 (Serves keys from the app (DEC-065).)"
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Dropped “needs you” (clash): it contradicts no rule or active decision."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Judged: Right direction, New, Next."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "You chose Approve the work."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Its build request was prepared on a card, waiting for your hold."
       }
      ],
      "owner_answer": {
       "key": "go",
       "label": "Approve the work",
-      "at": "2026-10-09T13:06:53+00:00",
+      "at": "2026-10-09T13:13:33+00:00",
       "current": true
      },
      "choices": [
@@ -1151,38 +1151,38 @@
      ],
      "history": [
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Created from test-note-beta.md: A weekly note of what CLIVE learned."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Its plain-English view is incomplete, even after CLIVE asked again; it is shown as it is."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Judged: Right in part, New, Later (held by DEC-018)."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "You chose Not now."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "test-note-epsilon.md joined it: 1 recommendation (supports)."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Its plain-English view is incomplete, even after CLIVE asked again; it is shown as it is."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Judged: Right in part, New, Later (held by DEC-018)."
       }
      ],
      "owner_answer": {
       "key": "later",
       "label": "Not now",
-      "at": "2026-10-09T13:06:53+00:00",
+      "at": "2026-10-09T13:13:33+00:00",
       "current": false
      },
      "choices": [
@@ -1306,15 +1306,15 @@
      ],
      "history": [
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Created from test-note-beta.md: Supplier messages in one thread."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "9 Oct, old screen: Park, DEC-018 (Finishing current work comes first (DEC-018).)"
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Judged: Right direction, Builds on what exists, Later (held by DEC-018). Checked by CLIVE's rules: DEC-018 only holds when, never whether: the judgment was INVESTIGATE on DEC-018 alone, so it is Right direction, held by DEC-018. DEC-018 holds it, so it isn't Now: it is Later."
       }
      ],
@@ -1431,11 +1431,11 @@
      ],
      "history": [
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Created from test-note-alpha.md: CLIVE keeps one record of orders."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Judged: Right in part, Partly there, Later."
       }
      ],
@@ -1552,11 +1552,11 @@
      ],
      "history": [
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Created from test-note-alpha.md: Stock page updates every hour."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Judged: Right direction, Builds on what exists, Later."
       }
      ],
@@ -1686,11 +1686,11 @@
      ],
      "history": [
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Created from test-note-alpha.md: Done only after reading it back."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Judged: Right direction, Already done, No date. Checked by CLIVE's rules: Already done is not a reason to reject: it is Right direction, already in CLIVE."
       }
      ],
@@ -1809,15 +1809,15 @@
      ],
      "history": [
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Created from test-note-gamma.md: Answers stay on the Max plan."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "9 Oct, old screen: Reject, FEAT-002 (Already live: the Max plan (FEAT-002).)"
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Judged: Right direction, Already done, No date."
       }
      ],
@@ -1843,7 +1843,7 @@
     },
     {
      "id": "idea-0002",
-     "fingerprint": "792e6e7af39a37108568c1b313738f17b34c70803661aebd9f9da78456c72969",
+     "fingerprint": "66a7798b665d0ae815f125864c449fa6cb7c5b574bfa720f326ada0d4d4e08d3",
      "name": "Adopt a workflow engine for it",
      "statement": "Use an outside workflow engine to keep CLIVE's jobs alive.",
      "kind": "tooling-choice",
@@ -1941,19 +1941,19 @@
      ],
      "history": [
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Created from test-note-alpha.md: Adopt a workflow engine for it."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "test-note-beta.md joined it: 0 recommendations (opposes)."
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "9 Oct, old screen: Park, DEC-018 (Finishing current work comes first (DEC-018).)"
       },
       {
-       "at": "2026-10-09T13:06:53+00:00",
+       "at": "2026-10-09T13:13:33+00:00",
        "said": "Judged: Worth looking into, New, No date."
       }
      ],
@@ -1982,27 +1982,12 @@
  ],
  "documents": [
   {
-   "id": "doc-4383a6e082304369803b",
-   "name": "test-note-epsilon.md",
-   "state": "done",
-   "state_words": "Read",
-   "why": "",
-   "received_at": "2026-10-09T13:06:53+00:00",
-   "via": "folder",
-   "claims": 1,
-   "unplaced": [],
-   "synthesis_state": "absorbed",
-   "notes": [
-    "1 recommendation joined CLIVE's ideas (gen-20261009T130653)."
-   ]
-  },
-  {
-   "id": "doc-60e5554ccc8f45fa9c84",
+   "id": "doc-eb938fd821ab4b4c9a93",
    "name": "test-note-delta.md",
    "state": "done",
    "state_words": "Read",
    "why": "",
-   "received_at": "2026-10-09T13:06:53+00:00",
+   "received_at": "2026-10-09T13:13:33+00:00",
    "via": "screen",
    "claims": 1,
    "unplaced": [],
@@ -2010,38 +1995,12 @@
    "notes": []
   },
   {
-   "id": "doc-5d16be50c6ee4047ae78",
-   "name": "test-note-beta.md",
-   "state": "done",
-   "state_words": "Read",
-   "why": "",
-   "received_at": "2026-10-09T13:06:53+00:00",
-   "via": "screen",
-   "claims": 4,
-   "unplaced": [],
-   "synthesis_state": "absorbed",
-   "notes": []
-  },
-  {
-   "id": "doc-969ff85c0e154ecea833",
-   "name": "test-note-eta.md",
-   "state": "queued",
-   "state_words": "Waiting to be read",
-   "why": "",
-   "received_at": "2026-10-09T13:06:53+00:00",
-   "via": "screen",
-   "claims": 0,
-   "unplaced": [],
-   "synthesis_state": "reading",
-   "notes": []
-  },
-  {
-   "id": "doc-950ef09cda7241728806",
+   "id": "doc-a8bbe3fa96e8467ebb51",
    "name": "test-note-zeta.pdf",
    "state": "failed",
    "state_words": "Couldn't be read",
    "why": "No text could be read from it.",
-   "received_at": "2026-10-09T13:06:53+00:00",
+   "received_at": "2026-10-09T13:13:33+00:00",
    "via": "folder",
    "claims": 0,
    "unplaced": [],
@@ -2049,12 +2008,53 @@
    "notes": []
   },
   {
-   "id": "doc-9c131568cde94be88563",
+   "id": "doc-97030362b30e442ea189",
+   "name": "test-note-eta.md",
+   "state": "queued",
+   "state_words": "Waiting to be read",
+   "why": "",
+   "received_at": "2026-10-09T13:13:33+00:00",
+   "via": "screen",
+   "claims": 0,
+   "unplaced": [],
+   "synthesis_state": "reading",
+   "notes": []
+  },
+  {
+   "id": "doc-c07297e5ec164747a4cc",
+   "name": "test-note-epsilon.md",
+   "state": "done",
+   "state_words": "Read",
+   "why": "",
+   "received_at": "2026-10-09T13:13:33+00:00",
+   "via": "folder",
+   "claims": 1,
+   "unplaced": [],
+   "synthesis_state": "absorbed",
+   "notes": [
+    "1 recommendation joined CLIVE's ideas (gen-20261009T131333)."
+   ]
+  },
+  {
+   "id": "doc-bc3df9fcc93f48279b39",
+   "name": "test-note-gamma.md",
+   "state": "done",
+   "state_words": "Read",
+   "why": "",
+   "received_at": "2026-10-09T13:13:32+00:00",
+   "via": "screen",
+   "claims": 4,
+   "unplaced": [],
+   "synthesis_state": "absorbed",
+   "notes": []
+  },
+  {
+   "id": "doc-3a2e17d3533447aa9148",
    "name": "test-note-alpha.md",
    "state": "done",
    "state_words": "Read",
    "why": "",
-   "received_at": "2026-10-09T13:06:53+00:00",
+   "received_at": "2026-10-09T13:13:32+00:00",
    "via": "screen",
    "claims": 8,
    "unplaced": [
@@ -2067,12 +2067,12 @@
    "notes": []
   },
   {
-   "id": "doc-b4c4216ef1fc48a8b339",
-   "name": "test-note-gamma.md",
+   "id": "doc-e56fbd933cd5482591b9",
+   "name": "test-note-beta.md",
    "state": "done",
    "state_words": "Read",
    "why": "",
-   "received_at": "2026-10-09T13:06:53+00:00",
+   "received_at": "2026-10-09T13:13:32+00:00",
    "via": "screen",
    "claims": 4,
    "unplaced": [],

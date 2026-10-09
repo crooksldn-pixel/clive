@@ -146,6 +146,10 @@ STORES: tuple[tuple[str, str, str, str | None, tuple[tuple[str, str], ...]], ...
     ("Digest store", "one folder per artifact", "app/digest/store.py", None, (("app/digest/store.py", "units.jsonl"),)),
     ("Research", "research/: inbox/, received/, quarantine/, digests/, documents/", "app/research/store.py", None,
      (("app/research/store.py", '".research.json"'),)),
+    # [synthesis] What CLIVE learned from research (DEC-078): generations of ideas, server only.
+    ("Research ideas", "research/synthesis/: LIVE, gen-*/ (claims/, ideas/, events.jsonl, summary.json, run.json), "
+     "cache/, prepared.jsonl", "app/research/synthesis/store.py", None,
+     (("app/research/synthesis/store.py", '"events.jsonl"'), ("app/research/synthesis/store.py", '"prepared.jsonl"'))),
     # Written by the release service on the server (/var/lib/clive-release), not by the running app.
     ("Release service", "status.json, deploys/, failed/, approvals-used/, HALT", "app/release/state.py",
      "CLIVE_RELEASE_ENABLED", (("app/release/state.py", '"status.json"'), ("app/release/state.py", '"HALT"'),

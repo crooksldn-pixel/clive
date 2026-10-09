@@ -14,6 +14,8 @@ What it promises:
   recommended".
 - ScriptedModel answers from a fixed list and records every prompt, for tests. Nothing in the
   running app installs it; tests do, with `install`.
+- Each call's time limit can be set (`with_timeout`): the research synthesis gives each of its steps
+  its own (app/research/synthesis/ask.py), since judging can need ten minutes where reading needs less.
 """
 
 from __future__ import annotations
