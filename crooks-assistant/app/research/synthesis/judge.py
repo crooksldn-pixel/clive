@@ -291,8 +291,11 @@ def _reject_needs_a_rule(answers, keys, basis, the_map, idea, notes) -> None:
     direction, and anything else is Worth looking into; Direction then says why code changed it."""
     if answers["judgment"] != "REJECT" or grounds(keys, the_map):
         return
+    # [second review N1] A feature or what is live says "already done" only when the model rested the
+    # judgment on it, or said it already does it: one the idea merely builds on is no such claim.
     done = [b for b in basis if b.startswith("FEAT-") or b == "TRUTH"]
-    done += [k["key"] for k in keys if (k["key"].startswith("FEAT-") or k["key"] == "TRUTH") and k["key"] not in done]
+    done += [k["key"] for k in keys if (k["key"].startswith("FEAT-") or k["key"] == "TRUTH")
+             and k["how"] == "already does it" and k["key"] not in done]
     if answers["relationship"] == "ALREADY_SATISFIED" or done:
         notes.append("Already done is not a reason to reject: it is Right direction, already in CLIVE." + _was(idea))
         answers["judgment"] = "ADOPT"

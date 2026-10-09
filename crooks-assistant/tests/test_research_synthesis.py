@@ -511,6 +511,21 @@ def test_a_place_in_the_code_that_isnt_there_is_removed(the_map):
     assert none_left["today"]["where"] == [] and none_left["today"]["verified"] is False
 
 
+def test_a_feature_the_idea_only_builds_on_never_makes_it_already_done(the_map):
+    """[second review N1] A groundless Not for CLIVE beside a feature the idea only builds on is Worth looking
+    into, never "Already done": CLIVE doesn't already do it."""
+    builds_on = _idea()
+    judge.enforce(builds_on, _raw("REJECT", "NEW", keys=[("FEAT-010", "builds on")], why="Not worth it."), the_map=the_map,
+                  previous=None)
+    assert (builds_on["answers"]["judgment"], builds_on["answers"]["relationship"]) == ("INVESTIGATE", "NEW")
+    assert builds_on["reasons"]["judgment"] == judge.NO_GROUND
+    for keys, basis in (([("FEAT-007", "already does it")], []), ([("FEAT-007", "related")], ["FEAT-007"]),
+                        ([("TRUTH", "contradicts")], [])):
+        done = _idea()
+        judge.enforce(done, _raw("REJECT", "NEW", keys=keys, basis=basis, why="Not worth it."), the_map=the_map, previous=None)
+        assert (done["answers"]["judgment"], done["answers"]["relationship"]) == ("ADOPT", "ALREADY_SATISFIED"), keys
+
+
 def test_the_whole_repository_or_a_top_folder_is_not_a_place_in_the_code(the_map):
     """[review 5] "." or a bare top folder would say "it is in CLIVE" of anything: they are left out."""
     idea = _idea()
