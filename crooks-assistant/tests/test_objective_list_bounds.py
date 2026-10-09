@@ -78,7 +78,7 @@ def test_sixty_closed_objectives_stay_under_the_ceiling_newest_first_and_the_res
     assert 0 < len(named) <= tools.MAX_LISTED
     assert named == [o.id for o in reversed(made)][: len(named)], "the most recently changed first"
     assert out["not_listed"] == (f"{60 - len(named)} more closed objectives not listed, the least recently "
-                                 "changed: search finds one by anything in its record.")
+                                 "changed: search finds one by anything in its record; search before opening a new one.")
     # The oldest is not listed, and is found by its words, and read whole by its id.
     oldest = made[0]
     assert oldest.id not in named
@@ -125,3 +125,17 @@ def test_an_objective_with_lines_at_their_longest_is_listed_with_each_line_cut(s
     assert len(row["needs_you"]) == tools.MAX_NEEDS_YOU and row["needs_you_more"] == 7
     whole = run(tools.objective_show(obj.id))
     assert len(whole["attention"]) == 10 and len(whole["attention"][0]["text"]) == 1992, "the record is whole"
+
+
+@pytest.mark.usefixtures("owner_asking")
+def test_a_listing_that_leaves_some_out_says_to_search_before_opening_a_new_one(s):
+    """objective_open is called "only when objective_list has nothing covering it": an older one the
+    listing did not name is searched for, not opened again (review N4)."""
+    made = [_objective(s, n) for n in range(30)]
+
+    text, out = run(_read({}))
+
+    assert out["not_listed"].endswith("; search before opening a new one.")
+    assert made[0].id not in {o["id"] for o in out["objectives"]}
+    found = run(_read({"search": "objective 000"}))[1]
+    assert [o["id"] for o in found["objectives"]] == [made[0].id] and "not_listed" not in found
