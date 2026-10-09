@@ -484,6 +484,22 @@ def test_a_needs_you_that_isnt_true_is_dropped(the_map):
     assert flipped["needs_you"]["trigger"] == "direction"
 
 
+def test_only_you_can_allow_it_needs_a_protected_part_or_a_rule_it_breaks(the_map):
+    """[review 6] The authority reason holds only with a protected part to change, or a rule it contradicts."""
+    ask = {"trigger": "authority", "question": "May CLIVE change this?"}
+    for keys in ([("RULE-1", "related")], [("RULE-5", "serves")], [("DEC-063", "contradicts")]):
+        idea = _idea()
+        judge.enforce(idea, _raw(keys=keys, needs=ask), the_map=the_map, previous=None)
+        assert idea["needs_you"] is None, keys
+    ruled = _idea()
+    judge.enforce(ruled, _raw("REJECT", keys=[("RULE-5", "contradicts")], needs=ask), the_map=the_map, previous=None)
+    assert ruled["needs_you"] == ask
+    protected = _idea()
+    raw = dict(_raw(needs=ask), touches=["app/actions"])
+    judge.enforce(protected, raw, the_map=the_map, previous=None)
+    assert protected["protected"] and protected["needs_you"] == ask
+
+
 def test_a_place_in_the_code_that_isnt_there_is_removed(the_map):
     idea = _idea()
     notes = judge.enforce(idea, _raw(where=["app/actions/engine.py", "crooks-assistant/web/connections.js", "app/nope/never.py",

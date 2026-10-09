@@ -402,8 +402,9 @@ def _trigger_false(trigger: str, idea: dict[str, Any], the_map: Map, previous: d
     if trigger == "uncertainty":
         return "" if answers["judgment"] == "INVESTIGATE" else "it isn't judged worth looking into"
     if trigger == "authority":
-        ok = bool(idea.get("protected")) or any(k["key"].startswith("RULE-") for k in idea["keys"])
-        return "" if ok else "it needs no protected part and no rule"
+        # [review 6] Only a part only he may allow changing, or a rule it contradicts: never a rule it merely touches.
+        ok = bool(idea.get("protected")) or any(k["key"].startswith("RULE-") and k["how"] == "contradicts" for k in idea["keys"])
+        return "" if ok else "it needs no protected part and contradicts no rule"
     return "it isn't one of the five reasons"
 
 
