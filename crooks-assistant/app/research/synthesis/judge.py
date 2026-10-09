@@ -340,6 +340,16 @@ def _vetoes(idea, raw, answers, keys, basis, the_map, notes) -> None:
     idea["reasons"]["judgment"] = because
 
 
+def _a_place(path: str) -> bool:
+    """[review 5] A file in CLIVE's repository, or a folder inside one of its top folders: never "." or a
+    bare top folder (app, web, docs, ...), which would say "it is in CLIVE" of anything."""
+    parts = path.split("/")
+    if not path or path.startswith("/") or any(p in ("", ".", "..") for p in parts):
+        return False
+    target = APP_ROOT / path
+    return target.exists() and not (len(parts) == 1 and target.is_dir())
+
+
 def _today(raw: Any, the_map: Map, notes: list[str]) -> dict[str, Any]:
     raw = raw if isinstance(raw, dict) else {}
     level = str(raw.get("level") or "").strip().lower()
@@ -348,10 +358,10 @@ def _today(raw: Any, the_map: Map, notes: list[str]) -> dict[str, Any]:
     where, gone = [], []
     for place in claimed:
         key = _key(place, the_map)
-        path = place.strip("`").removeprefix("crooks-assistant/").rstrip("/")
+        path = place.strip("`").strip().removeprefix("crooks-assistant/").removeprefix("./").rstrip("/")
         if key and the_map.get(key).kind == "feature":
             where.append(key)
-        elif path and not path.startswith("/") and ".." not in path.split("/") and (APP_ROOT / path).exists():
+        elif _a_place(path):
             where.append(path)
         else:
             gone.append(place)

@@ -495,6 +495,18 @@ def test_a_place_in_the_code_that_isnt_there_is_removed(the_map):
     assert none_left["today"]["where"] == [] and none_left["today"]["verified"] is False
 
 
+def test_the_whole_repository_or_a_top_folder_is_not_a_place_in_the_code(the_map):
+    """[review 5] "." or a bare top folder would say "it is in CLIVE" of anything: they are left out."""
+    idea = _idea()
+    notes = judge.enforce(idea, _raw(where=[".", "./", "app", "web/", "./docs", "crooks-assistant/tests", "kb", "config", "scripts"]),
+                          the_map=the_map, previous=None)
+    assert idea["today"]["where"] == [] and idea["today"]["verified"] is False
+    assert any("Not in CLIVE's code or features" in n for n in notes)
+    deep = _idea()
+    judge.enforce(deep, _raw(where=["./app/actions", "app/actions/engine.py", "MAP.md"]), the_map=the_map, previous=None)
+    assert deep["today"]["where"] == ["app/actions", "app/actions/engine.py", "MAP.md"] and deep["today"]["verified"]
+
+
 def test_every_value_is_in_its_enum(the_map):
     idea = _idea()
     notes = judge.enforce(idea, _raw("MAYBE", "SORT OF", "SOON"), the_map=the_map, previous=None)
