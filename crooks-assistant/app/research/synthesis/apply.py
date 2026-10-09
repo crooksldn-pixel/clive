@@ -39,7 +39,8 @@ def _quotes(idea: dict[str, Any]) -> list[str]:
 
 
 def _same(quote: str, theirs: list[str]) -> bool:
-    return any(quote == q or quote in q or q in quote for q in theirs)
+    """The same passage: equal, or one holds the other (a scrap under 12 characters holds nothing)."""
+    return any(quote == q or (min(len(quote), len(q)) >= 12 and (quote in q or q in quote)) for q in theirs)
 
 
 def reuse(old: dict[str, dict[str, Any]], new: dict[str, dict[str, Any]]) -> dict[str, str]:

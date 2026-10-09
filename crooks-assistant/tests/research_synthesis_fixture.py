@@ -123,7 +123,7 @@ STANCES = {"test-note-beta.md": [{"says": "Don't add an outside service just to 
 REPAIRS = {"Make stale keys obvious": "so a stale key is obvious", "Send invoices by carrier pigeon": None}
 
 IDEAS = {
-    "Work survives a restart": ("Every job CLIVE starts carries on after the server restarts, instead of being lost.", "foundational"),
+    "Work survives a restart": ("CLIVE's jobs survive a server restart and finish afterwards.", "foundational"),
     "Adopt a workflow engine for it": ("Use an outside workflow engine to keep CLIVE's jobs alive.", "tooling-choice"),
     "Send small refunds without a hold": ("Refunds under a few pounds go out without the owner's hold.", "safety"),
     "Each key shows when it was checked": ("Every key on the Connections screen says when CLIVE last checked it.", "capability"),
@@ -162,7 +162,7 @@ JUDGE: dict[str, dict[str, Any]] = {
         today={"level": "partial", "says": "Proposals are kept on disk; work in progress is not.",
                "where": ["app/actions/engine.py", "FEAT-010", "app/no_such_part/keeper.py"]},
         needs={"trigger": "opportunity", "question": "Do you want CLIVE to keep its work across restarts, starting with returns checks?"},
-        effects=["HIGHER RELIABILITY", "LESS HUMAN ATTENTION"], touches=["app/actions", "app/work"],
+        effects=["HIGHER RELIABILITY", "LESS HUMAN ATTENTION"], touches=["app/work", "web/jobs.js", "app/actions"],
         done=["A job running when the server restarts finishes afterwards.", "Nothing is done twice after a restart."],
         differ="Alpha wants every job kept; beta only the half-done ones.", revisit="If restarts became so rare nothing is ever caught halfway.",
         owner_view=view("If the server restarts while CLIVE is doing something for you, it carries on afterwards.",

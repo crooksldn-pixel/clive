@@ -25,7 +25,7 @@ NEAR_STRETCH = 1.3
 NEAR_SHRINK = 0.7
 _MARKERS = (re.compile(r"(?m)^[ \t]*(?:[-+•]|\d{1,3}[.)])[ \t]+"),
             re.compile(r"(?<=[.!?:;])\s+\d{1,3}[.)]\s+"))
-_CLOSERS = ".,;:!?)\"'’”"
+_CLOSERS = ".!?)\"'\u2019\u201d"
 
 FOUND = "found as written"
 FOUND_LETTERS = "found by its letters and digits"

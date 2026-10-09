@@ -296,11 +296,14 @@ def _windows(text: str) -> set[str]:
     return {" ".join(words_[i:i + QUOTE_WINDOW]) for i in range(max(0, len(words_) - QUOTE_WINDOW + 1))}
 
 
-def _forbidden(idea: dict[str, Any], names: list[str]) -> tuple[list[str], set[str]]:
-    """The research's own words a filed request must never carry: (phrases, quote windows). Phrases are
-    the documents' names, section titles of two words or more (a one-word heading is an ordinary word),
-    and short quotes whole; any eight words in a row from a longer quote is a window."""
+def _forbidden(idea: dict[str, Any], names: list[str], texts: list[str] = ()) -> tuple[list[str], set[str]]:
+    """The research's own words a filed request must never carry: (phrases, windows). Phrases are the
+    documents' names, section titles of two words or more (a one-word heading is an ordinary word), and
+    short quotes whole; any eight words in a row from a longer quote, or from the documents' own text
+    when it is given, is a window."""
     phrases, windows = [], set()
+    for text in texts:
+        windows |= _windows(text)
     for source in idea.get("sources") or []:
         quote = source.get("quote") or ""
         if len(normalise(quote).split()) < QUOTE_WINDOW:
@@ -320,7 +323,7 @@ def _clean(text: str, forbidden: tuple[list[str], set[str]]) -> bool:
     return not any(p in said for p in phrases) and not (_windows(text) & windows)
 
 
-def requested_outcome(idea: dict[str, Any], *, gen: str, names: list[str], the_map=None) -> str:
+def requested_outcome(idea: dict[str, Any], *, gen: str, names: list[str], texts: list[str] = (), the_map=None) -> str:
     """What the build request asks for, in CLIVE's words only: the statement, the owner view's
     "after", its keys and its timing. A line that would carry the research's own words is left out."""
     day = datetime.now(UTC).strftime("%-d %b %Y")
@@ -339,18 +342,36 @@ def requested_outcome(idea: dict[str, Any], *, gen: str, names: list[str], the_m
     if keys:
         lines.append(f"It relates to: {keys}.")
     lines.append("Keep every rule in crooks-assistant/MAP.md; anything outward still waits for his gesture on its card.")
-    forbidden = _forbidden(idea, names)
+    forbidden = _forbidden(idea, names, texts)
     kept = [line for line in lines if _clean(line, forbidden)]
     if len(kept) < len(lines):
         kept.append("(A line was left out because it repeated the research's own words, which stay on the server.)")
     return "\n".join(kept)
 
 
-def filing_args(idea: dict[str, Any], inbox_id: str, *, gen: str, names: list[str], the_map=None) -> dict[str, Any]:
-    """The arguments `submit_engineering_request` is staged with for an approved idea."""
-    forbidden = _forbidden(idea, names)
+def filing_args(idea: dict[str, Any], inbox_id: str, *, gen: str, names: list[str], texts: list[str] = (),
+                the_map=None) -> dict[str, Any]:
+    """The arguments `submit_engineering_request` is staged with for an approved idea. `texts` are the
+    documents behind it, as the scanner read them: no eight words in a row of theirs go out."""
+    forbidden = _forbidden(idea, names, texts)
     title = idea.get("name") if _clean(idea.get("name") or "", forbidden) else f"Research idea {idea['id']}"
     return {"inbox_id": inbox_id, "title": title or "Research idea",
-            "requested_outcome": requested_outcome(idea, gen=gen, names=names, the_map=the_map),
+            "requested_outcome": requested_outcome(idea, gen=gen, names=names, texts=texts, the_map=the_map),
             "allowed_paths": list(idea.get("touches") or []),
             "acceptance_criteria": [c for c in idea.get("done_when") or [] if _clean(c, forbidden)]}
+
+
+def source_texts(research_store, idea: dict[str, Any], records: list[dict[str, Any]]) -> list[str]:
+    """The text of every document behind an idea, as the scanner read it, so no run of its words can
+    reach a filed request. One that can't be read leaves its quotes to stand for it."""
+    from app.research.synthesis.run import document_text
+
+    wanted = {s.get("doc_id") for s in idea.get("sources") or []}
+    out = []
+    for record in records:
+        if record.get("id") in wanted and record.get("artifact_id"):
+            try:
+                out.append(document_text(research_store, record))
+            except (OSError, ValueError):
+                continue
+    return out

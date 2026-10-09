@@ -294,10 +294,12 @@ async def _prepare_idea(request: Request, store, synth, gen: str, idea: dict, se
     from app.builds import research_ideas
 
     session_id = session_id if _SESSION.fullmatch(session_id or "") else ""
-    names = [c.get("document") or "" for c in synth.claims(gen).values()] + [r.get("name") or "" for r in store.documents()]
+    records = store.documents()
+    names = [c.get("document") or "" for c in synth.claims(gen).values()] + [r.get("name") or "" for r in records]
+    texts = research_ideas.source_texts(store, idea, records)
 
     def args_for(inbox: str, the_map) -> dict:
-        return research_ideas.filing_args(idea, inbox, gen=gen, names=names, the_map=the_map)
+        return research_ideas.filing_args(idea, inbox, gen=gen, names=names, texts=texts, the_map=the_map)
 
     staged = await section.prepare(request, {"id": gen}, {"touches": idea.get("touches") or []}, session_id=session_id,
                                    args_for=args_for)
