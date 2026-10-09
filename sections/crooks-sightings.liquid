@@ -156,6 +156,21 @@
             <span class="crk-sight__media" style="--crk-sight-focal: {{ block.settings.focal_x }}% {{ block.settings.focal_y }}%">
               <span class="crk-sight__brackets" aria-hidden="true"></span>
               {%- if block.settings.image != blank -%}
+                {%- comment -%}
+                  On a phone the first frame is the homepage's largest paint
+                  (measured at 390x844), and it was lazy-loaded, so the browser
+                  waited for layout before fetching it. Frame one now loads at
+                  once and at high priority; the rest stay lazy (Promptd audit
+                  2026-10, findings I3, I4).
+                {%- endcomment -%}
+                {%- liquid
+                  assign crk_sight_load = 'lazy'
+                  assign crk_sight_prio = 'auto'
+                  if crk_i == 1
+                    assign crk_sight_load = 'eager'
+                    assign crk_sight_prio = 'high'
+                  endif
+                -%}
                 {{
                   block.settings.image
                   | image_url: width: 1200
@@ -163,7 +178,8 @@
                     widths: '320, 480, 640, 900, 1200',
                     sizes: '(min-width: 1024px) 32vw, 72vw',
                     alt: crk_alt,
-                    loading: 'lazy',
+                    loading: crk_sight_load,
+                    fetchpriority: crk_sight_prio,
                     class: 'crk-sight__img'
                 }}
               {%- else -%}

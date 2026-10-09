@@ -1,0 +1,512 @@
+[
+ {
+  "id": "A1",
+  "section": "01-03 Overview / AI search (p2-4)",
+  "finding": "Brand recognition in AI answers is low (OpenAI 4/20, Perplexity 7/20, Gemini 5/20; recognition 22-33/100).",
+  "recommendation": "Give search and AI systems clearer, more consistent evidence about the brand and its products.",
+  "severity": "Worth improving",
+  "scope": "Sitewide entity signals",
+  "control": "theme (entity JSON-LD) + external (press, citations)",
+  "theme_addressable": "partial"
+ },
+ {
+  "id": "A2",
+  "section": "03 Context (p4)",
+  "finding": "Visibility differs by platform: 18% market position on OpenAI/Perplexity, 3.5% on Gemini; share of voice 4/2/0 of 10.",
+  "recommendation": "Directional only; consistent evidence across platforms.",
+  "severity": "Context",
+  "scope": "Off-site",
+  "control": "external",
+  "theme_addressable": "no"
+ },
+ {
+  "id": "A3",
+  "section": "03 Context (p4)",
+  "finding": "Weaker signals: limited third-party review depth, uneven independent coverage, stronger competitors in some shortlists.",
+  "recommendation": "Make the story easier to verify outside CrooksLDN's own channels.",
+  "severity": "Worth improving",
+  "scope": "Off-site",
+  "control": "external",
+  "theme_addressable": "no"
+ },
+ {
+  "id": "A4",
+  "section": "03 Context (p4)",
+  "finding": "Weaker signal: delivery delays and communication.",
+  "recommendation": "(implied) clear, consistent delivery communication.",
+  "severity": "Worth improving",
+  "scope": "Shipping claims across site + operations",
+  "control": "theme copy + admin content + operations",
+  "theme_addressable": "partial"
+ },
+ {
+  "id": "T1",
+  "section": "04 Technical triage (p5)",
+  "finding": "96 canonicalised URLs - all product variant URLs pointing to the clean parent product URL.",
+  "recommendation": "NO ACTION: standard Shopify canonical handling.",
+  "severity": "High (crawler) / No action (auditor)",
+  "scope": "/products/*?variant=",
+  "control": "theme (canonical_url) + platform",
+  "theme_addressable": "verify"
+ },
+ {
+  "id": "T2",
+  "section": "04 Technical triage (p5)",
+  "finding": "3 URLs blocked by robots.txt (account, checkout preload, authentication).",
+  "recommendation": "NO ACTION: keep utility/login areas blocked; do not edit robots to satisfy the crawler.",
+  "severity": "High (crawler) / No action (auditor)",
+  "scope": "/robots.txt",
+  "control": "platform (robots.txt.liquid if present)",
+  "theme_addressable": "verify"
+ },
+ {
+  "id": "P1",
+  "section": "05 Page titles - long (p6)",
+  "finding": "Homepage title slightly too long: 'Crooks London | CROOKSLDN Streetwear: Fleece, Denim & Tees'.",
+  "recommendation": "'Crooks London Streetwear | Fleece, Denim & Tees' (Online Store > Preferences).",
+  "severity": "FIX (tidy-up)",
+  "scope": "/",
+  "control": "admin (Preferences) or theme title logic",
+  "theme_addressable": "check"
+ },
+ {
+  "id": "P2",
+  "section": "05 Page titles - long (p6)",
+  "finding": "grey-wash-yard-jeans title too long: 'Grey Wash Yard Jeans — 14oz Straight Leg Denim | CROOKSLDN'.",
+  "recommendation": "'Grey Wash Yard Jeans | 14oz Straight Leg Denim'.",
+  "severity": "FIX (tidy-up)",
+  "scope": "/products/grey-wash-yard-jeans",
+  "control": "admin (product SEO title) or theme suffix",
+  "theme_addressable": "check"
+ },
+ {
+  "id": "P3",
+  "section": "05 Page titles - long (p6)",
+  "finding": "grey-wash-yard-jorts title too long: 'Grey Wash Yard Jorts — 14oz Baggy Denim Shorts | CROOKSLDN'.",
+  "recommendation": "'Grey Wash Yard Jorts | 14oz Baggy Denim Shorts'.",
+  "severity": "FIX (tidy-up)",
+  "scope": "/products/grey-wash-yard-jorts",
+  "control": "admin or theme suffix",
+  "theme_addressable": "check"
+ },
+ {
+  "id": "P4",
+  "section": "05 Page titles - long (p6)",
+  "finding": "blue-wash-yard-jorts title too long: 'Blue Wash Yard Jorts — 14oz Baggy Denim Shorts | CROOKSLDN'.",
+  "recommendation": "'Blue Wash Yard Jorts | 14oz Baggy Denim Shorts'.",
+  "severity": "FIX (tidy-up)",
+  "scope": "/products/blue-wash-yard-jorts",
+  "control": "admin or theme suffix",
+  "theme_addressable": "check"
+ },
+ {
+  "id": "P5",
+  "section": "05 Page titles - long (p6)",
+  "finding": "hydrocuff-windbreaker title too long: 'HydroCuff Windbreaker — Water-Reactive Jacket | CROOKSLDN'.",
+  "recommendation": "'HydroCuff Windbreaker | Water-Reactive Jacket'.",
+  "severity": "FIX (tidy-up)",
+  "scope": "/products/hydrocuff-windbreaker",
+  "control": "admin or theme suffix",
+  "theme_addressable": "check"
+ },
+ {
+  "id": "P6",
+  "section": "05 Page titles - long (p6)",
+  "finding": "blue-wash-yard-jeans title too long: 'Blue Wash Yard Jeans — 14oz Straight Leg Denim | CROOKSLDN'.",
+  "recommendation": "'Blue Wash Yard Jeans | 14oz Straight Leg Denim'.",
+  "severity": "FIX (tidy-up)",
+  "scope": "/products/blue-wash-yard-jeans",
+  "control": "admin or theme suffix",
+  "theme_addressable": "check"
+ },
+ {
+  "id": "P7",
+  "section": "06 Collection titles (p7)",
+  "finding": "/collections/denim title 'Denim – CROOKSLDN' especially short.",
+  "recommendation": "\"Men's Denim Jeans & Jorts | CROOKSLDN\" (collection Search engine listing).",
+  "severity": "FIX FIRST",
+  "scope": "/collections/denim",
+  "control": "admin (collection SEO title)",
+  "theme_addressable": "no"
+ },
+ {
+  "id": "P8",
+  "section": "06 Collection titles (p7)",
+  "finding": "/collections/new title 'New – CROOKSLDN' especially short.",
+  "recommendation": "'New Streetwear Arrivals | CROOKSLDN'.",
+  "severity": "FIX FIRST",
+  "scope": "/collections/new",
+  "control": "admin (collection SEO title)",
+  "theme_addressable": "no"
+ },
+ {
+  "id": "P9",
+  "section": "06 Collection titles (p7)",
+  "finding": "/collections/all title 'ALL – CROOKSLDN' especially short.",
+  "recommendation": "'Shop CROOKSLDN Streetwear | All Clothing'.",
+  "severity": "FIX FIRST",
+  "scope": "/collections/all",
+  "control": "admin (if a real 'all' collection exists) or theme",
+  "theme_addressable": "check"
+ },
+ {
+  "id": "P10",
+  "section": "06 Collection titles (p7)",
+  "finding": "/collections/tees title 'Tees – CROOKSLDN' especially short.",
+  "recommendation": "'Streetwear T-Shirts & Graphic Tees | CROOKSLDN'.",
+  "severity": "FIX FIRST",
+  "scope": "/collections/tees",
+  "control": "admin (collection SEO title)",
+  "theme_addressable": "no"
+ },
+ {
+  "id": "P11",
+  "section": "06 Collection titles (p7)",
+  "finding": "/collections/sweats title 'Sweats – CROOKSLDN'.",
+  "recommendation": "'Hoodies, Sweatshirts & Joggers | CROOKSLDN'.",
+  "severity": "FIX FIRST",
+  "scope": "/collections/sweats",
+  "control": "admin (collection SEO title)",
+  "theme_addressable": "no"
+ },
+ {
+  "id": "P12",
+  "section": "07 Short titles - low priority (p8)",
+  "finding": "/policies/refund-policy title 'Refund policy – CROOKSLDN'.",
+  "recommendation": "Low priority: leave simple.",
+  "severity": "LOW PRIORITY",
+  "scope": "/policies/refund-policy",
+  "control": "platform",
+  "theme_addressable": "no"
+ },
+ {
+  "id": "P13",
+  "section": "07 Short titles - low priority (p8)",
+  "finding": "/pages/tracking title 'Track Your Order | CROOKSLDN'.",
+  "recommendation": "Optional: only optimise if you want this utility page indexed.",
+  "severity": "OPTIONAL",
+  "scope": "/pages/tracking",
+  "control": "admin / theme",
+  "theme_addressable": "decision"
+ },
+ {
+  "id": "P14",
+  "section": "07 Short titles - low priority (p8)",
+  "finding": "/policies/shipping-policy title 'Shipping policy – CROOKSLDN'.",
+  "recommendation": "Low priority: leave simple.",
+  "severity": "LOW PRIORITY",
+  "scope": "/policies/shipping-policy",
+  "control": "platform",
+  "theme_addressable": "no"
+ },
+ {
+  "id": "P15",
+  "section": "07 Short titles - low priority (p8)",
+  "finding": "/search title 'Search – CROOKSLDN'.",
+  "recommendation": "Optional: only optimise if you want this utility page indexed.",
+  "severity": "OPTIONAL",
+  "scope": "/search",
+  "control": "theme",
+  "theme_addressable": "decision"
+ },
+ {
+  "id": "P16",
+  "section": "07 Short titles - low priority (p8)",
+  "finding": "/policies/terms-of-service title 'Terms of service – CROOKSLDN'.",
+  "recommendation": "Low priority: leave simple.",
+  "severity": "LOW PRIORITY",
+  "scope": "/policies/terms-of-service",
+  "control": "platform",
+  "theme_addressable": "no"
+ },
+ {
+  "id": "P17",
+  "section": "07 Short titles - low priority (p8)",
+  "finding": "/policies/privacy-policy title 'Privacy policy – CROOKSLDN'.",
+  "recommendation": "Low priority: leave simple.",
+  "severity": "LOW PRIORITY",
+  "scope": "/policies/privacy-policy",
+  "control": "platform",
+  "theme_addressable": "no"
+ },
+ {
+  "id": "C1",
+  "section": "08 Content (p9)",
+  "finding": "/collections/denim low content: 69 words.",
+  "recommendation": "80-150 useful words: fit, fabric, style, product types, who it suits (Collections > Description).",
+  "severity": "FIX (week 2)",
+  "scope": "/collections/denim",
+  "control": "admin content; theme must render it crawlably",
+  "theme_addressable": "partial"
+ },
+ {
+  "id": "C2",
+  "section": "08 Content (p9)",
+  "finding": "/collections/tees low content: 96 words.",
+  "recommendation": "80-150 useful words on the collection.",
+  "severity": "FIX (week 2)",
+  "scope": "/collections/tees",
+  "control": "admin content; theme render",
+  "theme_addressable": "partial"
+ },
+ {
+  "id": "C3",
+  "section": "08 Content (p9)",
+  "finding": "/collections/sweats low content: 166 words.",
+  "recommendation": "80-150 useful words on the collection.",
+  "severity": "FIX (week 2)",
+  "scope": "/collections/sweats",
+  "control": "admin content; theme render",
+  "theme_addressable": "partial"
+ },
+ {
+  "id": "C4",
+  "section": "08 Content (p9)",
+  "finding": "/collections/tracksuits low content: 142 words.",
+  "recommendation": "80-150 useful words on the collection.",
+  "severity": "FIX (week 2)",
+  "scope": "/collections/tracksuits",
+  "control": "admin content; theme render",
+  "theme_addressable": "partial"
+ },
+ {
+  "id": "C5",
+  "section": "08 Content (p9)",
+  "finding": "/collections/accessories low content: 79 words.",
+  "recommendation": "80-150 useful words on the collection.",
+  "severity": "FIX (week 2)",
+  "scope": "/collections/accessories",
+  "control": "admin content; theme render",
+  "theme_addressable": "partial"
+ },
+ {
+  "id": "C6",
+  "section": "08 Content (p9)",
+  "finding": "Functional pages flagged thin: /pages/tracking 142, /cart 134, /search 76 words.",
+  "recommendation": "Do not pad these utility pages.",
+  "severity": "No action",
+  "scope": "/pages/tracking, /cart, /search",
+  "control": "n/a",
+  "theme_addressable": "verify"
+ },
+ {
+  "id": "H1",
+  "section": "04 + 08 Headings (p5, p9)",
+  "finding": "/pages/tracking missing H1.",
+  "recommendation": "Add one clear visible H1 (if the page stays indexable).",
+  "severity": "TIDY",
+  "scope": "/pages/tracking",
+  "control": "theme (section markup)",
+  "theme_addressable": "yes"
+ },
+ {
+  "id": "H2",
+  "section": "04 + 08 Headings (p5, p9)",
+  "finding": "/search missing H1.",
+  "recommendation": "Add one clear visible H1 (if the page stays indexable).",
+  "severity": "TIDY",
+  "scope": "/search",
+  "control": "theme (section markup)",
+  "theme_addressable": "yes"
+ },
+ {
+  "id": "I1",
+  "section": "04 + 09 Images (p5, p10, appendix p15-20)",
+  "finding": "92 image URLs over 100 KB; largest 1.8 MB PNGs (denim, hoodies) at width=1400/3840.",
+  "recommendation": "Resize sources to the largest size needed, use WebP/JPEG where no transparency, replace in Files/product media; start with >1 MB and high-traffic pages.",
+  "severity": "FIX (week 3)",
+  "scope": "Product/collection/home imagery (appendix list)",
+  "control": "admin (media files) + theme (requested widths/format)",
+  "theme_addressable": "partial"
+ },
+ {
+  "id": "I2",
+  "section": "09 Images - developer (p10)",
+  "finding": "(Developer) Use image_url + image_tag for responsive sizes.",
+  "recommendation": "Responsive srcset/sizes so browsers fetch only what they need.",
+  "severity": "FIX (week 3)",
+  "scope": "Theme image output",
+  "control": "theme",
+  "theme_addressable": "yes"
+ },
+ {
+  "id": "I3",
+  "section": "09 Images - developer (p10)",
+  "finding": "(Developer) Lazy-load images below the fold.",
+  "recommendation": "loading=lazy below the fold.",
+  "severity": "FIX (week 3)",
+  "scope": "Theme image output",
+  "control": "theme",
+  "theme_addressable": "yes"
+ },
+ {
+  "id": "I4",
+  "section": "09 Images - developer (p10)",
+  "finding": "(Developer) Do not lazy-load the main hero/LCP image.",
+  "recommendation": "Eager / high fetch priority for the LCP image.",
+  "severity": "FIX (week 3)",
+  "scope": "Home hero, PDP main image, first collection cards",
+  "control": "theme",
+  "theme_addressable": "yes"
+ },
+ {
+  "id": "I5",
+  "section": "09 + 12 Images (p10, p13)",
+  "finding": "Re-test after a small batch / re-test page speed.",
+  "recommendation": "Measure image weight and speed again after changes.",
+  "severity": "Process",
+  "scope": "Key templates",
+  "control": "verification",
+  "theme_addressable": "yes"
+ },
+ {
+  "id": "G1",
+  "section": "10 GEO foundations 01 (p11) + action plan wk4",
+  "finding": "Public pages must stay crawlable and not block OAI-SearchBot; keep account/checkout/auth blocked.",
+  "recommendation": "Check product, collection and content pages are open to OAI-SearchBot and search engines.",
+  "severity": "GEO foundation",
+  "scope": "/robots.txt, meta robots",
+  "control": "platform robots.txt + theme meta robots",
+  "theme_addressable": "verify"
+ },
+ {
+  "id": "G2",
+  "section": "10 GEO foundations 02 (p11) + action plan wk4",
+  "finding": "Validate product structured data: Product/Offer price, availability, variants, shipping and returns.",
+  "recommendation": "Validate rather than assume.",
+  "severity": "GEO foundation",
+  "scope": "Product pages JSON-LD",
+  "control": "theme",
+  "theme_addressable": "yes"
+ },
+ {
+  "id": "G3",
+  "section": "10 GEO foundations 03 (p11)",
+  "finding": "Product names, descriptions, price and availability should match across website and Merchant Center/feeds.",
+  "recommendation": "Keep product data consistent.",
+  "severity": "GEO foundation",
+  "scope": "PDP vs feeds",
+  "control": "theme (schema from same Liquid data) + external feeds",
+  "theme_addressable": "partial"
+ },
+ {
+  "id": "G4",
+  "section": "10 GEO foundations 04 (p11) + action plan wk2",
+  "finding": "Important categories and best-sellers should be linked from navigation, collections and content, not only site search; check internal links to priority collections.",
+  "recommendation": "Strengthen site structure / internal linking.",
+  "severity": "GEO foundation",
+  "scope": "Header/footer/menus, collection & product pages",
+  "control": "admin navigation + theme",
+  "theme_addressable": "partial"
+ },
+ {
+  "id": "G5",
+  "section": "10 GEO foundations 05 (p11)",
+  "finding": "Unique page titles, H1s and concise collection copy.",
+  "recommendation": "Clear page signals on every page.",
+  "severity": "GEO foundation",
+  "scope": "All indexable pages",
+  "control": "theme + admin",
+  "theme_addressable": "partial"
+ },
+ {
+  "id": "G6",
+  "section": "10 GEO foundations 06 (p11)",
+  "finding": "Keep the site fast: heavy images slow down shopping pages.",
+  "recommendation": "Compress the biggest files; a practical SEO/UX win that removes friction for crawlers and users.",
+  "severity": "GEO foundation",
+  "scope": "Home, collection and product pages",
+  "control": "theme (image loading) + admin (media files)",
+  "theme_addressable": "partial"
+ },
+ {
+  "id": "G7",
+  "section": "11 GEO authority 01 (p12)",
+  "finding": "Answer real buyer questions: fit, sizing, fabric weight, care, styling, shipping, returns.",
+  "recommendation": "Buyer-focused content, not keyword lists.",
+  "severity": "GEO authority",
+  "scope": "FAQ / content pages",
+  "control": "content (admin) + theme (FAQPage schema)",
+  "theme_addressable": "partial"
+ },
+ {
+  "id": "G8",
+  "section": "11 GEO authority 02 (p12)",
+  "finding": "Make product facts explicit: material, fit, measurements, weight, care, stock/availability.",
+  "recommendation": "State them clearly on product pages.",
+  "severity": "GEO authority",
+  "scope": "Product pages",
+  "control": "product data (admin/metafields) + theme rendering + schema",
+  "theme_addressable": "partial"
+ },
+ {
+  "id": "G9",
+  "section": "11 GEO authority 03 (p12) + action plan wk4",
+  "finding": "Build independent proof: genuine reviews, creator/press/community coverage. Repeated in the action plan, week 4: \"Build more genuine reviews / third-party proof\".",
+  "recommendation": "Encourage genuine reviews and third-party coverage.",
+  "severity": "GEO authority",
+  "scope": "Off-site",
+  "control": "external (reviews app, PR)",
+  "theme_addressable": "no"
+ },
+ {
+  "id": "G10",
+  "section": "11 GEO authority 04 (p12)",
+  "finding": "Brand name, product names, sizing, returns and shipping claims should not conflict across site, social, review platforms and feeds.",
+  "recommendation": "Keep facts consistent.",
+  "severity": "GEO authority",
+  "scope": "Sitewide copy + schema + policies",
+  "control": "theme + admin + external",
+  "theme_addressable": "partial"
+ },
+ {
+  "id": "G11",
+  "section": "11 GEO authority 05 (p12)",
+  "finding": "Make original content worth citing (drop data, product development, material choices, fit guides).",
+  "recommendation": "First-party content; avoid generic AI articles.",
+  "severity": "GEO authority",
+  "scope": "Blog/content",
+  "control": "content (owner)",
+  "theme_addressable": "no"
+ },
+ {
+  "id": "G12",
+  "section": "11 GEO authority 06 (p12)",
+  "finding": "Measure more than rankings: AI recommendations, cited sources, branded search, AI referral traffic.",
+  "recommendation": "Track AI visibility and referrals.",
+  "severity": "GEO authority",
+  "scope": "Analytics",
+  "control": "external (GSC, GA4)",
+  "theme_addressable": "no"
+ },
+ {
+  "id": "G13",
+  "section": "11 GEO authority - do not (p12)",
+  "finding": "Do not: force variant URLs to index, add filler to Cart/Search, change checkout/account robots rules, treat llms.txt as a guaranteed lever.",
+  "recommendation": "Avoid these.",
+  "severity": "Guardrail",
+  "scope": "Sitewide",
+  "control": "n/a",
+  "theme_addressable": "verify"
+ },
+ {
+  "id": "G15",
+  "section": "12 Action plan wk4 (p13)",
+  "finding": "Plan one genuinely useful buyer-focused content piece.",
+  "recommendation": "Plan it.",
+  "severity": "Action plan",
+  "scope": "Content",
+  "control": "owner",
+  "theme_addressable": "no"
+ },
+ {
+  "id": "M1",
+  "section": "12 Action plan - easy extra (p13)",
+  "finding": "Meta descriptions: 7 missing, 5 over 155 characters, 4 below 70 characters.",
+  "recommendation": "Tidy in Shopify as a simple follow-up.",
+  "severity": "Low",
+  "scope": "Pages not named",
+  "control": "admin (SEO description) + theme fallback",
+  "theme_addressable": "partial"
+ }
+]

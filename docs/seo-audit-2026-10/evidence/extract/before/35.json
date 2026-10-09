@@ -1,0 +1,270 @@
+{
+ "url": "https://crooksldn.com/products/hydrocuff-windbreaker",
+ "title": "HydroCuff Windbreaker — Water-Reactive Jacket | CROOKSLDN",
+ "title_len": 57,
+ "meta_description": "HydroCuff windbreaker with a water-activated cuff pattern that emerges in the rain. Hooded, with zipped front pockets and contrast stitching.",
+ "meta_description_len": 141,
+ "meta_robots": null,
+ "canonical": "https://crooksldn.com/products/hydrocuff-windbreaker",
+ "og": {
+  "title": "HydroCuff Windbreaker — Water-Reactive Jacket | CROOKSLDN",
+  "description": "HydroCuff windbreaker with a water-activated cuff pattern that emerges in the rain. Hooded, with zipped front pockets and contrast stitching.",
+  "type": "product",
+  "url": "https://crooksldn.com/products/hydrocuff-windbreaker",
+  "image": "http://crooksldn.com/cdn/shop/files/crooksldn-hydrocuff-black-windbreaker.png?v=1788187448",
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "HydroCuff Windbreaker — Water-Reactive Jacket | CROOKSLDN",
+  "description": "HydroCuff windbreaker with a water-activated cuff pattern that emerges in the rain. Hooded, with zipped front pockets and contrast stitching.",
+  "site": null
+ },
+ "h1": [
+  "HYDROCUFF WINDBREAKER"
+ ],
+ "h2_count": 6,
+ "jsonld_blocks": 4,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "ProductGroup",
+  "Brand",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "BreadcrumbList",
+  "ListItem",
+  "ListItem",
+  "Organization",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "ProductGroup",
+   "@id": "https://crooksldn.com/products/hydrocuff-windbreaker#product",
+   "name": "HYDROCUFF WINDBREAKER",
+   "description": "HydroCuff windbreaker, engineered to react on contact.Water-activated cuff pattern emerges in the rain.",
+   "url": "https://crooksldn.com/products/hydrocuff-windbreaker",
+   "productGroupID": 10837693432151,
+   "brand": {
+    "@type": "Brand",
+    "name": "CROOKSLDN"
+   },
+   "category": "Outerwear",
+   "image": [
+    "https://crooksldn.com/cdn/shop/files/crooksldn-hydrocuff-black-windbreaker.png?v=1788187448&width=1600"
+   ],
+   "variesBy": [
+    "https://schema.org/size"
+   ],
+   "hasVariant": [
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/hydrocuff-windbreaker?variant=53456826433879",
+     "name": "HYDROCUFF WINDBREAKER — XS",
+     "size": "XS",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/hydrocuff-windbreaker?variant=53456826433879",
+      "price": "85.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/hydrocuff-windbreaker?variant=53456826466647",
+     "name": "HYDROCUFF WINDBREAKER — S",
+     "size": "S",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/hydrocuff-windbreaker?variant=53456826466647",
+      "price": "85.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/hydrocuff-windbreaker?variant=53456826499415",
+     "name": "HYDROCUFF WINDBREAKER — M",
+     "size": "M",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/hydrocuff-windbreaker?variant=53456826499415",
+      "price": "85.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/hydrocuff-windbreaker?variant=53456826532183",
+     "name": "HYDROCUFF WINDBREAKER — L",
+     "size": "L",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/hydrocuff-windbreaker?variant=53456826532183",
+      "price": "85.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/hydrocuff-windbreaker?variant=53456826564951",
+     "name": "HYDROCUFF WINDBREAKER — XL",
+     "size": "XL",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/hydrocuff-windbreaker?variant=53456826564951",
+      "price": "85.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://crooksldn.com"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "HYDROCUFF WINDBREAKER",
+     "item": "https://crooksldn.com/products/hydrocuff-windbreaker"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 2,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-hydrocuff-black-windbreaker.png?v=1788187448&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN HydroCuff black windbreaker jacket with white contrast stitching, hood, and front zipper pockets",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  }
+ ],
+ "visible_words": 278,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}

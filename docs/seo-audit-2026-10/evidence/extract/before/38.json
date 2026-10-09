@@ -1,0 +1,515 @@
+{
+ "url": "https://crooksldn.com/products/pink-crsdr-hoodie",
+ "title": "Pink Convict Hoodie — 550gsm Brushed Fleece | CROOKSLDN",
+ "title_len": 55,
+ "meta_description": "Convict Hoodie in pink. 550gsm brushed fleece, baggy fit, white piping and handcuff embroidery. Pairs with the Pink Convict Sweats as the Pink Set.",
+ "meta_description_len": 147,
+ "meta_robots": null,
+ "canonical": "https://crooksldn.com/products/pink-crsdr-hoodie",
+ "og": {
+  "title": "Pink Convict Hoodie — 550gsm Brushed Fleece | CROOKSLDN",
+  "description": "Convict Hoodie in pink. 550gsm brushed fleece, baggy fit, white piping and handcuff embroidery. Pairs with the Pink Convict Sweats as the Pink Set.",
+  "type": "product",
+  "url": "https://crooksldn.com/products/pink-crsdr-hoodie",
+  "image": "http://crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie_dbe1c469-06d0-44ca-b26b-7a8ca1bc9b1d.png?v=1788192584",
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "Pink Convict Hoodie — 550gsm Brushed Fleece | CROOKSLDN",
+  "description": "Convict Hoodie in pink. 550gsm brushed fleece, baggy fit, white piping and handcuff embroidery. Pairs with the Pink Convict Sweats as the Pink Set.",
+  "site": null
+ },
+ "h1": [
+  "PINK CONVICT HOODIE"
+ ],
+ "h2_count": 8,
+ "jsonld_blocks": 4,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "ProductGroup",
+  "Brand",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "BreadcrumbList",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "Organization",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "ProductGroup",
+   "@id": "https://crooksldn.com/products/pink-crsdr-hoodie#product",
+   "name": "PINK CONVICT HOODIE",
+   "description": "Convict Hoodie in Pink — 550gsm brushed fleece, baggy fit, comfortable for everyday wear.Pairs with the Pink Convict Sweats; sold together as the Pink Set.",
+   "url": "https://crooksldn.com/products/pink-crsdr-hoodie",
+   "productGroupID": 10993383801175,
+   "brand": {
+    "@type": "Brand",
+    "name": "CROOKSLDN"
+   },
+   "category": "Hoodies",
+   "image": [
+    "https://crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie_dbe1c469-06d0-44ca-b26b-7a8ca1bc9b1d.png?v=1788192584&width=1600",
+    "https://crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie-back.png?v=1788192584&width=1600",
+    "https://crooksldn.com/cdn/shop/files/crooksldn-pink-brushed-fleece-hoodie.png?v=1788192584&width=1600",
+    "https://crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie_9dc3aa89-cebf-4248-a607-367c8e79ee98.png?v=1788192583&width=1600"
+   ],
+   "variesBy": [
+    "https://schema.org/size"
+   ],
+   "hasVariant": [
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693330263",
+     "name": "PINK CONVICT HOODIE — XS / V2",
+     "size": "XS",
+     "image": "https://crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie_dbe1c469-06d0-44ca-b26b-7a8ca1bc9b1d.png?v=1788192584&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693330263",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693297495",
+     "name": "PINK CONVICT HOODIE — XS / V1",
+     "size": "XS",
+     "image": "https://crooksldn.com/cdn/shop/files/crooksldn-pink-brushed-fleece-hoodie.png?v=1788192584&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693297495",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693395799",
+     "name": "PINK CONVICT HOODIE — S / V2",
+     "size": "S",
+     "image": "https://crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie_dbe1c469-06d0-44ca-b26b-7a8ca1bc9b1d.png?v=1788192584&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693395799",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693363031",
+     "name": "PINK CONVICT HOODIE — S / V1",
+     "size": "S",
+     "image": "https://crooksldn.com/cdn/shop/files/crooksldn-pink-brushed-fleece-hoodie.png?v=1788192584&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693363031",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693461335",
+     "name": "PINK CONVICT HOODIE — M / V2",
+     "size": "M",
+     "image": "https://crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie_dbe1c469-06d0-44ca-b26b-7a8ca1bc9b1d.png?v=1788192584&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693461335",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693428567",
+     "name": "PINK CONVICT HOODIE — M / V1",
+     "size": "M",
+     "image": "https://crooksldn.com/cdn/shop/files/crooksldn-pink-brushed-fleece-hoodie.png?v=1788192584&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693428567",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693526871",
+     "name": "PINK CONVICT HOODIE — L / V2",
+     "size": "L",
+     "image": "https://crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie_dbe1c469-06d0-44ca-b26b-7a8ca1bc9b1d.png?v=1788192584&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693526871",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693494103",
+     "name": "PINK CONVICT HOODIE — L / V1",
+     "size": "L",
+     "image": "https://crooksldn.com/cdn/shop/files/crooksldn-pink-brushed-fleece-hoodie.png?v=1788192584&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693494103",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693592407",
+     "name": "PINK CONVICT HOODIE — XL / V2",
+     "size": "XL",
+     "image": "https://crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie_dbe1c469-06d0-44ca-b26b-7a8ca1bc9b1d.png?v=1788192584&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693592407",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693559639",
+     "name": "PINK CONVICT HOODIE — XL / V1",
+     "size": "XL",
+     "image": "https://crooksldn.com/cdn/shop/files/crooksldn-pink-brushed-fleece-hoodie.png?v=1788192584&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/pink-crsdr-hoodie?variant=54032693559639",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://crooksldn.com"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "NEW",
+     "item": "https://crooksldn.com/collections/new-1"
+    },
+    {
+     "@type": "ListItem",
+     "position": 3,
+     "name": "PINK CONVICT HOODIE",
+     "item": "https://crooksldn.com/products/pink-crsdr-hoodie"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 12,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie_dbe1c469-06d0-44ca-b26b-7a8ca1bc9b1d.png?v=1788192584&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN pink baggy fit hoodie made from 550gsm brushed fleece with white piping detail and handcuff logo embroidery",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie-back.png?v=1788192584&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "Back view of CROOKSLDN pink baggy hoodie in 550gsm brushed fleece with white piping details",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-brushed-fleece-hoodie.png?v=1788192584&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN pink baggy fit hoodie in 550gsm brushed fleece with white piping detail and small handcuff logo embroidery.",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie_9dc3aa89-cebf-4248-a607-367c8e79ee98.png?v=1788192583&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN pink baggy hoodie made of 550gsm brushed fleece with contrast piping detail, back view",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie_dbe1c469-06d0-44ca-b26b-7a8ca1bc9b1d.png?v=1788192584&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie-back.png?v=1788192584&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-brushed-fleece-hoodie.png?v=1788192584&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie_9dc3aa89-cebf-4248-a607-367c8e79ee98.png?v=1788192583&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-sweatpants_e1020e28-42e0-4ce6-91ba-bb233d129028.png?v=1788194052&width=96",
+   "src_width": 96,
+   "srcset_max": 96,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "96",
+   "height": "96"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-black-baggy-fleece-hoodie.png?v=1788192310&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "BLACK CONVICT HOODIE",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-grey-convict-fleece-hoodie_892e8e2e-338d-4e90-8e84-d175e4bcb5ad.png?v=1788190419&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "GREY CONVICT HOODIE",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  }
+ ],
+ "visible_words": 409,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}

@@ -1,0 +1,393 @@
+{
+ "url": "https://crooksldn.com/collections/new-1",
+ "title": "NEW | CROOKSLDN",
+ "title_len": 15,
+ "meta_description": "Shop NEW from CROOKSLDN (Crooks London): 8 pieces, including PINK CONVICT HOODIE, PINK CONVICT SWEATS, CHARCOAL CELLBLOCK SHORTS.",
+ "meta_description_len": 129,
+ "meta_robots": null,
+ "canonical": "https://crooksldn.com/collections/new-1",
+ "og": {
+  "title": "NEW",
+  "description": "Shop NEW from CROOKSLDN (Crooks London): 8 pieces, including PINK CONVICT HOODIE, PINK CONVICT SWEATS, CHARCOAL CELLBLOCK SHORTS.",
+  "type": "website",
+  "url": "https://crooksldn.com/collections/new-1",
+  "image": null,
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "NEW",
+  "description": "Shop NEW from CROOKSLDN (Crooks London): 8 pieces, including PINK CONVICT HOODIE, PINK CONVICT SWEATS, CHARCOAL CELLBLOCK SHORTS.",
+  "site": null
+ },
+ "h1": [
+  "NEW"
+ ],
+ "h2_count": 4,
+ "jsonld_blocks": 4,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "CollectionPage",
+  "ItemList",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "BreadcrumbList",
+  "ListItem",
+  "ListItem",
+  "Organization",
+  "Brand",
+  "MerchantReturnPolicy",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "CollectionPage",
+   "@id": "https://crooksldn.com/collections/new-1#collection",
+   "name": "NEW",
+   "url": "https://crooksldn.com/collections/new-1",
+   "isPartOf": {
+    "@id": "https://crooksldn.com#website"
+   },
+   "mainEntity": {
+    "@type": "ItemList",
+    "numberOfItems": 8,
+    "itemListElement": [
+     {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "PINK CONVICT HOODIE",
+      "url": "https://crooksldn.com/products/pink-crsdr-hoodie"
+     },
+     {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "PINK CONVICT SWEATS",
+      "url": "https://crooksldn.com/products/pink-crsdr-joggers"
+     },
+     {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "CHARCOAL CELLBLOCK SHORTS",
+      "url": "https://crooksldn.com/products/charcoal-cellblock-shorts"
+     },
+     {
+      "@type": "ListItem",
+      "position": 4,
+      "name": "CHARCOAL CELLBLOCK CREWNECK",
+      "url": "https://crooksldn.com/products/charcoal-cellblock-crewneck"
+     },
+     {
+      "@type": "ListItem",
+      "position": 5,
+      "name": "GREY WASH YARD JORTS",
+      "url": "https://crooksldn.com/products/grey-wash-yard-jorts"
+     },
+     {
+      "@type": "ListItem",
+      "position": 6,
+      "name": "BLUE WASH YARD JORTS",
+      "url": "https://crooksldn.com/products/blue-wash-yard-jorts"
+     },
+     {
+      "@type": "ListItem",
+      "position": 7,
+      "name": "BLUE WASH YARD JEANS",
+      "url": "https://crooksldn.com/products/blue-wash-yard-jeans"
+     },
+     {
+      "@type": "ListItem",
+      "position": 8,
+      "name": "GREY WASH YARD JEANS",
+      "url": "https://crooksldn.com/products/grey-wash-yard-jeans"
+     }
+    ]
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://crooksldn.com"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "NEW",
+     "item": "https://crooksldn.com/collections/new-1"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "legalName": "Crooks Clothing Company Ltd",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "brand": {
+    "@type": "Brand",
+    "@id": "https://crooksldn.com#brand",
+    "name": "CROOKSLDN",
+    "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512"
+   },
+   "hasMerchantReturnPolicy": {
+    "@type": "MerchantReturnPolicy",
+    "@id": "https://crooksldn.com#return-policy",
+    "url": "https://crooksldn.com/policies/refund-policy",
+    "applicableCountry": "GB",
+    "returnPolicyCountry": "GB",
+    "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+    "merchantReturnDays": 14,
+    "returnMethod": "https://schema.org/ReturnByMail",
+    "customerRemorseReturnFees": "https://schema.org/ReturnShippingFees",
+    "itemDefectReturnFees": "https://schema.org/FreeReturn"
+   },
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "inLanguage": "en",
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 15,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie_dbe1c469-06d0-44ca-b26b-7a8ca1bc9b1d.png?v=1788192584&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "eager",
+   "fetchpriority": "high",
+   "alt": "CROOKSLDN pink baggy fit hoodie made from 550gsm brushed fleece with white piping detail and handcuff logo embroidery",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie-back.png?v=1788192584&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-sweatpants_e1020e28-42e0-4ce6-91ba-bb233d129028.png?v=1788194052&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "eager",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN pink baggy sweatpants in 550gsm brushed fleece with white piping detail and cuffed ankles.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-sweatpants_d6c8adba-bc2f-430f-b66a-bb7992764d84.png?v=1788194052&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-charcoal-cellblock-fleece-shorts.png?v=1788194049&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN charcoal brushed fleece Cellblock shorts with a relaxed fit, drawstring waist, and 3D embroidery detail.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-charcoal-fleece-shorts_42086ef5-6b8e-4751-a4f4-2cd220ee8660.png?v=1788194049&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-charcoal-fleece-crewneck.png?v=1788188137&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN charcoal crewneck sweatshirt in 450gsm brushed fleece with a relaxed fit and 3D embroidered detail.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-grey-wash-denim-jorts.png?v=1788194813&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN grey wash baggy denim jorts with signature white handcuff embroidery on the back pockets.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-grey-wash-denim-jorts_a2e4085a-a36f-4452-88d3-adfce6d6915f.png?v=1788194813&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-blue-wash-denim-jorts.png?v=1786031414&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN blue wash denim jorts with baggy fit and white embroidered handcuff artwork on back pockets",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1223.png?v=1788194751&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-blue-wash-denim-jeans_33cac148-f3ca-448a-8c9a-30ff0047564d.png?v=1788194148&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN blue wash 14oz denim jeans with straight cut, mid rise, and white embroidered hand graphic on back pockets.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-blue-wash-straight-denim-jeans.png?v=1788194148&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-grey-wash-straight-jeans.png?v=1788188131&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN Yard jeans in grey wash 14oz denim with straight cut, mid rise, and handcuff graphic on back pockets.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  }
+ ],
+ "visible_words": 223,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}

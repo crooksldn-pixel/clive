@@ -1,0 +1,33 @@
+{
+ "url": "https://crooksldn.com/agents.md",
+ "title": "",
+ "title_len": 0,
+ "meta_description": null,
+ "meta_description_len": 0,
+ "meta_robots": null,
+ "canonical": null,
+ "og": {
+  "title": null,
+  "description": null,
+  "type": null,
+  "url": null,
+  "image": null,
+  "site_name": null
+ },
+ "twitter": {
+  "card": null,
+  "title": null,
+  "description": null,
+  "site": null
+ },
+ "h1": [],
+ "h2_count": 0,
+ "jsonld_blocks": 0,
+ "jsonld_invalid": [],
+ "jsonld_types": [],
+ "jsonld": [],
+ "img_count": 0,
+ "imgs": [],
+ "visible_words": 642,
+ "collection_links": []
+}

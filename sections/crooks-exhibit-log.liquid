@@ -158,6 +158,19 @@
       {%- endif -%}
     </header>
 
+    {%- comment -%}
+      Collection description (Promptd SEO/GEO audit 2026-10, findings C1-C5).
+      It was only ever written into the structured data, never onto the page,
+      so whatever is typed in Products > Collections > Description was
+      invisible to shoppers and to crawlers counting the page's content. Shown
+      under the heading on collection pages only; the homepage register and
+      search results are unchanged. Nothing renders while a description is
+      empty.
+    {%- endcomment -%}
+    {%- if template.name == 'collection' and collection.description != blank -%}
+      <div class="crk-log__intro">{{ collection.description }}</div>
+    {%- endif -%}
+
     {%- if section.settings.show_view_toggle -%}
       {%- comment -%}
         Product / Model view. Client-side over already-rendered cards, exactly
@@ -450,11 +463,29 @@ comment
             <a class="crk-card__medialink" href="{{ product.url }}" tabindex="-1" aria-hidden="true">
               <span class="crk-card__media">
                 {%- if crk_main -%}
+                  {%- comment -%}
+                    The first row of a collection is what a phone shows on
+                    arrival, and its first image is the page's largest paint
+                    (measured on /collections/denim and /collections/all). Those
+                    two load straight away, the first at high priority; every
+                    other card stays lazy (audit I3, I4).
+                  {%- endcomment -%}
+                  {%- liquid
+                    assign crk_load = 'lazy'
+                    assign crk_prio = 'auto'
+                    if template.name == 'collection' and forloop.index <= 2
+                      assign crk_load = 'eager'
+                      if forloop.first
+                        assign crk_prio = 'high'
+                      endif
+                    endif
+                  -%}
                   {{
                     crk_main
                     | image_url: width: 800
                     | image_tag:
-                      loading: 'lazy',
+                      loading: crk_load,
+                      fetchpriority: crk_prio,
                       widths: '200, 300, 400, 600, 800',
                       sizes: '(min-width: 1024px) 25vw, 50vw',
                       class: main_cls,
@@ -768,3 +799,11 @@ comment
   "presets": [{ "name": "Crooks — Catalogue" }]
 }
 {% endschema %}
+
+{% stylesheet %}
+  /* Collection description under the heading (crooks-exhibit-log). Reads like
+     the Terms and FAQ standfirst: one quiet paragraph, never a block. */
+  .crk-log__intro { margin: -8px 0 24px; max-width: 64ch; color: var(--crk-paper); font-size: 13px; line-height: 1.6 }
+  .crk-log__intro p { margin: 0 0 8px }
+  .crk-log__intro p:last-child { margin-bottom: 0 }
+{% endstylesheet %}

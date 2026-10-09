@@ -1,0 +1,531 @@
+{
+ "url": "https://crooksldn.com/products/pink-crsdr-joggers",
+ "title": "Pink Convict Sweats — 550gsm Baggy Joggers | CROOKSLDN",
+ "title_len": 54,
+ "meta_description": "Convict Sweats in pink. 550gsm brushed fleece, baggy fit, cuffed hem with white piping. Pairs with the Pink Convict Hoodie as the Pink Set.",
+ "meta_description_len": 139,
+ "meta_robots": null,
+ "canonical": "https://crooksldn.com/products/pink-crsdr-joggers",
+ "og": {
+  "title": "Pink Convict Sweats — 550gsm Baggy Joggers | CROOKSLDN",
+  "description": "Convict Sweats in pink. 550gsm brushed fleece, baggy fit, cuffed hem with white piping. Pairs with the Pink Convict Hoodie as the Pink Set.",
+  "type": "product",
+  "url": "https://crooksldn.com/products/pink-crsdr-joggers",
+  "image": "http://crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-sweatpants_e1020e28-42e0-4ce6-91ba-bb233d129028.png?v=1788194052&width=1200",
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "Pink Convict Sweats — 550gsm Baggy Joggers | CROOKSLDN",
+  "description": "Convict Sweats in pink. 550gsm brushed fleece, baggy fit, cuffed hem with white piping. Pairs with the Pink Convict Hoodie as the Pink Set.",
+  "site": null
+ },
+ "h1": [
+  "PINK CONVICT SWEATS"
+ ],
+ "h2_count": 8,
+ "jsonld_blocks": 4,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "ProductGroup",
+  "Brand",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "BreadcrumbList",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "Organization",
+  "Brand",
+  "MerchantReturnPolicy",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "ProductGroup",
+   "@id": "https://crooksldn.com/products/pink-crsdr-joggers#product",
+   "name": "PINK CONVICT SWEATS",
+   "description": "Convict Sweats in Pink — 550gsm brushed fleece, baggy fit, cuffed at the bottom. Pairs with the Pink Convict Hoodie; sold together as the Pink Set.",
+   "url": "https://crooksldn.com/products/pink-crsdr-joggers",
+   "productGroupID": 10993357750615,
+   "brand": {
+    "@type": "Brand",
+    "@id": "https://crooksldn.com#brand",
+    "name": "CROOKSLDN"
+   },
+   "category": "Joggers",
+   "image": [
+    "https://crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-sweatpants_e1020e28-42e0-4ce6-91ba-bb233d129028.png?v=1788194052&width=1600",
+    "https://crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-sweatpants_d6c8adba-bc2f-430f-b66a-bb7992764d84.png?v=1788194052&width=1600"
+   ],
+   "variesBy": [
+    "https://schema.org/size"
+   ],
+   "hasVariant": [
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/pink-crsdr-joggers?variant=54032414900567",
+     "name": "PINK CONVICT SWEATS — XS",
+     "size": "XS",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/pink-crsdr-joggers?variant=54032414900567",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/pink-crsdr-joggers?variant=54032414933335",
+     "name": "PINK CONVICT SWEATS — S",
+     "size": "S",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/pink-crsdr-joggers?variant=54032414933335",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/pink-crsdr-joggers?variant=54032414966103",
+     "name": "PINK CONVICT SWEATS — M",
+     "size": "M",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/pink-crsdr-joggers?variant=54032414966103",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/pink-crsdr-joggers?variant=54032414998871",
+     "name": "PINK CONVICT SWEATS — L",
+     "size": "L",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/pink-crsdr-joggers?variant=54032414998871",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/pink-crsdr-joggers?variant=54032415031639",
+     "name": "PINK CONVICT SWEATS — XL",
+     "size": "XL",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/pink-crsdr-joggers?variant=54032415031639",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://crooksldn.com"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Sweats",
+     "item": "https://crooksldn.com/collections/sweats"
+    },
+    {
+     "@type": "ListItem",
+     "position": 3,
+     "name": "PINK CONVICT SWEATS",
+     "item": "https://crooksldn.com/products/pink-crsdr-joggers"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "legalName": "Crooks Clothing Company Ltd",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "brand": {
+    "@type": "Brand",
+    "@id": "https://crooksldn.com#brand",
+    "name": "CROOKSLDN",
+    "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512"
+   },
+   "hasMerchantReturnPolicy": {
+    "@type": "MerchantReturnPolicy",
+    "@id": "https://crooksldn.com#return-policy",
+    "url": "https://crooksldn.com/policies/refund-policy",
+    "applicableCountry": "GB",
+    "returnPolicyCountry": "GB",
+    "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+    "merchantReturnDays": 14,
+    "returnMethod": "https://schema.org/ReturnByMail",
+    "customerRemorseReturnFees": "https://schema.org/ReturnShippingFees",
+    "itemDefectReturnFees": "https://schema.org/FreeReturn"
+   },
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "inLanguage": "en",
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 7,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-sweatpants_e1020e28-42e0-4ce6-91ba-bb233d129028.png?v=1788194052&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "eager",
+   "fetchpriority": "high",
+   "alt": "CROOKSLDN pink baggy sweatpants in 550gsm brushed fleece with white piping detail and cuffed ankles.",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-sweatpants_d6c8adba-bc2f-430f-b66a-bb7992764d84.png?v=1788194052&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "lazy",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN pink baggy sweatpants in 550gsm brushed fleece with white handcuff graphic on the back pockets",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-sweatpants_e1020e28-42e0-4ce6-91ba-bb233d129028.png?v=1788194052&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-sweatpants_d6c8adba-bc2f-430f-b66a-bb7992764d84.png?v=1788194052&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1254.png?v=1788279082&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "BLACK CONVICT SWEATS",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1202_c93e927c-2c68-4041-b43d-2e7f571e8a20.png?v=1788189059&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "GREY CONVICT SWEATS",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  }
+ ],
+ "visible_words": 372,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}

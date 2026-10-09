@@ -1,0 +1,384 @@
+{
+ "url": "https://crooksldn.com/collections/sweats",
+ "title": "Sweats\n – CROOKSLDN",
+ "title_len": 19,
+ "meta_description": "Hoodies, crewnecks, joggers and shorts.",
+ "meta_description_len": 39,
+ "meta_robots": null,
+ "canonical": "https://crooksldn.com/collections/sweats",
+ "og": {
+  "title": "Sweats",
+  "description": "Hoodies, crewnecks, joggers and shorts.",
+  "type": "website",
+  "url": "https://crooksldn.com/collections/sweats",
+  "image": null,
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "Sweats",
+  "description": "Hoodies, crewnecks, joggers and shorts.",
+  "site": null
+ },
+ "h1": [
+  "Sweats"
+ ],
+ "h2_count": 4,
+ "jsonld_blocks": 4,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "CollectionPage",
+  "ItemList",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "BreadcrumbList",
+  "ListItem",
+  "ListItem",
+  "Organization",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "CollectionPage",
+   "@id": "https://crooksldn.com/collections/sweats#collection",
+   "name": "Sweats",
+   "url": "https://crooksldn.com/collections/sweats",
+   "description": "Hoodies, crewnecks, joggers and shorts.",
+   "isPartOf": {
+    "@id": "https://crooksldn.com#website"
+   },
+   "mainEntity": {
+    "@type": "ItemList",
+    "numberOfItems": 8,
+    "itemListElement": [
+     {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "PINK CONVICT HOODIE",
+      "url": "https://crooksldn.com/products/pink-crsdr-hoodie"
+     },
+     {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "PINK CONVICT SWEATS",
+      "url": "https://crooksldn.com/products/pink-crsdr-joggers"
+     },
+     {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "CHARCOAL CELLBLOCK SHORTS",
+      "url": "https://crooksldn.com/products/charcoal-cellblock-shorts"
+     },
+     {
+      "@type": "ListItem",
+      "position": 4,
+      "name": "CHARCOAL CELLBLOCK CREWNECK",
+      "url": "https://crooksldn.com/products/charcoal-cellblock-crewneck"
+     },
+     {
+      "@type": "ListItem",
+      "position": 5,
+      "name": "BLACK CONVICT HOODIE",
+      "url": "https://crooksldn.com/products/convict-hoodie-1"
+     },
+     {
+      "@type": "ListItem",
+      "position": 6,
+      "name": "BLACK CONVICT SWEATS",
+      "url": "https://crooksldn.com/products/black-joggers"
+     },
+     {
+      "@type": "ListItem",
+      "position": 7,
+      "name": "GREY CONVICT HOODIE",
+      "url": "https://crooksldn.com/products/v1-hoodie"
+     },
+     {
+      "@type": "ListItem",
+      "position": 8,
+      "name": "GREY CONVICT SWEATS",
+      "url": "https://crooksldn.com/products/v2-baggies"
+     }
+    ]
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://crooksldn.com"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Sweats",
+     "item": "https://crooksldn.com/collections/sweats"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 16,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie_dbe1c469-06d0-44ca-b26b-7a8ca1bc9b1d.png?v=1788192584&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN pink baggy fit hoodie made from 550gsm brushed fleece with white piping detail and handcuff logo embroidery",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie-back.png?v=1788192584&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-sweatpants_e1020e28-42e0-4ce6-91ba-bb233d129028.png?v=1788194052&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN pink baggy sweatpants in 550gsm brushed fleece with white piping detail and cuffed ankles.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-sweatpants_d6c8adba-bc2f-430f-b66a-bb7992764d84.png?v=1788194052&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-charcoal-cellblock-fleece-shorts.png?v=1788194049&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN charcoal brushed fleece Cellblock shorts with a relaxed fit, drawstring waist, and 3D embroidery detail.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-charcoal-fleece-shorts_42086ef5-6b8e-4751-a4f4-2cd220ee8660.png?v=1788194049&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-charcoal-fleece-crewneck.png?v=1788188137&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN charcoal crewneck sweatshirt in 450gsm brushed fleece with a relaxed fit and 3D embroidered detail.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-black-baggy-fleece-hoodie.png?v=1788192310&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN black baggy hoodie in 550gsm brushed fleece with white piping details and handcuff logo on the chest.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/D787E520-B547-4893-BD87-188531749668_82149d90-2ba1-432e-b71c-9a1f9b8c9bb1.png?v=1788192310&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1254.png?v=1788279082&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN Black Convict Sweats, front view — baggy 550gsm brushed fleece joggers with white contrast piping, drawstring waist, elasticated cuffs and a small white handcuff logo.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1255.png?v=1788279083&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-grey-convict-fleece-hoodie_892e8e2e-338d-4e90-8e84-d175e4bcb5ad.png?v=1788190419&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN grey Convict hoodie in heavy 550gsm brushed fleece with a baggy fit and small embroidered handcuff logo.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-grey-convict-hoodie-back.png?v=1788190419&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1202_c93e927c-2c68-4041-b43d-2e7f571e8a20.png?v=1788189059&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN Grey Convict Sweats, front view — baggy 550gsm brushed fleece joggers in heather grey with tonal piping, drawstring waist, elasticated cuffs and a small handcuff logo.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1248.png?v=1788217075&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  }
+ ],
+ "visible_words": 222,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}

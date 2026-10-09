@@ -1,0 +1,822 @@
+{
+ "url": "https://crooksldn.com/products/crooks-express-t-shirt",
+ "title": "Crooks Express Tee — Cotton Logo T-Shirt | CROOKSLDN",
+ "title_len": 52,
+ "meta_description": "Crooks Express tee in cotton, with the red CROOKS logo and blue dashed-line graphic across the chest. In black or white.",
+ "meta_description_len": 120,
+ "meta_robots": null,
+ "canonical": "https://crooksldn.com/products/crooks-express-t-shirt",
+ "og": {
+  "title": "Crooks Express Tee — Cotton Logo T-Shirt | CROOKSLDN",
+  "description": "Crooks Express tee in cotton, with the red CROOKS logo and blue dashed-line graphic across the chest. In black or white.",
+  "type": "product",
+  "url": "https://crooksldn.com/products/crooks-express-t-shirt",
+  "image": "http://crooksldn.com/cdn/shop/files/crooksldn-black-graphic-tee.png?v=1788188192&width=1200",
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "Crooks Express Tee — Cotton Logo T-Shirt | CROOKSLDN",
+  "description": "Crooks Express tee in cotton, with the red CROOKS logo and blue dashed-line graphic across the chest. In black or white.",
+  "site": null
+ },
+ "h1": [
+  "CROOKS EXPRESS TEE"
+ ],
+ "h2_count": 7,
+ "jsonld_blocks": 4,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "ProductGroup",
+  "Brand",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "BreadcrumbList",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "Organization",
+  "Brand",
+  "MerchantReturnPolicy",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "ProductGroup",
+   "@id": "https://crooksldn.com/products/crooks-express-t-shirt#product",
+   "name": "CROOKS EXPRESS TEE",
+   "description": "Crooks Express tee in cotton, with the red CROOKS logo and blue dashed-line graphic across the chest. In black or white.",
+   "url": "https://crooksldn.com/products/crooks-express-t-shirt",
+   "productGroupID": 10642177786199,
+   "brand": {
+    "@type": "Brand",
+    "@id": "https://crooksldn.com#brand",
+    "name": "CROOKSLDN"
+   },
+   "category": "T-Shirts",
+   "image": [
+    "https://crooksldn.com/cdn/shop/files/crooksldn-black-graphic-tee.png?v=1788188192&width=1600",
+    "https://crooksldn.com/cdn/shop/files/crooksldn-white-cotton-t-shirt.png?v=1788188192&width=1600"
+   ],
+   "variesBy": [
+    "https://schema.org/color",
+    "https://schema.org/size"
+   ],
+   "hasVariant": [
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604246871",
+     "name": "CROOKS EXPRESS TEE — White / XS",
+     "color": "White",
+     "size": "XS",
+     "image": "https://crooksldn.com/cdn/shop/files/crooksldn-white-cotton-t-shirt.png?v=1788188192&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604246871",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "3.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604279639",
+     "name": "CROOKS EXPRESS TEE — White / S",
+     "color": "White",
+     "size": "S",
+     "image": "https://crooksldn.com/cdn/shop/files/crooksldn-white-cotton-t-shirt.png?v=1788188192&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604279639",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "3.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604312407",
+     "name": "CROOKS EXPRESS TEE — White / M",
+     "color": "White",
+     "size": "M",
+     "image": "https://crooksldn.com/cdn/shop/files/crooksldn-white-cotton-t-shirt.png?v=1788188192&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604312407",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "3.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604345175",
+     "name": "CROOKS EXPRESS TEE — White / L",
+     "color": "White",
+     "size": "L",
+     "image": "https://crooksldn.com/cdn/shop/files/crooksldn-white-cotton-t-shirt.png?v=1788188192&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604345175",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "3.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604377943",
+     "name": "CROOKS EXPRESS TEE — White / XL",
+     "color": "White",
+     "size": "XL",
+     "image": "https://crooksldn.com/cdn/shop/files/crooksldn-white-cotton-t-shirt.png?v=1788188192&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604377943",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "3.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604410711",
+     "name": "CROOKS EXPRESS TEE — Black / XS",
+     "color": "Black",
+     "size": "XS",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604410711",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "3.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604443479",
+     "name": "CROOKS EXPRESS TEE — Black / S",
+     "color": "Black",
+     "size": "S",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604443479",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "3.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604476247",
+     "name": "CROOKS EXPRESS TEE — Black / M",
+     "color": "Black",
+     "size": "M",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604476247",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "3.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604509015",
+     "name": "CROOKS EXPRESS TEE — Black / L",
+     "color": "Black",
+     "size": "L",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604509015",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "3.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604541783",
+     "name": "CROOKS EXPRESS TEE — Black / XL",
+     "color": "Black",
+     "size": "XL",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crooks-express-t-shirt?variant=53099604541783",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "3.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://crooksldn.com"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Tees",
+     "item": "https://crooksldn.com/collections/tees"
+    },
+    {
+     "@type": "ListItem",
+     "position": 3,
+     "name": "CROOKS EXPRESS TEE",
+     "item": "https://crooksldn.com/products/crooks-express-t-shirt"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "legalName": "Crooks Clothing Company Ltd",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "brand": {
+    "@type": "Brand",
+    "@id": "https://crooksldn.com#brand",
+    "name": "CROOKSLDN",
+    "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512"
+   },
+   "hasMerchantReturnPolicy": {
+    "@type": "MerchantReturnPolicy",
+    "@id": "https://crooksldn.com#return-policy",
+    "url": "https://crooksldn.com/policies/refund-policy",
+    "applicableCountry": "GB",
+    "returnPolicyCountry": "GB",
+    "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+    "merchantReturnDays": 14,
+    "returnMethod": "https://schema.org/ReturnByMail",
+    "customerRemorseReturnFees": "https://schema.org/ReturnShippingFees",
+    "itemDefectReturnFees": "https://schema.org/FreeReturn"
+   },
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "inLanguage": "en",
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 7,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-black-graphic-tee.png?v=1788188192&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "eager",
+   "fetchpriority": "high",
+   "alt": "CROOKSLDN black cotton t-shirt featuring a red CROOKS logo with a blue dashed line graphic on the chest",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-white-cotton-t-shirt.png?v=1788188192&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "lazy",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN white cotton t-shirt featuring a red CROOKS logo and blue dashed line graphic on the chest",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-black-graphic-tee.png?v=1788188192&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-white-cotton-t-shirt.png?v=1788188192&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-3994.png?v=1786198496&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CRXST★RZ T-SHIRT",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-black-crx-garms-t-shirt.png?v=1788187442&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CRX GARMS T-SHIRT",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  }
+ ],
+ "visible_words": 382,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}

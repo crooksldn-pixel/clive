@@ -1,0 +1,338 @@
+{
+ "url": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822377303",
+ "title": "Blue Wash Yard Jeans — 14oz Straight Leg Denim | CROOKSLDN",
+ "title_len": 58,
+ "meta_description": "Yard Jeans in blue wash. 14oz denim, OG straight cut, mid rise. Structured, not baggy. Embroidered handcuff graphic on the back pockets.",
+ "meta_description_len": 136,
+ "meta_robots": null,
+ "canonical": "https://crooksldn.com/products/blue-wash-yard-jeans",
+ "og": {
+  "title": "Blue Wash Yard Jeans — 14oz Straight Leg Denim | CROOKSLDN",
+  "description": "Yard Jeans in blue wash. 14oz denim, OG straight cut, mid rise. Structured, not baggy. Embroidered handcuff graphic on the back pockets.",
+  "type": "product",
+  "url": "https://crooksldn.com/products/blue-wash-yard-jeans",
+  "image": "http://crooksldn.com/cdn/shop/files/crooksldn-blue-wash-denim-jeans_33cac148-f3ca-448a-8c9a-30ff0047564d.png?v=1788194148",
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "Blue Wash Yard Jeans — 14oz Straight Leg Denim | CROOKSLDN",
+  "description": "Yard Jeans in blue wash. 14oz denim, OG straight cut, mid rise. Structured, not baggy. Embroidered handcuff graphic on the back pockets.",
+  "site": null
+ },
+ "h1": [
+  "BLUE WASH YARD JEANS"
+ ],
+ "h2_count": 9,
+ "jsonld_blocks": 4,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "ProductGroup",
+  "Brand",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "BreadcrumbList",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "Organization",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "ProductGroup",
+   "@id": "https://crooksldn.com/products/blue-wash-yard-jeans#product",
+   "name": "BLUE WASH YARD JEANS",
+   "description": "Yard jeans — Blue wash.14oz denim, OG straight cut, mid rise. Structured, not baggy.",
+   "url": "https://crooksldn.com/products/blue-wash-yard-jeans",
+   "productGroupID": 10890058203479,
+   "brand": {
+    "@type": "Brand",
+    "name": "CROOKSLDN"
+   },
+   "category": "Jeans",
+   "image": [
+    "https://crooksldn.com/cdn/shop/files/crooksldn-blue-wash-denim-jeans_33cac148-f3ca-448a-8c9a-30ff0047564d.png?v=1788194148&width=1600",
+    "https://crooksldn.com/cdn/shop/files/crooksldn-blue-wash-straight-denim-jeans.png?v=1788194148&width=1600"
+   ],
+   "variesBy": [
+    "https://schema.org/size"
+   ],
+   "hasVariant": [
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822344535",
+     "name": "BLUE WASH YARD JEANS — XS",
+     "size": "XS",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822344535",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822377303",
+     "name": "BLUE WASH YARD JEANS — S",
+     "size": "S",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822377303",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822410071",
+     "name": "BLUE WASH YARD JEANS — M",
+     "size": "M",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822410071",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822442839",
+     "name": "BLUE WASH YARD JEANS — L",
+     "size": "L",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822442839",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822475607",
+     "name": "BLUE WASH YARD JEANS — XL",
+     "size": "XL",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822475607",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://crooksldn.com"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "NEW",
+     "item": "https://crooksldn.com/collections/new-1"
+    },
+    {
+     "@type": "ListItem",
+     "position": 3,
+     "name": "BLUE WASH YARD JEANS",
+     "item": "https://crooksldn.com/products/blue-wash-yard-jeans"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 7,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-blue-wash-denim-jeans_33cac148-f3ca-448a-8c9a-30ff0047564d.png?v=1788194148&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN blue wash 14oz denim jeans with straight cut, mid rise, and white embroidered hand graphic on back pockets.",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-blue-wash-straight-denim-jeans.png?v=1788194148&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN blue wash 14oz denim jeans in a straight cut with mid-rise fit and embroidered pocket details",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-blue-wash-denim-jeans_33cac148-f3ca-448a-8c9a-30ff0047564d.png?v=1788194148&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-blue-wash-straight-denim-jeans.png?v=1788194148&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-grey-wash-straight-jeans.png?v=1788188131&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "GREY WASH YARD JEANS",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-og-baggy-denim-jeans_ea4a51a6-44dd-409c-b1dc-6c0ae2156781.png?v=1788187446&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "OG JEANS",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  }
+ ],
+ "visible_words": 381,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}

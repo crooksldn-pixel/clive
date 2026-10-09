@@ -1,0 +1,306 @@
+{
+ "url": "https://crooksldn.com/products/double-agent-puffa",
+ "title": "DOUBLE-AGENT PUFFA\n – CROOKSLDN",
+ "title_len": 31,
+ "meta_description": "Heat-reactive puffer with signature Crooks handcuff embroidery to the chest and hood. Changes appearance with temperature, finished with a padded streetwear fit and concealed hand pockets.",
+ "meta_description_len": 188,
+ "meta_robots": null,
+ "canonical": "https://crooksldn.com/products/double-agent-puffa",
+ "og": {
+  "title": "DOUBLE-AGENT PUFFA",
+  "description": "Heat-reactive puffer with signature Crooks handcuff embroidery to the chest and hood. Changes appearance with temperature, finished with a padded streetwear fit and concealed hand pockets.",
+  "type": "product",
+  "url": "https://crooksldn.com/products/double-agent-puffa",
+  "image": "http://crooksldn.com/cdn/shop/files/1a0b9830-b3ca-4332-a7b0-b17607cb5060.png?v=1790957038",
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "DOUBLE-AGENT PUFFA",
+  "description": "Heat-reactive puffer with signature Crooks handcuff embroidery to the chest and hood. Changes appearance with temperature, finished with a padded streetwear fit and concealed hand pockets.",
+  "site": null
+ },
+ "h1": [
+  "DOUBLE-AGENT PUFFA"
+ ],
+ "h2_count": 6,
+ "jsonld_blocks": 4,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "ProductGroup",
+  "Brand",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "BreadcrumbList",
+  "ListItem",
+  "ListItem",
+  "Organization",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "ProductGroup",
+   "@id": "https://crooksldn.com/products/double-agent-puffa#product",
+   "name": "DOUBLE-AGENT PUFFA",
+   "description": "Heat-reactive puffer with signature Crooks handcuff embroidery to the chest and hood. Changes appearance with temperature, finished with a padded streetwear fit and concealed hand pockets.",
+   "url": "https://crooksldn.com/products/double-agent-puffa",
+   "productGroupID": 11236140417367,
+   "brand": {
+    "@type": "Brand",
+    "name": "CROOKSLDN"
+   },
+   "image": [
+    "https://crooksldn.com/cdn/shop/files/1a0b9830-b3ca-4332-a7b0-b17607cb5060.png?v=1790957038&width=1600",
+    "https://crooksldn.com/cdn/shop/files/88b52784-5698-4f8d-bd88-a47e712b4e7f.png?v=1790957038&width=1600"
+   ],
+   "variesBy": [
+    "https://schema.org/size"
+   ],
+   "hasVariant": [
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/double-agent-puffa?variant=55222276456791",
+     "name": "DOUBLE-AGENT PUFFA — XS",
+     "size": "XS",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/double-agent-puffa?variant=55222276456791",
+      "price": "140.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/double-agent-puffa?variant=55222276489559",
+     "name": "DOUBLE-AGENT PUFFA — S",
+     "size": "S",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/double-agent-puffa?variant=55222276489559",
+      "price": "140.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/double-agent-puffa?variant=55222276522327",
+     "name": "DOUBLE-AGENT PUFFA — M",
+     "size": "M",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/double-agent-puffa?variant=55222276522327",
+      "price": "140.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/double-agent-puffa?variant=55222276555095",
+     "name": "DOUBLE-AGENT PUFFA — L",
+     "size": "L",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/double-agent-puffa?variant=55222276555095",
+      "price": "140.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/double-agent-puffa?variant=55222276587863",
+     "name": "DOUBLE-AGENT PUFFA — XL",
+     "size": "XL",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/double-agent-puffa?variant=55222276587863",
+      "price": "140.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://crooksldn.com"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "DOUBLE-AGENT PUFFA",
+     "item": "https://crooksldn.com/products/double-agent-puffa"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 5,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/1a0b9830-b3ca-4332-a7b0-b17607cb5060.png?v=1790957038&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "DOUBLE-AGENT PUFFA",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1749"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/88b52784-5698-4f8d-bd88-a47e712b4e7f.png?v=1790957038&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "DOUBLE-AGENT PUFFA",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1749"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/1a0b9830-b3ca-4332-a7b0-b17607cb5060.png?v=1790957038&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "160"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/88b52784-5698-4f8d-bd88-a47e712b4e7f.png?v=1790957038&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "160"
+  }
+ ],
+ "visible_words": 287,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}

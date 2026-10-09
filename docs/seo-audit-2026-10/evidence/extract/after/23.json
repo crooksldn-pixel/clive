@@ -1,0 +1,417 @@
+{
+ "url": "https://crooksldn.com/products/black-socks",
+ "title": "MotionTec Socks in Black and Blue | CROOKSLDN",
+ "title_len": 45,
+ "meta_description": "MotionTec socks in black and blue. Cotton blend with a reinforced heel, made for constant movement. Single pairs or packs of 3, 6 or 12.",
+ "meta_description_len": 136,
+ "meta_robots": null,
+ "canonical": "https://crooksldn.com/products/black-socks",
+ "og": {
+  "title": "MotionTec Socks in Black and Blue | CROOKSLDN",
+  "description": "MotionTec socks in black and blue. Cotton blend with a reinforced heel, made for constant movement. Single pairs or packs of 3, 6 or 12.",
+  "type": "product",
+  "url": "https://crooksldn.com/products/black-socks",
+  "image": "http://crooksldn.com/cdn/shop/files/blacksock.png?v=1784542125&width=1200",
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "MotionTec Socks in Black and Blue | CROOKSLDN",
+  "description": "MotionTec socks in black and blue. Cotton blend with a reinforced heel, made for constant movement. Single pairs or packs of 3, 6 or 12.",
+  "site": null
+ },
+ "h1": [
+  "BLACK/BLUE MOTIONTEC™ SOCKS"
+ ],
+ "h2_count": 7,
+ "jsonld_blocks": 4,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "ProductGroup",
+  "Brand",
+  "PropertyValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "BreadcrumbList",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "Organization",
+  "Brand",
+  "MerchantReturnPolicy",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "ProductGroup",
+   "@id": "https://crooksldn.com/products/black-socks#product",
+   "name": "BLACK/BLUE MOTIONTEC™️ SOCKS",
+   "description": "MotionTec™ socks in black and blue — cotton blend, reinforced heel, made for constant movement. One pair, or packs of 3, 6 or 12. Counted, not estimated.",
+   "url": "https://crooksldn.com/products/black-socks",
+   "productGroupID": 10787430367575,
+   "brand": {
+    "@type": "Brand",
+    "@id": "https://crooksldn.com#brand",
+    "name": "CROOKSLDN"
+   },
+   "category": "Socks",
+   "image": [
+    "https://crooksldn.com/cdn/shop/files/blacksock.png?v=1784542125&width=1600"
+   ],
+   "material": "Cotton blend, reinforced heel",
+   "additionalProperty": [
+    {
+     "@type": "PropertyValue",
+     "name": "Care",
+     "value": "Machine wash warm."
+    }
+   ],
+   "hasVariant": [
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/black-socks?variant=53455222964567",
+     "name": "BLACK/BLUE MOTIONTEC™️ SOCKS — 1pc",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/black-socks?variant=53455222964567",
+      "price": "6.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "3.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/black-socks?variant=53455222997335",
+     "name": "BLACK/BLUE MOTIONTEC™️ SOCKS — 3pc",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/black-socks?variant=53455222997335",
+      "price": "15.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "3.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/black-socks?variant=53455223030103",
+     "name": "BLACK/BLUE MOTIONTEC™️ SOCKS — 6pc",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/black-socks?variant=53455223030103",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "3.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/black-socks?variant=53455945335127",
+     "name": "BLACK/BLUE MOTIONTEC™️ SOCKS — 12pc",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/black-socks?variant=53455945335127",
+      "price": "45.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://crooksldn.com"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Accessories",
+     "item": "https://crooksldn.com/collections/accessories"
+    },
+    {
+     "@type": "ListItem",
+     "position": 3,
+     "name": "BLACK/BLUE MOTIONTEC™️ SOCKS",
+     "item": "https://crooksldn.com/products/black-socks"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "legalName": "Crooks Clothing Company Ltd",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "brand": {
+    "@type": "Brand",
+    "@id": "https://crooksldn.com#brand",
+    "name": "CROOKSLDN",
+    "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512"
+   },
+   "hasMerchantReturnPolicy": {
+    "@type": "MerchantReturnPolicy",
+    "@id": "https://crooksldn.com#return-policy",
+    "url": "https://crooksldn.com/policies/refund-policy",
+    "applicableCountry": "GB",
+    "returnPolicyCountry": "GB",
+    "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+    "merchantReturnDays": 14,
+    "returnMethod": "https://schema.org/ReturnByMail",
+    "customerRemorseReturnFees": "https://schema.org/ReturnShippingFees",
+    "itemDefectReturnFees": "https://schema.org/FreeReturn"
+   },
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "inLanguage": "en",
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 2,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/blacksock.png?v=1784542125&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "eager",
+   "fetchpriority": "high",
+   "alt": "BLACK/BLUE MOTIONTEC SOCKS",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  }
+ ],
+ "visible_words": 305,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}

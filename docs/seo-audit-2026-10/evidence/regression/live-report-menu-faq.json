@@ -1,0 +1,56 @@
+[
+ {
+  "name": "menu",
+  "path": "/",
+  "status": 200,
+  "theme": 206162461015,
+  "h1": [
+   {
+    "text": "CROOKSLDN",
+    "visible": true
+   }
+  ],
+  "menuButtonVisible": true,
+  "box": {
+   "x": 327.921875,
+   "y": 36,
+   "width": 50.078125,
+   "height": 44
+  },
+  "topEl": "DIV.ctc-offer #",
+  "expanded": "true",
+  "drawerLinks": [
+   "SHOP",
+   "TRACKING",
+   "QUESTIONS",
+   "TERMS",
+   "Contact",
+   "PLAY CROOKS: The Getaway\n          CASE 001: THE GETAWAY. Animated map: a thief moves through an alley grid collecting coins while a patrolling officer crosses below.",
+   "ACCOUNT",
+   "BAG [1]"
+  ],
+  "errors": [
+   "console Failed to load resource: net::ERR_FAILED",
+   "pageerror Error completing request. A network failure may have prevented the request from completing. Error: TypeError: Failed to fetch. Schemas: privacy_banner_initialized/1.2",
+   "console Failed to load resource: the server responded with a status of 403 (Forbidden)"
+  ]
+ },
+ {
+  "name": "faq",
+  "path": "/pages/faq",
+  "status": 200,
+  "theme": 206162461015,
+  "h1": [
+   {
+    "text": "COMMONLY ASKED QUESTIONS",
+    "visible": true
+   }
+  ],
+  "errors": [
+   "console TypeError: Failed to fetch\n    at T (https://crooksldn.com/cdn/shopifycloud/storefront/assets/storefront/event_observer_reporter-ed358274.js:3:1425)\n    at w (https://crooksldn.com/cdn/shopifycloud/st",
+   "console Failed to load resource: net::ERR_FAILED",
+   "pageerror Error completing request. A network failure may have prevented the request from completing. Error: TypeError: Failed to fetch. Schemas: privacy_banner_initialized/1.2",
+   "console Failed to load resource: the server responded with a status of 403 (Forbidden)"
+  ]
+ }
+]

@@ -1,0 +1,208 @@
+{
+ "url": "https://crooksldn.com/collections/accessories",
+ "title": "Socks & Accessories | CROOKSLDN",
+ "title_len": 31,
+ "meta_description": "MotionTec socks and accessories from Crooks London. Cotton-blend socks with a reinforced heel, in single pairs or packs of 3, 6 or 12. Free UK shipping…",
+ "meta_description_len": 152,
+ "meta_robots": null,
+ "canonical": "https://crooksldn.com/collections/accessories",
+ "og": {
+  "title": "Socks & Accessories | CROOKSLDN",
+  "description": "MotionTec socks and accessories from Crooks London. Cotton-blend socks with a reinforced heel, in single pairs or packs of 3, 6 or 12. Free UK shipping…",
+  "type": "website",
+  "url": "https://crooksldn.com/collections/accessories",
+  "image": null,
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "Socks & Accessories | CROOKSLDN",
+  "description": "MotionTec socks and accessories from Crooks London. Cotton-blend socks with a reinforced heel, in single pairs or packs of 3, 6 or 12. Free UK shipping…",
+  "site": null
+ },
+ "h1": [
+  "Accessories"
+ ],
+ "h2_count": 4,
+ "jsonld_blocks": 4,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "CollectionPage",
+  "ItemList",
+  "ListItem",
+  "ListItem",
+  "BreadcrumbList",
+  "ListItem",
+  "ListItem",
+  "Organization",
+  "Brand",
+  "MerchantReturnPolicy",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "CollectionPage",
+   "@id": "https://crooksldn.com/collections/accessories#collection",
+   "name": "Accessories",
+   "url": "https://crooksldn.com/collections/accessories",
+   "description": "Socks, bags and extras.",
+   "isPartOf": {
+    "@id": "https://crooksldn.com#website"
+   },
+   "mainEntity": {
+    "@type": "ItemList",
+    "numberOfItems": 2,
+    "itemListElement": [
+     {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "WHITE/RED MOTIONTEC™️ SOCKS",
+      "url": "https://crooksldn.com/products/white-socks"
+     },
+     {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "BLACK/BLUE MOTIONTEC™️ SOCKS",
+      "url": "https://crooksldn.com/products/black-socks"
+     }
+    ]
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://crooksldn.com"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Accessories",
+     "item": "https://crooksldn.com/collections/accessories"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "legalName": "Crooks Clothing Company Ltd",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "brand": {
+    "@type": "Brand",
+    "@id": "https://crooksldn.com#brand",
+    "name": "CROOKSLDN",
+    "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512"
+   },
+   "hasMerchantReturnPolicy": {
+    "@type": "MerchantReturnPolicy",
+    "@id": "https://crooksldn.com#return-policy",
+    "url": "https://crooksldn.com/policies/refund-policy",
+    "applicableCountry": "GB",
+    "returnPolicyCountry": "GB",
+    "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+    "merchantReturnDays": 14,
+    "returnMethod": "https://schema.org/ReturnByMail",
+    "customerRemorseReturnFees": "https://schema.org/ReturnShippingFees",
+    "itemDefectReturnFees": "https://schema.org/FreeReturn"
+   },
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "inLanguage": "en",
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 3,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-white-red-motiontec-socks.webp?v=1785769861&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "eager",
+   "fetchpriority": "high",
+   "alt": "CROOKSLDN white and red MotionTec performance socks with grey accents and small handcuff logo detail",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/blacksock.png?v=1784542125&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "eager",
+   "fetchpriority": "auto",
+   "alt": "BLACK/BLUE MOTIONTEC SOCKS",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  }
+ ],
+ "visible_words": 142,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}

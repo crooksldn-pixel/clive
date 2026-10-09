@@ -196,10 +196,18 @@
         >
           {%- for image in product.images -%}
             {%- liquid
+              comment
+                The first photo is the page's largest paint (measured on the
+                Yard Jeans page): it was already eager, it now also asks for
+                high fetch priority so it is not queued behind scripts
+                (Promptd audit 2026-10, finding I4).
+              endcomment
               if forloop.first
                 assign img_loading = 'eager'
+                assign img_prio = 'high'
               else
                 assign img_loading = 'lazy'
+                assign img_prio = 'auto'
               endif
               assign img_alt = image.alt | default: product.title
               assign gal_src = image.src | downcase
@@ -216,6 +224,7 @@
                   widths: '400, 600, 800, 1000, 1400',
                   sizes: '(min-width: 960px) 55vw, 100vw',
                   loading: img_loading,
+                  fetchpriority: img_prio,
                   class: main_img_cls,
                   alt: img_alt
               }}

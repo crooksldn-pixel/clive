@@ -1,0 +1,23 @@
+Shopify theme-check (@shopify/theme-check-node 3.30.1), run on the 165-file copy of the live theme (BEFORE)
+and the same copy with the audit changes (AFTER). The copy has no locales/assets/blocks, so most offences
+(MissingAsset, TranslationKeyExists, ValidSchemaTranslations, JSON block checks) are artefacts of the partial copy
+and appear identically on both sides.
+
+BEFORE offences: 875    AFTER offences: 876
+Errors (severity 0) excluding MissingAsset: before 394, after 394
+
+Introduced by the audit changes:
+  [warning] ExcessiveSettingsCount sections/crooks-tracking.liquid: This schema declares 43 settings, which exceeds the maximum of 40. Consider splitting this section or block into smaller pieces, or grouping related options with a header.
+  [warning] OrphanedSnippet snippets/crooks-schema-shipping.liquid: This snippet is not referenced by any other files
+
+No longer reported after the changes:
+  [warning] ExcessiveSettingsCount sections/crooks-tracking.liquid: This schema declares 42 settings, which exceeds the maximum of 40. Consider splitting this section or block into smaller pieces, or grouping related options with a header.
+
+Notes:
+  ExcessiveSettingsCount on crooks-tracking: the section already declared 42 settings (limit 40); the editable
+  page heading makes 43. Accepted: an editable h1 is worth one more setting.
+  OrphanedSnippet on crooks-schema-shipping: false positive. The same run also calls meta-tags, crooks-schema-site
+  and crooks-schema-product orphaned on BOTH sides, although layout/theme.liquid:27 renders meta-tags,
+  sections/crooks-footer-log.liquid:58 renders crooks-schema-site, sections/crooks-exhibit-record.liquid:78 renders
+  crooks-schema-product, and crooks-schema-product renders crooks-schema-shipping. The rendered pages prove all four
+  are reached (evidence/head/*.after.html).

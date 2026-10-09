@@ -1,0 +1,314 @@
+{
+ "url": "https://crooksldn.com/products/blue-wash-yard-jorts",
+ "title": "Blue Wash Yard Jorts — 14oz Baggy Denim Shorts | CROOKSLDN",
+ "title_len": 58,
+ "meta_description": "Yard Jorts in blue wash. Baggy 14oz denim shorts finishing below the knee, with the signature Convict embroidery on the back pockets.",
+ "meta_description_len": 133,
+ "meta_robots": null,
+ "canonical": "https://crooksldn.com/products/blue-wash-yard-jorts",
+ "og": {
+  "title": "Blue Wash Yard Jorts — 14oz Baggy Denim Shorts | CROOKSLDN",
+  "description": "Yard Jorts in blue wash. Baggy 14oz denim shorts finishing below the knee, with the signature Convict embroidery on the back pockets.",
+  "type": "product",
+  "url": "https://crooksldn.com/products/blue-wash-yard-jorts",
+  "image": "http://crooksldn.com/cdn/shop/files/crooksldn-blue-wash-denim-jorts.png?v=1786031414",
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "Blue Wash Yard Jorts — 14oz Baggy Denim Shorts | CROOKSLDN",
+  "description": "Yard Jorts in blue wash. Baggy 14oz denim shorts finishing below the knee, with the signature Convict embroidery on the back pockets.",
+  "site": null
+ },
+ "h1": [
+  "BLUE WASH YARD JORTS"
+ ],
+ "h2_count": 8,
+ "jsonld_blocks": 4,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "ProductGroup",
+  "Brand",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "BreadcrumbList",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "Organization",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "ProductGroup",
+   "@id": "https://crooksldn.com/products/blue-wash-yard-jorts#product",
+   "name": "BLUE WASH YARD JORTS",
+   "description": "Blue wash Yard jorts — baggy 14oz denim shorts, finishing below the knee, with the signature Convict embroidery.Heavy enough to hold its shape.",
+   "url": "https://crooksldn.com/products/blue-wash-yard-jorts",
+   "productGroupID": 10890060235095,
+   "brand": {
+    "@type": "Brand",
+    "name": "CROOKSLDN"
+   },
+   "category": "Denim Shorts",
+   "image": [
+    "https://crooksldn.com/cdn/shop/files/crooksldn-blue-wash-denim-jorts.png?v=1786031414&width=1600",
+    "https://crooksldn.com/cdn/shop/files/IMG-1223.png?v=1788194751&width=1600"
+   ],
+   "variesBy": [
+    "https://schema.org/size"
+   ],
+   "hasVariant": [
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/blue-wash-yard-jorts?variant=53639824900439",
+     "name": "BLUE WASH YARD JORTS — XS",
+     "size": "XS",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/blue-wash-yard-jorts?variant=53639824900439",
+      "price": "50.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/blue-wash-yard-jorts?variant=53639824933207",
+     "name": "BLUE WASH YARD JORTS — S",
+     "size": "S",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/blue-wash-yard-jorts?variant=53639824933207",
+      "price": "50.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/blue-wash-yard-jorts?variant=53639824965975",
+     "name": "BLUE WASH YARD JORTS — M",
+     "size": "M",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/blue-wash-yard-jorts?variant=53639824965975",
+      "price": "50.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/blue-wash-yard-jorts?variant=53639824998743",
+     "name": "BLUE WASH YARD JORTS — L",
+     "size": "L",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/blue-wash-yard-jorts?variant=53639824998743",
+      "price": "50.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/blue-wash-yard-jorts?variant=53639825031511",
+     "name": "BLUE WASH YARD JORTS — XL",
+     "size": "XL",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/blue-wash-yard-jorts?variant=53639825031511",
+      "price": "50.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://crooksldn.com"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "NEW",
+     "item": "https://crooksldn.com/collections/new-1"
+    },
+    {
+     "@type": "ListItem",
+     "position": 3,
+     "name": "BLUE WASH YARD JORTS",
+     "item": "https://crooksldn.com/products/blue-wash-yard-jorts"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 5,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-blue-wash-denim-jorts.png?v=1786031414&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN blue wash denim jorts with baggy fit and white embroidered handcuff artwork on back pockets",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1223.png?v=1788194751&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN Blue Wash Yard Jorts, front view — mid-blue 14oz denim shorts finishing below the knee, with embroidered handcuff and fingerprint details on the front pockets.",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-blue-wash-denim-jorts.png?v=1786031414&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1223.png?v=1788194751&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  }
+ ],
+ "visible_words": 392,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}

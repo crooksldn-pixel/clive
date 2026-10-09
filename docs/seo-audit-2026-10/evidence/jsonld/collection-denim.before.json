@@ -1,0 +1,88 @@
+[
+ {
+  "@context": "https://schema.org",
+  "@type": "CollectionPage",
+  "@id": "https://crooksldn.com/collections/denim#collection",
+  "name": "Denim",
+  "url": "https://crooksldn.com/collections/denim",
+  "description": "Jorts, jeans and denim.",
+  "isPartOf": {
+   "@id": "https://crooksldn.com#website"
+  },
+  "mainEntity": {
+   "@type": "ItemList",
+   "numberOfItems": 1,
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "OG JEANS",
+     "url": "https://crooksldn.com/products/og-jeans"
+    }
+   ]
+  }
+ },
+ {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+   {
+    "@type": "ListItem",
+    "position": 1,
+    "name": "Home",
+    "item": "https://crooksldn.com"
+   },
+   {
+    "@type": "ListItem",
+    "position": 2,
+    "name": "Denim",
+    "item": "https://crooksldn.com/collections/denim"
+   }
+  ]
+ },
+ {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "@id": "https://crooksldn.com#organization",
+  "name": "CROOKSLDN",
+  "alternateName": [
+   "Crooks London",
+   "Crooks"
+  ],
+  "url": "https://crooksldn.com",
+  "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+  "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+  "sameAs": [
+   "https://instagram.com/crooksldn",
+   "https://tiktok.com/@crooksldn"
+  ],
+  "contactPoint": {
+   "@type": "ContactPoint",
+   "contactType": "customer support",
+   "email": "team@crooksldn.com",
+   "areaServed": "GB"
+  }
+ },
+ {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "@id": "https://crooksldn.com#website",
+  "url": "https://crooksldn.com",
+  "name": "CROOKSLDN",
+  "alternateName": [
+   "Crooks London",
+   "Crooks"
+  ],
+  "publisher": {
+   "@id": "https://crooksldn.com#organization"
+  },
+  "potentialAction": {
+   "@type": "SearchAction",
+   "target": {
+    "@type": "EntryPoint",
+    "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+   },
+   "query-input": "required name=search_term_string"
+  }
+ }
+]

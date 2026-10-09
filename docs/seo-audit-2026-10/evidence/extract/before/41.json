@@ -1,0 +1,350 @@
+{
+ "url": "https://crooksldn.com/products/v2-baggies",
+ "title": "Grey Convict Sweats — 550gsm Baggy Joggers | CROOKSLDN",
+ "title_len": 54,
+ "meta_description": "Convict Sweats in grey. 550gsm brushed fleece, baggy fit, cuffed hem. Pairs with the Grey Convict Hoodie as the Grey Set.",
+ "meta_description_len": 121,
+ "meta_robots": null,
+ "canonical": "https://crooksldn.com/products/v2-baggies",
+ "og": {
+  "title": "Grey Convict Sweats — 550gsm Baggy Joggers | CROOKSLDN",
+  "description": "Convict Sweats in grey. 550gsm brushed fleece, baggy fit, cuffed hem. Pairs with the Grey Convict Hoodie as the Grey Set.",
+  "type": "product",
+  "url": "https://crooksldn.com/products/v2-baggies",
+  "image": "http://crooksldn.com/cdn/shop/files/IMG-1202_c93e927c-2c68-4041-b43d-2e7f571e8a20.png?v=1788189059",
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "Grey Convict Sweats — 550gsm Baggy Joggers | CROOKSLDN",
+  "description": "Convict Sweats in grey. 550gsm brushed fleece, baggy fit, cuffed hem. Pairs with the Grey Convict Hoodie as the Grey Set.",
+  "site": null
+ },
+ "h1": [
+  "GREY CONVICT SWEATS"
+ ],
+ "h2_count": 9,
+ "jsonld_blocks": 4,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "ProductGroup",
+  "Brand",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "BreadcrumbList",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "Organization",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "ProductGroup",
+   "@id": "https://crooksldn.com/products/v2-baggies#product",
+   "name": "GREY CONVICT SWEATS",
+   "description": "Convict Sweats in Grey — 550gsm brushed fleece, baggy fit, cuffed at the bottom.Pairs with the Grey Convict Hoodie; sold together as the Grey Set.",
+   "url": "https://crooksldn.com/products/v2-baggies",
+   "productGroupID": 10636762808663,
+   "brand": {
+    "@type": "Brand",
+    "name": "CROOKSLDN"
+   },
+   "category": "Joggers",
+   "image": [
+    "https://crooksldn.com/cdn/shop/files/IMG-1202_c93e927c-2c68-4041-b43d-2e7f571e8a20.png?v=1788189059&width=1600",
+    "https://crooksldn.com/cdn/shop/files/IMG-1248.png?v=1788217075&width=1600"
+   ],
+   "variesBy": [
+    "https://schema.org/size"
+   ],
+   "hasVariant": [
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/v2-baggies?variant=53075854197079",
+     "name": "GREY CONVICT SWEATS — XS",
+     "size": "XS",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/v2-baggies?variant=53075854197079",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/v2-baggies?variant=53075854229847",
+     "name": "GREY CONVICT SWEATS — S",
+     "size": "S",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/v2-baggies?variant=53075854229847",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/v2-baggies?variant=53075854262615",
+     "name": "GREY CONVICT SWEATS — M",
+     "size": "M",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/v2-baggies?variant=53075854262615",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/v2-baggies?variant=54273366851927",
+     "name": "GREY CONVICT SWEATS — L",
+     "size": "L",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/v2-baggies?variant=54273366851927",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/v2-baggies?variant=53075854328151",
+     "name": "GREY CONVICT SWEATS — XL",
+     "size": "XL",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/v2-baggies?variant=53075854328151",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://crooksldn.com"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Sweats",
+     "item": "https://crooksldn.com/collections/sweats"
+    },
+    {
+     "@type": "ListItem",
+     "position": 3,
+     "name": "GREY CONVICT SWEATS",
+     "item": "https://crooksldn.com/products/v2-baggies"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 8,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1202_c93e927c-2c68-4041-b43d-2e7f571e8a20.png?v=1788189059&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN Grey Convict Sweats, front view — baggy 550gsm brushed fleece joggers in heather grey with tonal piping, drawstring waist, elasticated cuffs and a small handcuff logo.",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1248.png?v=1788217075&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN Grey Convict Sweats, back view — tonal handcuffed-hands embroidery across both back pockets with piping running down each leg.",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1202_c93e927c-2c68-4041-b43d-2e7f571e8a20.png?v=1788189059&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1248.png?v=1788217075&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-grey-convict-fleece-hoodie_892e8e2e-338d-4e90-8e84-d175e4bcb5ad.png?v=1788190419&width=96",
+   "src_width": 96,
+   "srcset_max": 96,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "96",
+   "height": "96"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1254.png?v=1788279082&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "BLACK CONVICT SWEATS",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-sweatpants_e1020e28-42e0-4ce6-91ba-bb233d129028.png?v=1788194052&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "PINK CONVICT SWEATS",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  }
+ ],
+ "visible_words": 413,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}

@@ -10,6 +10,23 @@
   WebSite/SearchAction declares the on-site search endpoint, which is what makes
   a sitelinks search box possible. /search is real and takes ?q=, so this
   describes something that genuinely exists.
+
+  alternateName / description (SEO audit 2026-09-30): the brand trades as
+  CROOKSLDN, Crooks London and Crooks (@crooksldn). Declaring the alternates
+  lets search engines and AI tools resolve all three to one entity. The
+  description is a fallback used only while the shop description is blank.
+
+  Entity graph (Promptd SEO/GEO audit 2026-10, findings A1, G2, G10): the
+  Organization now carries the legal name the business trades under, the
+  CROOKSLDN Brand that every product points at by @id, and the store-wide
+  returns policy, so search engines and answer engines can tie products,
+  brand, company and policy together instead of reading loose objects.
+
+  The returns facts mirror the refund policy and the Terms page: 14 days from
+  delivery, sent back by post, the shopper pays postage on a change-of-mind
+  return, faulty or wrong items come back free. Shown to Google at
+  organization level, which it reads for every product on the site. If the
+  policy changes, change these lines with it.
 {%- endcomment -%}
 
 {%- liquid
@@ -60,6 +77,11 @@
   endfor
   assign crk_same_list = crk_same | split: '|'
 
+  assign crk_org_desc = shop.description | strip_html | strip_newlines
+  if crk_org_desc == blank
+    assign crk_org_desc = 'CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.'
+  endif
+
   comment
     SearchAction needs the literal {search_term_string} placeholder. A brace
     inside a Liquid tag argument is read as a delimiter and the theme is
@@ -76,9 +98,29 @@
   "@type": "Organization",
   "@id": {{ shop.url | append: '#organization' | json }},
   "name": {{ shop.name | json }},
+  "legalName": "Crooks Clothing Company Ltd",
+  "alternateName": ["Crooks London", "Crooks"],
   "url": {{ shop.url | json }},
   {% if settings.logo != blank %}"logo": {{ settings.logo | image_url: width: 512 | prepend: 'https:' | replace: 'https:https:', 'https:' | json }},{% endif %}
-  {% if shop.description != blank %}"description": {{ shop.description | strip_html | strip_newlines | json }},{% endif %}
+  "brand": {
+    "@type": "Brand",
+    "@id": {{ shop.url | append: '#brand' | json }},
+    "name": {{ shop.name | json }}{% if settings.logo != blank %},
+    "logo": {{ settings.logo | image_url: width: 512 | prepend: 'https:' | replace: 'https:https:', 'https:' | json }}{% endif %}
+  },
+  "hasMerchantReturnPolicy": {
+    "@type": "MerchantReturnPolicy",
+    "@id": {{ shop.url | append: '#return-policy' | json }},
+    "url": {{ shop.url | append: '/policies/refund-policy' | json }},
+    "applicableCountry": "GB",
+    "returnPolicyCountry": "GB",
+    "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+    "merchantReturnDays": 14,
+    "returnMethod": "https://schema.org/ReturnByMail",
+    "customerRemorseReturnFees": "https://schema.org/ReturnShippingFees",
+    "itemDefectReturnFees": "https://schema.org/FreeReturn"
+  },
+  "description": {{ crk_org_desc | json }},
   {% if crk_same_list.size > 0 %}"sameAs": [{% for u in crk_same_list %}{% unless forloop.first %},{% endunless %}{{ u | json }}{% endfor %}],{% endif %}
   "contactPoint": {
     "@type": "ContactPoint",
@@ -96,6 +138,8 @@
   "@id": {{ shop.url | append: '#website' | json }},
   "url": {{ shop.url | json }},
   "name": {{ shop.name | json }},
+  "alternateName": ["Crooks London", "Crooks"],
+  "inLanguage": {{ request.locale.iso_code | default: 'en' | json }},
   "publisher": { "@id": {{ shop.url | append: '#organization' | json }} },
   "potentialAction": {
     "@type": "SearchAction",

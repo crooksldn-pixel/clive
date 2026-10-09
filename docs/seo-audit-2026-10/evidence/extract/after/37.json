@@ -1,0 +1,531 @@
+{
+ "url": "https://crooksldn.com/products/og-jeans",
+ "title": "OG Jeans — Heavyweight Baggy Stacked Denim | CROOKSLDN",
+ "title_len": 54,
+ "meta_description": "OG Jeans in heavyweight denim with a baggy, stacked fit that holds its structure. White handcuff graphic on the back pockets.",
+ "meta_description_len": 125,
+ "meta_robots": null,
+ "canonical": "https://crooksldn.com/products/og-jeans",
+ "og": {
+  "title": "OG Jeans — Heavyweight Baggy Stacked Denim | CROOKSLDN",
+  "description": "OG Jeans in heavyweight denim with a baggy, stacked fit that holds its structure. White handcuff graphic on the back pockets.",
+  "type": "product",
+  "url": "https://crooksldn.com/products/og-jeans",
+  "image": "http://crooksldn.com/cdn/shop/files/crooksldn-og-baggy-denim-jeans_ea4a51a6-44dd-409c-b1dc-6c0ae2156781.png?v=1788187446&width=1200",
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "OG Jeans — Heavyweight Baggy Stacked Denim | CROOKSLDN",
+  "description": "OG Jeans in heavyweight denim with a baggy, stacked fit that holds its structure. White handcuff graphic on the back pockets.",
+  "site": null
+ },
+ "h1": [
+  "OG JEANS"
+ ],
+ "h2_count": 8,
+ "jsonld_blocks": 4,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "ProductGroup",
+  "Brand",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "BreadcrumbList",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "Organization",
+  "Brand",
+  "MerchantReturnPolicy",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "ProductGroup",
+   "@id": "https://crooksldn.com/products/og-jeans#product",
+   "name": "OG JEANS",
+   "description": "OG jeans, built for structure and everyday wear. Heavyweight denim with a baggy, stacked fit.",
+   "url": "https://crooksldn.com/products/og-jeans",
+   "productGroupID": 10837667086679,
+   "brand": {
+    "@type": "Brand",
+    "@id": "https://crooksldn.com#brand",
+    "name": "CROOKSLDN"
+   },
+   "category": "Jeans",
+   "image": [
+    "https://crooksldn.com/cdn/shop/files/crooksldn-og-baggy-denim-jeans_ea4a51a6-44dd-409c-b1dc-6c0ae2156781.png?v=1788187446&width=1600",
+    "https://crooksldn.com/cdn/shop/files/crooksldn-og-baggy-denim-jeans.png?v=1788187445&width=1600"
+   ],
+   "variesBy": [
+    "https://schema.org/size"
+   ],
+   "hasVariant": [
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/og-jeans?variant=53456578347351",
+     "name": "OG JEANS — XS",
+     "size": "XS",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/og-jeans?variant=53456578347351",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/og-jeans?variant=53456578380119",
+     "name": "OG JEANS — S",
+     "size": "S",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/og-jeans?variant=53456578380119",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/og-jeans?variant=53456578412887",
+     "name": "OG JEANS — M",
+     "size": "M",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/og-jeans?variant=53456578412887",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/og-jeans?variant=53456578445655",
+     "name": "OG JEANS — L",
+     "size": "L",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/og-jeans?variant=53456578445655",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/og-jeans?variant=53456578478423",
+     "name": "OG JEANS — XL",
+     "size": "XL",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/og-jeans?variant=53456578478423",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://crooksldn.com"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Denim",
+     "item": "https://crooksldn.com/collections/denim"
+    },
+    {
+     "@type": "ListItem",
+     "position": 3,
+     "name": "OG JEANS",
+     "item": "https://crooksldn.com/products/og-jeans"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "legalName": "Crooks Clothing Company Ltd",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "brand": {
+    "@type": "Brand",
+    "@id": "https://crooksldn.com#brand",
+    "name": "CROOKSLDN",
+    "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512"
+   },
+   "hasMerchantReturnPolicy": {
+    "@type": "MerchantReturnPolicy",
+    "@id": "https://crooksldn.com#return-policy",
+    "url": "https://crooksldn.com/policies/refund-policy",
+    "applicableCountry": "GB",
+    "returnPolicyCountry": "GB",
+    "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+    "merchantReturnDays": 14,
+    "returnMethod": "https://schema.org/ReturnByMail",
+    "customerRemorseReturnFees": "https://schema.org/ReturnShippingFees",
+    "itemDefectReturnFees": "https://schema.org/FreeReturn"
+   },
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "inLanguage": "en",
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 7,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-og-baggy-denim-jeans_ea4a51a6-44dd-409c-b1dc-6c0ae2156781.png?v=1788187446&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "eager",
+   "fetchpriority": "high",
+   "alt": "CROOKSLDN OG jeans in dark blue heavyweight denim with white handcuff graphic on the back pockets, baggy fit",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-og-baggy-denim-jeans.png?v=1788187445&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "lazy",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN OG jeans in dark blue heavyweight denim with a baggy stacked fit and embroidered logo details",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-og-baggy-denim-jeans_ea4a51a6-44dd-409c-b1dc-6c0ae2156781.png?v=1788187446&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-og-baggy-denim-jeans.png?v=1788187445&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-blue-wash-denim-jeans_33cac148-f3ca-448a-8c9a-30ff0047564d.png?v=1788194148&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "BLUE WASH YARD JEANS",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-grey-wash-straight-jeans.png?v=1788188131&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "GREY WASH YARD JEANS",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  }
+ ],
+ "visible_words": 362,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}

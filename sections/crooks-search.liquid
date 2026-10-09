@@ -20,6 +20,16 @@
 
 <section class="crk-root" data-crk-section="search-bar">
   <div class="crk-inner crk-query">
+    {%- comment -%}
+      The search page had no h1 (Promptd SEO/GEO audit 2026-10, finding H2). It
+      sits where the field label would, in the same eyebrow style. The query
+      itself is already named by the results heading below. Results pages are also kept out of the index
+      by meta robots (snippets/meta-tags.liquid), so this is for people and
+      assistive tech first.
+    {%- endcomment -%}
+    {%- if section.settings.heading != blank -%}
+      <h1 class="crk-eyebrow crk-query__label crk-query__title">{{ section.settings.heading }}</h1>
+    {%- endif -%}
     {%- if section.settings.label != blank -%}
       <label class="crk-eyebrow crk-query__label" for="crk-q">{{ section.settings.label }}</label>
     {%- endif -%}
@@ -139,6 +149,7 @@
   "name": "Crooks — Query bar",
   "tag": "section",
   "settings": [
+    { "type": "text", "id": "heading", "label": "Page heading (h1)", "default": "Search the store" },
     { "type": "text", "id": "label", "label": "Field label", "default": "QUERY THE REGISTER" },
     { "type": "text", "id": "placeholder", "label": "Placeholder", "default": "Item, category or case reference" },
     { "type": "text", "id": "button_label", "label": "Button label", "default": "SEARCH" },
@@ -168,3 +179,8 @@
   "presets": [{ "name": "Crooks — Query bar" }]
 }
 {% endschema %}
+
+{% stylesheet %}
+  /* Page title on the search page (crooks-search). */
+  .crk-query__title { display: block; margin: 0 0 8px; font-size: inherit; font-weight: inherit }
+{% endstylesheet %}

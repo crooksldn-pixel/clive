@@ -1,0 +1,356 @@
+[
+ {
+  "@context": "https://schema.org",
+  "@type": "ProductGroup",
+  "@id": "https://crooksldn.com/products/blue-wash-yard-jeans#product",
+  "name": "BLUE WASH YARD JEANS",
+  "description": "Yard jeans — Blue wash. 14oz denim, OG straight cut, mid rise. Structured, not baggy.",
+  "url": "https://crooksldn.com/products/blue-wash-yard-jeans",
+  "productGroupID": 10890058203479,
+  "brand": {
+   "@type": "Brand",
+   "@id": "https://crooksldn.com#brand",
+   "name": "CROOKSLDN"
+  },
+  "category": "Jeans",
+  "image": [
+   "https://crooksldn.com/cdn/shop/files/crooksldn-blue-wash-denim-jeans_33cac148-f3ca-448a-8c9a-30ff0047564d.png?v=1788194148&width=1600",
+   "https://crooksldn.com/cdn/shop/files/crooksldn-blue-wash-straight-denim-jeans.png?v=1788194148&width=1600"
+  ],
+  "material": "14oz denim",
+  "countryOfOrigin": {
+   "@type": "Country",
+   "name": "Portugal"
+  },
+  "additionalProperty": [
+   {
+    "@type": "PropertyValue",
+    "name": "Cut",
+    "value": "OG straight, mid rise"
+   },
+   {
+    "@type": "PropertyValue",
+    "name": "Care",
+    "value": "Cold wash inside out. Hang dry."
+   }
+  ],
+  "variesBy": [
+   "https://schema.org/size"
+  ],
+  "hasVariant": [
+   {
+    "@type": "Product",
+    "@id": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822344535",
+    "name": "BLUE WASH YARD JEANS — XS",
+    "size": "XS",
+    "offers": {
+     "@type": "Offer",
+     "url": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822344535",
+     "price": "60.00",
+     "priceCurrency": "GBP",
+     "availability": "https://schema.org/InStock",
+     "itemCondition": "https://schema.org/NewCondition",
+     "seller": {
+      "@type": "Organization",
+      "@id": "https://crooksldn.com#organization",
+      "name": "CROOKSLDN"
+     },
+     "shippingDetails": {
+      "@type": "OfferShippingDetails",
+      "shippingDestination": {
+       "@type": "DefinedRegion",
+       "addressCountry": "GB"
+      },
+      "shippingRate": {
+       "@type": "MonetaryAmount",
+       "value": "0.00",
+       "currency": "GBP"
+      },
+      "deliveryTime": {
+       "@type": "ShippingDeliveryTime",
+       "handlingTime": {
+        "@type": "QuantitativeValue",
+        "minValue": 0,
+        "maxValue": 2,
+        "unitCode": "DAY"
+       },
+       "transitTime": {
+        "@type": "QuantitativeValue",
+        "minValue": 1,
+        "maxValue": 2,
+        "unitCode": "DAY"
+       }
+      }
+     }
+    }
+   },
+   {
+    "@type": "Product",
+    "@id": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822377303",
+    "name": "BLUE WASH YARD JEANS — S",
+    "size": "S",
+    "offers": {
+     "@type": "Offer",
+     "url": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822377303",
+     "price": "60.00",
+     "priceCurrency": "GBP",
+     "availability": "https://schema.org/InStock",
+     "itemCondition": "https://schema.org/NewCondition",
+     "seller": {
+      "@type": "Organization",
+      "@id": "https://crooksldn.com#organization",
+      "name": "CROOKSLDN"
+     },
+     "shippingDetails": {
+      "@type": "OfferShippingDetails",
+      "shippingDestination": {
+       "@type": "DefinedRegion",
+       "addressCountry": "GB"
+      },
+      "shippingRate": {
+       "@type": "MonetaryAmount",
+       "value": "0.00",
+       "currency": "GBP"
+      },
+      "deliveryTime": {
+       "@type": "ShippingDeliveryTime",
+       "handlingTime": {
+        "@type": "QuantitativeValue",
+        "minValue": 0,
+        "maxValue": 2,
+        "unitCode": "DAY"
+       },
+       "transitTime": {
+        "@type": "QuantitativeValue",
+        "minValue": 1,
+        "maxValue": 2,
+        "unitCode": "DAY"
+       }
+      }
+     }
+    }
+   },
+   {
+    "@type": "Product",
+    "@id": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822410071",
+    "name": "BLUE WASH YARD JEANS — M",
+    "size": "M",
+    "offers": {
+     "@type": "Offer",
+     "url": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822410071",
+     "price": "60.00",
+     "priceCurrency": "GBP",
+     "availability": "https://schema.org/InStock",
+     "itemCondition": "https://schema.org/NewCondition",
+     "seller": {
+      "@type": "Organization",
+      "@id": "https://crooksldn.com#organization",
+      "name": "CROOKSLDN"
+     },
+     "shippingDetails": {
+      "@type": "OfferShippingDetails",
+      "shippingDestination": {
+       "@type": "DefinedRegion",
+       "addressCountry": "GB"
+      },
+      "shippingRate": {
+       "@type": "MonetaryAmount",
+       "value": "0.00",
+       "currency": "GBP"
+      },
+      "deliveryTime": {
+       "@type": "ShippingDeliveryTime",
+       "handlingTime": {
+        "@type": "QuantitativeValue",
+        "minValue": 0,
+        "maxValue": 2,
+        "unitCode": "DAY"
+       },
+       "transitTime": {
+        "@type": "QuantitativeValue",
+        "minValue": 1,
+        "maxValue": 2,
+        "unitCode": "DAY"
+       }
+      }
+     }
+    }
+   },
+   {
+    "@type": "Product",
+    "@id": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822442839",
+    "name": "BLUE WASH YARD JEANS — L",
+    "size": "L",
+    "offers": {
+     "@type": "Offer",
+     "url": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822442839",
+     "price": "60.00",
+     "priceCurrency": "GBP",
+     "availability": "https://schema.org/InStock",
+     "itemCondition": "https://schema.org/NewCondition",
+     "seller": {
+      "@type": "Organization",
+      "@id": "https://crooksldn.com#organization",
+      "name": "CROOKSLDN"
+     },
+     "shippingDetails": {
+      "@type": "OfferShippingDetails",
+      "shippingDestination": {
+       "@type": "DefinedRegion",
+       "addressCountry": "GB"
+      },
+      "shippingRate": {
+       "@type": "MonetaryAmount",
+       "value": "0.00",
+       "currency": "GBP"
+      },
+      "deliveryTime": {
+       "@type": "ShippingDeliveryTime",
+       "handlingTime": {
+        "@type": "QuantitativeValue",
+        "minValue": 0,
+        "maxValue": 2,
+        "unitCode": "DAY"
+       },
+       "transitTime": {
+        "@type": "QuantitativeValue",
+        "minValue": 1,
+        "maxValue": 2,
+        "unitCode": "DAY"
+       }
+      }
+     }
+    }
+   },
+   {
+    "@type": "Product",
+    "@id": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822475607",
+    "name": "BLUE WASH YARD JEANS — XL",
+    "size": "XL",
+    "offers": {
+     "@type": "Offer",
+     "url": "https://crooksldn.com/products/blue-wash-yard-jeans?variant=53639822475607",
+     "price": "60.00",
+     "priceCurrency": "GBP",
+     "availability": "https://schema.org/OutOfStock",
+     "itemCondition": "https://schema.org/NewCondition",
+     "seller": {
+      "@type": "Organization",
+      "@id": "https://crooksldn.com#organization",
+      "name": "CROOKSLDN"
+     },
+     "shippingDetails": {
+      "@type": "OfferShippingDetails",
+      "shippingDestination": {
+       "@type": "DefinedRegion",
+       "addressCountry": "GB"
+      },
+      "shippingRate": {
+       "@type": "MonetaryAmount",
+       "value": "0.00",
+       "currency": "GBP"
+      },
+      "deliveryTime": {
+       "@type": "ShippingDeliveryTime",
+       "handlingTime": {
+        "@type": "QuantitativeValue",
+        "minValue": 0,
+        "maxValue": 2,
+        "unitCode": "DAY"
+       },
+       "transitTime": {
+        "@type": "QuantitativeValue",
+        "minValue": 1,
+        "maxValue": 2,
+        "unitCode": "DAY"
+       }
+      }
+     }
+    }
+   }
+  ]
+ },
+ {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+   {
+    "@type": "ListItem",
+    "position": 1,
+    "name": "Home",
+    "item": "https://crooksldn.com"
+   },
+   {
+    "@type": "ListItem",
+    "position": 2,
+    "name": "BLUE WASH YARD JEANS",
+    "item": "https://crooksldn.com/products/blue-wash-yard-jeans"
+   }
+  ]
+ },
+ {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "@id": "https://crooksldn.com#organization",
+  "name": "CROOKSLDN",
+  "legalName": "Crooks Clothing Company Ltd",
+  "alternateName": [
+   "Crooks London",
+   "Crooks"
+  ],
+  "url": "https://crooksldn.com",
+  "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+  "brand": {
+   "@type": "Brand",
+   "@id": "https://crooksldn.com#brand",
+   "name": "CROOKSLDN",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512"
+  },
+  "hasMerchantReturnPolicy": {
+   "@type": "MerchantReturnPolicy",
+   "@id": "https://crooksldn.com#return-policy",
+   "url": "https://crooksldn.com/policies/refund-policy",
+   "applicableCountry": "GB",
+   "returnPolicyCountry": "GB",
+   "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+   "merchantReturnDays": 14,
+   "returnMethod": "https://schema.org/ReturnByMail",
+   "customerRemorseReturnFees": "https://schema.org/ReturnShippingFees",
+   "itemDefectReturnFees": "https://schema.org/FreeReturn"
+  },
+  "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+  "sameAs": [
+   "https://instagram.com/crooksldn",
+   "https://tiktok.com/@crooksldn"
+  ],
+  "contactPoint": {
+   "@type": "ContactPoint",
+   "contactType": "customer support",
+   "email": "team@crooksldn.com",
+   "areaServed": "GB"
+  }
+ },
+ {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "@id": "https://crooksldn.com#website",
+  "url": "https://crooksldn.com",
+  "name": "CROOKSLDN",
+  "alternateName": [
+   "Crooks London",
+   "Crooks"
+  ],
+  "inLanguage": "en",
+  "publisher": {
+   "@id": "https://crooksldn.com#organization"
+  },
+  "potentialAction": {
+   "@type": "SearchAction",
+   "target": {
+    "@type": "EntryPoint",
+    "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+   },
+   "query-input": "required name=search_term_string"
+  }
+ }
+]

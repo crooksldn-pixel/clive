@@ -1,0 +1,236 @@
+[
+ {
+  "name": "home",
+  "path": "/",
+  "status": 200,
+  "theme": 206765785431,
+  "h1": [
+   {
+    "text": "CROOKSLDN",
+    "visible": true
+   }
+  ],
+  "navLinks": 19,
+  "firstSighting": {
+   "complete": true,
+   "w": 280,
+   "loading": "eager",
+   "fp": "high"
+  },
+  "footerLinks": 16,
+  "errors": [
+   "console Failed to load resource: net::ERR_FAILED",
+   "pageerror Error completing request. A network failure may have prevented the request from completing. Error: TypeError: Failed to fetch. Schemas: privacy_banner_initialized/1.2",
+   "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+   "console [bugsnag] Session failed to send… Error: Request failed with status 0\n    at Q.onreadystatechange (https://cdn.shopify.com/shopifycloud/preview-bar/vendor-DS1bqi2U1wPA.js:25:2743)"
+  ]
+ },
+ {
+  "name": "menu",
+  "path": "/",
+  "status": 200,
+  "theme": 206765785431,
+  "h1": [
+   {
+    "text": "CROOKSLDN",
+    "visible": true
+   }
+  ],
+  "error": "TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-crk-drawer-open]').first()\u001b[22m\n\u001b[2m    - locator resolved to <button type=\"button\" aria-expanded=\"f",
+  "errors": [
+   "console Failed to load resource: net::ERR_FAILED",
+   "pageerror Unable to fetch https://crooksldn.com/cdn/shop/t/17/assets/morph.js?v=104045809772310330131791498628 - see network log for details.\nFailed to fetch",
+   "pageerror Error completing request. A network failure may have prevented the request from completing. Error: TypeError: Failed to fetch. Schemas: privacy_banner_initialized/1.2",
+   "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+   "console [bugsnag] Session failed to send… Error: Request failed with status 0\n    at Q.onreadystatechange (https://cdn.shopify.com/shopifycloud/preview-bar/vendor-DS1bqi2U1wPA.js:25:2743)"
+  ]
+ },
+ {
+  "name": "collection-denim",
+  "path": "/collections/denim",
+  "status": 200,
+  "theme": 206765785431,
+  "h1": [
+   {
+    "text": "Denim",
+    "visible": true
+   }
+  ],
+  "cards": 1,
+  "intro": {
+   "text": "Jorts, jeans and denim.",
+   "visible": true,
+   "color": "rgb(221, 215, 201)"
+  },
+  "firstCardImg": {
+   "complete": true,
+   "w": 195,
+   "loading": "eager",
+   "fp": "high"
+  },
+  "errors": [
+   "console Failed to load resource: net::ERR_FAILED",
+   "pageerror Error completing request. A network failure may have prevented the request from completing. Error: TypeError: Failed to fetch. Schemas: privacy_banner_initialized/1.2",
+   "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+   "console [bugsnag] Session failed to send… Error: Request failed with status 0\n    at Q.onreadystatechange (https://cdn.shopify.com/shopifycloud/preview-bar/vendor-DS1bqi2U1wPA.js:25:2743)"
+  ]
+ },
+ {
+  "name": "collection-all",
+  "path": "/collections/all",
+  "status": 200,
+  "theme": 206765785431,
+  "h1": [
+   {
+    "text": "ALL",
+    "visible": true
+   }
+  ],
+  "cards": 20,
+  "firstCardImg": {
+   "complete": true,
+   "w": 195,
+   "loading": "eager",
+   "fp": "high"
+  },
+  "errors": [
+   "console Failed to load resource: net::ERR_FAILED",
+   "pageerror Error completing request. A network failure may have prevented the request from completing. Error: TypeError: Failed to fetch. Schemas: privacy_banner_initialized/1.2",
+   "console [bugsnag] Session failed to send… Error: Request failed with status 0\n    at Q.onreadystatechange (https://cdn.shopify.com/shopifycloud/preview-bar/vendor-DS1bqi2U1wPA.js:25:2743)",
+   "console Failed to load resource: the server responded with a status of 403 (Forbidden)"
+  ]
+ },
+ {
+  "name": "pdp",
+  "path": "/products/blue-wash-yard-jeans",
+  "status": 200,
+  "theme": 206765785431,
+  "h1": [
+   {
+    "text": "BLUE WASH YARD JEANS",
+    "visible": true
+   }
+  ],
+  "price": "£30",
+  "mainImg": {
+   "complete": true,
+   "w": 390,
+   "loading": "eager",
+   "fp": "high"
+  },
+  "buyBefore": "Select Size",
+  "sizes": 5,
+  "buyAfterPick": "Add to bag",
+  "variantId": "53639822410071",
+  "urlAfterPick": "/products/blue-wash-yard-jeans?variant=53639822410071",
+  "cart": {
+   "count": 1,
+   "items": [
+    "BLUE WASH YARD JEANS - M x1"
+   ],
+   "total": 6000
+  },
+  "recommendations": 2,
+  "errors": [
+   "console Failed to load resource: net::ERR_FAILED",
+   "pageerror Error completing request. A network failure may have prevented the request from completing. Error: TypeError: Failed to fetch. Schemas: privacy_banner_initialized/1.2",
+   "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+   "console [bugsnag] Session failed to send… Error: Request failed with status 0\n    at Q.onreadystatechange (https://cdn.shopify.com/shopifycloud/preview-bar/vendor-DS1bqi2U1wPA.js:25:2743)"
+  ]
+ },
+ {
+  "name": "cart",
+  "path": "/cart",
+  "status": 200,
+  "theme": 206765785431,
+  "h1": [
+   {
+    "text": "Cart\n\n  \n  \n    \n1",
+    "visible": true
+   }
+  ],
+  "rows": 23,
+  "checkout": 1,
+  "text": "£20.00 to free Tracked 24 TRACKED 48 FREE TRACKED 24 FREE Cart 1 1 Cart total £60.00 GBP Product image Product information Quantity Product total BLUE WASH YARD JEANS Size: M CHANGE SIZE Price £60.00 Decrease quantity In",
+  "errors": [
+   "console Failed to load resource: net::ERR_FAILED",
+   "pageerror Error completing request. A network failure may have prevented the request from completing. Error: TypeError: Failed to fetch. Schemas: privacy_banner_initialized/1.2",
+   "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+   "console [bugsnag] Session failed to send… Error: Request failed with status 0\n    at Q.onreadystatechange (https://cdn.shopify.com/shopifycloud/preview-bar/vendor-DS1bqi2U1wPA.js:25:2743)"
+  ]
+ },
+ {
+  "name": "search",
+  "path": "/search?q=jeans",
+  "status": 200,
+  "theme": 206765785431,
+  "h1": [
+   {
+    "text": "Search the store",
+    "visible": true
+   }
+  ],
+  "results": 5,
+  "errors": [
+   "console Failed to load resource: net::ERR_FAILED",
+   "pageerror Error completing request. A network failure may have prevented the request from completing. Error: TypeError: Failed to fetch. Schemas: privacy_banner_initialized/1.2",
+   "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+   "console [bugsnag] Session failed to send… Error: Request failed with status 0\n    at Q.onreadystatechange (https://cdn.shopify.com/shopifycloud/preview-bar/vendor-DS1bqi2U1wPA.js:25:2743)"
+  ]
+ },
+ {
+  "name": "search-empty",
+  "path": "/search",
+  "status": 200,
+  "theme": 206765785431,
+  "h1": [
+   {
+    "text": "Search the store",
+    "visible": true
+   }
+  ],
+  "errors": [
+   "console Failed to load resource: net::ERR_FAILED",
+   "pageerror Error completing request. A network failure may have prevented the request from completing. Error: TypeError: Failed to fetch. Schemas: privacy_banner_initialized/1.2",
+   "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+   "console [bugsnag] Session failed to send… Error: Request failed with status 0\n    at Q.onreadystatechange (https://cdn.shopify.com/shopifycloud/preview-bar/vendor-DS1bqi2U1wPA.js:25:2743)"
+  ]
+ },
+ {
+  "name": "tracking",
+  "path": "/pages/tracking",
+  "status": 200,
+  "theme": 206765785431,
+  "h1": [
+   {
+    "text": "Track your order",
+    "visible": true
+   }
+  ],
+  "inputs": 2,
+  "errors": [
+   "console Failed to load resource: net::ERR_FAILED",
+   "pageerror Error completing request. A network failure may have prevented the request from completing. Error: TypeError: Failed to fetch. Schemas: privacy_banner_initialized/1.2",
+   "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+   "console [bugsnag] Session failed to send… Error: Request failed with status 0\n    at Q.onreadystatechange (https://cdn.shopify.com/shopifycloud/preview-bar/vendor-DS1bqi2U1wPA.js:25:2743)"
+  ]
+ },
+ {
+  "name": "faq",
+  "path": "/pages/faq",
+  "status": 200,
+  "theme": 206765785431,
+  "h1": [
+   {
+    "text": "COMMONLY ASKED QUESTIONS",
+    "visible": true
+   }
+  ],
+  "errors": [
+   "console Failed to load resource: net::ERR_FAILED",
+   "pageerror Error completing request. A network failure may have prevented the request from completing. Error: TypeError: Failed to fetch. Schemas: privacy_banner_initialized/1.2",
+   "console Failed to load resource: the server responded with a status of 403 (Forbidden)",
+   "console [bugsnag] Session failed to send… Error: Request failed with status 0\n    at Q.onreadystatechange (https://cdn.shopify.com/shopifycloud/preview-bar/vendor-DS1bqi2U1wPA.js:25:2743)"
+  ]
+ }
+]

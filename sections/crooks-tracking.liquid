@@ -29,6 +29,14 @@
   </div>
 
   <div class="crk-inner">
+    {%- comment -%}
+      The page had no h1 (Promptd SEO/GEO audit 2026-10, finding H1): its two
+      headings are h2s that change with the signed-in state. This names the
+      page in every state, in the small eyebrow style the page already uses.
+    {%- endcomment -%}
+    {%- if section.settings.page_heading != blank -%}
+      <h1 class="crk-eyebrow crk-track__page-title">{{ section.settings.page_heading }}</h1>
+    {%- endif -%}
     {%- if customer -%}
       {%- assign crk_orders = customer.orders -%}
       {%- if crk_orders.size > 0 -%}
@@ -243,6 +251,7 @@
   "name": "Crooks — Order Tracking",
   "tag": "section",
   "settings": [
+    { "type": "text", "id": "page_heading", "label": "Page heading (h1)", "default": "Track your order" },
     { "type": "range", "id": "order_limit", "label": "Orders shown", "min": 1, "max": 25, "step": 1, "default": 10 },
     { "type": "header", "content": "Status bar" },
     { "type": "text", "id": "status_1", "label": "Status message", "default": "CROOKSLDN PROPERTY TRANSFER NETWORK" },
@@ -298,3 +307,8 @@
   "presets": [{ "name": "Crooks — Order Tracking" }]
 }
 {% endschema %}
+
+{% stylesheet %}
+  /* Page title on the tracking page (crooks-tracking). */
+  .crk-track__page-title { margin: 24px 0 0; font-size: inherit; font-weight: inherit }
+{% endstylesheet %}

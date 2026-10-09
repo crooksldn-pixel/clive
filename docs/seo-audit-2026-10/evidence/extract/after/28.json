@@ -1,0 +1,543 @@
+{
+ "url": "https://crooksldn.com/products/convict-hoodie-1",
+ "title": "Black Convict Hoodie — 550gsm Brushed Fleece | CROOKSLDN",
+ "title_len": 56,
+ "meta_description": "Convict Hoodie in black. 550gsm brushed fleece, baggy fit, white contrast piping. Pairs with the Black Convict Sweats as the Black Set.",
+ "meta_description_len": 135,
+ "meta_robots": null,
+ "canonical": "https://crooksldn.com/products/convict-hoodie-1",
+ "og": {
+  "title": "Black Convict Hoodie — 550gsm Brushed Fleece | CROOKSLDN",
+  "description": "Convict Hoodie in black. 550gsm brushed fleece, baggy fit, white contrast piping. Pairs with the Black Convict Sweats as the Black Set.",
+  "type": "product",
+  "url": "https://crooksldn.com/products/convict-hoodie-1",
+  "image": "http://crooksldn.com/cdn/shop/files/crooksldn-black-baggy-fleece-hoodie.png?v=1788192310&width=1200",
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "Black Convict Hoodie — 550gsm Brushed Fleece | CROOKSLDN",
+  "description": "Convict Hoodie in black. 550gsm brushed fleece, baggy fit, white contrast piping. Pairs with the Black Convict Sweats as the Black Set.",
+  "site": null
+ },
+ "h1": [
+  "BLACK CONVICT HOODIE"
+ ],
+ "h2_count": 8,
+ "jsonld_blocks": 4,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "ProductGroup",
+  "Brand",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "Product",
+  "Offer",
+  "Organization",
+  "OfferShippingDetails",
+  "DefinedRegion",
+  "MonetaryAmount",
+  "ShippingDeliveryTime",
+  "QuantitativeValue",
+  "QuantitativeValue",
+  "BreadcrumbList",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "Organization",
+  "Brand",
+  "MerchantReturnPolicy",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "ProductGroup",
+   "@id": "https://crooksldn.com/products/convict-hoodie-1#product",
+   "name": "BLACK CONVICT HOODIE",
+   "description": "Convict Hoodie in Black — 550gsm brushed fleece, baggy fit, comfortable for everyday wear. Pairs with the Black Convict Sweats; sold together as the Black Set.",
+   "url": "https://crooksldn.com/products/convict-hoodie-1",
+   "productGroupID": 10837208105303,
+   "brand": {
+    "@type": "Brand",
+    "@id": "https://crooksldn.com#brand",
+    "name": "CROOKSLDN"
+   },
+   "category": "Hoodies",
+   "image": [
+    "https://crooksldn.com/cdn/shop/files/crooksldn-black-baggy-fleece-hoodie.png?v=1788192310&width=1600",
+    "https://crooksldn.com/cdn/shop/files/D787E520-B547-4893-BD87-188531749668_82149d90-2ba1-432e-b71c-9a1f9b8c9bb1.png?v=1788192310&width=1600"
+   ],
+   "variesBy": [
+    "https://schema.org/size"
+   ],
+   "hasVariant": [
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/convict-hoodie-1?variant=53456777970007",
+     "name": "BLACK CONVICT HOODIE — XS",
+     "size": "XS",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/convict-hoodie-1?variant=53456777970007",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/convict-hoodie-1?variant=53456778002775",
+     "name": "BLACK CONVICT HOODIE — S",
+     "size": "S",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/convict-hoodie-1?variant=53456778002775",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/convict-hoodie-1?variant=53456778035543",
+     "name": "BLACK CONVICT HOODIE — M",
+     "size": "M",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/convict-hoodie-1?variant=53456778035543",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/convict-hoodie-1?variant=53456778068311",
+     "name": "BLACK CONVICT HOODIE — L",
+     "size": "L",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/convict-hoodie-1?variant=53456778068311",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/convict-hoodie-1?variant=53456778101079",
+     "name": "BLACK CONVICT HOODIE — XL",
+     "size": "XL",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/convict-hoodie-1?variant=53456778101079",
+      "price": "60.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/OutOfStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "@id": "https://crooksldn.com#organization",
+       "name": "CROOKSLDN"
+      },
+      "shippingDetails": {
+       "@type": "OfferShippingDetails",
+       "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "GB"
+       },
+       "shippingRate": {
+        "@type": "MonetaryAmount",
+        "value": "0.00",
+        "currency": "GBP"
+       },
+       "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 0,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        },
+        "transitTime": {
+         "@type": "QuantitativeValue",
+         "minValue": 1,
+         "maxValue": 2,
+         "unitCode": "DAY"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://crooksldn.com"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Sweats",
+     "item": "https://crooksldn.com/collections/sweats"
+    },
+    {
+     "@type": "ListItem",
+     "position": 3,
+     "name": "BLACK CONVICT HOODIE",
+     "item": "https://crooksldn.com/products/convict-hoodie-1"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "legalName": "Crooks Clothing Company Ltd",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "brand": {
+    "@type": "Brand",
+    "@id": "https://crooksldn.com#brand",
+    "name": "CROOKSLDN",
+    "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512"
+   },
+   "hasMerchantReturnPolicy": {
+    "@type": "MerchantReturnPolicy",
+    "@id": "https://crooksldn.com#return-policy",
+    "url": "https://crooksldn.com/policies/refund-policy",
+    "applicableCountry": "GB",
+    "returnPolicyCountry": "GB",
+    "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+    "merchantReturnDays": 14,
+    "returnMethod": "https://schema.org/ReturnByMail",
+    "customerRemorseReturnFees": "https://schema.org/ReturnShippingFees",
+    "itemDefectReturnFees": "https://schema.org/FreeReturn"
+   },
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "inLanguage": "en",
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 8,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-black-baggy-fleece-hoodie.png?v=1788192310&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "eager",
+   "fetchpriority": "high",
+   "alt": "CROOKSLDN black baggy hoodie in 550gsm brushed fleece with white piping details and handcuff logo on the chest.",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/D787E520-B547-4893-BD87-188531749668_82149d90-2ba1-432e-b71c-9a1f9b8c9bb1.png?v=1788192310&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "lazy",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN Black Convict Hoodie, back view — 550gsm brushed fleece hoodie with white contrast piping curving over the hood, shoulders and sleeves.",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-black-baggy-fleece-hoodie.png?v=1788192310&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/D787E520-B547-4893-BD87-188531749668_82149d90-2ba1-432e-b71c-9a1f9b8c9bb1.png?v=1788192310&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1254.png?v=1788279082&width=96",
+   "src_width": 96,
+   "srcset_max": 96,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "96",
+   "height": "96"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-grey-convict-fleece-hoodie_892e8e2e-338d-4e90-8e84-d175e4bcb5ad.png?v=1788190419&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "GREY CONVICT HOODIE",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-pink-baggy-fleece-hoodie_dbe1c469-06d0-44ca-b26b-7a8ca1bc9b1d.png?v=1788192584&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "PINK CONVICT HOODIE",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  }
+ ],
+ "visible_words": 406,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}

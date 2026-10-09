@@ -20,13 +20,58 @@
   OfferShippingDetails (the rate card is tiered and country-dependent; wrong
   shipping data in schema is worse than none).
 
+  GTIN (SEO audit 2026-09-30): variant barcodes on this store are internal
+  8-digit labels (the last 8 digits of the variant ID), not GS1 GTINs. Declaring
+  them as `gtin` tells Google they are real barcodes. `gtin` is now emitted only
+  for a 12–14 digit numeric barcode (UPC/EAN/GTIN-14). Colour and size are
+  emitted per variant from the product's own options.
+
+  Promptd SEO/GEO audit (2026-10), findings G2, G8, G10:
+  - brand and seller point at the site's Brand and Organization by @id, so the
+    product, the label and the company resolve to one entity;
+  - each Offer carries UK shippingDetails. The rates are the store's own UK
+    Tracked 48 rates (Settings > Shipping and delivery, checked 2026-10-08):
+    £3.00, free from £30. For a single item the cheapest UK rate is therefore
+    £0 at £30 or more and £3.00 below. Handling 0-2 working days and transit
+    1-2 working days are the shipping policy's own numbers. Emitted only when
+    prices are in GBP. If the rates change, change crk_free_from and crk_rate.
+    The returns policy is declared once, on the Organization (Google reads it
+    for every product), so it is not repeated per offer;
+  - material, country of origin, cut and care come from the product's own
+    crooks.* metafields, the same values the Specification panel shows, and
+    are left out when a product has none;
+  - the description keeps a space between paragraphs (it read "Blue wash.14oz").
+    A product with no description falls back to its own SEO description, and
+    the property is left out when both are empty, instead of sending "".
+
   Accepts: product (required), breadcrumb_collection (optional).
 {%- endcomment -%}
 
 {%- liquid
   assign crk_url = shop.url | append: product.url
-  assign crk_desc = product.description | strip_html | strip_newlines | truncate: 320
+  assign crk_desc = product.description | replace: '</p>', ' ' | replace: '<br>', ' ' | replace: '<br/>', ' ' | replace: '<br />', ' ' | replace: '</li>', ' ' | strip_html | strip_newlines | split: ' ' | join: ' ' | truncate: 320
+  if crk_desc == blank
+    assign crk_desc = product.metafields.global.description_tag | strip_html | strip_newlines | strip
+  endif
   assign crk_brand = product.vendor | default: shop.name
+  assign crk_org_id = shop.url | append: '#organization'
+
+  assign crk_free_from = 3000
+  assign crk_rate = '3.00'
+  assign crk_gbp = false
+  if cart.currency.iso_code == 'GBP'
+    assign crk_gbp = true
+  endif
+
+  assign mf = product.metafields.crooks
+  assign crk_origin = mf.origin.value | default: '' | strip
+  assign crk_origin_country = ''
+  if crk_origin != blank
+    assign crk_origin_first = crk_origin | slice: 0, 8 | downcase
+    if crk_origin_first == 'made in '
+      assign crk_origin_country = crk_origin | slice: 8, 60 | strip | remove: '.'
+    endif
+  endif
 
   assign crk_images = ''
   for image in product.images limit: 5
@@ -74,12 +119,20 @@
     {%- assign crk_avail = 'https://schema.org/OutOfStock' -%}
     {%- if variant.available -%}{%- assign crk_avail = 'https://schema.org/InStock' -%}{%- endif -%}
     {%- assign crk_price = variant.price | money_without_currency | replace: ',', '' -%}
+    {%- assign crk_bc = variant.barcode | strip -%}
+    {%- assign crk_bc_rest = crk_bc | remove: '0' | remove: '1' | remove: '2' | remove: '3' | remove: '4' | remove: '5' | remove: '6' | remove: '7' | remove: '8' | remove: '9' -%}
     {
       "@type": "Product",
       "@id": {{ crk_url | append: '?variant=' | append: variant.id | json }},
       "name": {{ product.title | append: ' — ' | append: variant.title | json }},
       {% if variant.sku != blank %}"sku": {{ variant.sku | json }},{% endif %}
-      {% if variant.barcode != blank %}"gtin": {{ variant.barcode | json }},{% endif %}
+      {% if crk_bc.size >= 12 and crk_bc.size <= 14 and crk_bc_rest == '' %}"gtin": {{ crk_bc | json }},{% endif %}
+      {%- for crk_o in product.options_with_values -%}
+        {%- assign crk_on = crk_o.name | downcase -%}
+        {%- if crk_on contains 'size' -%}"size": {{ variant.options[forloop.index0] | json }},
+        {%- elsif crk_on contains 'colour' or crk_on contains 'color' -%}"color": {{ variant.options[forloop.index0] | json }},
+        {%- endif -%}
+      {%- endfor %}
       {% if variant.image %}"image": {{ variant.image | image_url: width: 1600 | prepend: 'https:' | replace: 'https:https:', 'https:' | json }},{% endif %}
       "offers": {
         "@type": "Offer",
@@ -88,7 +141,8 @@
         "priceCurrency": {{ cart.currency.iso_code | json }},
         "availability": {{ crk_avail | json }},
         "itemCondition": "https://schema.org/NewCondition",
-        "seller": { "@type": "Organization", "name": {{ shop.name | json }} }
+        "seller": { "@type": "Organization", "@id": {{ crk_org_id | json }}, "name": {{ shop.name | json }} }{% if crk_gbp %},
+        "shippingDetails": {% render 'crooks-schema-shipping', price: variant.price, free_from: crk_free_from, rate: crk_rate %}{% endif %}
       }
     }
   {%- endfor -%}
@@ -101,12 +155,19 @@
   "@type": "ProductGroup",
   "@id": {{ crk_url | append: '#product' | json }},
   "name": {{ product.title | json }},
-  "description": {{ crk_desc | json }},
+  {% if crk_desc != blank %}"description": {{ crk_desc | json }},{% endif %}
   "url": {{ crk_url | json }},
   "productGroupID": {{ product.id | json }},
-  "brand": { "@type": "Brand", "name": {{ crk_brand | json }} },
+  "brand": { "@type": "Brand", {% if crk_brand == shop.name %}"@id": {{ shop.url | append: '#brand' | json }}, {% endif %}"name": {{ crk_brand | json }} },
   {% if product.type != blank %}"category": {{ product.type | json }},{% endif %}
   "image": [{% for src in crk_image_list %}{% unless forloop.first %},{% endunless %}{{ src | prepend: 'https:' | replace: 'https:https:', 'https:' | json }}{% endfor %}],
+  {% if mf.fabric.value != blank %}"material": {{ mf.fabric.value | strip | json }},{% endif %}
+  {% if crk_origin_country != blank %}"countryOfOrigin": { "@type": "Country", "name": {{ crk_origin_country | json }} },{% endif %}
+  {% if mf.cut.value != blank or mf.care.value != blank %}"additionalProperty": [
+    {%- if mf.cut.value != blank -%}{ "@type": "PropertyValue", "name": "Cut", "value": {{ mf.cut.value | strip | json }} }{%- endif -%}
+    {%- if mf.cut.value != blank and mf.care.value != blank -%},{%- endif -%}
+    {%- if mf.care.value != blank -%}{ "@type": "PropertyValue", "name": "Care", "value": {{ mf.care.value | strip_newlines | strip | json }} }{%- endif -%}
+  ],{% endif %}
   {% if crk_varies_list.size > 0 %}"variesBy": [{% for v in crk_varies_list %}{% unless forloop.first %},{% endunless %}{{ v | json }}{% endfor %}],{% endif %}
   "hasVariant": [{{ crk_offers }}]
 }
@@ -116,12 +177,19 @@
   "@type": "Product",
   "@id": {{ crk_url | append: '#product' | json }},
   "name": {{ product.title | json }},
-  "description": {{ crk_desc | json }},
+  {% if crk_desc != blank %}"description": {{ crk_desc | json }},{% endif %}
   "url": {{ crk_url | json }},
-  "brand": { "@type": "Brand", "name": {{ crk_brand | json }} },
+  "brand": { "@type": "Brand", {% if crk_brand == shop.name %}"@id": {{ shop.url | append: '#brand' | json }}, {% endif %}"name": {{ crk_brand | json }} },
   {% if product.type != blank %}"category": {{ product.type | json }},{% endif %}
   {% if product.selected_or_first_available_variant.sku != blank %}"sku": {{ product.selected_or_first_available_variant.sku | json }},{% endif %}
   "image": [{% for src in crk_image_list %}{% unless forloop.first %},{% endunless %}{{ src | prepend: 'https:' | replace: 'https:https:', 'https:' | json }}{% endfor %}],
+  {% if mf.fabric.value != blank %}"material": {{ mf.fabric.value | strip | json }},{% endif %}
+  {% if crk_origin_country != blank %}"countryOfOrigin": { "@type": "Country", "name": {{ crk_origin_country | json }} },{% endif %}
+  {% if mf.cut.value != blank or mf.care.value != blank %}"additionalProperty": [
+    {%- if mf.cut.value != blank -%}{ "@type": "PropertyValue", "name": "Cut", "value": {{ mf.cut.value | strip | json }} }{%- endif -%}
+    {%- if mf.cut.value != blank and mf.care.value != blank -%},{%- endif -%}
+    {%- if mf.care.value != blank -%}{ "@type": "PropertyValue", "name": "Care", "value": {{ mf.care.value | strip_newlines | strip | json }} }{%- endif -%}
+  ],{% endif %}
   "offers": {
     "@type": "Offer",
     "url": {{ crk_url | json }},
@@ -129,7 +197,8 @@
     "priceCurrency": {{ cart.currency.iso_code | json }},
     "availability": {% if product.available %}"https://schema.org/InStock"{% else %}"https://schema.org/OutOfStock"{% endif %},
     "itemCondition": "https://schema.org/NewCondition",
-    "seller": { "@type": "Organization", "name": {{ shop.name | json }} }
+    "seller": { "@type": "Organization", "@id": {{ crk_org_id | json }}, "name": {{ shop.name | json }} }{% if crk_gbp %},
+    "shippingDetails": {% render 'crooks-schema-shipping', price: product.selected_or_first_available_variant.price, free_from: crk_free_from, rate: crk_rate %}{% endif %}
   }
 }
 {%- endif -%}
@@ -146,7 +215,12 @@
   assign crk_crumb = collection
   unless crk_crumb
     for c in product.collections
-      unless c.handle == 'all' or c.handle == 'frontpage' or c.handle == 'new'
+      comment
+        "new-1" is a second NEW collection; a "what's new" list says nothing
+        about what a product is, so neither stands in as its category.
+      endcomment
+      assign crk_h4 = c.handle | slice: 0, 4
+      unless c.handle == 'all' or c.handle == 'frontpage' or c.handle == 'new' or crk_h4 == 'new-'
         assign crk_crumb = c
         break
       endunless

@@ -1,0 +1,28 @@
+{%- comment -%}
+  One OfferShippingDetails object for UK delivery, used by crooks-schema-product.
+
+  Promptd SEO/GEO audit (2026-10), finding G2: product structured data should
+  carry shipping. The figures are the store's own: UK Tracked 48 costs `rate`,
+  free when the order reaches `free_from` (in the shop currency's minor units);
+  handling 0-2 working days and transit 1-2 working days are the shipping
+  policy's numbers. The rate is worked out for this item bought on its own,
+  which is what a product listing describes.
+
+  Accepts: price (number, minor units), free_from (number, minor units), rate (string, e.g. '3.00').
+{%- endcomment -%}
+{%- liquid
+  assign crk_ship_rate = rate
+  if price >= free_from
+    assign crk_ship_rate = '0.00'
+  endif
+-%}
+{
+  "@type": "OfferShippingDetails",
+  "shippingDestination": { "@type": "DefinedRegion", "addressCountry": "GB" },
+  "shippingRate": { "@type": "MonetaryAmount", "value": {{ crk_ship_rate | json }}, "currency": "GBP" },
+  "deliveryTime": {
+    "@type": "ShippingDeliveryTime",
+    "handlingTime": { "@type": "QuantitativeValue", "minValue": 0, "maxValue": 2, "unitCode": "DAY" },
+    "transitTime": { "@type": "QuantitativeValue", "minValue": 1, "maxValue": 2, "unitCode": "DAY" }
+  }
+}

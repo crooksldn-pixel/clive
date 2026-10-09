@@ -1,0 +1,238 @@
+{
+ "url": "https://crooksldn.com/search?q=jeans",
+ "title": "Search: 5 results found for \"jeans\" | CROOKSLDN",
+ "title_len": 47,
+ "meta_description": null,
+ "meta_description_len": 0,
+ "meta_robots": "noindex, follow",
+ "canonical": "https://crooksldn.com/search?q=jeans",
+ "og": {
+  "title": "Search: 5 results found for \"jeans\"",
+  "description": "CROOKSLDN",
+  "type": "website",
+  "url": "https://crooksldn.com/search?q=jeans",
+  "image": null,
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "Search: 5 results found for \"jeans\"",
+  "description": "CROOKSLDN",
+  "site": null
+ },
+ "h1": [
+  "Search the store"
+ ],
+ "h2_count": 5,
+ "jsonld_blocks": 2,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "Organization",
+  "Brand",
+  "MerchantReturnPolicy",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "legalName": "Crooks Clothing Company Ltd",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "brand": {
+    "@type": "Brand",
+    "@id": "https://crooksldn.com#brand",
+    "name": "CROOKSLDN",
+    "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512"
+   },
+   "hasMerchantReturnPolicy": {
+    "@type": "MerchantReturnPolicy",
+    "@id": "https://crooksldn.com#return-policy",
+    "url": "https://crooksldn.com/policies/refund-policy",
+    "applicableCountry": "GB",
+    "returnPolicyCountry": "GB",
+    "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+    "merchantReturnDays": 14,
+    "returnMethod": "https://schema.org/ReturnByMail",
+    "customerRemorseReturnFees": "https://schema.org/ReturnShippingFees",
+    "itemDefectReturnFees": "https://schema.org/FreeReturn"
+   },
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "inLanguage": "en",
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 10,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-grey-wash-straight-jeans.png?v=1788188131&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN Yard jeans in grey wash 14oz denim with straight cut, mid rise, and handcuff graphic on back pockets.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-blue-wash-denim-jeans_33cac148-f3ca-448a-8c9a-30ff0047564d.png?v=1788194148&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN blue wash 14oz denim jeans with straight cut, mid rise, and white embroidered hand graphic on back pockets.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-blue-wash-straight-denim-jeans.png?v=1788194148&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-og-baggy-denim-jeans_ea4a51a6-44dd-409c-b1dc-6c0ae2156781.png?v=1788187446&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN OG jeans in dark blue heavyweight denim with white handcuff graphic on the back pockets, baggy fit",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-og-baggy-denim-jeans.png?v=1788187445&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-blue-wash-denim-jorts.png?v=1786031414&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN blue wash denim jorts with baggy fit and white embroidered handcuff artwork on back pockets",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-1223.png?v=1788194751&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-grey-wash-denim-jorts.png?v=1788194813&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": "auto",
+   "alt": "CROOKSLDN grey wash baggy denim jorts with signature white handcuff embroidery on the back pockets.",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-grey-wash-denim-jorts_a2e4085a-a36f-4452-88d3-adfce6d6915f.png?v=1788194813&width=800",
+   "src_width": 800,
+   "srcset_max": 800,
+   "sizes": "(min-width: 1024px) 25vw, 50vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "800",
+   "height": "800"
+  }
+ ],
+ "visible_words": 209,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}

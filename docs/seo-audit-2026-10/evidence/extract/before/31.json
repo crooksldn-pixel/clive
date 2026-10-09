@@ -1,0 +1,469 @@
+{
+ "url": "https://crooksldn.com/products/crxst-rz-t-shirt",
+ "title": "CRXSTARZ T-Shirt — CROOKS Logo Cotton Tee | CROOKSLDN",
+ "title_len": 53,
+ "meta_description": "CRXST★RZ tee in cotton, with the outlined CROOKS wordmark and red star across the chest. In black or white.",
+ "meta_description_len": 107,
+ "meta_robots": null,
+ "canonical": "https://crooksldn.com/products/crxst-rz-t-shirt",
+ "og": {
+  "title": "CRXSTARZ T-Shirt — CROOKS Logo Cotton Tee | CROOKSLDN",
+  "description": "CRXST★RZ tee in cotton, with the outlined CROOKS wordmark and red star across the chest. In black or white.",
+  "type": "product",
+  "url": "https://crooksldn.com/products/crxst-rz-t-shirt",
+  "image": "http://crooksldn.com/cdn/shop/files/IMG-3994.png?v=1786198496",
+  "site_name": "CROOKSLDN"
+ },
+ "twitter": {
+  "card": "summary_large_image",
+  "title": "CRXSTARZ T-Shirt — CROOKS Logo Cotton Tee | CROOKSLDN",
+  "description": "CRXST★RZ tee in cotton, with the outlined CROOKS wordmark and red star across the chest. In black or white.",
+  "site": null
+ },
+ "h1": [
+  "CRXST★RZ T-SHIRT"
+ ],
+ "h2_count": 8,
+ "jsonld_blocks": 4,
+ "jsonld_invalid": [],
+ "jsonld_types": [
+  "ProductGroup",
+  "Brand",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "Product",
+  "Offer",
+  "Organization",
+  "BreadcrumbList",
+  "ListItem",
+  "ListItem",
+  "ListItem",
+  "Organization",
+  "ContactPoint",
+  "WebSite",
+  "SearchAction",
+  "EntryPoint"
+ ],
+ "jsonld": [
+  {
+   "@context": "https://schema.org",
+   "@type": "ProductGroup",
+   "@id": "https://crooksldn.com/products/crxst-rz-t-shirt#product",
+   "name": "CRXST★RZ T-SHIRT",
+   "description": "CRXST★RZ tee — Wokstar energy only.",
+   "url": "https://crooksldn.com/products/crxst-rz-t-shirt",
+   "productGroupID": 10837911503191,
+   "brand": {
+    "@type": "Brand",
+    "name": "CROOKSLDN"
+   },
+   "category": "T-Shirts",
+   "image": [
+    "https://crooksldn.com/cdn/shop/files/IMG-3994.png?v=1786198496&width=1600",
+    "https://crooksldn.com/cdn/shop/files/IMG-3995.png?v=1786198496&width=1600"
+   ],
+   "variesBy": [
+    "https://schema.org/color",
+    "https://schema.org/size"
+   ],
+   "hasVariant": [
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984146263",
+     "name": "CRXST★RZ T-SHIRT — Black / XS",
+     "sku": "CRKTRSBLKXS",
+     "color": "Black",
+     "size": "XS",
+     "image": "https://crooksldn.com/cdn/shop/files/IMG-3994.png?v=1786198496&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984146263",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984113495",
+     "name": "CRXST★RZ T-SHIRT — White / XS",
+     "color": "White",
+     "size": "XS",
+     "image": "https://crooksldn.com/cdn/shop/files/IMG-3995.png?v=1786198496&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984113495",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984179031",
+     "name": "CRXST★RZ T-SHIRT — Black / S",
+     "sku": "CRKTRSBLKS",
+     "color": "Black",
+     "size": "S",
+     "image": "https://crooksldn.com/cdn/shop/files/IMG-3994.png?v=1786198496&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984179031",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984211799",
+     "name": "CRXST★RZ T-SHIRT — Black / M",
+     "sku": "CRKTRSBLKM",
+     "color": "Black",
+     "size": "M",
+     "image": "https://crooksldn.com/cdn/shop/files/IMG-3994.png?v=1786198496&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984211799",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984244567",
+     "name": "CRXST★RZ T-SHIRT — Black / L",
+     "sku": "CRKTRSBLKL",
+     "color": "Black",
+     "size": "L",
+     "image": "https://crooksldn.com/cdn/shop/files/IMG-3994.png?v=1786198496&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984244567",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984277335",
+     "name": "CRXST★RZ T-SHIRT — Black / XL",
+     "sku": "CRKTRSBLKXL",
+     "color": "Black",
+     "size": "XL",
+     "image": "https://crooksldn.com/cdn/shop/files/IMG-3994.png?v=1786198496&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984277335",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984310103",
+     "name": "CRXST★RZ T-SHIRT — White / S",
+     "color": "White",
+     "size": "S",
+     "image": "https://crooksldn.com/cdn/shop/files/IMG-3995.png?v=1786198496&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984310103",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984342871",
+     "name": "CRXST★RZ T-SHIRT — White / M",
+     "color": "White",
+     "size": "M",
+     "image": "https://crooksldn.com/cdn/shop/files/IMG-3995.png?v=1786198496&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984342871",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984375639",
+     "name": "CRXST★RZ T-SHIRT — White / L",
+     "color": "White",
+     "size": "L",
+     "image": "https://crooksldn.com/cdn/shop/files/IMG-3995.png?v=1786198496&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984375639",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    },
+    {
+     "@type": "Product",
+     "@id": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984408407",
+     "name": "CRXST★RZ T-SHIRT — White / XL",
+     "color": "White",
+     "size": "XL",
+     "image": "https://crooksldn.com/cdn/shop/files/IMG-3995.png?v=1786198496&width=1600",
+     "offers": {
+      "@type": "Offer",
+      "url": "https://crooksldn.com/products/crxst-rz-t-shirt?variant=53456984408407",
+      "price": "25.00",
+      "priceCurrency": "GBP",
+      "availability": "https://schema.org/InStock",
+      "itemCondition": "https://schema.org/NewCondition",
+      "seller": {
+       "@type": "Organization",
+       "name": "CROOKSLDN"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://crooksldn.com"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Tees",
+     "item": "https://crooksldn.com/collections/tees"
+    },
+    {
+     "@type": "ListItem",
+     "position": 3,
+     "name": "CRXST★RZ T-SHIRT",
+     "item": "https://crooksldn.com/products/crxst-rz-t-shirt"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "Organization",
+   "@id": "https://crooksldn.com#organization",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "url": "https://crooksldn.com",
+   "logo": "https://crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=512",
+   "description": "CROOKSLDN (Crooks London) is a streetwear label making heavyweight fleece, denim, graphic T-shirts and accessories, sold online at crooksldn.com.",
+   "sameAs": [
+    "https://instagram.com/crooksldn",
+    "https://tiktok.com/@crooksldn"
+   ],
+   "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "team@crooksldn.com",
+    "areaServed": "GB"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "WebSite",
+   "@id": "https://crooksldn.com#website",
+   "url": "https://crooksldn.com",
+   "name": "CROOKSLDN",
+   "alternateName": [
+    "Crooks London",
+    "Crooks"
+   ],
+   "publisher": {
+    "@id": "https://crooksldn.com#organization"
+   },
+   "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+     "@type": "EntryPoint",
+     "urlTemplate": "https://crooksldn.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+   }
+  }
+ ],
+ "img_count": 7,
+ "imgs": [
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG_3682.png?v=1774356387&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "267"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-3994.png?v=1786198496&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "eager",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN CRXST★RZ t-shirt in black — blue and gold outlined CROOKS wordmark across the chest with a red star cutting through the lettering.",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-3995.png?v=1786198496&width=1400",
+   "src_width": 1400,
+   "srcset_max": 1400,
+   "sizes": "(min-width: 960px) 55vw, 100vw",
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CROOKSLDN CRXST★RZ t-shirt in white — blue and black outlined CROOKS wordmark across the chest with a red star cutting through the lettering.",
+   "has_alt_attr": true,
+   "width": "1400",
+   "height": "1400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-3994.png?v=1786198496&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/IMG-3995.png?v=1786198496&width=128",
+   "src_width": 128,
+   "srcset_max": 128,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "",
+   "has_alt_attr": true,
+   "width": "128",
+   "height": "128"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-black-graphic-tee.png?v=1788188192&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CROOKS EXPRESS TEE",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  },
+  {
+   "src": "//crooksldn.com/cdn/shop/files/crooksldn-black-crx-garms-t-shirt.png?v=1788187442&width=400",
+   "src_width": 400,
+   "srcset_max": 400,
+   "sizes": null,
+   "loading": "lazy",
+   "fetchpriority": null,
+   "alt": "CRX GARMS T-SHIRT",
+   "has_alt_attr": true,
+   "width": "400",
+   "height": "400"
+  }
+ ],
+ "visible_words": 390,
+ "collection_links": [
+  "/collections/accessories",
+  "/collections/all",
+  "/collections/denim",
+  "/collections/new",
+  "/collections/sweats",
+  "/collections/tees",
+  "/collections/tracksuits"
+ ]
+}
