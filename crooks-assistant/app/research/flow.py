@@ -13,6 +13,12 @@ by scripts/research.py). Both doors end here, and each file goes the same way, o
      the model on the Max plan (app/research/review.py, app/research/model.py);
   5. done: the proposals are written into the record, frozen, for the Builds screen.
 
+Once a synthesis is live (DEC-078, app/research/synthesis), step 4 is the synthesis instead: what the
+document recommends is read (with no cap), joined to the ideas it is about, and only the ideas it
+touched are judged again, into the live generation, under the same lock. No proposals are made.
+Before one is live, step 4 is as above; and once a synthesis has been run, what the document says is
+also read and kept by its digest, "waiting for the first synthesis", so applying one takes it in.
+
 What it promises:
 - Every failure is a state with George's words (failed, stopped), never a silent empty result.
 - One document is read at a time in this process, and a lock file keeps a second process
@@ -36,6 +42,7 @@ from app.research.store import ResearchStore, now, safe_name
 log = logging.getLogger("crooks.research")
 
 _running: asyncio.Task | None = None
+WAITING_NOTE = "waiting for the first synthesis"
 
 
 # ------------------------------------------------------------------ the two doors
@@ -109,7 +116,8 @@ async def run_pending(store: ResearchStore, *, model=None, the_map=None) -> list
 async def read_one(store: ResearchStore, record: dict[str, Any], *, model=None, the_map=None) -> dict[str, Any]:
     """One document, from its file as given to its proposals. Never raises: the record says how it ended."""
     from app.research import model as model_module
-    from app.research.review import ReviewError, review
+    from app.research.review import ReviewError
+    from app.research.synthesis.ask import SynthesisError
 
     record = dict(record, state="reading", why="")
     store.save(record)
@@ -120,14 +128,15 @@ async def read_one(store: ResearchStore, record: dict[str, Any], *, model=None, 
                 record.update(prepared)
             else:
                 the_map = the_map or await asyncio.to_thread(_map)
-                earlier = _earlier(store, record["id"])
-                found = await review(artifact_id=record["artifact_id"], name=record["name"], text=prepared["text"],
-                                     the_map=the_map, model=model or model_module.current(), earlier=earlier)
-                record.update(state="done", proposals=[p.to_dict() for p in found.proposals], dropped=found.dropped,
-                              notes=[*record.get("notes", []), *found.notes], model=found.model,
-                              map_digest=found.map_digest)
+                model = model or model_module.current()
+                if _live(store):
+                    await _synthesise(store, record, prepared["text"], model=model, the_map=the_map)
+                else:
+                    await _review(store, record, prepared["text"], model=model, the_map=the_map)
     except ReviewError as exc:
         record.update(state="failed", why=f"It was taken in safely, but couldn't be weighed: {exc}")
+    except (SynthesisError, model_module.ModelError) as exc:
+        record.update(state="failed", why=f"It was taken in safely, but couldn't be joined to CLIVE's ideas: {exc}")
     except BlockingIOError:
         record.update(state="queued", why="Another reader is busy with the research store; it will be read next.")
         store.save(record)
@@ -140,6 +149,48 @@ async def read_one(store: ResearchStore, record: dict[str, Any], *, model=None, 
     if record["state"] in ("done", "stopped") or record.get("repeat_of"):
         store.forget_received(record)
     return record
+
+
+async def _review(store: ResearchStore, record: dict[str, Any], text: str, *, model, the_map) -> None:
+    """Before a synthesis is live: proposals, as DEC-070 made them; and, once a synthesis has been run,
+    what the document says kept for the first one to be applied."""
+    from app.research.review import review
+    from app.research.synthesis.run import keep_claims
+
+    earlier = _earlier(store, record["id"])
+    found = await review(artifact_id=record["artifact_id"], name=record["name"], text=text,
+                         the_map=the_map, model=model, earlier=earlier)
+    record.update(state="done", proposals=[p.to_dict() for p in found.proposals], dropped=found.dropped,
+                  notes=[*record.get("notes", []), *found.notes], model=found.model,
+                  map_digest=found.map_digest)
+    try:
+        kept = await keep_claims(store, record, text, model=model)
+    except Exception as exc:  # noqa: BLE001 - its proposals stand; applying a synthesis reads it then
+        log.info("research document %s: claims not kept for the synthesis", record.get("id"), exc_info=True)
+        record["notes"].append(f"What it recommends couldn't be kept for the first synthesis yet ({type(exc).__name__}); "
+                               "it will be read when one is applied.")
+        return
+    if kept is not None:
+        record["notes"].append(f"{kept} recommendation{'' if kept == 1 else 's'} kept, {WAITING_NOTE}.")
+
+
+async def _synthesise(store: ResearchStore, record: dict[str, Any], text: str, *, model, the_map) -> None:
+    """Once a synthesis is live: into its ideas. No proposals are made."""
+    from app.research.synthesis.run import absorb_live
+
+    said = await absorb_live(store, record, text, model=model, the_map=the_map)
+    n, unplaced = said["claims"], said["unplaced"]
+    note = f"{n} recommendation{'' if n == 1 else 's'} joined CLIVE's ideas ({said['generation']})"
+    if unplaced:
+        note += f"; {unplaced} couldn't be placed"
+    record.update(state="done", proposals=[], dropped=[], notes=[*record.get("notes", []), note + "."],
+                  model=getattr(model, "name", "model"), map_digest=the_map.digest)
+
+
+def _live(store: ResearchStore) -> str:
+    from app.research.synthesis.store import synthesis_store
+
+    return synthesis_store(store).live()
 
 
 def _digest(store: ResearchStore, record: dict[str, Any]) -> dict[str, Any]:
@@ -162,7 +213,8 @@ def _digest(store: ResearchStore, record: dict[str, Any]) -> dict[str, Any]:
     earlier = next((r for r in store.documents() if r.get("id") != record["id"] and not r.get("repeat_of")
                     and r.get("file_digest") == taken.source.pinned_ref and r.get("state") in ("done", "stopped")), None)
     if earlier is not None:
-        said = "its proposals are there" if earlier.get("state") == "done" else "the safety scan stopped it then"
+        said = ("what it says is in CLIVE's ideas" if _live(store) else "its proposals are there") \
+            if earlier.get("state") == "done" else "the safety scan stopped it then"
         return {"state": earlier["state"], "repeat_of": earlier["id"],
                 "why": f"The same file as “{earlier.get('name')}”, already read: {said}."}
     try:

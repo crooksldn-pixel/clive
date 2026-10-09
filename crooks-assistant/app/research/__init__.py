@@ -13,6 +13,9 @@ them on the Builds screen."
     model.py     the one model call, on the Max plan; a scripted stand-in for tests
     review.py    each recommendation, held to the map: adopt, park or reject, with its reason
 
+    synthesis/   DEC-078: once a synthesis is live, research is learned from, not piled up: every
+                 recommendation is evidence for an idea with four separate answers (app/research/synthesis)
+
 George's answers are owner judgments in the judgment ledger (app/builds/decisions.py); an adoption
 prepares a build request behind his hold through the existing filing path
 (app/tools/engineering_tools.py). How to give CLIVE research: docs/RESEARCH.md."""

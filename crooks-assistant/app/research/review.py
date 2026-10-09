@@ -400,10 +400,17 @@ _QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"', "–": 
 
 def normalise(text: str) -> str:
     """Text as a quote is compared: case, Markdown marks, list markers, a word a PDF broke across a line,
-    curly quotes, dashes and spacing aside."""
+    curly quotes, dashes and spacing aside.
+
+    Two cases the first version missed (DEC-078): a list number the document starts a line with but a
+    quote carries inside its line ("possible. 10. update"), and a word broken at a line end
+    ("source-of-\\ntruth") that a quote kept with a space ("source-of- truth"). Both are treated the
+    same way in the document and in the quote, so they compare equal."""
     text = str(text or "").translate(_QUOTES).lower()
-    text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
+    text = re.sub(r"(\w)-[ \t]*\n[ \t]*(\w)", r"\1\2", text)
+    text = re.sub(r"(\w)- (\w)", r"\1\2", text)
     text = re.sub(r"(?m)^\s*(?:[-+\u2022]|\d{1,3}[.)])\s+", " ", text)
+    text = re.sub(r"(?<=[.!?:;])\s+\d{1,3}[.)]\s+", " ", text)
     text = re.sub(r"[*_`#>|]", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 

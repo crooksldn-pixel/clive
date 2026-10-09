@@ -1,0 +1,330 @@
+{
+ "summary": "5 recommendations from your research wait on you.",
+ "documents": [
+  {
+   "id": "doc-b8e90422fb1f481db66f",
+   "name": "test-note-gamma.md",
+   "state": "done",
+   "state_words": "Read",
+   "why": "",
+   "received_at": "2026-10-09T16:20:21+00:00",
+   "via": "screen",
+   "proposals": 1,
+   "repeated": 0,
+   "dropped": [],
+   "notes": [],
+   "repeat_of": "",
+   "model": "scripted"
+  },
+  {
+   "id": "doc-ba616cf24f3a44228afd",
+   "name": "test-note-beta.md",
+   "state": "done",
+   "state_words": "Read",
+   "why": "",
+   "received_at": "2026-10-09T16:20:21+00:00",
+   "via": "screen",
+   "proposals": 1,
+   "repeated": 0,
+   "dropped": [],
+   "notes": [],
+   "repeat_of": "",
+   "model": "scripted"
+  },
+  {
+   "id": "doc-ab7a82e7009e4920882e",
+   "name": "test-note-alpha.md",
+   "state": "done",
+   "state_words": "Read",
+   "why": "",
+   "received_at": "2026-10-09T16:20:21+00:00",
+   "via": "screen",
+   "proposals": 3,
+   "repeated": 0,
+   "dropped": [],
+   "notes": [],
+   "repeat_of": "",
+   "model": "scripted"
+  }
+ ],
+ "groups": [
+  {
+   "key": "waiting",
+   "title": "Waiting on you",
+   "proposals": [
+    {
+     "id": "research:art-86496604a0f4f754e1f5ef71:1:a39654283147a12e",
+     "fingerprint": "a39654283147a12e2e2b2d883ba5ab4e47011fa17935b3a9f09083ab6baf449b",
+     "document": "test-note-gamma.md",
+     "title": "Stay on the flat plan",
+     "says": "CLIVE stays on the flat monthly plan.",
+     "quote": "CLIVE should stay on the flat monthly plan and never use a metered key",
+     "verdict": "reject",
+     "verdict_words": "Reject",
+     "reason": "Already live: the Max plan (FEAT-002).",
+     "checked_by": "model",
+     "cites": [
+      {
+       "key": "FEAT-002",
+       "label": "FEAT-002 Claude Agent SDK / Max integration",
+       "status": "SHIPPED"
+      }
+     ],
+     "same_as": [],
+     "touches": [
+      "app/providers"
+     ],
+     "protected": [],
+     "done_when": [],
+     "also_in": [],
+     "answers": [
+      {
+       "key": "adopt",
+       "label": "Adopt",
+       "then": "Prepares a build request for the build loop. Nothing is filed until you hold its card; then it goes to CLIVE's public repository, in CLIVE's words, never the research's own.",
+       "recommended": false
+      },
+      {
+       "key": "park",
+       "label": "Park",
+       "then": "Kept with your research for later. Nothing is built.",
+       "recommended": false
+      },
+      {
+       "key": "reject",
+       "label": "Reject",
+       "then": "Not for CLIVE. It stays in the research record, marked rejected.",
+       "recommended": true
+      }
+     ],
+     "question_kind": "research"
+    },
+    {
+     "id": "research:art-cd2648b0145e1291c5a9893a:1:8dd461ae87286d80",
+     "fingerprint": "8dd461ae87286d801226e5c12394d325e920dc5ce0b2d5fb15ae825be5f678d5",
+     "document": "test-note-beta.md",
+     "title": "Supplier messages in one thread",
+     "says": "The manufacturer's messages in one thread.",
+     "quote": "Messages from the manufacturer should land in one thread that CLIVE reads and sums up",
+     "verdict": "park",
+     "verdict_words": "Park",
+     "reason": "Finishing current work comes first (DEC-018).",
+     "checked_by": "model",
+     "cites": [
+      {
+       "key": "DEC-018",
+       "label": "DEC-018 Current product quality comes before major V2 expansion",
+       "status": "ACTIVE"
+      }
+     ],
+     "same_as": [
+      {
+       "key": "IDEA-001",
+       "label": "IDEA-001 WhatsApp integration",
+       "status": "CAPTURED"
+      }
+     ],
+     "touches": [
+      "app/messaging"
+     ],
+     "protected": [],
+     "done_when": [],
+     "also_in": [],
+     "answers": [
+      {
+       "key": "adopt",
+       "label": "Adopt",
+       "then": "Prepares a build request for the build loop. Nothing is filed until you hold its card; then it goes to CLIVE's public repository, in CLIVE's words, never the research's own.",
+       "recommended": false
+      },
+      {
+       "key": "park",
+       "label": "Park",
+       "then": "Kept with your research for later. Nothing is built.",
+       "recommended": true
+      },
+      {
+       "key": "reject",
+       "label": "Reject",
+       "then": "Not for CLIVE. It stays in the research record, marked rejected.",
+       "recommended": false
+      }
+     ],
+     "question_kind": "research"
+    },
+    {
+     "id": "research:art-1afce4cb948d3450f0ad0240:1:39e3cb46f556c251",
+     "fingerprint": "39e3cb46f556c251e9fb196df0400385b88795ba4a0ebe3b130de515cc2e1389",
+     "document": "test-note-alpha.md",
+     "title": "Show when each key was last checked",
+     "says": "Each Connections card says when its key was last checked.",
+     "quote": "Each card on the Connections screen should show when its key was last checked",
+     "verdict": "adopt",
+     "verdict_words": "Adopt",
+     "reason": "Serves keys from the app (DEC-065).",
+     "checked_by": "model",
+     "cites": [
+      {
+       "key": "DEC-065",
+       "label": "DEC-065 The 2026-10-01 owner decisions join the log: CLIVE's voice, keys from the app, the team, and three numbered rulings",
+       "status": "ACTIVE"
+      }
+     ],
+     "same_as": [],
+     "touches": [
+      "web/connections.js"
+     ],
+     "protected": [],
+     "done_when": [
+      "Each Connections card says when its key was last checked."
+     ],
+     "also_in": [],
+     "answers": [
+      {
+       "key": "adopt",
+       "label": "Adopt",
+       "then": "Prepares a build request for the build loop. Nothing is filed until you hold its card; then it goes to CLIVE's public repository, in CLIVE's words, never the research's own.",
+       "recommended": true
+      },
+      {
+       "key": "park",
+       "label": "Park",
+       "then": "Kept with your research for later. Nothing is built.",
+       "recommended": false
+      },
+      {
+       "key": "reject",
+       "label": "Reject",
+       "then": "Not for CLIVE. It stays in the research record, marked rejected.",
+       "recommended": false
+      }
+     ],
+     "question_kind": "research"
+    },
+    {
+     "id": "research:art-1afce4cb948d3450f0ad0240:2:524680c2da233e11",
+     "fingerprint": "524680c2da233e113590bfb6967e2dd44005366675f27bb5f31034369c8a7a8d",
+     "document": "test-note-alpha.md",
+     "title": "Use TestQueue to keep jobs alive",
+     "says": "Use an outside workflow engine.",
+     "quote": "An outside workflow engine such as the invented TestQueue could keep these jobs alive",
+     "verdict": "park",
+     "verdict_words": "Park",
+     "reason": "Finishing current work comes first (DEC-018).",
+     "checked_by": "model",
+     "cites": [
+      {
+       "key": "DEC-018",
+       "label": "DEC-018 Current product quality comes before major V2 expansion",
+       "status": "ACTIVE"
+      }
+     ],
+     "same_as": [],
+     "touches": [
+      "app/work"
+     ],
+     "protected": [],
+     "done_when": [],
+     "also_in": [],
+     "answers": [
+      {
+       "key": "adopt",
+       "label": "Adopt",
+       "then": "Prepares a build request for the build loop. Nothing is filed until you hold its card; then it goes to CLIVE's public repository, in CLIVE's words, never the research's own.",
+       "recommended": false
+      },
+      {
+       "key": "park",
+       "label": "Park",
+       "then": "Kept with your research for later. Nothing is built.",
+       "recommended": true
+      },
+      {
+       "key": "reject",
+       "label": "Reject",
+       "then": "Not for CLIVE. It stays in the research record, marked rejected.",
+       "recommended": false
+      }
+     ],
+     "question_kind": "research"
+    },
+    {
+     "id": "research:art-1afce4cb948d3450f0ad0240:3:d662cb21d227cb27",
+     "fingerprint": "d662cb21d227cb273136f13adee33c6f57772c54e2066f282a2bf0f3599fd907",
+     "document": "test-note-alpha.md",
+     "title": "Apply small refunds automatically",
+     "says": "Small refunds go out without approval.",
+     "quote": "Refunds under five pounds should be applied automatically without his approval",
+     "verdict": "reject",
+     "verdict_words": "Reject",
+     "reason": "Breaks rule 2 (Anything outward waits for a gesture on its card): it lets something go out, spend or change the shop without his gesture on its card (“refunds automatically”).",
+     "checked_by": "rule",
+     "cites": [
+      {
+       "key": "RULE-2",
+       "label": "Rule 2: Anything outward waits for a gesture on its card",
+       "status": ""
+      },
+      {
+       "key": "DEC-006",
+       "label": "DEC-006 Voice “yes” is not sufficient for sensitive authorisation",
+       "status": "ACTIVE / SAFETY"
+      },
+      {
+       "key": "DEC-008",
+       "label": "DEC-008 Autonomy is narrow and earned",
+       "status": "ACTIVE"
+      }
+     ],
+     "same_as": [],
+     "touches": [
+      "app/families"
+     ],
+     "protected": [],
+     "done_when": [],
+     "also_in": [],
+     "answers": [
+      {
+       "key": "adopt",
+       "label": "Adopt",
+       "then": "Prepares a build request for the build loop. Nothing is filed until you hold its card; then it goes to CLIVE's public repository, in CLIVE's words, never the research's own.",
+       "recommended": false
+      },
+      {
+       "key": "park",
+       "label": "Park",
+       "then": "Kept with your research for later. Nothing is built.",
+       "recommended": false
+      },
+      {
+       "key": "reject",
+       "label": "Reject",
+       "then": "Not for CLIVE. It stays in the research record, marked rejected.",
+       "recommended": true
+      }
+     ],
+     "question_kind": "research"
+    }
+   ]
+  }
+ ],
+ "waiting": 5,
+ "reading": 0,
+ "accepts": "PDF, Word (.docx), Markdown, text, a saved web page, or a ChatGPT export (conversations.json or its zip)",
+ "problem": "",
+ "mode": "proposals",
+ "synthesis": {
+  "state": "not_live",
+  "run": {
+   "generation": "gen-20261009T162021",
+   "stage": "done",
+   "stage_words": "finished, waiting to be made live",
+   "done": 0,
+   "of": 0,
+   "started_at": "2026-10-09T16:20:21+00:00",
+   "finished_at": "2026-10-09T16:20:21+00:00",
+   "calls": 18,
+   "errors": 0
+  }
+ }
+}

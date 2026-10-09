@@ -1154,7 +1154,8 @@ He wants "the flow from actually asking a question to the action happening to be
 ## DEC-070 — George's research goes through the digester: each recommendation is a proposal weighed against the map, and he answers it on the Builds screen
 
 **Date:** 2026-10-08
-**Status:** ACTIVE. Built in the repository (`claude/n2-research`); live once deployed.
+**Status:** ACTIVE for its intake, quarantine and privacy. Its per-recommendation proposals are SUPERSEDED by [DEC-078](#dec-078--research-is-evidence-for-clives-understanding-one-idea-per-proposition-with-four-separate-answers-not-a-list-of-proposals-per-document) once a synthesis is live; until then they stand as built (`claude/n2-research`).
+**Was:** ACTIVE. Built in the repository (`claude/n2-research`); live once deployed.
 **Source:** the owner on 7 October 2026, verbatim: "I've also done some ChatGPT research products on Clive overall, so stuff like integrations, product roadmap, feature roadmap, how to integrate connections easily, the human API, and I think it'd be good for a way to actually accept this research into part of the Clive design and philosophy and actually to make a better way of accepting it." What he approved, verbatim: "Your research goes through the digester. Each recommendation becomes a proposal checked against the map's rules (adopt, park or reject, with a reason), and you approve them on the Builds screen."
 
 **Decision:**
@@ -1365,3 +1366,31 @@ He wants "the flow from actually asking a question to the action happening to be
 **Reason:** his ruling. Polling once a minute only while someone is looking meant a return to approve, or a refund Shopify refused, waited until he next opened CLIVE and the minute had passed.
 
 **Consequences:** no new authority and no change to any approval: an event can only make CLIVE read. Nothing customer-identifying is logged, on either side of the door. The notices live in memory, so after a restart the home's row still says what needs him, from the API. A phone push outside CLIVE is not built. Deploy order: CLIVE and the secret, then the public address, then the service. Shipping's events are not part of this.
+
+---
+
+## DEC-078 — Research is evidence for CLIVE's understanding: one idea per proposition, with four separate answers, not a list of proposals per document
+
+**Date:** 2026-10-09
+**Status:** ACTIVE. Built in the repository (`claude/d4-synthesis`, the screen on `claude/d4-research-screen`). Live once deployed and a synthesis generation is applied on the server; the Director compares the first generation with the old screen before it is applied.
+**Source:** George, 9 October 2026, verbatim:
+- "Research documents should be evidence contributing to CLIVE's understanding. They should not each independently become roadmaps."
+- "DEC-018 should be capable of preventing implementation without preventing CLIVE from learning that a direction is correct."
+- "George should not need to review 113 recommendations."
+- "If George has to ask ChatGPT what a CLIVE research finding actually means, the research system has not finished its job."
+- "Then implement it if the proposed design is consistent with CLIVE's existing invariants and does not require a major unapproved architectural departure. If implementation exposes a genuinely major architectural choice, stop and put only that decision in Needs You."
+- "CLIVE should not accumulate research. CLIVE should learn from research."
+
+**Decision:**
+- **One new kind of record, an idea:** everything the research says about one thing. Every recommendation from every document, with no cap, is evidence for one idea, pinned to the research's own words. Three reports saying one thing are one idea backed by three. A report arguing against it is kept with it, as disagreement. A tool chosen to reach a goal is a separate idea from the goal.
+- **Four separate answers instead of one verdict.** Is the direction right (judgment)? Is it in CLIVE already (relationship)? When (timing)? Is the work approved (execution)? Plus how sure CLIVE is, how much it matters, and what it does to CLIVE's understanding. Each idea also gets a plain-English owner view with a real example from his business, so he never needs to ask anyone else what it means.
+- **CLIVE's rules decide in code, not the prompt.** Already done is never a reason to reject. DEC-018 moves only timing, never judgment: it can hold the work back without hiding that the direction is right. Rejecting needs a rule or decision the idea breaks. The rules that never bend are checked again without the model: an idea that breaks one is "Needs your call" when three or more documents back it, and "Not for CLIVE" otherwise. Execution is set only from his answer and the build loop's own record.
+- **He sees ideas, not recommendations.** The Builds screen's Research section shows what the research says CLIVE should become in nine plain points, the few ideas that need him (only for a reason that is true of the idea), then every idea by when. He answers Approve the work, Not now or Not for CLIVE.
+- **Nothing else changes.** His decisions, ideas, features and rules are never edited by research. Each document's record and its frozen proposals stay as they are; each old proposal shows in its idea's history. His answers stay in the owner judgment ledger. Approving prepares a build request through the existing card and his hold, in CLIVE's words only. Research stays on the server (DEC-070).
+- **Generations.** A full synthesis on the server writes a new generation that is not live until applied. Applying keeps an idea's id, and his answer with it, when at least half its evidence came from that idea. Once a generation is live, each new document joins it, and only the ideas it touched are judged again.
+
+**Supersedes:** DEC-070's per-recommendation proposals (adopt, park or reject, at most 25 a document), once a synthesis is live. DEC-070's intake, quarantine and privacy stand.
+
+**Reason:** his words above. On his six reports, DEC-070 kept 115 of about 353 recommendations: about 43 were cut by its cap, about 190 were never picked up, and 11 were dropped when the quote check failed. Repeats were matched by word overlap, so almost none were found, and "park" hid "DEC-018 says not now" behind "this direction is right".
+
+**Consequences:** no new authority, no new service, no embeddings and no API key: every judgement is Claude on the Max plan through `app/research/model.py`, with no tools and the research only as data. One new store on the server, `research/synthesis/`. A new answer kind in the judgment ledger, `research-idea`. Not built: re-judging ideas a new document did not touch, scores, and any screen per recommendation. The check of the rules that never bend still matches words, so it can miss a rule broken in other words: his answer and his hold on every card decide, as in DEC-070.

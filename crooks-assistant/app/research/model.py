@@ -14,6 +14,8 @@ What it promises:
   recommended".
 - ScriptedModel answers from a fixed list and records every prompt, for tests. Nothing in the
   running app installs it; tests do, with `install`.
+- Each call's time limit can be set (`with_timeout`): the research synthesis gives each of its steps
+  its own (app/research/synthesis/ask.py), since judging can need ten minutes where reading needs less.
 """
 
 from __future__ import annotations
@@ -40,6 +42,11 @@ class MaxPlanModel:
         self._model = model
         self._cli_path = cli_path
         self._timeout_s = timeout_s
+
+    def with_timeout(self, timeout_s: float) -> MaxPlanModel:
+        """The same model with its own time limit for one call: each synthesis stage sets its own
+        (app/research/synthesis/ask.py), since judging can need ten minutes where reading needs less."""
+        return MaxPlanModel(model=self._model, cli_path=self._cli_path, timeout_s=float(timeout_s))
 
     def _settings(self) -> tuple[str, str]:
         if self._model and self._cli_path:
