@@ -108,6 +108,8 @@ class Printing:
                 f"{s.order_name} has no bought label to print. Printing never buys one: buy the "
                 "label first."
             )
+        if s.label.file_note:  # bought, but its file can't be fetched here (it says where)
+            raise PrintError(s.label.file_note)
         out = []
         for doc in s.label.documents:
             if not doc.artifact_id:

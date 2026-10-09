@@ -58,6 +58,9 @@ class Operations:
                 service=None,
                 amount_minor=0,
                 currency="GBP",
+                # False: the provider sets the price when buying (Shopify Shipping); the review
+                # says so instead of showing an amount, and the total leaves it out.
+                price_known=True,
             )
             if s is not None:  # what it is, shown even when it can't be included
                 if s.label is not None:
@@ -86,6 +89,7 @@ class Operations:
                         service=p["service"]["name"],
                         amount_minor=p["money"]["shipping_minor"],
                         currency=p["money"]["currency"],
+                        price_known=p["money"].get("price_known", True),
                     )
                 else:
                     status = printed
