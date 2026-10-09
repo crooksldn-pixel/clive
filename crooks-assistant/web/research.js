@@ -70,8 +70,9 @@
   const STANCE_WORDS = { supports: 'Supports it', opposes: 'Argues against it', refines: 'Refines it' };
   const CENTRALITY_WORDS = { central: 'central to the document', supporting: 'a supporting point', passing: 'said in passing' };
   const LEVEL_WORDS = { none: 'Not in CLIVE yet', partial: 'Partly in CLIVE', substantial: 'Mostly in CLIVE', complete: 'Already in CLIVE' };
-  const RUN_STAGE_WORDS = { extract: 'reading the documents', match: 'matching recommendations to ideas', consolidate: 'merging repeats',
-    judge: 'judging', summary: 'writing the summary' };
+  // A run's stage in words, when the server didn't send its own (app/research/synthesis/run.py STAGE_WORDS).
+  const RUN_STAGE_WORDS = { documents: 'reading documents', consolidate: 'joining ideas that are the same',
+    migrate: 'linking the old proposals', judge: 'judging', summary: 'summing up' };
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   const doc = () => (typeof document !== 'undefined' ? document : globalThis.document);
@@ -575,20 +576,25 @@
     return box;
   }
 
-  // While CLIVE re-reads the research into ideas (not live yet): how far it has got, from the run's own fields only.
+  /* While CLIVE re-reads the research into ideas (not live yet): how far it has got, from the run's own
+   * fields only (app/builds/research_ideas.py run_summary): its stage in the server's words, how many of
+   * how many when it counts them, whether it finished, and how often it stopped on the way. */
   function runLine(synthesis, now) {
     const run = obj(obj(synthesis) && synthesis.run);
     if (!run) return null;
     const stage = text(run.stage);
-    const pairs = [['done', 'of'], ['done', 'total'], ['documents_done', 'documents']];
-    const pair = pairs.find(([a, b]) => count(run[a]) !== null && count(run[b]) !== null);
-    const progress = pair ? `${count(run[pair[0]])} of ${count(run[pair[1]])}` : '';
-    if (text(run.finished_at) && !(Array.isArray(run.errors) && run.errors.length)) {
+    const stopped = Array.isArray(run.errors) ? run.errors.length : count(run.errors) || 0;
+    if (stage === 'done' || text(run.finished_at)) {
       const when = ago(run.finished_at, now);
       return el('p', 'rs-run', `CLIVE has re-read your research into ideas${when ? ` (${when})` : ''}. They aren’t live yet.`);
     }
-    const doing = [has(RUN_STAGE_WORDS, stage) ? RUN_STAGE_WORDS[stage] : '', progress].filter(Boolean).join(', ');
-    return doing ? el('p', 'rs-run', `CLIVE is re-reading your research into ideas: ${doing}.`) : null;
+    const [done, of] = [count(run.done), count(run.of)];
+    const progress = done !== null && of ? `${done} of ${of}` : '';
+    const words_ = text(run.stage_words) || (has(RUN_STAGE_WORDS, stage) ? RUN_STAGE_WORDS[stage] : '');
+    const doing = [words_, progress].filter(Boolean).join(', ');
+    if (!doing) return null;
+    if (!stopped) return el('p', 'rs-run', `CLIVE is re-reading your research into ideas: ${doing}.`);
+    return el('p', 'rs-run', `CLIVE’s re-reading of your research into ideas reached ${doing}. It has stopped ${stopped === 1 ? 'once' : `${stopped} times`} on the way.`);
   }
 
   function head(section, p) {

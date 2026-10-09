@@ -549,10 +549,18 @@ test('proposals mode is drawn as before, with one quiet line while CLIVE re-read
   assert.equal(plain.querySelector('.rs-says'), null, 'no ideas drawn in proposals mode');
   const running = R.draw(Object.assign({}, base, { synthesis: { state: 'not_live', run: { stage: 'judge', done: 31, of: 42 } } }), {});
   assert.equal(running.querySelector('.rs-run').allText(), 'CLIVE is re-reading your research into ideas: judging, 31 of 42.');
-  const stageOnly = R.draw(Object.assign({}, base, { synthesis: { run: { stage: 'extract' } } }), {});
-  assert.equal(stageOnly.querySelector('.rs-run').allText(), 'CLIVE is re-reading your research into ideas: reading the documents.');
-  const unknown = R.draw(Object.assign({}, base, { synthesis: { run: { stage: 'something-new' } } }), {});
-  assert.equal(unknown.querySelector('.rs-run'), null, 'nothing known to say: the line is left out');
+  // The run summary as app/builds/research_ideas.py run_summary sends it.
+  const run = (over) => R.draw(Object.assign({}, base, { synthesis: { state: 'not_live', run: Object.assign({ generation: 'gen-20261009T120000', stage: 'judge',
+    stage_words: 'judging', done: 31, of: 42, started_at: '2026-10-09T12:00:00+00:00', finished_at: '', calls: 40, errors: 0 }, over) } }), {})
+    .querySelector('.rs-run');
+  assert.equal(run({}).allText(), 'CLIVE is re-reading your research into ideas: judging, 31 of 42.');
+  assert.equal(run({ stage: 'consolidate', stage_words: 'joining ideas that are the same', done: 0, of: 0 }).allText(),
+    'CLIVE is re-reading your research into ideas: joining ideas that are the same.', 'no count: no “0 of 0”');
+  assert.equal(run({ errors: 2 }).allText(), 'CLIVE’s re-reading of your research into ideas reached judging, 31 of 42. It has stopped 2 times on the way.');
+  assert.equal(run({ errors: [{ said: 'x' }] }).allText(), 'CLIVE’s re-reading of your research into ideas reached judging, 31 of 42. It has stopped once on the way.');
+  assert.equal(run({ stage: 'done', stage_words: 'finished, waiting to be made live', finished_at: '' }).allText(), 'CLIVE has re-read your research into ideas. They aren’t live yet.');
+  assert.equal(run({ stage: 'documents', stage_words: '' }).allText(), 'CLIVE is re-reading your research into ideas: reading documents, 31 of 42.', 'its own words when none came');
+  assert.equal(run({ stage: 'something-new', stage_words: '', done: null, of: null }), null, 'nothing known to say: the line is left out');
   const order = running.childNodes.map((n) => n.className);
   assert.deepEqual(order.slice(0, 4), ['rs-h2', 'rs-summary', 'rs-run', 'rs-add']);
 });
