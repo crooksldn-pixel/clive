@@ -348,6 +348,21 @@ def test_dec_018_moves_timing_only(the_map):
     assert serves["keys"] == [{"key": "DEC-018", "how": "serves"}] and serves["basis"] == []
 
 
+def test_a_reason_that_rested_on_dec_018_alone_is_never_the_directions(the_map):
+    """[research-browser] Found by the end-to-end browser test: the direction was set right by code, but its
+    reason on the screen was still the model's case against it, "Parked: DEC-018 …"."""
+    idea = _idea()
+    notes = judge.enforce(idea, _raw("INVESTIGATE", "EXTENDS_EXISTING", "NOW", keys=[("DEC-018", "contradicts")], basis=["DEC-018"],
+                                     why="Parked: DEC-018 says finish first."), the_map=the_map, previous=None)
+    assert idea["answers"]["judgment"] == "ADOPT" and "DEC-018" not in idea["reasons"]["judgment"]
+    assert idea["reasons"]["judgment"] == judge.DIRECTION_HELD
+    assert any(n.endswith("Its reason was: Parked: DEC-018 says finish first.") for n in notes), "kept in the history"
+    serves = _idea()
+    judge.enforce(serves, _raw("ADOPT", "PARTIALLY_SATISFIED", "NOW", keys=[("DEC-018", "serves")], basis=["DEC-018"],
+                               why="Reliability is on DEC-018's own finish list."), the_map=the_map, previous=None)
+    assert serves["reasons"]["judgment"] == "Reliability is on DEC-018's own finish list.", "a reason it serves stands"
+
+
 @pytest.mark.parametrize(("documents", "judged"), [(1, "REJECT"), (2, "REJECT"), (3, "CONFLICT"), (4, "CONFLICT")])
 def test_a_rule_that_never_bends_makes_conflict_at_three_documents_and_reject_below(the_map, documents, judged):
     idea = _idea("Refunds under five pounds go out automatically without his approval.", docs=documents)

@@ -10,7 +10,8 @@ never the prompt alone (`checked_by: "rule"`, with a note, wherever code changed
 - every value is in its enum, and every key exists in the map;
 - REJECT needs a rule or decision the idea contradicts. Resting only on a feature or what is live,
   or being already done, makes it ADOPT: already done is not a reason to reject;
-- DEC-018 never decides judgment: it moves only timing (timing_held_by);
+- DEC-018 never decides judgment: it moves only timing (timing_held_by), and a reason that rested on it
+  alone is never shown as the direction's reason;
 - the rules that never bend are checked again without the model (rules.vetoes), over the statement,
   what its sources say and what it calls done: a hit can't be ADOPT; it is CONFLICT when three or
   more documents back it (his call), REJECT otherwise, citing the rule;
@@ -48,6 +49,8 @@ HOWS = ("contradicts", "serves", "builds on", "already does it", "holds timing",
 DEFAULTS = {"judgment": "INVESTIGATE", "relationship": "NEW", "timing": "UNSCHEDULED", "confidence": "low",
             "importance": "USEFUL", "knowledge": "NEW"}
 POSITIVE, NEGATIVE = ("ADOPT", "ADOPT_PARTLY"), ("REJECT", "CONFLICT")
+# Direction's reason when the only thing said against an idea was DEC-018 (which says when, never whether).
+DIRECTION_HELD = "Nothing argued against the direction itself, only against building it now: When says what holds it back."
 FULL_VIEW = ("FOUNDATIONAL", "HIGH_LEVERAGE")
 
 JUDGE_SYSTEM = """You judge ideas drawn from research about CLIVE, a business assistant for the owner of a small London streetwear label, against CLIVE's own design.
@@ -228,9 +231,13 @@ def _hold_dec_018(answers, keys, basis, held, idea, notes) -> None:
         if HOLDS_TIMING not in held:
             held.append(HOLDS_TIMING)
     if against and not basis:
+        # [research-browser] The reason given was the case against it, and it rested on DEC-018 alone: it is
+        # a reason for when, never for the direction, so it stays in the history and leaves Direction's line.
+        was = idea["reasons"]["judgment"]
         notes.append(f"DEC-018 only holds when, never whether: the judgment was {answers['judgment']} on DEC-018 alone, "
-                     "so it is Right direction, held by DEC-018.")
+                     "so it is Right direction, held by DEC-018." + (f" Its reason was: {line(was, 200)}" if was else ""))
         answers["judgment"] = "ADOPT"
+        idea["reasons"]["judgment"] = DIRECTION_HELD
         if not idea["reasons"]["timing"]:
             idea["reasons"]["timing"] = "Held by DEC-018: current product quality comes first."
     if HOLDS_TIMING in held and answers["timing"] == "NOW":
