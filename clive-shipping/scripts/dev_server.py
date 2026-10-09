@@ -4,6 +4,8 @@
     python scripts/dev_server.py 8120 --empty                           # nothing waiting
     python scripts/dev_server.py 8120 --sandbox                         # real Parcel2Go SANDBOX
     python scripts/dev_server.py 8120 --printnode                       # pretend PrintNode
+    python scripts/dev_server.py 8120 --domestic                        # UK labels on (fake
+                                                                        # Shopify Shipping)
 
     http://127.0.0.1:8120/admin      the embedded admin (admin auth skipped)
 
@@ -44,11 +46,19 @@ from shipping import admin as admin_module  # noqa: E402
 from shipping import packages  # noqa: E402
 from shipping.app import create_app  # noqa: E402
 from shipping.commodity import CommodityAssistant, UkTradeTariff  # noqa: E402
-from shipping.fake_shopify import FakeShopify, fo, hoodie_line, tee_line  # noqa: E402
+from shipping.fake_shopify import (  # noqa: E402
+    FakeShopify,
+    FakeShopifyShipping,
+    fo,
+    hoodie_line,
+    tee_line,
+)
 from shipping.models import Address, PageSize  # noqa: E402
 from shipping.print_provider import options_for  # noqa: E402
 from shipping.providers.base import ProviderUnavailable  # noqa: E402
 from shipping.providers.fake import FakeProvider  # noqa: E402
+from shipping.providers.multi import Providers  # noqa: E402
+from shipping.providers.shopify_shipping import ShopifyShipping  # noqa: E402
 from shipping.purchase import Purchases  # noqa: E402
 from shipping.service import ShippingService  # noqa: E402
 from shipping.settings import Settings  # noqa: E402
@@ -78,6 +88,15 @@ ADDRESSES = {
         postcode="GY1 1AA",
         country="GG",
         email="recipient@example.com",
+    ),
+    "GB": Address(
+        name="Jo Bloggs",
+        line1="1 Brick Lane",
+        city="London",
+        postcode="E1 6AN",
+        country="GB",
+        phone="+447700900123",
+        email="jo@example.com",
     ),
     "DE": Address(
         name="Max Muster",
@@ -230,8 +249,10 @@ class DevProvider(FakeProvider):
         return docs
 
 
-def order(shopify: FakeShopify, n: int, lines, country: str):
-    snap = fo(n, lines)
+def order(
+    shopify: FakeShopify, n: int, lines, country: str, shipping_line: str | None = "Tracked 48"
+):
+    snap = fo(n, lines, shipping_line=shipping_line)
     snap.destination = ADDRESSES[country]
     # As Shopify's order list shows them: placed over the last few days; one guest checkout
     # (no customer: the addressee shows) and one very long name.
@@ -364,6 +385,28 @@ def seed_states(svc: ShippingService, shopify: FakeShopify, provider: DevProvide
         svc.refresh_tracking(SHOP, s.id)  # not tick(): it would settle the seeded problems
 
 
+def seed_uk(svc: ShippingService, shopify: FakeShopify, uk: FakeShopifyShipping) -> None:
+    """UK orders through Shopify Shipping: ready (24 and 48), a checkout line that isn't
+    mapped, an order with none, a label Shopify fulfilled, a label Shopify gave as US Letter,
+    one adopted after a lost reply, and one still being bought."""
+    order(shopify, 3001, [tee_line(qty=2)], "GB", "Tracked 24")
+    order(shopify, 3002, [tee_line()], "GB", "Tracked 48")
+    order(shopify, 3003, [tee_line()], "GB", "Next day by 1pm")
+    order(shopify, 3004, [tee_line()], "GB", None)
+    for n in (3005, 3006, 3007, 3008):
+        order(shopify, n, [tee_line()], "GB", "Tracked 48")
+    svc.sync(SHOP)
+    buy(svc, 3005, "seed-3005")  # Shopify bought it and fulfilled the order itself
+    uk.label_file = text_pdf(612, 792, ["ROYAL MAIL TRACKED 48 (TEST)", "US Letter label"])
+    buy(svc, 3006, "seed-3006")
+    uk.label_file = text_pdf(288, 432, ["ROYAL MAIL TRACKED 48 (TEST)", "4x6 label"])
+    uk.lose_reply = True  # bought, the answer lost: found on the order, file not fetchable
+    buy(svc, 3007, "seed-3007")
+    uk.pending_polls = 10**6  # Shopify still buying: the purchase is being checked
+    buy(svc, 3008, "seed-3008")
+    uk.pending_polls = 0
+
+
 class DevPrintNode:
     """A pretend PrintNode for --printnode: a job is sent, printing, then done a few seconds
     later (or fails with a reason after POST /dev/printnode/fail). Nothing is printed."""
@@ -416,7 +459,11 @@ class DevPrintNode:
 
 
 def build(
-    port: int, empty: bool = False, sandbox: bool = False, printnode: bool = False
+    port: int,
+    empty: bool = False,
+    sandbox: bool = False,
+    printnode: bool = False,
+    uk: bool = False,
 ) -> FastAPI:
     db = Path(tempfile.mkdtemp(prefix="shipping-dev-")) / "dev.sqlite3"
     settings = Settings(
@@ -429,6 +476,11 @@ def build(
         p2g_base_url=os.environ.get("SHIPPING_P2G_BASE_URL", "https://sandbox.parcel2go.com"),
         p2g_client_id=os.environ.get("SHIPPING_P2G_CLIENT_ID", ""),
         p2g_client_secret=os.environ.get("SHIPPING_P2G_CLIENT_SECRET", ""),
+        # Pretend codes: the fake Shopify Shipping takes anything; the real ones are Shopify's.
+        domestic_labels="shopify" if uk else "off",
+        domestic_shipping_lines="Tracked 24=24; Tracked 48=48",
+        shopify_tracked_24_rate="dev_royal_mail/DEV-T24" if uk else "",
+        shopify_tracked_48_rate="dev_royal_mail/DEV-T48" if uk else "",
     )
     settings.printnode_enabled = printnode
     settings.printnode_api_key = SecretStr("dev-only" if printnode else "")
@@ -454,15 +506,35 @@ def build(
         provider = DevProvider()
     # The real UK Trade Tariff (read only, no key): without a network, Find the code says so.
     tariff = CommodityAssistant(UkTradeTariff(settings.tariff_base_url))
-    svc = ShippingService(store, shopify, provider, Purchases(store, provider), commodity=tariff)  # type: ignore[arg-type]
+    fake_uk = FakeShopifyShipping(shopify)
+    fake_uk.label_file = text_pdf(288, 432, ["ROYAL MAIL TRACKED (TEST)", "4x6 label"])
+    domestic = None
+    if uk:
+        domestic = ShopifyShipping(
+            fake_uk, shopify, store, SHOP, settings.domestic(), store.config, poll_for=2
+        )
+        provider = Providers([provider, domestic])  # type: ignore[list-item]
+    svc = ShippingService(
+        store,
+        shopify,
+        provider,  # type: ignore[arg-type]
+        Purchases(store, provider),  # type: ignore[arg-type]
+        commodity=tariff,
+        may_buy=lambda s: True,
+        domestic=settings.domestic(),
+        domestic_provider=domestic,
+    )
     if not empty:
         seed_settings(store)
         if sandbox:
             order(shopify, 2160, [tee_line(qty=2)], "DE")  # one fresh order for the E2E
             svc.sync(SHOP)
         else:
-            assert isinstance(provider, DevProvider)
-            seed_states(svc, shopify, provider)
+            dev = provider.providers[0] if isinstance(provider, Providers) else provider
+            assert isinstance(dev, DevProvider)
+            seed_states(svc, shopify, dev)
+            if uk:
+                seed_uk(svc, shopify, fake_uk)
     app = create_app(settings, svc)
 
     @app.post("/dev/order/{n}/quantity")
@@ -470,16 +542,22 @@ def build(
         shopify.fos[f"gid://shopify/FulfillmentOrder/{n}"].lines[0].quantity = value
         return {"ok": True}
 
+    first = provider.providers[0] if isinstance(provider, Providers) else provider
+
     @app.post("/dev/provider/outage")
     def outage(on: int = 1) -> dict:
-        if isinstance(provider, DevProvider):
-            provider.outage = bool(on)
+        if isinstance(first, DevProvider):
+            first.outage = bool(on)
         return {"ok": True}
 
     @app.get("/dev/charges")
     def charges() -> dict:
-        """How many times the (fake) provider took money, for double-click checks."""
-        return {"charges": len(getattr(provider, "charges", []))}
+        """How many times the (fake) providers took money, for double-click checks."""
+        return {
+            "charges": len(getattr(first, "charges", [])),
+            "shopify_shipping_labels": fake_uk.labels_bought,
+            "shopify_shipping_mutations": len(fake_uk.purchases),
+        }
 
     @app.post("/dev/printnode/fail")
     def printnode_fail() -> dict:
@@ -503,5 +581,6 @@ if __name__ == "__main__":
         empty="--empty" in sys.argv,
         sandbox="--sandbox" in sys.argv,
         printnode="--printnode" in sys.argv,
+        uk="--domestic" in sys.argv,
     )
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

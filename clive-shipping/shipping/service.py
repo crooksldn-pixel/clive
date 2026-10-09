@@ -977,24 +977,24 @@ class ShippingService:
         cfg = self.store.config(shop)
         if s.duties:
             out["will"].append(f"Customs terms {s.duties.incoterm}: {s.duties.summary}")
-        email = " and email the customer" if cfg.notify_customer else ""
         if self._sells_itself(s):
             # Shopify may put the label's tracking on the order itself; CLIVE reads first and
             # adds it only if Shopify hasn't.
             out["will"].append(
-                f"{s.order_name} is marked fulfilled in Shopify with the tracking number{email}"
+                f"{s.order_name} is marked fulfilled in Shopify with the tracking number"
+                + (", and the customer is emailed" if cfg.notify_customer else "")
             )
         else:
             out["will"].append(
-                f"Mark {s.order_name} fulfilled in Shopify with the tracking number{email}"
+                f"Mark {s.order_name} fulfilled in Shopify with the tracking number"
+                + (" and email the customer" if cfg.notify_customer else "")
             )
         out["duties"] = s.duties.model_dump() if s.duties else None
         who = s.quote.provider if s.quote else ""
         out["charged"] = {
             "Parcel2Go": "Charged to your Parcel2Go PrePay balance.",
             "Easyship": "Charged to your Easyship account (its credit or saved payment method).",
-            "Shopify Shipping": "Charged by Shopify Shipping to your Shopify bill. Shopify "
-            "doesn't show the price before buying; it appears on the bill and in Shopify admin.",
+            "Shopify Shipping": "Charged by Shopify Shipping to your Shopify bill.",
         }.get(who, f"Charged by {who or 'the provider'}.")
         return out
 

@@ -15,6 +15,7 @@ from starlette.concurrency import run_in_threadpool
 
 from shipping.admin import build_admin_router
 from shipping.api import build_api_router
+from shipping.domestic import title as domestic_title
 from shipping.providers.base import ProviderError, ShippingProvider
 from shipping.purchase import Purchases
 from shipping.service import ShippingService
@@ -152,7 +153,21 @@ def _check(settings: Settings, p: Any) -> dict[str, Any]:
     from shipping.money import Money, to_minor
     from shipping.providers.easyship import Easyship
     from shipping.providers.parcel2go import Parcel2Go
+    from shipping.providers.shopify_shipping import ShopifyShipping
 
+    if isinstance(p, ShopifyShipping):
+        # No API reads Shopify Shipping's account or terms; what CLIVE can check is its own
+        # setup: each service needs Shopify's code on the server, or it can't be bought.
+        policy = settings.domestic()
+        missing = [domestic_title(k) for k, v in policy.rates.items() if v is None]
+        return {
+            "provider": p.name,
+            "environment": "live",
+            "connected": not missing,
+            "detail": "UK labels (Royal Mail Tracked 24 / Tracked 48) from this store's "
+            "Shopify Shipping account, charged to the Shopify bill."
+            + (f" Not set on the server: the code for {' and '.join(missing)}." if missing else ""),
+        }
     if isinstance(p, Easyship):
         out: dict[str, Any] = {"provider": p.name, "environment": settings.easyship_environment}
         try:

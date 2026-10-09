@@ -245,14 +245,19 @@ function printBadge(p) {
 function visibleInboxRows() {
   return state.inbox ? state.inbox.rows : [];
 }
-const batchMoney = b => new Intl.NumberFormat('en-GB', {style:'currency', currency:b.currency}).format(b.total_minor / 100);
+const batchMoney = b => {
+  // UK labels have no price before buying: the total says so instead of counting them as £0.
+  const unpriced = b.children.filter(c => c.state === 'review' && c.price_known === false).length;
+  const total = new Intl.NumberFormat('en-GB', {style:'currency', currency:b.currency}).format(b.total_minor / 100);
+  return unpriced ? `${total} + ${unpriced} UK label${unpriced === 1 ? '' : 's'} priced by Shopify Shipping` : total;
+};
 function renderBatch() {
   const b = state.batch;
   const ready = b.children.filter(c => c.state === 'review').length;
   const complete = b.children.filter(c => !['queued', 'running', 'review'].includes(c.state)).length;
   const slots = `<s-link slot="breadcrumb-actions" data-action="go-inbox" href="${BASE}/admin">Shipping</s-link>` +
     (b.state === 'review' && ready ? `<s-button slot="primary-action" variant="primary" data-action="confirm-batch">${b.kind === 'buy' ? 'Buy' : 'Print'} ${ready} labels</s-button>` : '');
-  const rows = b.children.map((c,i) => `<s-table-row><s-table-cell>${i+1}. ${esc(c.order)}</s-table-cell><s-table-cell>${esc(c.provider || '—')} · ${esc(c.service || '—')}</s-table-cell><s-table-cell>${b.kind === 'buy' ? new Intl.NumberFormat('en-GB',{style:'currency',currency:c.currency}).format(c.amount_minor/100) : '1 first copy'}</s-table-cell><s-table-cell>${esc(c.state)}${c.message ? ` — ${esc(c.message)}` : ''}</s-table-cell></s-table-row>`).join('');
+  const rows = b.children.map((c,i) => `<s-table-row><s-table-cell>${i+1}. ${esc(c.order)}</s-table-cell><s-table-cell>${esc(c.provider || '—')} · ${esc(c.service || '—')}</s-table-cell><s-table-cell>${b.kind === 'buy' ? (c.price_known === false ? 'Set by Shopify Shipping' : new Intl.NumberFormat('en-GB',{style:'currency',currency:c.currency}).format(c.amount_minor/100)) : '1 first copy'}</s-table-cell><s-table-cell>${esc(c.state)}${c.message ? ` — ${esc(c.message)}` : ''}</s-table-cell></s-table-row>`).join('');
   const counts = Object.fromEntries(['purchased','printed','sent','failed','uncertain','excluded','skipped'].map(k => [k,b.children.filter(c => c.state === k).length]));
   page(b.state === 'review' ? 'Review selected labels' : 'Bulk operation progress', slots,
     `<s-section><s-stack gap="base"><s-text>${b.state === 'review' ? `${ready} ready to ${b.kind === 'buy' ? 'buy' : 'print'}${b.children.length > ready ? ` · ${b.children.length - ready} changed since you selected them (not included)` : ''}` : `${complete} / ${b.children.length} completed`} · ${b.kind === 'buy' ? `Total ${batchMoney(b)}` : 'Print order is shown below.'}</s-text><s-text>${b.state === 'review' ? 'Review the exclusions and each provider/service before confirming. No action has run yet.' : (b.kind === 'buy' ? `${counts.purchased} purchased` : `${counts.printed} printed · ${counts.sent} printing`) + ` · ${counts.failed} failed · ${counts.uncertain} uncertain · ${counts.excluded+counts.skipped} excluded/skipped`}</s-text><s-text color="subdued">Each order is independent. Uncertain outcomes are not automatically retried.</s-text><s-table><s-table-header-row><s-table-header>Order</s-table-header><s-table-header>Service</s-table-header><s-table-header>Price / copies</s-table-header><s-table-header>Outcome</s-table-header></s-table-header-row><s-table-body>${rows}</s-table-body></s-table></s-stack></s-section>`);
@@ -427,7 +432,8 @@ function renderInbox() {
   </s-section>`;
   let body;
   if (!rows.length) {
-    const [h, p] = state.q ? ["No orders match that search", "Try the order number on its own, e.g. 2145."] : EMPTY[stage];
+    const [h, p] = state.q ? ["No orders match that search", "Try the order number on its own, e.g. 2145."]
+      : (stage === "all" && ib.domestic ? ["No orders", "UK and international orders appear here by themselves, checked and ready to buy."] : EMPTY[stage]);
     body = `<s-section accessibilityLabel="No orders">
       <s-stack alignItems="center" gap="base" padding="large">
         <s-heading>${h}</s-heading><s-paragraph color="subdued">${p}</s-paragraph>
@@ -438,7 +444,7 @@ function renderInbox() {
     body = `<s-section padding="none">${bar}${inboxTable(rows, pick)}</s-section>`;
   }
   const recent = (ib.batches || []).length ? `<s-section heading="Recent bulk operations">${ib.batches.map(b => `<s-link href="${BASE}/admin?batch=${esc(b.id)}">${esc(b.kind === 'buy' ? 'Label purchase' : 'Label print')} · ${esc(b.state)} · ${esc(new Date(b.created_at).toLocaleString('en-GB'))}</s-link><br>`).join('')}</s-section>` : '';
-  page("International shipping", slots, top + filters + body + recent);
+  page(ib.domestic ? "Shipping" : "International shipping", slots, top + filters + body + recent);
   const head = document.getElementById("pick-all");
   if (head && pick) head.indeterminate = pickedState(rows.filter((r) => r[pick.flag])).some;
 }
@@ -468,6 +474,10 @@ function questionForm(q, i) {
     fields = packageFields(id);
   } else if (q.kind === "second_label") {
     save = `<s-button data-action="answer" data-q="${i}">It's a second parcel</s-button>`;
+  } else if (q.kind === "domestic_service") {
+    // Only for this order; which checkout delivery method gets which service is set on the server.
+    save = `<s-button data-action="answer" data-q="${i}" data-service="tracked_24">Tracked 24</s-button>
+      <s-button data-action="answer" data-q="${i}" data-service="tracked_48">Tracked 48</s-button>`;
   } else {
     save = q.kind === "address" && state.shipment.order_admin_id
       ? `<s-button href="shopify://admin/orders/${esc(state.shipment.order_admin_id)}" target="_top">Open the order in Shopify</s-button>`
@@ -513,11 +523,13 @@ function renderShipment() {
   const acts = new Set(d.actions);
   const chosen = d.shipping.chosen;
   let primary = "";
+  // A UK label has no price before buying (Shopify Shipping): never a made-up amount.
+  const priced = chosen && chosen.price_known !== false;
   if (acts.has("buy") && chosen) {
-    primary = `<s-button slot="primary-action" variant="primary" data-action="preview">Buy label — ${esc(chosen.price)}</s-button>`;
+    primary = `<s-button slot="primary-action" variant="primary" data-action="preview">${priced ? `Buy label — ${esc(chosen.price)}` : "Buy label"}</s-button>`;
   } else if (acts.has("preview") && chosen && !d.buy_authorised) {
     // Not authorised to buy yet: the full preview still runs, nothing can be bought.
-    primary = `<s-button slot="primary-action" variant="primary" data-action="preview">Check price — ${esc(chosen.price)}</s-button>`;
+    primary = `<s-button slot="primary-action" variant="primary" data-action="preview">${priced ? `Check price — ${esc(chosen.price)}` : "Check label"}</s-button>`;
   } else if (acts.has("retry_shopify")) {
     primary = `<s-button slot="primary-action" variant="primary" data-action="retry-shopify">Retry Shopify update</s-button>`;
   } else if ((acts.has("print") || acts.has("reprint")) && !["in_transit", "delivered"].includes(d.stage)) {
@@ -550,7 +562,7 @@ function renderShipment() {
   for (const a of d.alerts) top += banner({ tone: "warning", heading: "Check this order", text: a });
   if (!d.buy_authorised && acts.has("preview")) {
     top += banner({ tone: "info", heading: "Buying is not authorised for this order",
-      text: "You can check everything and see the exact price. A label can only be bought once the owner authorises this order on the server." });
+      text: `You can check everything${d.domestic ? "" : " and see the exact price"}. A label can only be bought once the owner authorises this order on the server.` });
   }
 
   let main = top;
@@ -569,9 +581,10 @@ function renderShipment() {
         <s-icon type="${s.done ? "check-circle" : "clock"}" tone="${s.done ? "success" : "neutral"}"></s-icon>
         <s-text ${s.done ? "" : 'color="subdued"'}>${esc(s.label)}</s-text></s-stack>`).join("");
     const docs = l.documents.filter((x) => x.must_print).map((x) =>
-      `<s-stack direction="inline" gap="small-200" alignItems="center"><s-text>${esc(x.title)}</s-text>
-        <s-text color="subdued">${x.page_size === "4x6" ? "4×6 label printer" : `${esc(x.page_size)}${x.copies > 1 ? ` · ${x.copies} copies` : ""}`}</s-text>
-        <s-button variant="tertiary" data-action="open-doc" data-doc="${esc(x.artifact_id)}">Open PDF</s-button></s-stack>`).join("");
+      `<s-stack gap="small-300"><s-stack direction="inline" gap="small-200" alignItems="center"><s-text>${esc(x.title)}</s-text>
+        <s-text color="subdued">${x.page_size === "4x6" ? "4×6 label printer" : `${esc(x.page_size === "other" ? "Not 4×6" : x.page_size)}${x.copies > 1 ? ` · ${x.copies} copies` : ""}`}</s-text>
+        ${x.pdf === false ? "" : `<s-button variant="tertiary" data-action="open-doc" data-doc="${esc(x.artifact_id)}">Open PDF</s-button>`}</s-stack>
+        ${x.note ? `<s-text color="subdued">${esc(x.note)}</s-text>` : ""}</s-stack>`).join("");
     main += `<s-section heading="Label purchased">
       <s-stack gap="base">
         <s-grid gridTemplateColumns="1fr 1fr" gap="base">
@@ -581,10 +594,22 @@ function renderShipment() {
             : `<s-text color="subdued">Waiting for the carrier</s-text>`}</s-stack>
         </s-grid>
         <s-stack gap="small-200">${steps}</s-stack>
-        ${printCard(d)}
+        ${l.file_note ? "" : printCard(d)}
         <s-divider></s-divider>
-        <s-stack gap="small-200"><s-heading>Documents</s-heading>${docs || '<s-text color="subdued">Fetching the label file…</s-text>'}
+        <s-stack gap="small-200"><s-heading>Documents</s-heading>${docs || (l.file_note ? '<s-text>No label file here: print it from the order in Shopify admin.</s-text>' : '<s-text color="subdued">Fetching the label file…</s-text>')}
           <s-text color="subdued">Reprinting uses the same label; nothing is bought.</s-text></s-stack>
+      </s-stack></s-section>`;
+  } else if (d.domestic) {
+    // UK: the one service the owner's mapping (or a person) chose, from Shopify Shipping. No
+    // alternatives and no price to show before buying. Until a service is chosen, the question
+    // above says everything.
+    const u = d.domestic;
+    if (u.service) main += `<s-section heading="Shipping">
+      <s-stack gap="small-300">
+        <s-text type="strong">${esc(u.service)} · via ${esc(u.provider)}</s-text>
+        <s-text color="subdued">${[u.days, "Tracked", "No customs (UK parcel)"].filter(Boolean).map(esc).join(" · ")}</s-text>
+        <s-text color="subdued">${esc(u.why)}</s-text>
+        <s-text color="subdued">${esc(u.price_note)}</s-text>
       </s-stack></s-section>`;
   } else if (d.shipping.chosen && !acts.has("service")) {
     // Being bought or checked: show what was chosen, offer no changes.
@@ -620,7 +645,8 @@ function renderShipment() {
   const customsLine = c.state === "before_purchase"
     ? (c.expected || "")
     : (c.state === "electronic" ? `Electronic ✓${c.confirming ? " (CLIVE checks once more in a couple of minutes)" : ""}` : c.text);
-  main += `<s-section heading="Customs">
+  // A UK parcel has no customs (the Shipping section says so): no section for it.
+  if (!d.domestic) main += `<s-section heading="Customs">
     <s-grid gridTemplateColumns="1fr auto" gap="base" alignItems="center">
       <s-stack gap="small-300">
         <s-text type="strong">${esc(customsLine)}</s-text>
@@ -631,7 +657,7 @@ function renderShipment() {
     </s-grid></s-section>`;
 
   // Products
-  if (!d.label && acts.has("refresh")) {
+  if (!d.label && acts.has("refresh") && !d.domestic) {
     main += `<s-section heading="Edit product customs"><s-stack gap="base">${d.products.map((p,i) => `<s-stack gap="small-200"><s-text type="strong">${esc(p.title)} · ${esc(p.variant)}</s-text><s-grid gridTemplateColumns="1fr 1fr 2fr" gap="base"><s-text-field id="customs-${i}-hs" label="HS / commodity code" value="${esc(usedCode(`customs-${i}`, p.subject) || p.hs_code_value || '')}"></s-text-field><s-text-field id="customs-${i}-origin" label="Country of origin" value="${esc(p.origin || '')}"></s-text-field><s-text-field id="customs-${i}-desc" label="Customs description" value="${esc(p.description || '')}"></s-text-field></s-grid>${codeFinder(`customs-${i}`, p.subject, p.title)}<s-button data-action="edit-customs" data-line="${i}">Save product customs</s-button></s-stack>`).join('')}<s-text color="subdued">Saved through the product's existing Shopify customs and CLIVE knowledge records for future orders. Purchased declarations stay unchanged.</s-text></s-stack></s-section>`;
   }
 
@@ -703,13 +729,13 @@ function modals(d) {
     <s-button slot="secondary-actions" commandFor="customs-modal" command="--hide">Close</s-button>
   </s-modal>`;
   const pv = state.preview;
-  const buy = `<s-modal id="buy-modal" heading="${d.buy_authorised ? "Buy this label?" : "Exact price (not bought)"}">
+  const buy = `<s-modal id="buy-modal" heading="${d.buy_authorised ? "Buy this label?" : (pv && pv.price_known === false ? "Label preview (not bought)" : "Exact price (not bought)")}">
     ${pv ? `<s-stack gap="base">
       <s-unordered-list>${pv.will.map((w) => `<s-list-item>${esc(w)}</s-list-item>`).join("")}</s-unordered-list>
       <s-paragraph color="subdued">${esc(pv.charged || "")} A label is bought once, even if you click twice.</s-paragraph>
     </s-stack>
     ${d.buy_authorised
-      ? `<s-button slot="primary-action" variant="primary" data-action="buy" id="buy-button">Buy label — ${esc(pv.price)}</s-button>`
+      ? `<s-button slot="primary-action" variant="primary" data-action="buy" id="buy-button">${pv.price ? `Buy label — ${esc(pv.price)}` : "Buy label"}</s-button>`
       : `<s-paragraph>Not bought: buying isn't authorised for this order yet.</s-paragraph>`}`
     : `<s-spinner accessibilityLabel="Checking the price"></s-spinner>`}
     <s-button slot="secondary-actions" commandFor="buy-modal" command="--hide">Cancel</s-button>
@@ -1216,9 +1242,12 @@ const ACTIONS = {
     else if (q.kind === "package") value = { name: val(`${id}-name`), length_cm: Number(val(`${id}-l`)),
       width_cm: Number(val(`${id}-w`)), height_cm: Number(val(`${id}-h`)), empty_weight_g: Number(val(`${id}-g`)) };
     else if (q.kind === "second_label") value = { confirm: true };
+    else if (q.kind === "domestic_service") value = { service: el.dataset.service };
     await withButton(el, async () => {
       await shipmentAction("/answer", { kind: q.kind, subject: q.subject, value });
-      toast(q.kind === "second_label" ? "Confirmed: a second parcel. Check the price before buying." : "Saved. CLIVE won't ask again for this product.");
+      toast(q.kind === "second_label" ? "Confirmed: a second parcel. Check the price before buying."
+        : q.kind === "domestic_service" ? "Service saved for this order."
+        : "Saved. CLIVE won't ask again for this product.");
     });
   },
   "use-suggestion"(el) {

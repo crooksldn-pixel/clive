@@ -310,6 +310,8 @@ def build_admin_router(
         cfg = svc.store.config(shop)
         return {
             "me": who,
+            # UK orders are listed too: the page says "Shipping", not "International shipping".
+            "domestic": svc.domestic.enabled,
             "stage": stage,
             "rows": rows,
             "counts": counts,
@@ -487,10 +489,15 @@ def build_admin_router(
     def preview(sid: str, who: str = Depends(staff)) -> dict[str, Any]:
         out = act(lambda: svc.preview(shop, sid))
         price = out["money"]
+        known = price.get("price_known", True)
         return {
             "basis": out["basis"],
             "will": out["will"],
-            "price": str(Money(minor=price["shipping_minor"], currency=price["currency"])),
+            # No made-up amount when the provider can't say one first (Shopify Shipping).
+            "price": str(Money(minor=price["shipping_minor"], currency=price["currency"]))
+            if known
+            else None,
+            "price_known": known,
             "service": out["service"],
             "charged": out.get("charged", ""),
             "shipment": detail_of(sid),

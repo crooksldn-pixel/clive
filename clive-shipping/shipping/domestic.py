@@ -30,8 +30,9 @@ SERVICES = {TRACKED_24: "Tracked 24", TRACKED_48: "Tracked 48"}
 CARRIER = "Royal Mail"
 # The digits the mapping uses for each service ("Tracked 24=24").
 BY_DIGITS = {"24": TRACKED_24, "48": TRACKED_48}
-# How long each service takes, as Royal Mail describes it (working days), for the screen only.
+# How long each service takes, as Royal Mail aims for it (working days), for the screen only.
 DAYS = {TRACKED_24: (1, 1), TRACKED_48: (2, 3)}
+DAYS_TEXT = {TRACKED_24: "Next working day", TRACKED_48: "2–3 working days"}
 
 
 def norm(title: str | None) -> str:

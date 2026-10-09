@@ -564,7 +564,7 @@ class Purchases:
             if s.label.complete or s.label.file_note:
                 if s.status == S.label_purchased:
                     s.last_error = None
-                if not any(e.type == "documents_stored" for e in s.timeline):
+                if s.label.complete and not any(e.type == "documents_stored" for e in s.timeline):
                     self._event(
                         s,
                         "documents_stored",

@@ -28,7 +28,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from shipping import lifecycle, views
+from shipping import domestic, lifecycle, views
 from shipping.models import Shipment
 from shipping.printing import PrintError
 from shipping.purchase import ActionError
@@ -42,7 +42,8 @@ CAPABILITIES = [
     ("GET", "/api/v1/shipments/{id}", "read", "One order: stage, payment, blockers, service, "
      "label, print state and carrier tracking."),
     ("POST", "/api/v1/shipments/{id}/preview", "read", "Re-read the order in Shopify and get "
-     "the exact price now. Buys nothing. Returns the basis that buy needs."),
+     "the exact price now (UK labels: no price, money.price_known false). Buys nothing. "
+     "Returns the basis that buy needs."),
     ("POST", "/api/v1/shipments/{id}/buy", "write", "Buy the label previewed: {basis, "
      "idempotency_key, actor}. Refused if anything changed since the preview."),
     ("POST", "/api/v1/shipments/{id}/print", "write", "Send the label to the printer the "
@@ -116,7 +117,11 @@ def summary(s: Shipment, printed: dict[str, Any] | None) -> dict[str, Any]:
         "reasons": st["reasons"],
         "payment": views.payment_view(s)["label"],
         "service": f"{q.provider} · {q.title}" if q else None,
-        "price": str(q.amount) if q else None,
+        "provider": (s.label.provider if s.label else q.provider if q else None),
+        "domestic": s.domestic,
+        # None with price_known false: the provider sets it when buying (Shopify Shipping).
+        "price": str(q.amount) if q and q.price_known else None,
+        "price_known": q.price_known if q else None,
         "tracking_number": s.label.tracking_number if s.label else None,
         "print": printed["label"] if printed else None,
         "carrier": (views.carrier_view(s) or {}).get("label"),
@@ -177,10 +182,15 @@ def build_api_router(
             else {
                 "provider": s.label.provider,
                 "service": s.label.service_name,
+                "price": str(s.label.amount) if s.label.price_known else None,
+                "price_known": s.label.price_known,
+                # Bought, but its file can't be fetched here: what to do instead.
+                "file_note": s.label.file_note or None,
                 "tracking_number": s.label.tracking_number,
                 "tracking_url": s.label.tracking_url,
                 "purchased_at": s.label.purchased_at.isoformat(),
             },
+            domestic=views.domestic_view(s),
             alerts=list(s.alerts),
             can_buy=lifecycle.may_bulk_buy(out["stage"]) and svc.may_buy(s),
             last_error=s.last_error,
@@ -191,12 +201,50 @@ def build_api_router(
 
     @api.get("/capabilities", dependencies=[Depends(reader)])
     def capabilities() -> dict[str, Any]:
+        uk = svc.domestic
         return {
             "service": "CLIVE Shipping",
             "stages": list(lifecycle.STAGES),
             "operations": [
                 {"method": m, "path": p, "key": k, "does": d} for m, p, k, d in CAPABILITIES
             ],
+            "providers": [
+                {
+                    "name": getattr(p, "name", "Provider"),
+                    "orders": "international",
+                    "price_before_buying": True,
+                }
+                for p in getattr(svc.provider, "quoting", None) or [svc.provider]
+            ]
+            + (
+                [
+                    {
+                        "name": "Shopify Shipping",
+                        "orders": "uk",
+                        "services": [
+                            {
+                                "service": domestic.title(k),
+                                "code": k,
+                                "buyable": v is not None,
+                            }
+                            for k, v in uk.rates.items()
+                        ],
+                        # Shopify has no rates query and the purchase isn't idempotent: the
+                        # price is on the Shopify bill, and CLIVE sends each purchase once.
+                        "price_before_buying": False,
+                        "idempotent_at_provider": False,
+                    }
+                ]
+                if uk.enabled
+                else []
+            ),
+            "uk_orders": {
+                "enabled": uk.enabled,
+                "service_by_checkout_line": {
+                    title: domestic.title(service) for title, service in uk.lines.items()
+                },
+                "unmapped": "attention: a person picks Tracked 24 or Tracked 48 in the admin",
+            },
         }
 
     @api.get("/shipments", dependencies=[Depends(reader)])
