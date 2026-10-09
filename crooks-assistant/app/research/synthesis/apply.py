@@ -6,7 +6,8 @@ then makes it live (`--apply GEN`).
 
 What `apply` does, in order, holding the research store's lock:
 1. takes in every document read since the run began (each `done` document not in it yet), as a new
-   document would be once live: extract, match, consolidate, judge what it touched, sum up;
+   document would be once live: extract (from the cache when it was read while waiting), match,
+   consolidate, judge what it touched, link its old proposals, sum up; its calls join run.json's;
 2. keeps George's answers attached: a new idea takes an old idea's id when at least half of its
    sources (by claim quote) came from that old idea, in the generation live before. His answer then
    shows as "your answer to an earlier view" until he answers again. Any other id that an earlier
@@ -133,7 +134,12 @@ async def apply(research_store, gen: str, *, model, the_map, say=lambda _t: None
             await run_module.judge(work, touched)
             taken_in.append(record.get("name"))
         if taken_in:
+            # Their old proposals, if they were read the old way, join their ideas' history too.
+            run_module.link_old_proposals(research_store, work, run)
             await run_module.summarise(work)
+            run["calls"] = int(run.get("calls") or 0) + calls.made
+            run["taken_in_at_apply"] = [*run.get("taken_in_at_apply", []), *taken_in]
+            synth.save_run(gen, run)
         mapping = reuse(synth.ideas(previous), synth.ideas(gen)) if previous else {}
         changed = renumber(synth, gen, mapping, previous)
         synth.set_live(gen)

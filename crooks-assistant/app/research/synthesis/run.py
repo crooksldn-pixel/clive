@@ -412,7 +412,7 @@ async def _stages(research_store, work: Work, run: dict[str, Any], say) -> None:
         save()
     if run["stage"] == "migrate":
         say("Linking the old screen's proposals to their ideas")
-        _migrate(research_store, work, run)
+        link_old_proposals(research_store, work, run)
         run["stage"], run["done"], run["of"] = "judge", 0, 0
         save()
     if run["stage"] == "judge":
@@ -431,7 +431,7 @@ async def _stages(research_store, work: Work, run: dict[str, Any], say) -> None:
         save()
 
 
-def _migrate(research_store, work: Work, run: dict[str, Any]) -> None:
+def link_old_proposals(research_store, work: Work, run: dict[str, Any]) -> None:
     from app.builds import decisions
 
     done = {e.get("proposal_id") for e in work.synth.events(work.gen) if e.get("type") == "old_screen"}

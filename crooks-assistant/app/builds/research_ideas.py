@@ -82,6 +82,10 @@ async def current(research_store, ledger) -> dict[str, Any] | None:
         summary, prepared = synth.summary(gen) or {}, synth.prepared()
     except ReadProblem as exc:
         return _unreadable(research_store, str(exc))
+    unreadable = sum(1 for e in events if e.get("type") == "unreadable")
+    if unreadable:
+        problems.append(f"{unreadable} line{'s' if unreadable != 1 else ''} of CLIVE's research history couldn't be read, "
+                        "so some ideas' history is missing.")
     try:
         effective = ledger.effective()
     except decisions.DecisionError as exc:

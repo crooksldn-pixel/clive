@@ -239,6 +239,9 @@ async def test_the_history_is_append_only_and_reading_the_same_document_again_ch
     path = synthesis_store(store).gen_dir(gen) / "events.jsonl"
     before = path.read_bytes()
     assert os.stat(path).st_mode & 0o777 == 0o600
+    folder = synthesis_store(store).gen_dir(gen)
+    assert {os.stat(p).st_mode & 0o777 for p in (folder, folder / "ideas", folder / "claims", folder.parent)} == {0o700}
+    assert {os.stat(p).st_mode & 0o777 for p in [*folder.glob("*/*.json"), folder / "run.json", folder / "summary.json"]} == {0o600}
     synth = synthesis_store(store)
     work = Work(synth, gen, Calls(model), the_map)
     asked = len(model.prompts)
@@ -338,6 +341,11 @@ def test_dec_018_moves_timing_only(the_map):
     judge.enforce(both, _raw("REJECT", "NEW", keys=[("RULE-5", "contradicts"), ("DEC-018", "contradicts")]), the_map=the_map,
                   previous=None)
     assert both["answers"]["judgment"] == "REJECT" and both["basis"] == ["RULE-5"] and both["timing_held_by"] == ["DEC-018"]
+    serves = _idea()
+    judge.enforce(serves, _raw("ADOPT", "PARTIALLY_SATISFIED", "NOW", keys=[("DEC-018", "serves")], basis=["DEC-018"],
+                               why="Reliability is on DEC-018's own finish list."), the_map=the_map, previous=None)
+    assert serves["answers"]["timing"] == "NOW" and serves["timing_held_by"] == [], "serving the finish list holds nothing back"
+    assert serves["keys"] == [{"key": "DEC-018", "how": "serves"}] and serves["basis"] == []
 
 
 @pytest.mark.parametrize(("documents", "judged"), [(1, "REJECT"), (2, "REJECT"), (3, "CONFLICT"), (4, "CONFLICT")])
@@ -626,6 +634,12 @@ def test_the_route_gives_the_payload_contract(live):
                       "test-note-eta.md": "reading"}
     brief = client.get("/objectives/research?brief=1", headers=OWNER).json()
     assert brief == {"waiting": 3, "reading": 1, "summary": payload["summary"]}
+    events = synthesis_store(live["store"]).gen_dir(live["gen"]) / "events.jsonl"
+    with open(events, "a", encoding="utf-8") as out:
+        out.write("{not json\n")
+    said = client.get("/objectives/research", headers=OWNER).json()
+    assert said["problem"] == "1 line of CLIVE's research history couldn't be read, so some ideas' history is missing."
+    assert said["groups"] == payload["groups"], "said, and nothing else lost"
 
 
 def test_his_answer_binds_to_what_he_saw_and_the_old_answers_are_superseded(live):
@@ -934,3 +948,46 @@ def test_the_contract_example_is_the_real_codes_output_and_invented(tmp_path):
     assert all(d["name"].startswith("test-note-") for d in example["documents"])
     text = json.dumps(example, ensure_ascii=False)
     assert "TEST RESEARCH NOTE — invented for CLIVE's tests" in text and "@" not in text
+
+
+# ------------------------------------------------------------------ the script on the server
+
+
+async def test_the_script_synthesises_exports_applies_and_lists(place, the_map, capsys, monkeypatch):
+    import importlib.util
+    import shutil
+    import tempfile
+
+    from app.research import model as model_module
+
+    store, _ledger = place
+    spec = importlib.util.spec_from_file_location("research_script", Path(__file__).resolve().parent.parent / "scripts" / "research.py")
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    model = fx.Scripted()
+    await fx.read_old_way(store, model, *FIRST_THREE)
+    replaced = model_module.install(model)
+    outside = Path(tempfile.mkdtemp(prefix="clive-export-test-"))
+    try:
+        args = script.argparse.Namespace
+        base = dict(files=[], list=False, try_file=None, synthesise=False, resume=False, export_synthesis=None, generation="",
+                    apply=None, ideas=False, call_timeout=None)
+        assert await script._main(args(**dict(base, synthesise=True, call_timeout=120.0))) == 0
+        out = capsys.readouterr().out
+        gen = re.search(r"Generation (gen-\S+) is ready, not live", out).group(1)
+        assert "1. Raw recommendations: 17 (16 placed, 1 couldn't be placed)" in out
+        assert "2. Distinct ideas: 10" in out and "8. DEC-018: the reason on 2 old proposals" in out
+        assert await script._main(args(**dict(base, ideas=True))) == 0
+        assert capsys.readouterr().out.strip() == "No synthesis is live yet."
+        target = outside / "clive-synthesis-export.tgz"
+        assert script._export(store, str(target), "") == 0 and target.exists()
+        assert await script._main(args(**dict(base, apply=gen))) == 0
+        assert f"{gen} is live" in capsys.readouterr().out
+        assert await script._main(args(**dict(base, ideas=True))) == 0
+        listed = capsys.readouterr().out
+        assert "Work survives a restart (backed by 3): Right direction / Builds on what exists / Now / not approved" in listed
+        with pytest.raises(SystemExit):
+            script.main(["--resume"])
+    finally:
+        model_module.install(replaced)
+        shutil.rmtree(outside, ignore_errors=True)

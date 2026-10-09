@@ -2,12 +2,12 @@
  "summary": "5 recommendations from your research wait on you.",
  "documents": [
   {
-   "id": "doc-13aab1d4fe0c4c35abda",
+   "id": "doc-0a81e239c8064c16bf5e",
    "name": "test-note-beta.md",
    "state": "done",
    "state_words": "Read",
    "why": "",
-   "received_at": "2026-10-09T13:13:33+00:00",
+   "received_at": "2026-10-09T13:17:01+00:00",
    "via": "screen",
    "proposals": 1,
    "repeated": 0,
@@ -17,29 +17,29 @@
    "model": "scripted"
   },
   {
-   "id": "doc-4cd260ca0d00433ea77c",
-   "name": "test-note-alpha.md",
-   "state": "done",
-   "state_words": "Read",
-   "why": "",
-   "received_at": "2026-10-09T13:13:33+00:00",
-   "via": "screen",
-   "proposals": 3,
-   "repeated": 0,
-   "dropped": [],
-   "notes": [],
-   "repeat_of": "",
-   "model": "scripted"
-  },
-  {
-   "id": "doc-8b5e70e2d2f14080b630",
+   "id": "doc-e0e6c2b230284779b63a",
    "name": "test-note-gamma.md",
    "state": "done",
    "state_words": "Read",
    "why": "",
-   "received_at": "2026-10-09T13:13:33+00:00",
+   "received_at": "2026-10-09T13:17:01+00:00",
    "via": "screen",
    "proposals": 1,
+   "repeated": 0,
+   "dropped": [],
+   "notes": [],
+   "repeat_of": "",
+   "model": "scripted"
+  },
+  {
+   "id": "doc-0b6217911d764f0d9788",
+   "name": "test-note-alpha.md",
+   "state": "done",
+   "state_words": "Read",
+   "why": "",
+   "received_at": "2026-10-09T13:17:01+00:00",
+   "via": "screen",
+   "proposals": 3,
    "repeated": 0,
    "dropped": [],
    "notes": [],
@@ -101,6 +101,53 @@
        "label": "Reject",
        "then": "Not for CLIVE. It stays in the research record, marked rejected.",
        "recommended": false
+      }
+     ],
+     "question_kind": "research"
+    },
+    {
+     "id": "research:art-86496604a0f4f754e1f5ef71:1:a39654283147a12e",
+     "fingerprint": "a39654283147a12e2e2b2d883ba5ab4e47011fa17935b3a9f09083ab6baf449b",
+     "document": "test-note-gamma.md",
+     "title": "Stay on the flat plan",
+     "says": "CLIVE stays on the flat monthly plan.",
+     "quote": "CLIVE should stay on the flat monthly plan and never use a metered key",
+     "verdict": "reject",
+     "verdict_words": "Reject",
+     "reason": "Already live: the Max plan (FEAT-002).",
+     "checked_by": "model",
+     "cites": [
+      {
+       "key": "FEAT-002",
+       "label": "FEAT-002 Claude Agent SDK / Max integration",
+       "status": "SHIPPED"
+      }
+     ],
+     "same_as": [],
+     "touches": [
+      "app/providers"
+     ],
+     "protected": [],
+     "done_when": [],
+     "also_in": [],
+     "answers": [
+      {
+       "key": "adopt",
+       "label": "Adopt",
+       "then": "Prepares a build request for the build loop. Nothing is filed until you hold its card; then it goes to CLIVE's public repository, in CLIVE's words, never the research's own.",
+       "recommended": false
+      },
+      {
+       "key": "park",
+       "label": "Park",
+       "then": "Kept with your research for later. Nothing is built.",
+       "recommended": false
+      },
+      {
+       "key": "reject",
+       "label": "Reject",
+       "then": "Not for CLIVE. It stays in the research record, marked rejected.",
+       "recommended": true
       }
      ],
      "question_kind": "research"
@@ -257,53 +304,6 @@
       }
      ],
      "question_kind": "research"
-    },
-    {
-     "id": "research:art-86496604a0f4f754e1f5ef71:1:a39654283147a12e",
-     "fingerprint": "a39654283147a12e2e2b2d883ba5ab4e47011fa17935b3a9f09083ab6baf449b",
-     "document": "test-note-gamma.md",
-     "title": "Stay on the flat plan",
-     "says": "CLIVE stays on the flat monthly plan.",
-     "quote": "CLIVE should stay on the flat monthly plan and never use a metered key",
-     "verdict": "reject",
-     "verdict_words": "Reject",
-     "reason": "Already live: the Max plan (FEAT-002).",
-     "checked_by": "model",
-     "cites": [
-      {
-       "key": "FEAT-002",
-       "label": "FEAT-002 Claude Agent SDK / Max integration",
-       "status": "SHIPPED"
-      }
-     ],
-     "same_as": [],
-     "touches": [
-      "app/providers"
-     ],
-     "protected": [],
-     "done_when": [],
-     "also_in": [],
-     "answers": [
-      {
-       "key": "adopt",
-       "label": "Adopt",
-       "then": "Prepares a build request for the build loop. Nothing is filed until you hold its card; then it goes to CLIVE's public repository, in CLIVE's words, never the research's own.",
-       "recommended": false
-      },
-      {
-       "key": "park",
-       "label": "Park",
-       "then": "Kept with your research for later. Nothing is built.",
-       "recommended": false
-      },
-      {
-       "key": "reject",
-       "label": "Reject",
-       "then": "Not for CLIVE. It stays in the research record, marked rejected.",
-       "recommended": true
-      }
-     ],
-     "question_kind": "research"
     }
    ]
   }
@@ -316,13 +316,13 @@
  "synthesis": {
   "state": "not_live",
   "run": {
-   "generation": "gen-20261009T131334",
+   "generation": "gen-20261009T131702",
    "stage": "done",
    "stage_words": "finished, waiting to be made live",
    "done": 10,
    "of": 10,
-   "started_at": "2026-10-09T13:13:34+00:00",
-   "finished_at": "2026-10-09T13:13:34+00:00",
+   "started_at": "2026-10-09T13:17:02+00:00",
+   "finished_at": "2026-10-09T13:17:02+00:00",
    "calls": 18,
    "errors": 0
   }
