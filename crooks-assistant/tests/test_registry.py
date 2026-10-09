@@ -533,7 +533,12 @@ def test_the_tool_block_offered_to_the_model_stays_within_its_budget():
     # after). No new tool.
     # 58_531 is staff links on the 8 October chain (claude/n3-staff-links on claude/n3-inbox):
     # 58,486 before, 58,531 after, +45 measured on the merged tree.
-    assert total <= 58_531, f"the tool block is {total} bytes"
+    # 58_646 is engineering_status staying small (9 Oct 2026; app/tools/engineering_tools.py,
+    # tests/test_engineering_status_bounds.py), +115 bytes measured on trunk ae865a6c (58,531 before,
+    # 58,646 after): engineering_status 392 -> 507, its `request_ids` argument (at most five) and the
+    # sentence saying it returns those requests in full. No new tool. The ceiling is raised by exactly
+    # what was measured, leaving no headroom.
+    assert total <= 58_646, f"the tool block is {total} bytes"
     batch = sum(len(json.dumps({"name": s.name, "description": s.description, "input_schema": s.input_schema})) for s in offered if s.name.startswith("batch_"))
     # 2,300 covers the fifth batch tool — the same campaign as batch_email_drafts, sent
     # rather than saved — which shares its schema object and adds two lines of description.

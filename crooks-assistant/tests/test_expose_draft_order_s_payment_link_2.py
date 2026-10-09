@@ -234,4 +234,6 @@ def test_the_tool_block_stays_within_its_budget():
     # and 55,450 with staff links (person_note's description, +45, measured on trunk 6f844183).
     # Staff links on the 8 October chain (staff-links on inbox): 58,531 (58,486 before, +45,
     # measured on the merged tree).
-    assert total <= 58_531, f"the tool block is {total} bytes"
+    # and 58,646 with engineering_status's `request_ids` (+115, measured on trunk ae865a6c; that file
+    # says where the bytes went).
+    assert total <= 58_646, f"the tool block is {total} bytes"
