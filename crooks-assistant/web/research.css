@@ -1,10 +1,14 @@
-/* The Builds screen's Research section (web/research.js): the research George gave CLIVE, and his answers.
+/* The Builds screen's Research section (web/research.js): the research George gave CLIVE, what CLIVE
+   learnt from it, and his answers.
 
    Drawn with the Builds screen's own cells, type and question (web/builds.css); this adds only what a
-   document and a recommendation need. Dots mean something: blue is a document waiting or being read,
-   or a recommendation waiting on him; steel is a document read; red is one the safety scan stopped or
-   that could not be read. "Add research" is a quiet glass control: answering what waits on him is the
-   weightier act, and carries the screen's one filled button. Every target is at least 44 px. */
+   document, a recommendation and an idea need. Dots mean something: blue is a document waiting or being
+   read, or a recommendation waiting on him; steel is a document read, or an idea CLIVE calls the right
+   direction (in whole or in part); dim is one worth looking into; amber is one that needs his call; red
+   is a document the safety scan stopped or that could not be read, or an idea not for CLIVE; a hollow
+   ring is a key this screen doesn't know, never a reassuring colour. "Add research" is a quiet glass
+   control: answering what waits on him is the weightier act, and carries the screen's one filled
+   button. Every target is at least 44 px; long quotes and paths wrap, nothing runs off the side. */
 
 .rs{margin:18px 0 0}
 .rs-h2{margin:8px 4px 10px;font-size:22px;font-weight:700;letter-spacing:-.01em}
@@ -42,6 +46,9 @@
 .rs-dot.is-blue{background:rgb(var(--acc,10,132,255))}
 .rs-dot.is-steel{background:#8fa3c0}
 .rs-dot.is-red{background:#ff8a80}
+.rs-dot.is-amber{background:#ffb340}
+.rs-dot.is-dim{background:rgba(235,235,245,.32)}
+.rs-dot.is-none{box-sizing:border-box;border:1.5px solid rgba(235,235,245,.4)}
 .rs-doc.is-queued .rs-dot,.rs-doc.is-reading .rs-dot{animation:bd-breathe 2.4s ease-in-out infinite}
 .bd-line .rs-dot{margin-top:0}
 
@@ -68,10 +75,62 @@
 .rs-prop.is-waiting .rs-state{color:rgb(var(--acc,10,132,255))}
 .rs-quote{margin:0;font-size:14px;line-height:1.45;font-style:italic;color:rgba(235,235,245,.7)}
 .rs-build{margin:8px 0 0;font-size:14px;line-height:1.4;color:rgba(235,235,245,.8)}
-.rs-build.is-filed{color:#8fa3c0}
+.rs-build.is-filed,.rs-build.is-done{color:#8fa3c0}
+.rs-build.is-blocked{color:#ff8a80}
+
+/* ideas (DEC-078): what the research says, then the ideas by when, each a compact row that opens */
+.rs > .bd-said{margin:0 4px 12px}
+.rs-says{margin:4px 0 0}
+.rs-h3s{cursor:default}
+.rs-points{margin:0;padding:4px 16px 4px 36px;list-style:decimal}
+.rs-point{padding:10px 0;font-size:15px;line-height:1.4;color:rgba(235,235,245,.86);overflow-wrap:anywhere}
+.rs-point::marker{color:rgba(235,235,245,.45);font-variant-numeric:tabular-nums}
+.rs-point + .rs-point{border-top:.5px solid rgba(255,255,255,.12)}
+.rs-ba{margin:12px 0 0;padding:12px 16px;border-radius:20px;background:rgba(255,255,255,.05)}
+.rs-bahead{margin:0 0 6px;font-size:13px;font-weight:600;color:rgba(235,235,245,.55)}
+.rs-baline{display:grid;grid-template-columns:44px minmax(0,1fr);column-gap:8px;margin:0;padding:3px 0}
+.rs-balabel{font-size:15px;line-height:1.4;color:rgba(235,235,245,.55)}
+.rs-baval{font-size:15px;font-weight:600;line-height:1.4;overflow-wrap:anywhere}
+.rs-counts{margin:6px 4px 0;font-size:13px;line-height:1.4;color:rgba(235,235,245,.6)}
+.rs-asof{margin:4px 4px 0;font-size:13px;color:rgba(235,235,245,.45)}
+.rs-says .bd-fact{margin:12px 4px 0}
+.rs-idea.is-needs .rs-state{color:rgb(var(--acc,10,132,255))}
+.rs-idea .bd-line .rs-dot{align-self:flex-start;margin-top:4px}
+.rs-needs{margin:0 0 14px}
+.rs-view{margin:0 0 4px}
+.rs-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.rs-chip{padding:3px 10px;border-radius:999px;background:rgba(255,255,255,.08);font-size:12px;font-weight:600;line-height:1.5;
+  letter-spacing:.02em;color:rgba(235,235,245,.78);overflow-wrap:anywhere}
+.rs-answers{margin:0 0 12px;padding:10px 14px;border-radius:18px;background:rgba(255,255,255,.05)}
+.rs-aline{display:grid;grid-template-columns:148px minmax(0,1fr);column-gap:10px;align-items:baseline;padding:6px 0}
+.rs-aline + .rs-aline{border-top:.5px solid rgba(255,255,255,.08)}
+.rs-alabel{font-size:13px;font-weight:600;line-height:1.5;color:rgba(235,235,245,.55)}
+.rs-aval{font-size:15px;font-weight:600;line-height:1.4;overflow-wrap:anywhere}
+.rs-awhy{grid-column:2;font-size:14px;line-height:1.4;color:rgba(235,235,245,.64);overflow-wrap:anywhere}
+.rs-amore{margin:6px 0 2px;font-size:13px;line-height:1.4;color:rgba(235,235,245,.55)}
+.rs-tech{margin:0 0 12px}
+.rs-source{margin:4px 0 10px;padding-left:10px;border-left:2px solid rgba(235,235,245,.16)}
+.rs-srcwhere{margin:0 0 2px;font-size:13px;font-weight:600;color:rgba(235,235,245,.7);overflow-wrap:anywhere}
+.rs-source .rs-quote{overflow-wrap:anywhere}
+.rs-srcmeta{margin:2px 0 0;font-size:12px;color:rgba(235,235,245,.5)}
+.rs-unchecked{margin:4px 0 0;font-size:13px;font-style:italic;color:rgba(235,235,245,.55)}
+.rs-hline{margin:0 0 2px}
+.rs-earlierline{margin:0 0 10px;font-size:14px;line-height:1.4;color:rgba(235,235,245,.7)}
+.rs-run{margin:-6px 4px 12px;font-size:13px;line-height:1.4;color:rgba(235,235,245,.5)}
+.rs-group.is-documents{margin-top:20px}
+.rs-group.is-documents .rs-docs{margin:0}
+/* on a phone the reason takes the whole width under its answer */
+@media (max-width:420px){
+  .rs-aline{grid-template-columns:132px minmax(0,1fr)}
+  .rs-awhy{grid-column:1 / -1;margin-top:2px}
+}
+/* the ideas' groups fold, and say so */
+.rs-igroup > .rs-h3::after{content:"";flex:none;width:8px;height:8px;margin:0 0 3px 10px;border-right:2px solid rgba(235,235,245,.38);
+  border-bottom:2px solid rgba(235,235,245,.38);transform:rotate(-45deg);transition:transform 260ms cubic-bezier(.32,.72,0,1)}
+.rs-igroup[open] > .rs-h3::after{transform:rotate(45deg);margin-bottom:5px}
 
 html[data-lite] .rs-doc .rs-dot{animation:none}
 @media (prefers-reduced-motion:reduce){
   .rs-doc .rs-dot{animation:none}
-  .rs-addbtn,.rs-docsum,.rs-sum{transition:none}
+  .rs-addbtn,.rs-docsum,.rs-sum,.rs-igroup > .rs-h3::after{transition:none}
 }
