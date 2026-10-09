@@ -83,6 +83,7 @@ async def current(research_store, ledger) -> dict[str, Any] | None:
     try:
         ideas, claims, events = synth.ideas(gen), synth.claims(gen), synth.events(gen)
         summary, prepared = synth.summary(gen) or {}, synth.prepared()
+        unread = (synth.run(gen) or {}).get("failed") or {}
     except ReadProblem as exc:
         return _unreadable(research_store, str(exc))
     unreadable = sum(1 for e in events if e.get("type") == "unreadable")
@@ -119,7 +120,7 @@ async def current(research_store, ledger) -> dict[str, Any] | None:
                       "counts": {k: v for k, v in counts(ideas, claims).items() if k in COUNTS}},
         "needs_you": needs,
         "groups": [g for g in groups if g["ideas"]],
-        "documents": [_document(r, claims, records) for r in records],
+        "documents": [_document(r, claims, records, unread) for r in records],
         "waiting": len(needs), "reading": reading, "accepts": _accepts(), "problem": " ".join(problems),
     }
 
@@ -276,7 +277,8 @@ async def _progress(request_id: str) -> str:
         return ""
 
 
-def _document(record: dict[str, Any], claims: dict[str, dict[str, Any]], records: list[dict[str, Any]]) -> dict[str, Any]:
+def _document(record: dict[str, Any], claims: dict[str, dict[str, Any]], records: list[dict[str, Any]],
+              unread: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     from app.builds.research import STATE_WORDS
 
     state = record.get("state") or "failed"
@@ -286,6 +288,11 @@ def _document(record: dict[str, Any], claims: dict[str, dict[str, Any]], records
     mine = claims.get(source.get("id") or "") or next(
         (c for c in claims.values() if record.get("file_digest") and c.get("file_digest") == record.get("file_digest")), None)
     synthesis_state = STATE_TO_SYNTHESIS.get(state) or ("absorbed" if mine is not None else "waiting")
+    why = record.get("why") or ""
+    failed = (unread or {}).get(source.get("id") or "")
+    if failed and mine is None:
+        # [second review] One the synthesis couldn't read, even after trying again, says so: it isn't waiting.
+        synthesis_state, why = "failed", f"Couldn't be read: {failed.get('why') or 'no reason was kept'}"
     from app.research.flow import WAITING_NOTE
 
     # A note written while it waited for the first synthesis is no longer true once it is in.
@@ -294,7 +301,7 @@ def _document(record: dict[str, Any], claims: dict[str, dict[str, Any]], records
         notes.append("Waiting for the next synthesis to take it in.")
     return {
         "id": record.get("id"), "name": record.get("name") or "", "state": state,
-        "state_words": STATE_WORDS.get(state, state), "why": record.get("why") or "",
+        "state_words": STATE_WORDS.get(state, state), "why": why,
         "received_at": record.get("received_at") or "", "via": record.get("via") or "",
         "claims": len((mine or {}).get("claims") or []),
         "unplaced": [{"title": u.get("title") or "", "why": u.get("why") or ""} for u in (mine or {}).get("unplaced") or []]

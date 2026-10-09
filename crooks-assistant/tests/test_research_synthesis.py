@@ -976,6 +976,33 @@ async def test_a_document_claude_cant_read_twice_is_left_out_said_and_tried_agai
     assert report_lines(synth.run(gen)["report"])[0] == "Every document read is in it."
 
 
+async def test_a_document_the_synthesis_couldnt_read_says_so_on_the_screen(place, the_map):
+    """[second review] A document the live generation couldn't read, even after trying again, is shown as
+    couldn't be read, with why: never as waiting for the next synthesis."""
+    from app.research.model import ModelError
+
+    class FailsOnGamma(fx.Scripted):
+        async def ask(self, system, prompt):
+            if self.step(system) == "extract" and "test-note-gamma.md" in prompt:
+                self.prompts.append((system, prompt))
+                raise ModelError("The scripted model can't read gamma.")
+            return await super().ask(system, prompt)
+
+    store, ledger = place
+    model = FailsOnGamma()
+    await fx.read_old_way(store, model, *FIRST_THREE)
+    gen = await synthesise(store, model=model, the_map=the_map)
+    await apply(store, gen, model=model, the_map=the_map)
+    payload = await research_ideas.current(store, ledger)
+    check_contract(payload)
+    gamma = next(d for d in payload["documents"] if d["name"] == "test-note-gamma.md")
+    assert gamma["synthesis_state"] == "failed" and gamma["state"] == "done"
+    assert gamma["why"].startswith("Couldn't be read: ") and "The scripted model can't read gamma." in gamma["why"]
+    assert not any("Waiting" in n or "waiting" in n for n in gamma["notes"])
+    alpha = next(d for d in payload["documents"] if d["name"] == "test-note-alpha.md")
+    assert alpha["synthesis_state"] == "absorbed" and alpha["why"] == ""
+
+
 async def test_resume_never_reopens_a_live_or_older_generation(place, the_map):
     """[second review N3] --resume carries on only the newest generation, and only one newer than the live
     one: never an older run left with a document it couldn't read, nor a live or superseded one."""
