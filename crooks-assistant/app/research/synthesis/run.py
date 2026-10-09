@@ -478,7 +478,7 @@ def link_old_proposals(research_store, work: Work, run: dict[str, Any]) -> None:
     links, unlinked = migrate.link(sorted(research_store.documents(), key=lambda r: str(r.get("received_at") or "")),
                                    work.claims, work.ideas, done, answers)
     for link in links:
-        work.event("old_screen", idea=link["idea"], proposal_id=link["proposal_id"], verdict=link["verdict"],
+        work.event("old_screen", idea=link["idea"], proposal_id=link["proposal_id"], old_at=link["old_at"], verdict=link["verdict"],
                    cites=link["cites"], title=link["title"], duplicate_of=link["duplicate_of"], said=link["said"])
     run["links"] = int(run.get("links") or 0) + len(links)
     run["unlinked"] = unlinked

@@ -187,10 +187,11 @@ async function anIdeaOpened(page) {
   const quoted = detail.quotes.length > 0 && detail.quotes.every((q) => q.startsWith('“') && q.endsWith('”') && q.length > 20);
   check('Engineering detail is folded until tapped, and holds the sources, each quote in quotation marks',
     folded && detail.labels.some((l) => /^Sources \(\d+\)$/.test(l)) && quoted, `${folded} | ${detail.labels.join(', ')} | ${detail.quotes.join(' / ')}`);
-  check('and the history, oldest first, one dated line each, with what the old screen said',
+  check('and the history, oldest first, one dated line each (the day said once), with what the old screen said',
     detail.labels.some((l) => /^History \(\d+\)$/.test(l)) && detail.history.length >= 3
-      && detail.history.every((h) => /^\d{1,2} [A-Z][a-z]{2}(?: \d{4})?: /.test(h)) && /^.+?: Created from /.test(detail.history[0])
-      && detail.history.some((h) => /old screen: Park, DEC-018/.test(h)), detail.history.join(' / '));
+      && detail.history.every((h) => /^\d{1,2} [A-Z][a-z]{2}(?: \d{4})?: (?!\d{1,2} [A-Z][a-z]{2},)/.test(h))
+      && detail.history.some((h) => /: Created from /.test(h))
+      && detail.history.some((h) => /^\d{1,2} [A-Z][a-z]{2}: old screen: Park, DEC-018/.test(h)), detail.history.join(' / '));
   await toTop(tech);
   await shot(page, 'ideas-04-engineering-detail');
 }

@@ -625,6 +625,21 @@ async def test_old_proposals_become_history_on_the_right_ideas_and_their_records
     assert rep["7 how they re-sort"]["held only by DEC-018 though the direction is right"] == 1
 
 
+async def test_an_old_screen_line_says_its_day_once(place, the_map):
+    """[review 12] The screen dates each history line, so an old screen's line no longer repeats the day
+    ("9 Oct: 9 Oct, old screen: …"): it is dated by the old screen itself."""
+    store, ledger = place
+    _model, gen = await _synthesised(store, the_map)
+    synthesis_store(store).set_live(gen)
+    payload = await research_ideas.current(store, ledger)
+    lines = [h for g in payload["groups"] for r in g["ideas"] for h in r["history"]]
+    lines += [h for r in payload["needs_you"] for h in r["history"]]
+    old = [h for h in lines if "old screen: " in h["said"]]
+    assert old and all(h["said"].startswith("old screen: ") for h in old), old
+    (beta,) = [r for r in store.documents() if r["name"] == "test-note-beta.md"]
+    assert any(h["said"].startswith("old screen: Park, DEC-018") and h["at"] == beta["finished_at"] for h in old)
+
+
 async def test_a_synthesis_is_not_live_until_applied_and_applying_takes_in_what_was_read_since(place, the_map):
     store, ledger = place
     model, gen = await _synthesised(store, the_map)

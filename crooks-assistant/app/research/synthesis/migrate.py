@@ -87,7 +87,8 @@ def link(records: list[dict[str, Any]], claims: dict[str, dict[str, Any]], ideas
                 unlinked.append({"proposal_id": pid, "document": record.get("name") or "", "title": proposal.get("title") or "",
                                  "verdict": proposal.get("verdict") or "", "cites": list(proposal.get("cites") or [])})
                 continue
-            links.append({"idea": idea_id, "proposal_id": pid, "verdict": proposal.get("verdict") or "",
+            links.append({"idea": idea_id, "proposal_id": pid, "old_at": record.get("finished_at") or record.get("received_at") or "",
+                          "verdict": proposal.get("verdict") or "",
                           "cites": list(proposal.get("cites") or []), "reason": proposal.get("reason") or "",
                           "duplicate_of": proposal.get("duplicate_of") or "", "title": proposal.get("title") or "",
                           "said": words_for(proposal, record, answers.get(pid))})

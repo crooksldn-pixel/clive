@@ -162,11 +162,19 @@ def _order(row: dict[str, Any]) -> tuple:
     return (0 if importance == "FOUNDATIONAL" else 1, -row["backed_by"]["count"], _IMPORTANCE.get(importance, 9), row["id"])
 
 
+_DAY = re.compile(r"^\d{1,2} [A-Z][a-z]{2}, (?=old screen: )")
+
+
 def _history(events: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
     out: dict[str, list[dict[str, str]]] = {}
     for event in events:
         if event.get("idea") and event.get("said"):
-            out.setdefault(str(event["idea"]), []).append({"at": str(event.get("at") or ""), "said": str(event["said"])})
+            at, said = str(event.get("at") or ""), str(event["said"])
+            if "old_screen" in (event.get("type"), event.get("was_type")) and _DAY.match(said):
+                # [review 12] The screen dates every line: an old screen's line is dated by the old screen
+                # itself, and says the day once.
+                at, said = str(event.get("old_at") or at), _DAY.sub("", said)
+            out.setdefault(str(event["idea"]), []).append({"at": at, "said": said})
     return out
 
 
