@@ -1,0 +1,375 @@
+{
+  "_about": "TEST RESEARCH PAYLOAD - invented for CLIVE's tests (tests/web/research.test.js). Every document, quote, idea and person in it is made up: the documents are TEST RESEARCH NOTES about an invented sock shop, and Ana Fixture is not a real person. Written to the ideas payload contract of DEC-078 by the screen builder before the backend's own example existed.",
+  "mode": "ideas",
+  "summary": "6 ideas from 3 documents; 1 waits on you; 1 being read",
+  "synthesis": {
+    "generation": "gen-20261009T101500",
+    "at": "2026-10-09T10:15:00Z",
+    "points": [
+      "TEST POINT 1: every change to the invented test shop is read back before CLIVE says it worked.",
+      "TEST POINT 2: a log of every test parcel would let CLIVE answer where a parcel is without asking anyone.",
+      "TEST POINT 3: one test note wants test emails sent without your hold; your rules say otherwise, so that one is yours to call.",
+      "TEST POINT 4: weekly test reorders are right, but wait until the work already started is finished."
+    ],
+    "before": "a pile of separate test recommendations, each asked of you on its own",
+    "after": "one short list of test ideas, each checked against your rules and read back",
+    "counts": {"documents": 3, "claims": 30, "unplaced": 1, "ideas": 6, "converged": 2, "disagreements": 1, "validations": 1, "changes": 1}
+  },
+  "needs_you": [
+    {
+      "id": "idea-0003",
+      "fingerprint": "3333333333333333333333333333333333333333333333333333333333333333",
+      "name": "Test emails go out without your hold",
+      "statement": "TEST STATEMENT: CLIVE sends the invented shop's test emails to test customers without waiting for a hold on the card.",
+      "kind": "process",
+      "answers": {
+        "judgment": {"key": "CONFLICT", "words": "Needs your call"},
+        "relationship": {"key": "NEW", "words": "New"},
+        "timing": {"key": "NEXT", "words": "Next"},
+        "execution": {"key": "NOT_AUTHORISED", "words": "Not approved"},
+        "confidence": {"key": "medium", "words": "Medium"},
+        "importance": {"key": "FOUNDATIONAL", "words": "Foundational"},
+        "knowledge": {"key": "CHALLENGED", "words": "Challenges it"}
+      },
+      "reasons": {"judgment": "Three test notes back it, and it contradicts RULE-2, so it is your call rather than CLIVE's.", "timing": "It would be next if you said yes."},
+      "timing_held_by": [],
+      "backed_by": {"count": 3, "of": 3, "documents": [{"name": "test-research-note-a.md", "centrality": "central"}, {"name": "test-research-note-c.md", "centrality": "supporting"}, {"name": "test-research-note-b.pdf", "centrality": "passing"}]},
+      "how_they_differ": "TEST: notes A and C want speed; note B wants the hold kept for anything a test customer sees.",
+      "against": [{"document": "test-research-note-b.pdf", "says": "TEST: a test email should still wait for a hold when it goes to a test customer."}],
+      "owner_view": {
+        "means": "TEST VIEW: CLIVE would send the test shop's emails itself, without you holding the card first.",
+        "today": "Every test email waits on its card until you hold it.",
+        "after": "Routine test emails would go straight out; you'd see them afterwards.",
+        "example": "Ana Fixture (an invented test customer) asks where test order #T-0003 is; CLIVE would answer her by test email at once.",
+        "before_after": "From waiting on your hold to answered in the same minute.",
+        "why_care": ["LESS HUMAN ATTENTION", "FASTER EXECUTION"],
+        "notice": "Test customers would get answers while you're away."
+      },
+      "needs_you": {"trigger": "clash", "trigger_words": "Clashes with one of your rules", "question": "TEST QUESTION: three test notes say test emails should go without your hold, and RULE-2 says nothing outward goes without it. Which wins?"},
+      "keys": [{"key": "RULE-2", "label": "RULE-2 Anything outward waits for a gesture on its card", "how": "contradicts"}],
+      "today": {"level": "none", "says": "Every outward test email waits for a hold.", "where": ["app/actions/grammar.py"], "verified": true},
+      "revisit": "TEST: a month of test emails with no wrong answer in them.",
+      "effects": ["LESS HUMAN ATTENTION", "FASTER EXECUTION"],
+      "sources": [
+        {"document": "test-research-note-a.md", "section": "TEST SECTION: Speed", "quote": "TEST QUOTE: routine replies should not wait for anyone.", "stance": "supports", "centrality": "central"},
+        {"document": "test-research-note-c.md", "section": "TEST SECTION: Replies", "quote": "TEST QUOTE: an answer in the same minute is the whole point.", "stance": "supports", "centrality": "supporting"},
+        {"document": "test-research-note-b.pdf", "section": "TEST SECTION: Holds", "quote": "TEST QUOTE: keep the hold for anything a customer reads.", "stance": "opposes", "centrality": "passing"}
+      ],
+      "history": [
+        {"at": "2026-10-09T10:05:00Z", "said": "Created from test-research-note-a.md."},
+        {"at": "2026-10-09T10:09:00Z", "said": "test-research-note-b.pdf argued against it."},
+        {"at": "2026-10-09T10:12:00Z", "said": "Judged: Needs your call (it contradicts RULE-2 and three documents back it)."}
+      ],
+      "owner_answer": null,
+      "choices": [
+        {"key": "go", "label": "Approve the work", "then": "Prepares a build request on a card. Nothing is filed until you hold it."},
+        {"key": "later", "label": "Not now", "then": "Kept, and not asked again until the research changes."},
+        {"key": "no", "label": "Not for CLIVE", "then": "Recorded as not for CLIVE."}
+      ],
+      "build": null
+    }
+  ],
+  "groups": [
+    {
+      "key": "now",
+      "title": "Now",
+      "ideas": [
+        {
+          "id": "idea-0001",
+          "fingerprint": "1111111111111111111111111111111111111111111111111111111111111111",
+          "name": "Read every test change back",
+          "statement": "TEST STATEMENT: a change to the invented test shop counts only once CLIVE has read it back.",
+          "kind": "foundational",
+          "answers": {
+            "judgment": {"key": "ADOPT", "words": "Right direction"},
+            "relationship": {"key": "PARTIALLY_SATISFIED", "words": "Partly there"},
+            "timing": {"key": "NOW", "words": "Now"},
+            "execution": {"key": "READY", "words": "Ready"},
+            "confidence": {"key": "high", "words": "High"},
+            "importance": {"key": "FOUNDATIONAL", "words": "Foundational"},
+            "knowledge": {"key": "VALIDATED", "words": "Confirms what CLIVE thought"}
+          },
+          "reasons": {"judgment": "It is RULE-1 applied to the parts that don't read back yet.", "timing": "Nothing holds it."},
+          "timing_held_by": [],
+          "backed_by": {"count": 3, "of": 3, "documents": [{"name": "test-research-note-a.md", "centrality": "central"}, {"name": "test-research-note-b.pdf", "centrality": "central"}, {"name": "test-research-note-c.md", "centrality": "supporting"}]},
+          "how_they_differ": "TEST: note C would also read back test prices; A and B stop at test stock.",
+          "against": [],
+          "owner_view": {
+            "means": "TEST VIEW: when CLIVE changes something in the invented test shop, it looks again afterwards and only calls it done if the change is really there.",
+            "today": "Test stock counts are read back; test discount codes are not.",
+            "after": "Every test change, codes included, is read back before CLIVE says it worked.",
+            "example": "Ana Fixture (an invented test packer) sets test sock T-001 to 12; CLIVE reads 12 back before it tells her it's done.",
+            "before_after": "From 'I set it' to 'I set it and checked it'.",
+            "why_care": ["HIGHER RELIABILITY", "LOWER RISK"],
+            "notice": "A test change that didn't stick is reported as a failure the same minute."
+          },
+          "needs_you": null,
+          "keys": [{"key": "RULE-1", "label": "RULE-1 Verified, or it is an error", "how": "validates"}, {"key": "FEAT-001", "label": "FEAT-001 Test feature, invented", "how": "extends"}],
+          "today": {"level": "partial", "says": "Test stock counts are read back; test discount codes are not.", "where": ["app/actions/engine.py", "FEAT-001"], "verified": true},
+          "revisit": "TEST: a read-back that itself fails often enough to slow test orders.",
+          "effects": ["HIGHER RELIABILITY", "LOWER RISK"],
+          "sources": [
+            {"document": "test-research-note-a.md", "section": "TEST SECTION: Checking", "quote": "TEST QUOTE: a change only counts once it has been read back, and a check that can't run is a failure, not a pass.", "stance": "supports", "centrality": "central"},
+            {"document": "test-research-note-b.pdf", "section": "TEST SECTION: Trust", "quote": "TEST QUOTE: read it back.", "stance": "supports", "centrality": "central"},
+            {"document": "test-research-note-c.md", "section": "TEST SECTION: Prices", "quote": "TEST QUOTE: test prices should be read back too.", "stance": "refines", "centrality": "supporting"}
+          ],
+          "history": [
+            {"at": "2026-10-09T10:02:00Z", "said": "Created from test-research-note-a.md."},
+            {"at": "2026-10-09T10:06:00Z", "said": "test-research-note-b.pdf and test-research-note-c.md joined it."},
+            {"at": "2026-10-09T10:11:00Z", "said": "Judged: Right direction, partly there, now."},
+            {"at": "2026-10-09T11:40:00Z", "said": "You approved the work."}
+          ],
+          "owner_answer": {"key": "go", "label": "Approve the work", "at": "2026-10-09T11:40:00Z", "current": true},
+          "choices": [
+            {"key": "go", "label": "Approve the work", "then": "Prepares a build request on a card. Nothing is filed until you hold it."},
+            {"key": "later", "label": "Not now", "then": "Kept, and not asked again until the research changes."},
+            {"key": "no", "label": "Not for CLIVE", "then": "Recorded as not for CLIVE."}
+          ],
+          "build": {"state": "waiting", "words": "Its build request waits for your hold on the card. If the card has gone, prepare it again.", "request_id": "req-test-0001"}
+        },
+        {
+          "id": "idea-0002",
+          "fingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
+          "name": "Keep a log of every test parcel",
+          "statement": "TEST STATEMENT: CLIVE keeps its own log of each invented test parcel, so it can say where one is without asking anyone.",
+          "kind": "capability",
+          "answers": {
+            "judgment": {"key": "ADOPT_PARTLY", "words": "Right in part"},
+            "relationship": {"key": "NEW", "words": "New"},
+            "timing": {"key": "NOW", "words": "Now"},
+            "execution": {"key": "NOT_AUTHORISED", "words": "Not approved"},
+            "confidence": {"key": "medium", "words": "Medium"},
+            "importance": {"key": "HIGH_LEVERAGE", "words": "High leverage"},
+            "knowledge": {"key": "NEW", "words": "New to CLIVE"}
+          },
+          "reasons": {"judgment": "The log is right; keeping test addresses in it is not.", "timing": "Nothing holds it."},
+          "timing_held_by": [],
+          "backed_by": {"count": 1, "of": 3, "documents": [{"name": "test-research-note-c.md", "centrality": "central"}]},
+          "how_they_differ": "",
+          "against": [],
+          "owner_view": null,
+          "needs_you": null,
+          "keys": [{"key": "RULE-4", "label": "RULE-4 Customer details stay private", "how": "limits"}],
+          "today": {"level": "none", "says": "There is no test parcel log.", "where": [], "verified": false},
+          "revisit": "",
+          "effects": ["ENABLES NEW CAPABILITY"],
+          "sources": [
+            {"document": "test-research-note-c.md", "section": "TEST SECTION: Parcels", "quote": "TEST QUOTE: keep a log of every parcel, so nobody has to ask where one is.", "stance": "supports", "centrality": "central"}
+          ],
+          "history": [
+            {"at": "2026-10-09T10:07:00Z", "said": "Created from test-research-note-c.md."},
+            {"at": "2026-10-09T10:13:00Z", "said": "Judged: Right in part, new, now."}
+          ],
+          "owner_answer": null,
+          "choices": [
+            {"key": "go", "label": "Approve the work", "then": "Prepares a build request on a card. Nothing is filed until you hold it."},
+            {"key": "later", "label": "Not now", "then": "Kept, and not asked again until the research changes."},
+            {"key": "no", "label": "Not for CLIVE", "then": "Recorded as not for CLIVE."}
+          ],
+          "build": null
+        }
+      ]
+    },
+    {
+      "key": "next",
+      "title": "Next",
+      "ideas": [
+        {
+          "id": "idea-0003",
+          "fingerprint": "3333333333333333333333333333333333333333333333333333333333333333",
+          "name": "Test emails go out without your hold",
+          "statement": "TEST STATEMENT: CLIVE sends the invented shop's test emails to test customers without waiting for a hold on the card.",
+          "kind": "process",
+          "answers": {
+            "judgment": {"key": "CONFLICT", "words": "Needs your call"},
+            "relationship": {"key": "NEW", "words": "New"},
+            "timing": {"key": "NEXT", "words": "Next"},
+            "execution": {"key": "NOT_AUTHORISED", "words": "Not approved"},
+            "confidence": {"key": "medium", "words": "Medium"},
+            "importance": {"key": "FOUNDATIONAL", "words": "Foundational"},
+            "knowledge": {"key": "CHALLENGED", "words": "Challenges it"}
+          },
+          "reasons": {"judgment": "Three test notes back it, and it contradicts RULE-2, so it is your call rather than CLIVE's.", "timing": "It would be next if you said yes."},
+          "timing_held_by": [],
+          "backed_by": {"count": 3, "of": 3, "documents": [{"name": "test-research-note-a.md", "centrality": "central"}]},
+          "how_they_differ": "",
+          "against": [],
+          "owner_view": null,
+          "needs_you": {"trigger": "clash", "trigger_words": "Clashes with one of your rules", "question": "TEST QUESTION: which wins?"},
+          "keys": [],
+          "today": {"level": "none", "says": "", "where": [], "verified": true},
+          "revisit": "",
+          "effects": [],
+          "sources": [],
+          "history": [],
+          "owner_answer": null,
+          "choices": [
+            {"key": "go", "label": "Approve the work", "then": "Prepares a build request on a card. Nothing is filed until you hold it."},
+            {"key": "later", "label": "Not now", "then": "Kept, and not asked again until the research changes."},
+            {"key": "no", "label": "Not for CLIVE", "then": "Recorded as not for CLIVE."}
+          ],
+          "build": null
+        },
+        {
+          "id": "idea-0006",
+          "fingerprint": "6666666666666666666666666666666666666666666666666666666666666666",
+          "name": "Reorder test socks weekly, in one batch",
+          "statement": "TEST STATEMENT: CLIVE gathers the invented shop's test reorders into one weekly batch for the test manufacturer.",
+          "kind": "capability",
+          "answers": {
+            "judgment": {"key": "ADOPT", "words": "Right direction"},
+            "relationship": {"key": "EXTENDS_EXISTING", "words": "Builds on what exists"},
+            "timing": {"key": "NEXT", "words": "Next"},
+            "execution": {"key": "NOT_AUTHORISED", "words": "Not approved"},
+            "confidence": {"key": "high", "words": "High"},
+            "importance": {"key": "USEFUL", "words": "Useful"},
+            "knowledge": {"key": "STRENGTHENED", "words": "Strengthens it"}
+          },
+          "reasons": {"judgment": "It builds on the test reorder list that exists.", "timing": "Finish what is already started first."},
+          "timing_held_by": [{"key": "DEC-018", "label": "DEC-018 Finish first"}],
+          "backed_by": {"count": 2, "of": 3, "documents": [{"name": "test-research-note-a.md", "centrality": "supporting"}, {"name": "test-research-note-c.md", "centrality": "central"}]},
+          "how_they_differ": "",
+          "against": [],
+          "owner_view": {
+            "means": "TEST VIEW: once a week CLIVE puts every test reorder into one message for the invented test manufacturer.",
+            "today": "Each test reorder is written up on its own."
+          },
+          "needs_you": null,
+          "keys": [{"key": "DEC-018", "label": "DEC-018 Finish first", "how": "holds its timing"}],
+          "today": {"level": "partial", "says": "A test reorder list exists; nothing batches it.", "where": ["app/objectives/store.py"], "verified": true},
+          "revisit": "TEST: the started work finishing.",
+          "effects": ["LESS HUMAN ATTENTION"],
+          "sources": [
+            {"document": "test-research-note-c.md", "section": "TEST SECTION: Reorders", "quote": "TEST QUOTE: one weekly batch beats ten small messages.", "stance": "supports", "centrality": "central"},
+            {"document": "test-research-note-a.md", "section": "TEST SECTION: Suppliers", "quote": "TEST QUOTE: batch the reorders.", "stance": "supports", "centrality": "supporting"}
+          ],
+          "history": [
+            {"at": "2026-10-09T10:08:00Z", "said": "Created from test-research-note-c.md."},
+            {"at": "2026-10-09T10:14:00Z", "said": "Judged: Right direction, next; DEC-018 holds its timing."}
+          ],
+          "owner_answer": null,
+          "choices": [
+            {"key": "go", "label": "Approve the work", "then": "Prepares a build request on a card. Nothing is filed until you hold it."},
+            {"key": "later", "label": "Not now", "then": "Kept, and not asked again until the research changes."},
+            {"key": "no", "label": "Not for CLIVE", "then": "Recorded as not for CLIVE."}
+          ],
+          "build": null
+        }
+      ]
+    },
+    {
+      "key": "later",
+      "title": "Later",
+      "ideas": [
+        {
+          "id": "idea-0004",
+          "fingerprint": "4444444444444444444444444444444444444444444444444444444444444444",
+          "name": "Guess test sock sizes from photos",
+          "statement": "TEST STATEMENT: CLIVE guesses an invented test customer's sock size from a photo.",
+          "kind": "capability",
+          "answers": {
+            "judgment": {"key": "INVESTIGATE", "words": "Worth looking into"},
+            "relationship": {"key": "NEW", "words": "New"},
+            "timing": {"key": "LATER", "words": "Later"},
+            "execution": {"key": "NOT_AUTHORISED", "words": "Not approved"},
+            "confidence": {"key": "low", "words": "Low"},
+            "importance": {"key": "OPTIMISATION", "words": "Optimisation"},
+            "knowledge": {"key": "NEW", "words": "New to CLIVE"}
+          },
+          "reasons": {"judgment": "Only one test note says it, without any test figures.", "timing": "Later: it depends on test photos CLIVE doesn't get yet."},
+          "timing_held_by": [],
+          "backed_by": {"count": 1, "of": 3, "documents": [{"name": "test-research-note-b.pdf", "centrality": "passing"}]},
+          "how_they_differ": "",
+          "against": [],
+          "owner_view": {
+            "means": "TEST VIEW: a test customer sends a photo and CLIVE suggests a test sock size.",
+            "today": "CLIVE doesn't see test photos.",
+            "after": "Test size questions would be answered from a photo.",
+            "why_care": ["MAKES / PROTECTS MONEY"]
+          },
+          "needs_you": null,
+          "keys": [],
+          "today": {"level": "none", "says": "Nothing like it exists.", "where": [], "verified": true},
+          "revisit": "TEST: test figures showing size returns cost real money.",
+          "effects": ["MAKES / PROTECTS MONEY"],
+          "sources": [
+            {"document": "test-research-note-b.pdf", "section": "TEST SECTION: Ideas", "quote": "TEST QUOTE: sizes could come from a photo.", "stance": "supports", "centrality": "passing"}
+          ],
+          "history": [
+            {"at": "2026-10-08T15:00:00Z", "said": "You said Not now to the earlier view."},
+            {"at": "2026-10-09T10:10:00Z", "said": "Judged again: Worth looking into, later."}
+          ],
+          "owner_answer": {"key": "later", "label": "Not now", "at": "2026-10-08T15:00:00Z", "current": false},
+          "choices": [
+            {"key": "go", "label": "Approve the work", "then": "Prepares a build request on a card. Nothing is filed until you hold it."},
+            {"key": "later", "label": "Not now", "then": "Kept, and not asked again until the research changes."},
+            {"key": "no", "label": "Not for CLIVE", "then": "Recorded as not for CLIVE."}
+          ],
+          "build": null
+        }
+      ]
+    },
+    {
+      "key": "unscheduled",
+      "title": "No date",
+      "ideas": [
+        {
+          "id": "idea-0005",
+          "fingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+          "name": "Pay per test question for a faster model",
+          "statement": "TEST STATEMENT: CLIVE pays per question for a faster test model.",
+          "kind": "tooling-choice",
+          "answers": {
+            "judgment": {"key": "REJECT", "words": "Not for CLIVE"},
+            "relationship": {"key": "NEW", "words": "New"},
+            "timing": {"key": "UNSCHEDULED", "words": "No date"},
+            "execution": {"key": "NOT_AUTHORISED", "words": "Not approved"},
+            "confidence": {"key": "high", "words": "High"},
+            "importance": {"key": "LOW_CURRENT_VALUE", "words": "Low value now"},
+            "knowledge": {"key": "CHALLENGED", "words": "Challenges it"}
+          },
+          "reasons": {"judgment": "It breaks RULE-5: no pay-as-you-go billing.", "timing": ""},
+          "timing_held_by": [],
+          "backed_by": {"count": 1, "of": 3, "documents": [{"name": "test-research-note-a.md", "centrality": "passing"}]},
+          "how_they_differ": "",
+          "against": [],
+          "owner_view": {
+            "means": "TEST VIEW: CLIVE would pay for each test question to answer faster.",
+            "today": "CLIVE runs on your Max plan and refuses a pay-as-you-go key."
+          },
+          "needs_you": null,
+          "keys": [{"key": "RULE-5", "label": "RULE-5 No pay-as-you-go billing", "how": "contradicts"}],
+          "today": {"level": "none", "says": "", "where": [], "verified": true},
+          "revisit": "",
+          "effects": [],
+          "sources": [
+            {"document": "test-research-note-a.md", "section": "TEST SECTION: Speed", "quote": "TEST QUOTE: pay per call for the fastest model.", "stance": "supports", "centrality": "passing"}
+          ],
+          "history": [
+            {"at": "2026-10-09T10:04:00Z", "said": "Created from test-research-note-a.md."},
+            {"at": "2026-10-09T10:12:00Z", "said": "Judged: Not for CLIVE (RULE-5)."},
+            {"at": "2026-10-09T11:45:00Z", "said": "You said Not for CLIVE."}
+          ],
+          "owner_answer": {"key": "no", "label": "Not for CLIVE", "at": "2026-10-09T11:45:00Z", "current": true},
+          "choices": [
+            {"key": "go", "label": "Approve the work", "then": "Prepares a build request on a card. Nothing is filed until you hold it."},
+            {"key": "later", "label": "Not now", "then": "Kept, and not asked again until the research changes."},
+            {"key": "no", "label": "Not for CLIVE", "then": "Recorded as not for CLIVE."}
+          ],
+          "build": null
+        }
+      ]
+    }
+  ],
+  "documents": [
+    {"id": "art-test-a", "name": "test-research-note-a.md", "state": "done", "state_words": "Read", "why": "", "received_at": "2026-10-09T09:40:00Z", "via": "screen", "claims": 14, "unplaced": [], "synthesis_state": "absorbed", "notes": []},
+    {"id": "art-test-b", "name": "test-research-note-b.pdf", "state": "done", "state_words": "Read", "why": "", "received_at": "2026-10-09T09:41:00Z", "via": "folder", "claims": 9,
+     "unplaced": [{"title": "TEST CLAIM: invented weather changes sock sales", "why": "Its quote wasn't found in the document, even after asking again."}], "synthesis_state": "absorbed", "notes": []},
+    {"id": "art-test-c", "name": "test-research-note-c.md", "state": "done", "state_words": "Read", "why": "", "received_at": "2026-10-09T09:42:00Z", "via": "screen", "claims": 7, "unplaced": [], "synthesis_state": "absorbed", "notes": []},
+    {"id": "art-test-d", "name": "test-research-note-d.html", "state": "reading", "state_words": "Being read now", "why": "", "received_at": "2026-10-09T11:50:00Z", "via": "screen", "claims": 0, "unplaced": [], "synthesis_state": "reading", "notes": []}
+  ],
+  "waiting": 1,
+  "reading": 1,
+  "accepts": "PDF, Word (.docx), Markdown, text, a saved web page, or a ChatGPT export (conversations.json or its zip)",
+  "problem": ""
+}
