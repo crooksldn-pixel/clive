@@ -815,6 +815,40 @@ async def test_a_full_run_never_merges_ideas_his_answers_tell_apart(place, the_m
     assert not [e for e in _events(store, second) if e["type"] == "merged" and "freshness" in e["said"]]
 
 
+async def test_applying_again_after_a_stop_finishes_the_rename_and_never_doubles_an_idea(place, the_map, monkeypatch):
+    """[second review N2] Applying stopped after writing the renamed ideas and before removing an old file;
+    applying again finishes the rename: every claim is in one idea, every idea once, each rename said once."""
+    from app.research.synthesis.store import SynthesisStore
+
+    store, _ledger = place
+    model, first = await _synthesised(store, the_map)
+    await apply(store, first, model=model, the_map=the_map)
+    second = await synthesise(store, model=model, the_map=the_map)
+    real = SynthesisStore.remove_idea
+    stops = []
+
+    def stop_once(self, gen, idea_id):
+        if not stops:
+            stops.append(idea_id)
+            raise OSError("the disk went away")
+        return real(self, gen, idea_id)
+
+    monkeypatch.setattr(SynthesisStore, "remove_idea", stop_once)
+    with pytest.raises(OSError, match="the disk went away"):
+        await apply(store, second, model=model, the_map=the_map)
+    synth = synthesis_store(store)
+    assert synth.live() == first and stops
+    await apply(store, second, model=model, the_map=the_map)
+    assert synth.live() == second
+    active = [i for i in synth.ideas(second).values() if i.get("status") == "active"]
+    claims = [s["claim_id"] for i in active for s in i["sources"]]
+    assert len(claims) == len(set(claims)), "every claim in one idea"
+    assert len({i["name"] for i in active}) == len(active) == len(_active(store, first)), "every idea once"
+    assert _active(store, second).keys() == _active(store, first).keys()
+    renamed = [(e["idea"], e["was_id"]) for e in _events(store, second) if e["type"] == "renumbered"]
+    assert len(renamed) == len(set(renamed)) == len(active), "each rename said once"
+
+
 def test_reuse_needs_half_the_sources():
     def idea(*quotes):
         return {"status": "active", "sources": [{"quote": q} for q in quotes]}

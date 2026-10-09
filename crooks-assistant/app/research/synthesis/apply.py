@@ -29,7 +29,7 @@ from typing import Any
 from app.research.model import ModelError
 from app.research.review import normalise
 from app.research.synthesis.ask import SynthesisError
-from app.research.synthesis.ideas import finish
+from app.research.synthesis.ideas import evidence_hash, finish
 from app.research.synthesis.store import SynthesisStore, now, synthesis_store
 
 REUSE_SHARE = 0.5
@@ -65,15 +65,46 @@ def reuse(old: dict[str, dict[str, Any]], new: dict[str, dict[str, Any]]) -> dic
     return out
 
 
+def _renamed_words(to: str, was: str, previous: str, old_ids: set[str]) -> str:
+    if to in old_ids:
+        return f"Continues {to} from {previous}, so your answer to it stays with it."
+    return f"Now {to}: {was} was an id an earlier generation used."
+
+
+def finish_renames(synth: SynthesisStore, gen: str, previous: str) -> list[str]:
+    """[second review N2] A rename stopped between writing an idea under its new id and removing its old
+    file leaves the idea on disk twice. Finish it: the old file (the same evidence, under an id the other
+    idea was) goes, and the rename is said once. Returns the ids removed."""
+    ideas = synth.ideas(gen)
+    said = {(e.get("idea"), e.get("was_id")) for e in synth.events(gen) if e.get("type") == "renumbered"}
+    old_ids = set(synth.ideas(previous)) if previous else set()
+    dropped: list[str] = []
+    for idea in ideas.values():
+        for was in idea.get("was") or []:
+            stale = ideas.get(was)
+            if was == idea["id"] or was in dropped or stale is None or evidence_hash(stale) != evidence_hash(idea):
+                continue
+            synth.remove_idea(gen, was)
+            dropped.append(was)
+            if (idea["id"], was) not in said:
+                synth.event(gen, "renumbered", idea=idea["id"], was_id=was,
+                            said=_renamed_words(idea["id"], was, previous, old_ids))
+    return dropped
+
+
 def renumber(synth: SynthesisStore, gen: str, mapping: dict[str, str], previous: str) -> dict[str, str]:
     """Give the generation's ideas their final ids: the old ids `mapping` names, and a fresh id for any
-    other id an earlier generation used. Returns every change made, {was: now}."""
+    other id an earlier generation used. Returns every change made, {was: now}. A rename an earlier try
+    stopped halfway through is finished first (`finish_renames`), and an idea that already has its final
+    id is left as it is."""
+    finish_renames(synth, gen, previous)
     ideas = synth.ideas(gen)
     taken = synth.used_ids(but=gen)
     final: dict[str, str] = {}
     for idea_id in ideas:
         if idea_id in mapping:
-            final[idea_id] = mapping[idea_id]
+            if mapping[idea_id] != idea_id:
+                final[idea_id] = mapping[idea_id]
         elif idea_id in taken or idea_id in mapping.values():
             final[idea_id] = synth.next_idea_id(gen)
     if not final:
@@ -129,6 +160,7 @@ async def apply(research_store, gen: str, *, model, the_map, say=lambda _t: None
     if previous == gen:
         return {"generation": gen, "already": True}
     with _store_lock(research_store), run_module.run_lock(synth):
+        finish_renames(synth, gen, previous)       # [second review N2] before anything reads its ideas
         calls = run_module.Calls(model)
         work = run_module.Work(synth, gen, calls, the_map, say=say)
         taken_in, missing = [], []
