@@ -72,7 +72,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `logging` | 195 | live | — | none |
 | `memory` | 586 | live | — | none |
 | `messaging` | 2,402 | live | — | [`WECOM.md`](docs/WECOM.md) WeCom; WhatsApp in WHATSAPP.md, Instagram DMs in INSTAGRAM_DMS.md |
-| `objectives` | 3,371 | live | — | none |
+| `objectives` | 3,373 | live | — | none |
 | `observability` | 10,789 | live | `proposals` | [`RECORDING.md`](docs/RECORDING.md) |
 | `orchestrator` | 11,442 | live | — | [`ENGINEERING_DISPATCHER_V1.md`](docs/product-memory/ENGINEERING_DISPATCHER_V1.md) |
 | `people` | 1,573 | live | — | [`TEAM.md`](docs/TEAM.md) |
@@ -89,7 +89,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `skills` | 979 | CLI | all | [`SOURCE_ASSIMILATION_V1.md`](docs/product-memory/SOURCE_ASSIMILATION_V1.md) |
 | `speech` | 846 | live | — | none |
 | `support` | 1,693 | live | `redact` | [`SUPPORT_INVESTIGATOR_V1.md`](docs/product-memory/SUPPORT_INVESTIGATOR_V1.md) |
-| `tools` | 16,472 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
+| `tools` | 16,520 | live | — | [`TOOL_MATRIX.md`](docs/phase4/TOOL_MATRIX.md) |
 | `work` | 2,510 | live | — | [`TEAM.md`](docs/TEAM.md) |
 <!-- /map:parts -->
 
