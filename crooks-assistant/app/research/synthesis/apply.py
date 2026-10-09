@@ -84,11 +84,14 @@ def renumber(synth: SynthesisStore, gen: str, mapping: dict[str, str], previous:
     for idea in [*moved.values(), *(i for k, i in ideas.items() if k not in final)]:
         if idea.get("merged_into") in final:
             idea["merged_into"] = final[idea["merged_into"]]
-    for was in final:
-        synth.remove_idea(gen, was)
+    # [review 8] Every idea is written under its new id first; only then do the old files go (never one
+    # that is also a new id), so stopping halfway leaves each idea on disk under one id or both.
     for idea in [*moved.values(), *(i for k, i in ideas.items() if k not in final)]:
         synth.save_idea(gen, finish(idea, idea.get("updated_at") or now()) if idea.get("judged_with") is None
                         else _refinger(idea))
+    for was in final:
+        if was not in moved:
+            synth.remove_idea(gen, was)
     for was, to in final.items():
         if was in mapping:
             said = f"Continues {to} from {previous}, so your answer to it stays with it."

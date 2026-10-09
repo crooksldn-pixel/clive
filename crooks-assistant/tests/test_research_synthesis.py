@@ -649,6 +649,33 @@ async def test_applying_a_new_generation_keeps_ids_by_overlap_and_keeps_the_old_
     assert row["owner_answer"]["key"] == "go", "his answer stayed with the idea"
 
 
+@pytest.mark.parametrize("stops_at", ["save_idea", "remove_idea"])
+async def test_renumbering_never_loses_an_idea_when_it_stops_halfway(place, the_map, monkeypatch, stops_at):
+    """[review 8] Applying gives ideas their final ids. Stopped halfway (a full disk, a kill), every idea is
+    still on disk, under its old id or its new one."""
+    from app.research.synthesis.apply import renumber
+    from app.research.synthesis.store import SynthesisStore
+
+    store, _ledger = place
+    model, first = await _synthesised(store, the_map)
+    second = await synthesise(store, model=model, the_map=the_map)
+    synth = synthesis_store(store)
+    before = {i["name"] for i in synth.ideas(second).values()}
+    mapping = reuse(synth.ideas(first), synth.ideas(second))
+    assert len(mapping) >= 5
+    calls = []
+
+    def stop(self, *args, **kwargs):
+        calls.append(args)
+        raise OSError("the disk went away")
+
+    monkeypatch.setattr(SynthesisStore, stops_at, stop)
+    with pytest.raises(OSError, match="the disk went away"):
+        renumber(synth, second, mapping, first)
+    monkeypatch.undo()
+    assert {i["name"] for i in synth.ideas(second).values()} == before, "nothing lost"
+
+
 def test_reuse_needs_half_the_sources():
     def idea(*quotes):
         return {"status": "active", "sources": [{"quote": q} for q in quotes]}
