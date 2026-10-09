@@ -976,6 +976,43 @@ async def test_a_document_claude_cant_read_twice_is_left_out_said_and_tried_agai
     assert report_lines(synth.run(gen)["report"])[0] == "Every document read is in it."
 
 
+async def test_resume_never_reopens_a_live_or_older_generation(place, the_map):
+    """[second review N3] --resume carries on only the newest generation, and only one newer than the live
+    one: never an older run left with a document it couldn't read, nor a live or superseded one."""
+    from app.research.model import ModelError
+
+    class FailsOnGamma(fx.Scripted):
+        failing = True
+
+        async def ask(self, system, prompt):
+            if self.failing and self.step(system) == "extract" and "test-note-gamma.md" in prompt:
+                self.prompts.append((system, prompt))
+                raise ModelError("The scripted model can't read gamma.")
+            return await super().ask(system, prompt)
+
+    store, _ledger = place
+    model = FailsOnGamma()
+    await fx.read_old_way(store, model, *FIRST_THREE)
+    older = await synthesise(store, model=model, the_map=the_map)
+    synth = synthesis_store(store)
+    assert synth.run(older)["failed"], "an older run, left with a document it couldn't read"
+    model.failing = False
+    newer = await synthesise(store, model=model, the_map=the_map)
+    assert newer > older and not synth.run(newer)["failed"]
+    with pytest.raises(Stopped, match="no synthesis run to resume"):
+        await synthesise(store, model=model, the_map=the_map, resume=True)
+    await apply(store, newer, model=model, the_map=the_map)
+    with pytest.raises(Stopped, match="no synthesis run to resume"):
+        await synthesise(store, model=model, the_map=the_map, resume=True)
+    model.failing = True
+    _read_again(store)
+    stopped = await synthesise(store, model=model, the_map=the_map)
+    assert stopped > newer and synth.run(stopped)["failed"]
+    model.failing = False
+    assert await synthesise(store, model=model, the_map=the_map, resume=True) == stopped, "the newest, newer than the live one"
+    assert synth.run(older)["failed"], "the older run was never touched"
+
+
 async def test_applying_a_run_with_a_document_it_couldnt_read_tries_it_once_more_and_says_so(place, the_map):
     """[review 15] Applying tries the document the run couldn't read once more; still unreadable, the
     generation goes live without it, and says so."""

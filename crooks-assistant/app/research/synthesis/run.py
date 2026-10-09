@@ -400,14 +400,16 @@ def status_lines(synth: SynthesisStore, gen: str = "") -> list[str]:
 
 
 def unfinished(synth: SynthesisStore) -> str:
-    """The newest generation whose run hasn't finished, or finished without a document it couldn't read
-    and isn't live yet, or ""."""
+    """The generation --resume carries on, or "": only the newest generation, and only when it is newer
+    than the live one (never a live or superseded one), and its run hasn't finished, or finished without
+    a document it couldn't read. [second review N3]"""
     live = synth.live()
-    for gen in reversed(synth.generations()):
-        run = synth.run(gen) or {}
-        if run.get("mode") == "full" and (run.get("stage") != "done" or (run.get("failed") and gen != live)):
-            return gen
-    return ""
+    gens = synth.generations()
+    if not gens or (live and gens[-1] <= live):
+        return ""
+    gen = gens[-1]
+    run = synth.run(gen) or {}
+    return gen if run.get("mode") == "full" and (run.get("stage") != "done" or run.get("failed")) else ""
 
 
 async def synthesise(research_store, *, model, the_map, resume: bool = False, timeout_s: float | None = None,
