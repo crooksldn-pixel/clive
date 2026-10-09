@@ -76,6 +76,14 @@ Details live with each app (`docs/shipping/DESIGN.md`, `clive-shipping/OPERATION
   where the parcel was last seen. Each scan is in the history. Staff names, not ids.
 - **CLIVE `/api/v1`.** Capabilities, list by stage, read, preview, buy, print, reprint,
   tracking, events (oldest first, `has_more`, `source`). Read and write keys are separate.
+- **UK labels (off unless switched on).** `SHIPPING_DOMESTIC_LABELS=shopify` lists UK orders
+  too and buys their labels from the store's Shopify Shipping account: Royal Mail Tracked 24 or
+  Tracked 48, decided by the checkout delivery method through
+  `SHIPPING_DOMESTIC_SHIPPING_LINES` (the store's lines: "Tracked 24", "Tracked 48"). An
+  unmapped method waits for a person ("Which service?"). Each service needs Shopify's code on
+  the server (`SHIPPING_SHOPIFY_TRACKED_24_RATE` / `_48_RATE`); without it, nothing is bought.
+  No customs questions. Same ledger, authorisation, payment, hold and cancel checks, second-label
+  guard, idempotency keys, printing and CLIVE API as international labels.
 
 ## Returns V1
 
@@ -119,6 +127,21 @@ Details live with each app (`docs/shipping/DESIGN.md`, `clive-shipping/OPERATION
 - **One channel at a time** for Returns actions on the same return (screen, CLIVE, `returns-ctl`
   run in separate processes share a database but not a lock).
 
+- **UK labels (Shopify Shipping):**
+  - *No price before buying.* Shopify has no rates query for apps; the preview says the price
+    is set by Shopify Shipping, and it appears on the Shopify bill. Owner-accepted.
+  - *Not idempotent at Shopify.* CLIVE sends each purchase once and reads it back; it never
+    resends. A reply lost before Shopify's reference came back is settled by reading the order:
+    a label found there is adopted but its file can't be fetched (print it from Shopify admin);
+    nothing found counts after 10 minutes. If Shopify ever bought a label without putting it on
+    the order, that case couldn't be seen (unverified; see below).
+  - *Codes.* Shopify publishes no list of carrier/service codes; they must come from Shopify.
+  - *Unverified until one real purchase:* whether the purchase creates the Shopify fulfilment
+    itself (CLIVE adopts it if so, adds one after two minutes if not), the label file's size and
+    format (they follow the store's label settings; anything not 4×6 is shown whole, never
+    scaled), and that the document links download with a plain GET.
+  - *No void.* Shopify's API has no label cancellation; cancel it in Shopify admin.
+
 ## Deferred to V2
 
 - More carriers' tracking, maps, transport mode, predicted delivery dates.
@@ -152,6 +175,13 @@ Do not deploy without the owner. Nothing here buys postage, prints, or changes a
      `www.trade-tariff.service.gov.uk`. Nothing else is new.
    - Returns `.env`: check `RETURNS_RETURN_LABEL_COST_PENCE`. The portal policy text offers a
      paid drop-off label for change-of-mind refunds; set it, or the offer isn't made.
+   - UK labels, only when switching them on: add `write_orders` to the app's scopes
+     (`shopify.app.toml`, then `shopify app deploy` and approve the update in the store's
+     admin; `write_merchant_managed_fulfillment_orders` is already granted), then in Shipping's
+     `.env`: `SHIPPING_DOMESTIC_LABELS=shopify`,
+     `SHIPPING_DOMESTIC_SHIPPING_LINES="Tracked 24=24; Tracked 48=48"`,
+     `SHIPPING_SHOPIFY_TRACKED_24_RATE` and `SHIPPING_SHOPIFY_TRACKED_48_RATE` (Shopify's codes).
+     The store must have accepted Shopify Shipping's terms (it has bought labels in admin).
    - Unchanged and still required: `SHIPPING_AUTHORISED_ORDERS` / `SHIPPING_BUYING_ENABLED`
      (no label can be bought unless set), PrintNode keys (only if printing directly).
    - Optional, only when CLIVE is to use Shipping: `SHIPPING_CLIVE_READ_KEYS` /
@@ -190,7 +220,7 @@ done
 git fetch origin claude/compassionate-dirac-44hnee
 git checkout claude/compassionate-dirac-44hnee && git pull --ff-only && git log --oneline -1
 # 3. Config check (prints no secrets)
-grep -E '^SHIPPING_TARIFF_|^SHIPPING_AUTHORISED_ORDERS|^SHIPPING_BUYING_ENABLED|^PRINTNODE_ENABLED' clive-shipping/.env || true
+grep -E '^SHIPPING_TARIFF_|^SHIPPING_AUTHORISED_ORDERS|^SHIPPING_BUYING_ENABLED|^PRINTNODE_ENABLED|^SHIPPING_DOMESTIC_|^SHIPPING_SHOPIFY_TRACKED_' clive-shipping/.env || true
 grep -E '^RETURNS_RETURN_LABEL_COST_PENCE' crooks-returns/.env || echo "RETURNS_RETURN_LABEL_COST_PENCE not set"
 # 4. Build and restart
 cd crooks-returns && docker compose up -d --build returns shipping && docker compose ps

@@ -10,6 +10,20 @@ An unpurchased shipment has inline HS code, origin and customs-description field
 
 "Not sure of the code? Describe it" finds a UK commodity code from plain English (e.g. "men's cotton hoodie") and what Shopify already says about the product. It walks the official UK Trade Tariff, asks one question at a time in the tariff's own words only when a fact decides the code, and shows a ten-digit code read back from the tariff (exists, declarable, in force) with its official description and the reasons. Use this code fills the field; nothing is saved until Save. A typed ten-digit code is checked on save and refused if the tariff doesn't have it; if the tariff can't be reached the code is kept, marked unchecked. How it was chosen (manual, or suggested then confirmed; the answers; who; when) is kept with the product's facts. Garments covered: jeans, jorts, shorts, joggers and other trousers, skirts, T-shirts, hoodies and jumpers; anything else is typed by hand. `SHIPPING_TARIFF_ENABLED=false` turns the finder and the check off.
 
+## UK orders (Shopify Shipping)
+
+With `SHIPPING_DOMESTIC_LABELS=shopify`, UK orders appear beside international ones (the page
+is then called "Shipping"). Each shows its Royal Mail service (Tracked 24 or Tracked 48) and
+where it came from: the checkout delivery method, through the mapping on the server, or the
+person who chose it when the method isn't mapped ("Which service?" offers both, for that order
+only). There are no customs questions. "Buy label" has no amount: Shopify Shipping sets the
+price when the label is bought and it appears on the store's Shopify bill; the preview says so.
+A purchase is sent to Shopify once and read back if its answer is lost (see
+`docs/shipping/DESIGN.md`, H, stage 9). The label prints like any other: a 4×6 PDF goes to the
+label printer; a file of another size is said to be what it is ("US Letter, not 4×6") and is
+opened whole from Open PDF, never scaled. A label found on the order after a lost reply has no
+file here: print it from the order in Shopify admin.
+
 ## Print evidence
 
 **How Print works.** Without PrintNode, Print opens the label as a 4×6 PDF in a new tab (the
@@ -51,7 +65,8 @@ The endpoints use the same authenticated, shop-scoped staff dependency as existi
 
 ## Validation
 
-Automated tests use fake postage providers and mocked PrintNode transport. They cover partial success, stale/held/cancelled/unauthorised/changed-price refusal, uncertain results and restart/concurrent-worker safety; durable print status and reprints; canonical customs persistence and historical immutability; independent PDF selection; and actual admin JavaScript selection/review/confirmation/progress/filter/reprint/customs interactions. No live postage or physical jobs are submitted.
+Automated tests use fake postage providers, a fake Shopify Shipping (lost replies, pending,
+failed and refused purchases) and mocked PrintNode transport. They cover partial success, stale/held/cancelled/unauthorised/changed-price refusal, uncertain results and restart/concurrent-worker safety; durable print status and reprints; canonical customs persistence and historical immutability; independent PDF selection; and actual admin JavaScript selection/review/confirmation/progress/filter/reprint/customs interactions. No live postage or physical jobs are submitted.
 
 The V1 gate results are recorded in the release notes, `docs/V1_RELEASE.md`.
 
