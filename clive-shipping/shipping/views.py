@@ -37,11 +37,13 @@ QUESTION_PHRASES = {
     "domestic_service": "Which service?",
     "service_code": "Shopify Shipping code not set",
     "domestic_off": "UK labels switched off",
+    "label_check": "Check Shopify for a label",
 }
 # Not something the merchant fills in: these name the problem instead of counting details.
 # The first one present names the badge, so payment (the most basic) comes first.
 NOT_DETAILS = (
     "payment",
+    "label_check",
     "second_label",
     "domestic_off",
     "service_code",
@@ -55,6 +57,7 @@ PROBLEM_TONES = {
     "payment": "critical",
     "second_label": "critical",
     "domestic_off": "neutral",
+    "label_check": "critical",
     "service_code": "critical",
     "domestic_service": "warning",
     "no_rates": "critical",
@@ -262,7 +265,7 @@ def domestic_view(s: Shipment) -> dict[str, Any] | None:
     if not s.domestic:
         return None
     service = domestic.title(s.domestic_service) if s.domestic_service else None
-    if s.domestic_service_by:
+    if s.domestic_service_by and s.domestic_service_line == s.shipping_line:
         why = f"Chosen for this order by {s.domestic_service_by}"
     elif s.domestic_service:
         why = f"From the checkout delivery method “{s.shipping_line}”"
@@ -470,6 +473,8 @@ TIMELINE = {
     "no_rates": "No courier offered a price",
     "payment_outcome_unknown": "Checking whether the label was paid",
     "payment_not_taken": "Not charged: the label wasn't bought",
+    "purchase_not_found": "No label found in Shopify after the lost reply",
+    "label_check_confirmed": "Checked: no label in Shopify",
     "purchase_failed": "Label not bought (nothing charged)",
     "reprinted": "Document printed again",
     "void_requested": "Label cancellation sent",
@@ -720,7 +725,7 @@ def detail(
                     "pages": doc.pages,
                     "copies": doc.copies_required,
                     "must_print": doc.must_print or doc.kind == DocumentKind.shipping_label,
-                    "note": doc.note,
+                    "note": doc.print_note or doc.note,
                     "pdf": doc.media_type == "application/pdf",
                 }
                 for doc in label.documents

@@ -132,9 +132,10 @@ Details live with each app (`docs/shipping/DESIGN.md`, `clive-shipping/OPERATION
     is set by Shopify Shipping, and it appears on the Shopify bill. Owner-accepted.
   - *Not idempotent at Shopify.* CLIVE sends each purchase once and reads it back; it never
     resends. A reply lost before Shopify's reference came back is settled by reading the order:
-    a label found there is adopted but its file can't be fetched (print it from Shopify admin);
-    nothing found counts after 10 minutes. If Shopify ever bought a label without putting it on
-    the order, that case couldn't be seen (unverified; see below).
+    a new label found there is adopted but its file can't be fetched (print it from Shopify
+    admin). If nothing shows within 10 minutes, the order waits for a person to check Shopify
+    admin ("Check Shopify for a label") before it can be bought again, because a label Shopify
+    bought without putting it on the order couldn't be seen (unverified; see below).
   - *Codes.* Shopify publishes no list of carrier/service codes; they must come from Shopify.
   - *Unverified until one real purchase:* whether the purchase creates the Shopify fulfilment
     itself (CLIVE adopts it if so, adds one after two minutes if not), the label file's size and

@@ -36,6 +36,7 @@ FO_FIELDS = """
   id status requestStatus updatedAt
   order { id name email phone cancelledAt currencyCode displayFinancialStatus createdAt
           customer { displayName } shippingLine { title } }
+  deliveryMethod { methodType }
   assignedLocation { name address1 address2 city zip countryCode province phone location { id } }
   destination { firstName lastName company address1 address2 city province zip countryCode phone email }
   fulfillments(first: 10) { nodes { id status trackingInfo { number company url } } }
@@ -158,6 +159,8 @@ class FoSnapshot:
     # The delivery method chosen at checkout (Order.shippingLine.title); None: the order has
     # none (a draft or manual order). Decides a UK label's service (shipping/domestic.py).
     shipping_line: str | None = None
+    # FulfillmentOrder.deliveryMethod.methodType (SHIPPING, PICK_UP, LOCAL...); None: not given.
+    delivery_method: str | None = None
 
     @property
     def open(self) -> bool:
@@ -212,6 +215,7 @@ def parse_fo(node: dict[str, Any]) -> FoSnapshot:
         order_created_at=order.get("createdAt"),
         customer_name=((order.get("customer") or {}).get("displayName") or None),
         shipping_line=((order.get("shippingLine") or {}).get("title") or None),
+        delivery_method=((node.get("deliveryMethod") or {}).get("methodType") or None),
         currency=order.get("currencyCode") or "GBP",
         destination=Address(
             name=" ".join(x for x in (d.get("firstName"), d.get("lastName")) if x),
@@ -356,7 +360,7 @@ Q_SHOP_TIMEZONE = "query ShopTimezone { shop { ianaTimezone } }"
 M_SHIPPING_LABEL_PURCHASE = """
 mutation ShippingLabelPurchase($input: ShippingLabelPurchaseInput!) {
   shippingLabelPurchase(shippingLabelPurchase: $input) {
-    shippingLabelPurchaseResult { id status done }
+    shippingLabelPurchaseResult { id status done errors { code field message } }
     userErrors { field code message }
   }
 }"""
@@ -396,6 +400,9 @@ DOCUMENTS = (
 
 # A label file is a few hundred kilobytes; anything far bigger is not a label.
 MAX_DOCUMENT_BYTES = 10_000_000
+
+# GraphQL error codes Shopify gives when it refused a request before running it.
+PRE_EXECUTION = frozenset({"ACCESS_DENIED", "MAX_COST_EXCEEDED", "BAD_REQUEST"})
 
 
 class LabelApi(Protocol):
@@ -514,20 +521,32 @@ class GraphQLShopify:
             raise ShopifyRefused(f"Shopify refused the request ({r.status_code}).")
         try:
             body = r.json()
-            data = body.get("data") or {}
-            payload = data.get("shippingLabelPurchase")
-            errors = body.get("errors") or []
+            if not isinstance(body, dict):
+                raise ValueError("not an object")
+            data = body.get("data")
+            payload = (data or {}).get("shippingLabelPurchase") if isinstance(data, dict) else None
+            raw = body.get("errors") or []
         except (ValueError, AttributeError) as exc:
             raise ShopifyError("Shopify's answer couldn't be read.") from exc
-        if errors:
-            codes = {(e.get("extensions") or {}).get("code") for e in errors if isinstance(e, dict)}
-            if "THROTTLED" in codes:
+        errors = [e for e in raw if isinstance(e, dict)] if isinstance(raw, list) else []
+        said = "; ".join(str(e.get("message") or "error") for e in errors) or str(raw)
+        started = isinstance(payload, dict) and bool(
+            (payload.get("shippingLabelPurchaseResult") or {}).get("id")
+        )
+        if started:
+            # Shopify gave a result id: the purchase started, whatever else the answer says.
+            # The result is polled and decides.
+            return payload  # type: ignore[return-value]
+        if raw:
+            codes = {(e.get("extensions") or {}).get("code") for e in errors}
+            if codes and codes <= {"THROTTLED"}:
                 raise ShopifyNotSent("Shopify is busy (throttled): the purchase wasn't started.")
-            if payload is None:  # the field never ran (e.g. ACCESS_DENIED for a scope)
-                raise ShopifyRefused(
-                    "; ".join(str(e.get("message", "error")) for e in errors if isinstance(e, dict))
-                )
-            raise ShopifyError("Shopify answered with errors beside a result.")
+            if "data" not in body or (codes and codes <= PRE_EXECUTION):
+                # Refused before the mutation ran: the query was invalid (no data at all) or
+                # the app lacks a scope. Anything else (INTERNAL_SERVER_ERROR, a timeout inside
+                # Shopify) may have happened after the purchase was queued: unknown.
+                raise ShopifyRefused(said)
+            raise ShopifyError(f"Shopify answered with errors ({said}); it may have been done.")
         if not isinstance(payload, dict):
             raise ShopifyError("Shopify's answer had no purchase result in it.")
         return payload
@@ -542,14 +561,18 @@ class GraphQLShopify:
         if not url.startswith("https://"):
             raise ShopifyError("Shopify's document link isn't https.")
         try:
-            r = self._http.get(url, timeout=30, follow_redirects=True)
+            with self._http.stream("GET", url, timeout=30, follow_redirects=True) as r:
+                if r.status_code != 200:
+                    raise ShopifyError(f"The label file couldn't be fetched ({r.status_code}).")
+                body = bytearray()
+                for chunk in r.iter_bytes():
+                    body += chunk
+                    if len(body) > MAX_DOCUMENT_BYTES:
+                        raise ShopifyError("The label file is far larger than a label; not stored.")
+                kind = r.headers.get("content-type", "").split(";")[0].strip()
         except httpx.HTTPError as exc:
             raise ShopifyError(f"The label file couldn't be fetched: {exc}") from exc
-        if r.status_code != 200:
-            raise ShopifyError(f"The label file couldn't be fetched ({r.status_code}).")
-        if len(r.content) > MAX_DOCUMENT_BYTES:
-            raise ShopifyError("The label file is far larger than a label; not stored.")
-        return r.headers.get("content-type", "").split(";")[0].strip(), r.content
+        return kind, bytes(body)
 
     def open_fulfillment_orders(self) -> list[FoSnapshot]:
         out, after = [], None

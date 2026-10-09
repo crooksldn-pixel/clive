@@ -458,6 +458,14 @@ class Store:
                 (shop, ref, json.dumps(doc)),
             )
 
+    def has_label_purchases(self, shop: str) -> bool:
+        return (
+            self._db.execute(
+                "SELECT 1 FROM label_purchases WHERE shop=? LIMIT 1", (shop,)
+            ).fetchone()
+            is not None
+        )
+
     def label_purchase(self, shop: str, ref: str) -> dict[str, Any] | None:
         row = self._db.execute(
             "SELECT doc FROM label_purchases WHERE shop=? AND ref=?", (shop, ref)

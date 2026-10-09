@@ -70,13 +70,13 @@ def test_a_label_that_isnt_4x6_says_what_it_is_and_is_never_scaled(w, sender, si
     s = bought(w)
     doc = label_of(s).document(DocumentKind.shipping_label)
     assert doc is not None and doc.page_size != PageSize.label_4x6
-    assert f"file is {words}, not 4×6" in doc.note and "isn't scaled" in doc.note
+    assert f"file is {words}, not 4×6" in doc.print_note and "isn't scaled" in doc.print_note
     printer = PhysicalPrinting(w.store, sender, 75883753)
     with pytest.raises(PrintError, match="not 4×6"):
         printer.print_label(SHOP, s.id, "george", "print-1")
     sender.print_pdf.assert_not_called()
     body, note = printer.print_view(SHOP, s.id, "george")
-    assert body == w.ss.label_file and note == doc.note  # whole and unchanged, with why
+    assert body == w.ss.label_file and note == doc.print_note  # whole and unchanged, with why
 
 
 def test_a_label_bought_after_a_lost_reply_says_where_to_print_it(w, sender):
@@ -100,7 +100,7 @@ def test_a_zpl_label_is_kept_and_said_to_be_unprintable_here(w):
     w.ss.file_format, w.ss.label_file = "ZPL", b"^XA^FO50,50^FDTEST^FS^XZ"
     s = bought(w)
     doc = label_of(s).document(DocumentKind.shipping_label)
-    assert doc is not None and doc.artifact_id and "as ZPL, not PDF" in doc.note
+    assert doc is not None and doc.artifact_id and "as ZPL, not PDF" in doc.print_note
     with pytest.raises(PrintError, match="as ZPL"):
         PhysicalPrinting(w.store, None, 1).print_view(SHOP, s.id, "george")
 

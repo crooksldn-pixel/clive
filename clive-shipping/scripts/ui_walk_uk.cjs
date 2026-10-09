@@ -116,6 +116,15 @@ function check(ok, what) {
   check(await page.locator(PRIMARY).count() === 0, "3008 offers no buy");
   await shot("09-pending");
 
+  // Shopify said another purchase was running: a person checks Shopify, then allows buying.
+  await open("CROOKS-3014");
+  t = await text();
+  check((await badges())[0] === "Check Shopify for a label", "3014 waits for a person to check Shopify");
+  check(await page.locator(PRIMARY).count() === 0, "3014 offers no buy meanwhile");
+  await shot("09b-label-check");
+  await page.locator('s-button[data-action="answer"]').click(); await page.waitForTimeout(1500);
+  check((await badges())[0] === "Ready", "3014 ready once a person checked");
+
   // International unchanged: price on the button, customs with Review.
   await open("CROOKS-2145");
   t = await text();

@@ -141,7 +141,9 @@ class ShippingService:
     def visible(self, s: Shipment) -> bool:
         """Whether the order is listed. UK orders only while UK labels are switched on; one
         whose label was already bought here stays, as history."""
-        return not s.domestic or self.domestic.enabled or s.label is not None
+        return (
+            not s.domestic or self.domestic.enabled or s.label is not None or s.money_may_have_moved
+        )
 
     # ------------------------------------------------------------------ discovery
 
@@ -156,6 +158,12 @@ class ShippingService:
             origin_country = (cfg.origin.country if cfg.origin else "") or snap.origin.country
             if snap.destination.country == origin_country and not self.domestic.enabled:
                 continue  # domestic, and UK labels are off: Shopify's own flow handles it
+            if (
+                snap.destination.country == origin_country
+                and snap.delivery_method not in (None, "SHIPPING")
+                and self._by_fo(shop, snap.id) is None
+            ):
+                continue  # a UK collection or local delivery: no Royal Mail label for it
             if cfg.origin is None:
                 cfg.origin, cfg.origin_location_id = snap.origin, snap.origin_location_id
                 self.store.save_config(cfg)
@@ -261,6 +269,7 @@ class ShippingService:
         # Every reason at once: an unpaid order still shows its missing weight or HS code.
         s.questions = (
             self._payment_questions(s)
+            + self._label_check(s)
             + self._second_label(s)
             + readiness.questions(
                 self.store,
@@ -375,8 +384,10 @@ class ShippingService:
         asked when the checkout delivery method isn't mapped), else the owner's mapping."""
         if not s.domestic:
             return None
-        if s.domestic_service_by:
+        if s.domestic_service_by and s.domestic_service_line == s.shipping_line:
             return s.domestic_service
+        # No choice, or it was made for a delivery method the order no longer has: the
+        # mapping decides (or a person is asked again).
         return self.domestic.service_for(s.shipping_line)
 
     def _domestic_questions(self, s: Shipment) -> list[Question]:
@@ -420,6 +431,23 @@ class ShippingService:
                 self._event(s, "payment_blocking", "system", {"payment": now.status or None})
             elif was is not None:
                 self._event(s, "payment_cleared", "system", {"payment": now.status})
+
+    def _label_check(self, s: Shipment) -> list[Question]:
+        """A purchase whose outcome the provider couldn't confirm either way (Shopify Shipping's
+        lost reply with nothing found, or another purchase running): never bought again until
+        a person has looked in Shopify admin and says there's no label."""
+        if not s.label_check:
+            return []
+        op = self.store.op(s.shop, s.label_check)
+        return [
+            Question(
+                kind="label_check",
+                subject=s.label_check,
+                text=(op.last_error if op and op.last_error else "")
+                or "CLIVE couldn't confirm whether the last label purchase went through. Check "
+                "the order in Shopify admin for a label before buying again.",
+            )
+        ]
 
     def _second_label(self, s: Shipment) -> list[Question]:
         """Shopify can close a fulfilment order and open another for the same parcel (moved to
@@ -547,6 +575,16 @@ class ShippingService:
             return self._prepare_after_answer(shop, sid)
         if kind == "domestic_service":
             return self._choose_domestic_service(s, value, actor)
+        if kind == "label_check":
+            if value.get("confirm") is not True or not s.label_check:
+                raise ActionError("Confirm that Shopify shows no label for this order.", 422)
+
+            def checked(x: Shipment) -> None:
+                self._event(x, "label_check_confirmed", actor, {"operation": x.label_check})
+                x.label_check = None
+
+            self._commit(s, checked)
+            return self._prepare_after_answer(shop, sid)
         if kind == "package":
             cfg = self.store.config(shop)
             try:
@@ -648,13 +686,14 @@ class ShippingService:
         service = str(value.get("service") or "")
         if service not in domestic.SERVICES:
             raise ActionError("Choose Tracked 24 or Tracked 48.", 422)
-        if not s.domestic_service_by and self.domestic.service_for(s.shipping_line):
+        if self.domestic.service_for(s.shipping_line):
             raise ActionError(
                 "This order's checkout delivery method already decides its service.", 409
             )
 
         def choose(x: Shipment) -> None:
             x.domestic_service, x.domestic_service_by = service, actor
+            x.domestic_service_line = x.shipping_line  # the choice holds for this line only
             self._event(x, "service_chosen", actor, {"service": domestic.title(service)})
 
         self._commit(s, choose)

@@ -74,6 +74,7 @@ class ProviderDocument:
     attach_to_parcel: bool = False
     electronic: bool = False
     note: str = ""
+    print_note: str = ""  # why it can't go to the label printer as it is
 
 
 @dataclass

@@ -698,20 +698,36 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
      bought, the order is ready again). The adapter refuses to send a row already sent.
    - **UNKNOWN.** With the result id: read back (PURCHASED = bought; PURCHASE_FAILED = settled
      at once; pending = wait, alert after an hour, never given up). Without it (lost reply): the
-     fulfilment order is read; a fulfilment with a tracking number is the label, adopted, but
-     its file can't be fetched, so staff are told to print it from Shopify admin and Print is
-     not offered. Nothing found is believed only after Shopify's 10-minute settle window (two
-     reads), and is worded "treats it as not bought", never "you weren't charged".
+     fulfilment order is read; a tracking number that wasn't on it before sending (recorded with
+     the request) is the label, adopted, but its file can't be fetched, so staff are told to
+     print it from Shopify admin and Print is not offered. A fulfilment order Shopify no longer
+     shows can't tell either way and stays unknown. Nothing found for Shopify's 10-minute settle
+     window (two reads) is not taken as "not bought": the order waits in Needs attention ("Check
+     Shopify for a label") until a person has looked in Shopify admin and says there's none.
+     The same applies when Shopify refuses because another purchase is running for the order
+     (JOB_NOT_ENQUEUED, PURCHASE_IN_PROGRESS). A purchase whose "sending" mark was never saved
+     was never sent, and settles at once.
+   - **Shopify's answer.** A result id means the purchase started, whatever else the answer
+     carries. A field error is a refusal only when Shopify never ran the mutation (no `data`,
+     ACCESS_DENIED, MAX_COST_EXCEEDED); an error inside Shopify (INTERNAL_SERVER_ERROR) is
+     UNKNOWN.
    - **After buying.** Each `shippingDocument` (LABEL, CUSTOMS_FORM) is fetched server-side
-     over https, without the app token, stored and measured. Only a portrait 4×6 PDF goes to
+     over https (streamed, capped at 10 MB), without the app token; a file that isn't a readable
+     PDF is never stored and is fetched again later. A label is stored and measured. Only a portrait 4×6 PDF goes to
      the label printer; any other size (US Letter, A4, landscape) is never scaled: PrintNode
      refuses with the reason and the print view opens the file whole with the same note. ZPL is
      kept and said to be unprintable here. CLIVE reads the order first: if Shopify put the
      tracking on the order itself, that fulfilment is adopted; if not within two minutes, CLIVE
      adds one (read-first, as always).
-   - **Verified:** 67 new tests (fake Shopify Shipping that loses replies, stays pending, fails
-     and refuses; HTTP-level one-POST tests; each new guard removed once and a test failed); the
-     admin in a real browser (`scripts/ui_walk_uk.cjs`, 35 checks, desktop and phone,
+   - **Also:** UK collection and local-delivery orders (`deliveryMethod.methodType` not
+     SHIPPING) are left to Shopify. A person's service choice holds only while the order keeps
+     the delivery method it was made for. Turning UK labels off never hides an order whose label
+     may have been paid for, and the provider is still built to finish it. The ledger lets a
+     quote skip the amount checks only when its provider says it can't price before buying.
+   - **Verified:** 91 new tests (fake Shopify Shipping that loses replies, stays pending, fails
+     and refuses; HTTP-level one-POST and error-classification tests; an independent review's
+     findings, each with a test; each guard removed once and a test failed); the admin in a real
+     browser (`scripts/ui_walk_uk.cjs`, 38 checks, desktop and phone,
      `docs/shipping/uk-screens/`); `M_SHIPPING_LABEL_PURCHASE` and `Q_SHIPPING_LABEL_PURCHASE`
      validated at 2026-10.
    - **Not verifiable without a real purchase:** whether a label bought this way creates the

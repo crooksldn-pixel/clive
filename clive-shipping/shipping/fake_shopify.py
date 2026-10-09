@@ -262,6 +262,8 @@ class FakeShopifyShipping:
     not_sent: int = 0  # raise ShopifyNotSent this many times (never reached Shopify)
     user_errors: list[dict] | None = None  # the next mutation answers with these
     lose_reply: bool = False  # buy, then the answer is lost (no result id)
+    no_result_id: bool = False  # buy, then answer without a result id (and no userErrors)
+    tracking_late: int = 0  # reads of a bought label that show no tracking number yet
     pending_polls: int = 0  # polls answered PENDING_PURCHASE before the end
     outcome: str = "PURCHASED"  # or "PURCHASE_FAILED"
     fail_errors: list[dict] = field(
@@ -308,6 +310,9 @@ class FakeShopifyShipping:
         if self.lose_reply:
             self.lose_reply = False
             raise ShopifyError("connection reset after sending")
+        if self.no_result_id:
+            self.no_result_id = False
+            return {"shippingLabelPurchaseResult": None, "userErrors": []}
         return {
             "shippingLabelPurchaseResult": {"id": rid, "status": "PENDING_PURCHASE", "done": False},
             "userErrors": [],
@@ -371,12 +376,16 @@ class FakeShopifyShipping:
                 r["polls_left"] -= 1
             else:
                 self._finish(result_id)
+        labels = copy.deepcopy(r["labels"]) if r["status"] == "PURCHASED" else []
+        if labels and self.tracking_late:
+            self.tracking_late -= 1
+            labels[0]["trackingInfo"] = None
         return {
             "id": result_id,
             "status": r["status"],
             "done": r["status"] != "PENDING_PURCHASE",
             "errors": r["errors"],
-            "shippingLabels": r["labels"] if r["status"] == "PURCHASED" else [],
+            "shippingLabels": labels,
         }
 
     def download(self, url: str) -> tuple[str, bytes]:

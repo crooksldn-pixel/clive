@@ -280,7 +280,10 @@ class Operations:
                         elif op and op.state in (OpState.failed, OpState.abandoned):
                             c.update(
                                 state="failed",
-                                message="Provider confirmed this attempt was not purchased.",
+                                # The ledger's own words: "confirmed not bought" only when the
+                                # provider confirmed it (Shopify Shipping may only find nothing).
+                                message=op.last_error
+                                or "Provider confirmed this attempt was not purchased.",
                             )
                             changed = True
                     elif b["kind"] == "print" and c.get("print_intent"):

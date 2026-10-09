@@ -177,7 +177,7 @@ def test_a_lost_reply_is_unknown_then_the_label_on_the_order_is_adopted(w, clock
     assert len(w.shopify.fulfillments) == 1  # Shopify's own; CLIVE added none
 
 
-def test_a_lost_reply_with_nothing_on_the_order_waits_the_settle_window(w, clock):
+def test_a_lost_reply_with_nothing_on_the_order_waits_for_a_person_to_check(w, clock):
     s = w.ready()
     w.ss.lose_reply, w.ss.outcome = True, "PURCHASE_FAILED"  # in truth nothing was bought
     w.buy(s)
@@ -189,11 +189,20 @@ def test_a_lost_reply_with_nothing_on_the_order_waits_the_settle_window(w, clock
         w.svc.purchases.reconcile_all()
         assert w.get(s.id).status == S.reconciliation_required
     clock.advance(minutes=2)  # 11 minutes since the first look found nothing
-    w.svc.purchases.reconcile_all()
+    w.svc.tick(SHOP)
     after = w.get(s.id)
-    assert after.status == S.ready and w.op(s.id).state == OpState.abandoned
-    assert "treats it as not bought" in (after.last_error or "")  # never "you weren't charged"
+    # Nothing found is not "not bought": the order waits for a person, never Ready by itself.
+    assert after.status == S.needs_attention and w.op(s.id).state == OpState.abandoned
+    assert [q.kind for q in after.questions] == ["label_check"]
+    assert "can't confirm either way" in after.questions[0].text
+    assert "weren't charged" not in (after.last_error or "")
+    assert not any(e.type == "payment_not_taken" for e in after.timeline)
+    with pytest.raises(ActionError):
+        w.svc.preview(SHOP, s.id)
     assert len(w.ss.purchases) == 1 and w.ss.labels_bought == 0
+
+    s = w.svc.answer(SHOP, s.id, "label_check", s.id, {"confirm": True}, "george")
+    assert s.status == S.ready and s.label_check is None
     w.ss.outcome = "PURCHASED"
     assert w.buy(w.get(s.id), key="k3")["charged"] and len(w.ss.purchases) == 2
 

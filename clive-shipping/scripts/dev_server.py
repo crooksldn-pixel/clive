@@ -388,7 +388,8 @@ def seed_states(svc: ShippingService, shopify: FakeShopify, provider: DevProvide
 def seed_uk(svc: ShippingService, shopify: FakeShopify, uk: FakeShopifyShipping) -> None:
     """UK orders through Shopify Shipping: ready (24 and 48), a checkout line that isn't
     mapped, an order with none, a label Shopify fulfilled, a label Shopify gave as US Letter,
-    one adopted after a lost reply, and one still being bought."""
+    one adopted after a lost reply, one still being bought, and one waiting for a person to
+    check Shopify for a label."""
     order(shopify, 3001, [tee_line(qty=2)], "GB", "Tracked 24")
     order(shopify, 3002, [tee_line()], "GB", "Tracked 48")
     order(shopify, 3003, [tee_line()], "GB", "Next day by 1pm")
@@ -405,6 +406,13 @@ def seed_uk(svc: ShippingService, shopify: FakeShopify, uk: FakeShopifyShipping)
     uk.pending_polls = 10**6  # Shopify still buying: the purchase is being checked
     buy(svc, 3008, "seed-3008")
     uk.pending_polls = 0
+    # Shopify says another purchase is running for the order: a person checks Shopify first.
+    order(shopify, 3014, [tee_line()], "GB", "Tracked 48")
+    svc.sync(SHOP)
+    uk.outcome = "PURCHASE_FAILED"
+    uk.fail_errors = [{"code": "JOB_NOT_ENQUEUED", "message": "Another label is being bought"}]
+    buy(svc, 3014, "seed-3014")
+    uk.outcome = "PURCHASED"
 
 
 class DevPrintNode:

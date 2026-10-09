@@ -83,12 +83,16 @@ REASONS = {
 }
 
 
-def reason(errors: list[dict[str, Any]]) -> tuple[str, str]:
-    """(code, words) for Shopify's errors."""
-    code = str((errors[0] or {}).get("code") or "") if errors else ""
-    words = [REASONS.get(str(e.get("code") or ""), str(e.get("message") or "")) for e in errors]
-    said = " ".join(dict.fromkeys(w for w in words if w)) or "Shopify gave no reason."
-    return code, said
+def reason(errors: Any) -> tuple[str, str]:
+    """(code, words) for Shopify's errors, without a closing full stop (callers add theirs).
+    Anything that isn't a list of objects is said as it is."""
+    items = errors if isinstance(errors, list) else [errors] if errors else []
+    found = [e if isinstance(e, dict) else {"message": str(e)} for e in items]
+    code = next((str(e["code"]) for e in found if e.get("code")), "")
+    words = [REASONS.get(str(e.get("code") or ""), str(e.get("message") or "")) for e in found]
+    said = " ".join(dict.fromkeys(w.strip() for w in words if w.strip()))
+    said = said or "Shopify gave no reason"
+    return code, said.rstrip(".")
 
 
 class ShopifyShipping:
@@ -103,11 +107,17 @@ class ShopifyShipping:
     # After PURCHASED, how long Shopify gets to put the label's tracking on the order itself
     # before CLIVE adds the fulfilment (read first, as always).
     fulfil_grace = timedelta(minutes=2)
+    # Shopify has no rates query for apps: a quote's price is never known before buying.
+    price_before_buying = False
+    # Refusals that mean a purchase may already be running for the order: a person looks
+    # before another buy (purchase._fail with check).
+    check_codes = frozenset({"JOB_NOT_ENQUEUED", "PURCHASE_IN_PROGRESS"})
+    check_where = "Shopify admin"
     # What staff are told when a lost reply is settled by finding nothing (never "confirmed").
     not_found = (
-        "Shopify showed no label on this order for 10 minutes after the request whose answer "
-        "was lost, so CLIVE treats it as not bought. Check the order in Shopify admin for a "
-        "label before buying again."
+        "Shopify's answer to the label purchase was lost, and no new label has shown on this "
+        "order in 10 minutes. CLIVE can't confirm either way. Check the order in Shopify admin: "
+        "if there's no label, say so here and it can be bought again."
     )
 
     def __init__(
@@ -237,7 +247,22 @@ class ShopifyShipping:
             raise ProviderUncertain(
                 "This label purchase was already sent once; CLIVE reads it back, never resends."
             )
-        self._save(ref, row, state="sending", sent_at=self.clock().isoformat())
+        # What the order already carries, so a label found after a lost reply is only ever a
+        # new one (a part-fulfilled order has earlier tracking numbers). A read: if it fails,
+        # nothing is sent.
+        try:
+            before = self.shopify.fulfillment_order(row["fulfillment_order_id"])
+        except ShopifyError as exc:
+            self._save(ref, row, state="not_sent", error=f"pre-read failed: {exc}")
+            raise ProviderUnavailable(f"Shopify didn't answer before buying: {exc}") from exc
+        tracking_before = list(before.tracking_numbers) if before is not None else []
+        self._save(
+            ref,
+            row,
+            state="sending",
+            sent_at=self.clock().isoformat(),
+            tracking_before=tracking_before,
+        )
         try:
             payload = self.api.purchase_label(row["purchase"])
         except ShopifyNotSent as exc:
@@ -249,13 +274,14 @@ class ShopifyShipping:
         except ShopifyError as exc:
             self._save(ref, row, state="unknown", error=str(exc))
             raise ProviderUncertain(str(exc)) from exc
+        result = payload.get("shippingLabelPurchaseResult")
+        result = result if isinstance(result, dict) else {}
+        rid = result.get("id")
         errors = payload.get("userErrors") or []
-        if errors:
+        if errors and not rid:  # a result id means it started: the result decides, not these
             code, said = reason(errors)
-            self._save(ref, row, state="refused", error=said, codes=[e.get("code") for e in errors])
+            self._save(ref, row, state="refused", error=said, code=code)
             raise ProviderRefused(said, code=code)
-        result = payload.get("shippingLabelPurchaseResult") or {}
-        rid = result.get("id") if isinstance(result, dict) else None
         if not rid:
             self._save(ref, row, state="unknown", error="no result id in Shopify's answer")
             raise ProviderUncertain("Shopify answered without saying whether it started buying.")
@@ -298,17 +324,37 @@ class ShopifyShipping:
                 self._save(ref, row, state="failed")
                 return OrderReadback(paid=False, failed=True)
             return OrderReadback(paid=False, pending=True)  # pending, or not visible yet
+        if not row.get("sent_at"):
+            # "sending" is saved before the request: without it, nothing was ever sent.
+            return OrderReadback(paid=False, failed=True)
         # The reply was lost: Shopify's result can't be found. A label shows on the order as a
-        # fulfilment with a tracking number on this fulfillment order.
+        # fulfilment with a tracking number on this fulfillment order that wasn't there before.
         try:
             snap = self.shopify.fulfillment_order(row["fulfillment_order_id"])
         except ShopifyError as exc:
             raise ProviderUnavailable(f"Shopify didn't answer the read-back: {exc}") from exc
-        numbers = snap.tracking_numbers if snap is not None else []
-        if numbers:
-            self._save(ref, row, state="adopted", adopted_tracking=numbers[0])
+        if snap is None:  # can't tell from an order Shopify no longer shows
+            raise ProviderUnavailable("Shopify no longer shows this fulfilment order.")
+        before = set(row.get("tracking_before") or [])
+        new = [n for n in snap.tracking_numbers if n not in before]
+        if new:
+            self._save(ref, row, state="adopted", adopted_tracking=new[0])
             return OrderReadback(paid=True)
         return OrderReadback(paid=False)
+
+    def tracking(self, ref: str) -> tuple[str | None, str | None]:
+        """The label's tracking number and link, when Shopify gave none at first (a read)."""
+        row = self._row(ref)
+        if not row.get("result_id"):
+            return row.get("adopted_tracking"), None
+        try:
+            result = self.api.label_purchase(row["result_id"]) or {}
+        except ShopifyError as exc:
+            raise ProviderUnavailable(f"Shopify didn't answer: {exc}") from exc
+        labels = [x for x in result.get("shippingLabels") or [] if isinstance(x, dict)]
+        info = (labels[0].get("trackingInfo") or {}) if labels else {}
+        url = str(info.get("url") or "")
+        return info.get("number") or None, url if url.startswith("https://") else None
 
     def documents(self, ref: str) -> Documents:
         """The bought label's files, fetched from Shopify's links and measured as they are."""
@@ -332,14 +378,15 @@ class ShopifyShipping:
             raise ProviderUnavailable(f"Shopify didn't answer: {exc}") from exc
         if result.get("status") == FAILED:
             raise ProviderRefused("Shopify says this purchase failed.", code="unpaid")
-        labels = result.get("shippingLabels") or []
+        labels = [x for x in result.get("shippingLabels") or [] if isinstance(x, dict)]
         if result.get("status") != PURCHASED or not labels:
             raise ProviderUnavailable("Shopify hasn't finished the label yet.")
         label = labels[0]
         tracking = label.get("trackingInfo") or {}
         docs: list[ProviderDocument] = []
         for d in label.get("shippingDocuments") or []:
-            docs.append(self._document(d))
+            if isinstance(d, dict):
+                docs.append(self._document(d))
         if not any(d.kind == DocumentKind.shipping_label for d in docs):
             raise ProviderUnavailable("Shopify's label has no label document yet.")
         customs = (
@@ -372,7 +419,7 @@ class ShopifyShipping:
         except ShopifyError as exc:
             raise ProviderUnavailable(f"The label file couldn't be fetched: {exc}") from exc
         what = "label" if kind == DocumentKind.shipping_label else "customs form"
-        if d.get("format") != "PDF" or not body.startswith(b"%PDF"):
+        if d.get("format") != "PDF":
             # Kept for the record; it can't be printed from here (the print paths need a PDF).
             return ProviderDocument(
                 kind=kind,
@@ -380,15 +427,21 @@ class ShopifyShipping:
                 media_type="application/octet-stream",
                 must_print=True,
                 attach_to_parcel=True,
-                note=f"Shopify gave the {what} as {d.get('format') or 'an unknown format'}, "
-                "not PDF, so it can't be printed from here. Set Shopify's label format to PDF, "
+                print_note=f"Shopify gave the {what} as {d.get('format') or 'an unknown format'}"
+                ", not PDF, so it can't be printed from here. Set Shopify's label format to PDF, "
                 "or print it from the order in Shopify admin.",
             )
         try:
+            if not body.startswith(b"%PDF"):
+                raise ValueError("not a PDF")
             size, pages, words = measure(body)
-        except ValueError:
-            size, pages, words = PageSize.other, 0, "unreadable"
-        note = (
+        except ValueError as exc:
+            # Said to be a PDF but isn't one, or broken (an error page, a cut-off download):
+            # never stored as the label. Fetched again later; an hour of it raises an alert.
+            raise ProviderUnavailable(
+                f"Shopify's {what} file isn't a readable PDF ({exc})."
+            ) from exc
+        print_note = (
             ""
             if size == PageSize.label_4x6
             else f"Shopify's {what} file is {words}, not 4×6. It isn't scaled to fit: print it "
@@ -403,5 +456,5 @@ class ShopifyShipping:
             copies_required=1,
             must_print=True,
             attach_to_parcel=True,
-            note=note,
+            print_note=print_note,
         )

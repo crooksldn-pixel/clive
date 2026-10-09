@@ -120,10 +120,10 @@ class PhysicalPrinting:
         if s.label.file_note:  # bought, but its file can't be fetched here (it says where)
             raise PrintError(s.label.file_note)
         doc = s.label.document(DocumentKind.shipping_label)
-        if doc and doc.artifact_id and doc.page_size != PageSize.label_4x6 and doc.note:
+        if doc and doc.artifact_id and doc.print_note:
             # The provider's file isn't a 4x6 label (e.g. Shopify's set to Letter): say so; it
             # is never scaled to fit the label printer.
-            raise PrintError(doc.note)
+            raise PrintError(doc.print_note)
         if not doc or not doc.artifact_id or doc.page_size != PageSize.label_4x6:
             raise PrintError("No stored dedicated 4x6 shipping label is available.")
         artifact = self.store.get_artifact(shop, doc.artifact_id)
@@ -351,8 +351,8 @@ class PhysicalPrinting:
         artifact = (
             self.store.get_artifact(shop, doc.artifact_id) if doc and doc.artifact_id else None
         )
-        if doc and artifact and artifact[1] != "application/pdf" and doc.note:
-            raise PrintError(doc.note)  # e.g. Shopify gave the label as ZPL
+        if doc and artifact and artifact[1] != "application/pdf" and doc.print_note:
+            raise PrintError(doc.print_note)  # e.g. Shopify gave the label as ZPL
         if not doc or not artifact or artifact[1] != "application/pdf":
             raise PrintError("The label file isn't stored yet; try again in a minute.", 503)
         try:
@@ -365,7 +365,7 @@ class PhysicalPrinting:
         except PrintError:
             # Not all 4x6 label pages (e.g. A4 paperwork in it, or Shopify's label set to
             # Letter): the whole original, unscaled, so nothing on it is lost.
-            return artifact[2], doc.note or (
+            return artifact[2], doc.print_note or (
                 "The label file isn't all 4×6 pages, so it is shown whole: print every page "
                 "that goes on the parcel."
             )

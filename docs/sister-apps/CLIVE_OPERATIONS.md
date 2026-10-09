@@ -57,9 +57,9 @@ does. This page is the shared shape; the details are in `clive-shipping/shipping
 - **Shopify's purchase isn't idempotent.** Shipping sends it once per purchase operation and
   reads it back after a lost reply; the same `idempotency_key` replays as always. A reply lost
   before Shopify's reference came back is settled by reading the order: a label found there is
-  adopted (its file can't be fetched: `label.file_note` says to print it from Shopify admin);
-  nothing found counts only after 10 minutes, and the order goes back to `ready` saying it is
-  treated as not bought (not "confirmed unpaid").
+  adopted (its file can't be fetched: `label.file_note` says to print it from Shopify admin).
+  If nothing shows within 10 minutes, the order is `attention` with the question `label_check`:
+  only a person who has looked in Shopify admin can release it. CLIVE can't answer it.
 - Print and reprint work the same way. A label file that isn't 4×6 is never scaled: `print`
   answers 409 with the reason (e.g. "Shopify's label file is US Letter, not 4×6 ...").
 

@@ -238,6 +238,9 @@ class ShipmentDocument(BaseModel):
     attach_to_parcel: bool = False
     electronic: bool = False
     note: str = ""
+    # Why this file can't go to the label printer as it is (e.g. Shopify's label is US Letter):
+    # shown instead of printing it scaled. "" for anything else.
+    print_note: str = ""
 
 
 class Label(BaseModel):
@@ -354,8 +357,13 @@ class Shipment(BaseModel):
     # Domestic only: the Royal Mail service for this order ("tracked_24" / "tracked_48"), from
     # the owner's mapping of `shipping_line` or a person's choice; None: not decided.
     domestic_service: str | None = None
-    # Who chose the service when the shipping line isn't mapped (None: the mapping decided).
+    # Who chose the service when the shipping line isn't mapped (None: the mapping decided),
+    # and the shipping line it was chosen for: a different line later voids the choice.
     domestic_service_by: str | None = None
+    domestic_service_line: str | None = None
+    # A purchase (ledger operation id) whose outcome Shopify couldn't confirm either way: the
+    # order waits until a person has checked Shopify admin for a label (service.label_check).
+    label_check: str | None = None
     currency: str = "GBP"
     lines: list[CustomsLine] = Field(default_factory=list)
     package: PackagePlan | None = None

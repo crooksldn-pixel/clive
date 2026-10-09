@@ -32,6 +32,7 @@ from shipping.models import (
     Label,
     OpState,
     ProviderOp,
+    Question,
     Quote,
     Shipment,
     ShipmentDocument,
@@ -80,8 +81,10 @@ class Purchases:
         provider: ShippingProvider,
         clock: Callable[[], datetime] = now,
         confirm_unpaid_after: timedelta = timedelta(minutes=2),
-        # Must exceed the longest provider call (httpx: 10 s connect + 30 s read), so a
-        # sweep never mistakes a request still in flight for an interrupted one.
+        # Must exceed the longest provider call (httpx: 10 s connect + 30 s read; Shopify
+        # Shipping's pay: one POST, then up to 60 s of polling and a last read), so a sweep
+        # never mistakes a request still in flight for an interrupted one. If one ever did,
+        # it is still safe: the sweep marks it unknown and the read-back decides.
         interrupted_after: timedelta = timedelta(minutes=5),
         escalate_after: timedelta = timedelta(hours=1),
         confirm_paperless_after: timedelta = timedelta(minutes=2),
@@ -270,7 +273,7 @@ class Purchases:
                 event="purchase_authorised",
                 detail={
                     "operation": op.id,
-                    "amount": str(op.amount),
+                    "amount": self._amount(op),
                     "service": s.quote.title,
                 },
             )
@@ -290,23 +293,54 @@ class Purchases:
             s.alerts.append(text)
             self._event(s, "alert", "system", {"text": text})
 
-    def _fail(self, op: ProviderOp, why: str, *, state: OpState = OpState.failed) -> None:
+    def _fail(
+        self, op: ProviderOp, why: str, *, state: OpState = OpState.failed, check: bool = False
+    ) -> None:
         # One transaction: the operation closes and the shipment is freed together, or
         # neither (a crash in between would otherwise strand the shipment with no open op).
+        # `check`: the answer leaves a person to look in the provider first (e.g. another
+        # purchase already running), so the order waits for them instead of being ready.
         with self.store.atomic():
             op.state, op.last_error = state, why
             self._save_op(op)
             s = self._get(op.shop, op.shipment_id)
             s.last_error = why
-            move(
-                s,
-                S.ready,
-                at=self.clock(),
-                actor="system",
-                event="purchase_failed",
-                detail={"operation": op.id, "why": why, "charged": False},
-            )
+            if check:
+                self._hold_for_check(s, op, why, event="purchase_failed")
+            else:
+                move(
+                    s,
+                    S.ready,
+                    at=self.clock(),
+                    actor="system",
+                    event="purchase_failed",
+                    detail={"operation": op.id, "why": why, "charged": False},
+                )
             self.store.save(s)
+
+    def _hold_for_check(self, s: Shipment, op: ProviderOp, why: str, *, event: str) -> None:
+        """The order waits in Needs attention until a person has looked in the provider for a
+        label and says there is none (service.answer "label_check"). Never bought meanwhile."""
+        s.label_check = op.id
+        s.questions = [Question(kind="label_check", subject=op.id, text=why)]
+        move(
+            s,
+            S.needs_attention,
+            at=self.clock(),
+            actor="system",
+            event=event,
+            detail={"operation": op.id, "why": why, "found": False},
+        )
+
+    def _amount(self, op: ProviderOp) -> str:
+        """The authorised amount in words; never a made-up £0.00 for an unpriced label."""
+        q = op.quote
+        return str(op.amount) if q is None or q.price_known else f"the price {self._who(op)} set"
+
+    def _price_before_buying(self, op: ProviderOp) -> bool:
+        """Whether the provider that owns this order can say its price before buying. Only a
+        provider that says it can't (Shopify Shipping) lets a quote skip the amount checks."""
+        return bool(getattr(self._owner(op), "price_before_buying", True))
 
     def _advance(self, op: ProviderOp) -> None:
         try:
@@ -360,9 +394,10 @@ class Purchases:
                 op.provider_ref = order.ref
                 op.state = OpState.order_created
                 self._save_op(op)
-                if not quote.price_known:
+                if not quote.price_known and not self._price_before_buying(op):
                     # The provider sets the price when buying and can't say it first (Shopify
-                    # Shipping, owner-accepted for UK labels): there is no amount to check.
+                    # Shipping, owner-accepted for UK labels): there is no amount to check. A
+                    # stray flag on another provider's quote never skips the checks below.
                     continue
                 if order.amount_minor <= 0:
                     self._fail(
@@ -392,6 +427,19 @@ class Purchases:
                 try:
                     self.provider.pay(ref)
                 except (ProviderRefused, ProviderUnavailable) as exc:
+                    if isinstance(exc, ProviderRefused) and exc.code in getattr(
+                        self._owner(op), "check_codes", ()
+                    ):
+                        # Refused because a purchase may already be running for this order:
+                        # nothing bought by this attempt, but a person looks before another.
+                        where = getattr(self._owner(op), "check_where", self._who(op))
+                        self._fail(
+                            op,
+                            f"{self._who(op)} didn't buy this label: {exc}. Check the order in "
+                            f"{where} for a label before buying again.",
+                            check=True,
+                        )
+                        return
                     self._fail(
                         op,
                         f"{self._who(op)} didn't take the payment: {exc}. You weren't charged.",
@@ -445,7 +493,7 @@ class Purchases:
                 log.error("operation %s paid but shipment %s is %s", op.id, s.id, s.status)
                 self._alert(
                     s,
-                    f"Paid for: {self._who(op)} took {op.amount} for this order (CLIVE "
+                    f"Paid for: {self._who(op)} took {self._amount(op)} for this order (CLIVE "
                     f"reference {op.id}), but the order was '{s.status.value}' at the time, so "
                     "the label wasn't recorded automatically. Check it before buying again.",
                 )
@@ -470,7 +518,7 @@ class Purchases:
                 at=self.clock(),
                 actor=op.actor,
                 event="label_purchased",
-                detail={"operation": op.id, "amount": str(op.amount), "how": how},
+                detail={"operation": op.id, "amount": self._amount(op), "how": how},
                 verified=True,
             )
             self.store.save(s)
@@ -526,6 +574,7 @@ class Purchases:
                     attach_to_parcel=doc.attach_to_parcel,
                     electronic=doc.electronic,
                     note=doc.note,
+                    print_note=doc.print_note,
                 )
             customs = docs.customs if docs.customs != CustomsMode.unknown else was
             now = self.clock()
@@ -660,7 +709,7 @@ class Purchases:
                 unconfirmed = None if seen.failed else getattr(self._owner(op), "not_found", None)
                 with self.store.atomic():
                     op.state = OpState.abandoned
-                    op.last_error = (
+                    op.last_error = unconfirmed or (
                         "The provider says this attempt failed; it is never paid."
                         if seen.failed
                         else "Confirmed unpaid twice; this provider order is never paid."
@@ -679,7 +728,13 @@ class Purchases:
                         )
                         self.store.save(s)
                         return
-                    s.last_error = unconfirmed or (
+                    if unconfirmed is not None:
+                        # Nothing found is not "not bought": a person checks before any rebuy.
+                        s.last_error = unconfirmed
+                        self._hold_for_check(s, op, unconfirmed, event="purchase_not_found")
+                        self.store.save(s)
+                        return
+                    s.last_error = (
                         "You weren't charged: the provider confirms the payment "
                         "didn't go through. Buy again when you're ready."
                     )
@@ -689,10 +744,8 @@ class Purchases:
                         at=at,
                         actor="system",
                         event="payment_not_taken",
-                        detail={"operation": op.id, "charged": False}
-                        if unconfirmed is None
-                        else {"operation": op.id, "found": False},
-                        verified=unconfirmed is None,
+                        detail={"operation": op.id, "charged": False},
+                        verified=True,
                     )
                     self.store.save(s)
         elif op.state == OpState.paid:

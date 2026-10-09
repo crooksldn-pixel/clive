@@ -63,12 +63,14 @@ def build_provider(settings: Settings, store: Store) -> ShippingProvider:
 
 
 def build_domestic(settings: Settings, store: Store, shopify: Any) -> ShippingProvider | None:
-    """Shopify Shipping for UK labels, when the owner switched them on. It buys through the
-    same Shopify app as everything else (scopes: write_orders and
-    write_merchant_managed_fulfillment_orders)."""
+    """Shopify Shipping for UK labels. It buys through the same Shopify app as everything else
+    (scopes: write_orders and write_merchant_managed_fulfillment_orders). Built when UK labels
+    are on, and also after they were switched off if this shop ever bought one here, so a
+    purchase begun while they were on is still read back and finished; nothing new is bought
+    then (service.prepare and _revalidate refuse UK orders)."""
     policy = settings.domestic()
-    if not policy.enabled:
-        return None
+    if not policy.enabled and not store.has_label_purchases(settings.shop_domain):
+        return None  # never used here: international-only, exactly as before
     from shipping.providers.shopify_shipping import ShopifyShipping
 
     if settings.shopify_backend == "fake":
@@ -135,7 +137,8 @@ def connection_status(settings: Settings, svc: ShippingService) -> dict[str, Any
         }
         return {**one, "providers": [one]}
     providers = getattr(svc.provider, "providers", None) or [svc.provider]
-    rows = [_check(settings, p) for p in providers]
+    uk = settings.domestic().enabled
+    rows = [_check(settings, p) for p in providers if uk or not getattr(p, "domestic_only", False)]
     if not (settings.p2g_client_id and settings.p2g_client_secret):
         rows = [r for r in rows if r["provider"] != "Parcel2Go"] + [
             {
@@ -146,7 +149,9 @@ def connection_status(settings: Settings, svc: ShippingService) -> dict[str, Any
             }
         ]
     first = rows[0]
-    return {**first, "connected": all(r["connected"] for r in rows), "providers": rows}
+    # The headline is the international connection; Shopify Shipping's row says its own state.
+    intl = [r for r in rows if r["provider"] != "Shopify Shipping"] or rows
+    return {**first, "connected": all(r["connected"] for r in intl), "providers": rows}
 
 
 def _check(settings: Settings, p: Any) -> dict[str, Any]:

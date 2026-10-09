@@ -474,6 +474,11 @@ function questionForm(q, i) {
     fields = packageFields(id);
   } else if (q.kind === "second_label") {
     save = `<s-button data-action="answer" data-q="${i}">It's a second parcel</s-button>`;
+  } else if (q.kind === "label_check") {
+    // Only a person who has looked in Shopify admin can say there's no label.
+    const id = state.shipment.order_admin_id;
+    save = (id ? `<s-button href="shopify://admin/orders/${esc(id)}" target="_top">Open the order in Shopify</s-button>` : "") +
+      `<s-button data-action="answer" data-q="${i}">No label in Shopify: allow buying</s-button>`;
   } else if (q.kind === "domestic_service") {
     // Only for this order; which checkout delivery method gets which service is set on the server.
     save = `<s-button data-action="answer" data-q="${i}" data-service="tracked_24">Tracked 24</s-button>
@@ -556,7 +561,7 @@ function renderShipment() {
     top += banner({ tone: "critical", heading: "Label purchased — Shopify update needs retry",
       text: d.error || "The label is bought. Only Shopify needs updating.",
       action: "retry-shopify", actionLabel: "Retry Shopify update" });
-  } else if (d.error && !["Fulfilled"].includes(d.status.label)) {
+  } else if (d.error && !["Fulfilled"].includes(d.status.label) && !d.questions.some((q) => q.text === d.error)) {
     top += banner({ tone: "warning", heading: "Last attempt", text: d.error });
   }
   for (const a of d.alerts) top += banner({ tone: "warning", heading: "Check this order", text: a });
@@ -1243,10 +1248,12 @@ const ACTIONS = {
       width_cm: Number(val(`${id}-w`)), height_cm: Number(val(`${id}-h`)), empty_weight_g: Number(val(`${id}-g`)) };
     else if (q.kind === "second_label") value = { confirm: true };
     else if (q.kind === "domestic_service") value = { service: el.dataset.service };
+    else if (q.kind === "label_check") value = { confirm: true };
     await withButton(el, async () => {
       await shipmentAction("/answer", { kind: q.kind, subject: q.subject, value });
       toast(q.kind === "second_label" ? "Confirmed: a second parcel. Check the price before buying."
         : q.kind === "domestic_service" ? "Service saved for this order."
+        : q.kind === "label_check" ? "Noted: no label in Shopify. Check the order before buying."
         : "Saved. CLIVE won't ask again for this product.");
     });
   },

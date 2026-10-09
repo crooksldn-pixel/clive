@@ -50,7 +50,8 @@ def parse_lines(raw: str) -> dict[str, str]:
             continue
         title, sep, value = part.rpartition("=")
         key, digits = norm(title), value.strip()
-        if not sep or not key:
+        if not sep or not key or "=" in key:
+            # "=" in a title means two entries ran together (e.g. a comma for a semicolon).
             raise ValueError(f"'{part.strip()}' should read 'Shipping line title=24' (or =48).")
         if digits not in BY_DIGITS:
             raise ValueError(f"'{part.strip()}' maps to '{digits}': only 24 or 48 are allowed.")
