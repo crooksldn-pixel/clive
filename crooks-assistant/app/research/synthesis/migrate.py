@@ -127,8 +127,13 @@ def resort(links: list[dict[str, Any]], unlinked: list[dict[str, Any]], ideas: d
             tally["now worth looking into"] += 1
     old_018 = [x for x in [*links, *unlinked] if "DEC-018" in x["cites"]]
     held_ideas = [i for i in ideas.values() if i.get("status") == "active" and "DEC-018" in (i.get("timing_held_by") or [])]
+    # [review 2] Ideas DEC-018 doesn't hold because CLIVE reads them as on its own finish list: the Director
+    # audits these before a generation is applied.
+    finish = [i for i in ideas.values() if i.get("status") == "active" and i.get("serves_dec_018")]
     return {"old_parks_and_rejects": rows, "resorted": tally, "unlinked": len(unlinked),
             "dec_018": {"old_proposals_citing_it": len(old_018),
                         "ideas_it_holds": len(held_ideas),
                         "of_those_called_right": sum(1 for i in held_ideas
-                                                     if (i.get("answers") or {}).get("judgment") in ("ADOPT", "ADOPT_PARTLY"))}}
+                                                     if (i.get("answers") or {}).get("judgment") in ("ADOPT", "ADOPT_PARTLY")),
+                        "on_its_finish_list": [{"idea": i["id"], "name": i.get("name", ""), "item": i["serves_dec_018"]}
+                                               for i in finish]}}

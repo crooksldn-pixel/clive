@@ -189,7 +189,7 @@ def enforce(idea: dict[str, Any], raw: dict[str, Any], *, the_map: Map, previous
     # What the judgment rests on: the keys named as its basis, those it contradicts, and those its reason cites.
     cited = [k for k in (_key(m, the_map) for m in _MENTION.findall(idea["reasons"]["judgment"])) if k]
     basis = list(dict.fromkeys(basis + [k["key"] for k in keys if k["how"] == "contradicts"] + cited))
-    _hold_dec_018(answers, keys, basis, held, idea, notes)
+    _hold_dec_018(answers, keys, basis, held, idea, notes, the_map)
     _reject_needs_a_rule(answers, keys, basis, the_map, idea, notes)
     _vetoes(idea, raw, answers, keys, basis, the_map, notes)
     idea["answers"] = answers
@@ -220,17 +220,48 @@ def _keys(raw: dict[str, Any], the_map: Map) -> tuple[list[dict[str, str]], list
     return keys, list(dict.fromkeys(held))
 
 
-def _hold_dec_018(answers, keys, basis, held, idea, notes) -> None:
-    """DEC-018 can only move timing. Never what a judgment rests on: as the reason against an idea it
-    goes to timing_held_by, and a judgment that rested on it alone is Right direction. DEC-018 may still
-    be a key an idea serves (finishing reliability is on its own list); then it holds nothing back."""
+def grounds(keys: list[dict[str, str]], the_map: Map) -> list[str]:
+    """[review 2, 4] What a judgment against an idea may stand on: a rule that never bends, or an ACTIVE
+    decision other than DEC-018, that the idea contradicts. A feature, what is live, an idea, or a key
+    that is only related never is."""
+    return [k["key"] for k in keys if k["how"] == "contradicts" and (
+        k["key"].startswith("RULE-") or (k["key"] != HOLDS_TIMING and _active_decision(the_map, k["key"])))]
+
+
+# DEC-018's own finish list, and the words that name each item in a reason.
+FINISH_LIST = (("always-on deployment", r"\bdeploy"), ("UI", r"\bUI\b|\bscreens?\b"),
+               ("response quality", r"\bresponse|\banswer quality"), ("reliability", r"\breliab"),
+               ("device experience", r"\bdevices?\b|\btablet|\bphone"), ("error cleanup", r"\berrors?\b"))
+
+
+def _finish_item(idea: dict[str, Any]) -> str:
+    said = f"{idea['reasons']['judgment']} {idea['reasons']['timing']}"
+    return next((item for item, words_ in FINISH_LIST if re.search(words_, said, re.I)), "")
+
+
+def _hold_dec_018(answers, keys, basis, held, idea, notes, the_map) -> None:
+    """DEC-018 can only move timing. Never what a judgment rests on: any DEC-018 key the idea contradicts,
+    or that holds its timing, is a hold (timing_held_by), whatever the judgment, and leaves the keys, so
+    it can never be a clash either. A judgment against an idea that rested on DEC-018 with no other
+    ground (grounds()) is Right direction. DEC-018 may still be a key an idea serves (its own finish
+    list); then it holds nothing back, and a note on When says so."""
+    dec = [k for k in keys if k["key"] == HOLDS_TIMING]
     against = HOLDS_TIMING in basis and answers["judgment"] not in POSITIVE
+    holding = against or HOLDS_TIMING in held or any(k["how"] in ("contradicts", "holds timing") for k in dec)
     basis[:] = [b for b in basis if b != HOLDS_TIMING]
-    if against or HOLDS_TIMING in held:
+    idea["serves_dec_018"] = ""
+    if holding:
         keys[:] = [k for k in keys if not (k["key"] == HOLDS_TIMING and k["how"] in ("contradicts", "holds timing"))]
         if HOLDS_TIMING not in held:
             held.append(HOLDS_TIMING)
-    if against and not basis:
+    elif any(k["how"] == "serves" for k in dec):
+        item = _finish_item(idea)
+        note = (f"Not held by DEC-018: it is on DEC-018's own finish list ({item})." if item else
+                "Not held by DEC-018: CLIVE reads it as on DEC-018's own finish list.")
+        notes.append(note)
+        idea["serves_dec_018"] = item or "unnamed"
+        idea["reasons"]["timing"] = line(f"{idea['reasons']['timing']} {note}", 500)
+    if against and not grounds(keys, the_map):
         # [research-browser] The reason given was the case against it, and it rested on DEC-018 alone: it is
         # a reason for when, never for the direction, so it stays in the history and leaves Direction's line.
         was = idea["reasons"]["judgment"]
@@ -327,8 +358,7 @@ def _needs_you(raw: Any, idea: dict[str, Any], the_map: Map, previous: dict[str,
 def _trigger_false(trigger: str, idea: dict[str, Any], the_map: Map, previous: dict[str, Any] | None) -> str:
     answers = idea["answers"]
     if trigger == "clash":
-        clashes = [k["key"] for k in idea["keys"] if k["how"] == "contradicts"
-                   and (k["key"].startswith("RULE-") or _active_decision(the_map, k["key"]))]
+        clashes = grounds(idea["keys"], the_map)      # never DEC-018: it only moves when
         return "" if answers["judgment"] == "CONFLICT" or clashes else "it contradicts no rule or active decision"
     if trigger == "direction":
         before = ((previous or {}).get("answers") or {}).get("judgment", "")

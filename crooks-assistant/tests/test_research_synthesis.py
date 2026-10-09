@@ -363,6 +363,35 @@ def test_a_reason_that_rested_on_dec_018_alone_is_never_the_directions(the_map):
     assert serves["reasons"]["judgment"] == "Reliability is on DEC-018's own finish list.", "a reason it serves stands"
 
 
+def test_dec_018_only_ever_moves_timing_whatever_the_judgment(the_map):
+    """[review 2] A DEC-018 key the idea contradicts holds its timing even under a judgment for it, and is never
+    a clash; only a rule, or an active decision other than DEC-018, it contradicts can stand against an
+    idea; and an idea CLIVE reads as on DEC-018's own finish list says so on When, and in report item 8."""
+    clash = _idea()
+    judge.enforce(clash, _raw("ADOPT", "NEW", "NOW", keys=[("DEC-018", "contradicts")], importance="HIGH_LEVERAGE",
+                              needs={"trigger": "clash", "question": "Finish first?"}), the_map=the_map, previous=None)
+    assert clash["timing_held_by"] == ["DEC-018"] and clash["answers"]["timing"] == "LATER"
+    assert "DEC-018" not in [k["key"] for k in clash["keys"]] and clash["needs_you"] is None, "DEC-018 is never a clash"
+    for other in (("FEAT-010", "builds on"), ("IDEA-001", "related"), ("TRUTH", "related")):
+        held = _idea()
+        judge.enforce(held, _raw("INVESTIGATE", "EXTENDS_EXISTING", keys=[("DEC-018", "contradicts"), other],
+                                 basis=["DEC-018", other[0]]), the_map=the_map, previous=None)
+        assert held["answers"]["judgment"] == "ADOPT" and held["timing_held_by"] == ["DEC-018"], other
+    stands = _idea()
+    judge.enforce(stands, _raw("INVESTIGATE", "NEW", keys=[("DEC-018", "contradicts"), ("DEC-063", "contradicts")]),
+                  the_map=the_map, previous=None)
+    assert stands["answers"]["judgment"] == "INVESTIGATE" and stands["timing_held_by"] == ["DEC-018"]
+    finish = _idea()
+    judge.enforce(finish, _raw("ADOPT", "PARTIALLY_SATISFIED", "NOW", keys=[("DEC-018", "serves")],
+                               why="It is reliability work: a restart must not lose a job."), the_map=the_map, previous=None)
+    assert finish["timing_held_by"] == [] and finish["answers"]["timing"] == "NOW" and finish["checked_by"] == "rule"
+    assert finish["reasons"]["timing"] == "Not held by DEC-018: it is on DEC-018's own finish list (reliability)."
+    assert finish["serves_dec_018"] == "reliability"
+    from app.research.synthesis import migrate
+    assert migrate.resort([], [], {finish["id"]: finish})["dec_018"]["on_its_finish_list"] == [
+        {"idea": "idea-0001", "name": "Invented idea", "item": "reliability"}]
+
+
 @pytest.mark.parametrize(("documents", "judged"), [(1, "REJECT"), (2, "REJECT"), (3, "CONFLICT"), (4, "CONFLICT")])
 def test_a_rule_that_never_bends_makes_conflict_at_three_documents_and_reject_below(the_map, documents, judged):
     idea = _idea("Refunds under five pounds go out automatically without his approval.", docs=documents)

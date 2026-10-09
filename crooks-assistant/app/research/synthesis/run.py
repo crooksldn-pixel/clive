@@ -493,6 +493,9 @@ def report_lines(rep: dict[str, Any]) -> list[str]:
     dec = rep["8 DEC-018"]
     out.append(f"8. DEC-018: the reason on {dec['old_proposals_citing_it']} old proposals; it holds {dec['ideas_it_holds']} "
                f"ideas now, and {dec['of_those_called_right']} of those are called the right direction.")
+    finish = dec.get("on_its_finish_list") or []
+    out.append(f"   not held, because CLIVE reads them as on DEC-018's own finish list: {len(finish)}")
+    out += [f"   - {f['idea']} {f['name']} ({f['item'] if f['item'] != 'unnamed' else 'no item named'})" for f in finish]
     return out
 
 

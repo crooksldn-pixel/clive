@@ -35,7 +35,7 @@ def new_idea(idea_id: str, *, name: str, statement: str, kind: str, at: str) -> 
         "keys": [], "basis": [], "today": {"level": "none", "says": "", "where": [], "verified": False},
         "answers": {}, "reasons": {"judgment": "", "timing": ""}, "timing_held_by": [],
         "revisit": "", "needs_you": None, "effects": [], "touches": [], "protected": [], "done_when": [],
-        "owner_view": None, "owner_view_complete": False, "checked_by": "", "rule_notes": [],
+        "owner_view": None, "owner_view_complete": False, "checked_by": "", "rule_notes": [], "serves_dec_018": "",
         "evidence_hash": "", "judged_with": None, "status": "active", "merged_into": "", "was": [],
         "fingerprint": "", "created_at": at, "updated_at": at,
     }
