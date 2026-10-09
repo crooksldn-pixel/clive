@@ -30,6 +30,7 @@ check "never runs a full deploy or --force" '! grep -Eq "^deploy|--force|entitie
 check "backs up the old code first" 'grep -q "old builder version" "$T"/state/backup-*/base44/functions/shopifyCreateSend/entry.ts'
 check "replaces builder copies with the built file" 'cmp -s "$FAKE_DIR/written/functions/shopifyCreateSend.ts" "$HERE/base44/functions/shopifyCreateSend/entry.ts"'
 check "leaves other builder files alone" '[ ! -e "$FAKE_DIR/written/functions/notOurs.ts" ]'
+check "adds builder copies it lacks, in its layout" 'cmp -s "$FAKE_DIR/written/functions/syncPromotions.ts" "$HERE/base44/functions/syncPromotions/entry.ts"'
 check "connection and outside API pass" 'grep -q "All Shopify permissions granted" "$T/out" && grep -q "partnerApi answered" "$T/out"'
 
 echo "re-run keeps existing credentials and key"

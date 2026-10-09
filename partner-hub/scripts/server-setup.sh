@@ -274,9 +274,17 @@ builder_copies() {
     ok "None found in the builder's files; nothing to replace"
     return
   fi
+  # When the builder republishes it deploys its own copies and drops functions
+  # it has none of, so ours that it lacks get a copy in the same layout.
+  local template missing=() f
+  template="$(head -1 <<<"$paths")"
+  for f in "${FUNCTIONS[@]}"; do
+    grep -Eq "functions/$f(/entry)?\.[a-z]+$" <<<"$paths" || missing+=("$f")
+  done
   echo "The builder keeps its own copies here:"
   sed 's/^/   /' <<<"$paths"
-  if ! ask "Replace them with the new versions (old ones are backed up first)?"; then
+  [ ${#missing[@]} -eq 0 ] || echo "It has none of: ${missing[*]}"
+  if ! ask "Replace its copies with the new versions, and add the missing ones (old ones are backed up first)?"; then
     warn "Left as they are. If the builder republishes them, the old code comes back; re-run to fix."
     return
   fi
@@ -288,6 +296,12 @@ builder_copies() {
     b44 sandbox write "$p" --overwrite <"$HERE/base44/functions/$name/entry.ts" >/dev/null
     ok "Replaced $p"
   done <<<"$paths"
+  for f in "${missing[@]}"; do
+    local p
+    p="$(sed -E "s#functions/[A-Za-z0-9_]+(/entry)?(\.[a-z]+)\$#functions/$f\1\2#" <<<"$template")"
+    b44 sandbox write "$p" <"$HERE/base44/functions/$f/entry.ts" >/dev/null
+    ok "Added $p"
+  done
   b44 sandbox checkpoint --name "Partner Hub: Shopify functions" >/dev/null && ok "Saved a restore point in the builder"
 }
 
