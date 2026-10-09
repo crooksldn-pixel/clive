@@ -58,7 +58,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `analytics` | 2,930 | live | — | none |
 | `anticipation` | 1,478 | live | — | none |
 | `bench` | 2,298 | live | 5 modules | [`BENCH.md`](docs/BENCH.md) |
-| `builds` | 2,135 | live | — | none |
+| `builds` | 2,139 | live | — | none |
 | `capabilities` | 759 | live | `surface` | none |
 | `clients` | 6,290 | live | — | [`DEPLOY_LINUX.md`](docs/DEPLOY_LINUX.md) their keys |
 | `connections` | 2,031 | live | — | [`CONNECTIONS.md`](docs/CONNECTIONS.md) |
@@ -80,7 +80,7 @@ One row per package in `app/`. **Live**: the running app imports it, from `app.m
 | `reads` | 1,451 | live | — | none |
 | `release` | 3,139 | live | 6 modules | [`RELEASE_SERVICE.md`](docs/RELEASE_SERVICE.md) |
 | `remote_engineering` | 2,506 | live | — | [`REMOTE_ENGINEERING_CONTROL_V1.md`](docs/product-memory/REMOTE_ENGINEERING_CONTROL_V1.md) |
-| `research` | 4,537 | live | `apply` | [`RESEARCH.md`](docs/RESEARCH.md) |
+| `research` | 4,551 | live | `apply` | [`RESEARCH.md`](docs/RESEARCH.md) |
 | `returns` | 1,084 | live | — | [`RETURNS_EVENTS.md`](docs/RETURNS_EVENTS.md) its events, DEC-077 |
 | `routes` | 8,880 | live | — | none |
 | `scenes` | 2,579 | off (`CLIVE_SCENES` off, default) | — | [`GENERATIVE_UI_V1.md`](docs/product-memory/GENERATIVE_UI_V1.md) |

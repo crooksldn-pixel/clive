@@ -533,6 +533,8 @@ def test_consolidate_never_merges_ideas_he_answered_differently():
     assert consolidate.read(answer, active, {"idea-0001": "go", "idea-0002": "no"}) == [
         {"keep": "idea-0001", "merge": ["idea-0003"], "why": "same"}]
     assert consolidate.read(answer, active, {}) == [{"keep": "idea-0001", "merge": ["idea-0002", "idea-0003"], "why": "same"}]
+    assert consolidate.read(answer, active, {"idea-0003": "go"}) == [
+        {"keep": "idea-0003", "merge": ["idea-0001", "idea-0002"], "why": "same"}], "the one he answered is kept"
 
 
 async def test_a_run_that_stops_is_said_and_resumes_where_it_stopped(place, the_map):

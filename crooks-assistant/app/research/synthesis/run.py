@@ -38,6 +38,8 @@ from app.research.synthesis.ideas import evidence_hash, finish, has_claim, judge
 from app.research.synthesis.store import ReadProblem, SynthesisStore, now, synthesis_store
 
 STAGES = ("documents", "consolidate", "migrate", "judge", "summary", "done")
+# How far a run has got, as the screen says it ("judging, 31 of 42"); `done` and `of` count only in the
+# stages that have something to count (documents, judging), and are 0 in the others.
 STAGE_WORDS = {"documents": "reading documents", "consolidate": "joining ideas that are the same",
                "migrate": "linking the old proposals", "judge": "judging", "summary": "summing up",
                "done": "finished, waiting to be made live"}
@@ -403,12 +405,12 @@ async def _stages(research_store, work: Work, run: dict[str, Any], say) -> None:
             run["documents"][record["id"]] = "in"
             run["done"] = sum(1 for v in run["documents"].values() if v == "in")
             save()
-        run["stage"] = "consolidate"
+        run["stage"], run["done"], run["of"] = "consolidate", 0, 0
         save()
     if run["stage"] == "consolidate":
         say("Joining ideas that are the same")
         await consolidate(work)
-        run["stage"] = "migrate"
+        run["stage"], run["done"], run["of"] = "migrate", 0, 0
         save()
     if run["stage"] == "migrate":
         say("Linking the old screen's proposals to their ideas")
@@ -421,12 +423,12 @@ async def _stages(research_store, work: Work, run: dict[str, Any], say) -> None:
             save()
             say(f"Judged {done} of {of}")
         await judge(work, progress=progress)
-        run["stage"] = "summary"
+        run["stage"], run["done"], run["of"] = "summary", 0, 0
         save()
     if run["stage"] == "summary":
         say("Summing up")
         await summarise(work, force=True)
-        run["stage"], run["finished_at"] = "done", now()
+        run["stage"], run["done"], run["of"], run["finished_at"] = "done", 0, 0, now()
         run["report"] = report(work, run)
         save()
 

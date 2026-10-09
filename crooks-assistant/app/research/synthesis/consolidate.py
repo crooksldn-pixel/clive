@@ -7,7 +7,7 @@ run, the model is shown every active idea's name and statement and proposes merg
 What it promises — the model proposes, code decides:
 - Only ids that exist and are active are merged; an idea is merged at most once per call, and never
   into itself.
-- Two ideas George answered differently are never merged.
+- Two ideas George answered differently are never merged, and the one he answered is the one kept.
 - Merging moves the sources and what argues against them into the idea kept; the other becomes
   `status: merged, merged_into` and stays on disk. Nothing is ever split.
 """
@@ -55,6 +55,12 @@ def read(answer: str, active: list[dict[str, Any]], answered: dict[str, str]) ->
             said = said or theirs
             merge.append(other)
         if merge:
+            if not answered.get(keep):
+                # The idea he answered is the one kept, so his answer (and any build) stays with it.
+                first = next((m for m in merge if answered.get(m)), "")
+                if first:
+                    merge = [keep, *(m for m in merge if m != first)]
+                    keep = first
             used.update([keep, *merge])
             out.append({"keep": keep, "merge": merge, "why": line(item.get("why"), 300)})
     return out

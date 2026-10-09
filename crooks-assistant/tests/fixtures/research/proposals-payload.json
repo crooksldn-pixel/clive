@@ -2,12 +2,12 @@
  "summary": "5 recommendations from your research wait on you.",
  "documents": [
   {
-   "id": "doc-0a81e239c8064c16bf5e",
+   "id": "doc-54d4ba6a0b40451d9349",
    "name": "test-note-beta.md",
    "state": "done",
    "state_words": "Read",
    "why": "",
-   "received_at": "2026-10-09T13:17:01+00:00",
+   "received_at": "2026-10-09T14:05:21+00:00",
    "via": "screen",
    "proposals": 1,
    "repeated": 0,
@@ -17,12 +17,12 @@
    "model": "scripted"
   },
   {
-   "id": "doc-e0e6c2b230284779b63a",
+   "id": "doc-05e1903a2c7443309584",
    "name": "test-note-gamma.md",
    "state": "done",
    "state_words": "Read",
    "why": "",
-   "received_at": "2026-10-09T13:17:01+00:00",
+   "received_at": "2026-10-09T14:05:21+00:00",
    "via": "screen",
    "proposals": 1,
    "repeated": 0,
@@ -32,12 +32,12 @@
    "model": "scripted"
   },
   {
-   "id": "doc-0b6217911d764f0d9788",
+   "id": "doc-2dd44dc32a8b44a4a07b",
    "name": "test-note-alpha.md",
    "state": "done",
    "state_words": "Read",
    "why": "",
-   "received_at": "2026-10-09T13:17:01+00:00",
+   "received_at": "2026-10-09T14:05:21+00:00",
    "via": "screen",
    "proposals": 3,
    "repeated": 0,
@@ -316,13 +316,13 @@
  "synthesis": {
   "state": "not_live",
   "run": {
-   "generation": "gen-20261009T131702",
+   "generation": "gen-20261009T140521",
    "stage": "done",
    "stage_words": "finished, waiting to be made live",
-   "done": 10,
-   "of": 10,
-   "started_at": "2026-10-09T13:17:02+00:00",
-   "finished_at": "2026-10-09T13:17:02+00:00",
+   "done": 0,
+   "of": 0,
+   "started_at": "2026-10-09T14:05:21+00:00",
+   "finished_at": "2026-10-09T14:05:21+00:00",
    "calls": 18,
    "errors": 0
   }
