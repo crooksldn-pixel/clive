@@ -749,6 +749,38 @@ def test_a_line_that_would_carry_the_research_is_left_out(live, the_map):
     assert "instead of being lost" not in held["requested_outcome"], "the note's own text holds them back too"
 
 
+def test_a_path_that_carries_the_research_never_reaches_a_request(live, monkeypatch, the_map):
+    """[review 1] A build request's paths go to the public repository too: a section title or a document's
+    name made into a file name, or a path that isn't plain or isn't in CLIVE, is left out; with nothing
+    left, nothing is prepared, and he is told why."""
+    synth = synthesis_store(live["store"])
+    restart = next(i for i in synth.ideas(live["gen"]).values() if i["name"] == "Work survives a restart")
+    hostile = ["docs/TEST SECTION Restarts and jobs.md", "app/test-note-alpha/every_job.py", "app/test_note_alpha.py",
+               "docs/test_section_restarts_and_jobs.md", "app/Work.py", "app/no_such_folder/x.py", "app/../secrets.py"]
+    idea = dict(restart, touches=["app/work", "web/jobs.js", "app/work/keeper.py", *hostile])
+    names = [r["name"] for r in live["store"].documents()]
+    args = research_ideas.filing_args(idea, "head", gen=live["gen"], names=names, the_map=the_map)
+    assert args["allowed_paths"] == ["app/work", "web/jobs.js", "app/work/keeper.py"]
+    _never_the_research(args, live)
+    assert research_ideas.safe_paths(idea, names) == (args["allowed_paths"], hostile)
+
+    prepared = []
+
+    async def fake_prepare(request, record, p, *, session_id, args_for=None):
+        prepared.append(p)
+        return {"ok": True, "request_id": "research-idea-approved-1", "proposal_id": "prop-1"}
+
+    monkeypatch.setattr(section, "prepare", fake_prepare)
+    restart["touches"] = hostile
+    synth.save_idea(live["gen"], restart)
+    client = _client()
+    row = next(r for r in client.get("/objectives/research", headers=OWNER).json()["needs_you"] if r["id"] == restart["id"])
+    done = client.post("/objectives/research/idea/answer", headers=OWNER, json={
+        "idea_id": row["id"], "fingerprint": row["fingerprint"], "answer": "go", "session_id": "a1b2c3d4"}).json()
+    assert done["recorded"] is True and done["staged"] == {"ok": False, "detail": research_ideas.NO_PATHS}
+    assert prepared == [], "nothing was prepared"
+
+
 @pytest.mark.usefixtures("owner_asking")
 async def test_an_approved_ideas_request_is_filed_only_when_he_holds_its_card(live, monkeypatch, the_map):
     from app.actions import engine as engine_module

@@ -16,11 +16,14 @@ What it promises:
 - Approving prepares a build request through the existing path (app/builds/research.py `prepare`),
   behind his hold. The request is filed in CLIVE's public repository, so it carries CLIVE's words only:
   the idea's statement, the owner view's "after", its keys and timing; never a research quote, a
-  document's name or a section's title (`requested_outcome` takes out any line that would).
+  document's name or a section's title (`requested_outcome` takes out any line that would). The paths
+  it may change go there too, so only plain paths in CLIVE that carry none of those words are kept
+  (`safe_paths`); when none are left, nothing is prepared, and he is told why.
 """
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -295,35 +298,40 @@ def _document(record: dict[str, Any], claims: dict[str, dict[str, Any]], records
 QUOTE_WINDOW = 8
 
 
-def _windows(text: str) -> set[str]:
-    words_ = normalise(text).split()
+def _windows(text: str, plain: bool = False) -> set[str]:
+    words_ = (_plain(text) if plain else normalise(text)).split()
     return {" ".join(words_[i:i + QUOTE_WINDOW]) for i in range(max(0, len(words_) - QUOTE_WINDOW + 1))}
 
 
-def _forbidden(idea: dict[str, Any], names: list[str], texts: list[str] = ()) -> tuple[list[str], set[str]]:
+def _forbidden(idea: dict[str, Any], names: list[str], texts: list[str] = (), *,
+               plain: bool = False) -> tuple[list[str], set[str]]:
     """The research's own words a filed request must never carry: (phrases, windows). Phrases are the
     documents' names, section titles of two words or more (a one-word heading is an ordinary word), and
     short quotes whole; any eight words in a row from a longer quote, or from the documents' own text
-    when it is given, is a window."""
+    when it is given, is a window. `plain` compares letters and digits only (for paths)."""
+    said = _plain if plain else normalise
     phrases, windows = [], set()
     for text in texts:
-        windows |= _windows(text)
+        windows |= _windows(text, plain)
     for source in idea.get("sources") or []:
         quote = source.get("quote") or ""
-        if len(normalise(quote).split()) < QUOTE_WINDOW:
-            phrases.append(normalise(quote))
-        windows |= _windows(quote)
+        if len(said(quote).split()) < QUOTE_WINDOW:
+            phrases.append(said(quote))
+        windows |= _windows(quote, plain)
         section = str(source.get("section") or "").split(" > ")[-1]
         if len(section.split()) >= 2:
-            phrases.append(normalise(section))
+            phrases.append(said(section))
     for name in names:
-        phrases += [normalise(name), normalise(name.rsplit(".", 1)[0])]
+        phrases += [said(name), said(name.rsplit(".", 1)[0])]
     return [p for p in phrases if len(p) >= 4], windows
 
 
-def _clean(text: str, forbidden: tuple[list[str], set[str]]) -> bool:
+def _clean(text: str, forbidden: tuple[list[str], set[str]], *, plain: bool = False) -> bool:
     phrases, windows = forbidden
-    said = normalise(text)
+    said = _plain(text) if plain else normalise(text)
+    if plain:
+        said = f" {said} "
+        return not any(f" {p} " in said for p in phrases) and not (_windows(text, plain) & windows)
     return not any(p in said for p in phrases) and not (_windows(text) & windows)
 
 
@@ -353,6 +361,41 @@ def requested_outcome(idea: dict[str, Any], *, gen: str, names: list[str], texts
     return "\n".join(kept)
 
 
+PATH_SHAPE = re.compile(r"^[a-z0-9_./-]+$")
+NO_PATHS = ("Every part of CLIVE it would change was named in the research's own words, or isn't in CLIVE, so no build "
+            "request was prepared: the request goes to CLIVE's public repository. Ask CLIVE to build it in your own words.")
+
+
+def _plain(text: str) -> str:
+    """Letters and digits only, as words: a path's / _ . - read as spaces, and so is every other mark."""
+    return " ".join(re.findall(r"[a-z0-9]+", normalise(text)))
+
+
+def _in_repository(path: str) -> bool:
+    """A path in CLIVE's repository, or a new file directly under a folder that is."""
+    from app.research.rules import APP_ROOT
+
+    parts = path.rstrip("/").split("/")
+    if not path or path.startswith("/") or any(p in ("", ".", "..") for p in parts):
+        return False
+    target = APP_ROOT.joinpath(*parts)
+    return target.exists() or target.parent.is_dir()
+
+
+def safe_paths(idea: dict[str, Any], names: list[str], texts: list[str] = ()) -> tuple[list[str], list[str]]:
+    """[review 1] (the paths a build request may carry, the paths left out). A path goes to the public
+    repository too, so it must be plain (lower case letters, digits, _ . / -), be in CLIVE's repository or
+    a new file directly under a folder that is, and carry none of the research's words, read with its
+    marks as spaces."""
+    forbidden = _forbidden(idea, names, texts, plain=True)
+    kept, left = [], []
+    for raw in idea.get("touches") or []:
+        path = str(raw or "")
+        ok = bool(PATH_SHAPE.fullmatch(path)) and _in_repository(path) and _clean(path, forbidden, plain=True)
+        (kept if ok else left).append(path)
+    return kept, left
+
+
 def filing_args(idea: dict[str, Any], inbox_id: str, *, gen: str, names: list[str], texts: list[str] = (),
                 the_map=None) -> dict[str, Any]:
     """The arguments `submit_engineering_request` is staged with for an approved idea. `texts` are the
@@ -361,7 +404,7 @@ def filing_args(idea: dict[str, Any], inbox_id: str, *, gen: str, names: list[st
     title = idea.get("name") if _clean(idea.get("name") or "", forbidden) else f"Research idea {idea['id']}"
     return {"inbox_id": inbox_id, "title": title or "Research idea",
             "requested_outcome": requested_outcome(idea, gen=gen, names=names, texts=texts, the_map=the_map),
-            "allowed_paths": list(idea.get("touches") or []),
+            "allowed_paths": safe_paths(idea, names, texts)[0],
             "acceptance_criteria": [c for c in idea.get("done_when") or [] if _clean(c, forbidden)]}
 
 

@@ -301,8 +301,11 @@ async def _prepare_idea(request: Request, store, synth, gen: str, idea: dict, se
     def args_for(inbox: str, the_map) -> dict:
         return research_ideas.filing_args(idea, inbox, gen=gen, names=names, texts=texts, the_map=the_map)
 
-    staged = await section.prepare(request, {"id": gen}, {"touches": idea.get("touches") or []}, session_id=session_id,
-                                   args_for=args_for)
+    # [review 1] Only plain paths in CLIVE that carry none of the research's words go out with the request.
+    paths, _left = research_ideas.safe_paths(idea, names, texts)
+    if idea.get("touches") and not paths:
+        return {"ok": False, "detail": research_ideas.NO_PATHS}
+    staged = await section.prepare(request, {"id": gen}, {"touches": paths}, session_id=session_id, args_for=args_for)
     if staged.get("ok") and staged.get("request_id"):
         synth.note_prepared(idea["id"], staged["request_id"])
         synth.event(gen, "prepared", idea=idea["id"], request_id=staged["request_id"],
