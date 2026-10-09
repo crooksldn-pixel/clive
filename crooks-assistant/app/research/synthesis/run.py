@@ -65,12 +65,26 @@ class Work:
         self.ideas = synth.ideas(gen)
         self.claims = synth.claims(gen)
         self.answered = answered or {}
+        # [review 9] In a full re-synthesis: (quote, his answer) from the live generation, so ideas whose
+        # evidence carries different answers of his are never merged.
+        self.carried: list[tuple[str, str]] = []
         self.changed = False
         self.say = say
         self.base: tuple[int, dict[str, int]] = (0, {})
 
     def active(self) -> list[dict[str, Any]]:
         return [i for i in self.ideas.values() if i.get("status") == "active"]
+
+    def merge_answers(self) -> dict[str, str]:
+        """His answer each active idea carries, for consolidate: by its own id, or by its evidence."""
+        from app.research.synthesis.apply import answers_carried
+
+        out = dict(self.answered)
+        for idea in self.active() if self.carried else []:
+            said = answers_carried(idea, self.carried)
+            if said and idea["id"] not in out:
+                out[idea["id"]] = said
+        return out
 
     def save(self, idea: dict[str, Any]) -> None:
         finish(idea, now())
@@ -204,7 +218,7 @@ def _n(count: int, noun: str) -> str:
 
 
 async def consolidate(work: Work) -> set[str]:
-    merges = await consolidate_step.propose(work.active(), work.answered, work.calls)
+    merges = await consolidate_step.propose(work.active(), work.merge_answers(), work.calls)
     touched = set()
     for merge in merges:
         keep = work.ideas[merge["keep"]]
@@ -354,6 +368,12 @@ async def synthesise(research_store, *, model, the_map, resume: bool = False, ti
                                   "model": getattr(model, "name", "model"), "map_digest": the_map.digest}
         calls = Calls(model, timeout_s=timeout_s)
         work = Work(synth, gen, calls, the_map, say=say)
+        from app.research.synthesis.apply import carried_answers
+
+        try:
+            work.carried = carried_answers(synth)
+        except SynthesisError as exc:      # merging may then join ideas he answered differently; apply refuses those
+            _error(work, run, str(exc))
         work.changed = bool(run.get("changed"))
         work.base = (int(run.get("calls") or 0), dict(run.get("calls_by_stage") or {}))
         say(f"Synthesis {gen}: {'carrying on from ' + STAGE_WORDS[run['stage']] if resume else 'started'}.")

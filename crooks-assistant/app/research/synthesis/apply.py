@@ -110,8 +110,10 @@ def _refinger(idea: dict[str, Any]) -> dict[str, Any]:
     return idea
 
 
-async def apply(research_store, gen: str, *, model, the_map, say=lambda _t: None) -> dict[str, Any]:
-    """Make `gen` live. Returns what was done; raises SynthesisError with why it wasn't."""
+async def apply(research_store, gen: str, *, model, the_map, say=lambda _t: None,
+                accept_unmatched: bool = False) -> dict[str, Any]:
+    """Make `gen` live. Returns what was done; raises SynthesisError with why it wasn't. [review 9] It refuses
+    when an answer of his wouldn't stay with its idea (`unmatched`), unless `accept_unmatched`."""
     from app.research.flow import _store_lock
     from app.research.synthesis import run as run_module
 
@@ -144,13 +146,129 @@ async def apply(research_store, gen: str, *, model, the_map, say=lambda _t: None
             run["taken_in_at_apply"] = [*run.get("taken_in_at_apply", []), *taken_in]
             synth.save_run(gen, run)
         mapping = reuse(synth.ideas(previous), synth.ideas(gen)) if previous else {}
+        lost = unmatched(synth.ideas(previous), synth.ideas(gen), mapping, his_answers()) if previous else []
+        run["unmatched"] = lost
+        synth.save_run(gen, run)
+        if lost and not accept_unmatched:
+            raise SynthesisError(f"{gen} was not made live: {len(lost)} of your answers wouldn't stay with their idea. "
+                                 + " ".join(p["said"] for p in lost)
+                                 + " Run it again with --accept-unmatched to make it live anyway.")
         changed = renumber(synth, gen, mapping, previous)
+        carried = carry_history(synth, gen, previous, mapping)
         synth.set_live(gen)
         if previous:
             synth.event(previous, "superseded", said=f"Superseded by {gen}, made live.", by=gen)
-        synth.event(gen, "applied", said=f"Made live{', replacing ' + previous if previous else ''}.", replaced=previous)
+        synth.event(gen, "applied", said=f"Made live{', replacing ' + previous if previous else ''}.", replaced=previous,
+                    unmatched=[p["idea"] for p in lost])
     return {"generation": gen, "previous": previous, "taken_in": taken_in, "kept_ids": len(mapping),
-            "renumbered": changed, "calls": calls.made}
+            "renumbered": changed, "calls": calls.made, "unmatched": lost, "history_carried": carried}
+
+
+# ------------------------------------------------------------------ his answers across generations (review 9)
+
+
+def his_answers() -> dict[str, str]:
+    """His newest answer (go, later, no) to each idea id, from the owner judgment ledger."""
+    from app.builds import decisions
+    from app.research.synthesis import answers as idea_answers
+
+    try:
+        return idea_answers.keys(decisions.ledger().effective())
+    except decisions.DecisionError as exc:
+        raise SynthesisError(f"Your answers couldn't be read, so nothing was made live: {exc}") from None
+
+
+def _home(idea: dict[str, Any], new: dict[str, dict[str, Any]]) -> str:
+    """The new idea that holds most of an old idea's evidence (by quote), or ""."""
+    mine = _quotes(idea)
+    best, most = "", 0
+    for new_id, other in new.items():
+        if other.get("status") != "active":
+            continue
+        n = sum(1 for q in mine if _same(q, _quotes(other)))
+        if n > most:
+            best, most = new_id, n
+    return best
+
+
+def unmatched(old: dict[str, dict[str, Any]], new: dict[str, dict[str, Any]], mapping: dict[str, str],
+              answered: dict[str, str]) -> list[dict[str, Any]]:
+    """Answers of his that wouldn't stay with their idea: an idea he answered that no new idea carries on,
+    and ideas he answered differently whose evidence lands in one new idea. `home` is the new idea's id in
+    the run, before applying gives it its final one; the words name it."""
+    words = {"go": "Approve the work", "later": "Not now", "no": "Not for CLIVE"}
+    carried = set(mapping.values())
+    mine = {i: k for i, k in answered.items() if (old.get(i) or {}).get("status") == "active"}
+    out, homes = [], {}
+    for old_id, key in sorted(mine.items()):
+        home = _home(old[old_id], new)
+        homes.setdefault(home, []).append((old_id, key))
+        if old_id not in carried:
+            where = f"; most of its evidence is now in the idea “{new[home].get('name')}”" if home else "; none of its evidence is in it"
+            out.append({"idea": old_id, "answer": key, "home": home,
+                        "said": f"{old_id} ({old[old_id].get('name')}), which you answered {words.get(key, key)}, isn't carried on"
+                                f"{where}."})
+    for home, olds in homes.items():
+        if home and len({k for _i, k in olds}) > 1:
+            each = ", ".join(f"{i} ({old[i].get('name')}: {words.get(k, k)})" for i, k in olds)
+            out.append({"idea": home, "answer": "", "home": home, "answered": [i for i, _k in olds],
+                        "said": f"{each} are one idea now, “{new[home].get('name')}”, and you answered them differently."})
+    return out
+
+
+def carried_answers(synth: SynthesisStore) -> list[tuple[str, str]]:
+    """(quote, his answer) for every quote behind an idea he answered in the live generation: a full
+    re-synthesis never merges two ideas whose evidence carries different answers of his."""
+    live = synth.live()
+    if not live:
+        return []
+    answered = his_answers()
+    return [(q, answered[i]) for i, idea in synth.ideas(live).items()
+            if idea.get("status") == "active" and i in answered for q in _quotes(idea)]
+
+
+def answers_carried(idea: dict[str, Any], carried: list[tuple[str, str]]) -> str:
+    """The answer an idea's evidence carries from the live generation: "" for none, the key for one, and
+    "mixed:…" for several, which never matches a single answer."""
+    mine = _quotes(idea)
+    keys = sorted({k for q, k in carried if _same(q, mine)})
+    return "" if not keys else keys[0] if len(keys) == 1 else "mixed:" + "+".join(keys)
+
+
+CARRIED_TYPES = ("owner_answered", "prepared", "old_screen", "earlier")
+
+
+def carry_history(synth: SynthesisStore, gen: str, previous: str, mapping: dict[str, str]) -> int:
+    """Each idea carried on from the generation live before brings its history with it, as events in the
+    new one: his answers, its prepared builds, the old screen's lines (unless linked here already), and how
+    CLIVE last judged it ("Earlier view …"). Written once, however often this runs."""
+    if not previous or not mapping:
+        return 0
+    old_ideas, new_ideas = synth.ideas(previous), synth.ideas(gen)
+    events = synth.events(previous)
+    mine = synth.events(gen)
+    have = {(e.get("idea"), e.get("source")) for e in mine if e.get("type") == "earlier"}
+    written = 0
+    for old_id in mapping.values():
+        here = {old_id, *((new_ideas.get(old_id) or {}).get("was") or [])}
+        linked = {e.get("proposal_id") for e in mine if e.get("type") == "old_screen" and e.get("idea") in here}
+        ids = {old_id, *((old_ideas.get(old_id) or {}).get("was") or [])}
+        theirs = [e for e in events if e.get("idea") in ids]
+        judged_ = [e for e in theirs if e.get("type") == "judged"][-1:]
+        for e in [*(x for x in theirs if x.get("type") in CARRIED_TYPES), *judged_]:
+            kind = e.get("was_type") or e.get("type")
+            if kind == "old_screen" and e.get("proposal_id") in linked:
+                continue
+            source = f"{e.get('from_generation') or previous}:{e.get('source') or e.get('at')}:{e.get('type')}"
+            if (old_id, source) in have:
+                continue
+            said = f"Earlier view ({previous}): {e.get('said')}" if kind == "judged" else str(e.get("said") or "")
+            extra = {k: e[k] for k in ("proposal_id", "old_at", "answer", "request_id") if e.get(k)}
+            synth.event(gen, "earlier", idea=old_id, said=said, at=str(e.get("at") or ""), was_type=kind,
+                        from_generation=e.get("from_generation") or previous, source=source, **extra)
+            have.add((old_id, source))
+            written += 1
+    return written
 
 
 def export(research_store, gen: str, path: str | os.PathLike) -> Path:

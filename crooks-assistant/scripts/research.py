@@ -16,7 +16,9 @@ Learning from research as ideas (DEC-078, app/research/synthesis, docs/RESEARCH.
     python scripts/research.py --export-synthesis PATH [--generation GEN]
                                                one generation (the newest, unless named) as a .tgz at
                                                PATH, never inside the repository
-    python scripts/research.py --apply GEN     make GEN live, taking in what was read since its run
+    python scripts/research.py --apply GEN     make GEN live, taking in what was read since its run; it
+                                               refuses when an answer of his wouldn't stay with its idea
+    python scripts/research.py --apply GEN --accept-unmatched   make it live anyway
     python scripts/research.py --ideas         the live ideas, with their four answers
     --call-timeout SECONDS                     one time limit for every model call of a run
 
@@ -81,7 +83,7 @@ async def _main(args: argparse.Namespace) -> int:
     if args.synthesise:
         return await _synthesise(research, resume=args.resume, timeout_s=args.call_timeout)
     if args.apply:
-        return await _apply(research, args.apply)
+        return await _apply(research, args.apply, accept_unmatched=getattr(args, "accept_unmatched", False))
     for name in args.files:
         path = Path(name)
         try:
@@ -163,7 +165,7 @@ async def _synthesise(research, *, resume: bool, timeout_s: float | None) -> int
     return 0
 
 
-async def _apply(research, gen: str) -> int:
+async def _apply(research, gen: str, *, accept_unmatched: bool = False) -> int:
     from app.research import model as model_module
     from app.research.rules import read_map
     from app.research.synthesis.apply import apply
@@ -171,7 +173,8 @@ async def _apply(research, gen: str) -> int:
     from app.research.synthesis.run import Stopped
 
     try:
-        done = await apply(research, gen, model=model_module.current(), the_map=read_map(), say=_print)
+        done = await apply(research, gen, model=model_module.current(), the_map=read_map(), say=_print,
+                           accept_unmatched=accept_unmatched)
     except (SynthesisError, Stopped, BlockingIOError) as exc:
         print(f"research: {gen} was not made live: {exc or 'another reader holds the research store'}", file=sys.stderr)
         return 1
@@ -182,7 +185,10 @@ async def _apply(research, gen: str) -> int:
         _print(f"{gen} is already live.")
         return 0
     _print(f"{gen} is live{', replacing ' + done['previous'] if done.get('previous') else ''}. "
-           f"Took in {len(done['taken_in'])} document(s) read since its run; {done['kept_ids']} idea(s) kept an earlier id.")
+           f"Took in {len(done['taken_in'])} document(s) read since its run; {done['kept_ids']} idea(s) kept an earlier id, "
+           f"with {done['history_carried']} line(s) of their history.")
+    for lost in done.get("unmatched") or []:
+        _print(f"  Accepted: {lost['said']}")
     return 0
 
 
@@ -241,12 +247,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--export-synthesis", metavar="PATH", help="one generation as a .tgz, outside the repository")
     parser.add_argument("--generation", default="", help="with --export-synthesis: which generation (the newest by default)")
     parser.add_argument("--apply", metavar="GEN", help="make a generation live")
+    parser.add_argument("--accept-unmatched", action="store_true",
+                        help="with --apply: make it live even when an answer of his won't stay with its idea")
     parser.add_argument("--ideas", action="store_true", help="the live ideas with their four answers")
     parser.add_argument("--call-timeout", type=float, default=None, metavar="SECONDS",
                         help="one time limit for every model call of a synthesis run")
     args = parser.parse_args(argv)
     if args.resume and not args.synthesise:
         parser.error("--resume goes with --synthesise")
+    if args.accept_unmatched and not args.apply:
+        parser.error("--accept-unmatched goes with --apply")
     return asyncio.run(_main(args))
 
 

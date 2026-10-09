@@ -676,6 +676,96 @@ async def test_renumbering_never_loses_an_idea_when_it_stops_halfway(place, the_
     assert {i["name"] for i in synth.ideas(second).values()} == before, "nothing lost"
 
 
+async def _live_and_answered(store, ledger, the_map, answers):
+    """A first generation made live, and his answers to it ({idea name: go|later|no}), as the route records them."""
+    model, first = await _synthesised(store, the_map)
+    await apply(store, first, model=model, the_map=the_map)
+    synth = synthesis_store(store)
+    for name, key in answers.items():
+        idea = _active(store, first)[name]
+        decisions.decide(ledger, idea_answers.question(idea), key, principal=fx.OWNER_LOGIN, session_id="s1")
+        synth.event(first, "owner_answered", idea=idea["id"], answer=key, said=f"You chose {key}.")
+        if key == "go":
+            synth.note_prepared(idea["id"], "research-idea-test-0002")
+            synth.event(first, "prepared", idea=idea["id"], request_id="research-idea-test-0002",
+                        said="Its build request was prepared on a card, waiting for your hold.")
+    return model, first
+
+
+def _read_again(store):
+    """The next run reads every file again (a test changes what the scripted model says it holds)."""
+    import shutil
+
+    shutil.rmtree(synthesis_store(store).root / "cache")
+
+
+async def test_applying_carries_an_ideas_history_with_it(place, the_map):
+    """[review 9] An idea carried on to a new generation keeps the earlier one's history: his answer, its
+    prepared build, the old screen's lines and how CLIVE last judged it, once each."""
+    store, ledger = place
+    model, first = await _live_and_answered(store, ledger, the_map, {"Each key shows when it was checked": "go"})
+    keys_id = _active(store, first)["Each key shows when it was checked"]["id"]
+    second = await synthesise(store, model=model, the_map=the_map)
+    done = await apply(store, second, model=model, the_map=the_map)
+    assert done["unmatched"] == [] and done["history_carried"] >= 3
+    payload = await research_ideas.current(store, ledger)
+    row = next(r for g in payload["groups"] for r in g["ideas"] if r["id"] == keys_id)
+    said = [h["said"] for h in row["history"]]
+    assert "You chose go." in said and "Its build request was prepared on a card, waiting for your hold." in said
+    assert any(h.startswith(f"Earlier view ({first}): Judged: Right direction") for h in said)
+    assert sum(1 for h in said if "old screen: Adopt, DEC-065" in h) == 1, "the old screen's line once, not twice"
+    events = _events(store, second)
+    from app.research.synthesis.apply import carry_history
+    assert carry_history(synthesis_store(store), second, first, {keys_id: keys_id}) == 0 and _events(store, second) == events
+
+
+async def test_applying_refuses_when_his_answer_would_not_stay_with_its_idea(place, the_map):
+    """[review 9] An idea he answered that no new idea carries on, or two he answered differently that land
+    in one: applying refuses and says which, unless he accepts it; the full run never merges them."""
+    from app.research.synthesis.ask import SynthesisError
+
+    store, ledger = place
+    model, first = await _live_and_answered(store, ledger, the_map, {"Each key shows when it was checked": "go",
+                                                                      "Stock page updates every hour": "no",
+                                                                      "Supplier messages in one thread": "later"})
+    ids = {n: i["id"] for n, i in _active(store, first).items()}
+    _read_again(store)
+    for name in ("test-note-alpha.md", "test-note-gamma.md"):
+        # The research no longer says what the idea he approved rested on: nothing carries it on.
+        model.claims[name] = [c for c in model.claims[name]
+                              if c["idea"] not in ("Each key shows when it was checked", "Keys show a last-checked time")]
+        for c in model.claims[name]:
+            if c["idea"] == "Stock page updates every hour":
+                c["idea"] = "Supplier messages in one thread"        # answered no, lands with one answered later
+    second = await synthesise(store, model=model, the_map=the_map)
+    synth = synthesis_store(store)
+    with pytest.raises(SynthesisError) as refused:
+        await apply(store, second, model=model, the_map=the_map)
+    said = str(refused.value)
+    assert synth.live() == first and "answers wouldn't stay with their idea" in said and "--accept-unmatched" in said
+    assert (f"{ids['Each key shows when it was checked']} (Each key shows when it was checked), which you answered Approve the work, "
+            "isn't carried on; none of its evidence is in it.") in said
+    assert (f"{ids['Stock page updates every hour']} (Stock page updates every hour: Not for CLIVE), {ids['Supplier messages in one thread']}"
+            " (Supplier messages in one thread: Not now) are one idea now") in said and "you answered them differently" in said
+    unmatched = synth.run(second)["unmatched"]
+    assert ids["Each key shows when it was checked"] in [p["idea"] for p in unmatched]
+    done = await apply(store, second, model=model, the_map=the_map, accept_unmatched=True)
+    assert synth.live() == second and done["unmatched"] == unmatched
+
+
+async def test_a_full_run_never_merges_ideas_his_answers_tell_apart(place, the_map):
+    """[review 9] Consolidating a full re-synthesis never merges two ideas whose evidence carries different
+    answers of his from the live generation."""
+    store, ledger = place
+    model, first = await _live_and_answered(store, ledger, the_map, {"Each key shows when it was checked": "go",
+                                                                      "Stock page updates every hour": "no"})
+    model.merges["Stock page updates every hour"] = ("Each key shows when it was checked", "Both are about freshness.")
+    second = await synthesise(store, model=model, the_map=the_map)
+    after = _active(store, second)
+    assert "Stock page updates every hour" in after and "Each key shows when it was checked" in after
+    assert not [e for e in _events(store, second) if e["type"] == "merged" and "freshness" in e["said"]]
+
+
 def test_reuse_needs_half_the_sources():
     def idea(*quotes):
         return {"status": "active", "sources": [{"quote": q} for q in quotes]}
