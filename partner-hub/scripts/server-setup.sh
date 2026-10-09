@@ -303,7 +303,10 @@ confirm_deployed() {
     return
   fi
   for f in "${FUNCTIONS[@]}"; do
-    diff -q -b -B "$tmp/base44/functions/$f/entry.ts" "$HERE/base44/functions/$f/entry.ts" >/dev/null 2>&1 || changed+=("$f")
+    # functions pull saves the code under the entry name in function.jsonc (main.ts), not always entry.ts
+    local entry
+    entry="$(node -e 'try { console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).entry || "entry.ts") } catch { console.log("entry.ts") }' "$tmp/base44/functions/$f/function.jsonc")"
+    diff -q -b -B "$tmp/base44/functions/$f/$entry" "$HERE/base44/functions/$f/entry.ts" >/dev/null 2>&1 || changed+=("$f")
   done
   rm -rf "$tmp"
   if [ ${#changed[@]} -eq 0 ]; then
