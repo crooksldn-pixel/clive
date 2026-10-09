@@ -87,6 +87,7 @@ def build_service(settings: Settings) -> ShippingService:
         Purchases(store, provider),
         may_buy=lambda s: settings.buying_enabled or _order_number(s.order_name) in allowed,
         commodity=commodity,
+        domestic=settings.domestic(),
     )
 
 

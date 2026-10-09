@@ -30,7 +30,7 @@ class ShopifyRefused(ShopifyError):
 FO_FIELDS = """
   id status requestStatus updatedAt
   order { id name email phone cancelledAt currencyCode displayFinancialStatus createdAt
-          customer { displayName } }
+          customer { displayName } shippingLine { title } }
   assignedLocation { name address1 address2 city zip countryCode province phone location { id } }
   destination { firstName lastName company address1 address2 city province zip countryCode phone email }
   fulfillments(first: 10) { nodes { id status trackingInfo { number company url } } }
@@ -150,6 +150,9 @@ class FoSnapshot:
     financial_status: str | None = None
     order_created_at: str | None = None  # Order.createdAt: when the customer ordered
     customer_name: str | None = None  # Order.customer.displayName; None: guest or deleted
+    # The delivery method chosen at checkout (Order.shippingLine.title); None: the order has
+    # none (a draft or manual order). Decides a UK label's service (shipping/domestic.py).
+    shipping_line: str | None = None
 
     @property
     def open(self) -> bool:
@@ -203,6 +206,7 @@ def parse_fo(node: dict[str, Any]) -> FoSnapshot:
         financial_status=order.get("displayFinancialStatus"),
         order_created_at=order.get("createdAt"),
         customer_name=((order.get("customer") or {}).get("displayName") or None),
+        shipping_line=((order.get("shippingLine") or {}).get("title") or None),
         currency=order.get("currencyCode") or "GBP",
         destination=Address(
             name=" ".join(x for x in (d.get("firstName"), d.get("lastName")) if x),

@@ -179,6 +179,9 @@ class Quote(BaseModel):
     billed_by: str = ""  # "provider" (prepaid balance or card), "courier_account", "on_scan"
     rate_id: str | None = None  # the provider's id for this exact price, when it has one
     valid_until: datetime | None = None
+    # False: the provider sets the price only when buying and can't show it first (Shopify
+    # Shipping). `amount` is then zero and never shown or checked as a price.
+    price_known: bool = True
 
     @property
     def title(self) -> str:
@@ -338,6 +341,16 @@ class Shipment(BaseModel):
     fulfillment_order_id: str
     destination: Address
     status: ShipmentStatus
+    # Going to the ship-from country (UK to UK): no customs, and the label comes from Shopify
+    # Shipping (shipping/domestic.py). Set from the address each time the order is read.
+    domestic: bool = False
+    # The delivery method the customer chose at checkout (Order.shippingLine.title), as read.
+    shipping_line: str | None = None
+    # Domestic only: the Royal Mail service for this order ("tracked_24" / "tracked_48"), from
+    # the owner's mapping of `shipping_line` or a person's choice; None: not decided.
+    domestic_service: str | None = None
+    # Who chose the service when the shipping line isn't mapped (None: the mapping decided).
+    domestic_service_by: str | None = None
     currency: str = "GBP"
     lines: list[CustomsLine] = Field(default_factory=list)
     package: PackagePlan | None = None

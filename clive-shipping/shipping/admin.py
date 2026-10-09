@@ -290,7 +290,7 @@ def build_admin_router(
         counts = dict.fromkeys(lifecycle.STAGES, 0)
         rows: list[dict[str, Any]] = []
         for s in sorted(svc.store.shipments(shop), key=views.placed_at, reverse=True):
-            if not views.matches(s, q):
+            if not svc.visible(s) or not views.matches(s, q):
                 continue
             printed = physical.summary(shop, s.id)
             where = lifecycle.stage(s, printed)

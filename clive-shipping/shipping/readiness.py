@@ -106,7 +106,10 @@ def questions(
     lines: list[CustomsLine],
     has_package: bool,
     destination: Address | None = None,
+    customs: bool = True,
 ) -> list[Question]:
+    """What a person must answer before a label can be bought. `customs` False (a UK parcel):
+    no HS code or country of origin is asked; weight, package and address still are."""
     out: list[Question] = []
     gaps = address_gaps(destination) if destination is not None else []
     if gaps:
@@ -140,7 +143,7 @@ def questions(
                     "It's saved to the product in Shopify.",
                 )
             )
-        if not ln.hs_code and ("customs", pid) not in seen:
+        if customs and not ln.hs_code and ("customs", pid) not in seen:
             seen.add(("customs", pid))
             hint = _hs_suggestion(store, shop, ln)
             out.append(
@@ -154,7 +157,7 @@ def questions(
                     choices=[ln.product_type or ln.title],  # description prefill: their own words
                 )
             )
-        if not ln.origin_country and ("origin", pid) not in seen:
+        if customs and not ln.origin_country and ("origin", pid) not in seen:
             seen.add(("origin", pid))
             used = []
             for _, value, _ in store.facts(shop, "product", "origin_country"):

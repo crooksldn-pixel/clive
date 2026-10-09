@@ -207,7 +207,7 @@ def build_api_router(
             raise fail(422, "invalid", f"stage is one of {', '.join((*lifecycle.STAGES, 'all'))}.")
         rows = []
         for s in sorted(svc.store.shipments(shop), key=views.placed_at, reverse=True):
-            if not views.matches(s, q):
+            if not svc.visible(s) or not views.matches(s, q):
                 continue
             r = summary(s, physical(request).summary(shop, s.id))
             if stage in (r["stage"], "all"):

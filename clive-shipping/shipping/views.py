@@ -34,13 +34,29 @@ QUESTION_PHRASES = {
     "on_hold": "On hold in Shopify",
     "payment": "Payment not taken",
     "second_label": "Already has a label",
+    "domestic_service": "Which service?",
+    "service_code": "Shopify Shipping code not set",
+    "domestic_off": "UK labels switched off",
 }
 # Not something the merchant fills in: these name the problem instead of counting details.
 # The first one present names the badge, so payment (the most basic) comes first.
-NOT_DETAILS = ("payment", "second_label", "no_rates", "provider_unavailable", "address", "on_hold")
+NOT_DETAILS = (
+    "payment",
+    "second_label",
+    "domestic_off",
+    "service_code",
+    "no_rates",
+    "provider_unavailable",
+    "address",
+    "on_hold",
+    "domestic_service",
+)
 PROBLEM_TONES = {
     "payment": "critical",
     "second_label": "critical",
+    "domestic_off": "neutral",
+    "service_code": "critical",
+    "domestic_service": "warning",
     "no_rates": "critical",
     "provider_unavailable": "caution",
     "address": "warning",

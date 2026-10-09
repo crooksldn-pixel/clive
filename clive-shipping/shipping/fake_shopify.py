@@ -61,7 +61,13 @@ def hoodie_line(n: int = 2, qty: int = 1) -> FoLine:
     )
 
 
-def fo(n: int, lines: list[FoLine], country: str = "DE", name: str | None = None) -> FoSnapshot:
+def fo(
+    n: int,
+    lines: list[FoLine],
+    country: str = "DE",
+    name: str | None = None,
+    shipping_line: str | None = "Tracked 48",
+) -> FoSnapshot:
     dest = Address(
         name="Max Muster",
         line1="Torstrasse 12",
@@ -97,6 +103,7 @@ def fo(n: int, lines: list[FoLine], country: str = "DE", name: str | None = None
         origin_location_id="gid://shopify/Location/1",
         lines=lines,
         financial_status="PAID",
+        shipping_line=shipping_line,
     )
 
 
