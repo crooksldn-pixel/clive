@@ -51,6 +51,9 @@ DEFAULTS = {"judgment": "INVESTIGATE", "relationship": "NEW", "timing": "UNSCHED
 POSITIVE, NEGATIVE = ("ADOPT", "ADOPT_PARTLY"), ("REJECT", "CONFLICT")
 # Direction's reason when the only thing said against an idea was DEC-018 (which says when, never whether).
 DIRECTION_HELD = "Nothing argued against the direction itself, only against building it now: When says what holds it back."
+# [review 4] Direction's reason when code changed a Not for CLIVE that had no rule or decision to stand on.
+ALREADY_DONE = "CLIVE already does this, and already done is never a reason to reject: the direction is right."
+NO_GROUND = "No rule or decision it breaks was named, so CLIVE can't call it not for CLIVE: it is worth looking into."
 FULL_VIEW = ("FOUNDATIONAL", "HIGH_LEVERAGE")
 
 JUDGE_SYSTEM = """You judge ideas drawn from research about CLIVE, a business assistant for the owner of a small London streetwear label, against CLIVE's own design.
@@ -276,12 +279,22 @@ def _hold_dec_018(answers, keys, basis, held, idea, notes, the_map) -> None:
         answers["timing"] = "LATER"
 
 
+def _was(idea: dict[str, Any]) -> str:
+    """The model's own reason, for the history, when code changes the direction."""
+    was = idea["reasons"]["judgment"]
+    return f" Its reason was: {line(was, 200)}" if was else ""
+
+
 def _reject_needs_a_rule(answers, keys, basis, the_map, idea, notes) -> None:
-    if answers["judgment"] != "REJECT":
+    """[review 4] Not for CLIVE stands only on grounds(): a rule, or an active decision other than DEC-018,
+    the idea contradicts. Without one, what is already done (or a feature, or what is live) is Right
+    direction, and anything else is Worth looking into; Direction then says why code changed it."""
+    if answers["judgment"] != "REJECT" or grounds(keys, the_map):
         return
-    rules = [b for b in basis if b.startswith("RULE-") or (b.startswith("DEC-") and b != HOLDS_TIMING)]
     done = [b for b in basis if b.startswith("FEAT-") or b == "TRUTH"]
-    if answers["relationship"] == "ALREADY_SATISFIED" or (done and not rules):
+    done += [k["key"] for k in keys if (k["key"].startswith("FEAT-") or k["key"] == "TRUTH") and k["key"] not in done]
+    if answers["relationship"] == "ALREADY_SATISFIED" or done:
+        notes.append("Already done is not a reason to reject: it is Right direction, already in CLIVE." + _was(idea))
         answers["judgment"] = "ADOPT"
         if answers["relationship"] == "NEW":
             answers["relationship"] = "ALREADY_SATISFIED"
@@ -289,13 +302,17 @@ def _reject_needs_a_rule(answers, keys, basis, the_map, idea, notes) -> None:
             if k["key"] in done and k["how"] == "contradicts":
                 k["how"] = "already does it"
         basis[:] = [b for b in basis if b not in done]
-        notes.append("Already done is not a reason to reject: it is Right direction, already in CLIVE.")
-    elif not rules:
+        idea["reasons"]["judgment"] = ALREADY_DONE
+    else:
+        notes.append("Not for CLIVE needs a rule or decision it breaks, and none was named: it is Worth looking into."
+                     + _was(idea))
         answers["judgment"] = "INVESTIGATE"
-        notes.append("Not for CLIVE needs a rule or decision it breaks, and none was named: it is Worth looking into.")
+        idea["reasons"]["judgment"] = NO_GROUND
 
 
 def _vetoes(idea, raw, answers, keys, basis, the_map, notes) -> None:
+    """[review 4] A hit on a rule that never bends sets the direction whatever the model said: Needs your
+    call when three or more documents back it, Not for CLIVE below, citing the rule."""
     said = [idea.get("statement") or ""]
     said += [s.get("says") or "" for s in idea.get("sources") or [] if s.get("stance") != "opposes"]
     said += strings(raw.get("done_when"), 200, 3)
@@ -305,18 +322,22 @@ def _vetoes(idea, raw, answers, keys, basis, the_map, notes) -> None:
     veto, matched = hit
     rule = the_map.get(veto.rule)
     for key in (veto.rule, *(k for k in veto.also if the_map.get(k))):
-        if key not in [k["key"] for k in keys]:
+        known = next((k for k in keys if k["key"] == key), None)
+        if known is None:
             keys.append({"key": key, "how": "contradicts"})
+        else:
+            known["how"] = "contradicts"
         if key not in basis:
             basis.append(key)
-    if answers["judgment"] in POSITIVE:
-        backed = len(documents_backing(idea))
-        answers["judgment"] = "CONFLICT" if backed >= 3 else "REJECT"
-        number = veto.rule.split("-")[1]
-        idea["reasons"]["judgment"] = line(
-            f"Breaks rule {number} ({rule.title if rule else veto.rule}): it {veto.words} (“{line(matched, 60)}”)."
-            + (f" {backed} documents back it, so it is your call." if backed >= 3 else ""), 400)
-        notes.append(f"CLIVE's own check of rule {number} found it asks to break it.")
+    backed = len(documents_backing(idea))
+    number = veto.rule.split("-")[1]
+    because = line(f"Breaks rule {number} ({rule.title if rule else veto.rule}): it {veto.words} (“{line(matched, 60)}”)."
+                   + (f" {backed} documents back it, so it is your call." if backed >= 3 else ""), 400)
+    judged_ = "CONFLICT" if backed >= 3 else "REJECT"
+    if answers["judgment"] != judged_ or idea["reasons"]["judgment"] != because:
+        notes.append(f"CLIVE's own check of rule {number} found it asks to break it." + _was(idea))
+    answers["judgment"] = judged_
+    idea["reasons"]["judgment"] = because
 
 
 def _today(raw: Any, the_map: Map, notes: list[str]) -> dict[str, Any]:

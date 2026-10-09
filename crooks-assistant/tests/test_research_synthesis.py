@@ -435,6 +435,36 @@ def test_a_rule_that_never_bends_makes_conflict_at_three_documents_and_reject_be
     assert idea["reasons"]["judgment"].startswith("Breaks rule 2 (Anything outward waits for a gesture on its card)")
 
 
+def test_the_direction_is_set_by_code_whatever_the_model_said(the_map):
+    """[review 4] A rule that never bends decides the direction whatever the model said, and Not for CLIVE
+    stands only on a rule, or an active decision other than DEC-018, the idea contradicts; when code
+    changes the direction, Direction says why and the model's words go to the history."""
+    refunds = "Refunds under five pounds go out automatically without his approval."
+    for model_said, docs, judged in (("REJECT", 3, "CONFLICT"), ("INVESTIGATE", 1, "REJECT"), ("CONFLICT", 2, "REJECT")):
+        idea = _idea(refunds, docs=docs)
+        notes = judge.enforce(idea, _raw(model_said, "NEW", keys=[("RULE-2", "related")], why="The model's own words."),
+                              the_map=the_map, previous=None)
+        assert idea["answers"]["judgment"] == judged, (model_said, docs)
+        assert idea["reasons"]["judgment"].startswith("Breaks rule 2 (") and {"key": "RULE-2", "how": "contradicts"} in idea["keys"]
+        assert any(n.endswith("Its reason was: The model's own words.") for n in notes)
+    for keys, basis in (([("DEC-005", "serves")], ["DEC-005"]), ([("DEC-027", "contradicts")], []),
+                        ([("IDEA-001", "contradicts")], ["IDEA-001"]), ([("DEC-063", "related")], ["DEC-063"])):
+        idea = _idea()
+        notes = judge.enforce(idea, _raw("REJECT", "NEW", keys=keys, basis=basis, why="Not for CLIVE, says the model."),
+                              the_map=the_map, previous=None)
+        assert idea["answers"]["judgment"] == "INVESTIGATE", keys
+        assert idea["reasons"]["judgment"] == judge.NO_GROUND
+        assert any(n.endswith("Its reason was: Not for CLIVE, says the model.") for n in notes)
+    done = _idea()
+    judge.enforce(done, _raw("REJECT", "NEW", keys=[("FEAT-007", "related")], why="FEAT-007 exists."), the_map=the_map, previous=None)
+    assert (done["answers"]["judgment"], done["answers"]["relationship"]) == ("ADOPT", "ALREADY_SATISFIED")
+    assert done["reasons"]["judgment"] == judge.ALREADY_DONE
+    ruled = _idea()
+    judge.enforce(ruled, _raw("REJECT", "NEW", keys=[("DEC-063", "contradicts")], why="It breaks DEC-063."), the_map=the_map,
+                  previous=None)
+    assert ruled["answers"]["judgment"] == "REJECT" and ruled["reasons"]["judgment"] == "It breaks DEC-063."
+
+
 def test_a_needs_you_that_isnt_true_is_dropped(the_map):
     idea = _idea()
     notes = judge.enforce(idea, _raw(importance="USEFUL", needs={"trigger": "opportunity", "question": "Shall we?"}),
