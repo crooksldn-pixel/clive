@@ -387,7 +387,13 @@ def _headline(row: dict) -> dict:
 
 def _size(answer: dict) -> int:
     """The answer's size as the model reads it: JSON as app/tools/dispatch.py `_render` writes it."""
-    return len(json.dumps(answer, ensure_ascii=False, default=str).encode("utf-8"))
+    return _bytes(json.dumps(answer, ensure_ascii=False, default=str))
+
+
+def _bytes(text: str) -> int:
+    """UTF-8 bytes, never refused: a lone surrogate the loop published (a log cut through an emoji)
+    counts as the six bytes of its escape, as the SDK sends it, and never makes the read fail."""
+    return len(text.encode("utf-8", "backslashreplace"))
 
 
 def _within(out: dict[str, Any], listing: _Listing) -> dict[str, Any]:
@@ -440,7 +446,7 @@ def _areas(areas: list[str]) -> dict[str, Any]:
     shown: list[str] = []
     spent = 2
     for area in areas:
-        spent += len(json.dumps(area, ensure_ascii=False).encode("utf-8")) + 2
+        spent += _bytes(json.dumps(area, ensure_ascii=False)) + 2
         if spent > MAX_AREAS_BYTES:
             break
         shown.append(area)

@@ -274,3 +274,23 @@ async def test_a_few_requests_are_still_said_whole(loop):
     out = await engineering_tools.engineering_status()
     assert len(out["requests"]) == 8 and "not_listed" not in out and "detail" not in out
     assert all("history" in row for row in out["requests"])
+
+
+# ------------------------------------------------------------------ text the loop cannot have meant
+
+
+@pytest.mark.usefixtures("owner_asking")
+async def test_a_lone_surrogate_in_the_status_never_makes_the_read_fail(loop):
+    """A log cut through an emoji leaves half of it: the read is said and filing goes on (review N1)."""
+    loop.status = _status([{"request_id": "invented-half-emoji", "outcome": "accepted", "stage": "BLOCKED",
+                            "recorded_at": _at(1), "blocker": "ci log \udcff bytes"}])
+    session = Session(session_id="eng-surrogate")
+
+    text = await dispatch(STATUS_TOOL, {"areas": True}, session=session, timeout_s=5)
+
+    assert not text.startswith("ERROR"), text
+    out = json.loads(text)
+    assert out["inbox"]["id"] == HEAD and out["requests"][0]["request_id"] == "invented-half-emoji"
+    filed = await dispatch(SUBMIT_TOOL, {"inbox_id": HEAD, **ask()}, session=session, timeout_s=5)
+    assert filed.startswith("PROPOSED ("), filed
+    assert engineering_tools._areas(["crooks-assistant/app/half\udcff"])["areas"] == ["crooks-assistant/app/half\udcff"]
