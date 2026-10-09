@@ -292,6 +292,40 @@ async def test_a_document_that_stops_once_live_is_said_and_its_ideas_are_judged_
     assert restart["judged_with"]["evidence_hash"] == restart["evidence_hash"]
 
 
+async def test_an_idea_a_stopped_document_started_is_judged_with_the_next_and_shown(place, the_map):
+    """[review 3] A live document that starts an idea and stops before its judge call comes back leaves
+    the idea unjudged; the next document judges it, and it is on the screen."""
+    store, ledger = place
+    world = await fx.build_world(store, ledger, the_map=the_map)
+    model, gen = world["model"], world["gen"]
+    await flow.run_pending(store, model=model, the_map=the_map)      # the note still waiting to be read
+    model.claims["test-note-iota.md"] = [fx.claim("Label every parcel twice", "Each parcel gets a second label.",
+                                                  "every parcel should get a second label", "TEST SECTION: Parcels",
+                                                  "Every parcel gets a second label")]
+    model.ideas["Every parcel gets a second label"] = ("Each parcel CLIVE ships carries a second label.", "capability")
+    model.judge["Every parcel gets a second label"] = fx.judgment(
+        "INVESTIGATE", "NEW", "LATER", "low", "USEFUL", "NEW", why="An invented probe idea.", when="Later.",
+        owner_view=fx.view("A second label on every parcel.", "One label."))
+    flow.receive(store, "test-note-iota.md", b"# TEST RESEARCH NOTE - invented for CLIVE's tests (iota)\n\n"
+                 b"## TEST SECTION: Parcels\n\nEvery parcel should get a second label.\n", via="screen")
+    model.fail_at = "judge"
+    (iota,) = await flow.run_pending(store, model=model, the_map=the_map)
+    assert iota["state"] == "failed"
+    probe = _active(store, gen)["Every parcel gets a second label"]
+    assert not probe["answers"], "started, not judged"
+    flow.receive(store, "test-note-theta.md", b"# TEST RESEARCH NOTE - invented for CLIVE's tests (theta)\n\n## TEST SECTION: Keys\n\n"
+                 b"Every key should say plainly when CLIVE last checked it.\n", via="screen")
+    model.claims["test-note-theta.md"] = [fx.claim("Say when each key was checked", "Each key says when it was last checked.",
+                                                   "Every key should say plainly when CLIVE last checked it", "TEST SECTION: Keys",
+                                                   "Each key shows when it was checked")]
+    (theta,) = await flow.run_pending(store, model=model, the_map=the_map)
+    assert theta["state"] == "done", theta["why"]
+    probe = _active(store, gen)["Every parcel gets a second label"]
+    assert probe["answers"]["judgment"] == "INVESTIGATE" and probe["judged_with"]
+    payload = await research_ideas.current(store, ledger)
+    assert probe["id"] in [r["id"] for g in payload["groups"] for r in g["ideas"]], "on the screen"
+
+
 # ------------------------------------------------------------------ the axes, enforced in code
 
 

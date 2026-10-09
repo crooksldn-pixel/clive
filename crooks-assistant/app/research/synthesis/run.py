@@ -520,9 +520,11 @@ async def absorb_live(research_store, record: dict[str, Any], text: str, *, mode
     work = Work(synth, gen, calls, the_map, answered=answered)
     touched = await absorb(work, record, text)
     # Ideas an earlier document changed and couldn't see judged (its run stopped) are judged now too:
-    # a document touched them. Ideas no document touched are never judged again here.
+    # a document touched them. [review 3] So are ideas never judged at all (a document that started them
+    # stopped before its judge call came back): they are never left stranded off the screen. Ideas no
+    # document touched are never judged again here.
     touched |= {i["id"] for i in work.active()
-                if judged(i) and evidence_hash(i) != (i.get("judged_with") or {}).get("evidence_hash")}
+                if not judged(i) or evidence_hash(i) != (i.get("judged_with") or {}).get("evidence_hash")}
     if touched:
         await judge(work, touched)
         await summarise(work)
