@@ -10,6 +10,15 @@ said to be waiting for it. It also reads the inbox branch's head commit and retu
 `id`, which the dispatcher issues to the conversation exactly as it issues any id a read
 returns (app/tools/dispatch.py `_harvest_ids`).
 
+Its answer stays small however many requests the loop has recorded (9 Oct 2026: every request ever
+recorded made it 56 KB, the claude CLI handed the model a "too large" note in its place, and the
+owner's "yes" to filing a build failed for want of the inbox id). It always carries the counts, the
+inbox id and the base; it lists the requests waiting on the owner, those open or blocked, and the
+newest few, newest first and at most MAX_LISTED, and says how many more there are; `request_ids`
+returns named ones in full. Each line is said whole while the listing fits, and by its headline when
+it would not. Whatever the loop publishes, the answer is at most MAX_ANSWER_BYTES as the model reads it
+(`_within`), so filing never depends on a read that can outgrow the CLI's limit.
+
 `submit_engineering_request` is a write, and it acts on that issued inbox id: the gate's
 existing issued-id rule is what stages it for the owner (app/tools/gate.py). Its handler only
 prepares — builds the request, holds it to the loop's own intake rules
@@ -35,6 +44,7 @@ progress is the loop's.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -72,7 +82,7 @@ STATUS_TOOL = "engineering_status"
 SUBMIT_TOOL = "submit_engineering_request"
 OPERATION = "engineering_request_file"
 
-# How much of the loop's own words a line repeats. Every request is listed: none is dropped.
+# How much of the loop's own words a line repeats.
 MAX_REASON_CHARS = 300
 # A blocker is said in full up to this: it is what the Director acts on. The story it ends runs to
 # the second bound (its tries, retries and repairs are a few short clauses before it).
@@ -92,6 +102,20 @@ DEFAULT_CHECK_PYTHON = "/home/user/clive/crooks-assistant/.venv/bin/python"
 RUFF_ARGS = ("-m", "ruff", "check", "app", "config", "scripts", "tests")
 MAX_AREAS = 160
 MAX_ID_SUFFIX = 9
+
+# The most one engineering_status answer may be, in UTF-8 bytes as the model reads it. The claude CLI
+# (2.1.283, measured 9 Oct 2026) passes an MCP tool result on whole while its estimate, a quarter of
+# its characters, is under half of MAX_MCP_OUTPUT_TOKENS (25,000 unless set, or lowered by Anthropic's
+# own flag); past that it counts the tokens, and a result over the limit is replaced by a note that it
+# was saved to a file, which CLIVE's model, with no file tools, cannot open. 16,000 bytes is an
+# estimate of at most 4,000 tokens: a third of the 12,500 at which counting starts, so it is passed on
+# uncounted even if the limit were cut to a third of today's.
+MAX_ANSWER_BYTES = 16_000
+MAX_LISTED = 20           # requests one listing names
+MAX_RECENT = 5            # the newest requests, listed whatever their state
+MAX_HEADLINE_CHARS = 200  # a listed request's words, when the listing is said by headlines
+MAX_NAMED = 5             # requests one call returns in full (request_ids)
+MAX_AREAS_BYTES = 6_000   # the areas a build may change, as listed (3,918 bytes on 9 Oct)
 
 _inbox: EngineeringInbox | None = None
 _check_python = DEFAULT_CHECK_PYTHON
@@ -139,12 +163,16 @@ register(CapabilityFamily(
     description=(
         "How the engineering objectives filed into the remote engineering loop are going: "
         "queued, building, in review, done, blocked, or needs the owner. Returns the inbox id "
-        "that submit_engineering_request takes. areas: true lists the parts of CLIVE a build may change."
+        "that submit_engineering_request takes. areas: true lists the parts of CLIVE a build may change. "
+        "request_ids: those requests in full."
     ),
-    input_schema={"type": "object", "properties": {"areas": {"type": "boolean"}}},
+    input_schema={"type": "object", "properties": {
+        "areas": {"type": "boolean"},
+        "request_ids": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_NAMED},
+    }},
     tier=Tier.GREEN,
 )
-async def engineering_status(areas: bool = False) -> dict:
+async def engineering_status(areas: bool = False, request_ids: list[str] | None = None) -> dict:
     inbox = _client()
     try:
         status = await inbox.status()
@@ -156,19 +184,20 @@ async def engineering_status(areas: bool = False) -> dict:
         trunk = await inbox.trunk_head()
     except GitHubError as exc:
         raise ToolError(str(exc)) from None
-    _remember(status)
-    out = project(status, head, branch=inbox.inbox_branch)
-    _with_owner_decisions(out["requests"], _items(status.data if status.published else {}))
-    out["host"] = inbox.host
+    items = _items(status.data if status.published else {})
+    rows = [progress(item) for item in items]
+    _remember(status, items=items, rows=[dict(row) for row in rows])
+    _with_owner_decisions(rows, items)
+    extra: dict[str, Any] = {"host": inbox.host}
     if isinstance(trunk, InboxHead) and trunk.sha:
-        out["base"] = {"ref": TRUNK_REF, "sha": trunk.sha}
+        extra["base"] = {"ref": TRUNK_REF, "sha": trunk.sha}
     if areas:
-        out["areas"] = buildable_areas()
-        out["tests"] = (
+        extra.update(_areas(buildable_areas()))
+        extra["tests"] = (
             f"Tests are files under {APP_DIR}/tests/: name the ones the build should add or change "
             f"(for example {APP_DIR}/tests/test_<topic>.py). With none named, one is added for it."
         )
-    return out
+    return project(status, head, branch=inbox.inbox_branch, rows=rows, request_ids=request_ids, extra=extra)
 
 
 def _with_owner_decisions(rows: list[dict], items: list[dict]) -> None:
@@ -234,11 +263,16 @@ def _items(data: Any) -> list[dict]:
     return items
 
 
-def project(status: LoopStatus, head: InboxHead, *, branch: str = INBOX_BRANCH) -> dict[str, Any]:
-    """The loop's status.json, one line per request in plain words, and the inbox's id."""
+def project(status: LoopStatus, head: InboxHead, *, branch: str = INBOX_BRANCH, rows: list[dict] | None = None,
+            request_ids: Any = None, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The loop's status.json in plain words, at most MAX_ANSWER_BYTES as the model reads it: how many
+    requests are in each state, the inbox's id, what `extra` adds (the host, the base, the areas), and
+    the requests worth naming unasked (`_listed`) or, with `request_ids`, those named, in full
+    (`_named`). `rows` are the requests' lines when the caller has them already (with the owner's
+    answers put on them); otherwise they are read from the status here."""
     data = status.data if status.published else {}
     items = _items(data)
-    rows = [progress(item) for item in items]
+    rows = [progress(item) for item in items] if rows is None else rows
     counts: dict[str, int] = {}
     for row in rows:
         counts[row["progress"]] = counts.get(row["progress"], 0) + 1
@@ -255,14 +289,165 @@ def project(status: LoopStatus, head: InboxHead, *, branch: str = INBOX_BRANCH) 
         summary += f" The loop could not read its inbox last time: {_said(adapter['intake_error'])}."
     if adapter.get("trunk_fetch_error"):
         summary += f" The loop could not fetch the trunk last time: {_said(adapter['trunk_fetch_error'])}."
-    out: dict[str, Any] = {"connected": True, "summary": summary, "requests": rows}
-    if isinstance(data.get("generated_at"), str):
-        out["as_of"] = data["generated_at"][:40]
+    out: dict[str, Any] = {"connected": True, "summary": summary}
     if head.sha:
         # `id` is the key the dispatcher issues from; this is the inbox the owner may file into.
         out["inbox"] = {"id": head.sha, "branch": branch}
     else:
         out["summary"] += " The inbox branch does not exist yet, so nothing can be filed."
+    if isinstance(data.get("generated_at"), str):
+        out["as_of"] = data["generated_at"][:40]
+    out.update(extra or {})
+    asked = _asked(request_ids)
+    return _within(out, _named(rows, asked) if asked else _listed(items, rows))
+
+
+# ------------------------------------------------------------------ an answer that stays small
+
+_OPEN_OR_BLOCKED = frozenset({"queued", "building", "in review", "blocked"})
+# The order the model reads an answer's parts in: what filing needs before any request, so a reader
+# that cuts a long answer short (an older CLI truncated instead) still has the inbox id and the base.
+_ORDER = ("connected", "summary", "inbox", "base", "host", "as_of", "not_listed", "not_found", "detail",
+          "blocked_means", "requests", "areas", "areas_not_listed", "tests")
+
+
+class _Listing:
+    """The requests an answer would name. `chosen` is most important first, so the last is the first
+    left out when the answer would not fit; `place` is where each stands when said, and `total` how
+    many there are to say."""
+
+    def __init__(self, rows: list[dict], chosen: list[int], place: dict[int, int], *, total: int,
+                 named: bool, asked_more: int = 0, not_found: list[str] | None = None) -> None:
+        self.rows, self.chosen, self.place, self.total, self.named = rows, chosen, place, total, named
+        self.asked_more, self.not_found = asked_more, not_found or []
+
+
+def _listed(items: list[dict], rows: list[dict]) -> _Listing:
+    """The requests worth naming unasked, most important first, at most MAX_LISTED: those waiting
+    on the owner, or carrying an answer of his nothing has acted on yet; then, newest first, those
+    open or blocked and the MAX_RECENT newest whatever their state. A request that is done and
+    older than those is counted, not named. Said newest first."""
+    newest = _newest_first(items, rows)
+    recent = set(newest[:MAX_RECENT])
+    first = [n for n in newest if _waits_on_owner(rows[n])]
+    taken = set(first)
+    then = [n for n in newest if n not in taken and (rows[n].get("progress") in _OPEN_OR_BLOCKED or n in recent)]
+    return _Listing(rows, (first + then)[:MAX_LISTED], {n: place for place, n in enumerate(newest)},
+                    total=len(rows), named=False)
+
+
+def _asked(request_ids: Any) -> list[str]:
+    """The ids asked for, once each and in order: a list of them, or one given on its own. None, or
+    nothing usable, asks for the listing."""
+    asked = [request_ids] if isinstance(request_ids, str) else request_ids if isinstance(request_ids, list) else []
+    return list(dict.fromkeys(r.strip() for r in asked if isinstance(r, str) and r.strip()))
+
+
+def _named(rows: list[dict], wanted: list[str]) -> _Listing:
+    """The requests asked for by id, each in full, in the order asked; at most MAX_NAMED."""
+    at = {row.get("request_id"): n for n, row in enumerate(rows)}
+    chosen = [at[r] for r in wanted[:MAX_NAMED] if r in at]
+    return _Listing(rows, chosen, {n: place for place, n in enumerate(chosen)}, total=len(chosen), named=True,
+                    asked_more=max(0, len(wanted) - MAX_NAMED),
+                    not_found=[_words(r, 80) for r in wanted[:MAX_NAMED] if r not in at])
+
+
+def _waits_on_owner(row: dict) -> bool:
+    said = row.get("owner_decision")
+    unacted = isinstance(said, dict) and said.get("needs_acting_on") is True and str(said.get("acted_on", "")).startswith("No")
+    return row.get("progress") == "needs the owner" or unacted
+
+
+def _newest_first(items: list[dict], rows: list[dict]) -> list[int]:
+    """Each request's place, the latest to have something happen first: recorded, held waiting,
+    landed, or answered by the owner. The loop publishes them by name, not by time; requests with the
+    same time, or none, keep their places as published, after those with one."""
+    from app.builds.board import _iso
+
+    def latest(n: int) -> str:
+        item, row = items[n], rows[n]
+        landing = item.get("landing") if isinstance(item.get("landing"), dict) else {}
+        said = row.get("owner_decision") if isinstance(row.get("owner_decision"), dict) else {}
+        return max(_iso(item.get("recorded_at")), _iso(item.get("waiting_since")), _iso(landing.get("at")),
+                   _iso(said.get("decided_at")))
+
+    when = [latest(n) for n in range(len(items))]
+    return sorted(range(len(items)), key=lambda n: (when[n], -n), reverse=True)
+
+
+def _headline(row: dict) -> dict:
+    """A listed request when the listing is said by headlines: its id, where it is, its words cut to
+    MAX_HEADLINE_CHARS, and the owner's answer on it as he gave it."""
+    out = {"request_id": row.get("request_id"), "progress": row.get("progress"),
+           "words": _words(row.get("words"), MAX_HEADLINE_CHARS)}
+    if "owner_decision" in row:
+        out["owner_decision"] = row["owner_decision"]
+    return out
+
+
+def _size(answer: dict) -> int:
+    """The answer's size as the model reads it: JSON as app/tools/dispatch.py `_render` writes it."""
+    return len(json.dumps(answer, ensure_ascii=False, default=str).encode("utf-8"))
+
+
+def _within(out: dict[str, Any], listing: _Listing) -> dict[str, Any]:
+    """The answer, in the order the model reads it and at most MAX_ANSWER_BYTES. A listing's requests
+    are put on whole while they all fit, said by their headlines when they do not, and then the least
+    important are left out until it fits; a request named in full is left out rather than cut. What
+    is not on it is said, by count. The parts every answer carries are bounded on their own."""
+    kept, whole = list(listing.chosen), True
+    while True:
+        answer = _ordered({**out, **_put(listing, kept, whole=whole)})
+        if _size(answer) <= MAX_ANSWER_BYTES or not kept:
+            return answer
+        if whole and not listing.named:
+            whole = False       # by headlines first; only then is anything left out
+        else:
+            kept.pop()
+
+
+def _put(listing: _Listing, kept: list[int], *, whole: bool) -> dict[str, Any]:
+    """The requests part of an answer, as they are said, and what is not on it, by count."""
+    shown = sorted(kept, key=lambda n: listing.place[n])
+    rows = [listing.rows[n] if whole else _headline(listing.rows[n]) for n in shown]
+    part: dict[str, Any] = {"requests": rows}
+    left = listing.total - len(rows)
+    if listing.named:
+        if listing.not_found:
+            part["not_found"] = (f"The loop's status has no request with the id {', '.join(listing.not_found)}. "
+                                 "Ids are exact; engineering_status without request_ids lists the open ones.")
+        if left or listing.asked_more:
+            part["not_listed"] = (f"{left + listing.asked_more} of the requests named are not shown: name at most "
+                                  f"{MAX_NAMED} at once, fewer when they are long.")
+        return part
+    if left:
+        part["not_listed"] = (f"{left} more request{'' if left == 1 else 's'} not listed (done, or older than those "
+                              "listed): name one in request_ids to see it.")
+    if not whole:
+        part["detail"] = "Each request here is its headline: request_ids returns its history and next step."
+        if any(row.get("progress") == "blocked" for row in rows):
+            part["blocked_means"] = f"For every blocked request: {NEEDS_THE_DIRECTOR} {REFILING_FAILS}"
+    return part
+
+
+def _ordered(out: dict[str, Any]) -> dict[str, Any]:
+    known = {key: out[key] for key in _ORDER if key in out}
+    return {**known, **{key: value for key, value in out.items() if key not in known}}
+
+
+def _areas(areas: list[str]) -> dict[str, Any]:
+    """The areas a build may change, as many as fit in MAX_AREAS_BYTES, and how many more there are."""
+    shown: list[str] = []
+    spent = 2
+    for area in areas:
+        spent += len(json.dumps(area, ensure_ascii=False).encode("utf-8")) + 2
+        if spent > MAX_AREAS_BYTES:
+            break
+        shown.append(area)
+    out: dict[str, Any] = {"areas": shown}
+    if len(shown) < len(areas):
+        out["areas_not_listed"] = (f"{len(areas) - len(shown)} more areas are not listed: a path inside a listed "
+                                   "folder may be named, and the loop's own rules judge any other.")
     return out
 
 
@@ -976,8 +1161,11 @@ PROGRESS_TTL_S = 60.0
 _progress_cache: dict[str, Any] = {}
 
 
-def _remember(status: LoopStatus) -> None:
-    rows = _rows(status)
+def _remember(status: LoopStatus, *, items: list[dict] | None = None, rows: list[dict] | None = None) -> None:
+    """The status read and each request's line, kept for the owner's screens; `items` and `rows` when
+    the caller has made them already, so a long status is not said twice."""
+    rows = _rows(status) if items is None or rows is None else {
+        str(item.get("request_id")): row for item, row in zip(items, rows, strict=True) if item.get("request_id")}
     # `status` is the loop's published status itself, for the owner's Builds screen (app/builds/read.py).
     _progress_cache.update(at=time.monotonic(), rows=rows, status=status)
     record = _gaps()

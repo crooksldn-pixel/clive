@@ -428,13 +428,20 @@ async def test_engineering_status_reports_every_request_however_many(fake, bound
         for n in range(45)
     ]
     result = await engineering_tools.engineering_status()
-    assert [row["request_id"] for row in result["requests"]] == [f"many-r{n}" for n in range(45)], "none is dropped"
+    # Changed 9 Oct 2026 (claude/n3-engineering-status): every request is counted, the open, blocked
+    # and newest are named, at most MAX_LISTED, and the rest are said by count. Listing all of them
+    # made the answer 56 KB on the live loop, which the claude CLI never handed to the model.
+    listed = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 14, 15, 16, 17, 19, 20, 21, 22]
+    assert [row["request_id"] for row in result["requests"]] == [f"many-r{n}" for n in listed]
+    assert result["not_listed"].startswith("25 more requests not listed")
     assert result["summary"] == (
         "45 engineering requests: 9 queued, 9 building, 9 in review, 9 done, 9 blocked."
     )
-    # And the answer the model is handed carries every one of them.
+    # And the answer the model is handed carries every one of those named, and any other is named on asking.
     text = await dispatch(STATUS_TOOL, {}, session=Session(session_id="eng-many"), timeout_s=5)
-    assert all(f'"many-r{n}"' in text for n in range(45))
+    assert all(f'"many-r{n}"' in text for n in listed) and '"many-r8"' not in text
+    named = await engineering_tools.engineering_status(request_ids=["many-r8", "many-r44"])
+    assert [row["request_id"] for row in named["requests"]] == ["many-r8", "many-r44"]
 
 
 async def test_engineering_status_says_what_the_loop_has_not_published(fake, bound):

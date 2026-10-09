@@ -27,10 +27,19 @@ A number to reach (objectives by touch, part C) rides the same way: `number` on 
 on objective_note's `set`, where only the parts passed change and `{}` takes it off. These tools
 record what he said and read nothing from the shop; what has sold is counted on the owner's screen
 (app/objectives/count.py through app/routes/objectives.py), and the model asks the sales tools.
+
+objective_list stays small however many objectives there are (9 Oct 2026). Every live one, or every
+closed one ever, at about 1.25 KB each, passed the size at which the claude CLI stops handing a
+tool's result to the model at forty or so, as engineering_status's list of every build did that day
+(app/tools/engineering_tools.py MAX_ANSWER_BYTES says why its ceiling is 16,000 bytes). It names the
+most recently changed first, at most MAX_LISTED and MAX_LIST_BYTES, each line a listed objective
+carries cut to MAX_LINE, and says how many more there are; `search` finds any one, and objective_show
+reads it whole. Nothing is dropped from the records, and the owner's screens read the store, not this.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.objectives import cards
@@ -65,6 +74,13 @@ _STAGES = {**_NAMES, "maxItems": MAX_STAGES}
 # Its meaning is said once, in the system prompt (app/kb/loader.py), not here.
 _NUMBER = {"type": "object", "properties": {"of": {"type": "string"}, "target": {"type": "integer"}, "since": _DATE,
                                             "unit": {"type": "string"}}}
+# objective_list's bounds (the module docstring says why): the objectives one answer names, its size
+# as the model reads it, the characters of each line a listed objective carries, and how many of
+# what needs the owner on one are said.
+MAX_LISTED = 20
+MAX_LIST_BYTES = 16_000
+MAX_LINE = 200
+MAX_NEEDS_YOU = 3
 
 
 def _short(obj) -> dict[str, Any]:
@@ -134,9 +150,48 @@ async def objective_open(title: str, request: str, kind: str = "business", deadl
 )
 async def objective_list(closed: bool = False, search: str = "") -> dict:
     s = store()
-    if closed:
-        return {"closed": True, "objectives": [_short(o) for o in s.closed(search)]}
-    return {"objectives": [_short(o) for o in s.live() if o.mentions(search)]}
+    found = s.closed(search) if closed else [o for o in s.live() if o.mentions(search)]
+    found.sort(key=lambda o: str(o.updated_at or ""), reverse=True)
+    return _listing({"closed": True} if closed else {}, found, closed=closed)
+
+
+def _listing(out: dict[str, Any], found: list, *, closed: bool) -> dict[str, Any]:
+    """The objectives found, the most recently changed first, as many as MAX_LISTED and MAX_LIST_BYTES
+    allow, and how many more there are. Never one cut in two: one that does not fit is counted."""
+    rows: list[dict[str, Any]] = []
+    for obj in found[:MAX_LISTED]:
+        row = _line(obj)
+        if len(json.dumps({**out, "objectives": [*rows, row], "not_listed": "x" * 160}, ensure_ascii=False,
+                          default=str).encode("utf-8")) > MAX_LIST_BYTES:
+            break
+        rows.append(row)
+    left = len(found) - len(rows)
+    if left:
+        out["not_listed"] = (f"{left} more {'closed ' if closed else ''}objective{'' if left == 1 else 's'} not listed, "
+                             "the least recently changed: search finds one by anything in its record.")
+    out["objectives"] = rows
+    return out
+
+
+def _line(obj) -> dict[str, Any]:
+    """An objective as a listing names it: its summary, each of its lines cut to MAX_LINE and at most
+    MAX_NEEDS_YOU of what needs the owner, with how many more. objective_show reads it whole."""
+    row = _short(obj)
+    for key in ("title", "attention_reason", "doing"):
+        if isinstance(row.get(key), str):
+            row[key] = _cut(row[key])
+    for key in ("next", "blocked_by"):
+        row[key] = [_cut(line) for line in row.get(key) or []]
+    needs = row.get("needs_you") or []
+    row["needs_you"] = [_cut(line) for line in needs[:MAX_NEEDS_YOU]]
+    if len(needs) > MAX_NEEDS_YOU:
+        row["needs_you_more"] = len(needs) - MAX_NEEDS_YOU
+    return row
+
+
+def _cut(text: Any) -> str:
+    said = " ".join(str(text or "").split())
+    return said if len(said) <= MAX_LINE else said[: MAX_LINE - 3].rstrip() + "..."
 
 
 @tool(
