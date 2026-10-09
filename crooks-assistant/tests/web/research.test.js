@@ -226,9 +226,9 @@ for (const [label, PAYLOAD] of PAYLOADS) {
     if (PAYLOAD.needs_you.length) assert.equal(keys[0], 'needs');
     for (const g of groups) assert.ok(all(g, 'rs-idea').length > 0, 'no empty group is drawn');
     const drawn = all(node, 'rs-idea').map((n) => n.querySelector('.rs-title').allText());
-    const expected = new Set([...PAYLOAD.needs_you, ...PAYLOAD.groups.flatMap((g) => g.ideas)].map((i) => i.name));
-    assert.equal(drawn.length, expected.size, 'every idea drawn exactly once');
-    assert.deepEqual(new Set(drawn), expected);
+    const every = [...PAYLOAD.needs_you, ...PAYLOAD.groups.flatMap((g) => g.ideas)];
+    assert.equal(drawn.length, new Set(every.map((i) => i.id)).size, 'every idea drawn exactly once');
+    assert.deepEqual(new Set(drawn), new Set(every.map((i) => i.name)));
     for (const value of attributesOf(node)) assert.ok(ROLES.has(value), `an attribute carries ${value}`);
     for (const cls of classesOf(node)) assert.match(cls, CLASS);
     for (const dot of all(node, 'rs-idea').map((n) => all(n, 'rs-dot')[0])) {
