@@ -810,6 +810,37 @@ async def test_a_run_that_stops_is_said_and_resumes_where_it_stopped(place, the_
         await synthesise(store, model=model, the_map=the_map, resume=True)
 
 
+async def test_a_resumed_run_says_every_document_that_joined_an_idea_once(place, the_map, monkeypatch):
+    """[review 10] A run stopped between two match batches of one document, then resumed: the ideas the
+    first batch added to still say the document joined them, once."""
+    from app.research.model import ModelError
+    from app.research.synthesis import match as match_step
+
+    class StopsInBeta(fx.Scripted):
+        stopping = True
+
+        async def ask(self, system, prompt):
+            if self.stopping and self.step(system) == "match" and "test-note-beta.md" in prompt and "C1: No approval" in prompt:
+                raise ModelError("The scripted model stopped in beta's second batch.")
+            return await super().ask(system, prompt)
+
+    monkeypatch.setattr(match_step, "BATCH", 2)
+    store, _ledger = place
+    model = StopsInBeta()
+    await fx.read_old_way(store, model, *FIRST_THREE)
+    with pytest.raises(Stopped, match="stopped in beta's second batch"):
+        await synthesise(store, model=model, the_map=the_map)
+    model.stopping = False
+    gen = await synthesise(store, model=model, the_map=the_map, resume=True)
+    ideas = _active(store, gen)
+    beta = next(c["doc_id"] for c in synthesis_store(store).claims(gen).values() if c["document"] == "test-note-beta.md")
+    joined = [e for e in _events(store, gen) if e["type"] == "source_joined" and e["doc_id"] == beta]
+    restart = ideas["Work survives a restart"]["id"]
+    assert [e["said"] for e in joined if e["idea"] == restart] == ["test-note-beta.md joined it: 1 recommendation (supports)."]
+    assert len(joined) == len({e["idea"] for e in joined}), "never twice"
+    assert {e["idea"] for e in joined} >= {restart, ideas["Send small refunds without a hold"]["id"]}
+
+
 async def test_an_export_is_one_generation_and_never_inside_the_repository(place, the_map):
     import shutil
     import tempfile

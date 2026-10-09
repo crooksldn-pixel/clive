@@ -157,7 +157,6 @@ async def _match(work: Work, doc: dict[str, Any]) -> tuple[set[str], set[str]]:
     batches = [claims[i:i + match_step.BATCH] for i in range(0, len(claims), match_step.BATCH)] or ([[]] if stances else [])
     touched: set[str] = set()
     created: set[str] = set()
-    joined: dict[str, int] = {}
     for n, batch in enumerate(batches):
         last = n == len(batches) - 1
         landing = await match_step.place(document=doc["document"], concepts=doc["concepts"],
@@ -176,24 +175,35 @@ async def _match(work: Work, doc: dict[str, Any]) -> tuple[set[str], set[str]]:
             if stance == "opposes":
                 idea["against"].append({"claim_id": claim["id"], "why": claim["says"]})
             touched.add(idea["id"])
-            if idea["id"] not in created:
-                joined[idea["id"]] = joined.get(idea["id"], 0) + 1
         for stance_n, ref in landing.stances.items():
             idea = work.ideas.get(made.get(ref, ref))
             stance = next(s for s in stances if s["n"] == stance_n)
             if idea is not None:
                 idea["against"].append({"claim_id": f"stance:{doc['doc_id']}:{stance_n}", "why": stance["says"]})
                 touched.add(idea["id"])
-                joined.setdefault(idea["id"], 0)
         for idea_id in touched:
             work.save(work.ideas[idea_id])
-    for idea_id, count in joined.items():
-        idea = work.ideas[idea_id]
-        mine = [s for s in idea["sources"] if s["doc_id"] == doc["doc_id"]]
-        stances_said = sorted({s["stance"] for s in mine}) or ["opposes"]
-        work.event("source_joined", idea=idea_id, doc_id=doc["doc_id"],
-                   said=f"{doc['document']} joined it: {_n(count, 'recommendation')} ({', '.join(stances_said)}).")
+    _joined_events(work, doc)
     return touched, created
+
+
+def _joined_events(work: Work, doc: dict[str, Any]) -> None:
+    """[review 10] "<document> joined it" for every idea this document added to, once: also for the match
+    batches that finished before a run stopped, when the run is resumed. An idea it started says so in
+    its "created" line instead."""
+    doc_id = doc["doc_id"]
+    said_already = {e.get("idea") for e in work.synth.events(work.gen)
+                    if e.get("type") in ("created", "source_joined") and e.get("doc_id") == doc_id}
+    for idea in work.active():
+        if idea["id"] in said_already:
+            continue
+        mine = [s for s in idea["sources"] if s.get("doc_id") == doc_id]
+        against = [a for a in idea["against"] if str(a.get("claim_id") or "").startswith((f"{doc_id}:", f"stance:{doc_id}:"))]
+        if not (mine or against):
+            continue
+        stances_said = sorted({s["stance"] for s in mine}) or ["opposes"]
+        work.event("source_joined", idea=idea["id"], doc_id=doc_id,
+                   said=f"{doc['document']} joined it: {_n(len(mine), 'recommendation')} ({', '.join(stances_said)}).")
 
 
 def _new_ideas(work: Work, landing, doc: dict[str, Any]) -> dict[str, str]:
