@@ -862,12 +862,30 @@ def test_a_line_that_would_carry_the_research_is_left_out(live, the_map):
     _never_the_research(args, live)
     assert args["title"] == f"Research idea {idea['id']}"
     assert "left out because it repeated the research's own words" in args["requested_outcome"]
-    echo = dict(idea, statement="CLIVE's jobs carry on after the server restarts, instead of being lost at all.")
+    echo = dict(idea, statement="CLIVE's work goes on after a restart, instead of being lost halfway.")
     text = (fx.NOTES / "test-note-alpha.md").read_text()
     loose = research_ideas.filing_args(echo, "head", gen=live["gen"], names=[], the_map=the_map)
     assert "instead of being lost" in loose["requested_outcome"], "eight words of the note, but not of any quote"
     held = research_ideas.filing_args(echo, "head", gen=live["gen"], names=[], texts=[text], the_map=the_map)
     assert "instead of being lost" not in held["requested_outcome"], "the note's own text holds them back too"
+
+
+def test_five_words_in_a_row_or_any_heading_of_the_research_is_left_out(live, the_map):
+    """[review 7] Five words in a row from a quote or from a document behind the idea, any heading of the
+    source's section path (its parents too, case aside) and any document's name: each line that carries
+    one is left out of the request."""
+    idea = dict(next(i for i in synthesis_store(live["store"]).ideas(live["gen"]).values() if i["name"] == "Work survives a restart"))
+    idea["sources"] = [dict(idea["sources"][0], section="Agent Reliability Ladder > TEST SECTION: Restarts and jobs")]
+    text = (fx.NOTES / "test-note-alpha.md").read_text()
+    for statement in ("CLIVE keeps going instead of being lost halfway, it says.",          # five words of the note
+                      "CLIVE should carry on after the server, every time.",               # five words of a quote
+                      "This climbs the agent reliability ladder by one rung."):             # a parent heading, case aside
+        said = research_ideas.requested_outcome(dict(idea, statement=statement), gen=live["gen"], names=[], texts=[text],
+                                                the_map=the_map)
+        assert statement not in said and "left out because it repeated the research's own words" in said, statement
+    kept = research_ideas.requested_outcome(dict(idea, statement="CLIVE's jobs survive a restart and finish."), gen=live["gen"],
+                                            names=[], texts=[text], the_map=the_map)
+    assert "CLIVE's jobs survive a restart and finish." in kept
 
 
 def test_a_path_that_carries_the_research_never_reaches_a_request(live, monkeypatch, the_map):

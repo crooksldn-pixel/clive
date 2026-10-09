@@ -295,44 +295,41 @@ def _document(record: dict[str, Any], claims: dict[str, dict[str, Any]], records
 # ------------------------------------------------------------------ approving: the build request, behind his hold
 
 
-QUOTE_WINDOW = 8
+# [review 7] Five words in a row from a quote, or from a document behind the idea, never go out.
+QUOTE_WINDOW = 5
 
 
-def _windows(text: str, plain: bool = False) -> set[str]:
-    words_ = (_plain(text) if plain else normalise(text)).split()
+def _windows(text: str) -> set[str]:
+    words_ = _plain(text).split()
     return {" ".join(words_[i:i + QUOTE_WINDOW]) for i in range(max(0, len(words_) - QUOTE_WINDOW + 1))}
 
 
-def _forbidden(idea: dict[str, Any], names: list[str], texts: list[str] = (), *,
-               plain: bool = False) -> tuple[list[str], set[str]]:
+def _forbidden(idea: dict[str, Any], names: list[str], texts: list[str] = ()) -> tuple[list[str], set[str]]:
     """The research's own words a filed request must never carry: (phrases, windows). Phrases are the
-    documents' names, section titles of two words or more (a one-word heading is an ordinary word), and
-    short quotes whole; any eight words in a row from a longer quote, or from the documents' own text
-    when it is given, is a window. `plain` compares letters and digits only (for paths)."""
-    said = _plain if plain else normalise
+    documents' names, every heading of two words or more in a source's section path (its parents too:
+    a one-word heading is an ordinary word), and short quotes whole; any five words in a row from a
+    longer quote, or from the documents' own text when it is given, is a window. Everything is compared
+    as plain words (letters and digits, case and marks aside), so a path's / _ . - read as spaces."""
     phrases, windows = [], set()
     for text in texts:
-        windows |= _windows(text, plain)
+        windows |= _windows(text)
     for source in idea.get("sources") or []:
         quote = source.get("quote") or ""
-        if len(said(quote).split()) < QUOTE_WINDOW:
-            phrases.append(said(quote))
-        windows |= _windows(quote, plain)
-        section = str(source.get("section") or "").split(" > ")[-1]
-        if len(section.split()) >= 2:
-            phrases.append(said(section))
+        if len(_plain(quote).split()) < QUOTE_WINDOW:
+            phrases.append(_plain(quote))
+        windows |= _windows(quote)
+        for heading in str(source.get("section") or "").split(" > "):
+            if len(heading.split()) >= 2:
+                phrases.append(_plain(heading))
     for name in names:
-        phrases += [said(name), said(name.rsplit(".", 1)[0])]
+        phrases += [_plain(name), _plain(name.rsplit(".", 1)[0])]
     return [p for p in phrases if len(p) >= 4], windows
 
 
-def _clean(text: str, forbidden: tuple[list[str], set[str]], *, plain: bool = False) -> bool:
+def _clean(text: str, forbidden: tuple[list[str], set[str]]) -> bool:
     phrases, windows = forbidden
-    said = _plain(text) if plain else normalise(text)
-    if plain:
-        said = f" {said} "
-        return not any(f" {p} " in said for p in phrases) and not (_windows(text, plain) & windows)
-    return not any(p in said for p in phrases) and not (_windows(text) & windows)
+    said = f" {_plain(text)} "
+    return not any(f" {p} " in said for p in phrases) and not (_windows(text) & windows)
 
 
 def requested_outcome(idea: dict[str, Any], *, gen: str, names: list[str], texts: list[str] = (), the_map=None) -> str:
@@ -387,11 +384,11 @@ def safe_paths(idea: dict[str, Any], names: list[str], texts: list[str] = ()) ->
     repository too, so it must be plain (lower case letters, digits, _ . / -), be in CLIVE's repository or
     a new file directly under a folder that is, and carry none of the research's words, read with its
     marks as spaces."""
-    forbidden = _forbidden(idea, names, texts, plain=True)
+    forbidden = _forbidden(idea, names, texts)
     kept, left = [], []
     for raw in idea.get("touches") or []:
         path = str(raw or "")
-        ok = bool(PATH_SHAPE.fullmatch(path)) and _in_repository(path) and _clean(path, forbidden, plain=True)
+        ok = bool(PATH_SHAPE.fullmatch(path)) and _in_repository(path) and _clean(path, forbidden)
         (kept if ok else left).append(path)
     return kept, left
 
@@ -399,7 +396,7 @@ def safe_paths(idea: dict[str, Any], names: list[str], texts: list[str] = ()) ->
 def filing_args(idea: dict[str, Any], inbox_id: str, *, gen: str, names: list[str], texts: list[str] = (),
                 the_map=None) -> dict[str, Any]:
     """The arguments `submit_engineering_request` is staged with for an approved idea. `texts` are the
-    documents behind it, as the scanner read them: no eight words in a row of theirs go out."""
+    documents behind it, as the scanner read them: no five words in a row of theirs go out."""
     forbidden = _forbidden(idea, names, texts)
     title = idea.get("name") if _clean(idea.get("name") or "", forbidden) else f"Research idea {idea['id']}"
     return {"inbox_id": inbox_id, "title": title or "Research idea",
