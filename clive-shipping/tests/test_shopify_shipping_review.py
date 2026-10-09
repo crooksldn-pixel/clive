@@ -424,3 +424,25 @@ def test_the_send_claim_is_atomic_against_a_sweep_between_read_and_send(w, clock
     w.uk._row = row_then_sweep  # type: ignore[method-assign]
     w.buy(s)
     assert swept and w.ss.purchases == [] and w.get(s.id).label is None
+
+
+def test_a_choice_that_ended_never_comes_back_under_the_persons_name(w):
+    w.ready()  # the shop's package, entered once
+    w.shopify.add(fo(3015, [tee_line()], country="GB", shipping_line=None))
+    w.svc.sync(SHOP)
+    s = next(x for x in w.store.shipments(SHOP) if x.order_name == "CROOKS-3015")
+    w.svc.answer(SHOP, s.id, "domestic_service", "service", {"service": TRACKED_48}, "george")
+    snap = w.shopify.fos[s.fulfillment_order_id]
+    snap.shipping_line = "Tracked 24"
+    w.svc.prepare(SHOP, s.id)
+    snap.shipping_line = None  # edited back
+    after = w.svc.prepare(SHOP, s.id)
+    assert after.domestic_service is None and after.domestic_service_by is None
+    assert [q.kind for q in after.questions] == ["domestic_service"]
+
+
+def test_never_sent_is_worded_as_never_sent(w):
+    s = w.ready()
+    order = w.uk.create_order(s, s.quote, "op_unsent")  # type: ignore[arg-type]
+    first, again = w.uk.read_order(order.ref), w.uk.read_order(order.ref)
+    assert first.failed and again.failed and "never sent to Shopify" in again.note

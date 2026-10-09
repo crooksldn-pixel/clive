@@ -729,7 +729,7 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
      the delivery method it was made for. Turning UK labels off never hides an order whose label
      may have been paid for, and the provider is still built to finish it. The ledger lets a
      quote skip the amount checks only when its provider says it can't price before buying.
-   - **Verified:** 99 new tests (fake Shopify Shipping that loses replies, stays pending, fails
+   - **Verified:** 101 new tests (fake Shopify Shipping that loses replies, stays pending, fails
      and refuses; HTTP-level one-POST and error-classification tests; an independent review's
      findings and its re-review's, each with a test; each guard removed once and a test failed); the admin in a real
      browser (`scripts/ui_walk_uk.cjs`, 38 checks, desktop and phone,

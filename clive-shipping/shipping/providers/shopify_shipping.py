@@ -331,13 +331,24 @@ class ShopifyShipping:
                 )
                 return OrderReadback(paid=False, failed=True, check=check)
             return OrderReadback(paid=False, pending=True)  # pending, or not visible yet
+        if row.get("state") == "unsent":  # settled as never sent by an earlier look
+            return OrderReadback(
+                paid=False,
+                failed=True,
+                note="You weren't charged: the purchase was never sent to Shopify. Buy "
+                "again when you're ready.",
+            )
         if not row.get("sent_at"):
             # "sending" is claimed before the request. Settle it as never sent only by moving
             # the row out of "prepared" atomically, so the request can't go out afterwards.
-            if self.store.move_label_purchase(
-                self.shop, ref, "prepared", {**row, "state": "unsent"}
-            ):
-                return OrderReadback(paid=False, failed=True)
+            unsent = {**row, "state": "unsent"}
+            if self.store.move_label_purchase(self.shop, ref, "prepared", unsent):
+                return OrderReadback(
+                    paid=False,
+                    failed=True,
+                    note="You weren't charged: the purchase was never sent to Shopify. Buy "
+                    "again when you're ready.",
+                )
             row = self._row(ref)  # claimed for sending a moment ago: read it as sent
             rid = row.get("result_id")
             if rid:

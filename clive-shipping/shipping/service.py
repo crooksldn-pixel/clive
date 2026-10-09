@@ -258,6 +258,10 @@ class ShippingService:
         s.customer_name = snap.customer_name  # as Shopify has it now (a deleted customer: None)
         s.shipping_line = snap.shipping_line
         s.domestic = self._is_domestic(cfg, snap)
+        if s.domestic_service_by and s.domestic_service_line != s.shipping_line:
+            # A person's choice was for a delivery method the order no longer has: it ends.
+            self._event(s, "service_choice_dropped", "system", {"was": s.domestic_service})
+            s.domestic_service_by = s.domestic_service_line = None
         if s.domestic and not self.domestic.enabled:
             # UK labels were switched off: never bought here (and not listed; see visible()).
             s.quote, s.rates = None, []

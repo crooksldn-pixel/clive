@@ -61,6 +61,8 @@ class OrderReadback:
     # With `failed`: the provider's reason leaves a person to look before buying again (e.g.
     # another purchase was already running for the order). The words to show them.
     check: str = ""
+    # With `failed`: how the provider knows, in words for staff (default: it confirmed it).
+    note: str = ""
 
 
 @dataclass

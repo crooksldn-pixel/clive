@@ -743,7 +743,7 @@ class Purchases:
                         )
                         self.store.save(s)
                         return
-                    s.last_error = (
+                    s.last_error = seen.note or (
                         "You weren't charged: the provider confirms the payment "
                         "didn't go through. Buy again when you're ready."
                     )
