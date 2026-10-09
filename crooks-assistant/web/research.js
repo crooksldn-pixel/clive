@@ -750,9 +750,12 @@
   }
 
   // The section the server sent back, drawn; with words to say where he answered, when there are any.
+  // They stay through the screen's own re-reads (every few seconds while a document is read) for a
+  // minute, so a refusal is read rather than redrawn away; his next answer replaces them.
+  const NOTICE_MS = 60000;
   function redraw(section, id, words_) {
     S.payload = section;
-    S.notice = text(words_) ? { id: text(id), words: text(words_) } : null;
+    S.notice = text(words_) ? { id: text(id), words: text(words_), at: Date.now() } : null;
     render();
   }
 
@@ -857,7 +860,7 @@
       S.payload = { summary: 'CLIVE could not be reached, so your research could not be read.' };
     }
     S.at = Date.now();
-    S.notice = null;
+    if (S.notice && !(Date.now() - S.notice.at < NOTICE_MS)) S.notice = null;
     render();
     soon();
     return S.payload;

@@ -455,6 +455,16 @@ test('a 409 moved_on redraws from the section that came back and says why, where
   await R.answerIdea({ id: 'idea-0099', fingerprint: '9'.repeat(64) }, 'no');
   const under = R.state().node.childNodes.find((n) => n.className === 'rs-noticespot');
   assert.equal(under.allText(), why);
+  // The screen's own re-read (every few seconds while a document is read) keeps the words for a while.
+  const why2 = 'That idea changed since you saw it, so nothing was recorded (again).';
+  globalThis.fetch = async () => ({ ok: false, status: 409, json: async () => ({ code: 'moved_on', detail: why2, section: moved }) });
+  await R.answerIdea(ideaById(IDEAS, 'idea-0004'), 'later');
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => moved });
+  await R.refresh();
+  assert.equal(rowOf(R.state().node, 'Guess test sock sizes from photos').querySelector('.bd-said').allText(), why2, 'kept through a re-read');
+  R.state().notice.at -= 61000;
+  await R.refresh();
+  assert.equal(all(R.state().node, 'bd-said').filter((n) => n.allText() === why2).length, 0, 'gone once it is a minute old');
   globalThis.fetch = async () => { throw new Error('offline'); };
   assert.deepEqual(await R.answerIdea(ideaById(IDEAS, 'idea-0004'), 'later'), { error: 'CLIVE could not be reached, so nothing was recorded.' });
 });
