@@ -236,10 +236,12 @@ def filing_args(record: dict[str, Any], p: dict[str, Any], inbox_id: str, the_ma
             "acceptance_criteria": list(p.get("done_when") or [])}
 
 
-async def prepare(request, record: dict[str, Any], p: dict[str, Any], *, session_id: str) -> dict[str, Any]:
+async def prepare(request, record: dict[str, Any], p: dict[str, Any], *, session_id: str,
+                  args_for=None) -> dict[str, Any]:
     """Stage the build request for an adopted proposal on George's conversation: the card he holds to
     file it. Returns {"ok": True, "ui", "answer", "branch", "proposal_id", "request_id"} or
-    {"ok": False, "detail"} with why nothing was prepared."""
+    {"ok": False, "detail"} with why nothing was prepared. [research-idea] `args_for(inbox, the_map)`
+    gives the request's arguments for an approved idea (app/builds/research_ideas.py filing_args)."""
     from app.commands import Outcome
     from app.presentation import compact, present
     from app.routes.actions import session_matches
@@ -277,7 +279,7 @@ async def prepare(request, record: dict[str, Any], p: dict[str, Any], *, session
             the_map = read_map()
         except Exception:  # noqa: BLE001 - the request names its citations by key alone
             the_map = None
-        args = filing_args(record, p, inbox, the_map)
+        args = args_for(inbox, the_map) if args_for is not None else filing_args(record, p, inbox, the_map)
         outcome = await _stage_change(request, runtime, session, branch, {"tool": SUBMIT_TOOL, "args": args, "what": "research"},
                                       Outcome(answer=""))
     finally:

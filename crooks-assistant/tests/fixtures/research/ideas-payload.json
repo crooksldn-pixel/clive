@@ -1,34 +1,34 @@
 {
  "mode": "ideas",
- "summary": "7 ideas from 3 documents; 3 wait on you; 1 being read.",
+ "summary": "10 ideas from 5 documents; 3 wait on you; 1 being read.",
  "synthesis": {
-  "generation": "gen-20261009T102000",
-  "at": "2026-10-09T10:20:00+00:00",
+  "generation": "gen-20261009T130015",
+  "at": "2026-10-09T13:00:15+00:00",
   "points": [
-   "TEST RESEARCH NOTE — invented for CLIVE's tests: work should survive a restart.",
-   "Keep every outward change behind your hold; the notes disagree only on small refunds.",
-   "Show when each key was last checked.",
-   "Bring supplier messages into one thread, once the finish list is clear."
+   "TEST RESEARCH NOTE — invented for CLIVE's tests: CLIVE's work should survive a restart.",
+   "Keep every outward change behind your hold; the test notes disagree only on small refunds.",
+   "Each key should say when it was last checked.",
+   "Bring the manufacturer's messages into one thread, once the finish list is clear."
   ],
   "before": "CLIVE loses work in progress when the server restarts",
   "after": "CLIVE carries its work through a restart and says how fresh each key is",
   "counts": {
-   "documents": 3,
-   "claims": 15,
+   "documents": 5,
+   "claims": 18,
    "unplaced": 1,
-   "ideas": 7,
+   "ideas": 10,
    "converged": 4,
    "disagreements": 2,
-   "validations": 3,
+   "validations": 4,
    "changes": 3
   }
  },
  "needs_you": [
   {
    "id": "idea-0001",
-   "fingerprint": "6e9b920f61df03bea5e907111fd5b18983f0402b0dba17c2b97e80e01f746c60",
+   "fingerprint": "1e68afdab0f73662659d57b96b83bbd0be75cb7dac68491754476faf348af1dd",
    "name": "Work survives a restart",
-   "statement": "TEST RESEARCH NOTE — invented for CLIVE's tests. Every job CLIVE starts should carry on after the server restarts, instead of being lost.",
+   "statement": "Every job CLIVE starts carries on after the server restarts, instead of being lost.",
    "kind": "foundational",
    "answers": {
     "judgment": {
@@ -36,8 +36,8 @@
      "words": "Right direction"
     },
     "relationship": {
-     "key": "PARTIALLY_SATISFIED",
-     "words": "Partly there"
+     "key": "EXTENDS_EXISTING",
+     "words": "Builds on what exists"
     },
     "timing": {
      "key": "NOW",
@@ -61,13 +61,13 @@
     }
    },
    "reasons": {
-    "judgment": "Three invented test notes agree, and it serves DEC-005: a change is only done once it is read back.",
-    "timing": "It makes everything else safer, so it comes first."
+    "judgment": "Every test note that mentions it agrees, and it serves DEC-005: a change is only done once it is read back.",
+    "timing": "It makes everything after it safer, so it comes first."
    },
    "timing_held_by": [],
    "backed_by": {
-    "count": 3,
-    "of": 3,
+    "count": 4,
+    "of": 5,
     "documents": [
      {
       "name": "test-note-alpha.md",
@@ -80,14 +80,18 @@
      {
       "name": "test-note-gamma.md",
       "centrality": "passing"
+     },
+     {
+      "name": "test-note-delta.md",
+      "centrality": "central"
      }
     ]
    },
-   "how_they_differ": "Alpha wants every job kept; Beta only the ones that change the shop.",
+   "how_they_differ": "Alpha wants every job kept; beta only the half-done ones.",
    "against": [],
    "owner_view": {
-    "means": "If the server restarts halfway through something CLIVE is doing for you, it picks up where it left off.",
-    "today": "Proposals survive a restart, but a long read in progress starts again from nothing.",
+    "means": "If the server restarts while CLIVE is doing something for you, it carries on afterwards.",
+    "today": "A long job in progress starts again from nothing after a restart.",
     "after": "A restart in the middle of a returns check finishes the check instead of dropping it.",
     "example": "You ask CLIVE to check every open return while the server updates; today you ask again, after this it carries on.",
     "before_after": "Before: ask again after a restart. After: it finishes by itself.",
@@ -117,13 +121,13 @@
    "today": {
     "level": "partial",
     "says": "Proposals are kept on disk; work in progress is not.",
+    "verified": true,
     "where": [
      "app/actions/engine.py",
      "FEAT-010"
-    ],
-    "verified": true
+    ]
    },
-   "revisit": "If restarts become rare enough that nothing is ever caught halfway.",
+   "revisit": "If restarts became so rare nothing is ever caught halfway.",
    "effects": [
     "HIGHER RELIABILITY",
     "LESS HUMAN ATTENTION"
@@ -131,38 +135,225 @@
    "sources": [
     {
      "document": "test-note-alpha.md",
-     "section": "Reliability",
-     "quote": "Every job should carry on after a restart instead of being lost.",
+     "section": "TEST SECTION: Restarts and jobs",
+     "quote": "Every job CLIVE starts should carry on after the server restarts,",
      "stance": "supports",
      "centrality": "central"
     },
     {
      "document": "test-note-beta.md",
-     "section": "Restarts",
-     "quote": "Keep the jobs that change the shop across a restart.",
-     "stance": "refines",
+     "section": "TEST SECTION: Keeping work",
+     "quote": "A job that is halfway done when the server restarts should finish afterwards,",
+     "stance": "supports",
      "centrality": "supporting"
     },
     {
      "document": "test-note-gamma.md",
-     "section": "Notes",
-     "quote": "A restart should never lose work.",
+     "section": "TEST SECTION: Reliability notes",
+     "quote": "A restart should never lose work that CLIVE was doing.",
      "stance": "supports",
      "centrality": "passing"
+    },
+    {
+     "document": "test-note-delta.md",
+     "section": "TEST SECTION: After a restart",
+     "quote": "When the server comes back, CLIVE should pick up its unfinished jobs by itself.",
+     "stance": "supports",
+     "centrality": "central"
     }
    ],
    "history": [
     {
-     "at": "2026-10-09T10:00:00+00:00",
-     "said": "Created from test-note-alpha.md."
+     "at": "2026-10-09T13:00:15+00:00",
+     "said": "Created from test-note-alpha.md: Work survives a restart."
     },
     {
-     "at": "2026-10-09T10:05:00+00:00",
-     "said": "test-note-beta.md joined it (refines)."
+     "at": "2026-10-09T13:00:15+00:00",
+     "said": "test-note-beta.md joined it: 1 recommendation (supports)."
     },
     {
-     "at": "2026-10-09T10:20:00+00:00",
-     "said": "Judged: Right direction, Partly there, Now."
+     "at": "2026-10-09T13:00:15+00:00",
+     "said": "test-note-gamma.md joined it: 1 recommendation (supports)."
+    },
+    {
+     "at": "2026-10-09T13:00:15+00:00",
+     "said": "Judged: Right direction, Builds on what exists, Now. Checked by CLIVE's rules: Not in CLIVE's code or features, so left out of where it is today: app/no_such_part/keeper.py."
+    },
+    {
+     "at": "2026-10-09T13:00:15+00:00",
+     "said": "test-note-delta.md joined it: 1 recommendation (supports)."
+    },
+    {
+     "at": "2026-10-09T13:00:15+00:00",
+     "said": "Judged: Right direction, Builds on what exists, Now. Checked by CLIVE's rules: Not in CLIVE's code or features, so left out of where it is today: app/no_such_part/keeper.py."
+    }
+   ],
+   "owner_answer": null,
+   "choices": [
+    {
+     "key": "go",
+     "label": "Approve the work",
+     "then": "Prepares a build request on a card. Nothing is filed until you hold it; then it goes to CLIVE's public repository, in CLIVE's words, never the research's own."
+    },
+    {
+     "key": "later",
+     "label": "Not now",
+     "then": "Kept as an idea, with your answer. Nothing is built."
+    },
+    {
+     "key": "no",
+     "label": "Not for CLIVE",
+     "then": "Marked not for CLIVE, with your answer. Nothing is built, and it stays in the history."
+    }
+   ],
+   "build": null
+  },
+  {
+   "id": "idea-0003",
+   "fingerprint": "e30f4043e317abeaabdfa09c2ea334e4f2a07847b49ade0311c23c306a1a54dd",
+   "name": "Send small refunds without a hold",
+   "statement": "Refunds under a few pounds go out without the owner's hold.",
+   "kind": "safety",
+   "answers": {
+    "judgment": {
+     "key": "CONFLICT",
+     "words": "Needs your call"
+    },
+    "relationship": {
+     "key": "NEW",
+     "words": "New"
+    },
+    "timing": {
+     "key": "NEXT",
+     "words": "Next"
+    },
+    "execution": {
+     "key": "NOT_AUTHORISED",
+     "words": "Not approved"
+    },
+    "confidence": {
+     "key": "high",
+     "words": "Sure"
+    },
+    "importance": {
+     "key": "HIGH_LEVERAGE",
+     "words": "High leverage"
+    },
+    "knowledge": {
+     "key": "CHALLENGED",
+     "words": "Challenges it"
+    }
+   },
+   "reasons": {
+    "judgment": "Breaks rule 2 (Anything outward waits for a gesture on its card): it lets something go out, spend or change the shop without his gesture on its card (“without the owner's hold”). 3 documents back it, so it is your call.",
+    "timing": "Soon."
+   },
+   "timing_held_by": [],
+   "backed_by": {
+    "count": 3,
+    "of": 5,
+    "documents": [
+     {
+      "name": "test-note-alpha.md",
+      "centrality": "central"
+     },
+     {
+      "name": "test-note-beta.md",
+      "centrality": "central"
+     },
+     {
+      "name": "test-note-gamma.md",
+      "centrality": "supporting"
+     }
+    ]
+   },
+   "how_they_differ": "",
+   "against": [],
+   "owner_view": {
+    "means": "CLIVE would refund small amounts by itself, without you holding the card.",
+    "today": "Every refund waits for your hold.",
+    "after": "A four-pound refund for a late parcel goes out at once.",
+    "example": "A customer's tee arrives a day late and they ask for four pounds back; today it waits for you.",
+    "before_after": "Before: every refund waits for you. After: small ones go by themselves.",
+    "why_care": [
+     "LESS HUMAN ATTENTION",
+     "MAKES / PROTECTS MONEY"
+    ],
+    "notice": "The next small refund."
+   },
+   "needs_you": {
+    "trigger": "clash",
+    "trigger_words": "Clashes with one of your rules or decisions",
+    "question": "Your rule says nothing outward goes without your hold. Do you want to keep it for small refunds too?"
+   },
+   "keys": [
+    {
+     "key": "DEC-006",
+     "label": "DEC-006 Voice “yes” is not sufficient for sensitive authorisation",
+     "how": "related"
+    },
+    {
+     "key": "RULE-2",
+     "label": "Rule 2: Anything outward waits for a gesture on its card",
+     "how": "contradicts"
+    }
+   ],
+   "today": {
+    "level": "none",
+    "says": "Every refund waits for his hold.",
+    "verified": true,
+    "where": [
+     "app/actions/grammar.py"
+    ]
+   },
+   "revisit": "Only the owner's own change to rule 2.",
+   "effects": [
+    "LESS HUMAN ATTENTION",
+    "MAKES / PROTECTS MONEY"
+   ],
+   "sources": [
+    {
+     "document": "test-note-alpha.md",
+     "section": "TEST SECTION: Small refunds",
+     "quote": "Refunds under five pounds should be applied automatically without his approval",
+     "stance": "supports",
+     "centrality": "central"
+    },
+    {
+     "document": "test-note-beta.md",
+     "section": "TEST SECTION: Refund speed",
+     "quote": "Refunds under five pounds need no approval at all.",
+     "stance": "supports",
+     "centrality": "central"
+    },
+    {
+     "document": "test-note-gamma.md",
+     "section": "TEST SECTION: Tiny refunds",
+     "quote": "Let tiny refunds go out automatically without the owner's approval.",
+     "stance": "supports",
+     "centrality": "supporting"
+    }
+   ],
+   "history": [
+    {
+     "at": "2026-10-09T13:00:15+00:00",
+     "said": "Created from test-note-alpha.md: Send small refunds without a hold."
+    },
+    {
+     "at": "2026-10-09T13:00:15+00:00",
+     "said": "test-note-beta.md joined it: 1 recommendation (supports)."
+    },
+    {
+     "at": "2026-10-09T13:00:15+00:00",
+     "said": "test-note-gamma.md joined it: 1 recommendation (supports)."
+    },
+    {
+     "at": "2026-10-09T13:00:15+00:00",
+     "said": "9 Oct, old screen: Reject, RULE-2 (Breaks rule 2 (Anything outward waits for a gesture on its card): it lets something go out, spend or change the shop without his gesture on its card (“refunds automatically”).)"
+    },
+    {
+     "at": "2026-10-09T13:00:15+00:00",
+     "said": "Judged: Needs your call, New, Next. Checked by CLIVE's rules: CLIVE's own check of rule 2 found it asks to break it."
     }
    ],
    "owner_answer": null,
@@ -187,9 +378,9 @@
   },
   {
    "id": "idea-0002",
-   "fingerprint": "1532d18c4f0405f6968b77201280209695c917279e556bb7b41463e06cb9c4bc",
+   "fingerprint": "f541ff03cd5d8694d580cbec68b827aedbc1dbbf03daa1a32551e42b0679e5d9",
    "name": "Adopt a workflow engine for it",
-   "statement": "TEST RESEARCH NOTE — invented for CLIVE's tests. Use an outside workflow engine to keep jobs alive.",
+   "statement": "Use an outside workflow engine to keep CLIVE's jobs alive.",
    "kind": "tooling-choice",
    "answers": {
     "judgment": {
@@ -217,18 +408,18 @@
      "words": "Useful"
     },
     "knowledge": {
-     "key": "NEW",
-     "words": "New to CLIVE"
+     "key": "CHALLENGED",
+     "words": "Challenges it"
     }
    },
    "reasons": {
-    "judgment": "It is one way to reach idea-0001, not the goal itself, and it would be a new service.",
+    "judgment": "It is one way to reach the restart idea, not the goal itself, and it would be a new outside service.",
     "timing": "Only once the goal is approved."
    },
    "timing_held_by": [],
    "backed_by": {
     "count": 1,
-    "of": 3,
+    "of": 5,
     "documents": [
      {
       "name": "test-note-alpha.md",
@@ -236,15 +427,15 @@
      }
     ]
    },
-   "how_they_differ": "",
+   "how_they_differ": "Alpha suggests an engine; beta argues against adding any outside service.",
    "against": [
     {
      "document": "test-note-beta.md",
-     "says": "A new outside service is more to look after than the problem it solves."
+     "says": "Don't add an outside service just to keep jobs alive."
     }
    ],
    "owner_view": {
-    "means": "Running jobs through a separate engine made for keeping work alive.",
+    "means": "Running CLIVE's jobs through a separate engine made for keeping work alive.",
     "today": "Nothing like it is in CLIVE.",
     "after": "",
     "example": "",
@@ -255,14 +446,20 @@
    "needs_you": {
     "trigger": "uncertainty",
     "trigger_words": "CLIVE can't tell yet",
-    "question": "Should CLIVE look into an outside engine, or keep it in its own code?"
+    "question": "Should CLIVE look into an outside engine, or keep this in its own code?"
    },
-   "keys": [],
+   "keys": [
+    {
+     "key": "RULE-1",
+     "label": "Rule 1: Verified, or it is an error",
+     "how": "related"
+    }
+   ],
    "today": {
     "level": "none",
     "says": "CLIVE has no workflow engine.",
-    "where": [],
-    "verified": true
+    "verified": true,
+    "where": []
    },
    "revisit": "If keeping jobs in CLIVE's own code proves fragile.",
    "effects": [
@@ -271,187 +468,28 @@
    "sources": [
     {
      "document": "test-note-alpha.md",
-     "section": "Reliability",
-     "quote": "An outside workflow engine could keep these jobs alive.",
+     "section": "TEST SECTION: Restarts and jobs",
+     "quote": "An outside workflow engine such as the invented TestQueue could keep these jobs alive",
      "stance": "supports",
-     "centrality": "supporting"
-    },
-    {
-     "document": "test-note-beta.md",
-     "section": "Restarts",
-     "quote": "Don't add a new service just for this.",
-     "stance": "opposes",
      "centrality": "supporting"
     }
    ],
    "history": [
     {
-     "at": "2026-10-09T10:00:00+00:00",
-     "said": "Created from test-note-alpha.md."
+     "at": "2026-10-09T13:00:15+00:00",
+     "said": "Created from test-note-alpha.md: Adopt a workflow engine for it."
     },
     {
-     "at": "2026-10-09T10:20:00+00:00",
+     "at": "2026-10-09T13:00:15+00:00",
+     "said": "test-note-beta.md joined it: 0 recommendations (opposes)."
+    },
+    {
+     "at": "2026-10-09T13:00:15+00:00",
+     "said": "9 Oct, old screen: Park, DEC-018 (Finishing current work comes first (DEC-018).)"
+    },
+    {
+     "at": "2026-10-09T13:00:15+00:00",
      "said": "Judged: Worth looking into, New, No date."
-    }
-   ],
-   "owner_answer": null,
-   "choices": [
-    {
-     "key": "go",
-     "label": "Approve the work",
-     "then": "Prepares a build request on a card. Nothing is filed until you hold it; then it goes to CLIVE's public repository, in CLIVE's words, never the research's own."
-    },
-    {
-     "key": "later",
-     "label": "Not now",
-     "then": "Kept as an idea, with your answer. Nothing is built."
-    },
-    {
-     "key": "no",
-     "label": "Not for CLIVE",
-     "then": "Marked not for CLIVE, with your answer. Nothing is built, and it stays in the history."
-    }
-   ],
-   "build": null
-  },
-  {
-   "id": "idea-0003",
-   "fingerprint": "d601fef50c9ce9ab5e660b3f140b2e87cb8131a0d84ad595bf68af87ad68aa7a",
-   "name": "Send small refunds without a hold",
-   "statement": "TEST RESEARCH NOTE — invented for CLIVE's tests. Refunds under a set amount go out without the owner's hold.",
-   "kind": "safety",
-   "answers": {
-    "judgment": {
-     "key": "CONFLICT",
-     "words": "Needs your call"
-    },
-    "relationship": {
-     "key": "NEW",
-     "words": "New"
-    },
-    "timing": {
-     "key": "UNSCHEDULED",
-     "words": "No date"
-    },
-    "execution": {
-     "key": "NOT_AUTHORISED",
-     "words": "Not approved"
-    },
-    "confidence": {
-     "key": "high",
-     "words": "Sure"
-    },
-    "importance": {
-     "key": "HIGH_LEVERAGE",
-     "words": "High leverage"
-    },
-    "knowledge": {
-     "key": "CHALLENGED",
-     "words": "Challenges it"
-    }
-   },
-   "reasons": {
-    "judgment": "Breaks rule 2 (Anything outward waits for a gesture on its card), and three test notes back it, so it is your call.",
-    "timing": "Not unless you change rule 2."
-   },
-   "timing_held_by": [],
-   "backed_by": {
-    "count": 3,
-    "of": 3,
-    "documents": [
-     {
-      "name": "test-note-alpha.md",
-      "centrality": "central"
-     },
-     {
-      "name": "test-note-beta.md",
-      "centrality": "central"
-     },
-     {
-      "name": "test-note-gamma.md",
-      "centrality": "supporting"
-     }
-    ]
-   },
-   "how_they_differ": "",
-   "against": [],
-   "owner_view": {
-    "means": "CLIVE would refund small amounts by itself, without you holding the card.",
-    "today": "Every refund waits for your hold.",
-    "after": "A £4 refund for a late parcel goes out at once.",
-    "example": "A customer's tee arrives a day late and asks for £4 back; today it waits for you.",
-    "before_after": "Before: every refund waits for you. After: small ones go by themselves.",
-    "why_care": [
-     "LESS HUMAN ATTENTION",
-     "MAKES / PROTECTS MONEY"
-    ],
-    "notice": "The next small refund."
-   },
-   "needs_you": {
-    "trigger": "clash",
-    "trigger_words": "Clashes with one of your rules or decisions",
-    "question": "Your rule says nothing outward goes without your hold. Do you want to keep it for small refunds too?"
-   },
-   "keys": [
-    {
-     "key": "RULE-2",
-     "label": "Rule 2: Anything outward waits for a gesture on its card",
-     "how": "contradicts"
-    },
-    {
-     "key": "DEC-005",
-     "label": "DEC-005 Models propose; deterministic server capabilities execute",
-     "how": "contradicts"
-    }
-   ],
-   "today": {
-    "level": "none",
-    "says": "Refunds are staged and wait for the hold.",
-    "where": [
-     "app/actions/grammar.py"
-    ],
-    "verified": true
-   },
-   "revisit": "Only your own change to rule 2.",
-   "effects": [
-    "LESS HUMAN ATTENTION",
-    "MAKES / PROTECTS MONEY"
-   ],
-   "sources": [
-    {
-     "document": "test-note-alpha.md",
-     "section": "Refunds",
-     "quote": "Small refunds should go out automatically.",
-     "stance": "supports",
-     "centrality": "central"
-    },
-    {
-     "document": "test-note-beta.md",
-     "section": "Refunds",
-     "quote": "Refunds under five pounds need no approval.",
-     "stance": "supports",
-     "centrality": "central"
-    },
-    {
-     "document": "test-note-gamma.md",
-     "section": "Money",
-     "quote": "Let tiny refunds skip the queue.",
-     "stance": "supports",
-     "centrality": "supporting"
-    }
-   ],
-   "history": [
-    {
-     "at": "2026-10-09T10:00:00+00:00",
-     "said": "Created from test-note-alpha.md."
-    },
-    {
-     "at": "2026-10-09T10:20:00+00:00",
-     "said": "Judged: Needs your call (checked by CLIVE's rules: breaks rule 2)."
-    },
-    {
-     "at": "2026-10-09T10:20:00+00:00",
-     "said": "9 Oct, old screen: Reject, RULE-2 (Breaks rule 2)."
     }
    ],
    "owner_answer": null,
@@ -482,9 +520,9 @@
    "ideas": [
     {
      "id": "idea-0001",
-     "fingerprint": "6e9b920f61df03bea5e907111fd5b18983f0402b0dba17c2b97e80e01f746c60",
+     "fingerprint": "1e68afdab0f73662659d57b96b83bbd0be75cb7dac68491754476faf348af1dd",
      "name": "Work survives a restart",
-     "statement": "TEST RESEARCH NOTE — invented for CLIVE's tests. Every job CLIVE starts should carry on after the server restarts, instead of being lost.",
+     "statement": "Every job CLIVE starts carries on after the server restarts, instead of being lost.",
      "kind": "foundational",
      "answers": {
       "judgment": {
@@ -492,8 +530,8 @@
        "words": "Right direction"
       },
       "relationship": {
-       "key": "PARTIALLY_SATISFIED",
-       "words": "Partly there"
+       "key": "EXTENDS_EXISTING",
+       "words": "Builds on what exists"
       },
       "timing": {
        "key": "NOW",
@@ -517,13 +555,13 @@
       }
      },
      "reasons": {
-      "judgment": "Three invented test notes agree, and it serves DEC-005: a change is only done once it is read back.",
-      "timing": "It makes everything else safer, so it comes first."
+      "judgment": "Every test note that mentions it agrees, and it serves DEC-005: a change is only done once it is read back.",
+      "timing": "It makes everything after it safer, so it comes first."
      },
      "timing_held_by": [],
      "backed_by": {
-      "count": 3,
-      "of": 3,
+      "count": 4,
+      "of": 5,
       "documents": [
        {
         "name": "test-note-alpha.md",
@@ -536,14 +574,18 @@
        {
         "name": "test-note-gamma.md",
         "centrality": "passing"
+       },
+       {
+        "name": "test-note-delta.md",
+        "centrality": "central"
        }
       ]
      },
-     "how_they_differ": "Alpha wants every job kept; Beta only the ones that change the shop.",
+     "how_they_differ": "Alpha wants every job kept; beta only the half-done ones.",
      "against": [],
      "owner_view": {
-      "means": "If the server restarts halfway through something CLIVE is doing for you, it picks up where it left off.",
-      "today": "Proposals survive a restart, but a long read in progress starts again from nothing.",
+      "means": "If the server restarts while CLIVE is doing something for you, it carries on afterwards.",
+      "today": "A long job in progress starts again from nothing after a restart.",
       "after": "A restart in the middle of a returns check finishes the check instead of dropping it.",
       "example": "You ask CLIVE to check every open return while the server updates; today you ask again, after this it carries on.",
       "before_after": "Before: ask again after a restart. After: it finishes by itself.",
@@ -573,13 +615,13 @@
      "today": {
       "level": "partial",
       "says": "Proposals are kept on disk; work in progress is not.",
+      "verified": true,
       "where": [
        "app/actions/engine.py",
        "FEAT-010"
-      ],
-      "verified": true
+      ]
      },
-     "revisit": "If restarts become rare enough that nothing is ever caught halfway.",
+     "revisit": "If restarts became so rare nothing is ever caught halfway.",
      "effects": [
       "HIGHER RELIABILITY",
       "LESS HUMAN ATTENTION"
@@ -587,38 +629,57 @@
      "sources": [
       {
        "document": "test-note-alpha.md",
-       "section": "Reliability",
-       "quote": "Every job should carry on after a restart instead of being lost.",
+       "section": "TEST SECTION: Restarts and jobs",
+       "quote": "Every job CLIVE starts should carry on after the server restarts,",
        "stance": "supports",
        "centrality": "central"
       },
       {
        "document": "test-note-beta.md",
-       "section": "Restarts",
-       "quote": "Keep the jobs that change the shop across a restart.",
-       "stance": "refines",
+       "section": "TEST SECTION: Keeping work",
+       "quote": "A job that is halfway done when the server restarts should finish afterwards,",
+       "stance": "supports",
        "centrality": "supporting"
       },
       {
        "document": "test-note-gamma.md",
-       "section": "Notes",
-       "quote": "A restart should never lose work.",
+       "section": "TEST SECTION: Reliability notes",
+       "quote": "A restart should never lose work that CLIVE was doing.",
        "stance": "supports",
        "centrality": "passing"
+      },
+      {
+       "document": "test-note-delta.md",
+       "section": "TEST SECTION: After a restart",
+       "quote": "When the server comes back, CLIVE should pick up its unfinished jobs by itself.",
+       "stance": "supports",
+       "centrality": "central"
       }
      ],
      "history": [
       {
-       "at": "2026-10-09T10:00:00+00:00",
-       "said": "Created from test-note-alpha.md."
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Created from test-note-alpha.md: Work survives a restart."
       },
       {
-       "at": "2026-10-09T10:05:00+00:00",
-       "said": "test-note-beta.md joined it (refines)."
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "test-note-beta.md joined it: 1 recommendation (supports)."
       },
       {
-       "at": "2026-10-09T10:20:00+00:00",
-       "said": "Judged: Right direction, Partly there, Now."
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "test-note-gamma.md joined it: 1 recommendation (supports)."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Judged: Right direction, Builds on what exists, Now. Checked by CLIVE's rules: Not in CLIVE's code or features, so left out of where it is today: app/no_such_part/keeper.py."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "test-note-delta.md joined it: 1 recommendation (supports)."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Judged: Right direction, Builds on what exists, Now. Checked by CLIVE's rules: Not in CLIVE's code or features, so left out of where it is today: app/no_such_part/keeper.py."
       }
      ],
      "owner_answer": null,
@@ -648,10 +709,178 @@
    "title": "Next",
    "ideas": [
     {
+     "id": "idea-0003",
+     "fingerprint": "e30f4043e317abeaabdfa09c2ea334e4f2a07847b49ade0311c23c306a1a54dd",
+     "name": "Send small refunds without a hold",
+     "statement": "Refunds under a few pounds go out without the owner's hold.",
+     "kind": "safety",
+     "answers": {
+      "judgment": {
+       "key": "CONFLICT",
+       "words": "Needs your call"
+      },
+      "relationship": {
+       "key": "NEW",
+       "words": "New"
+      },
+      "timing": {
+       "key": "NEXT",
+       "words": "Next"
+      },
+      "execution": {
+       "key": "NOT_AUTHORISED",
+       "words": "Not approved"
+      },
+      "confidence": {
+       "key": "high",
+       "words": "Sure"
+      },
+      "importance": {
+       "key": "HIGH_LEVERAGE",
+       "words": "High leverage"
+      },
+      "knowledge": {
+       "key": "CHALLENGED",
+       "words": "Challenges it"
+      }
+     },
+     "reasons": {
+      "judgment": "Breaks rule 2 (Anything outward waits for a gesture on its card): it lets something go out, spend or change the shop without his gesture on its card (“without the owner's hold”). 3 documents back it, so it is your call.",
+      "timing": "Soon."
+     },
+     "timing_held_by": [],
+     "backed_by": {
+      "count": 3,
+      "of": 5,
+      "documents": [
+       {
+        "name": "test-note-alpha.md",
+        "centrality": "central"
+       },
+       {
+        "name": "test-note-beta.md",
+        "centrality": "central"
+       },
+       {
+        "name": "test-note-gamma.md",
+        "centrality": "supporting"
+       }
+      ]
+     },
+     "how_they_differ": "",
+     "against": [],
+     "owner_view": {
+      "means": "CLIVE would refund small amounts by itself, without you holding the card.",
+      "today": "Every refund waits for your hold.",
+      "after": "A four-pound refund for a late parcel goes out at once.",
+      "example": "A customer's tee arrives a day late and they ask for four pounds back; today it waits for you.",
+      "before_after": "Before: every refund waits for you. After: small ones go by themselves.",
+      "why_care": [
+       "LESS HUMAN ATTENTION",
+       "MAKES / PROTECTS MONEY"
+      ],
+      "notice": "The next small refund."
+     },
+     "needs_you": {
+      "trigger": "clash",
+      "trigger_words": "Clashes with one of your rules or decisions",
+      "question": "Your rule says nothing outward goes without your hold. Do you want to keep it for small refunds too?"
+     },
+     "keys": [
+      {
+       "key": "DEC-006",
+       "label": "DEC-006 Voice “yes” is not sufficient for sensitive authorisation",
+       "how": "related"
+      },
+      {
+       "key": "RULE-2",
+       "label": "Rule 2: Anything outward waits for a gesture on its card",
+       "how": "contradicts"
+      }
+     ],
+     "today": {
+      "level": "none",
+      "says": "Every refund waits for his hold.",
+      "verified": true,
+      "where": [
+       "app/actions/grammar.py"
+      ]
+     },
+     "revisit": "Only the owner's own change to rule 2.",
+     "effects": [
+      "LESS HUMAN ATTENTION",
+      "MAKES / PROTECTS MONEY"
+     ],
+     "sources": [
+      {
+       "document": "test-note-alpha.md",
+       "section": "TEST SECTION: Small refunds",
+       "quote": "Refunds under five pounds should be applied automatically without his approval",
+       "stance": "supports",
+       "centrality": "central"
+      },
+      {
+       "document": "test-note-beta.md",
+       "section": "TEST SECTION: Refund speed",
+       "quote": "Refunds under five pounds need no approval at all.",
+       "stance": "supports",
+       "centrality": "central"
+      },
+      {
+       "document": "test-note-gamma.md",
+       "section": "TEST SECTION: Tiny refunds",
+       "quote": "Let tiny refunds go out automatically without the owner's approval.",
+       "stance": "supports",
+       "centrality": "supporting"
+      }
+     ],
+     "history": [
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Created from test-note-alpha.md: Send small refunds without a hold."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "test-note-beta.md joined it: 1 recommendation (supports)."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "test-note-gamma.md joined it: 1 recommendation (supports)."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "9 Oct, old screen: Reject, RULE-2 (Breaks rule 2 (Anything outward waits for a gesture on its card): it lets something go out, spend or change the shop without his gesture on its card (“refunds automatically”).)"
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Judged: Needs your call, New, Next. Checked by CLIVE's rules: CLIVE's own check of rule 2 found it asks to break it."
+      }
+     ],
+     "owner_answer": null,
+     "choices": [
+      {
+       "key": "go",
+       "label": "Approve the work",
+       "then": "Prepares a build request on a card. Nothing is filed until you hold it; then it goes to CLIVE's public repository, in CLIVE's words, never the research's own."
+      },
+      {
+       "key": "later",
+       "label": "Not now",
+       "then": "Kept as an idea, with your answer. Nothing is built."
+      },
+      {
+       "key": "no",
+       "label": "Not for CLIVE",
+       "then": "Marked not for CLIVE, with your answer. Nothing is built, and it stays in the history."
+      }
+     ],
+     "build": null
+    },
+    {
      "id": "idea-0004",
-     "fingerprint": "d61960039822b6189c91b444afe667ecbc54a0a961cbb5a0bf2e0c1f87beabe1",
+     "fingerprint": "dc30ba4e8aaf162b5eb927dc0e04ba7fc30002f1d5a41a1a44b92ad51b1a2ff6",
      "name": "Each key shows when it was checked",
-     "statement": "TEST RESEARCH NOTE — invented for CLIVE's tests. Every Connections card says when its key was last checked.",
+     "statement": "Every key on the Connections screen says when CLIVE last checked it.",
      "kind": "capability",
      "answers": {
       "judgment": {
@@ -684,21 +913,21 @@
       }
      },
      "reasons": {
-      "judgment": "Small, clear and serves keys from the app (DEC-065).",
+      "judgment": "Small and clear, and it serves the owner's keys from the app (DEC-065).",
       "timing": "After the restart work."
      },
      "timing_held_by": [],
      "backed_by": {
       "count": 2,
-      "of": 3,
+      "of": 5,
       "documents": [
        {
         "name": "test-note-alpha.md",
         "centrality": "central"
        },
        {
-        "name": "test-note-beta.md",
-        "centrality": "passing"
+        "name": "test-note-gamma.md",
+        "centrality": "central"
        }
       ]
      },
@@ -723,54 +952,73 @@
      ],
      "today": {
       "level": "none",
-      "says": "The cards show whether a key is stored, not when it was checked.",
+      "says": "The cards say whether a key is stored, not when it was checked.",
+      "verified": true,
       "where": [
        "web/connections.js"
-      ],
-      "verified": true
+      ]
      },
-     "revisit": "If keys are checked so often that a time adds nothing.",
+     "revisit": "If keys were checked so often a time added nothing.",
      "effects": [
       "LOWER RISK"
      ],
      "sources": [
       {
        "document": "test-note-alpha.md",
-       "section": "Connections",
-       "quote": "Each card should show when its key was last checked.",
+       "section": "TEST SECTION: Connections cards",
+       "quote": "Each card on the Connections screen should show when its key was last checked,",
        "stance": "supports",
        "centrality": "central"
       },
       {
-       "document": "test-note-beta.md",
-       "section": "Keys",
-       "quote": "Show a last-checked time.",
+       "document": "test-note-alpha.md",
+       "section": "TEST SECTION: Connections cards",
+       "quote": "so a stale key is obvious.",
        "stance": "supports",
-       "centrality": "passing"
+       "centrality": "supporting"
+      },
+      {
+       "document": "test-note-gamma.md",
+       "section": "TEST SECTION: Key freshness",
+       "quote": "Show a last-checked time on every key so nobody trusts a dead one.",
+       "stance": "supports",
+       "centrality": "central"
       }
      ],
      "history": [
       {
-       "at": "2026-10-09T10:00:00+00:00",
-       "said": "Created from test-note-alpha.md."
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Created from test-note-alpha.md: Each key shows when it was checked."
       },
       {
-       "at": "2026-10-09T10:20:00+00:00",
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "idea-0011 (Keys show a last-checked time) joined it: Both say every key shows when it was checked."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "9 Oct, old screen: Adopt, DEC-065 (Serves keys from the app (DEC-065).)"
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Dropped “needs you” (clash): it contradicts no rule or active decision."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
        "said": "Judged: Right direction, New, Next."
       },
       {
-       "at": "2026-10-09T11:00:00+00:00",
+       "at": "2026-10-09T13:00:15+00:00",
        "said": "You chose Approve the work."
       },
       {
-       "at": "2026-10-09T11:00:00+00:00",
-       "said": "Its build request was prepared on a card."
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Its build request was prepared on a card, waiting for your hold."
       }
      ],
      "owner_answer": {
       "key": "go",
       "label": "Approve the work",
-      "at": "2026-10-09T11:00:00+00:00",
+      "at": "2026-10-09T13:00:15+00:00",
       "current": true
      },
      "choices": [
@@ -793,7 +1041,7 @@
      "build": {
       "state": "waiting",
       "words": "Its build request waits for your hold on the card. If the card has gone, prepare it again.",
-      "request_id": "research-idea-0004-each-key-shows"
+      "request_id": "research-idea-test-0001"
      }
     }
    ]
@@ -803,10 +1051,164 @@
    "title": "Later",
    "ideas": [
     {
-     "id": "idea-0005",
-     "fingerprint": "e555b4d9d54a1968b585f8f69523c0aba04d3d45920e9304abd77ab844f0ad12",
+     "id": "idea-0009",
+     "fingerprint": "2265972ab41f7be5805b786b54540d8b71e7d6fc9b96ecbc1f3800af7b76c356",
+     "name": "A weekly note of what CLIVE learned",
+     "statement": "Once a week CLIVE writes a few lines on what it now thinks differently.",
+     "kind": "process",
+     "answers": {
+      "judgment": {
+       "key": "ADOPT_PARTLY",
+       "words": "Right in part"
+      },
+      "relationship": {
+       "key": "NEW",
+       "words": "New"
+      },
+      "timing": {
+       "key": "LATER",
+       "words": "Later"
+      },
+      "execution": {
+       "key": "NOT_AUTHORISED",
+       "words": "Not approved"
+      },
+      "confidence": {
+       "key": "medium",
+       "words": "Fairly sure"
+      },
+      "importance": {
+       "key": "HIGH_LEVERAGE",
+       "words": "High leverage"
+      },
+      "knowledge": {
+       "key": "NEW",
+       "words": "New to CLIVE"
+      }
+     },
+     "reasons": {
+      "judgment": "A short weekly note is right; a long report is not.",
+      "timing": "After the finish list."
+     },
+     "timing_held_by": [
+      {
+       "key": "DEC-018",
+       "label": "DEC-018 Current product quality comes before major V2 expansion"
+      }
+     ],
+     "backed_by": {
+      "count": 2,
+      "of": 5,
+      "documents": [
+       {
+        "name": "test-note-beta.md",
+        "centrality": "passing"
+       },
+       {
+        "name": "test-note-epsilon.md",
+        "centrality": "central"
+       }
+      ]
+     },
+     "how_they_differ": "",
+     "against": [],
+     "owner_view": {
+      "means": "A short weekly note of what CLIVE now thinks differently.",
+      "today": "Nothing like it.",
+      "after": "",
+      "example": "",
+      "before_after": "",
+      "why_care": [],
+      "notice": ""
+     },
+     "needs_you": null,
+     "keys": [],
+     "today": {
+      "level": "none",
+      "says": "No weekly note exists.",
+      "verified": true,
+      "where": []
+     },
+     "revisit": "If you would read it.",
+     "effects": [
+      "MOSTLY INTERNAL"
+     ],
+     "sources": [
+      {
+       "document": "test-note-beta.md",
+       "section": "TEST SECTION: Learning notes",
+       "quote": "CLIVE should write a short weekly note of what it learned about the business.",
+       "stance": "supports",
+       "centrality": "passing"
+      },
+      {
+       "document": "test-note-epsilon.md",
+       "section": "TEST SECTION: What CLIVE learned",
+       "quote": "Once a week CLIVE should tell the owner, in a few lines, what it now thinks differently.",
+       "stance": "supports",
+       "centrality": "central"
+      }
+     ],
+     "history": [
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Created from test-note-beta.md: A weekly note of what CLIVE learned."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Its plain-English view is incomplete, even after CLIVE asked again; it is shown as it is."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Judged: Right in part, New, Later (held by DEC-018)."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "You chose Not now."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "test-note-epsilon.md joined it: 1 recommendation (supports)."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Its plain-English view is incomplete, even after CLIVE asked again; it is shown as it is."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Judged: Right in part, New, Later (held by DEC-018)."
+      }
+     ],
+     "owner_answer": {
+      "key": "later",
+      "label": "Not now",
+      "at": "2026-10-09T13:00:15+00:00",
+      "current": false
+     },
+     "choices": [
+      {
+       "key": "go",
+       "label": "Approve the work",
+       "then": "Prepares a build request on a card. Nothing is filed until you hold it; then it goes to CLIVE's public repository, in CLIVE's words, never the research's own."
+      },
+      {
+       "key": "later",
+       "label": "Not now",
+       "then": "Kept as an idea, with your answer. Nothing is built."
+      },
+      {
+       "key": "no",
+       "label": "Not for CLIVE",
+       "then": "Marked not for CLIVE, with your answer. Nothing is built, and it stays in the history."
+      }
+     ],
+     "build": null
+    },
+    {
+     "id": "idea-0008",
+     "fingerprint": "36139859c54db5445c064a0d32fec78faec1432f22f2e5008c20cec0b9441cef",
      "name": "Supplier messages in one thread",
-     "statement": "TEST RESEARCH NOTE — invented for CLIVE's tests. Messages from the manufacturer arrive in one thread CLIVE reads.",
+     "statement": "Everything the manufacturer sends lands in one thread CLIVE reads and sums up.",
      "kind": "capability",
      "answers": {
       "judgment": {
@@ -839,8 +1241,8 @@
       }
      },
      "reasons": {
-      "judgment": "The direction is right and builds on the messaging CLIVE has.",
-      "timing": "Held by DEC-018: finishing what is there comes first."
+      "judgment": "Parked: DEC-018 says finish the current product first.",
+      "timing": "Not now."
      },
      "timing_held_by": [
       {
@@ -849,15 +1251,11 @@
       }
      ],
      "backed_by": {
-      "count": 2,
-      "of": 3,
+      "count": 1,
+      "of": 5,
       "documents": [
        {
         "name": "test-note-beta.md",
-        "centrality": "central"
-       },
-       {
-        "name": "test-note-gamma.md",
         "centrality": "central"
        }
       ]
@@ -887,12 +1285,12 @@
      "today": {
       "level": "partial",
       "says": "CLIVE keeps 90 days of messages from the channels it has.",
+      "verified": true,
       "where": [
        "app/messaging/store.py"
-      ],
-      "verified": true
+      ]
      },
-     "revisit": "When the finish list in DEC-018 is clear.",
+     "revisit": "When DEC-018's finish list is clear.",
      "effects": [
       "LESS HUMAN ATTENTION",
       "ENABLES NEW CAPABILITY"
@@ -900,31 +1298,24 @@
      "sources": [
       {
        "document": "test-note-beta.md",
-       "section": "Suppliers",
-       "quote": "Supplier messages should land in one thread.",
-       "stance": "supports",
-       "centrality": "central"
-      },
-      {
-       "document": "test-note-gamma.md",
-       "section": "Suppliers",
-       "quote": "One place for the manufacturer's messages.",
+       "section": "TEST SECTION: Supplier threads",
+       "quote": "Messages from the manufacturer should land in one thread that CLIVE reads and sums up.",
        "stance": "supports",
        "centrality": "central"
       }
      ],
      "history": [
       {
-       "at": "2026-10-09T10:05:00+00:00",
-       "said": "Created from test-note-beta.md."
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Created from test-note-beta.md: Supplier messages in one thread."
       },
       {
-       "at": "2026-10-09T10:20:00+00:00",
-       "said": "Judged: Right direction, Builds on what exists, Later (held by DEC-018)."
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "9 Oct, old screen: Park, DEC-018 (Finishing current work comes first (DEC-018).)"
       },
       {
-       "at": "2026-10-09T10:20:00+00:00",
-       "said": "9 Oct, old screen: Park, DEC-018 (finishing current work comes first)."
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Judged: Right direction, Builds on what exists, Later (held by DEC-018). Checked by CLIVE's rules: DEC-018 only holds when, never whether: the judgment was INVESTIGATE on DEC-018 alone, so it is Right direction, held by DEC-018. DEC-018 holds it, so it isn't Now: it is Later."
       }
      ],
      "owner_answer": null,
@@ -948,19 +1339,140 @@
      "build": null
     },
     {
-     "id": "idea-0007",
-     "fingerprint": "1fd137321f98ea1f3e1569b733663a4e76ea1847ee71092189b7af054e3a29e9",
-     "name": "A weekly note of what CLIVE learned",
-     "statement": "TEST RESEARCH NOTE — invented for CLIVE's tests. Once a week CLIVE writes what changed in its view of the business.",
-     "kind": "process",
+     "id": "idea-0006",
+     "fingerprint": "2d80799907fc30007adef209f746cfdfb7f9cd3bc6c6067d84da40050f02b7e9",
+     "name": "CLIVE keeps one record of orders",
+     "statement": "CLIVE keeps the one record of orders that everything else reads.",
+     "kind": "foundational",
      "answers": {
       "judgment": {
        "key": "ADOPT_PARTLY",
        "words": "Right in part"
       },
       "relationship": {
-       "key": "NEW",
-       "words": "New"
+       "key": "PARTIALLY_SATISFIED",
+       "words": "Partly there"
+      },
+      "timing": {
+       "key": "LATER",
+       "words": "Later"
+      },
+      "execution": {
+       "key": "NOT_AUTHORISED",
+       "words": "Not approved"
+      },
+      "confidence": {
+       "key": "medium",
+       "words": "Fairly sure"
+      },
+      "importance": {
+       "key": "USEFUL",
+       "words": "Useful"
+      },
+      "knowledge": {
+       "key": "MODIFIED",
+       "words": "Modifies it"
+      }
+     },
+     "reasons": {
+      "judgment": "Right that Shopify stays the record; CLIVE keeping its own copy is not.",
+      "timing": "Later."
+     },
+     "timing_held_by": [],
+     "backed_by": {
+      "count": 1,
+      "of": 5,
+      "documents": [
+       {
+        "name": "test-note-alpha.md",
+        "centrality": "supporting"
+       }
+      ]
+     },
+     "how_they_differ": "",
+     "against": [],
+     "owner_view": {
+      "means": "One place that holds every order.",
+      "today": "Shopify holds them; CLIVE reads Shopify.",
+      "after": "",
+      "example": "",
+      "before_after": "",
+      "why_care": [],
+      "notice": ""
+     },
+     "needs_you": null,
+     "keys": [
+      {
+       "key": "DEC-004",
+       "label": "DEC-004 Durable business state lives outside the model",
+       "how": "serves"
+      }
+     ],
+     "today": {
+      "level": "substantial",
+      "says": "Shopify is the record; CLIVE reads it.",
+      "verified": true,
+      "where": [
+       "FEAT-003"
+      ]
+     },
+     "revisit": "If Shopify's record proved unreliable.",
+     "effects": [
+      "HIGHER RELIABILITY"
+     ],
+     "sources": [
+      {
+       "document": "test-note-alpha.md",
+       "section": "TEST SECTION: Order of work",
+       "quote": "CLIVE needs a single source-of- truth for orders,",
+       "stance": "supports",
+       "centrality": "supporting"
+      }
+     ],
+     "history": [
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Created from test-note-alpha.md: CLIVE keeps one record of orders."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Judged: Right in part, Partly there, Later."
+      }
+     ],
+     "owner_answer": null,
+     "choices": [
+      {
+       "key": "go",
+       "label": "Approve the work",
+       "then": "Prepares a build request on a card. Nothing is filed until you hold it; then it goes to CLIVE's public repository, in CLIVE's words, never the research's own."
+      },
+      {
+       "key": "later",
+       "label": "Not now",
+       "then": "Kept as an idea, with your answer. Nothing is built."
+      },
+      {
+       "key": "no",
+       "label": "Not for CLIVE",
+       "then": "Marked not for CLIVE, with your answer. Nothing is built, and it stays in the history."
+      }
+     ],
+     "build": null
+    },
+    {
+     "id": "idea-0005",
+     "fingerprint": "e8367ab9f76eca824e5023ca85cc8feebfe0d8adaed80b635c2a930563818016",
+     "name": "Stock page updates every hour",
+     "statement": "The stock page is brought up to date every hour.",
+     "kind": "capability",
+     "answers": {
+      "judgment": {
+       "key": "ADOPT",
+       "words": "Right direction"
+      },
+      "relationship": {
+       "key": "EXTENDS_EXISTING",
+       "words": "Builds on what exists"
       },
       "timing": {
        "key": "LATER",
@@ -979,26 +1491,21 @@
        "words": "Optimisation"
       },
       "knowledge": {
-       "key": "MODIFIED",
-       "words": "Modifies it"
+       "key": "NEW",
+       "words": "New to CLIVE"
       }
      },
      "reasons": {
-      "judgment": "A weekly note is right; a long report is not.",
+      "judgment": "Fresher stock counts help, but nothing is wrong today.",
       "timing": "After the finish list."
      },
-     "timing_held_by": [
-      {
-       "key": "DEC-018",
-       "label": "DEC-018 Current product quality comes before major V2 expansion"
-      }
-     ],
+     "timing_held_by": [],
      "backed_by": {
       "count": 1,
-      "of": 3,
+      "of": 5,
       "documents": [
        {
-        "name": "test-note-beta.md",
+        "name": "test-note-alpha.md",
         "centrality": "passing"
        }
       ]
@@ -1006,8 +1513,8 @@
      "how_they_differ": "",
      "against": [],
      "owner_view": {
-      "means": "A short weekly note of what CLIVE now thinks differently.",
-      "today": "Nothing like it.",
+      "means": "The stock page is kept up to date every hour.",
+      "today": "It is read when someone asks.",
       "after": "",
       "example": "",
       "before_after": "",
@@ -1015,50 +1522,45 @@
       "notice": ""
      },
      "needs_you": null,
-     "keys": [],
+     "keys": [
+      {
+       "key": "FEAT-003",
+       "label": "FEAT-003 Shopify read/write capability layer",
+       "how": "builds on"
+      }
+     ],
      "today": {
-      "level": "none",
-      "says": "No weekly note exists.",
-      "where": [],
-      "verified": false
+      "level": "partial",
+      "says": "Stock is read when asked.",
+      "verified": true,
+      "where": [
+       "FEAT-003"
+      ]
      },
-     "revisit": "If you'd read it.",
+     "revisit": "If stock mistakes started costing sales.",
      "effects": [
-      "MOSTLY INTERNAL"
+      "FASTER EXECUTION"
      ],
      "sources": [
       {
-       "document": "test-note-beta.md",
-       "section": "Learning",
-       "quote": "Write a weekly learning report.",
+       "document": "test-note-alpha.md",
+       "section": "TEST SECTION: Order of work",
+       "quote": "as soon as possible. 10. update the stock page every hour",
        "stance": "supports",
        "centrality": "passing"
       }
      ],
      "history": [
       {
-       "at": "2026-10-09T10:05:00+00:00",
-       "said": "Created from test-note-beta.md."
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Created from test-note-alpha.md: Stock page updates every hour."
       },
       {
-       "at": "2026-10-09T10:20:00+00:00",
-       "said": "Judged: Right in part, New, Later (held by DEC-018)."
-      },
-      {
-       "at": "2026-10-09T10:40:00+00:00",
-       "said": "You chose Not now."
-      },
-      {
-       "at": "2026-10-09T12:00:00+00:00",
-       "said": "Judged again: Right in part, New, Later. Your answer was to an earlier view."
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Judged: Right direction, Builds on what exists, Later."
       }
      ],
-     "owner_answer": {
-      "key": "later",
-      "label": "Not now",
-      "at": "2026-10-09T10:40:00+00:00",
-      "current": false
-     },
+     "owner_answer": null,
      "choices": [
       {
        "key": "go",
@@ -1085,148 +1587,19 @@
    "title": "No date",
    "ideas": [
     {
-     "id": "idea-0002",
-     "fingerprint": "1532d18c4f0405f6968b77201280209695c917279e556bb7b41463e06cb9c4bc",
-     "name": "Adopt a workflow engine for it",
-     "statement": "TEST RESEARCH NOTE — invented for CLIVE's tests. Use an outside workflow engine to keep jobs alive.",
-     "kind": "tooling-choice",
-     "answers": {
-      "judgment": {
-       "key": "INVESTIGATE",
-       "words": "Worth looking into"
-      },
-      "relationship": {
-       "key": "NEW",
-       "words": "New"
-      },
-      "timing": {
-       "key": "UNSCHEDULED",
-       "words": "No date"
-      },
-      "execution": {
-       "key": "NOT_AUTHORISED",
-       "words": "Not approved"
-      },
-      "confidence": {
-       "key": "low",
-       "words": "Unsure"
-      },
-      "importance": {
-       "key": "USEFUL",
-       "words": "Useful"
-      },
-      "knowledge": {
-       "key": "NEW",
-       "words": "New to CLIVE"
-      }
-     },
-     "reasons": {
-      "judgment": "It is one way to reach idea-0001, not the goal itself, and it would be a new service.",
-      "timing": "Only once the goal is approved."
-     },
-     "timing_held_by": [],
-     "backed_by": {
-      "count": 1,
-      "of": 3,
-      "documents": [
-       {
-        "name": "test-note-alpha.md",
-        "centrality": "supporting"
-       }
-      ]
-     },
-     "how_they_differ": "",
-     "against": [
-      {
-       "document": "test-note-beta.md",
-       "says": "A new outside service is more to look after than the problem it solves."
-      }
-     ],
-     "owner_view": {
-      "means": "Running jobs through a separate engine made for keeping work alive.",
-      "today": "Nothing like it is in CLIVE.",
-      "after": "",
-      "example": "",
-      "before_after": "",
-      "why_care": [],
-      "notice": ""
-     },
-     "needs_you": {
-      "trigger": "uncertainty",
-      "trigger_words": "CLIVE can't tell yet",
-      "question": "Should CLIVE look into an outside engine, or keep it in its own code?"
-     },
-     "keys": [],
-     "today": {
-      "level": "none",
-      "says": "CLIVE has no workflow engine.",
-      "where": [],
-      "verified": true
-     },
-     "revisit": "If keeping jobs in CLIVE's own code proves fragile.",
-     "effects": [
-      "HIGHER RELIABILITY"
-     ],
-     "sources": [
-      {
-       "document": "test-note-alpha.md",
-       "section": "Reliability",
-       "quote": "An outside workflow engine could keep these jobs alive.",
-       "stance": "supports",
-       "centrality": "supporting"
-      },
-      {
-       "document": "test-note-beta.md",
-       "section": "Restarts",
-       "quote": "Don't add a new service just for this.",
-       "stance": "opposes",
-       "centrality": "supporting"
-      }
-     ],
-     "history": [
-      {
-       "at": "2026-10-09T10:00:00+00:00",
-       "said": "Created from test-note-alpha.md."
-      },
-      {
-       "at": "2026-10-09T10:20:00+00:00",
-       "said": "Judged: Worth looking into, New, No date."
-      }
-     ],
-     "owner_answer": null,
-     "choices": [
-      {
-       "key": "go",
-       "label": "Approve the work",
-       "then": "Prepares a build request on a card. Nothing is filed until you hold it; then it goes to CLIVE's public repository, in CLIVE's words, never the research's own."
-      },
-      {
-       "key": "later",
-       "label": "Not now",
-       "then": "Kept as an idea, with your answer. Nothing is built."
-      },
-      {
-       "key": "no",
-       "label": "Not for CLIVE",
-       "then": "Marked not for CLIVE, with your answer. Nothing is built, and it stays in the history."
-      }
-     ],
-     "build": null
-    },
-    {
-     "id": "idea-0003",
-     "fingerprint": "d601fef50c9ce9ab5e660b3f140b2e87cb8131a0d84ad595bf68af87ad68aa7a",
-     "name": "Send small refunds without a hold",
-     "statement": "TEST RESEARCH NOTE — invented for CLIVE's tests. Refunds under a set amount go out without the owner's hold.",
+     "id": "idea-0007",
+     "fingerprint": "641d05892f18edfdb0cd08f39c90dcab1d1f7ec8649cafb7553e92ff591a6e2a",
+     "name": "Done only after reading it back",
+     "statement": "CLIVE says a change is done only after reading it back.",
      "kind": "safety",
      "answers": {
       "judgment": {
-       "key": "CONFLICT",
-       "words": "Needs your call"
+       "key": "ADOPT",
+       "words": "Right direction"
       },
       "relationship": {
-       "key": "NEW",
-       "words": "New"
+       "key": "ALREADY_SATISFIED",
+       "words": "Already done"
       },
       "timing": {
        "key": "UNSCHEDULED",
@@ -1241,116 +1614,84 @@
        "words": "Sure"
       },
       "importance": {
-       "key": "HIGH_LEVERAGE",
-       "words": "High leverage"
+       "key": "FOUNDATIONAL",
+       "words": "Foundational"
       },
       "knowledge": {
-       "key": "CHALLENGED",
-       "words": "Challenges it"
+       "key": "VALIDATED",
+       "words": "Confirms what CLIVE thought"
       }
      },
      "reasons": {
-      "judgment": "Breaks rule 2 (Anything outward waits for a gesture on its card), and three test notes back it, so it is your call.",
-      "timing": "Not unless you change rule 2."
+      "judgment": "Already in CLIVE: FEAT-007 reads every change back.",
+      "timing": "Nothing to build."
      },
      "timing_held_by": [],
      "backed_by": {
-      "count": 3,
-      "of": 3,
+      "count": 1,
+      "of": 5,
       "documents": [
        {
         "name": "test-note-alpha.md",
-        "centrality": "central"
-       },
-       {
-        "name": "test-note-beta.md",
-        "centrality": "central"
-       },
-       {
-        "name": "test-note-gamma.md",
-        "centrality": "supporting"
+        "centrality": "passing"
        }
       ]
      },
      "how_they_differ": "",
      "against": [],
      "owner_view": {
-      "means": "CLIVE would refund small amounts by itself, without you holding the card.",
-      "today": "Every refund waits for your hold.",
-      "after": "A £4 refund for a late parcel goes out at once.",
-      "example": "A customer's tee arrives a day late and asks for £4 back; today it waits for you.",
-      "before_after": "Before: every refund waits for you. After: small ones go by themselves.",
+      "means": "CLIVE says a change is done only once it has checked it.",
+      "today": "It already does this for every change.",
+      "after": "Nothing changes: this confirms what CLIVE does.",
+      "example": "When it changes a price on your shop, it reads the price back first.",
+      "before_after": "Before and after: the same.",
       "why_care": [
-       "LESS HUMAN ATTENTION",
-       "MAKES / PROTECTS MONEY"
+       "LOWER RISK"
       ],
-      "notice": "The next small refund."
+      "notice": "You won't: it stays as it is."
      },
-     "needs_you": {
-      "trigger": "clash",
-      "trigger_words": "Clashes with one of your rules or decisions",
-      "question": "Your rule says nothing outward goes without your hold. Do you want to keep it for small refunds too?"
-     },
+     "needs_you": null,
      "keys": [
       {
-       "key": "RULE-2",
-       "label": "Rule 2: Anything outward waits for a gesture on its card",
-       "how": "contradicts"
+       "key": "FEAT-007",
+       "label": "FEAT-007 Proposal/action/verification system",
+       "how": "already does it"
       },
       {
-       "key": "DEC-005",
-       "label": "DEC-005 Models propose; deterministic server capabilities execute",
-       "how": "contradicts"
+       "key": "RULE-1",
+       "label": "Rule 1: Verified, or it is an error",
+       "how": "serves"
       }
      ],
      "today": {
-      "level": "none",
-      "says": "Refunds are staged and wait for the hold.",
+      "level": "complete",
+      "says": "Every change is read back before it is called done.",
+      "verified": true,
       "where": [
-       "app/actions/grammar.py"
-      ],
-      "verified": true
+       "app/actions/engine.py"
+      ]
      },
-     "revisit": "Only your own change to rule 2.",
+     "revisit": "Nothing the research could say.",
      "effects": [
-      "LESS HUMAN ATTENTION",
-      "MAKES / PROTECTS MONEY"
+      "LOWER RISK"
      ],
      "sources": [
       {
        "document": "test-note-alpha.md",
-       "section": "Refunds",
-       "quote": "Small refunds should go out automatically.",
+       "section": "TEST SECTION: Order of work",
+       "quote": "CLIVE should say “it’s done” only after it reads the change back",
        "stance": "supports",
-       "centrality": "central"
-      },
-      {
-       "document": "test-note-beta.md",
-       "section": "Refunds",
-       "quote": "Refunds under five pounds need no approval.",
-       "stance": "supports",
-       "centrality": "central"
-      },
-      {
-       "document": "test-note-gamma.md",
-       "section": "Money",
-       "quote": "Let tiny refunds skip the queue.",
-       "stance": "supports",
-       "centrality": "supporting"
+       "centrality": "passing"
       }
      ],
      "history": [
       {
-       "at": "2026-10-09T10:00:00+00:00",
-       "said": "Created from test-note-alpha.md."
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Created from test-note-alpha.md: Done only after reading it back."
       },
       {
-       "at": "2026-10-09T10:20:00+00:00",
-       "said": "Judged: Needs your call (checked by CLIVE's rules: breaks rule 2)."
-      },
-      {
-       "at": "2026-10-09T10:20:00+00:00",
-       "said": "9 Oct, old screen: Reject, RULE-2 (Breaks rule 2)."
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Judged: Right direction, Already done, No date. Checked by CLIVE's rules: Already done is not a reason to reject: it is Right direction, already in CLIVE."
       }
      ],
      "owner_answer": null,
@@ -1374,10 +1715,10 @@
      "build": null
     },
     {
-     "id": "idea-0006",
-     "fingerprint": "a2db16931257506519ae940761b526e35fe0ac1d032fde4ee244a046a37ee53f",
+     "id": "idea-0010",
+     "fingerprint": "cb1406a5e9cfdb5d7288a8302ae31fe999155b556ac7646d51f6b3eab05f95e9",
      "name": "Answers stay on the Max plan",
-     "statement": "TEST RESEARCH NOTE — invented for CLIVE's tests. CLIVE keeps answering through the owner's plan, never a metered key.",
+     "statement": "CLIVE keeps answering through the owner's flat plan, never a metered key.",
      "kind": "foundational",
      "answers": {
       "judgment": {
@@ -1416,7 +1757,7 @@
      "timing_held_by": [],
      "backed_by": {
       "count": 1,
-      "of": 3,
+      "of": 5,
       "documents": [
        {
         "name": "test-note-gamma.md",
@@ -1448,32 +1789,172 @@
      "today": {
       "level": "complete",
       "says": "The app refuses to start with an API key.",
+      "verified": true,
       "where": [
        "app/providers/max_agent_sdk.py"
-      ],
-      "verified": true
+      ]
      },
-     "revisit": "Nothing the research could say; only your own decision.",
+     "revisit": "Only the owner's own decision.",
      "effects": [
       "MAKES / PROTECTS MONEY"
      ],
      "sources": [
       {
        "document": "test-note-gamma.md",
-       "section": "Costs",
-       "quote": "Stay on the flat plan; never a metered key.",
+       "section": "TEST SECTION: Monthly costs",
+       "quote": "CLIVE should stay on the flat monthly plan and never use a metered key.",
        "stance": "supports",
        "centrality": "central"
       }
      ],
      "history": [
       {
-       "at": "2026-10-09T10:10:00+00:00",
-       "said": "Created from test-note-gamma.md."
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Created from test-note-gamma.md: Answers stay on the Max plan."
       },
       {
-       "at": "2026-10-09T10:20:00+00:00",
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "9 Oct, old screen: Reject, FEAT-002 (Already live: the Max plan (FEAT-002).)"
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
        "said": "Judged: Right direction, Already done, No date."
+      }
+     ],
+     "owner_answer": null,
+     "choices": [
+      {
+       "key": "go",
+       "label": "Approve the work",
+       "then": "Prepares a build request on a card. Nothing is filed until you hold it; then it goes to CLIVE's public repository, in CLIVE's words, never the research's own."
+      },
+      {
+       "key": "later",
+       "label": "Not now",
+       "then": "Kept as an idea, with your answer. Nothing is built."
+      },
+      {
+       "key": "no",
+       "label": "Not for CLIVE",
+       "then": "Marked not for CLIVE, with your answer. Nothing is built, and it stays in the history."
+      }
+     ],
+     "build": null
+    },
+    {
+     "id": "idea-0002",
+     "fingerprint": "f541ff03cd5d8694d580cbec68b827aedbc1dbbf03daa1a32551e42b0679e5d9",
+     "name": "Adopt a workflow engine for it",
+     "statement": "Use an outside workflow engine to keep CLIVE's jobs alive.",
+     "kind": "tooling-choice",
+     "answers": {
+      "judgment": {
+       "key": "INVESTIGATE",
+       "words": "Worth looking into"
+      },
+      "relationship": {
+       "key": "NEW",
+       "words": "New"
+      },
+      "timing": {
+       "key": "UNSCHEDULED",
+       "words": "No date"
+      },
+      "execution": {
+       "key": "NOT_AUTHORISED",
+       "words": "Not approved"
+      },
+      "confidence": {
+       "key": "low",
+       "words": "Unsure"
+      },
+      "importance": {
+       "key": "USEFUL",
+       "words": "Useful"
+      },
+      "knowledge": {
+       "key": "CHALLENGED",
+       "words": "Challenges it"
+      }
+     },
+     "reasons": {
+      "judgment": "It is one way to reach the restart idea, not the goal itself, and it would be a new outside service.",
+      "timing": "Only once the goal is approved."
+     },
+     "timing_held_by": [],
+     "backed_by": {
+      "count": 1,
+      "of": 5,
+      "documents": [
+       {
+        "name": "test-note-alpha.md",
+        "centrality": "supporting"
+       }
+      ]
+     },
+     "how_they_differ": "Alpha suggests an engine; beta argues against adding any outside service.",
+     "against": [
+      {
+       "document": "test-note-beta.md",
+       "says": "Don't add an outside service just to keep jobs alive."
+      }
+     ],
+     "owner_view": {
+      "means": "Running CLIVE's jobs through a separate engine made for keeping work alive.",
+      "today": "Nothing like it is in CLIVE.",
+      "after": "",
+      "example": "",
+      "before_after": "",
+      "why_care": [],
+      "notice": ""
+     },
+     "needs_you": {
+      "trigger": "uncertainty",
+      "trigger_words": "CLIVE can't tell yet",
+      "question": "Should CLIVE look into an outside engine, or keep this in its own code?"
+     },
+     "keys": [
+      {
+       "key": "RULE-1",
+       "label": "Rule 1: Verified, or it is an error",
+       "how": "related"
+      }
+     ],
+     "today": {
+      "level": "none",
+      "says": "CLIVE has no workflow engine.",
+      "verified": true,
+      "where": []
+     },
+     "revisit": "If keeping jobs in CLIVE's own code proves fragile.",
+     "effects": [
+      "HIGHER RELIABILITY"
+     ],
+     "sources": [
+      {
+       "document": "test-note-alpha.md",
+       "section": "TEST SECTION: Restarts and jobs",
+       "quote": "An outside workflow engine such as the invented TestQueue could keep these jobs alive",
+       "stance": "supports",
+       "centrality": "supporting"
+      }
+     ],
+     "history": [
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Created from test-note-alpha.md: Adopt a workflow engine for it."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "test-note-beta.md joined it: 0 recommendations (opposes)."
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "9 Oct, old screen: Park, DEC-018 (Finishing current work comes first (DEC-018).)"
+      },
+      {
+       "at": "2026-10-09T13:00:15+00:00",
+       "said": "Judged: Worth looking into, New, No date."
       }
      ],
      "owner_answer": null,
@@ -1501,45 +1982,56 @@
  ],
  "documents": [
   {
-   "id": "doc-0000000000000000000a",
+   "id": "doc-943fd7a7ceb94a5095a3",
+   "name": "test-note-delta.md",
+   "state": "done",
+   "state_words": "Read",
+   "why": "",
+   "received_at": "2026-10-09T13:00:15+00:00",
+   "via": "screen",
+   "claims": 1,
+   "unplaced": [],
+   "synthesis_state": "absorbed",
+   "notes": []
+  },
+  {
+   "id": "doc-42c9837a85054087a4c4",
    "name": "test-note-alpha.md",
    "state": "done",
    "state_words": "Read",
    "why": "",
-   "received_at": "2026-10-09T09:50:00+00:00",
+   "received_at": "2026-10-09T13:00:15+00:00",
    "via": "screen",
-   "claims": 5,
+   "claims": 8,
    "unplaced": [
     {
-     "title": "Use the invented TestQueue service",
-     "why": "Its quote isn't in the research, even after CLIVE asked again for the exact passage."
+     "title": "Send invoices by carrier pigeon",
+     "why": "when CLIVE asked again for the exact passage, Claude said the research doesn't say it"
     }
    ],
    "synthesis_state": "absorbed",
    "notes": []
   },
   {
-   "id": "doc-0000000000000000000b",
-   "name": "test-note-beta.md",
-   "state": "done",
-   "state_words": "Read",
-   "why": "",
-   "received_at": "2026-10-09T09:51:00+00:00",
+   "id": "doc-8ba3284317e6448797e6",
+   "name": "test-note-zeta.pdf",
+   "state": "failed",
+   "state_words": "Couldn't be read",
+   "why": "No text could be read from it.",
+   "received_at": "2026-10-09T13:00:15+00:00",
    "via": "folder",
-   "claims": 6,
+   "claims": 0,
    "unplaced": [],
-   "synthesis_state": "absorbed",
-   "notes": [
-    "It was long, so Claude read it in 2 parts."
-   ]
+   "synthesis_state": "failed",
+   "notes": []
   },
   {
-   "id": "doc-0000000000000000000c",
+   "id": "doc-8709bec72bde4042a55a",
    "name": "test-note-gamma.md",
    "state": "done",
    "state_words": "Read",
    "why": "",
-   "received_at": "2026-10-09T09:52:00+00:00",
+   "received_at": "2026-10-09T13:00:15+00:00",
    "via": "screen",
    "claims": 4,
    "unplaced": [],
@@ -1547,27 +2039,25 @@
    "notes": []
   },
   {
-   "id": "doc-0000000000000000000d",
-   "name": "test-note-delta.md",
+   "id": "doc-134d791266204987ae43",
+   "name": "test-note-beta.md",
    "state": "done",
    "state_words": "Read",
    "why": "",
-   "received_at": "2026-10-09T12:30:00+00:00",
+   "received_at": "2026-10-09T13:00:15+00:00",
    "via": "screen",
-   "claims": 0,
+   "claims": 4,
    "unplaced": [],
-   "synthesis_state": "waiting",
-   "notes": [
-    "Waiting for the first synthesis."
-   ]
+   "synthesis_state": "absorbed",
+   "notes": []
   },
   {
-   "id": "doc-0000000000000000000e",
-   "name": "test-note-epsilon.md",
-   "state": "reading",
-   "state_words": "Being read now",
+   "id": "doc-ccd07eada3bb49a7b14a",
+   "name": "test-note-eta.md",
+   "state": "queued",
+   "state_words": "Waiting to be read",
    "why": "",
-   "received_at": "2026-10-09T12:40:00+00:00",
+   "received_at": "2026-10-09T13:00:15+00:00",
    "via": "screen",
    "claims": 0,
    "unplaced": [],
@@ -1575,17 +2065,19 @@
    "notes": []
   },
   {
-   "id": "doc-0000000000000000000f",
-   "name": "test-note-zeta.pdf",
-   "state": "failed",
-   "state_words": "Couldn't be read",
-   "why": "No text could be read from it.",
-   "received_at": "2026-10-09T12:41:00+00:00",
+   "id": "doc-9cdb13dbae804cd9af86",
+   "name": "test-note-epsilon.md",
+   "state": "done",
+   "state_words": "Read",
+   "why": "",
+   "received_at": "2026-10-09T13:00:15+00:00",
    "via": "folder",
-   "claims": 0,
+   "claims": 1,
    "unplaced": [],
-   "synthesis_state": "failed",
-   "notes": []
+   "synthesis_state": "absorbed",
+   "notes": [
+    "1 recommendation joined CLIVE's ideas (gen-20261009T130015)."
+   ]
   }
  ],
  "waiting": 3,

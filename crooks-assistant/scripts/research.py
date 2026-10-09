@@ -8,6 +8,18 @@
                                                made of it: the live Max-plan check, nothing kept, nothing
                                                on his screen
 
+Learning from research as ideas (DEC-078, app/research/synthesis, docs/RESEARCH.md):
+
+    python scripts/research.py --synthesise    a new generation of ideas from every document read: not
+                                               live; prints progress, then the eight-item report
+    python scripts/research.py --synthesise --resume   carry on the run that stopped
+    python scripts/research.py --export-synthesis PATH [--generation GEN]
+                                               one generation (the newest, unless named) as a .tgz at
+                                               PATH, never inside the repository
+    python scripts/research.py --apply GEN     make GEN live, taking in what was read since its run
+    python scripts/research.py --ideas         the live ideas, with their four answers
+    --call-timeout SECONDS                     one time limit for every model call of a run
+
 Why this exists: the server folder (<research dir>/inbox/, docs/RESEARCH.md) is otherwise swept
 when George opens the Builds screen's Research section. This reads it at once, with the same flow
 (app/research/flow.py): quarantine, the digester's scan, then Claude on the Max plan weighs each
@@ -57,11 +69,19 @@ async def _main(args: argparse.Namespace) -> int:
         for record in research.documents():
             print(_say(record))
         return 0
+    if args.ideas:
+        return _ideas(research)
+    if args.export_synthesis:
+        return _export(research, args.export_synthesis, args.generation)
     try:
         assert_no_payg_credentials()
     except BillingGuardError as exc:
         print(f"research: {exc}", file=sys.stderr)
         return 2
+    if args.synthesise:
+        return await _synthesise(research, resume=args.resume, timeout_s=args.call_timeout)
+    if args.apply:
+        return await _apply(research, args.apply)
     for name in args.files:
         path = Path(name)
         try:
@@ -119,13 +139,114 @@ def _make_removable(folder: Path) -> None:
     os.chmod(folder, 0o700)
 
 
+def _print(text: str) -> None:
+    print(text, flush=True)
+
+
+async def _synthesise(research, *, resume: bool, timeout_s: float | None) -> int:
+    from app.research import model as model_module
+    from app.research.rules import read_map
+    from app.research.synthesis import run as run_module
+    from app.research.synthesis.store import synthesis_store
+
+    try:
+        gen = await run_module.synthesise(research, model=model_module.current(), the_map=read_map(), resume=resume,
+                                          timeout_s=timeout_s, say=_print)
+    except run_module.Stopped as exc:
+        print(f"research: {exc}", file=sys.stderr)
+        return 1
+    run = synthesis_store(research).run(gen) or {}
+    _print(f"\nGeneration {gen} is ready, not live. {run.get('calls', 0)} model calls; "
+           f"{len(run.get('errors') or [])} problems said in its run.json.")
+    for line in run_module.report_lines(run.get("report") or {}):
+        _print(line)
+    return 0
+
+
+async def _apply(research, gen: str) -> int:
+    from app.research import model as model_module
+    from app.research.rules import read_map
+    from app.research.synthesis.apply import apply
+    from app.research.synthesis.ask import SynthesisError
+    from app.research.synthesis.run import Stopped
+
+    try:
+        done = await apply(research, gen, model=model_module.current(), the_map=read_map(), say=_print)
+    except (SynthesisError, Stopped, BlockingIOError) as exc:
+        print(f"research: {gen} was not made live: {exc or 'another reader holds the research store'}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001 - a model failure while taking in a new document: nothing went live
+        print(f"research: {gen} was not made live: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    if done.get("already"):
+        _print(f"{gen} is already live.")
+        return 0
+    _print(f"{gen} is live{', replacing ' + done['previous'] if done.get('previous') else ''}. "
+           f"Took in {len(done['taken_in'])} document(s) read since its run; {done['kept_ids']} idea(s) kept an earlier id.")
+    return 0
+
+
+def _export(research, path: str, gen: str) -> int:
+    from app.research.synthesis.apply import export
+    from app.research.synthesis.ask import SynthesisError
+    from app.research.synthesis.store import synthesis_store
+
+    synth = synthesis_store(research)
+    gen = gen or (synth.generations() or [""])[-1]
+    try:
+        written = export(research, gen, path)
+    except (SynthesisError, OSError) as exc:
+        print(f"research: nothing exported: {exc}", file=sys.stderr)
+        return 1
+    _print(f"{gen} exported to {written}")
+    return 0
+
+
+def _ideas(research) -> int:
+    from app.builds import decisions
+    from app.research.synthesis import answers as idea_answers
+    from app.research.synthesis.ideas import documents_backing
+    from app.research.synthesis.store import synthesis_store
+    from app.research.synthesis.words import words
+
+    synth = synthesis_store(research)
+    gen = synth.live()
+    if not gen:
+        _print("No synthesis is live yet.")
+        return 0
+    try:
+        answered = idea_answers.keys(decisions.ledger().effective())
+    except decisions.DecisionError:
+        answered = {}
+    for idea in synth.ideas(gen).values():
+        if idea.get("status") != "active":
+            continue
+        a = idea.get("answers") or {}
+        execution = "Ready" if answered.get(idea["id"]) == "go" else "Not approved"
+        _print(f"{idea['id']} {idea['name']} (backed by {len(documents_backing(idea))}): "
+               f"{words('judgment', a.get('judgment', ''))} / {words('relationship', a.get('relationship', ''))} / "
+               f"{words('timing', a.get('timing', ''))} / {execution}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Read George's research now, as the Builds screen would.")
     parser.add_argument("files", nargs="*", help="research files to take in; none takes the research folder's")
     parser.add_argument("--list", action="store_true", help="say what each document became, and read nothing")
     parser.add_argument("--try", dest="try_file", metavar="FILE",
                         help="read one file into a throwaway store and print what CLIVE made of it; nothing is kept")
-    return asyncio.run(_main(parser.parse_args(argv)))
+    parser.add_argument("--synthesise", action="store_true", help="a new generation of ideas from every document read (not live)")
+    parser.add_argument("--resume", action="store_true", help="with --synthesise: carry on the run that stopped")
+    parser.add_argument("--export-synthesis", metavar="PATH", help="one generation as a .tgz, outside the repository")
+    parser.add_argument("--generation", default="", help="with --export-synthesis: which generation (the newest by default)")
+    parser.add_argument("--apply", metavar="GEN", help="make a generation live")
+    parser.add_argument("--ideas", action="store_true", help="the live ideas with their four answers")
+    parser.add_argument("--call-timeout", type=float, default=None, metavar="SECONDS",
+                        help="one time limit for every model call of a synthesis run")
+    args = parser.parse_args(argv)
+    if args.resume and not args.synthesise:
+        parser.error("--resume goes with --synthesise")
+    return asyncio.run(_main(args))
 
 
 if __name__ == "__main__":

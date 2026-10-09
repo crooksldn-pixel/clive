@@ -41,6 +41,11 @@ class MaxPlanModel:
         self._cli_path = cli_path
         self._timeout_s = timeout_s
 
+    def with_timeout(self, timeout_s: float) -> MaxPlanModel:
+        """The same model with its own time limit for one call: each synthesis stage sets its own
+        (app/research/synthesis/ask.py), since judging can need ten minutes where reading needs less."""
+        return MaxPlanModel(model=self._model, cli_path=self._cli_path, timeout_s=float(timeout_s))
+
     def _settings(self) -> tuple[str, str]:
         if self._model and self._cli_path:
             return self._model, self._cli_path

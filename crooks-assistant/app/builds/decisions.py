@@ -35,6 +35,9 @@ they are") is true the moment it is recorded, and the build leaves his list.
 The same ledger keeps his answers to research (8 Oct 2026, app/research, app/builds/research.py): each
 recommendation CLIVE drew from research he gave is a proposal (`research:<artifact>:<n>:<digest>`)
 answered Adopt, Park or Reject, with an action id under RESEARCH_PREFIX so no build reads it as its own.
+Once research is read as ideas (DEC-078, app/research/synthesis), each idea is a proposal
+(`research-idea:<idea>:<digest>`) answered Approve the work, Not now or Not for CLIVE, under
+RESEARCH_IDEA_PREFIX.
 """
 
 from __future__ import annotations
@@ -60,6 +63,7 @@ from app.actions.judgment import (
 from app.actions.judgment_chain import chain_anchor, chain_ledger
 from app.actions.judgment_ledger import JudgmentLedger, JudgmentLedgerError
 from app.builds import plain
+from app.research.synthesis.words import CHOICES as _IDEA_CHOICES
 
 LEDGER_NAME = "owner-judgments.jsonl"
 SOURCE = "clive:builds-screen"
@@ -69,6 +73,10 @@ REVIEW_LIMIT, OWNER_GATE = "review_limit", "owner_gate"
 # or reject, on the Builds screen's Research section. Its action id names the research, never a build.
 RESEARCH = "research"
 RESEARCH_PREFIX = "research-decision:"
+# [research-idea] An idea CLIVE drew from all of his research (DEC-078, app/research/synthesis): Approve
+# the work, Not now, or Not for CLIVE. Its proposal id is `research-idea:<idea>:<fingerprint start>`.
+RESEARCH_IDEA = "research-idea"
+RESEARCH_IDEA_PREFIX = "research-idea-decision:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,11 +122,18 @@ ANSWERS: dict[str, tuple[Answer, ...]] = {
         Answer("reject", "Reject", "Not for CLIVE. It stays in the research record, marked rejected.",
                OwnerDecision.DECLINED, ReasonCode.OTHER_BOUNDED),
     ),
+    # [research-idea] The words are the synthesis's own (app/research/synthesis/words.py CHOICES).
+    RESEARCH_IDEA: tuple(
+        Answer(key, label, then, decision, reason) for (key, label, then), decision, reason in zip(
+            _IDEA_CHOICES,
+            (OwnerDecision.APPROVED, OwnerDecision.DEFERRED, OwnerDecision.DECLINED),
+            (ReasonCode.ACCEPTED_AS_PROPOSED, ReasonCode.NOT_NOW, ReasonCode.OTHER_BOUNDED), strict=True)
+    ),
 }
 
 # What his answer leaves the build saying on the screen; one that asks for action says ANSWERED.
 AFTER = {"drop": "Dropped by you", "later": "Left for now", "keep": "Kept as it is",
-         "adopt": "Adopted", "park": "Parked", "reject": "Rejected"}
+         "adopt": "Adopted", "park": "Parked", "reject": "Rejected", "go": "Approved", "no": "Not for CLIVE"}
 
 
 class DecisionError(Exception):
@@ -238,6 +253,8 @@ def answer_of(record: JudgmentRecord) -> Answer | None:
     """Which answer a judgment on a build is, from its decision and reason code."""
     parts = record.proposal_id.split(":")
     kind = parts[3] if len(parts) > 3 and parts[0] == "build" else RESEARCH if parts[0] == RESEARCH else ""
+    if parts[0] == RESEARCH_IDEA:
+        kind = RESEARCH_IDEA
     return next((a for a in ANSWERS.get(kind, ()) if a.decision == record.decision and a.reason == record.reason_code), None)
 
 

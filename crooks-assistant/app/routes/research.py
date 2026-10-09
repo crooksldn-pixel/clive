@@ -12,6 +12,13 @@ alone, under the same rule (app/routes/actions.py principal_check), and sits at 
                                         Adopt also prepares its build request on a card he holds
     POST /objectives/research/prepare   an adopted proposal's build request again, when its card has gone
 
+Once a synthesis is live (DEC-078, app/research/synthesis), the section is CLIVE's ideas
+(app/builds/research_ideas.py), and the old proposals can't be answered any more (409 "superseded"):
+
+    POST /objectives/research/idea/answer   Approve the work, Not now or Not for CLIVE on one idea, bound
+                                            to its fingerprint; Approve also prepares its build request
+    POST /objectives/research/idea/prepare  an approved idea's build request again
+
 Nothing here files, sends or changes anything outside CLIVE's own records: a build request is only
 ever prepared, and filing it is his hold on its card (POST /actions/{id}/commit), as for every change.
 """
@@ -47,6 +54,22 @@ class PrepareBody(BaseModel):
     session_id: str = Field(default="", max_length=100)
 
 
+class IdeaAnswerBody(BaseModel):
+    idea_id: str = Field(min_length=1, max_length=40)
+    fingerprint: str = Field(min_length=64, max_length=64)
+    answer: str = Field(min_length=1, max_length=20)
+    session_id: str = Field(default="", max_length=100)
+
+
+class IdeaPrepareBody(BaseModel):
+    idea_id: str = Field(min_length=1, max_length=40)
+    session_id: str = Field(default="", max_length=100)
+
+
+SUPERSEDED = {"code": "superseded", "detail": "Your research is read as ideas now, so the old recommendations "
+              "can't be answered any more. Answer the ideas instead."}
+
+
 def _store():
     from app.research.store import store
 
@@ -54,10 +77,20 @@ def _store():
 
 
 async def _section() -> dict:
-    from app.builds import decisions
+    from app.builds import decisions, research_ideas
     from app.builds import research as section
 
-    return await section.current(_store(), decisions.ledger())
+    store = _store()
+    ideas = await research_ideas.current(store, decisions.ledger())
+    if ideas is not None:
+        return ideas
+    return {**await section.current(store, decisions.ledger()), **research_ideas.not_live(store)}
+
+
+def _live() -> str:
+    from app.research.synthesis.store import synthesis_store
+
+    return synthesis_store(_store()).live()
 
 
 @router.get("")
@@ -121,6 +154,8 @@ async def answer(request: Request, body: AnswerBody) -> dict | JSONResponse:
     from app.builds import decisions
     from app.builds import research as section
 
+    if _live():
+        return JSONResponse(status_code=409, content=SUPERSEDED)
     store = _store()
     found = store.proposal(body.proposal_id)
     if found is None:
@@ -149,6 +184,8 @@ async def prepare(request: Request, body: PrepareBody) -> dict | JSONResponse:
     """The build request for a proposal he adopted, prepared again on a card."""
     from app.builds import decisions
 
+    if _live():
+        return JSONResponse(status_code=409, content=SUPERSEDED)
     store = _store()
     found = store.proposal(body.proposal_id)
     if found is None:
@@ -172,4 +209,100 @@ async def _prepare(request: Request, store, record: dict, proposal: dict, sessio
     staged = await section.prepare(request, record, proposal, session_id=session_id)
     if staged.get("ok") and staged.get("request_id"):
         store.note_prepared(record["id"], proposal["id"], staged["request_id"])
+    return staged
+
+
+# ------------------------------------------------------------------ ideas (DEC-078)
+
+
+def _idea(idea_id: str):
+    """(store, synthesis store, live generation, the idea) or a 409 saying why there is none."""
+    from app.research.synthesis.store import ReadProblem, synthesis_store
+
+    store = _store()
+    synth = synthesis_store(store)
+    gen = synth.live()
+    if not gen:
+        return JSONResponse(status_code=409, content={"code": "not_live", "detail": "Your research isn't read as ideas yet."})
+    try:
+        idea = synth.read_json(synth.idea_path(gen, idea_id), None)
+    except (ValueError, ReadProblem) as exc:
+        return JSONResponse(status_code=409, content={"code": "gone", "detail": f"That idea couldn't be read: {exc}"})
+    if not idea:
+        return JSONResponse(status_code=409, content={"code": "gone", "detail": "That idea isn't in CLIVE's ideas any more."})
+    if idea.get("status") != "active":
+        return JSONResponse(status_code=409, content={"code": "merged", "detail": f"That idea joined {idea.get('merged_into')}: "
+                                                      "answer it there."})
+    return store, synth, gen, idea
+
+
+@router.post("/idea/answer", response_model=None)
+async def idea_answer(request: Request, body: IdeaAnswerBody) -> dict | JSONResponse:
+    """His answer to one idea, recorded only when it is still the idea he was shown. Approve the work
+    also prepares its build request on a card; nothing is filed until he holds it."""
+    from app.builds import decisions
+    from app.research.synthesis import answers as idea_answers
+
+    found = _idea(body.idea_id)
+    if isinstance(found, JSONResponse):
+        return found
+    store, synth, gen, idea = found
+    if idea.get("fingerprint") != body.fingerprint:
+        return JSONResponse(status_code=409, content={"code": "moved_on", "detail": "That idea changed since you saw it, so "
+                                                      "nothing was recorded.", "section": await _section()})
+    who, _why = principal_check(request)
+    session = body.session_id if _SESSION.fullmatch(body.session_id or "") else f"builds-{uuid.uuid4().hex[:12]}"
+    try:
+        judged, added = decisions.decide(decisions.ledger(), idea_answers.question(idea), body.answer,
+                                         principal=who, session_id=session)
+    except decisions.DecisionError as exc:
+        return JSONResponse(status_code=400, content={"code": "refused", "detail": str(exc)})
+    chosen = decisions.chosen(judged)
+    if added:
+        synth.event(gen, "owner_answered", idea=idea["id"], answer=body.answer, fingerprint=idea["fingerprint"],
+                    said=f"You chose {chosen['label'] if chosen else body.answer}.")
+    staged = None
+    if body.answer == "go":
+        staged = await _prepare_idea(request, store, synth, gen, idea, body.session_id)
+    return {"recorded": added, "chosen": chosen, "staged": staged, "section": await _section()}
+
+
+@router.post("/idea/prepare", response_model=None)
+async def idea_prepare(request: Request, body: IdeaPrepareBody) -> dict | JSONResponse:
+    """The build request for an idea he approved, prepared again on a card."""
+    from app.builds import decisions
+    from app.research.synthesis import answers as idea_answers
+
+    found = _idea(body.idea_id)
+    if isinstance(found, JSONResponse):
+        return found
+    store, synth, gen, idea = found
+    try:
+        latest = idea_answers.latest(decisions.ledger().effective()).get(idea["id"])
+    except decisions.DecisionError as exc:
+        return JSONResponse(status_code=409, content={"code": "unreadable", "detail": str(exc)})
+    owner = idea_answers.said(latest, idea) if latest is not None else None
+    if not owner or owner["key"] != "go" or not owner["current"]:
+        return JSONResponse(status_code=409, content={"code": "not_approved", "detail": "Only an idea you approved, as it "
+                                                      "stands now, has a build request."})
+    staged = await _prepare_idea(request, store, synth, gen, idea, body.session_id)
+    return {"staged": staged, "section": await _section()}
+
+
+async def _prepare_idea(request: Request, store, synth, gen: str, idea: dict, session_id: str) -> dict:
+    from app.builds import research as section
+    from app.builds import research_ideas
+
+    session_id = session_id if _SESSION.fullmatch(session_id or "") else ""
+    names = [c.get("document") or "" for c in synth.claims(gen).values()] + [r.get("name") or "" for r in store.documents()]
+
+    def args_for(inbox: str, the_map) -> dict:
+        return research_ideas.filing_args(idea, inbox, gen=gen, names=names, the_map=the_map)
+
+    staged = await section.prepare(request, {"id": gen}, {"touches": idea.get("touches") or []}, session_id=session_id,
+                                   args_for=args_for)
+    if staged.get("ok") and staged.get("request_id"):
+        synth.note_prepared(idea["id"], staged["request_id"])
+        synth.event(gen, "prepared", idea=idea["id"], request_id=staged["request_id"],
+                    said="Its build request was prepared on a card, waiting for your hold.")
     return staged
