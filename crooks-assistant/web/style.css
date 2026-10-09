@@ -914,7 +914,8 @@ a.orow:active{opacity:.6}
 .card-confirmation.tier-red{border-color:rgba(220,127,108,.32)}
 .action-summary{
   margin:12px 0 0;padding:12px 14px;border-left:2px solid rgba(var(--acc,10,132,255),.55);
-  background:var(--glass);border-radius:0 var(--r-2) var(--r-2) 0;font-size:16px;line-height:1.45;color:var(--ink)
+  background:var(--glass);border-radius:0 var(--r-2) var(--r-2) 0;font-size:16px;line-height:1.45;color:var(--ink);
+  overflow-wrap:anywhere /* [research-browser, review 17] a long path wraps, never runs past the card's edge */
 }
 .action-surface{
   position:relative;overflow:hidden;margin-top:14px;min-height:var(--tap);padding:0 18px;

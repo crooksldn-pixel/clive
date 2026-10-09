@@ -241,6 +241,16 @@ async function answers(page) {
     /File an engineering request/.test(card) && new RegExp(GO, 'i').test(card), card.slice(0, 240));
   const open = await page.locator('.bd.is-open').count();
   check('the Builds screen steps aside for the card', open === 0, String(open));
+  const wideCard = await page.evaluate(() => {
+    const w = document.documentElement.clientWidth;
+    // Past the edge, or cut off inside a box that hides what doesn't fit.
+    return [...document.querySelectorAll('#cards *')].filter((n) => {
+      const r = n.getBoundingClientRect();
+      if (!(r.width > 0) || n.closest('details:not([open])')) return false;
+      return r.right > w + 1 || (n.scrollWidth > n.clientWidth + 1 && n.clientWidth > 0 && getComputedStyle(n).overflowX !== 'auto');
+    }).map((n) => `${n.tagName}.${n.className}:${n.scrollWidth}>${n.clientWidth}`).slice(0, 6);
+  });
+  check('nothing on the build request’s card runs past the screen’s edge, however long a path in it', wideCard.length === 0, wideCard.join(', '));
   await shot(page, 'ideas-07-card');
 
   await page.locator('#home-btn').click();

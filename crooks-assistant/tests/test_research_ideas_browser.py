@@ -52,7 +52,7 @@ from tests.test_research_browser import WatchedLoop
 from tests.test_research_synthesis import _never_the_research
 
 SCRIPT = ROOT / "scripts" / "browser" / "research-ideas.js"
-EXPECTED_CHECKS = 30
+EXPECTED_CHECKS = 31
 OWNER = {"Tailscale-User-Login": "owner@example.com", "X-Forwarded-For": "100.64.0.9"}
 ANSWERED = {"Adopt a workflow engine for it": ("DEFERRED", "later"), "Send small refunds without a hold": ("DECLINED", "no"),
             "Work survives a restart": ("APPROVED", "go")}
