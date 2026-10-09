@@ -61,6 +61,24 @@ def build_provider(settings: Settings, store: Store) -> ShippingProvider:
     return Providers(found)
 
 
+def build_domestic(settings: Settings, store: Store, shopify: Any) -> ShippingProvider | None:
+    """Shopify Shipping for UK labels, when the owner switched them on. It buys through the
+    same Shopify app as everything else (scopes: write_orders and
+    write_merchant_managed_fulfillment_orders)."""
+    policy = settings.domestic()
+    if not policy.enabled:
+        return None
+    from shipping.providers.shopify_shipping import ShopifyShipping
+
+    if settings.shopify_backend == "fake":
+        from shipping.fake_shopify import FakeShopifyShipping
+
+        api: Any = FakeShopifyShipping(shopify)
+    else:
+        api = shopify  # GraphQLShopify carries the label purchase calls
+    return ShopifyShipping(api, shopify, store, settings.shop_domain, policy, store.config)
+
+
 def build_service(settings: Settings) -> ShippingService:
     store = Store(settings.db_path)
     if settings.shopify_backend == "fake":
@@ -74,6 +92,14 @@ def build_service(settings: Settings) -> ShippingService:
             settings.shop_domain, settings.shopify_client_id, settings.shopify_client_secret
         )
     provider = build_provider(settings, store)
+    uk = build_domestic(settings, store, shopify)
+    if uk is not None:
+        # One purchase protocol for both: each order's reference names its provider, so a
+        # Shopify Shipping label is paid, read back and fetched only through Shopify Shipping.
+        from shipping.providers.multi import Providers
+
+        inner = getattr(provider, "providers", None) or [provider]
+        provider = Providers([*inner, uk])
     allowed = settings.authorised()
     commodity = None
     if settings.tariff_enabled:
@@ -88,6 +114,7 @@ def build_service(settings: Settings) -> ShippingService:
         may_buy=lambda s: settings.buying_enabled or _order_number(s.order_name) in allowed,
         commodity=commodity,
         domestic=settings.domestic(),
+        domestic_provider=uk,
     )
 
 

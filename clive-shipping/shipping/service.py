@@ -977,17 +977,32 @@ class ShippingService:
         cfg = self.store.config(shop)
         if s.duties:
             out["will"].append(f"Customs terms {s.duties.incoterm}: {s.duties.summary}")
-        out["will"].append(
-            f"Mark {s.order_name} fulfilled in Shopify with the tracking number"
-            + (" and email the customer" if cfg.notify_customer else "")
-        )
+        email = " and email the customer" if cfg.notify_customer else ""
+        if self._sells_itself(s):
+            # Shopify may put the label's tracking on the order itself; CLIVE reads first and
+            # adds it only if Shopify hasn't.
+            out["will"].append(
+                f"{s.order_name} is marked fulfilled in Shopify with the tracking number{email}"
+            )
+        else:
+            out["will"].append(
+                f"Mark {s.order_name} fulfilled in Shopify with the tracking number{email}"
+            )
         out["duties"] = s.duties.model_dump() if s.duties else None
         who = s.quote.provider if s.quote else ""
         out["charged"] = {
             "Parcel2Go": "Charged to your Parcel2Go PrePay balance.",
             "Easyship": "Charged to your Easyship account (its credit or saved payment method).",
+            "Shopify Shipping": "Charged by Shopify Shipping to your Shopify bill. Shopify "
+            "doesn't show the price before buying; it appears on the bill and in Shopify admin.",
         }.get(who, f"Charged by {who or 'the provider'}.")
         return out
+
+    def _sells_itself(self, s: Shipment) -> bool:
+        """Whether the label's seller is Shopify itself (Shopify Shipping)."""
+        name = getattr(self.domestic_provider, "name", None)
+        seller = s.label.provider if s.label else (s.quote.provider if s.quote else None)
+        return bool(name) and seller == name
 
     def buy(self, shop: str, sid: str, basis: str, actor: str, key: str) -> dict[str, Any]:
         s = self._get(shop, sid)
@@ -1049,6 +1064,17 @@ class ShippingService:
         snap, readable = self._read_fo(s)
         if snap is not None and number in snap.tracking_numbers:
             return self._fulfilled(s, actor, "Already in Shopify")
+        grace = getattr(self.domestic_provider, "fulfil_grace", None)
+        if (
+            readable
+            and grace is not None
+            and self._sells_itself(s)
+            and self.clock() - s.label.purchased_at < grace
+        ):
+            # Shopify bought this label; it may still be adding the fulfilment itself. Never
+            # race it with a second one: the tick looks again, and only after the grace period
+            # (still reading first) does CLIVE add it.
+            return s
         if not readable:
             # Never create blind: an earlier attempt may already be there.
             return self._fulfil_failed(s, actor, "CLIVE couldn't read the order in Shopify.")

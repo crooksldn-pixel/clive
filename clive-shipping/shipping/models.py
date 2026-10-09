@@ -249,6 +249,11 @@ class Label(BaseModel):
     service_name: str
     service_code: str = ""
     amount: Money
+    # False: the provider set the price when buying and CLIVE was never told it (Shopify
+    # Shipping): `amount` is zero and is never shown as the price.
+    price_known: bool = True
+    # Set when the label is bought but its file can't be fetched here: what to do instead.
+    file_note: str = ""
     tracking_number: str | None = None
     tracking_url: str | None = None
     customs: CustomsMode = CustomsMode.unknown

@@ -53,6 +53,11 @@ class ProviderOrder:
 class OrderReadback:
     paid: bool
     amount_minor: int | None = None
+    # The provider is still working on it: neither paid nor unpaid (never counted as unpaid).
+    pending: bool = False
+    # The provider's own record of this very attempt says it failed: nothing was bought, so
+    # there is nothing to wait for (Shopify's PURCHASE_FAILED). Only with paid False.
+    failed: bool = False
 
 
 @dataclass
@@ -81,6 +86,9 @@ class Documents:
     tracking_number: str | None = None
     tracking_url: str | None = None
     provider_ids: dict[str, str] = field(default_factory=dict)
+    # The label is bought but its file can't be fetched by CLIVE (e.g. found by reading the
+    # order back after a lost reply): what staff should do instead. Nothing more will come.
+    file_unavailable: str = ""
 
     def find(self, kind: DocumentKind) -> ProviderDocument | None:
         return next((d for d in self.documents if d.kind == kind), None)

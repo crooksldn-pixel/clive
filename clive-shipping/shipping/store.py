@@ -106,6 +106,14 @@ CREATE TABLE IF NOT EXISTS reference (
   doc TEXT NOT NULL,
   PRIMARY KEY (provider, kind)
 );
+-- Shopify Shipping label purchases (providers/shopify_shipping.py): what was sent, when, and
+-- Shopify's result id once known, so a lost reply or a restart is read back, never re-sent.
+CREATE TABLE IF NOT EXISTS label_purchases (
+  shop TEXT NOT NULL,
+  ref TEXT NOT NULL,
+  doc TEXT NOT NULL,
+  PRIMARY KEY (shop, ref)
+);
 CREATE TABLE IF NOT EXISTS artifacts (
   shop TEXT NOT NULL,
   id TEXT NOT NULL,
@@ -439,6 +447,29 @@ class Store:
             (shop, artifact_id),
         ).fetchone()
         return (row[0], row[1], row[2]) if row else None
+
+    # ---------------------------------------------------------------- Shopify Shipping
+
+    def add_label_purchase(self, shop: str, ref: str, doc: dict[str, Any]) -> None:
+        """Once per purchase operation: a second insert for the same ref fails."""
+        with self.lock:
+            self._db.execute(
+                "INSERT INTO label_purchases (shop, ref, doc) VALUES (?,?,?)",
+                (shop, ref, json.dumps(doc)),
+            )
+
+    def label_purchase(self, shop: str, ref: str) -> dict[str, Any] | None:
+        row = self._db.execute(
+            "SELECT doc FROM label_purchases WHERE shop=? AND ref=?", (shop, ref)
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def save_label_purchase(self, shop: str, ref: str, doc: dict[str, Any]) -> None:
+        with self.lock:
+            self._db.execute(
+                "UPDATE label_purchases SET doc=? WHERE shop=? AND ref=?",
+                (json.dumps(doc), shop, ref),
+            )
 
     # Print ledger is separate from the postage purchase ledger.
     def add_print_intent(self, shop, key, record):
