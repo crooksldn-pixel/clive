@@ -354,6 +354,8 @@
     if (v) {
       add(box, fact('What it means', v.means), fact('Today', v.today), fact('After', v.after), fact('A real example', v.example),
         fact('Before → after', v.before_after), chips('Why you’d care', v.why_care), fact('When you’d notice', v.notice));
+      // [review 11] A view CLIVE couldn't make whole is shown as it is, and says so.
+      if (box.childNodes.length && idea.owner_view_complete === false) add(box, el('p', 'bd-muted rs-incomplete', 'CLIVE’s plain-English view of this isn’t complete yet.'));
       if (box.childNodes.length) return box;
     }
     const today = obj(idea.today) || {};

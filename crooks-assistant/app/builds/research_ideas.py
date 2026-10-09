@@ -202,6 +202,8 @@ async def row(idea: dict[str, Any], *, names: dict[str, str], the_map, history: 
         "how_they_differ": idea.get("how_they_differ") or "",
         "against": [{"document": _against_document(a, names), "says": a.get("why") or ""} for a in idea.get("against") or []],
         "owner_view": ({k: (view.get(k) or ([] if k == "why_care" else "")) for k in OWNER_VIEW} if view else None),
+        # [review 11] Whether the plain-English view is whole: the screen says so when it isn't.
+        "owner_view_complete": bool(idea.get("owner_view_complete")),
         "needs_you": ({"trigger": needs["trigger"], "trigger_words": words("trigger", needs["trigger"]),
                        "question": needs["question"]} if needs else None),
         "keys": [{"key": k["key"], "label": _label(the_map, k["key"]), "how": k["how"]} for k in idea.get("keys") or []],
@@ -287,7 +289,10 @@ def _document(record: dict[str, Any], claims: dict[str, dict[str, Any]], records
         "state_words": STATE_WORDS.get(state, state), "why": record.get("why") or "",
         "received_at": record.get("received_at") or "", "via": record.get("via") or "",
         "claims": len((mine or {}).get("claims") or []),
-        "unplaced": [{"title": u.get("title") or "", "why": u.get("why") or ""} for u in (mine or {}).get("unplaced") or []],
+        "unplaced": [{"title": u.get("title") or "", "why": u.get("why") or ""} for u in (mine or {}).get("unplaced") or []]
+        # [review 11] What it argues CLIVE should not do, when its quote wasn't found: never only in the claims file.
+        + [{"title": f"Argues against: {s.get('says') or ''}", "why": s.get("why") or ""}
+           for s in (mine or {}).get("stances_against") or [] if not s.get("quote")],
         "synthesis_state": synthesis_state, "notes": notes,
     }
 

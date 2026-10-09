@@ -555,6 +555,25 @@ async def test_a_foundational_idea_without_a_whole_owner_view_is_asked_again_the
     assert row["owner_view"]["example"] == "", "shown as it is, never filled in"
 
 
+async def test_the_screen_is_told_when_a_view_is_incomplete_and_what_couldnt_be_placed(place, the_map):
+    """[review 11] An incomplete owner view is said as incomplete, and an argument against whose quote isn't
+    in the document is listed under it as couldn't place, with why."""
+    store, ledger = place
+    model = fx.Scripted()
+    model.judge["Answers stay on the Max plan"]["owner_view"]["example"] = ""
+    model.stances["test-note-gamma.md"] = [{"says": "Don't let CLIVE learn on its own.", "quote": "words this note never says at all",
+                                           "idea": "A weekly note of what CLIVE learned"}]
+    model, gen = await _synthesised(store, the_map, model)
+    synthesis_store(store).set_live(gen)
+    payload = await research_ideas.current(store, ledger)
+    check_contract(payload)
+    rows = {r["name"]: r for g in payload["groups"] for r in g["ideas"]} | {r["name"]: r for r in payload["needs_you"]}
+    assert rows["Answers stay on the Max plan"]["owner_view_complete"] is False
+    assert rows["Supplier messages in one thread"]["owner_view_complete"] is True
+    gamma = next(d for d in payload["documents"] if d["name"] == "test-note-gamma.md")
+    assert {"title": "Argues against: Don't let CLIVE learn on its own.", "why": "its quote isn't in the research"} in gamma["unplaced"]
+
+
 async def test_the_pipeline_holds_the_model_to_the_rules(place, the_map):
     store, _ledger = place
     model, gen = await _synthesised(store, the_map)
@@ -1186,7 +1205,7 @@ async def test_research_only_ever_sits_inside_research_tags(place, the_map):
 
 ROW_KEYS = {"id", "fingerprint", "name", "statement", "kind", "answers", "reasons", "timing_held_by", "backed_by",
             "how_they_differ", "against", "owner_view", "needs_you", "keys", "today", "revisit", "effects", "sources",
-            "history", "owner_answer", "choices", "build"}
+            "history", "owner_answer", "choices", "build", "owner_view_complete"}
 
 
 def check_contract(payload: dict) -> None:
@@ -1234,6 +1253,7 @@ def _check_row(row: dict) -> None:
     assert set(backed) == {"count", "of", "documents"} and backed["count"] == len(backed["documents"]) <= backed["of"]
     assert all(d["centrality"] in ("central", "supporting", "passing") for d in backed["documents"])
     assert all(set(a) == {"document", "says"} for a in row["against"])
+    assert isinstance(row["owner_view_complete"], bool)
     if row["owner_view"] is not None:
         assert set(row["owner_view"]) == {"means", "today", "after", "example", "before_after", "why_care", "notice"}
         assert all(e in EFFECTS for e in row["owner_view"]["why_care"])

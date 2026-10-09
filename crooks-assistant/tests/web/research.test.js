@@ -363,6 +363,21 @@ test('without a plain view: the statement and where it stands today, and it says
   assert.match(R.ideaNode(empty, {}).querySelector('.rs-view').allText(), /no plain-English view/, 'an empty view is no view');
 });
 
+test('a plain view CLIVE couldn’t make whole says so, and is shown as it is (review 11)', () => {
+  const part = copy(ideaById(IDEAS, 'idea-0006'));
+  part.owner_view_complete = false;
+  const view = R.ideaNode(part, {}).querySelector('.rs-view');
+  assert.deepEqual(all(view, 'bd-flabel').map((n) => n.allText()), ['What it means', 'Today']);
+  assert.equal(view.querySelector('.rs-incomplete').allText(), 'CLIVE’s plain-English view of this isn’t complete yet.');
+  part.owner_view_complete = true;
+  assert.equal(R.ideaNode(part, {}).querySelector('.rs-incomplete'), null);
+  delete part.owner_view_complete;
+  assert.equal(R.ideaNode(part, {}).querySelector('.rs-incomplete'), null, 'not said when the server didn’t say');
+  const none = copy(ideaById(IDEAS, 'idea-0002'));
+  none.owner_view_complete = false;
+  assert.equal(R.ideaNode(none, {}).querySelector('.rs-incomplete'), null, 'no view at all says that instead');
+});
+
 test('DEC-018 holds only the timing, said on the When line', () => {
   const node = R.ideaNode(ideaById(IDEAS, 'idea-0006'), {});
   const lines = all(node, 'rs-aline').map((n) => n.allText());

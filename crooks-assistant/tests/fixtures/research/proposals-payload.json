@@ -2,12 +2,12 @@
  "summary": "5 recommendations from your research wait on you.",
  "documents": [
   {
-   "id": "doc-becb75591f2245b5addc",
+   "id": "doc-4279584d388d411fab1c",
    "name": "test-note-beta.md",
    "state": "done",
    "state_words": "Read",
    "why": "",
-   "received_at": "2026-10-09T14:54:06+00:00",
+   "received_at": "2026-10-09T16:08:13+00:00",
    "via": "screen",
    "proposals": 1,
    "repeated": 0,
@@ -17,12 +17,12 @@
    "model": "scripted"
   },
   {
-   "id": "doc-6f146db9c130418d8607",
+   "id": "doc-118a69b36312406186c9",
    "name": "test-note-gamma.md",
    "state": "done",
    "state_words": "Read",
    "why": "",
-   "received_at": "2026-10-09T14:54:06+00:00",
+   "received_at": "2026-10-09T16:08:13+00:00",
    "via": "screen",
    "proposals": 1,
    "repeated": 0,
@@ -32,12 +32,12 @@
    "model": "scripted"
   },
   {
-   "id": "doc-9bed169580a14a608363",
+   "id": "doc-80a0e4b8d9644135b020",
    "name": "test-note-alpha.md",
    "state": "done",
    "state_words": "Read",
    "why": "",
-   "received_at": "2026-10-09T14:54:06+00:00",
+   "received_at": "2026-10-09T16:08:13+00:00",
    "via": "screen",
    "proposals": 3,
    "repeated": 0,
@@ -316,13 +316,13 @@
  "synthesis": {
   "state": "not_live",
   "run": {
-   "generation": "gen-20261009T145407",
+   "generation": "gen-20261009T160814",
    "stage": "done",
    "stage_words": "finished, waiting to be made live",
    "done": 0,
    "of": 0,
-   "started_at": "2026-10-09T14:54:07+00:00",
-   "finished_at": "2026-10-09T14:54:07+00:00",
+   "started_at": "2026-10-09T16:08:14+00:00",
+   "finished_at": "2026-10-09T16:08:14+00:00",
    "calls": 18,
    "errors": 0
   }
