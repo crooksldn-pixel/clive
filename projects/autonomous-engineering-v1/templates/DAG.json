@@ -1,0 +1,22 @@
+{
+  "schema": "clive.engineering_project_dag.draft.v1",
+  "project_id": "example",
+  "objectives": [
+    {
+      "id": "research",
+      "title": "Resolve external constraints",
+      "depends_on": [],
+      "priority": 50,
+      "resource_class": "normal",
+      "paths": []
+    },
+    {
+      "id": "build",
+      "title": "Implement bounded change",
+      "depends_on": ["research"],
+      "priority": 50,
+      "resource_class": "normal",
+      "paths": []
+    }
+  ]
+}
