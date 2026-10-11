@@ -24,3 +24,19 @@ Where things live:
 
 After adding or removing a package, page, store or switch, run `python scripts/map.py` in
 `crooks-assistant/`. Its `--check` says whether MAP.md is stale.
+
+## Branch-local experiment: FMHY public link finder
+
+When the current branch is `experiment/fmhy-link-finder`, or work is under
+`experiments/fmhy-link-finder/`, this is **not a CLIVE product integration**. Before coding, read
+`experiments/fmhy-link-finder/PROMPT.md`, `ACCEPTANCE.md`, and `REFERENCES.md`, then load the
+`fmhy-link-finder` skill.
+
+Keep implementation inside `experiments/fmhy-link-finder/`. Do not modify CLIVE production
+routing, tools, stores, schemas, deployment, or `crooks-assistant/pyproject.toml` for this
+experiment. Reuse ideas, not runtime coupling.
+
+For library/API syntax, prefer current documentation through Context7 when available. For browser
+inspection and live verification, prefer the project Playwright MCP. Browser work is limited to
+public catalogue/search/title pages: do not inspect or extract media delivery URLs, player tokens,
+CDN requests, DRM data, hidden stream APIs, or bypass access controls/anti-bot challenges.
