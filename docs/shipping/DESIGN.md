@@ -40,7 +40,7 @@ Everything marked **[tested]** was exercised on 2026-10-04 against the Parcel2Go
 | There is **no cancel/void endpoint** in Parcel2Go's API (Swagger v1). A secondary report of a "Cancellation API" did not match the published spec. | [tested] swagger | Void is a manual, merchant-confirmed flow in v1 |
 | International services are printer-required (no QR); labels come as A4, 4×6 and A4-with-4×6, as PDF. | [tested] | Fine for outbound (CROOKS has a printer); 4×6 is the default |
 | `shippingLabelPurchase` (Shopify Shipping, Admin API **2026-07+**) buys a label for a fulfillment order, async (`PENDING_PURCHASE → PURCHASED/FAILED`), customs taken from Shopify's product data, needs `write_orders` + fulfillment-order scope + staff `buy_shipping_labels` + Shopify Shipping ToS. **No idempotency key, no app-callable rates query, no void mutation, no FedEx.** | [docs] shopify.dev 2026-10 reference | Strong future option (native, merchant pays Shopify, no reseller issue), but it cannot show a price before purchase today, which breaks "Buy label — £X". Kept behind the provider port. **Used for UK labels since 2026-10-09** (owner accepted no price; see H, stage 9) |
-| No list of `preferredRateSelection` carrier/service codes exists, and no API returns them. `FulfillmentOrder.deliveryMethod.serviceCode` is the checkout display name, not a rate code. | [forum] Shopify staff, community.shopify.dev, July 2026 | The Tracked 24 / 48 codes are server settings, empty until the owner gets them from Shopify |
+| No list of `preferredRateSelection` carrier/service codes is published, and no public API returns them. `FulfillmentOrder.deliveryMethod.serviceCode` is the checkout display name, not a rate code. The codes are Shopify's own, not the carrier's: the rates Shopify admin's "Create shipping label" page loads carry them (`royal_mail` with `royal_mail_tracked_24` / `royal_mail_tracked_48`). Royal Mail's own `TPS48` was refused, nothing bought. | [forum] Shopify staff, community.shopify.dev, July 2026; [live] 2026-10-12 | The Tracked 24 / 48 codes are server settings; `.env.example` has the two above |
 | The ShippingLabel is reachable only by its own id or the purchase result's id; no field on Fulfillment or FulfillmentOrder leads to it. | [schema] 2026-10 introspection | After a lost reply (no result id) a label can be found on the order but its file can't be fetched |
 | Shopify stores customs facts on `InventoryItem`: `harmonizedSystemCode`, `countryHarmonizedSystemCodes`, `countryCodeOfOrigin`, `measurement` (weight). | [schema] | Shopify is the system of record for product customs facts; CLIVE writes confirmed facts back there |
 | Shopify's recommended embedded UI is now **Polaris web components** (`<s-page>`, `<s-section>`, `<s-table>`, `<s-badge>`, `<s-app-nav>`, `<s-modal>`) loaded from `cdn.shopify.com/shopifycloud/polaris.js`, alongside App Bridge. | [docs] app-home | Shipping uses the real components (Returns hand-styles a Polaris look-alike; it stays as it is) |
@@ -735,11 +735,20 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
      browser (`scripts/ui_walk_uk.cjs`, 38 checks, desktop and phone,
      `docs/shipping/uk-screens/`); `M_SHIPPING_LABEL_PURCHASE` and `Q_SHIPPING_LABEL_PURCHASE`
      validated at 2026-10.
-   - **Not verifiable without a real purchase:** whether a label bought this way creates the
-     Shopify fulfilment itself (the docs don't say; labels bought in Shopify admin do, seen
-     live as LABEL_PURCHASED); the Tracked 24 / 48 codes; the label file's size and format
-     (they follow the store's label settings); whether the document links need anything beyond
-     a plain GET; how long purchases really take.
+   - **Verified live** (12 Oct 2026, CROOKS-2180, the first label bought this way):
+     - `royal_mail/royal_mail_tracked_48` bought one Royal Mail Tracked 48 label at £2.95
+       (45 × 35 × 10 cm, 810 g). The order timeline reads "CROOKS Operations purchased a
+       shipping label".
+     - Shopify created the fulfilment itself in the same second; CLIVE adopted it ("Already in
+       Shopify"), so the order has one fulfilment.
+     - Shopify scheduled the customer's shipping email for `shippingDatetime` (purchase + 10
+       minutes).
+     - The purchase finished within seconds. The label is a 4×6 PDF (about 78 KB), fetched with
+       a plain GET, stored, and printed through PrintNode on the JADENS in the same minute.
+     - The attempt before, with Royal Mail's own code `TPS48`, was refused: nothing bought, the
+       order back to Ready, and the next attempt bought once.
+   - **Still unverified:** Tracked 24's code comes from the same rate list but has not bought a
+     label yet (its first purchase confirms it); a lost reply against the real Shopify.
 
 ## I. Test plan
 

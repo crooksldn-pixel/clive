@@ -24,6 +24,13 @@ label printer; a file of another size is said to be what it is ("US Letter, not 
 opened whole from Open PDF, never scaled. A label found on the order after a lost reply has no
 file here: print it from the order in Shopify admin.
 
+The two service codes on the server are Shopify's: `royal_mail/royal_mail_tracked_24` and
+`royal_mail/royal_mail_tracked_48`. If Shopify ever changes them, every UK purchase is refused
+("Shopify Shipping has no rate for this service and parcel"), nothing is bought, and the order
+stays Ready; the current codes are on the rates Shopify admin's "Create shipping label" page
+loads, or ask Shopify. Shopify marks the order fulfilled itself as the label is bought, and
+emails the customer at the shipping time CLIVE sets (10 minutes after buying).
+
 ## Print evidence
 
 **How Print works.** Without PrintNode, Print opens the label as a 4×6 PDF in a new tab (the

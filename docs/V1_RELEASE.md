@@ -136,11 +136,14 @@ Details live with each app (`docs/shipping/DESIGN.md`, `clive-shipping/OPERATION
     admin). If nothing shows within 10 minutes, the order waits for a person to check Shopify
     admin ("Check Shopify for a label") before it can be bought again, because a label Shopify
     bought without putting it on the order couldn't be seen (unverified; see below).
-  - *Codes.* Shopify publishes no list of carrier/service codes; they must come from Shopify.
-  - *Unverified until one real purchase:* whether the purchase creates the Shopify fulfilment
-    itself (CLIVE adopts it if so, adds one after two minutes if not), the label file's size and
-    format (they follow the store's label settings; anything not 4×6 is shown whole, never
-    scaled), and that the document links download with a plain GET.
+  - *Codes.* Shopify publishes no list of carrier/service codes. They are Shopify's own
+    (`royal_mail/royal_mail_tracked_24`, `royal_mail/royal_mail_tracked_48`), read from the
+    rates on Shopify admin's label page; Royal Mail's own codes (TPS48) are refused.
+  - *Verified by the first live purchase (12 Oct 2026, CROOKS-2180):* one Tracked 48 label at
+    £2.95; Shopify fulfils the order itself as the label is bought (CLIVE adopts it); the label
+    is a 4×6 PDF that downloads with a plain GET and prints through PrintNode; the purchase
+    takes seconds. Tracked 24's code comes from the same rate list; its first purchase
+    confirms it.
   - *No void.* Shopify's API has no label cancellation; cancel it in Shopify admin.
 
 ## Deferred to V2
@@ -181,7 +184,8 @@ Do not deploy without the owner. Nothing here buys postage, prints, or changes a
      admin; `write_merchant_managed_fulfillment_orders` is already granted), then in Shipping's
      `.env`: `SHIPPING_DOMESTIC_LABELS=shopify`,
      `SHIPPING_DOMESTIC_SHIPPING_LINES="Tracked 24=24; Tracked 48=48"`,
-     `SHIPPING_SHOPIFY_TRACKED_24_RATE` and `SHIPPING_SHOPIFY_TRACKED_48_RATE` (Shopify's codes).
+     `SHIPPING_SHOPIFY_TRACKED_24_RATE=royal_mail/royal_mail_tracked_24` and
+     `SHIPPING_SHOPIFY_TRACKED_48_RATE=royal_mail/royal_mail_tracked_48` (Shopify's codes).
      The store must have accepted Shopify Shipping's terms (it has bought labels in admin).
    - Unchanged and still required: `SHIPPING_AUTHORISED_ORDERS` / `SHIPPING_BUYING_ENABLED`
      (no label can be bought unless set), PrintNode keys (only if printing directly).
