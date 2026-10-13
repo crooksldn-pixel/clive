@@ -1824,6 +1824,64 @@ class PreordersService:
             out.append(row)
         return out
 
+    BADGE_ORDER = ("Pre-order", "Delayed", "In stock", "Waitlist", "Sold out")
+
+    def product_groups(
+        self, view: str = "all", q: str = "", product_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """One entry per product with its sizes, for the Products index. A product is listed
+        when any of its sizes matches the view; totals and the size summary cover every size."""
+        sizes = self.products("all", q)
+        if product_id:
+            sizes = [r for r in sizes if r["product_id"] == product_id]
+        matching = {r["variant_id"] for r in self.products(view, q)} if view != "all" else None
+        groups: dict[str, dict[str, Any]] = {}
+        for r in sizes:
+            g = groups.setdefault(
+                r["product_id"],
+                {
+                    "product_id": r["product_id"],
+                    "product": r["product"],
+                    "image_url": r["image_url"],
+                    "sizes": [],
+                },
+            )
+            g["sizes"].append(r)
+        out = []
+        for g in groups.values():
+            rows = g["sizes"]
+            if matching is not None and not any(r["variant_id"] in matching for r in rows):
+                continue
+            by_badge: dict[str, dict[str, Any]] = {}
+            for r in rows:
+                b = by_badge.setdefault(
+                    r["badge"], {"label": r["badge"], "tone": r["tone"], "sizes": []}
+                )
+                b["sizes"].append(r["variant"])
+            days = sorted(r["dispatch"] for r in rows if r["dispatch"])
+            g.update(
+                {
+                    "badges": sorted(
+                        by_badge.values(),
+                        key=lambda b: (
+                            self.BADGE_ORDER.index(b["label"])
+                            if b["label"] in self.BADGE_ORDER
+                            else 99
+                        ),
+                    ),
+                    "available": sum(max(r["available"], 0) for r in rows),
+                    "inbound": sum(r["inbound"] for r in rows),
+                    "allocation": sum(r["allocation"] for r in rows),
+                    "preordered": sum(r["preordered"] for r in rows),
+                    "remaining": sum(r["remaining"] for r in rows),
+                    "dispatch": days[0] if days else None,
+                    "discount": ", ".join(sorted({r["discount"] for r in rows if r["discount"]})),
+                    "waitlist": sum(r["waitlist"] for r in rows),
+                }
+            )
+            out.append(g)
+        return out
+
     def preorder_lines(self, view: str = "all", q: str = "") -> list[dict[str, Any]]:
         where, args = ["p.shop = ?"], [self.shop]
         today = self.today().isoformat()

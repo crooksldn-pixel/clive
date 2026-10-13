@@ -581,3 +581,20 @@ def test_an_unconfirmed_email_is_never_resent_after_the_providers_window(
     assert svc.comms.notify_delay(batch["id"], "Sam")["UNKNOWN"] == 1
     assert len(mailer.sent) == 1
     assert "emails" in {a["kind"] for a in svc.overview()["attention"]}
+
+
+def test_products_are_listed_once_with_their_sizes_summarised(svc, shopify, jogger):
+    pid, sizes = jogger
+    open_preorder(svc, pid, sizes)
+    svc.ingest_order(shopify.checkout([(sizes["S"], 2, plan(shopify, sizes["S"]))]))
+    groups = svc.product_groups()
+    assert len(groups) == 1
+    g = groups[0]
+    assert len(g["sizes"]) == 5
+    summary = {b["label"]: b["sizes"] for b in g["badges"]}
+    assert summary == {"Pre-order": ["S", "M"], "In stock": ["XS", "XL"], "Waitlist": ["L"]}
+    assert (g["available"], g["inbound"], g["preordered"], g["allocation"]) == (10, 80, 2, 80)
+    assert g["dispatch"] == "2026-11-07"
+    # A filter lists the product when any size matches, with every size still summarised.
+    assert [x["product"] for x in svc.product_groups("waitlist")] == ["Black Jogger"]
+    assert svc.product_groups("sold_out") == []

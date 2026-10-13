@@ -198,6 +198,7 @@ async function route() {
   try {
     loading(true);
     if (p.get("variant")) return renderVariant(await api(`/variants/${p.get("variant")}`));
+    if (p.get("product") && !p.get("setup")) return renderProduct(await api(`/products/${p.get("product")}`));
     if (p.get("setup")) return renderSetup(p.get("setup"), p.get("product"));
     if (p.get("batch")) return renderBatch(await api(`/batches/${encodeURIComponent(p.get("batch"))}`));
     if (p.get("waitlist")) return renderWaitlist(await api(`/waitlist/${p.get("waitlist")}`));
@@ -259,20 +260,24 @@ function renderOverview(d) {
 
 const PRODUCT_FILTERS = [["all", "All"], ["in_stock", "In stock"], ["preorder", "Pre-order"], ["waitlist", "Waitlist"], ["sold_out", "Sold out"]];
 
+function sizeSummary(g) {
+  return g.badges.map((b) => `${b.sizes.join(", ")} ${b.label.toLowerCase()}`).join(" · ");
+}
+
 function renderProducts(d, p) {
   const filter = p.get("filter") || "all";
-  const rows = d.rows.map((r) => `<s-table-row>
-      <s-table-cell><s-stack gap="small-100"><s-link data-go='${esc(JSON.stringify({ variant: num(r.variant_id) }))}' href="${BASE}/admin?variant=${num(r.variant_id)}">${esc(r.product)}</s-link><s-text color="subdued">${esc(r.variant)}${r.sku ? " · " + esc(r.sku) : ""}</s-text></s-stack></s-table-cell>
-      <s-table-cell>${badge(r.badge, r.tone)}</s-table-cell>
-      <s-table-cell><span class="num">${Math.max(r.available, 0)}</span></s-table-cell>
-      <s-table-cell><span class="num">${r.inbound || "—"}</span></s-table-cell>
-      <s-table-cell><span class="num">${r.allocation ? `${r.preordered} / ${r.allocation}` : "—"}</span></s-table-cell>
-      <s-table-cell><span class="num">${r.allocation ? r.remaining : "—"}</span></s-table-cell>
-      <s-table-cell>${r.dispatch ? day(r.dispatch) : "—"}</s-table-cell>
-      <s-table-cell>${esc(r.discount || "—")}</s-table-cell>
-      <s-table-cell><span class="num">${r.waitlist || "—"}</span></s-table-cell>
+  const rows = d.products.map((g) => `<s-table-row>
+      <s-table-cell><s-stack gap="small-100"><s-link data-go='${esc(JSON.stringify({ product: num(g.product_id) }))}' href="${BASE}/admin?product=${num(g.product_id)}">${esc(g.product)}</s-link><s-text color="subdued">${esc(sizeSummary(g))}</s-text></s-stack></s-table-cell>
+      <s-table-cell><s-stack direction="inline" gap="small-100">${g.badges.map((b) => badge(b.label, b.tone)).join("")}</s-stack></s-table-cell>
+      <s-table-cell><span class="num">${g.available}</span></s-table-cell>
+      <s-table-cell><span class="num">${g.inbound || "—"}</span></s-table-cell>
+      <s-table-cell><span class="num">${g.allocation ? `${g.preordered} / ${g.allocation}` : "—"}</span></s-table-cell>
+      <s-table-cell><span class="num">${g.allocation ? g.remaining : "—"}</span></s-table-cell>
+      <s-table-cell>${g.dispatch ? day(g.dispatch) : "—"}</s-table-cell>
+      <s-table-cell>${esc(g.discount || "—")}</s-table-cell>
+      <s-table-cell><span class="num">${g.waitlist || "—"}</span></s-table-cell>
     </s-table-row>`).join("");
-  const table = d.rows.length ? `<s-section padding="none"><s-table>
+  const table = d.products.length ? `<s-section padding="none"><s-table>
     <s-table-header-row>
       <s-table-header listSlot="primary">Product</s-table-header><s-table-header listSlot="inline">State</s-table-header>
       <s-table-header listSlot="labeled" format="numeric">Available now</s-table-header><s-table-header listSlot="labeled" format="numeric">Incoming</s-table-header>
@@ -280,10 +285,34 @@ function renderProducts(d, p) {
       <s-table-header listSlot="labeled">Dispatch</s-table-header><s-table-header listSlot="labeled">Discount</s-table-header>
       <s-table-header listSlot="labeled" format="numeric">Notify me</s-table-header>
     </s-table-header-row><s-table-body>${rows}</s-table-body></s-table></s-section>`
-    : empty("No variants here", filter === "all" ? "Refresh from Shopify to load your products." : "No variant is in this state.");
+    : empty("No products here", filter === "all" ? "Refresh from Shopify to load your products." : "No product has a size in this state.");
   page("Products", `<s-button slot="secondary-actions" data-action="refresh-catalog">Refresh from Shopify</s-button>`,
     sectionNav("products") + `<s-section><s-stack gap="base">${tabs(filter, PRODUCT_FILTERS, "filter", { view: "products" })}
       <s-search-field id="search" label="Search products" labelAccessibilityVisibility="exclusive" placeholder="Search by product, size or SKU" value="${esc(p.get("q") || "")}"></s-search-field></s-stack></s-section>` + table);
+}
+
+function renderProduct(g) {
+  state.data = g;
+  const rows = g.sizes.map((r) => `<s-table-row>
+      <s-table-cell><s-stack gap="small-100"><s-link data-go='${esc(JSON.stringify({ variant: num(r.variant_id) }))}' href="${BASE}/admin?variant=${num(r.variant_id)}">${esc(r.variant)}</s-link>${r.sku ? `<s-text color="subdued">${esc(r.sku)}</s-text>` : ""}</s-stack></s-table-cell>
+      <s-table-cell>${badge(r.badge, r.tone)}</s-table-cell>
+      <s-table-cell><span class="num">${Math.max(r.available, 0)}</span></s-table-cell>
+      <s-table-cell><span class="num">${r.inbound || "—"}</span></s-table-cell>
+      <s-table-cell><span class="num">${r.allocation ? `${r.preordered} / ${r.allocation}` : "—"}</span></s-table-cell>
+      <s-table-cell><span class="num">${r.allocation ? r.remaining : "—"}</span></s-table-cell>
+      <s-table-cell>${r.dispatch ? day(r.dispatch) : "—"}</s-table-cell>
+      <s-table-cell><span class="num">${r.waitlist || "—"}</span></s-table-cell>
+    </s-table-row>`).join("");
+  const live = g.offers.filter((o) => o.status !== "CLOSED");
+  const offers = live.length ? `<s-section heading="Preorders"><s-stack gap="small-200">${live.map((o) => `<s-stack direction="inline" gap="small-200" alignItems="center"><s-link data-go='${esc(JSON.stringify({ setup: o.batch_id, product: num(g.product_id) }))}' href="${BASE}/admin?setup=${esc(o.batch_id)}&product=${num(g.product_id)}">Edit preorder</s-link>${badge(o.status === "ACTIVE" ? "Live" : "Not live", o.status === "ACTIVE" ? "success" : "neutral")}<s-link data-go='${esc(JSON.stringify({ batch: o.batch_id }))}' href="${BASE}/admin?batch=${esc(o.batch_id)}">Open batch</s-link></s-stack>`).join("")}</s-stack></s-section>` : "";
+  page(g.product, `<s-link slot="breadcrumb-actions" data-go='{"view":"products"}' href="${BASE}/admin?view=products">Products</s-link>`,
+    `<s-section><s-text>${esc(sizeSummary(g))}</s-text></s-section>` + offers +
+    `<s-section heading="Sizes" padding="none"><s-table><s-table-header-row>
+      <s-table-header listSlot="primary">Size</s-table-header><s-table-header listSlot="inline">State</s-table-header>
+      <s-table-header listSlot="labeled" format="numeric">Available now</s-table-header><s-table-header listSlot="labeled" format="numeric">Incoming</s-table-header>
+      <s-table-header listSlot="labeled" format="numeric">Preordered</s-table-header><s-table-header listSlot="labeled" format="numeric">Remaining</s-table-header>
+      <s-table-header listSlot="labeled">Dispatch</s-table-header><s-table-header listSlot="labeled" format="numeric">Notify me</s-table-header>
+    </s-table-header-row><s-table-body>${rows}</s-table-body></s-table></s-section>`);
 }
 
 function renderVariant(d) {
@@ -315,7 +344,7 @@ function renderVariant(d) {
   const w = d.waitlist;
   const wait = `<s-section heading="Notify me"><s-stack gap="base"><s-text>${w.count} ${w.count === 1 ? "person is" : "people are"} waiting for this size.</s-text>
     <s-button data-go='${esc(JSON.stringify({ waitlist: num(v.variant_id) }))}' href="${BASE}/admin?waitlist=${num(v.variant_id)}">View waitlist</s-button></s-stack></s-section>`;
-  page(`${v.product_title} · ${v.variant_title}`, `<s-link slot="breadcrumb-actions" data-go='{"view":"products"}' href="${BASE}/admin?view=products">Products</s-link>`,
+  page(`${v.product_title} · ${v.variant_title}`, `<s-link slot="breadcrumb-actions" data-go='${esc(JSON.stringify({ product: num(v.product_id) }))}' href="${BASE}/admin?product=${num(v.product_id)}">${esc(v.product_title)}</s-link>`,
     `<s-section><s-stack direction="inline" gap="small-200">${badge(label, tone)}<s-text color="subdued">${esc(v.sku || "")}</s-text></s-stack></s-section>` + pre + wait + stock);
 }
 

@@ -230,6 +230,8 @@ always derived (`SUM(current_quantity)` of uncancelled lines). Migration 2 adds
   section"). Nothing depends on it (the storefront block reads selling-plan allocations).
 - `customers/redact` is handled by the webhook endpoint, but the app has no compliance
   webhooks configured, so nothing sends it yet (README).
+- Products are listed one row per product (totals across sizes, a one-line size summary,
+  every state as a badge); the product page lists its sizes, each opening the size page.
 - PREORDER_ONLY and NOTIFY_ONLY modes and per-variant overrides exist in the domain and
   database; the admin offers AUTO only.
 

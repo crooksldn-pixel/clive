@@ -242,7 +242,18 @@ def admin_router(
 
     @router.get("/api/products")
     def products(view: str = "all", q: str = "", _: str = Depends(staff)) -> dict[str, Any]:
-        return {"rows": svc.products(view, q[:80])}
+        return {"rows": svc.products(view, q[:80]), "products": svc.product_groups(view, q[:80])}
+
+    @router.get("/api/products/{n}")
+    def product(n: str, _: str = Depends(staff)) -> dict[str, Any]:
+        found = svc.product_groups(product_id=gid("Product", n))
+        if not found:
+            raise HTTPException(404, {"message": "Product not found.", "code": "not_found"})
+        offers = svc.store.all(
+            "SELECT id, batch_id, status FROM offers WHERE product_id = ? ORDER BY created_at DESC",
+            (gid("Product", n),),
+        )
+        return {**found[0], "offers": offers}
 
     @router.post("/api/catalog/refresh")
     def refresh(who: str = Depends(staff)) -> dict[str, Any]:
@@ -620,7 +631,8 @@ def create_app(
 ) -> FastAPI:
     settings = settings or get_settings()
     svc = service or build_service(settings)
-    timers = {"reconcile": time.monotonic(), "catalog": 0.0, "purge": 0.0}
+    # Catalogue and purge run on the first tick, whatever the machine's uptime.
+    timers = {"reconcile": time.monotonic(), "catalog": float("-inf"), "purge": float("-inf")}
 
     def reconcile_now(actor: str) -> dict[str, Any]:
         timers["reconcile"] = time.monotonic()
