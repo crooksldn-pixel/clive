@@ -53,6 +53,45 @@ def label_page(page: Any) -> bool:
     )
 
 
+def _page_words(page: Any) -> str:
+    """One page's size as people say it: "4×6", "A4", "US Letter", else millimetres."""
+    if label_page(page):
+        return "4×6"
+    w, h = float(page.mediabox.width) * 25.4 / 72, float(page.mediabox.height) * 25.4 / 72
+    short, long_ = sorted((w, h))
+    turned = " (landscape)" if w > h else ""
+    if abs(short - 101.6) <= 3 and abs(long_ - 152.4) <= 3:
+        return "4×6" + (turned or " (rotated or cropped)")
+    if abs(short - 210) <= 3 and abs(long_ - 297) <= 3:
+        return "A4" + turned
+    if abs(short - 215.9) <= 3 and abs(long_ - 279.4) <= 3:
+        return "US Letter" + turned
+    return f"{w:.0f}×{h:.0f} mm"
+
+
+def measure(body: bytes) -> tuple[PageSize, int, str]:
+    """A PDF's pages as made: (page size, pages, in words). 4x6 only when every page is a
+    portrait 4x6 label page that prints as it is; nothing is scaled to fit. ValueError if it
+    isn't a readable PDF."""
+    try:
+        reader = PdfReader(BytesIO(body), strict=False)
+        if reader.is_encrypted or not reader.pages:
+            raise ValueError("not a readable PDF")
+        words = [_page_words(p) for p in reader.pages]
+    except ValueError:
+        raise
+    except Exception as exc:  # pypdf raises its own errors for broken files
+        raise ValueError(f"not a readable PDF ({type(exc).__name__})") from exc
+    kinds = sorted(set(words))
+    if kinds == ["4×6"]:
+        return PageSize.label_4x6, len(words), "4×6"
+    if kinds == ["A4"]:
+        return PageSize.a4, len(words), "A4"
+    if len(kinds) == 1:
+        return PageSize.other, len(words), kinds[0]
+    return PageSize.mixed, len(words), " and ".join(kinds)
+
+
 def parcel_label_pdf(body: bytes, *, kind: DocumentKind, page_size: PageSize) -> bytes:
     """What goes on the parcel from the label printer: the provider's label file unchanged,
     every page of it. International labels carry the customs form with them (Easyship's Royal

@@ -7,8 +7,10 @@ import os
 from functools import lru_cache
 from urllib.parse import urlparse
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from shipping.domestic import TRACKED_24, TRACKED_48, DomesticPolicy, parse_lines, parse_rate
 
 
 def _env_file() -> str | None:
@@ -70,6 +72,48 @@ class Settings(BaseSettings):
     # also read. Empty: the API answers nothing.
     clive_read_keys: str = ""
     clive_write_keys: str = ""
+
+    # --- UK (domestic) labels, bought through Shopify Shipping (shipping/domestic.py) ---
+    # "off": UK orders are left to Shopify's own flow and not shown. "shopify": UK orders appear
+    # here and their labels are bought from the shop's Shopify Shipping account.
+    domestic_labels: str = "off"
+    # Which Royal Mail service each checkout delivery method gets, by its exact title:
+    # "Tracked 24=24; Tracked 48=48". A title not listed waits for a person to choose.
+    domestic_shipping_lines: str = ""
+    # Shopify Shipping's carrier and service code for each service, "<carrierCode>/<serviceCode>".
+    # Shopify publishes no list of these; empty means that service can't be bought here.
+    shopify_tracked_24_rate: str = ""
+    shopify_tracked_48_rate: str = ""
+
+    @field_validator("domestic_labels")
+    @classmethod
+    def _domestic_mode(cls, v: str) -> str:
+        v = (v or "off").strip().lower()
+        if v not in ("off", "shopify"):
+            raise ValueError("SHIPPING_DOMESTIC_LABELS is 'off' or 'shopify'.")
+        return v
+
+    @field_validator("domestic_shipping_lines")
+    @classmethod
+    def _lines(cls, v: str) -> str:
+        parse_lines(v)  # a bad mapping stops the service starting, rather than being half-read
+        return v
+
+    @field_validator("shopify_tracked_24_rate", "shopify_tracked_48_rate")
+    @classmethod
+    def _rate(cls, v: str) -> str:
+        parse_rate(v)
+        return v
+
+    def domestic(self) -> DomesticPolicy:
+        return DomesticPolicy(
+            enabled=self.domestic_labels == "shopify",
+            lines=parse_lines(self.domestic_shipping_lines),
+            rates={
+                TRACKED_24: parse_rate(self.shopify_tracked_24_rate),
+                TRACKED_48: parse_rate(self.shopify_tracked_48_rate),
+            },
+        )
 
     def keys(self, kind: str) -> list[str]:
         """The keys allowed to read, or to act. Acting implies reading."""

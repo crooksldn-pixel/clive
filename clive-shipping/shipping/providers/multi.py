@@ -34,7 +34,10 @@ class Providers:
         if not providers:
             raise ValueError("At least one provider is needed.")
         self.providers = providers
-        self.name = " + ".join(p.name for p in providers)
+        # Asked for international quotes: everyone but the UK-only provider (Shopify Shipping
+        # is asked by the service for UK parcels only).
+        self.quoting = [p for p in providers if not getattr(p, "domestic_only", False)]
+        self.name = " + ".join(p.name for p in self.quoting or providers)
 
     # ------------------------------------------------------------------ routing
 
@@ -73,8 +76,10 @@ class Providers:
                 log.exception("%s quotes failed unexpectedly", p.name)
                 return p.name, exc
 
-        with ThreadPoolExecutor(max_workers=len(self.providers)) as pool:
-            answers = list(pool.map(ask, self.providers))
+        if not self.quoting:
+            return [], []
+        with ThreadPoolExecutor(max_workers=len(self.quoting)) as pool:
+            answers = list(pool.map(ask, self.quoting))
         quotes: list[Quote] = []
         failures: list[ProviderFailure] = []
         for name, got in answers:
@@ -89,7 +94,7 @@ class Providers:
                 failures.append(quote_failure(name, got))
             else:
                 quotes.extend(got)
-        if len(failures) == len(self.providers):
+        if len(failures) == len(self.quoting):
             raise ProviderUnavailable(
                 "; ".join(f.safe_message for f in failures), failures=failures
             )

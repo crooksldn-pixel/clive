@@ -7,6 +7,8 @@
   modelled separately, the genuine 4×6 label, evidence-based customs, and every failure case
   proven in tests and against the sandbox. No live credential, no live spending.
 - Nothing is deployed.
+- **UK labels through Shopify Shipping built (2026-10-09):** behind `SHIPPING_DOMESTIC_LABELS`
+  (off by default). See H, stage 9.
 
 ## Owner decisions (2026-10-05)
 
@@ -17,6 +19,7 @@
 | Country of origin | Never inferred or bulk-filled. Asked once per product when a real shipment needs it and Shopify has none. Saved to every size's InventoryItem in Shopify (the record) and remembered here with who and when. Not asked again unless Shopify's value changes. | `readiness`, `facts`, `inventoryItemUpdate` |
 | Printer | JADENS roll-fed thermal on a Windows laptop via PrintNode. Prefer 4×6 in (~100×150 mm) labels. Printing comes later, but the label is stored once as an artifact (`label_4x6` first). Reprint renders that stored file and has no path to a purchase. | `Label.artifacts`, `Purchases.reprint()` |
 | Setup | Progressive: nothing catalogue-wide up front. A fact is asked only when a real shipment needs it. | readiness questions |
+| UK labels (2026-10-09) | Bought through the store's Shopify Shipping account, Royal Mail Tracked 24 or Tracked 48 only, decided by the checkout delivery method through an explicit mapping; an unmapped method waits for a person. Never guessed, never Shopify's default rate selection. No price before buying: accepted for now. | `domestic.py`, `providers/shopify_shipping.py`, `SHIPPING_DOMESTIC_*` |
 
 **Thesis:** international orders ship like domestic ones. CLIVE absorbs the complexity; the merchant sees one decision, "Buy label — £X?", and the occasional single question it can't answer itself.
 
@@ -36,7 +39,9 @@ Everything marked **[tested]** was exercised on 2026-10-04 against the Parcel2Go
 | **Paying an already-paid order charges again** (200, balance −£2.39). | [tested] order 26633 | The pay call must never be repeated blindly. This also fixed the same latent bug in Returns (commit `7e67e1e`) |
 | There is **no cancel/void endpoint** in Parcel2Go's API (Swagger v1). A secondary report of a "Cancellation API" did not match the published spec. | [tested] swagger | Void is a manual, merchant-confirmed flow in v1 |
 | International services are printer-required (no QR); labels come as A4, 4×6 and A4-with-4×6, as PDF. | [tested] | Fine for outbound (CROOKS has a printer); 4×6 is the default |
-| `shippingLabelPurchase` (Shopify Shipping, Admin API **2026-07+**) buys a label for a fulfillment order, async (`PENDING_PURCHASE → PURCHASED/FAILED`), customs taken from Shopify's product data, needs `write_orders` + fulfillment-order scope + staff `buy_shipping_labels` + Shopify Shipping ToS. **No idempotency key, no app-callable rates query, no void mutation, no FedEx.** | [docs] shopify.dev 2026-10 reference | Strong future option (native, merchant pays Shopify, no reseller issue), but it cannot show a price before purchase today, which breaks "Buy label — £X". Kept behind the provider port |
+| `shippingLabelPurchase` (Shopify Shipping, Admin API **2026-07+**) buys a label for a fulfillment order, async (`PENDING_PURCHASE → PURCHASED/FAILED`), customs taken from Shopify's product data, needs `write_orders` + fulfillment-order scope + staff `buy_shipping_labels` + Shopify Shipping ToS. **No idempotency key, no app-callable rates query, no void mutation, no FedEx.** | [docs] shopify.dev 2026-10 reference | Strong future option (native, merchant pays Shopify, no reseller issue), but it cannot show a price before purchase today, which breaks "Buy label — £X". Kept behind the provider port. **Used for UK labels since 2026-10-09** (owner accepted no price; see H, stage 9) |
+| No list of `preferredRateSelection` carrier/service codes is published, and no public API returns them. `FulfillmentOrder.deliveryMethod.serviceCode` is the checkout display name, not a rate code. The codes are Shopify's own, not the carrier's: the rates Shopify admin's "Create shipping label" page loads carry them (`royal_mail` with `royal_mail_tracked_24` / `royal_mail_tracked_48`). Royal Mail's own `TPS48` was refused, nothing bought. | [forum] Shopify staff, community.shopify.dev, July 2026; [live] 2026-10-12 | The Tracked 24 / 48 codes are server settings; `.env.example` has the two above |
+| The ShippingLabel is reachable only by its own id or the purchase result's id; no field on Fulfillment or FulfillmentOrder leads to it. | [schema] 2026-10 introspection | After a lost reply (no result id) a label can be found on the order but its file can't be fetched |
 | Shopify stores customs facts on `InventoryItem`: `harmonizedSystemCode`, `countryHarmonizedSystemCodes`, `countryCodeOfOrigin`, `measurement` (weight). | [schema] | Shopify is the system of record for product customs facts; CLIVE writes confirmed facts back there |
 | Shopify's recommended embedded UI is now **Polaris web components** (`<s-page>`, `<s-section>`, `<s-table>`, `<s-badge>`, `<s-app-nav>`, `<s-modal>`) loaded from `cdn.shopify.com/shopifycloud/polaris.js`, alongside App Bridge. | [docs] app-home | Shipping uses the real components (Returns hand-styles a Polaris look-alike; it stays as it is) |
 | EU de minimis ended 1 Jul 2026: €3 duty on parcels under €150. | [secondary] | DAP vs DDP/IOSS matters for EU customer experience; see open questions |
@@ -167,7 +172,7 @@ PrintJob    (later) id, artifact_id, printer, status, requested_by
 | Write (after purchase) | `fulfillmentCreate { lineItemsByFulfillmentOrder, trackingInfo { company, number, url }, notifyCustomer }`. **Before writing, read the FO's fulfillments for our tracking number:** that makes a retried fulfil idempotent |
 | Write (knowledge) | `inventoryItemUpdate` for HS code, origin and weight once the merchant confirms. Shopify stays the record, and Shopify Shipping would see the same facts |
 | Webhooks in | `orders/updated`, `orders/cancelled`, `fulfillment_orders/*`, `app/uninstalled`. Signals only: a 15-minute reconcile re-reads open shipments regardless |
-| Scopes | `read_orders`, `read_merchant_managed_fulfillment_orders`, `write_merchant_managed_fulfillment_orders`, `read_products`, `read_inventory`, `write_inventory`, `read_locations` |
+| Scopes | `read_orders`, `read_merchant_managed_fulfillment_orders`, `write_merchant_managed_fulfillment_orders`, `read_products`, `read_inventory`, `write_inventory`, `read_locations`; for UK labels also `write_orders` (`shippingLabelPurchase`) |
 
 ### API for CLIVE (`/api/v1`, bearer read/write keys, mirrors Returns): as built 2026-10-07
 
@@ -664,6 +669,88 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
    - pilot behind an order-number allowlist (like Returns);
    - one real label to Germany (see the live-readiness gate below).
 
+9. **UK labels through Shopify Shipping (2026-10-09).** Off unless
+   `SHIPPING_DOMESTIC_LABELS=shopify`; international behaviour is unchanged.
+   - **Which orders.** Destination country = the ship-from country (GB to GB). The Channel
+     Islands and the Isle of Man keep their own country codes and stay international. A UK
+     parcel asks no HS code or origin and gets no duties terms; weight, package, address,
+     payment, hold and second-label checks apply as before.
+   - **Which service** (`domestic.py`). The order's checkout shipping line
+     (`Order.shippingLine.title`, read with each fulfilment order) through
+     `SHIPPING_DOMESTIC_SHIPPING_LINES="Tracked 24=24; Tracked 48=48"` (case and spacing
+     ignored; a bad entry stops the service starting). The store's lines, read from its last
+     ~100 orders on 2026-10-09: "Tracked 24", "Tracked 48", and none on manual/draft orders.
+     Unmapped or missing: Needs attention, "Which service: Tracked 24 or Tracked 48?", answered
+     per order by a person. Each service needs Shopify Shipping's code
+     (`SHIPPING_SHOPIFY_TRACKED_24_RATE` / `_48_RATE`, "carrierCode/serviceCode"); without it
+     the order waits ("code not set"). A delivery method changed after the preview is stale.
+   - **The provider** (`providers/shopify_shipping.py`), behind the same ledger and protocol.
+     `quotes` gives the one mapped service with `price_known=False`; the ledger skips its amount
+     checks (owner-accepted) and the preview says the price is set by Shopify Shipping.
+     `create_order` writes the exact request to `label_purchases` (fulfilment order, shipping
+     time ten minutes ahead, the custom package and empty weight, total weight,
+     `preferredRateSelection`, `notifyCustomer`) and the tracking numbers the order already
+     carries (a read); nothing is sent. `pay` sends
+     `shippingLabelPurchase` once from a path that never retries
+     (`GraphQLShopify.purchase_label`): connect failure, 429 or THROTTLED = not sent; other 4xx
+     or a field error = refused; timeout, reset, 5xx or an unreadable body = UNKNOWN. The result
+     id is saved before polling; `node(id)` is polled to PURCHASED / PURCHASE_FAILED within 60 s
+     (Shopify's advice), else UNKNOWN. userErrors and PURCHASE_FAILED are refusals (nothing
+     bought, the order is ready again). The row is claimed atomically (prepared → sending)
+     before the request, so a purchase the sweep has settled as never sent can't go out later,
+     and a row already sent is never sent again.
+   - **UNKNOWN.** With the result id: read back (PURCHASED = bought; PURCHASE_FAILED = settled
+     at once; pending = wait, alert after an hour, never given up). Without it (lost reply): the
+     fulfilment order is read; a tracking number that wasn't on it before sending (recorded with
+     the request) is the label, adopted, but its file can't be fetched, so staff are told to
+     print it from Shopify admin and Print is not offered. A fulfilment order Shopify no longer
+     shows can't tell either way and stays unknown. Nothing found for Shopify's 10-minute settle
+     window (two reads) is not taken as "not bought": the order waits in Needs attention ("Check
+     Shopify for a label") until a person has looked in Shopify admin and says there's none.
+     The same applies when Shopify refuses because another purchase is running for the order
+     (JOB_NOT_ENQUEUED, PURCHASE_IN_PROGRESS among any of its errors), whether it comes back
+     from the buy or from a read-back. A purchase never claimed for sending was never sent, and
+     settles at once. An order held this way that Shopify then closes raises an alert (a label
+     may exist), and stays listed even if UK labels are switched off.
+   - **Shopify's answer.** A result id means the purchase started, whatever else the answer
+     carries. A field error is a refusal only when Shopify never ran the mutation (every error
+     ACCESS_DENIED / MAX_COST_EXCEEDED, or an unparsable request: no code and no `data`); an
+     error inside Shopify (INTERNAL_SERVER_ERROR, a timeout), with or without `data`, is UNKNOWN.
+   - **After buying.** Each `shippingDocument` (LABEL, CUSTOMS_FORM) is fetched server-side
+     over https (streamed, capped at 10 MB), without the app token; a file that isn't a readable
+     PDF is never stored and is fetched again later. A label is stored and measured. Only a portrait 4×6 PDF goes to
+     the label printer; any other size (US Letter, A4, landscape) is never scaled: PrintNode
+     refuses with the reason and the print view opens the file whole with the same note. ZPL is
+     kept and said to be unprintable here. CLIVE reads the order first: if Shopify put the
+     tracking on the order itself, that fulfilment is adopted; if not within two minutes, CLIVE
+     adds one (read-first, as always).
+   - **Also:** UK collection and local-delivery orders (`deliveryMethod.methodType` not
+     SHIPPING) are left to Shopify. A person's service choice holds only while the order keeps
+     the delivery method it was made for. Turning UK labels off never hides an order whose label
+     may have been paid for, and the provider is still built to finish it. The ledger lets a
+     quote skip the amount checks only when its provider says it can't price before buying.
+   - **Verified:** 101 new tests (fake Shopify Shipping that loses replies, stays pending, fails
+     and refuses; HTTP-level one-POST and error-classification tests; an independent review's
+     findings and its re-review's, each with a test; each guard removed once and a test failed); the admin in a real
+     browser (`scripts/ui_walk_uk.cjs`, 38 checks, desktop and phone,
+     `docs/shipping/uk-screens/`); `M_SHIPPING_LABEL_PURCHASE` and `Q_SHIPPING_LABEL_PURCHASE`
+     validated at 2026-10.
+   - **Verified live** (12 Oct 2026, CROOKS-2180, the first label bought this way):
+     - `royal_mail/royal_mail_tracked_48` bought one Royal Mail Tracked 48 label at £2.95
+       (45 × 35 × 10 cm, 810 g). The order timeline reads "CROOKS Operations purchased a
+       shipping label".
+     - Shopify created the fulfilment itself in the same second; CLIVE adopted it ("Already in
+       Shopify"), so the order has one fulfilment.
+     - Shopify scheduled the customer's shipping email for `shippingDatetime` (purchase + 10
+       minutes).
+     - The purchase finished within seconds. The label is a 4×6 PDF (about 78 KB), fetched with
+       a plain GET, stored, and printed through PrintNode on the JADENS in the same minute.
+     - The attempt before, with Royal Mail's own code `TPS48`, was refused: nothing bought, the
+       order back to Ready, and the next attempt bought once.
+     - `royal_mail/royal_mail_tracked_24` bought its first label on 13 Oct 2026 (CROOKS-2182):
+       Royal Mail Tracked 24 at £3.77 (45 × 35 × 10 cm, 1.61 kg), fulfilled by Shopify the same way.
+   - **Still unverified:** a lost reply against the real Shopify.
+
 ## I. Test plan
 
 **Deterministic offline tests** (fake Parcel2Go and fake Shopify that behave like the real ones, including the double charge on re-pay):
@@ -685,7 +772,7 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
 
 ## J. Scope guard: not building
 
-Warehouse/inventory, ERP, automation-rule builder, workflow canvas, carrier contract portal, branded tracking pages, insurance marketplace, analytics suite, returns (Returns owns it), 3PL, multi-warehouse optimisation, enterprise permissions, many carriers, settings beyond the one Setup page, SaaS billing (Phase 4), domestic UK labels (Shopify's own flow is fine for them; revisit after Phase 2), autonomous purchasing (the authority policy hook exists; v1 always asks).
+Warehouse/inventory, ERP, automation-rule builder, workflow canvas, carrier contract portal, branded tracking pages, insurance marketplace, analytics suite, returns (Returns owns it), 3PL, multi-warehouse optimisation, enterprise permissions, many carriers, settings beyond the one Setup page, SaaS billing (Phase 4), UK services beyond Royal Mail Tracked 24 / 48 (UK labels themselves are built: H, stage 9), autonomous purchasing (the authority policy hook exists; v1 always asks).
 
 ## Open product questions for George
 

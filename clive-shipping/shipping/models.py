@@ -179,6 +179,9 @@ class Quote(BaseModel):
     billed_by: str = ""  # "provider" (prepaid balance or card), "courier_account", "on_scan"
     rate_id: str | None = None  # the provider's id for this exact price, when it has one
     valid_until: datetime | None = None
+    # False: the provider sets the price only when buying and can't show it first (Shopify
+    # Shipping). `amount` is then zero and never shown or checked as a price.
+    price_known: bool = True
 
     @property
     def title(self) -> str:
@@ -235,6 +238,9 @@ class ShipmentDocument(BaseModel):
     attach_to_parcel: bool = False
     electronic: bool = False
     note: str = ""
+    # Why this file can't go to the label printer as it is (e.g. Shopify's label is US Letter):
+    # shown instead of printing it scaled. "" for anything else.
+    print_note: str = ""
 
 
 class Label(BaseModel):
@@ -246,6 +252,11 @@ class Label(BaseModel):
     service_name: str
     service_code: str = ""
     amount: Money
+    # False: the provider set the price when buying and CLIVE was never told it (Shopify
+    # Shipping): `amount` is zero and is never shown as the price.
+    price_known: bool = True
+    # Set when the label is bought but its file can't be fetched here: what to do instead.
+    file_note: str = ""
     tracking_number: str | None = None
     tracking_url: str | None = None
     customs: CustomsMode = CustomsMode.unknown
@@ -338,6 +349,21 @@ class Shipment(BaseModel):
     fulfillment_order_id: str
     destination: Address
     status: ShipmentStatus
+    # Going to the ship-from country (UK to UK): no customs, and the label comes from Shopify
+    # Shipping (shipping/domestic.py). Set from the address each time the order is read.
+    domestic: bool = False
+    # The delivery method the customer chose at checkout (Order.shippingLine.title), as read.
+    shipping_line: str | None = None
+    # Domestic only: the Royal Mail service for this order ("tracked_24" / "tracked_48"), from
+    # the owner's mapping of `shipping_line` or a person's choice; None: not decided.
+    domestic_service: str | None = None
+    # Who chose the service when the shipping line isn't mapped (None: the mapping decided),
+    # and the shipping line it was chosen for: a different line later voids the choice.
+    domestic_service_by: str | None = None
+    domestic_service_line: str | None = None
+    # A purchase (ledger operation id) whose outcome Shopify couldn't confirm either way: the
+    # order waits until a person has checked Shopify admin for a label (service.label_check).
+    label_check: str | None = None
     currency: str = "GBP"
     lines: list[CustomsLine] = Field(default_factory=list)
     package: PackagePlan | None = None

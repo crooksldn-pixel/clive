@@ -42,6 +42,27 @@ does. This page is the shared shape; the details are in `clive-shipping/shipping
 - Shopify is read again first: payment, address, items, weights, hold or cancel.
 - The buying authorisation still applies (`SHIPPING_BUYING_ENABLED`, or the order allowlist).
 
+**UK orders (Shopify Shipping)**, when `SHIPPING_DOMESTIC_LABELS=shopify`:
+- UK orders are listed with the rest (`domestic: true`). Their label is bought from the store's
+  Shopify Shipping account: `provider` "Shopify Shipping", service Royal Mail Tracked 24 or
+  Tracked 48, decided by the order's checkout delivery method through the owner's mapping.
+  `GET /capabilities` lists the providers, the mapping (`uk_orders.service_by_checkout_line`)
+  and whether each service can be bought (`buyable`: its Shopify code is set on the server).
+- An unmapped delivery method is `attention` with the question `domestic_service`; a person
+  picks the service in the admin. CLIVE never picks it. A service whose code isn't set is
+  `attention` with `service_code`.
+- **No price before buying.** Shopify has no rates query for apps: the preview's `money` is
+  `{"shipping_minor": 0, "currency": "GBP", "price_known": false}`, and `price` is `null`
+  wherever it appears. The price is on the store's Shopify bill. Never show £0.00 for it.
+- **Shopify's purchase isn't idempotent.** Shipping sends it once per purchase operation and
+  reads it back after a lost reply; the same `idempotency_key` replays as always. A reply lost
+  before Shopify's reference came back is settled by reading the order: a label found there is
+  adopted (its file can't be fetched: `label.file_note` says to print it from Shopify admin).
+  If nothing shows within 10 minutes, the order is `attention` with the question `label_check`:
+  only a person who has looked in Shopify admin can release it. CLIVE can't answer it.
+- Print and reprint work the same way. A label file that isn't 4×6 is never scaled: `print`
+  answers 409 with the reason (e.g. "Shopify's label file is US Letter, not 4×6 ...").
+
 **Printing**
 - `print` sends a label to PrintNode the first time only. `reprint` needs `"confirm": true`.
 - Once any copy of the label has printed, `print` answers 409 `print_refused`; `reprint` is the deliberate way.
@@ -67,7 +88,7 @@ does. This page is the shared shape; the details are in `clive-shipping/shipping
 
 `attention`, `ready`, `bought`, `printed`, `in_transit`, `delivered` (and `all`). From `shipping/lifecycle.py`:
 
-1. Not bought, and something blocks it → **attention**. Every blocker is listed: payment, weight, HS code, origin, address, hold, no service.
+1. Not bought, and something blocks it → **attention**. Every blocker is listed: payment, weight, HS code, origin, address, hold, no service (UK: which service, or its code not set).
 2. Not bought; payment allows it; ready with a service → **ready**.
 3. Bought, and Shopify's tracking says delivered → **delivered**.
 4. Bought, and the carrier has it (moving, or a carrier problem) → **in_transit**.
@@ -118,7 +139,7 @@ A finished Returns case staff mark as a test ("Leave out") keeps its record and 
 They stay separate services with separate databases, joined only through Shopify:
 
 - **A return** changes real Shopify state (`returnCreate`, `returnProcess`). Shipping never reads Returns' database.
-- **An exchange (size swap):** Returns sends `exchangeLineItems` with `returnProcess` once the item is back. Shopify then releases the replacement as a new open fulfilment order on the same order. Shipping finds it like any other order (if it goes abroad) and prices it.
+- **An exchange (size swap):** Returns sends `exchangeLineItems` with `returnProcess` once the item is back. Shopify then releases the replacement as a new open fulfilment order on the same order. Shipping finds it like any other order (if it goes abroad, or within the UK when UK labels are on) and prices it.
 - **A refund** closes the return in Shopify. No outbound shipment is created, so Shipping sees nothing.
 - **A return label** is bought by Returns from its own Parcel2Go account. It is not a Shipping label and never appears in Shipping.
 

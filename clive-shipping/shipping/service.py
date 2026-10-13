@@ -14,9 +14,10 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from shipping import duties, packages, rates, readiness, tracking
+from shipping import domestic, duties, packages, rates, readiness, tracking
 from shipping.basis import basis as fingerprint
 from shipping.commodity import SCHEME, CommodityAssistant, TariffUnavailable, spaced
+from shipping.domestic import DomesticPolicy
 from shipping.models import (
     CarrierEvent,
     CustomsMode,
@@ -31,7 +32,11 @@ from shipping.models import (
 from shipping.models import ShipmentStatus as S
 from shipping.money import Money
 from shipping.payment import payment
-from shipping.providers.base import ProviderError, ProviderRefused, ShippingProvider
+from shipping.providers.base import (
+    ProviderError,
+    ProviderRefused,
+    ShippingProvider,
+)
 from shipping.providers.reporting import quote_failure
 from shipping.purchase import ActionError, Purchases, Stale
 from shipping.shopify import FoSnapshot, ShopifyError, ShopifyPort, ShopifyRefused
@@ -74,8 +79,15 @@ class ShippingService:
         clock: Callable[[], datetime] = now,
         may_buy: Callable[[Shipment], bool] = lambda s: True,
         commodity: CommodityAssistant | None = None,
+        domestic: DomesticPolicy | None = None,
+        domestic_provider: ShippingProvider | None = None,
     ) -> None:
         self.store = store
+        # UK orders: shown and bought only when the owner switched them on (Settings.domestic).
+        self.domestic = domestic or DomesticPolicy()
+        # Who sells UK labels (Shopify Shipping). Purchases reaches it through `provider` too
+        # (the order reference names it), so this is only asked for the service it offers.
+        self.domestic_provider = domestic_provider
         # Finds and checks commodity codes against the UK Trade Tariff; None: typed by hand,
         # unchecked.
         self.commodity = commodity
@@ -126,18 +138,36 @@ class ShippingService:
             s.alerts.append(text)
             self._event(s, "alert", "system", {"text": text})
 
+    def visible(self, s: Shipment) -> bool:
+        """Whether the order is listed. UK orders only while UK labels are switched on; one
+        whose label was already bought here stays, as history."""
+        return (
+            not s.domestic
+            or self.domestic.enabled
+            or s.label is not None
+            or s.money_may_have_moved
+            or bool(s.label_check)  # held: a label may exist in Shopify
+        )
+
     # ------------------------------------------------------------------ discovery
 
     def sync(self, shop: str) -> dict[str, int]:
-        """Find open international fulfillment orders; refresh what we already know."""
+        """Find open international fulfillment orders, and UK ones when UK labels are switched
+        on; refresh what we already know."""
         cfg = self.store.config(shop)
         seen, made = set(), 0
         for snap in self.shopify.open_fulfillment_orders():
             if not snap.lines or not snap.destination.country:
                 continue
             origin_country = (cfg.origin.country if cfg.origin else "") or snap.origin.country
-            if snap.destination.country == origin_country:
-                continue  # domestic: Shopify's own flow handles it
+            if snap.destination.country == origin_country and not self.domestic.enabled:
+                continue  # domestic, and UK labels are off: Shopify's own flow handles it
+            if (
+                snap.destination.country == origin_country
+                and snap.delivery_method not in (None, "SHIPPING")
+                and self._by_fo(shop, snap.id) is None
+            ):
+                continue  # a UK collection or local delivery: no Royal Mail label for it
             if cfg.origin is None:
                 cfg.origin, cfg.origin_location_id = snap.origin, snap.origin_location_id
                 self.store.save_config(cfg)
@@ -152,6 +182,7 @@ class ShippingService:
                     order_name=snap.order_name,
                     fulfillment_order_id=snap.id,
                     destination=snap.destination,
+                    domestic=snap.destination.country == origin_country,
                     status=S.discovered,
                     currency=snap.currency,
                     created_at=at,
@@ -193,6 +224,15 @@ class ShippingService:
             return self.store.save(s) if len(s.alerts) != alerts else s
         if snap is None or not snap.open:
             why = "cancelled" if snap is not None and snap.order_cancelled else "closed in Shopify"
+            if s.status in PRE_PURCHASE and s.label_check:
+                # Held because a purchase couldn't be confirmed, and now closed in Shopify: the
+                # label may have been bought after all. Say so; never silently forget it.
+                self._alert(
+                    s,
+                    f"Shopify closed this order while CLIVE was waiting for a check of an "
+                    f"unconfirmed label purchase (CLIVE reference {s.label_check}). A label may "
+                    "have been bought: look at the order in Shopify admin.",
+                )
             if s.status in PRE_PURCHASE:
                 self._to(s, S.cancelled, "order_closed", detail={"why": why})
                 s.questions, s.quote = [], None
@@ -213,20 +253,50 @@ class ShippingService:
             self._to(s, S.needs_attention, "on_hold", detail={})
             return self.store.save(s)
         cfg = self.store.config(shop)
-        items = self.shopify.item_facts(
-            [ln.inventory_item_id for ln in snap.lines if ln.inventory_item_id]
-        )
         s.order_name, s.destination, s.currency = snap.order_name, snap.destination, snap.currency
         s.order_created_at = snap.order_created_at or s.order_created_at
         s.customer_name = snap.customer_name  # as Shopify has it now (a deleted customer: None)
+        s.shipping_line = snap.shipping_line
+        s.domestic = self._is_domestic(cfg, snap)
+        if s.domestic_service_by and s.domestic_service_line != s.shipping_line:
+            # A person's choice was for a delivery method the order no longer has: it ends.
+            self._event(s, "service_choice_dropped", "system", {"was": s.domestic_service})
+            s.domestic_service_by = s.domestic_service_line = None
+        if s.domestic and not self.domestic.enabled:
+            # UK labels were switched off: never bought here (and not listed; see visible()).
+            s.quote, s.rates = None, []
+            s.questions = [
+                Question(
+                    kind="domestic_off",
+                    subject="order",
+                    text="UK labels are switched off in CLIVE Shipping. Ship this order from "
+                    "Shopify.",
+                )
+            ]
+            self._to(s, S.needs_attention, "needs_attention", detail={"questions": ["domestic"]})
+            return self.store.save(s)
+        items = self.shopify.item_facts(
+            [ln.inventory_item_id for ln in snap.lines if ln.inventory_item_id]
+        )
         s.lines = readiness.resolve_lines(self.store, shop, snap, items)
         s.package = packages.plan(self.store, cfg, s.lines, s.package)
-        s.duties = self._duties(cfg, s)
+        # A UK parcel has no customs: no duties terms, no HS code or origin questions.
+        s.duties = None if s.domestic else self._duties(cfg, s)
+        s.domestic_service = self._domestic_service(s)
         # Every reason at once: an unpaid order still shows its missing weight or HS code.
         s.questions = (
             self._payment_questions(s)
+            + self._label_check(s)
             + self._second_label(s)
-            + readiness.questions(self.store, shop, s.lines, s.package is not None, s.destination)
+            + readiness.questions(
+                self.store,
+                shop,
+                s.lines,
+                s.package is not None,
+                s.destination,
+                customs=not s.domestic,
+            )
+            + self._domestic_questions(s)
         )
         if s.questions:
             s.quote = None
@@ -240,7 +310,13 @@ class ShippingService:
         s.provider_failures = []
         try:
             quote_all = getattr(self.provider, "quote_all", None)
-            if quote_all is not None:
+            if s.domestic:
+                # Only Shopify Shipping sells UK labels here; the international providers are
+                # never asked about a UK parcel.
+                if self.domestic_provider is None:  # switched on without the provider built
+                    raise ProviderRefused("Shopify Shipping isn't set up here.", code="provider")
+                options, s.rates_unavailable = self.domestic_provider.quotes(s), []
+            elif quote_all is not None:
                 # Every provider at once; one being down never hides the others' rates.
                 options, s.provider_failures = quote_all(s)
                 s.rates_unavailable = [f.provider for f in s.provider_failures]
@@ -248,7 +324,12 @@ class ShippingService:
                 options, s.rates_unavailable = self.provider.quotes(s), []
         except ProviderError as exc:
             # No provider could be asked: not the same as "no courier will take it".
-            s.provider_failures = exc.failures or [quote_failure(self.provider.name, exc)]
+            who = (
+                getattr(self.domestic_provider, "name", "Shopify Shipping")
+                if s.domestic
+                else self.provider.name
+            )
+            s.provider_failures = exc.failures or [quote_failure(who, exc)]
             s.quote, s.rates = None, []
             s.rates_unavailable = [f.provider for f in s.provider_failures]
             s.questions = [
@@ -266,15 +347,19 @@ class ShippingService:
             )
             return self.store.save(s)
         s.rates = options
-        rec = self.recommendation(s)
-        chosen = next(
-            (q for q in options if s.service_choice and q.service_code == s.service_choice),
-            None,
-        )
-        if chosen is None and s.service_choice:
-            self._event(s, "service_choice_dropped", "system", {"was": s.service_choice})
-            s.service_choice = None  # no longer offered: back to the recommendation
-        choice = chosen or (rec.recommended.quote if rec.recommended else None)
+        if s.domestic:
+            # The one service the owner's mapping (or a person) chose; never another.
+            choice = next((q for q in options if q.service_code == s.domestic_service), None)
+        else:
+            rec = self.recommendation(s)
+            chosen = next(
+                (q for q in options if s.service_choice and q.service_code == s.service_choice),
+                None,
+            )
+            if chosen is None and s.service_choice:
+                self._event(s, "service_choice_dropped", "system", {"was": s.service_choice})
+                s.service_choice = None  # no longer offered: back to the recommendation
+            choice = chosen or (rec.recommended.quote if rec.recommended else None)
         if choice is None:
             s.quote = None
             s.questions = [
@@ -282,8 +367,11 @@ class ShippingService:
                     kind="no_rates",
                     subject="rates",
                     text=(
-                        f"No courier offered a price for this parcel to {s.destination.country}. "
-                        "Check the package and weight."
+                        f"Shopify Shipping doesn't offer Royal Mail "
+                        f"{domestic.title(s.domestic_service)} for this parcel here."
+                        if s.domestic
+                        else f"No courier offered a price for this parcel to "
+                        f"{s.destination.country}. Check the package and weight."
                     ),
                 )
             ]
@@ -294,9 +382,60 @@ class ShippingService:
             s,
             S.ready,
             "ready",
-            detail={"service": choice.title, "price": str(choice.amount)},
+            detail={
+                "service": choice.title,
+                "price": str(choice.amount) if choice.price_known else "set when bought",
+            },
         )
         return self.store.save(s)
+
+    @staticmethod
+    def _is_domestic(cfg, snap: FoSnapshot) -> bool:
+        """Going to the ship-from country. The Channel Islands, Isle of Man and everywhere else
+        with its own country code stay international, as before."""
+        origin_country = (cfg.origin.country if cfg.origin else "") or snap.origin.country
+        return bool(origin_country) and snap.destination.country == origin_country
+
+    def _domestic_service(self, s: Shipment) -> str | None:
+        """The service for a UK order: a person's choice for this order if one was made (only
+        asked when the checkout delivery method isn't mapped), else the owner's mapping."""
+        if not s.domestic:
+            return None
+        if s.domestic_service_by and s.domestic_service_line == s.shipping_line:
+            return s.domestic_service
+        # No choice, or it was made for a delivery method the order no longer has: the
+        # mapping decides (or a person is asked again).
+        return self.domestic.service_for(s.shipping_line)
+
+    def _domestic_questions(self, s: Shipment) -> list[Question]:
+        if not s.domestic:
+            return []
+        if s.domestic_service is None:
+            why = (
+                f"The customer chose “{s.shipping_line}” at checkout, which isn't mapped to "
+                "either service."
+                if s.shipping_line
+                else "The order has no delivery method from checkout."
+            )
+            return [
+                Question(
+                    kind="domestic_service",
+                    subject="service",
+                    text=f"Which service: Tracked 24 or Tracked 48? {why}",
+                    choices=list(domestic.SERVICES.values()),
+                )
+            ]
+        if self.domestic.rate(s.domestic_service) is None:
+            return [
+                Question(
+                    kind="service_code",
+                    subject=s.domestic_service,
+                    text=f"Shopify Shipping's code for Royal Mail "
+                    f"{domestic.title(s.domestic_service)} isn't set on the server, so this label "
+                    "can't be bought here yet. CLIVE doesn't guess it or let Shopify pick.",
+                )
+            ]
+        return []
 
     def _note_payment(self, s: Shipment, snap: FoSnapshot) -> None:
         """Keep the order's payment as Shopify says it is now, and record when it starts or
@@ -309,6 +448,23 @@ class ShippingService:
                 self._event(s, "payment_blocking", "system", {"payment": now.status or None})
             elif was is not None:
                 self._event(s, "payment_cleared", "system", {"payment": now.status})
+
+    def _label_check(self, s: Shipment) -> list[Question]:
+        """A purchase whose outcome the provider couldn't confirm either way (Shopify Shipping's
+        lost reply with nothing found, or another purchase running): never bought again until
+        a person has looked in Shopify admin and says there's no label."""
+        if not s.label_check:
+            return []
+        op = self.store.op(s.shop, s.label_check)
+        return [
+            Question(
+                kind="label_check",
+                subject=s.label_check,
+                text=(op.last_error if op and op.last_error else "")
+                or "CLIVE couldn't confirm whether the last label purchase went through. Check "
+                "the order in Shopify admin for a label before buying again.",
+            )
+        ]
 
     def _second_label(self, s: Shipment) -> list[Question]:
         """Shopify can close a fulfilment order and open another for the same parcel (moved to
@@ -434,6 +590,18 @@ class ShippingService:
 
             self._commit(s, confirm)
             return self._prepare_after_answer(shop, sid)
+        if kind == "domestic_service":
+            return self._choose_domestic_service(s, value, actor)
+        if kind == "label_check":
+            if value.get("confirm") is not True or not s.label_check:
+                raise ActionError("Confirm that Shopify shows no label for this order.", 422)
+
+            def checked(x: Shipment) -> None:
+                self._event(x, "label_check_confirmed", actor, {"operation": x.label_check})
+                x.label_check = None
+
+            self._commit(s, checked)
+            return self._prepare_after_answer(shop, sid)
         if kind == "package":
             cfg = self.store.config(shop)
             try:
@@ -526,6 +694,27 @@ class ShippingService:
         self._commit(s, record)
         self._unblock_others(shop, sid, kind, subject)
         return self._prepare_after_answer(shop, sid)
+
+    def _choose_domestic_service(self, s: Shipment, value: dict[str, Any], actor: str) -> Shipment:
+        """A person picks Tracked 24 or Tracked 48 for one UK order whose checkout delivery
+        method isn't mapped. Only that order: the mapping itself is the owner's setting."""
+        if not s.domestic:
+            raise ActionError("Only UK orders have a Royal Mail service to choose.", 422)
+        service = str(value.get("service") or "")
+        if service not in domestic.SERVICES:
+            raise ActionError("Choose Tracked 24 or Tracked 48.", 422)
+        if self.domestic.service_for(s.shipping_line):
+            raise ActionError(
+                "This order's checkout delivery method already decides its service.", 409
+            )
+
+        def choose(x: Shipment) -> None:
+            x.domestic_service, x.domestic_service_by = service, actor
+            x.domestic_service_line = x.shipping_line  # the choice holds for this line only
+            self._event(x, "service_chosen", actor, {"service": domestic.title(service)})
+
+        self._commit(s, choose)
+        return self._prepare_after_answer(s.shop, s.id)
 
     def _classification(self, hs: str, given: Any, actor: str) -> dict[str, Any]:
         """What a confirmed code rests on, kept beside it. A ten-digit code is read back from the
@@ -771,6 +960,12 @@ class ShippingService:
             "CLIVE couldn't check the order in Shopify just now, so nothing was bought. "
             "Try again in a moment."
         )
+        if s.domestic and not self.domestic.enabled:
+            raise ActionError(
+                "UK labels are switched off in CLIVE Shipping, so nothing was bought.",
+                409,
+                "domestic_off",
+            )
         try:
             snap = self.shopify.fulfillment_order(s.fulfillment_order_id)
             if snap is None or not snap.open or snap.order_cancelled:
@@ -800,8 +995,16 @@ class ShippingService:
         candidate.lines = readiness.resolve_lines(self.store, shop, snap, items)
         cfg = self.store.config(shop)
         candidate.package = packages.plan(self.store, cfg, candidate.lines, s.package)
-        candidate.duties = self._duties(cfg, candidate)
-        if fingerprint(candidate) != fingerprint(s):
+        candidate.domestic = self._is_domestic(cfg, snap)
+        candidate.shipping_line = snap.shipping_line
+        candidate.domestic_service = self._domestic_service(candidate)
+        candidate.duties = None if candidate.domestic else self._duties(cfg, candidate)
+        if (
+            fingerprint(candidate) != fingerprint(s)
+            or candidate.domestic != s.domestic
+            # The delivery method changed (e.g. an order edit): the service may be different.
+            or candidate.domestic_service != s.domestic_service
+        ):
             self._event_changed(shop, sid)
             try:
                 self.prepare(shop, sid, snap)
@@ -830,17 +1033,32 @@ class ShippingService:
         cfg = self.store.config(shop)
         if s.duties:
             out["will"].append(f"Customs terms {s.duties.incoterm}: {s.duties.summary}")
-        out["will"].append(
-            f"Mark {s.order_name} fulfilled in Shopify with the tracking number"
-            + (" and email the customer" if cfg.notify_customer else "")
-        )
+        if self._sells_itself(s):
+            # Shopify may put the label's tracking on the order itself; CLIVE reads first and
+            # adds it only if Shopify hasn't.
+            out["will"].append(
+                f"{s.order_name} is marked fulfilled in Shopify with the tracking number"
+                + (", and the customer is emailed" if cfg.notify_customer else "")
+            )
+        else:
+            out["will"].append(
+                f"Mark {s.order_name} fulfilled in Shopify with the tracking number"
+                + (" and email the customer" if cfg.notify_customer else "")
+            )
         out["duties"] = s.duties.model_dump() if s.duties else None
         who = s.quote.provider if s.quote else ""
         out["charged"] = {
             "Parcel2Go": "Charged to your Parcel2Go PrePay balance.",
             "Easyship": "Charged to your Easyship account (its credit or saved payment method).",
+            "Shopify Shipping": "Charged by Shopify Shipping to your Shopify bill.",
         }.get(who, f"Charged by {who or 'the provider'}.")
         return out
+
+    def _sells_itself(self, s: Shipment) -> bool:
+        """Whether the label's seller is Shopify itself (Shopify Shipping)."""
+        name = getattr(self.domestic_provider, "name", None)
+        seller = s.label.provider if s.label else (s.quote.provider if s.quote else None)
+        return bool(name) and seller == name
 
     def buy(self, shop: str, sid: str, basis: str, actor: str, key: str) -> dict[str, Any]:
         s = self._get(shop, sid)
@@ -902,6 +1120,17 @@ class ShippingService:
         snap, readable = self._read_fo(s)
         if snap is not None and number in snap.tracking_numbers:
             return self._fulfilled(s, actor, "Already in Shopify")
+        grace = getattr(self.domestic_provider, "fulfil_grace", None)
+        if (
+            readable
+            and grace is not None
+            and self._sells_itself(s)
+            and self.clock() - s.label.purchased_at < grace
+        ):
+            # Shopify bought this label; it may still be adding the fulfilment itself. Never
+            # race it with a second one: the tick looks again, and only after the grace period
+            # (still reading first) does CLIVE add it.
+            return s
         if not readable:
             # Never create blind: an earlier attempt may already be there.
             return self._fulfil_failed(s, actor, "CLIVE couldn't read the order in Shopify.")

@@ -27,10 +27,16 @@ class ShopifyRefused(ShopifyError):
     """Shopify answered with userErrors: the write did not happen."""
 
 
+class ShopifyNotSent(ShopifyError):
+    """The request never reached Shopify, or Shopify turned it away before acting on it (429,
+    throttled): definitely not done, and safe to try again later as a new attempt."""
+
+
 FO_FIELDS = """
   id status requestStatus updatedAt
   order { id name email phone cancelledAt currencyCode displayFinancialStatus createdAt
-          customer { displayName } }
+          customer { displayName } shippingLine { title } }
+  deliveryMethod { methodType }
   assignedLocation { name address1 address2 city zip countryCode province phone location { id } }
   destination { firstName lastName company address1 address2 city province zip countryCode phone email }
   fulfillments(first: 10) { nodes { id status trackingInfo { number company url } } }
@@ -150,6 +156,11 @@ class FoSnapshot:
     financial_status: str | None = None
     order_created_at: str | None = None  # Order.createdAt: when the customer ordered
     customer_name: str | None = None  # Order.customer.displayName; None: guest or deleted
+    # The delivery method chosen at checkout (Order.shippingLine.title); None: the order has
+    # none (a draft or manual order). Decides a UK label's service (shipping/domestic.py).
+    shipping_line: str | None = None
+    # FulfillmentOrder.deliveryMethod.methodType (SHIPPING, PICK_UP, LOCAL...); None: not given.
+    delivery_method: str | None = None
 
     @property
     def open(self) -> bool:
@@ -203,6 +214,8 @@ def parse_fo(node: dict[str, Any]) -> FoSnapshot:
         financial_status=order.get("displayFinancialStatus"),
         order_created_at=order.get("createdAt"),
         customer_name=((order.get("customer") or {}).get("displayName") or None),
+        shipping_line=((order.get("shippingLine") or {}).get("title") or None),
+        delivery_method=((node.get("deliveryMethod") or {}).get("methodType") or None),
         currency=order.get("currencyCode") or "GBP",
         destination=Address(
             name=" ".join(x for x in (d.get("firstName"), d.get("lastName")) if x),
@@ -341,6 +354,32 @@ Q_ORDER_FULFILLMENTS = (
 
 Q_SHOP_TIMEZONE = "query ShopTimezone { shop { ianaTimezone } }"
 
+# Shopify Shipping (Admin API 2026-07+): buy one label for one fulfillment order. Asynchronous:
+# the result starts PENDING_PURCHASE and ends PURCHASED or PURCHASE_FAILED. Not idempotent, no
+# price before buying: sent at most once per purchase operation (providers/shopify_shipping.py).
+M_SHIPPING_LABEL_PURCHASE = """
+mutation ShippingLabelPurchase($input: ShippingLabelPurchaseInput!) {
+  shippingLabelPurchase(shippingLabelPurchase: $input) {
+    shippingLabelPurchaseResult { id status done errors { code field message } }
+    userErrors { field code message }
+  }
+}"""
+
+Q_SHIPPING_LABEL_PURCHASE = """
+query ShippingLabelPurchaseResult($id: ID!) {
+  node(id: $id) {
+    ... on ShippingLabelPurchaseResult {
+      id status done
+      errors { code field message }
+      shippingLabels {
+        id
+        trackingInfo { number company url }
+        shippingDocuments { documentType format url }
+      }
+    }
+  }
+}"""
+
 API_VERSION = "2026-10"
 
 # Every GraphQL document the app sends, for scripts/validate_graphql.py.
@@ -355,7 +394,32 @@ DOCUMENTS = (
     "Q_FULFILLMENT_TRACKING",
     "Q_ORDER_FULFILLMENTS",
     "Q_SHOP_TIMEZONE",
+    "M_SHIPPING_LABEL_PURCHASE",
+    "Q_SHIPPING_LABEL_PURCHASE",
 )
+
+# A label file is a few hundred kilobytes; anything far bigger is not a label.
+MAX_DOCUMENT_BYTES = 10_000_000
+
+# GraphQL error codes Shopify gives when it refused a request before running it.
+PRE_EXECUTION = frozenset({"ACCESS_DENIED", "MAX_COST_EXCEEDED", "BAD_REQUEST"})
+
+
+class LabelApi(Protocol):
+    """Shopify Shipping's label purchase, as providers/shopify_shipping.py needs it."""
+
+    def purchase_label(self, purchase: dict[str, Any]) -> dict[str, Any]:
+        """Send shippingLabelPurchase once, never repeated. The payload, or ShopifyNotSent
+        (definitely not done), ShopifyRefused (Shopify said no) or ShopifyError (may be done)."""
+        ...
+
+    def label_purchase(self, result_id: str) -> dict[str, Any] | None:
+        """The ShippingLabelPurchaseResult now (a read); None if Shopify doesn't have it."""
+        ...
+
+    def download(self, url: str) -> tuple[str, bytes]:
+        """A label document's file: (content type, bytes). A read."""
+        ...
 
 
 class GraphQLShopify:
@@ -428,6 +492,88 @@ class GraphQLShopify:
         if errors:
             raise ShopifyRefused("; ".join(e["message"] for e in errors))
         return payload
+
+    # ------------------------------------------------------------------ Shopify Shipping
+
+    def purchase_label(self, purchase: dict[str, Any]) -> dict[str, Any]:
+        """One POST, never repeated by this client whatever happens: the mutation buys a label
+        and Shopify documents no idempotency for it. Classified for the purchase protocol:
+        not sent (safe to try again later), refused, or unknown (may have bought)."""
+        try:
+            token = self._access_token()
+        except (ShopifyError, httpx.HTTPError, ValueError, KeyError) as exc:
+            raise ShopifyNotSent(f"Shopify's app token couldn't be fetched: {exc}") from exc
+        try:
+            r = self._http.post(
+                f"https://{self.shop}/admin/api/{self.api_version}/graphql.json",
+                json={"query": M_SHIPPING_LABEL_PURCHASE, "variables": {"input": purchase}},
+                headers={"X-Shopify-Access-Token": token},
+            )
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+            raise ShopifyNotSent(f"Shopify could not be reached: {exc}") from exc
+        except httpx.HTTPError as exc:  # sent; the answer was lost on the way back
+            raise ShopifyError(f"No answer from Shopify after sending ({exc}).") from exc
+        if r.status_code == 429:
+            raise ShopifyNotSent("Shopify is busy (429): the label purchase wasn't started.")
+        if r.status_code >= 500:
+            raise ShopifyError(f"Shopify answered {r.status_code}; the label may have been bought.")
+        if r.status_code != 200:
+            raise ShopifyRefused(f"Shopify refused the request ({r.status_code}).")
+        try:
+            body = r.json()
+            if not isinstance(body, dict):
+                raise ValueError("not an object")
+            data = body.get("data")
+            payload = (data or {}).get("shippingLabelPurchase") if isinstance(data, dict) else None
+            raw = body.get("errors") or []
+        except (ValueError, AttributeError) as exc:
+            raise ShopifyError("Shopify's answer couldn't be read.") from exc
+        errors = [e for e in raw if isinstance(e, dict)] if isinstance(raw, list) else []
+        said = "; ".join(str(e.get("message") or "error") for e in errors) or str(raw)
+        started = isinstance(payload, dict) and bool(
+            (payload.get("shippingLabelPurchaseResult") or {}).get("id")
+        )
+        if started:
+            # Shopify gave a result id: the purchase started, whatever else the answer says.
+            # The result is polled and decides.
+            return payload  # type: ignore[return-value]
+        if raw:
+            codes = {(e.get("extensions") or {}).get("code") for e in errors}
+            if codes and codes <= {"THROTTLED"}:
+                raise ShopifyNotSent("Shopify is busy (throttled): the purchase wasn't started.")
+            if (codes and codes <= PRE_EXECUTION) or (codes <= {None} and "data" not in body):
+                # Refused before the mutation ran: every error is one Shopify gives before
+                # running anything (a missing scope), or the request couldn't be parsed (no
+                # code, no data). Anything else, INTERNAL_SERVER_ERROR or a timeout inside
+                # Shopify included, with or without data, may have happened: unknown.
+                raise ShopifyRefused(said)
+            raise ShopifyError(f"Shopify answered with errors ({said}); it may have been done.")
+        if not isinstance(payload, dict):
+            raise ShopifyError("Shopify's answer had no purchase result in it.")
+        return payload
+
+    def label_purchase(self, result_id: str) -> dict[str, Any] | None:
+        node = self._call(Q_SHIPPING_LABEL_PURCHASE, {"id": result_id}).get("node")
+        return node if isinstance(node, dict) and node.get("id") else None
+
+    def download(self, url: str) -> tuple[str, bytes]:
+        """Shopify's own link to a label document. https only, and never sent the app's token
+        (the link is Shopify's to sign; the token stays with the Admin API)."""
+        if not url.startswith("https://"):
+            raise ShopifyError("Shopify's document link isn't https.")
+        try:
+            with self._http.stream("GET", url, timeout=30, follow_redirects=True) as r:
+                if r.status_code != 200:
+                    raise ShopifyError(f"The label file couldn't be fetched ({r.status_code}).")
+                body = bytearray()
+                for chunk in r.iter_bytes():
+                    body += chunk
+                    if len(body) > MAX_DOCUMENT_BYTES:
+                        raise ShopifyError("The label file is far larger than a label; not stored.")
+                kind = r.headers.get("content-type", "").split(";")[0].strip()
+        except httpx.HTTPError as exc:
+            raise ShopifyError(f"The label file couldn't be fetched: {exc}") from exc
+        return kind, bytes(body)
 
     def open_fulfillment_orders(self) -> list[FoSnapshot]:
         out, after = [], None

@@ -13,9 +13,13 @@ ALLOWED: dict[S, frozenset[S]] = {
     S.discovered: frozenset({S.needs_attention, S.ready, S.cancelled}),
     S.needs_attention: frozenset({S.ready, S.needs_attention, S.cancelled}),
     S.ready: frozenset({S.needs_attention, S.ready, S.purchasing, S.cancelled}),
-    # A buy either fails cleanly (nothing charged), becomes uncertain, or succeeds.
-    S.purchasing: frozenset({S.ready, S.reconciliation_required, S.label_purchased}),
-    S.reconciliation_required: frozenset({S.label_purchased, S.ready}),
+    # A buy either fails cleanly (nothing charged), becomes uncertain, or succeeds. Needs
+    # attention when the provider's answer leaves a person to check (Shopify Shipping: another
+    # purchase in progress, or a lost reply with nothing found).
+    S.purchasing: frozenset(
+        {S.ready, S.reconciliation_required, S.label_purchased, S.needs_attention}
+    ),
+    S.reconciliation_required: frozenset({S.label_purchased, S.ready, S.needs_attention}),
     # Back to reconciliation only if the provider later says a "paid" reply wasn't a payment.
     S.label_purchased: frozenset(
         {S.fulfilled, S.fulfillment_failed, S.void_requested, S.reconciliation_required}

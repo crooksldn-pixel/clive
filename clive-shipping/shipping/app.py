@@ -15,6 +15,7 @@ from starlette.concurrency import run_in_threadpool
 
 from shipping.admin import build_admin_router
 from shipping.api import build_api_router
+from shipping.domestic import title as domestic_title
 from shipping.providers.base import ProviderError, ShippingProvider
 from shipping.purchase import Purchases
 from shipping.service import ShippingService
@@ -61,6 +62,26 @@ def build_provider(settings: Settings, store: Store) -> ShippingProvider:
     return Providers(found)
 
 
+def build_domestic(settings: Settings, store: Store, shopify: Any) -> ShippingProvider | None:
+    """Shopify Shipping for UK labels. It buys through the same Shopify app as everything else
+    (scopes: write_orders and write_merchant_managed_fulfillment_orders). Built when UK labels
+    are on, and also after they were switched off if this shop ever bought one here, so a
+    purchase begun while they were on is still read back and finished; nothing new is bought
+    then (service.prepare and _revalidate refuse UK orders)."""
+    policy = settings.domestic()
+    if not policy.enabled and not store.has_label_purchases(settings.shop_domain):
+        return None  # never used here: international-only, exactly as before
+    from shipping.providers.shopify_shipping import ShopifyShipping
+
+    if settings.shopify_backend == "fake":
+        from shipping.fake_shopify import FakeShopifyShipping
+
+        api: Any = FakeShopifyShipping(shopify)
+    else:
+        api = shopify  # GraphQLShopify carries the label purchase calls
+    return ShopifyShipping(api, shopify, store, settings.shop_domain, policy, store.config)
+
+
 def build_service(settings: Settings) -> ShippingService:
     store = Store(settings.db_path)
     if settings.shopify_backend == "fake":
@@ -74,6 +95,14 @@ def build_service(settings: Settings) -> ShippingService:
             settings.shop_domain, settings.shopify_client_id, settings.shopify_client_secret
         )
     provider = build_provider(settings, store)
+    uk = build_domestic(settings, store, shopify)
+    if uk is not None:
+        # One purchase protocol for both: each order's reference names its provider, so a
+        # Shopify Shipping label is paid, read back and fetched only through Shopify Shipping.
+        from shipping.providers.multi import Providers
+
+        inner = getattr(provider, "providers", None) or [provider]
+        provider = Providers([*inner, uk])
     allowed = settings.authorised()
     commodity = None
     if settings.tariff_enabled:
@@ -87,6 +116,8 @@ def build_service(settings: Settings) -> ShippingService:
         Purchases(store, provider),
         may_buy=lambda s: settings.buying_enabled or _order_number(s.order_name) in allowed,
         commodity=commodity,
+        domestic=settings.domestic(),
+        domestic_provider=uk,
     )
 
 
@@ -106,7 +137,8 @@ def connection_status(settings: Settings, svc: ShippingService) -> dict[str, Any
         }
         return {**one, "providers": [one]}
     providers = getattr(svc.provider, "providers", None) or [svc.provider]
-    rows = [_check(settings, p) for p in providers]
+    uk = settings.domestic().enabled
+    rows = [_check(settings, p) for p in providers if uk or not getattr(p, "domestic_only", False)]
     if not (settings.p2g_client_id and settings.p2g_client_secret):
         rows = [r for r in rows if r["provider"] != "Parcel2Go"] + [
             {
@@ -117,14 +149,30 @@ def connection_status(settings: Settings, svc: ShippingService) -> dict[str, Any
             }
         ]
     first = rows[0]
-    return {**first, "connected": all(r["connected"] for r in rows), "providers": rows}
+    # The headline is the international connection; Shopify Shipping's row says its own state.
+    intl = [r for r in rows if r["provider"] != "Shopify Shipping"] or rows
+    return {**first, "connected": all(r["connected"] for r in intl), "providers": rows}
 
 
 def _check(settings: Settings, p: Any) -> dict[str, Any]:
     from shipping.money import Money, to_minor
     from shipping.providers.easyship import Easyship
     from shipping.providers.parcel2go import Parcel2Go
+    from shipping.providers.shopify_shipping import ShopifyShipping
 
+    if isinstance(p, ShopifyShipping):
+        # No API reads Shopify Shipping's account or terms; what CLIVE can check is its own
+        # setup: each service needs Shopify's code on the server, or it can't be bought.
+        policy = settings.domestic()
+        missing = [domestic_title(k) for k, v in policy.rates.items() if v is None]
+        return {
+            "provider": p.name,
+            "environment": "live",
+            "connected": not missing,
+            "detail": "UK labels (Royal Mail Tracked 24 / Tracked 48) from this store's "
+            "Shopify Shipping account, charged to the Shopify bill."
+            + (f" Not set on the server: the code for {' and '.join(missing)}." if missing else ""),
+        }
     if isinstance(p, Easyship):
         out: dict[str, Any] = {"provider": p.name, "environment": settings.easyship_environment}
         try:

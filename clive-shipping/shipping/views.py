@@ -15,7 +15,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from shipping import contacts, readiness, tracking
+from shipping import contacts, domestic, readiness, tracking
 from shipping.models import Address, CustomsMode, DocumentKind, Quote, Shipment
 from shipping.models import ShipmentStatus as S
 from shipping.money import Money
@@ -34,13 +34,32 @@ QUESTION_PHRASES = {
     "on_hold": "On hold in Shopify",
     "payment": "Payment not taken",
     "second_label": "Already has a label",
+    "domestic_service": "Which service?",
+    "service_code": "Shopify Shipping code not set",
+    "domestic_off": "UK labels switched off",
+    "label_check": "Check Shopify for a label",
 }
 # Not something the merchant fills in: these name the problem instead of counting details.
 # The first one present names the badge, so payment (the most basic) comes first.
-NOT_DETAILS = ("payment", "second_label", "no_rates", "provider_unavailable", "address", "on_hold")
+NOT_DETAILS = (
+    "payment",
+    "label_check",
+    "second_label",
+    "domestic_off",
+    "service_code",
+    "no_rates",
+    "provider_unavailable",
+    "address",
+    "on_hold",
+    "domestic_service",
+)
 PROBLEM_TONES = {
     "payment": "critical",
     "second_label": "critical",
+    "domestic_off": "neutral",
+    "label_check": "critical",
+    "service_code": "critical",
+    "domestic_service": "warning",
     "no_rates": "critical",
     "provider_unavailable": "caution",
     "address": "warning",
@@ -142,10 +161,22 @@ def package_text(s: Shipment) -> str:
     return f"{p.name} · {kg(p.total_weight_g)}" if p.items_weight_g else p.name
 
 
+PRICE_UNKNOWN = "Price set by Shopify Shipping"
+
+
+def price_text(q: Quote) -> str:
+    """The price to show for a service: the amount, or who sets it when nobody can say first."""
+    return str(q.amount) if q.price_known else PRICE_UNKNOWN
+
+
 def shipping_text(s: Shipment) -> str:
     if s.label is not None:
+        if not s.label.price_known:
+            return f"{s.label.carrier} {s.label.service_name} · {s.label.provider}"
         return f"{s.label.carrier} · {s.label.amount}"
     if s.quote is not None:
+        if not s.quote.price_known:
+            return f"{s.quote.title} · {s.quote.provider}"
         return f"{s.quote.carrier} · {s.quote.amount}"
     return "—"
 
@@ -209,8 +240,9 @@ def option_view(o: Option, chosen: Quote | None) -> dict[str, Any]:
         "code": q.service_code,
         "title": q.title,
         "carrier": q.carrier,
-        "price": str(q.amount),
-        "price_minor": q.amount.minor,
+        "price": price_text(q),
+        "price_minor": q.amount.minor if q.price_known else None,
+        "price_known": q.price_known,
         "days": days,
         "paperwork": o.paperwork.summary,
         "paperless": o.paperwork.mode == CustomsMode.electronic,
@@ -228,9 +260,56 @@ def option_view(o: Option, chosen: Quote | None) -> dict[str, Any]:
     }
 
 
+def domestic_view(s: Shipment) -> dict[str, Any] | None:
+    """A UK order's service, where it came from and who sells it; None for international."""
+    if not s.domestic:
+        return None
+    service = domestic.title(s.domestic_service) if s.domestic_service else None
+    if s.domestic_service_by and s.domestic_service_line == s.shipping_line:
+        why = f"Chosen for this order by {s.domestic_service_by}"
+    elif s.domestic_service:
+        why = f"From the checkout delivery method “{s.shipping_line}”"
+    else:
+        why = (
+            f"The customer chose “{s.shipping_line}” at checkout, which isn't mapped"
+            if s.shipping_line
+            else "The order has no delivery method from checkout"
+        )
+    return {
+        "service": f"{domestic.CARRIER} {service}" if service else None,
+        "provider": "Shopify Shipping",
+        "shipping_line": s.shipping_line,
+        "why": why,
+        "days": domestic.DAYS_TEXT.get(s.domestic_service or ""),
+        "price": PRICE_UNKNOWN,
+        "price_note": "Shopify Shipping sets the price when the label is bought; it shows on "
+        "your Shopify bill.",
+    }
+
+
 def shipping_view(s: Shipment, rec: Recommendation) -> dict[str, Any]:
     def one(o: Option | None) -> dict[str, Any] | None:
         return option_view(o, s.quote) if o else None
+
+    if s.domestic:
+        # One service, the owner's mapping: no recommendation, no alternatives to choose.
+        mine = next((o for o in rec.options if s.quote and o.quote is s.quote), None) or next(
+            (o for o in rec.options if s.quote and o.quote.service_code == s.quote.service_code),
+            None,
+        )
+        chosen = one(mine)
+        if chosen is not None:
+            chosen.update(paperwork="No customs (UK parcel)", reason="", roles=[])
+        return {
+            "chosen": chosen,
+            "recommended": None,
+            "cheapest": None,
+            "fastest": None,
+            "options": [chosen] if chosen else [],
+            "overridden": False,
+            "provider_failures": [f.model_dump(mode="json") for f in s.provider_failures],
+            "note": " ".join(f.safe_message for f in s.provider_failures) or None,
+        }
 
     chosen = next((o for o in rec.options if s.quote and o.quote is s.quote), None) or next(
         (o for o in rec.options if s.quote and o.quote.service_code == s.quote.service_code),
@@ -263,6 +342,15 @@ def customs_view(s: Shipment, rec: Recommendation) -> dict[str, Any]:
         minor=sum(ln.unit_value.minor * ln.quantity for ln in s.lines), currency=s.currency
     )
     items = sum(ln.quantity for ln in s.lines)
+    if s.domestic:
+        return {
+            "summary": f"{items} item{'s' if items != 1 else ''} · {value}",
+            "complete": True,
+            "duties": None,
+            "incoterm": None,
+            "state": "not_required",
+            "text": "No customs: a UK parcel",
+        }
     out: dict[str, Any] = {
         "summary": f"{items} item{'s' if items != 1 else ''} · {value}",
         "complete": all(ln.hs_code and ln.origin_country for ln in s.lines),
@@ -335,6 +423,9 @@ def actions(s: Shipment) -> list[str]:
         S.purchasing: [],
     }
     out = list(by_status.get(s.status, []))
+    if s.label is not None and s.label.file_note:
+        # Bought, but its file isn't here (it says where to print it): nothing to print.
+        return [a for a in out if a != "print"]
     if "print" in out and printed(s):
         out[out.index("print")] = "reprint"
     return out
@@ -382,6 +473,8 @@ TIMELINE = {
     "no_rates": "No courier offered a price",
     "payment_outcome_unknown": "Checking whether the label was paid",
     "payment_not_taken": "Not charged: the label wasn't bought",
+    "purchase_not_found": "No label found in Shopify after the lost reply",
+    "label_check_confirmed": "Checked: no label in Shopify",
     "purchase_failed": "Label not bought (nothing charged)",
     "reprinted": "Document printed again",
     "void_requested": "Label cancellation sent",
@@ -550,6 +643,7 @@ def detail(
         # Who the label is (or would be) bought from, for messages about it.
         "provider": (label.provider if label and label.provider else None)
         or (s.quote.provider if s.quote else None),
+        "domestic": domestic_view(s),
         "products": [
             {
                 "title": ln.title,
@@ -617,7 +711,9 @@ def detail(
             "service": label.service_name[len(label.carrier) :].strip()
             if label.service_name.lower().startswith(label.carrier.lower())
             else label.service_name,
-            "price": str(label.amount),
+            "price": str(label.amount) if label.price_known else PRICE_UNKNOWN,
+            "price_known": label.price_known,
+            "file_note": label.file_note or None,
             "tracking": label.tracking_number,
             "tracking_url": label.tracking_url,
             "documents": [
@@ -629,7 +725,8 @@ def detail(
                     "pages": doc.pages,
                     "copies": doc.copies_required,
                     "must_print": doc.must_print or doc.kind == DocumentKind.shipping_label,
-                    "note": doc.note,
+                    "note": doc.print_note or doc.note,
+                    "pdf": doc.media_type == "application/pdf",
                 }
                 for doc in label.documents
                 if doc.artifact_id
