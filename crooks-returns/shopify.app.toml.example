@@ -2,6 +2,7 @@
 # app whose sections are separate services on the same address (see Caddyfile):
 #   /admin            Returns    (crooks-returns)
 #   /shipping/admin   Shipping   (clive-shipping)
+#   /preorders/admin  Preorders  (clive-preorders; its storefront block is in extensions/)
 #   /settings         Settings   (links to each service's own settings)
 # Copy to shopify.app.toml, fill in the two placeholders, then from this folder run:
 #   npx @shopify/cli app config link     (pick the existing app)
@@ -26,7 +27,12 @@ redirect_urls = ["https://<RETURNS HOST>/auth/callback"]
 #   write_merchant_managed_fulfillment_orders  fulfillmentCreate (label tracking on the order)
 #   read_inventory, write_inventory            HS code, origin, weight (inventoryItemUpdate)
 #   read_locations                             the ship-from address
-scopes = "read_orders,read_customers,read_products,read_returns,write_returns,read_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,read_third_party_fulfillment_orders,read_store_credit_accounts,read_store_credit_account_transactions,write_store_credit_account_transactions,write_merchant_managed_fulfillment_orders,read_inventory,write_inventory,read_locations"
+# then Preorders' additions (docs/preorders/IMPLEMENTATION_PLAN.md, section 5):
+#   read_purchase_options, write_purchase_options  the PRE_ORDER selling plans
+#   write_products                             variant inventory policy, the $app:preorder metafield
+# Shopify may ask for purchase-option access to be requested in the Dev Dashboard; until it's
+# granted, PREORDERS_SELLING_PLANS stays "off" and nothing is sold as a preorder.
+scopes = "read_orders,read_customers,read_products,read_returns,write_returns,read_merchant_managed_fulfillment_orders,read_assigned_fulfillment_orders,read_third_party_fulfillment_orders,read_store_credit_accounts,read_store_credit_account_transactions,write_store_credit_account_transactions,write_merchant_managed_fulfillment_orders,read_inventory,write_inventory,read_locations,read_purchase_options,write_purchase_options,write_products"
 
 # crooksldn.com/apps/returns/* is forwarded, signed, to https://<RETURNS HOST>/proxy/*
 [app_proxy]
@@ -40,3 +46,17 @@ api_version = "2026-10"
   [[webhooks.subscriptions]]
   topics = ["returns/close", "returns/cancel", "returns/decline"]
   uri = "https://<RETURNS HOST>/webhooks/shopify"
+
+  # CLIVE Preorders: recorded at once and processed by its timer. orders/updated also covers
+  # cancellations, refunds, edits and fulfilments.
+  [[webhooks.subscriptions]]
+  topics = ["orders/create", "orders/updated", "inventory_levels/update"]
+  uri = "https://<RETURNS HOST>/preorders/webhooks/shopify"
+
+# CLIVE Preorders: a small storefront-readable summary per variant (state, dispatch date, selling
+# plan). The operational data stays in the Preorders database.
+[product_variant.metafields.app.preorder]
+type = "json"
+name = "Pre-order"
+description = "CLIVE Preorders: state, expected dispatch and selling plan for this variant"
+access.storefront = "public_read"

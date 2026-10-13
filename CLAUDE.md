@@ -6,7 +6,8 @@ This repo holds the CROOKS Shopify theme (Liquid, at the root) and the Shopify *
 | --- | --- | --- |
 | CROOKS Returns | `crooks-returns/` | live at crooksldn.com/pages/returns |
 | CLIVE Shipping | `clive-shipping/` | in development, see `docs/shipping/DESIGN.md` |
-| Restock, Fit/Size, Preorder, Wishlist, Stock Intelligence, Offers | (future) | build in the same pattern |
+| CLIVE Preorders | `clive-preorders/` (storefront block in `crooks-returns/extensions/clive-preorders/`) | built, not deployed; see `docs/preorders/IMPLEMENTATION_PLAN.md` |
+| Restock, Fit/Size, Wishlist, Stock Intelligence, Offers | (future) | build in the same pattern |
 
 Sister apps are separate services that share patterns, not code: Python 3.11, FastAPI, httpx,
 Pydantic, SQLite, pytest and ruff; Shopify Admin GraphQL; embedded admin built with Polaris web
@@ -30,7 +31,7 @@ go in chat or the repo; they are set on the server.
 
 ## Checks
 
-Run from the app's directory (`crooks-returns/` or `clive-shipping/`):
+Run from the app's directory (`crooks-returns/`, `clive-shipping/` or `clive-preorders/`):
 
 ```bash
 python -m pytest -q                    # tests

@@ -119,3 +119,24 @@ They stay separate services with separate databases, joined only through Shopify
 - **A return label** is bought by Returns from its own Parcel2Go account. It is not a Shipping label and never appears in Shipping.
 
 Nothing in Shipping reaches into Returns, or Returns into Shipping. If a later need arises (for example, linking an exchange's outbound parcel to its return), it should read Shopify's order: the exchange's fulfilment order belongs to the original order.
+
+## Preorders: which lines can be dispatched (read only)
+
+CLIVE Preorders (`clive-preorders/`) answers one question for Shipping and CLIVE: can this
+order line go out now? Base `https://returns.crooksldn.com/preorders/api/v1`, keys
+`PREORDERS_CLIVE_READ_KEYS` (bearer, as above). It has no write operations for CLIVE.
+
+| Call | Answer |
+| --- | --- |
+| `GET /orders/{order_id}/classification` | every line: `IN_STOCK`, `PREORDER_WAITING`, `PREORDER_READY` or `CANCELLED`, with `expected_dispatch_at`, `promised_dispatch_at`, `inbound_batch`, `selling_plan_id` |
+| `GET /lines/{line_item_id}/classification` | the same for one line, from Preorders' records only |
+| `GET /variants/{variant_id}/state` | `IN_STOCK`, `PREORDER` or `NOTIFY_ME` |
+| `GET /preorders?view=` · `GET /batches` | preorder lines; inbound batches with totals |
+
+- Prefer the order call: it reads the order from Shopify and takes in any preorder line it
+  hasn't seen yet, so a preorder is never reported as in stock. The line call can only say
+  `IN_STOCK` for a line it doesn't know.
+- Shipping needs no change to keep preorders back: a preorder line sits on a **SCHEDULED**
+  fulfilment order until its date or until staff release it, and Shipping reads only open
+  ones. In a mixed order the in-stock lines are on their own open fulfilment order and ship now.
+

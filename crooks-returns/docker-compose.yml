@@ -35,12 +35,25 @@ services:
     expose:
       - "8120"
 
+  # CLIVE Preorders: its own service, database and .env, served under /preorders.
+  preorders:
+    build: ../clive-preorders
+    restart: unless-stopped
+    env_file: ../clive-preorders/.env
+    environment:
+      PREORDERS_DB_PATH: /data/preorders.sqlite3
+    volumes:
+      - ../clive-preorders/data:/data
+    expose:
+      - "8130"
+
   caddy:
     image: caddy:2
     restart: unless-stopped
     depends_on:
       - returns
       - shipping
+      - preorders
     # Only the public address: Tailscale already listens on 443 on the tailnet address, and
     # Linux will not let a second program take 443 on every address while it does.
     ports:

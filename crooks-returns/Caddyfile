@@ -1,6 +1,8 @@
 # CROOKS Operations on one address over HTTPS (certificate from Let's Encrypt). One embedded
 # Shopify app; each section is its own service with its own data:
 #   /shipping/*  -> clive-shipping (prefix removed: the service sees /admin, /health ...)
+#   /preorders/* -> clive-preorders (prefix removed), and /proxy/preorders/* (kept) for the
+#                   storefront through the app proxy
 #   /settings    -> a static page linking to each service's own settings (ops-shell/)
 #   everything else -> crooks-returns (its admin, the customer portal proxy, webhooks)
 {$RETURNS_DOMAIN} {
@@ -8,6 +10,16 @@
 
 	handle_path /shipping/* {
 		reverse_proxy shipping:8120
+	}
+
+	handle_path /preorders/* {
+		reverse_proxy preorders:8130
+	}
+
+	# The storefront's Notify me signups come through the shared app proxy
+	# (crooksldn.com/apps/returns/preorders/* -> /proxy/preorders/*), signed by Shopify.
+	handle /proxy/preorders/* {
+		reverse_proxy preorders:8130
 	}
 
 	handle /settings {

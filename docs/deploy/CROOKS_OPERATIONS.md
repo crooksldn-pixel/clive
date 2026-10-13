@@ -7,6 +7,7 @@ sections, each its own service with its own data:
 | --- | --- | --- | --- |
 | Returns | `/admin` | `crooks-returns` | `crooks-returns/data/returns.sqlite3` |
 | Shipping | `/shipping/admin` | `clive-shipping` | `clive-shipping/data/shipping.sqlite3` |
+| Pre-orders | `/preorders/admin` | `clive-preorders` | `clive-preorders/data/preorders.sqlite3` (deploy: `clive-preorders/README.md`) |
 | Settings | `/settings` | static page (`ops-shell/`) | none: links to each service's own settings |
 
 Caddy routes the paths (`crooks-returns/Caddyfile`). The services share only the Shopify app
