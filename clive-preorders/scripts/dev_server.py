@@ -152,7 +152,8 @@ You pay the full price today. This item ships separately from anything in stock.
 it's available.</p><button type="button" class="button button--secondary clive-preorder__open"
 data-clive-open aria-expanded="false">Notify me</button>
 <div class="clive-preorder__form" data-clive-form role="group" hidden><label
-class="clive-preorder__label" for="e1">Email</label><input id="e1" class="clive-preorder__input"
+class="clive-preorder__label" for="e1">Email</label><input id="e1" form="clive-preorder-no-form"
+class="clive-preorder__input"
 type="email" name="email" autocomplete="email" required><button type="button"
 class="button clive-preorder__submit" data-clive-submit>Notify me</button><p
 class="clive-preorder__small">We'll only email you about this size.</p></div>

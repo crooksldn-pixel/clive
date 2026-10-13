@@ -66,11 +66,14 @@
       {{- 'notify.button' | t -}}
     </button>
     {%- comment -%} Not a <form>: themes may render this block inside their product form, and
-      browsers drop a form nested in another. The script sends it. {%- endcomment -%}
+      browsers drop a form nested in another. The script sends it. The field names a form that
+      doesn't exist, so it belongs to no form: the theme's Add to cart neither checks it (an empty
+      required field would stop the sale) nor sends it. {%- endcomment -%}
     <div class="clive-preorder__form" data-clive-form role="group" aria-label="{{ 'notify.button' | t }}" hidden>
       <label class="clive-preorder__label" for="clive-email-{{ block.id }}">{{ 'notify.email' | t }}</label>
       <input
         id="clive-email-{{ block.id }}"
+        form="clive-preorder-no-form"
         class="clive-preorder__input"
         type="email"
         name="email"

@@ -105,6 +105,10 @@ First-deploy checks:
   than 5 minutes, or for another shop, are refused.
 - The theme's product form keeps the selected variant in a field named `id` (all Online Store
   2.0 themes do). The block follows that field.
+- The block may sit inside the theme's add-to-cart form (the CROOKS "Product Record" section puts
+  app blocks there). It has no `<form>` and its email field belongs to no form, so it never stops
+  Add to cart or rides along with it. The theme must send the form's own fields (it may add its
+  own), so `selling_plan` reaches the cart, and must not show its own Notify me as well.
 
 Privacy: a signup can be deleted from Notify me (per person); finished signups (notified,
 converted, unsubscribed) are deleted a year after they finished; logs carry ids, not emails. An
