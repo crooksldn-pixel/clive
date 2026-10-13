@@ -24,6 +24,8 @@ import httpx
 
 from preorders.store import iso, new_id
 
+REDACTED = "[redacted]"  # as set by Waitlist.redact_email
+
 log = logging.getLogger("preorders.comms")
 
 
@@ -252,8 +254,9 @@ class Communications:
                 {
                     "order_id": r["order_id"],
                     "order_name": r["order_name"],
-                    "email": r["customer_email"],
-                    "name": r["customer_name"],
+                    # A redacted customer can't be written to.
+                    "email": None if r["customer_email"] == REDACTED else r["customer_email"],
+                    "name": None if r["customer_name"] == REDACTED else r["customer_name"],
                     "lines": [],
                 },
             )

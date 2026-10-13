@@ -114,16 +114,28 @@ class Waitlist:
             actor,
         )
 
-    def redact_email(self, email: str) -> int:
-        """customers/redact or a deletion request: every signup for the address goes."""
-        n = self.store.x(
-            "DELETE FROM waitlist WHERE shop = ? AND email = ?",
-            (self.svc.shop, (email or "").strip().lower()),
-        )
-        self.store.x(
-            "UPDATE communications SET recipient = '[redacted]' WHERE shop = ? AND recipient = ?",
-            (self.svc.shop, (email or "").strip().lower()),
-        )
+    def redact_email(self, email: str, order_ids: list[str] | None = None) -> int:
+        """customers/redact or a deletion request: every signup for the address goes, and the
+        name and email on their preorder lines (matched by address or by the orders Shopify
+        names) and on the delivery log are replaced. Order facts (units, dates) stay."""
+        email = (email or "").strip().lower()
+        orders = order_ids or []
+        with self.store.tx():
+            n = self.store.x(
+                "DELETE FROM waitlist WHERE shop = ? AND email = ?", (self.svc.shop, email)
+            )
+            self.store.x(
+                "UPDATE communications SET recipient = '[redacted]' WHERE shop = ? AND "
+                "recipient = ?",
+                (self.svc.shop, email),
+            )
+            marks = ",".join("?" * len(orders)) or "NULL"
+            self.store.x(
+                "UPDATE preorder_lines SET customer_name = '[redacted]', customer_email = "
+                f"'[redacted]' WHERE shop = ? AND (LOWER(customer_email) = ? OR order_id IN "
+                f"({marks}))",
+                (self.svc.shop, email, *orders),
+            )
         return n
 
     def purge_old(self) -> int:

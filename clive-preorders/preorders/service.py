@@ -33,6 +33,9 @@ from preorders.store import Store, iso, new_id, now
 log = logging.getLogger("preorders.service")
 
 
+REDACTED = "[redacted]"
+
+
 class ActionError(Exception):
     def __init__(self, message: str, status: int = 409, code: str = "refused") -> None:
         super().__init__(message)
@@ -899,6 +902,10 @@ class PreordersService:
                 existing = self.store.one(
                     "SELECT * FROM preorder_lines WHERE line_item_id = ?", (line.line_item_id,)
                 )
+                redacted_order = self.store.value(
+                    "SELECT 1 FROM preorder_lines WHERE order_id = ? AND customer_email = ?",
+                    (snap.order_id, REDACTED),
+                )
                 if existing is None:
                     current_day = self.offer_dispatch(offer)
                     self.store.insert(
@@ -909,8 +916,8 @@ class PreordersService:
                             "order_id": snap.order_id,
                             "order_name": snap.name,
                             "line_item_id": line.line_item_id,
-                            "customer_name": snap.customer_name,
-                            "customer_email": snap.email,
+                            "customer_name": REDACTED if redacted_order else snap.customer_name,
+                            "customer_email": REDACTED if redacted_order else snap.email,
                             "product_id": line.product_id,
                             "variant_id": line.variant_id,
                             "sku": line.sku,
@@ -955,8 +962,14 @@ class PreordersService:
                         existing["id"],
                         {
                             "order_name": snap.name,
-                            "customer_name": snap.customer_name,
-                            "customer_email": snap.email,
+                            **(
+                                {}  # redacted on request: a re-read never restores them
+                                if existing["customer_email"] == REDACTED
+                                else {
+                                    "customer_name": snap.customer_name,
+                                    "customer_email": snap.email,
+                                }
+                            ),
                             "current_quantity": line.current_quantity,
                             "fulfilled_quantity": fulfilled,
                             "cancelled_at": snap.cancelled_at,
@@ -1068,8 +1081,8 @@ class PreordersService:
             self.store.one(
                 "SELECT COALESCE(SUM(current_quantity - fulfilled_quantity), 0) AS units, "
                 "COUNT(*) AS lines, COUNT(DISTINCT order_id) AS orders, "
-                "COUNT(DISTINCT COALESCE(customer_email, order_id)) AS customers FROM "
-                "preorder_lines "
+                "COUNT(DISTINCT COALESCE(NULLIF(customer_email, '[redacted]'), order_id)) "
+                "AS customers FROM preorder_lines "
                 "WHERE batch_id = ? AND cancelled_at IS NULL AND state IN ('AWAITING_STOCK', "
                 "'READY')",
                 (batch_id,),

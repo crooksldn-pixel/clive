@@ -95,7 +95,11 @@ class RateLimiter:
         self.hits: dict[str, deque[float]] = defaultdict(deque)
 
     def allow(self, key: str) -> bool:
-        q, t = self.hits[key], time.monotonic()
+        t = time.monotonic()
+        if len(self.hits) > 10_000:  # forget keys whose window has passed
+            for k in [k for k, q in self.hits.items() if not q or t - q[-1] > self.window]:
+                del self.hits[k]
+        q = self.hits[key]
         while q and t - q[0] > self.window:
             q.popleft()
         if len(q) >= self.limit:
@@ -516,6 +520,7 @@ def proxy_router(svc: PreordersService, settings: Settings) -> APIRouter:
     """The storefront, through Shopify's signed app proxy. No customer account needed."""
     router = APIRouter(prefix="/proxy/preorders")
     per_ip = RateLimiter(settings.signup_ip_limit, 3600)
+    per_email = RateLimiter(settings.signup_email_limit, 3600)
 
     def signed(request: Request) -> None:
         if settings.dev_skip_admin_auth and "signature" not in request.query_params:
@@ -536,8 +541,11 @@ def proxy_router(svc: PreordersService, settings: Settings) -> APIRouter:
 
     @router.post("/waitlist", dependencies=[Depends(signed)])
     def signup(body: SignupBody, request: Request) -> JSONResponse:
-        ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "")
-        if not per_ip.allow(ip.split(",")[0].strip()):
+        # The hop Caddy added (Caddy replaces the header from untrusted senders).
+        hops = request.headers.get("x-forwarded-for", "")
+        ip = hops.split(",")[-1].strip() or (request.client.host if request.client else "")
+        email = body.email.strip().lower()
+        if not per_email.allow(email) or not per_ip.allow(ip):
             return JSONResponse({"message": "Too many tries. Try again later."}, status_code=429)
         customer = request.query_params.get("logged_in_customer_id") or None
         try:
@@ -669,7 +677,8 @@ def create_app(
             resource = gid("InventoryItem", str(data.get("inventory_item_id") or ""))
         elif topic == "customers/redact":
             email = (data.get("customer") or {}).get("email") or ""
-            await run_in_threadpool(svc.waitlist.redact_email, email)
+            orders = [gid("Order", str(n)) for n in data.get("orders_to_redact") or []]
+            await run_in_threadpool(svc.waitlist.redact_email, email, orders)
             return {"ok": True}
         else:
             return {"ok": True, "ignored": topic}

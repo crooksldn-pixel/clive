@@ -52,8 +52,11 @@ class Settings(BaseSettings):
     reconcile_every_min: int = 60
     # Local work only: the admin API answers without a Shopify session token.
     dev_skip_admin_auth: bool = Field(default=False)
-    # Waitlist signups through the app proxy: at most this many per address per hour.
-    signup_ip_limit: int = 20
+    # Waitlist signups through the app proxy, per hour. Requests arrive from Shopify's proxy, so
+    # the address may be shared by every shopper: the address limit is only a flood brake, and
+    # the real limit is per email (signing someone up to many alerts is the abuse to stop).
+    signup_email_limit: int = 10
+    signup_ip_limit: int = 300
 
     def keys(self, kind: str) -> list[str]:
         def split(raw: str) -> list[str]:
