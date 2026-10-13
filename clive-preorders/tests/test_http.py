@@ -216,3 +216,44 @@ def test_signup_limits_follow_the_email_not_the_shared_proxy_address(client, svc
         for v in vids
     ]
     assert codes == [200] * 10 + [429] * 2
+
+
+def test_one_bad_webhook_neither_stops_the_timer_nor_hides(client, svc, jogger, monkeypatch):
+    svc.record_webhook("e1", "orders/updated", "gid://shopify/Order/1")
+    monkeypatch.setattr(svc, "ingest_order", lambda oid: {}["boom"])  # an unexpected KeyError
+    refreshed = []
+    monkeypatch.setattr(svc, "refresh_catalog", lambda *a: refreshed.append(1) or 0)
+    client.app.state.tick()  # must not raise
+    row = svc.store.one("SELECT attempts, error FROM webhook_inbox WHERE event_id = 'e1'")
+    assert row["attempts"] == 1 and "boom" in row["error"]
+    assert refreshed  # the other steps still ran
+    kinds = {a["kind"] for a in svc.overview()["attention"]}
+    assert "webhooks" in kinds
+
+
+def test_a_failing_background_step_is_shown(client, svc, monkeypatch):
+    def broken(*a):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(svc, "sync_all", broken)
+    client.app.state.tick()
+    steps = {a["kind"]: a["text"] for a in svc.overview()["attention"]}
+    assert "disk full" in steps["background"]
+
+
+def test_reconciliation_always_reports_and_keeps_the_words(svc, shopify, jogger, monkeypatch):
+    from preorders.reconcile import last_report, reconcile
+
+    pid, sizes = jogger
+    open_preorder(svc, pid, sizes)
+    svc.ingest_order(shopify.checkout([(sizes["S"], 1, shopify.plan_of(sizes["S"]))]))
+
+    def broken(oid):
+        raise ValueError("unexpected order shape")
+
+    monkeypatch.setattr(svc, "ingest_order", broken)
+    report = reconcile(svc)
+    assert report["needs_attention"] and "unexpected order shape" in report["errors"][0]
+    saved = last_report(svc)
+    assert saved and "unexpected order shape" in json.loads(saved["detail"])["errors"][0]
+    assert "reconcile" in {a["kind"] for a in svc.overview()["attention"]}

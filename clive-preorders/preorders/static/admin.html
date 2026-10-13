@@ -104,11 +104,29 @@ async function api(path, { method = "GET", body } = {}) {
     res = await fetch(`${BASE}/admin/api${path}`, { method, headers,
       body: body === undefined ? undefined : JSON.stringify(body) });
   } catch (e) {
-    throw new ApiError(0, { message: "The connection dropped before CLIVE answered.", code: "network" });
+    throw new ApiError(0, { message: method === "GET" ? "The connection dropped before CLIVE answered."
+      : "The connection dropped before CLIVE answered: it may have been done. Check before trying again.", code: "network" });
   }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.detail);
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    if (data && data.detail) throw new ApiError(res.status, data.detail);
+    // No answer from the service itself (a proxy error): a change may still have happened.
+    throw new ApiError(res.status, { code: "no_answer", message: method === "GET"
+      ? `CLIVE didn't answer (HTTP ${res.status}). Try again in a moment.`
+      : `CLIVE didn't answer (HTTP ${res.status}): it may have been done. Check before trying again.` });
+  }
+  if (data === null) throw new ApiError(res.status, { code: "no_answer", message: "CLIVE's answer couldn't be read. Check before trying again." });
   return data;
+}
+
+// An offer saved here but not (yet) reflected in Shopify: never shown as plain success.
+function syncBanner(view) {
+  return view.sync_error ? `<s-banner tone="warning" heading="Shopify isn't in step with this preorder yet">${esc(view.sync_error)} It is tried again automatically every few minutes.</s-banner>` : "";
+}
+
+function syncToast(view, done) {
+  if (view && view.sync_error) toast(`${done}, but Shopify isn't updated yet: ${view.sync_error}`, true);
+  else toast(done);
 }
 
 function toast(message, isError = false) {
@@ -324,7 +342,7 @@ async function renderSetup(batchId, productNum) {
   const disc = view ? view.discount_type : "NONE";
   page(`Preorder · ${lines[0].product_title}`, `<s-link slot="breadcrumb-actions" data-go='${esc(JSON.stringify({ batch: b.id }))}' href="${BASE}/admin?batch=${esc(b.id)}">${esc(b.reference)}</s-link>` +
     (live ? `<s-button slot="secondary-actions" tone="critical" data-action="close-offer">Stop preorder</s-button>` : ""),
-    (view ? plansBanner(view) : "") +
+    (view ? plansBanner(view) : "") + (view ? syncBanner(view) : "") +
     `<s-section heading="Sizes"><s-paragraph color="subdued">Preorder quantity defaults to what's coming; keep some back as safety stock by setting it lower.</s-paragraph>
       <s-table><s-table-header-row><s-table-header listSlot="primary">Size</s-table-header><s-table-header listSlot="labeled" format="numeric">Arriving</s-table-header>
       <s-table-header listSlot="labeled">Preorder quantity</s-table-header><s-table-header listSlot="labeled" format="numeric">Preordered</s-table-header><s-table-header listSlot="labeled" format="numeric">Remaining</s-table-header></s-table-header-row>
@@ -463,7 +481,7 @@ function renderBatch(b) {
       <s-table-cell><span class="num">${x.received_quantity} / ${x.expected_quantity}</span></s-table-cell>
       <s-table-cell>${live ? `<s-stack direction="inline" gap="small-200"><s-button variant="tertiary" data-action="adjust" data-line="${esc(x.id)}">Adjust</s-button>${x.outstanding ? `<s-button variant="tertiary" data-action="receive" data-line="${esc(x.id)}">Receive</s-button>` : ""}</s-stack>` : ""}</s-table-cell>
     </s-table-row>`).join("");
-  const offers = b.offers.length ? b.offers.map((o) => `<s-stack direction="inline" gap="small-200" alignItems="center"><s-link data-go='${esc(JSON.stringify({ setup: b.id, product: num(o.product_id) }))}' href="${BASE}/admin?setup=${esc(b.id)}&product=${num(o.product_id)}">${esc(o.product_title)}</s-link>${badge(o.status === "ACTIVE" ? "Live" : o.status === "DRAFT" ? "Not live" : "Stopped", o.status === "ACTIVE" ? "success" : "neutral")}${o.sync_error ? `<s-text color="subdued">${esc(o.sync_error)}</s-text>` : ""}</s-stack>`).join("")
+  const offers = b.offers.length ? b.offers.map((o) => `<s-stack direction="inline" gap="small-200" alignItems="center"><s-link data-go='${esc(JSON.stringify({ setup: b.id, product: num(o.product_id) }))}' href="${BASE}/admin?setup=${esc(b.id)}&product=${num(o.product_id)}">${esc(o.product_title)}</s-link>${badge(o.status === "ACTIVE" ? "Live" : o.status === "DRAFT" ? "Not live" : "Stopped", o.status === "ACTIVE" ? "success" : "neutral")}${o.sync_error ? `${badge("Not in step with Shopify", "warning")}<s-text color="subdued">${esc(o.sync_error)}</s-text>` : ""}</s-stack>`).join("")
     : `<s-text color="subdued">No preorder uses this batch yet.</s-text>`;
   const products = [...new Set(b.lines.map((x) => num(x.product_id)))];
   const setupButtons = live ? products.filter((pn) => !b.offers.some((o) => num(o.product_id) === pn)).map((pn) => {
@@ -471,7 +489,11 @@ function renderBatch(b) {
     return `<s-button slot="secondary-actions" data-go='${esc(JSON.stringify({ setup: b.id, product: pn }))}' href="${BASE}/admin?setup=${esc(b.id)}&product=${pn}">Set up preorder: ${esc(t)}</s-button>`;
   }).join("") : "";
   const a = b.affected;
-  const receipts = b.receipts.length ? `<s-section heading="Receipts"><s-stack gap="small-200">${b.receipts.map((r) => `<s-text>${when(r.created_at)} · ${r.quantity} received · ${esc(r.status === "APPLIED" ? "added to Shopify" : r.status === "UNKNOWN" ? "Shopify didn't confirm: press Receive again" : r.status.toLowerCase())}</s-text>`).join("")}</s-stack></s-section>` : "";
+  const unconfirmed = b.receipts.filter((r) => r.status === "UNKNOWN" || r.status === "PENDING");
+  const receiptWords = { APPLIED: "added to Shopify", UNKNOWN: "Shopify didn't confirm", PENDING: "not confirmed by Shopify", FAILED: "refused by Shopify" };
+  const receipts = b.receipts.length ? `<s-section heading="Receipts"><s-stack gap="small-200">
+    ${unconfirmed.length ? `<s-banner tone="warning" heading="${unconfirmed.length} receipt${unconfirmed.length === 1 ? "" : "s"} not confirmed by Shopify">Shopify's stock may or may not include ${unconfirmed.length === 1 ? "it" : "them"}. Confirm with Shopify resends the same request, which can't add the stock twice.</s-banner>` : ""}
+    ${b.receipts.map((r) => `<s-stack direction="inline" gap="small-200" alignItems="center"><s-text>${when(r.created_at)} · ${r.quantity} received · ${esc(receiptWords[r.status] || r.status.toLowerCase())}${r.status === "FAILED" && r.error ? `: ${esc(r.error)}` : ""}</s-text>${r.status === "UNKNOWN" || r.status === "PENDING" ? `<s-button data-action="retry-receipt" data-id="${esc(r.id)}">Confirm with Shopify</s-button>` : ""}</s-stack>`).join("")}</s-stack></s-section>` : "";
   const modals = `
     <s-modal id="dates-modal" heading="Change dates">
       <s-stack gap="base">
@@ -639,13 +661,13 @@ const ACTIONS = {
       product_id: num(lines[0].product_id), batch_id: batch.id, variants: chosen,
       discount_type: type, discount_value: type === "PERCENTAGE" ? Number(val("discount-value") || 0) : 0,
       dispatch_at: val("dispatch") || null } });
-    if (el.dataset.activate) { await api(`/offers/${saved.id}/activate`, { method: "POST" }); toast("Preorder started"); }
-    else toast("Saved");
+    if (el.dataset.activate) syncToast(await api(`/offers/${saved.id}/activate`, { method: "POST" }), "Preorder started");
+    else syncToast(saved, "Saved");
     await route();
   }),
   "close-offer": (el) => withButton(el, async () => {
     if (!confirm("Stop this preorder? Customers can't preorder these sizes any more; orders already placed are kept.")) return;
-    await api(`/offers/${state.data.offer.id}/close`, { method: "POST" }); toast("Preorder stopped"); await route();
+    syncToast(await api(`/offers/${state.data.offer.id}/close`, { method: "POST" }), "Preorder stopped"); await route();
   }),
   "save-dates": (el) => withButton(el, async () => {
     const b = state.data;
@@ -693,6 +715,10 @@ const ACTIONS = {
     if (!confirm("Cancel this batch? Its preorders stop selling.")) return;
     await api(`/batches/${state.data.id}/status`, { method: "POST", body: { status: "CANCELLED" } });
     toast("Batch cancelled"); await route();
+  }),
+  "retry-receipt": (el) => withButton(el, async () => {
+    await api(`/receipts/${el.dataset.id}/retry`, { method: "POST" });
+    toast("Confirmed: added to Shopify"); await route();
   }),
   "notify-waitlist": (el) => withButton(el, async () => {
     const r = await api(`/waitlist/${num(state.data.variant.variant_id)}/notify`, { method: "POST" });

@@ -105,9 +105,11 @@
           body: JSON.stringify({ variant_id: String(current), email: email.value.trim() }),
         });
         const data = await res.json().catch(() => ({}));
-        message.textContent = res.ok ? (data.message || okText) : (data.message || errText);
+        // Only the app's own answer counts as success (a theme or error page can answer 200).
+        const ok = res.ok && ["joined", "already", "available"].includes(data.status);
+        message.textContent = ok ? (data.message || okText) : (data.message || errText);
         message.hidden = false;
-        if (res.ok) signup.hidden = true;
+        if (ok) signup.hidden = true;
       } catch (e) {
         message.textContent = errText;
         message.hidden = false;

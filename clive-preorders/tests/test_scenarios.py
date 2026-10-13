@@ -175,9 +175,23 @@ def test_lost_receipt_reply_is_retried_with_the_same_key(svc, shopify, jogger):
     assert line_of(svc, svc.batch(batch["id"]), sizes["S"])["received_quantity"] == 0
     with pytest.raises(ActionError):  # a different receipt waits for that one
         svc.receive(ln["id"], 5, "receipt-other", "Sam")
-    svc.receive(ln["id"], 10, "receipt-lost-1", "Sam")
+    # Staff confirm it from the batch page (the dialog that held the key is gone by then).
+    unconfirmed = next(r for r in svc.batch(batch["id"])["receipts"] if r["status"] == "UNKNOWN")
+    svc.retry_receipt(unconfirmed["id"], "Sam")
     assert line_of(svc, svc.batch(batch["id"]), sizes["S"])["received_quantity"] == 10
     assert shopify.variants_by_id[sizes["S"]].available == 10
+    svc.retry_receipt(unconfirmed["id"], "Sam")  # a second press adds nothing
+    assert shopify.variants_by_id[sizes["S"]].available == 10
+
+
+def test_a_receipt_that_cant_be_sent_is_never_left_pending(svc, shopify, jogger):
+    pid, sizes = jogger
+    batch, _ = open_preorder(svc, pid, sizes)
+    ln = line_of(svc, batch, sizes["S"])
+    svc.store.x("UPDATE batch_lines SET inventory_item_id = NULL WHERE id = ?", (ln["id"],))
+    with pytest.raises(ActionError):
+        svc.receive(ln["id"], 3, "receipt-no-item", "Sam")
+    assert svc.store.value("SELECT COUNT(*) FROM receipts") == 0
 
 
 def test_full_receipt_moves_preorder_to_in_stock(svc, shopify, jogger):
@@ -325,6 +339,50 @@ def test_without_purchase_option_access_nothing_is_sold_as_a_preorder(svc, shopi
     assert svc.state_of(sizes["S"]) == CommerceState.NOTIFY_ME  # no imitation preorder
     assert shopify.variants_by_id[sizes["S"]].inventory_policy == "DENY"
     assert shopify.groups == {}
+
+
+def test_switching_selling_off_takes_live_preorders_off_sale(svc, shopify, jogger):
+    # The kill switch (PREORDERS_SELLING_PLANS=off, then a restart) after offers went live.
+    from preorders.selling_plans import OFF, UnavailablePlans
+
+    pid, sizes = jogger
+    batch, offer = open_preorder(svc, pid, sizes)
+    s = sizes["S"]
+    assert shopify.variants_by_id[s].inventory_policy == "CONTINUE"
+    svc.plans = UnavailablePlans(OFF, shopify)
+    result = svc.sync_offer(offer["id"])
+    assert result["ok"] is False and svc.offer(offer["id"])["sync_error"] == OFF
+    assert shopify.variants_by_id[s].inventory_policy == "DENY"  # no longer sells past zero
+    assert plan(shopify, s) is None  # and off the plan
+    svc.close_offer(offer["id"], "Sam")
+    assert shopify.variants_by_id[s].inventory_policy == "DENY"
+
+
+def test_access_lost_after_going_live_still_stops_sales_and_is_retried(svc, shopify, jogger):
+    pid, sizes = jogger
+    batch, offer = open_preorder(svc, pid, sizes)
+    s = sizes["S"]
+    shopify.access_denied = True  # e.g. scope removed; the next plan change is refused
+    svc.change_dispatch(batch["id"], expected_dispatch_at="2026-11-14", actor="Sam")
+    assert not svc.plans.available
+    assert "purchase-option access" in svc.offer(offer["id"])["sync_error"]
+    assert shopify.variants_by_id[s].inventory_policy == "DENY"
+    assert plan(shopify, s) is None
+    assert "sync" in {a["kind"] for a in svc.overview()["attention"]}
+    shopify.access_denied = False  # access comes back: the next pass tries again by itself
+    svc.sync_all()
+    assert svc.plans.available and svc.offer(offer["id"])["sync_error"] is None
+    assert shopify.variants_by_id[s].inventory_policy == "CONTINUE" and plan(shopify, s)
+
+
+def test_a_selling_plan_group_deleted_in_shopify_is_rebuilt_in_one_pass(svc, shopify, jogger):
+    pid, sizes = jogger
+    batch, offer = open_preorder(svc, pid, sizes)
+    shopify.groups.clear()
+    result = svc.sync_offer(offer["id"])
+    assert result["ok"] and svc.offer(offer["id"])["sync_error"] is None
+    assert plan(shopify, sizes["S"]) is not None
+    assert shopify.variants_by_id[sizes["S"]].inventory_policy == "CONTINUE"
 
 
 def test_a_failed_sync_is_retried_without_duplicating(svc, shopify, jogger):

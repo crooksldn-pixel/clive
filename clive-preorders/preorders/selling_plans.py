@@ -19,6 +19,9 @@ class PlansUnavailable(Exception):
 
 
 class SellingPlanPort(Protocol):
+    """Putting things on sale (create, replace, attach) needs purchase-option access; taking
+    them off sale (members, detach) is always attempted, even when selling is unavailable."""
+
     available: bool
     reason: str
 
@@ -27,6 +30,7 @@ class SellingPlanPort(Protocol):
     def members(self, group_id: str) -> set[str] | None: ...
     def attach(self, group_id: str, variant_ids: list[str]) -> None: ...
     def detach(self, group_id: str, variant_ids: list[str]) -> None: ...
+    def retry(self) -> None: ...
 
 
 NO_ACCESS = (
@@ -38,7 +42,11 @@ OFF = "Preorder selling is switched off on the server (PREORDERS_SELLING_PLANS=o
 
 @dataclass
 class UnavailablePlans:
+    """Selling switched off. With Shopify at hand (the kill switch after offers went live) it can
+    still read a group and take variants out of it, so nothing stays on sale by accident."""
+
     reason: str = OFF
+    shopify: ShopifyPort | None = None
     available: bool = False
 
     def _no(self) -> None:
@@ -53,14 +61,19 @@ class UnavailablePlans:
         raise AssertionError
 
     def members(self, group_id: str) -> set[str] | None:
-        return None
+        return self.shopify.group_variants(group_id) if self.shopify else None
 
     def attach(self, group_id: str, variant_ids: list[str]) -> None:
         self._no()
 
     def detach(self, group_id: str, variant_ids: list[str]) -> None:
-        # Taking things off sale is always allowed to be attempted (it only ever stops sales).
-        self._no()
+        if self.shopify is None:
+            self._no()
+        else:
+            self.shopify.remove_from_group(group_id, variant_ids)
+
+    def retry(self) -> None:
+        pass  # switched off on the server: only a restart with the setting changed turns it on
 
 
 class ShopifyPlans:
@@ -71,8 +84,12 @@ class ShopifyPlans:
         self.available = True
         self.reason = ""
 
+    def retry(self) -> None:
+        """Access refused earlier: try again (the next pass shows whether it is back)."""
+        self.available, self.reason = True, ""
+
     def _guard(self, exc: ShopifyRefused) -> None:
-        if "ACCESS_DENIED" in exc.codes or "access" in str(exc).lower():
+        if "ACCESS_DENIED" in exc.codes or "access denied" in str(exc).lower():
             self.available, self.reason = False, NO_ACCESS
             raise PlansUnavailable(NO_ACCESS) from exc
 

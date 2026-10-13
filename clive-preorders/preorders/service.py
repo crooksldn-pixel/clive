@@ -9,6 +9,7 @@ Shopify id, so a webhook that comes twice, late or out of order changes nothing 
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sqlite3
@@ -79,6 +80,11 @@ class PreordersService:
         # Set by app.build_service (comms needs the service, the service sends through comms).
         self.comms: Any = None
         self.waitlist: Any = None
+        # The last outcome of each background step (inbox, catalogue, sync, reconcile, purge).
+        self.health: dict[str, dict[str, Any]] = {}
+
+    def record_step(self, step: str, error: str | None = None) -> None:
+        self.health[step] = {"at": iso(self.clock()), "ok": error is None, "error": error}
 
     def today(self) -> date:
         return self.clock().astimezone(UTC).date()
@@ -627,6 +633,7 @@ class PreordersService:
             self.sync_offer(o["id"])
 
     def sync_all(self) -> None:
+        self.plans.retry()  # access refused earlier may be back: this pass finds out
         for o in self.store.all(
             "SELECT id FROM offers WHERE shop = ? AND (status = 'ACTIVE' OR "
             "selling_plan_group_id IS NOT NULL)",
@@ -640,12 +647,21 @@ class PreordersService:
         o = self.offer(offer_id)
         try:
             result = self._converge(o)
-            self.store.update(
-                "offers", "id", offer_id, {"synced_at": iso(self.clock()), "sync_error": None}
-            )
+            if result["ok"]:
+                self.store.update(
+                    "offers", "id", offer_id, {"synced_at": iso(self.clock()), "sync_error": None}
+                )
+            else:
+                self.store.update("offers", "id", offer_id, {"sync_error": result["error"][:300]})
             return result
         except PlansUnavailable as exc:
+            # Refused part-way (access lost): the adapter is now off, so a second pass takes
+            # everything off sale; only the reason is reported.
+            if not self.plans.available:
+                with contextlib.suppress(PlansUnavailable):
+                    self._converge(self.offer(offer_id))
             self.store.update("offers", "id", offer_id, {"sync_error": str(exc)})
+            self._event("sync_failed", offer_id, {"error": str(exc)[:200]})
             return {"ok": False, "error": str(exc)}
         except ShopifyError as exc:
             log.warning("selling plan sync for %s failed: %s", offer_id, exc)
@@ -673,14 +689,34 @@ class PreordersService:
             ):
                 desired.add(r["variant_id"])
             states[r["variant_id"]] = self.state_of(r["variant_id"])
-        if not self.plans.available:
-            if live:
-                raise PlansUnavailable(self.plans.reason)
-            return {"ok": True, "attached": []}
+        selling = self.plans.available
+        if not selling:
+            desired = set()  # nothing goes on sale; taking things off sale still happens below
         group = o["selling_plan_group_id"]
+        members: set[str] = set()
+        if group:
+            found = self.plans.members(group)
+            if found is None and selling:  # deleted in Shopify: forget it and rebuild now
+                self.store.update(
+                    "offers",
+                    "id",
+                    o["id"],
+                    {
+                        "selling_plan_group_id": None,
+                        "selling_plan_id": None,
+                        "plan_signature": None,
+                    },
+                )
+                self._event("selling_plan_missing", o["id"], {"group": group})
+                group = None
+                o = self.offer(o["id"])
+            elif found is None:
+                return {"ok": False, "error": self.plans.reason}  # can't even read it
+            else:
+                members = found
         spec = self.plan_spec(o)
         signature = f"{spec.dispatch_at}|{spec.discount_percent}"
-        if group is None and desired:
+        if selling and group is None and desired:
             group, plan = self.plans.create(spec, [])
             self._remember_plan(o["id"], plan, spec)
             self.store.update(
@@ -694,7 +730,7 @@ class PreordersService:
                 },
             )
             self._event("selling_plan_created", o["id"], {"group": group, "plan": plan})
-        elif group and live and o["plan_signature"] != signature:
+        elif selling and group and live and o["plan_signature"] != signature:
             plan = self.plans.replace(group, o["selling_plan_id"], spec)
             self.store.x(
                 "UPDATE selling_plans SET retired_at = ? WHERE plan_id = ?",
@@ -705,23 +741,6 @@ class PreordersService:
                 "offers", "id", o["id"], {"selling_plan_id": plan, "plan_signature": signature}
             )
             self._event("selling_plan_replaced", o["id"], {"plan": plan})
-        members: set[str] = set()
-        if group:
-            found = self.plans.members(group)
-            if found is None:  # deleted in Shopify: start again on the next pass
-                self.store.update(
-                    "offers",
-                    "id",
-                    o["id"],
-                    {
-                        "selling_plan_group_id": None,
-                        "selling_plan_id": None,
-                        "plan_signature": None,
-                    },
-                )
-                self._event("selling_plan_missing", o["id"], {"group": group})
-                return {"ok": False, "error": "selling plan group missing in Shopify"}
-            members = found
         # Stop selling past zero first, then detach; attach first, then allow past zero.
         policies_off, policies_on, restore = {}, {}, {}
         for r in rows:
@@ -756,6 +775,8 @@ class PreordersService:
             self.shopify.set_inventory_policy(o["product_id"], restore)
             self._note_policies(restore)
         self._sync_metafields(o, rows, desired)
+        if live and not selling:  # off sale as it should be, but staff must know why
+            return {"ok": False, "error": self.plans.reason, "attached": []}
         return {"ok": True, "attached": sorted(desired)}
 
     def _note_policies(self, policies: dict[str, str]) -> None:
@@ -853,8 +874,14 @@ class PreordersService:
                     {"processed_at": iso(self.clock()), "error": None},
                 )
                 done += 1
-            except (ShopifyError, ActionError) as exc:
-                log.warning("webhook %s (%s) not processed yet: %s", r["event_id"], r["topic"], exc)
+            except Exception as exc:  # noqa: BLE001 - recorded on the row, shown to staff
+                if isinstance(exc, (ShopifyError, ActionError)):
+                    log.warning(
+                        "webhook %s (%s) not processed yet: %s", r["event_id"], r["topic"], exc
+                    )
+                else:
+                    log.exception("webhook %s (%s) failed", r["event_id"], r["topic"])
+                    exc = Exception(f"{type(exc).__name__}: {exc}")
                 self.store.x(
                     "UPDATE webhook_inbox SET attempts = attempts + 1, error = ? "
                     "WHERE event_id = ?",
@@ -1158,6 +1185,11 @@ class PreordersService:
             raise ActionError("Receive at least one.", 422)
         if not 8 <= len(key) <= 80:
             raise ActionError("Missing request key.", 422)
+        # Everything needed to send is known before anything is written down, so a receipt is
+        # never left waiting for a reason a retry can't fix.
+        if not self._line_row(batch_line_id)["inventory_item_id"]:
+            raise ActionError("This variant has no inventory item in Shopify.")
+        location = self.location_id()
         with self.store.tx():
             existing = self.store.one("SELECT * FROM receipts WHERE idempotency_key = ?", (key,))
             line = self._line_row(batch_line_id)
@@ -1180,8 +1212,8 @@ class PreordersService:
                 )
                 if pending:
                     raise ActionError(
-                        "A receipt for this size hasn't been confirmed by Shopify "
-                        "yet: retry that one first."
+                        "A receipt for this size hasn't been confirmed by Shopify yet: use "
+                        "Confirm with Shopify on it (Receipts, below) first."
                     )
                 outstanding = line["expected_quantity"] - line["received_quantity"]
                 if quantity > outstanding:
@@ -1193,16 +1225,13 @@ class PreordersService:
                     "batch_line_id": batch_line_id,
                     "quantity": quantity,
                     "idempotency_key": key,
-                    "location_id": None,
+                    "location_id": location,
                     "status": "PENDING",
                     "actor": actor,
                     "created_at": iso(self.clock()),
                 }
                 self.store.insert("receipts", receipt)
-        if not line["inventory_item_id"]:
-            raise ActionError("This variant has no inventory item in Shopify.")
-        location = self.location_id()
-        self.store.update("receipts", "id", receipt["id"], {"location_id": location})
+        location = receipt["location_id"] or location  # a retry goes where the first went
         try:
             self.shopify.adjust_available(
                 line["inventory_item_id"],
@@ -1223,8 +1252,8 @@ class PreordersService:
             )
             log.warning("receipt %s outcome unknown: %s", receipt["id"], exc)
             raise ActionError(
-                "Shopify didn't confirm the stock change. Press Receive again: the "
-                "same request can't add the stock twice.",
+                "Shopify didn't confirm the stock change. Use Confirm with Shopify on the "
+                "receipt: it resends the same request, which can't add the stock twice.",
                 503,
                 "unknown",
             ) from exc
@@ -1269,6 +1298,13 @@ class PreordersService:
             "replayed": False,
             "batch": self.batch(b["id"]),
         }
+
+    def retry_receipt(self, receipt_id: str, actor: str) -> dict[str, Any]:
+        """Send an unconfirmed receipt again with its own key (Shopify applies a key once)."""
+        r = self.store.one("SELECT * FROM receipts WHERE id = ?", (receipt_id,))
+        if r is None:
+            raise ActionError("Receipt not found.", 404, "not_found")
+        return self.receive(r["batch_line_id"], r["quantity"], r["idempotency_key"], actor)
 
     def release_preview(self, batch_id: str) -> dict[str, Any]:
         rows = self.store.all(
@@ -1527,7 +1563,7 @@ class PreordersService:
             )
         failing = self.store.all(
             "SELECT id, product_title, sync_error FROM offers WHERE shop = ? "
-            "AND status = 'ACTIVE' AND sync_error IS NOT NULL",
+            "AND sync_error IS NOT NULL",
             (self.shop,),
         )
         if failing:
@@ -1539,15 +1575,77 @@ class PreordersService:
                     f"{failing[0]['sync_error']}",
                 }
             )
+        stuck = iso(self.clock() - timedelta(minutes=2))  # PENDING longer than one request
         unknown = int(
-            self.store.value("SELECT COUNT(*) FROM receipts WHERE status = 'UNKNOWN'") or 0
+            self.store.value(
+                "SELECT COUNT(*) FROM receipts WHERE status = 'UNKNOWN' OR "
+                "(status = 'PENDING' AND created_at < ?)",
+                (stuck,),
+            )
+            or 0
         )
         if unknown:
             attention.append(
                 {
                     "kind": "receipt",
                     "count": unknown,
-                    "text": f"{unknown} stock receipts not confirmed by Shopify",
+                    "text": f"{unknown} stock receipts not confirmed by Shopify: open the batch "
+                    "and confirm them",
+                }
+            )
+        hooks = self.store.one(
+            "SELECT COUNT(*) AS n, SUM(attempts >= 10) AS dead, MAX(error) AS error FROM "
+            "webhook_inbox WHERE processed_at IS NULL AND attempts > 0"
+        )
+        if hooks and hooks["n"]:
+            dead = int(hooks["dead"] or 0)
+            attention.append(
+                {
+                    "kind": "webhooks",
+                    "count": hooks["n"],
+                    "text": f"{hooks['n']} Shopify updates couldn't be processed"
+                    + (f" ({dead} given up; Check everything against Shopify)" if dead else "")
+                    + f": {hooks['error']}",
+                }
+            )
+        mail = self.store.one(
+            "SELECT SUM(status = 'UNKNOWN' OR (status = 'PENDING' AND created_at < ?)) AS unknown,"
+            " SUM(status = 'FAILED' AND created_at >= ?) AS failed FROM communications "
+            "WHERE shop = ?",
+            (stuck, iso(self.clock() - timedelta(days=7)), self.shop),
+        )
+        if mail and (mail["unknown"] or mail["failed"]):
+            attention.append(
+                {
+                    "kind": "emails",
+                    "count": int(mail["unknown"] or 0) + int(mail["failed"] or 0),
+                    "text": f"Emails: {int(mail['unknown'] or 0)} not confirmed by the email "
+                    f"provider, {int(mail['failed'] or 0)} refused in the last 7 days",
+                }
+            )
+        broken = {k: v for k, v in self.health.items() if not v["ok"]}
+        if broken:
+            attention.append(
+                {
+                    "kind": "background",
+                    "count": len(broken),
+                    "text": "Background work failing: "
+                    + "; ".join(f"{k}: {v['error']}" for k, v in broken.items()),
+                }
+            )
+        last = self.store.one(
+            "SELECT detail FROM events WHERE shop = ? AND kind = 'reconciled' "
+            "ORDER BY id DESC LIMIT 1",
+            (self.shop,),
+        )
+        errors = json.loads(last["detail"]).get("errors") if last else None
+        if errors:
+            attention.append(
+                {
+                    "kind": "reconcile",
+                    "count": len(errors) if isinstance(errors, list) else int(errors),
+                    "text": "The last check against Shopify hit errors: "
+                    + (errors[0] if isinstance(errors, list) else f"{errors}"),
                 }
             )
         return {

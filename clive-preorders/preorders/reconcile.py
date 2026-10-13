@@ -43,11 +43,17 @@ def reconcile(svc: PreordersService, actor: str = "system") -> dict[str, Any]:
             try:
                 svc.ingest_order(oid)
                 report["orders"] += 1
-            except ShopifyError as exc:
-                report["errors"].append(f"order {oid}: {exc}")
+            except Exception as exc:  # noqa: BLE001 - one order must not stop the check
+                report["errors"].append(f"order {oid}: {type(exc).__name__}: {exc}")
     for line in store.all("SELECT id FROM batch_lines"):
-        svc.recompute_ready(line["id"])
-    svc.sync_all()
+        try:
+            svc.recompute_ready(line["id"])
+        except Exception as exc:  # noqa: BLE001
+            report["errors"].append(f"readiness {line['id']}: {type(exc).__name__}: {exc}")
+    try:
+        svc.sync_all()
+    except Exception as exc:  # noqa: BLE001
+        report["errors"].append(f"sync: {type(exc).__name__}: {exc}")
     report["oversold"] = [
         {
             "batch": b["reference"],
@@ -89,15 +95,13 @@ def reconcile(svc: PreordersService, actor: str = "system") -> dict[str, Any]:
         or report["receipts_unknown"]
         or report["emails_unknown"]
         or report["webhooks_failing"]
+        or report["out_of_step"]
         or report["errors"]
     )
-    store.event(
-        svc.shop,
-        "reconciled",
-        "",
-        {k: (len(v) if isinstance(v, list) else v) for k, v in report.items()},
-        actor,
-    )
+    # Counts for the lists, but the words of what went wrong are kept.
+    summary = {k: (len(v) if isinstance(v, list) else v) for k, v in report.items()}
+    summary["errors"] = [e[:300] for e in report["errors"][:20]]
+    store.event(svc.shop, "reconciled", "", summary, actor)
     if report["needs_attention"]:
         log.warning(
             "reconciliation found things to look at: %s",

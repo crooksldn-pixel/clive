@@ -52,7 +52,11 @@ def build_service(settings: Settings, shopify: Any = None, mailer: Any = None) -
                 settings.shop_domain, settings.shopify_client_id, settings.shopify_client_secret
             )
         )
-    plans = ShopifyPlans(shopify) if settings.selling_plans == "shopify" else UnavailablePlans(OFF)
+    plans = (
+        ShopifyPlans(shopify)
+        if settings.selling_plans == "shopify"
+        else UnavailablePlans(OFF, shopify)
+    )
     svc = PreordersService(settings, Store(settings.db_path), shopify, plans)
     svc.comms = Communications(
         svc,
@@ -311,6 +315,10 @@ def admin_router(
     @router.post("/api/batch-lines/{lid}/receive")
     def receive(lid: str, body: ReceiveBody, who: str = Depends(staff)) -> dict[str, Any]:
         return act(lambda: svc.receive(lid, body.quantity, body.key, who))
+
+    @router.post("/api/receipts/{rid}/retry")
+    def retry_receipt(rid: str, who: str = Depends(staff)) -> dict[str, Any]:
+        return act(lambda: svc.retry_receipt(rid, who))
 
     @router.post("/api/batches/{bid}/release")
     def release(bid: str, who: str = Depends(staff)) -> dict[str, Any]:
@@ -595,23 +603,31 @@ def create_app(
         timers["reconcile"] = time.monotonic()
         return reconcile(svc, actor)
 
+    def step(name: str, work: Callable[[], Any]) -> None:
+        """One background step: a failure is logged and shown on the overview, and never
+        stops the other steps or the next tick."""
+        try:
+            work()
+        except Exception as exc:  # noqa: BLE001
+            log.exception("background step %s failed", name)
+            svc.record_step(name, f"{type(exc).__name__}: {exc}"[:300])
+        else:
+            svc.record_step(name)
+
     def tick() -> None:
-        svc.process_inbox()
+        step("inbox", svc.process_inbox)
         if time.monotonic() - timers["catalog"] > 600:
             timers["catalog"] = time.monotonic()
-            try:
-                svc.refresh_catalog()
-                svc.sync_all()
-            except ShopifyError as exc:
-                log.warning("catalogue refresh failed: %s", exc)
+            step("catalogue", svc.refresh_catalog)
+            step("sync", svc.sync_all)
         if (
             settings.reconcile_every_min
             and time.monotonic() - timers["reconcile"] > settings.reconcile_every_min * 60
         ):
-            reconcile_now("system")
+            step("reconcile", lambda: reconcile_now("system"))
         if time.monotonic() - timers["purge"] > 86400:
             timers["purge"] = time.monotonic()
-            svc.waitlist.purge_old()
+            step("purge", svc.waitlist.purge_old)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
