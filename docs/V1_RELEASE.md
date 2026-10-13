@@ -142,8 +142,7 @@ Details live with each app (`docs/shipping/DESIGN.md`, `clive-shipping/OPERATION
   - *Verified by the first live purchase (12 Oct 2026, CROOKS-2180):* one Tracked 48 label at
     £2.95; Shopify fulfils the order itself as the label is bought (CLIVE adopts it); the label
     is a 4×6 PDF that downloads with a plain GET and prints through PrintNode; the purchase
-    takes seconds. Tracked 24's code comes from the same rate list; its first purchase
-    confirms it.
+    takes seconds. Tracked 24 bought its first label the next day (CROOKS-2182, £3.77).
   - *No void.* Shopify's API has no label cancellation; cancel it in Shopify admin.
 
 ## Deferred to V2

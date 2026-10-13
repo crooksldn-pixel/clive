@@ -747,8 +747,9 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
        a plain GET, stored, and printed through PrintNode on the JADENS in the same minute.
      - The attempt before, with Royal Mail's own code `TPS48`, was refused: nothing bought, the
        order back to Ready, and the next attempt bought once.
-   - **Still unverified:** Tracked 24's code comes from the same rate list but has not bought a
-     label yet (its first purchase confirms it); a lost reply against the real Shopify.
+     - `royal_mail/royal_mail_tracked_24` bought its first label on 13 Oct 2026 (CROOKS-2182):
+       Royal Mail Tracked 24 at £3.77 (45 × 35 × 10 cm, 1.61 kg), fulfilled by Shopify the same way.
+   - **Still unverified:** a lost reply against the real Shopify.
 
 ## I. Test plan
 
