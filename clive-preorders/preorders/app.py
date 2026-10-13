@@ -18,7 +18,7 @@ import hmac
 import json
 import logging
 import time
-from collections import OrderedDict, deque
+from collections import deque
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from importlib import resources
@@ -94,30 +94,38 @@ PROXY_MAX_AGE_S = 300
 
 
 class RateLimiter:
-    """At most `limit` hits per key per window. Memory is bounded without ever failing closed:
-    past `max_keys` the least recently seen key is forgotten (filling the table can't block
-    genuine signups), and expired keys are swept at most once a minute."""
+    """At most `limit` hits per key per window, in bounded memory. A key's count is never reset
+    early: when the table is full, expired keys are swept, and if it is still full, new keys
+    share one overflow allowance (`overflow` hits per window). So filling the table can neither
+    reset someone's limit nor block genuine signups outright."""
 
-    def __init__(self, limit: int, window_s: int, max_keys: int = 50_000) -> None:
-        self.limit, self.window, self.max_keys = limit, window_s, max_keys
-        self.hits: OrderedDict[str, deque[float]] = OrderedDict()
+    OVERFLOW = "\0overflow"
+
+    def __init__(
+        self, limit: int, window_s: int, max_keys: int = 50_000, overflow: int = 100
+    ) -> None:
+        self.limit, self.window, self.max_keys, self.overflow = limit, window_s, max_keys, overflow
+        self.hits: dict[str, deque[float]] = {}
         self._swept = 0.0
+
+    def _sweep(self, t: float) -> None:
+        self._swept = t
+        for k in [k for k, q in self.hits.items() if not q or t - q[-1] > self.window]:
+            del self.hits[k]
 
     def allow(self, key: str) -> bool:
         t = time.monotonic()
         if t - self._swept > 60:
-            self._swept = t
-            for k in [k for k, q in self.hits.items() if not q or t - q[-1] > self.window]:
-                del self.hits[k]
-        q = self.hits.get(key)
-        if q is None:
-            while len(self.hits) >= self.max_keys:
-                self.hits.popitem(last=False)
-            q = self.hits[key] = deque()
-        self.hits.move_to_end(key)
+            self._sweep(t)
+        limit = self.limit
+        if key not in self.hits and len(self.hits) >= self.max_keys:
+            self._sweep(t)
+            if len(self.hits) >= self.max_keys:
+                key, limit = self.OVERFLOW, self.overflow
+        q = self.hits.setdefault(key, deque())
         while q and t - q[0] > self.window:
             q.popleft()
-        if len(q) >= self.limit:
+        if len(q) >= limit:
             return False
         q.append(t)
         return True
