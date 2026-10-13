@@ -470,6 +470,11 @@
     return bits.join(" · ");
   }
 
+  // A finished size swap: Shopify has released the replacement as its own shipment.
+  function shipSwap(r) {
+    return r.resolution === "exchange" && r.status === "completed" && r.shopify.processed && !r.left_out;
+  }
+
   function renderReturn() {
     const r = state.current, row = r.row;
     const p = r.postage;
@@ -503,7 +508,7 @@
               ${r.actions.filter((a) => a !== "note").map((a) => `<button class="btn ${a === primary ? "primary" : ""} ${a === "decline" || a === "cancel" ? "danger" : ""}" data-act="${a}">${ACTION[a]}</button>`).join("")}
               <button class="btn" data-act="note">${ACTION.note}</button>
             </div>
-          </div>` : `<div class="card card-pad"><div class="actions" style="justify-content:space-between;align-items:center"><span class="muted">${r.status === "completed" ? "All done. Nothing more to do." : "Closed."}</span><span class="actions">${r.left_out ? "" : `<button class="btn small" data-leave-out>Leave out (test return)</button>`}<button class="btn small" data-act="note">${ACTION.note}</button></span></div></div>`}
+          </div>` : `<div class="card card-pad"><div class="actions" style="justify-content:space-between;align-items:center"><span class="muted">${shipSwap(r) ? "Swap done. The replacement is ready to send: buy its label and print it, with its packing slip, in Shipping." : r.status === "completed" ? "All done. Nothing more to do." : "Closed."}</span>${shipSwap(r) ? `<a class="btn primary small" href="/shipping/admin?order=${encodeURIComponent(r.order_name.replace(/\D/g, ""))}">Ship the exchange</a>` : ""}<span class="actions">${r.left_out ? "" : `<button class="btn small" data-leave-out>Leave out (test return)</button>`}<button class="btn small" data-act="note">${ACTION.note}</button></span></div></div>`}
           <div class="card card-pad">
             <h2>Items</h2>
             ${r.lines.map((l) => `

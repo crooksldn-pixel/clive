@@ -139,7 +139,7 @@ A finished Returns case staff mark as a test ("Leave out") keeps its record and 
 They stay separate services with separate databases, joined only through Shopify:
 
 - **A return** changes real Shopify state (`returnCreate`, `returnProcess`). Shipping never reads Returns' database.
-- **An exchange (size swap):** Returns sends `exchangeLineItems` with `returnProcess` once the item is back. Shopify then releases the replacement as a new open fulfilment order on the same order. Shipping finds it like any other order (if it goes abroad, or within the UK when UK labels are on) and prices it.
+- **An exchange (size swap):** Returns sends `exchangeLineItems` with `returnProcess` once the item is back. Shopify then releases the replacement as a new open fulfilment order on the same order. Shipping finds it like any other order (if it goes abroad, or within the UK when UK labels are on), recognises it as an exchange from the order's returns in Shopify (exchange line items, returned items and their reasons), says so above the order and at the bottom of its packing slip, and Returns' **Ship the exchange** opens it (`/shipping/admin?order=<number>`).
 - **A refund** closes the return in Shopify. No outbound shipment is created, so Shipping sees nothing.
 - **A return label** is bought by Returns from its own Parcel2Go account. It is not a Shipping label and never appears in Shipping.
 
