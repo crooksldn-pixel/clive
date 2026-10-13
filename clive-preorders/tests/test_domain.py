@@ -94,3 +94,13 @@ def test_a_version_1_database_upgrades_in_place(tmp_path):
     assert "released_at" in columns
     assert store.value("SELECT MAX(version) FROM schema_version") == len(MIGRATIONS)
     Store(path)  # opening again changes nothing
+
+
+def test_the_rate_limiter_stays_bounded():
+    from preorders.app import RateLimiter
+
+    lim = RateLimiter(limit=2, window_s=3600, max_keys=3)
+    assert lim.allow("a") and lim.allow("a") and not lim.allow("a")
+    assert lim.allow("b") and lim.allow("c")
+    assert not lim.allow("d")  # full: a new key is refused rather than growing the table
+    assert len(lim.hits) == 3

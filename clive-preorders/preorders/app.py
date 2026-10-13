@@ -18,7 +18,7 @@ import hmac
 import json
 import logging
 import time
-from collections import defaultdict, deque
+from collections import deque
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from importlib import resources
@@ -94,16 +94,26 @@ PROXY_MAX_AGE_S = 300
 
 
 class RateLimiter:
-    def __init__(self, limit: int, window_s: int) -> None:
-        self.limit, self.window = limit, window_s
-        self.hits: dict[str, deque[float]] = defaultdict(deque)
+    """At most `limit` hits per key per window. Memory is bounded: expired keys are swept at
+    most once a minute, and past `max_keys` live keys a new key is refused (an attacker can't
+    make it grow without limit, and can't make every request scan the whole table)."""
+
+    def __init__(self, limit: int, window_s: int, max_keys: int = 50_000) -> None:
+        self.limit, self.window, self.max_keys = limit, window_s, max_keys
+        self.hits: dict[str, deque[float]] = {}
+        self._swept = 0.0
 
     def allow(self, key: str) -> bool:
         t = time.monotonic()
-        if len(self.hits) > 10_000:  # forget keys whose window has passed
+        if t - self._swept > 60:
+            self._swept = t
             for k in [k for k, q in self.hits.items() if not q or t - q[-1] > self.window]:
                 del self.hits[k]
-        q = self.hits[key]
+        q = self.hits.get(key)
+        if q is None:
+            if len(self.hits) >= self.max_keys:
+                return False
+            q = self.hits[key] = deque()
         while q and t - q[0] > self.window:
             q.popleft()
         if len(q) >= self.limit:
@@ -553,7 +563,7 @@ def proxy_router(svc: PreordersService, settings: Settings) -> APIRouter:
         hops = request.headers.get("x-forwarded-for", "")
         ip = hops.split(",")[-1].strip() or (request.client.host if request.client else "")
         email = body.email.strip().lower()
-        if not per_email.allow(email) or not per_ip.allow(ip):
+        if not per_ip.allow(ip) or not per_email.allow(email):  # the flood brake first
             return JSONResponse({"message": "Too many tries. Try again later."}, status_code=429)
         customer = request.query_params.get("logged_in_customer_id") or None
         try:

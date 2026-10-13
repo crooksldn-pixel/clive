@@ -42,7 +42,9 @@
     function stateOf(v) {
       if (!v) return "unknown";
       const shelf = !v.tracked || v.quantity > 0;
-      if (v.plan && !shelf) return "preorder";
+      // Shopify must also let it be bought (CONTINUE): a plan left on a size set to DENY
+      // (a sync in progress or failing) would otherwise show a button that can't work.
+      if (v.plan && !shelf && v.available) return "preorder";
       if (v.available) return "in_stock";
       return "notify";
     }

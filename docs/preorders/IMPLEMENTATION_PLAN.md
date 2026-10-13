@@ -185,11 +185,33 @@ always derived (`SUM(current_quantity)` of uncancelled lines). Migration 2 adds
 - A date or discount change **replaces the plan** in the group rather than editing it, and keeps
   the old plan in `selling_plans`; existing orders keep their plan and promise. The group is
   recreated if it was deleted in Shopify.
-- Safety ordering when converging: opening attaches the plan, then sets CONTINUE; closing sets
-  DENY, then detaches. A failure in between leaves the variant unsellable rather than sellable
-  without a plan. Each variant's own policy is restored when its preorder closes.
+- Safety ordering in every pass (`_converge`): first take off sale what shouldn't sell (DENY,
+  then out of the group), before any plan is created or changed; then put on sale (plan,
+  attach, then CONTINUE); then give a closed offer's sizes their own policy back, once. A failed
+  plan change can therefore never keep a size selling. Only sizes with nothing on the shelf go
+  on the plan. A size covered by another live offer is left to that offer. Taking off sale
+  never depends on purchase-option access (with selling switched off, or access refused part
+  way, sizes still go to DENY and leave the group; access is retried each pass). One pass per
+  offer at a time (lock).
+- A lost reply on a plan change (date or discount): the group is read back and the plan Shopify
+  made is adopted, so orders on it are counted with their promise.
 - After each ingested order the touched products' stock is re-read from Shopify, and the order
   that uses the last unit closes the offer in the same pass.
+- Receipts: the item and location are checked before anything is written; a receipt is counted
+  once however many requests carried its key; an unconfirmed one is confirmed from the batch
+  page with its own key.
+- Changing a preorder's own date moves its customers' current date (their promise is kept);
+  "Save & notify" writes only to customers whose date actually changed.
+- Emails: an unconfirmed send is retried with the same Idempotency-Key only within 23 hours
+  (Resend keeps keys 24 hours); a failure never overwrites SENT.
+- Background work: each step (inbox, catalogue, sync, reconcile, purge) runs and reports on its
+  own; a webhook that fails is recorded on its row; everything that needs a person is in
+  Needs attention.
+- Privacy: customers/redact also replaces the name and email on that customer's preorder lines
+  (by address or by the orders Shopify names); re-reads never restore them.
+- Storefront: signups are limited per email (and per address only as a flood brake); signed
+  proxy requests are accepted for 5 minutes and for this shop only; the block shows PRE-ORDER
+  only when Shopify will actually sell the size.
 - `classify_order` ingests an order first if it has a line on one of our plans that hasn't been
   seen yet, so CLIVE never gets IN_STOCK for an unprocessed preorder.
 - The storefront signup is not a `<form>`: themes may render the block inside their product
@@ -197,7 +219,8 @@ always derived (`SUM(current_quantity)` of uncancelled lines). Migration 2 adds
 - Fully receiving a batch closes its offers; the sizes then sell normally from stock.
 - Release for dispatch opens only SCHEDULED fulfilment orders whose preorder lines are all
   ready; it shows the orders first. Each order is re-read before acting; a fulfilment order
-  already open (opened by staff, or by Shopify on the date) is counted, not opened again; a line
+  already OPEN or IN_PROGRESS (opened by staff, or by Shopify on the date) is counted, not
+  opened again; one on hold or holding lines still waiting is reported with the reason; a line
   is marked released only once its fulfilment order is known to be open, so a lost reply is
   safe to repeat and a released order isn't offered again.
 - A size added to a batch without a preorder quantity preorders all that's coming (as when the
@@ -211,8 +234,9 @@ always derived (`SUM(current_quantity)` of uncancelled lines). Migration 2 adds
 moving a SCHEDULED fulfilment order's date when the dispatch date changes (release is explicit
 instead); deposits / partial payment; other languages than English; fixed-amount discounts.
 
-**Verified.** 37 tests (scenarios A-H and the failure modes around them, HTTP doors); ruff;
-pyright clean on `clive-preorders`; 13/13 GraphQL documents valid at 2026-10; theme check (no
+**Verified.** 54 tests (scenarios A-H and the failure modes around them, HTTP doors); ruff;
+pyright clean on `clive-preorders`; two independent reviews (correctness, silent failures)
+whose findings were each reproduced as a failing test before being fixed; 13/13 GraphQL documents valid at 2026-10; theme check (no
 offences); a browser walk-through of every screen at 1280 px and 390 px; in the browser, the
 date change with Save & notify (6 customers emailed with the original and new dates), a partial
 receipt (20 of 30), Release for dispatch (3 orders, then none offered again), Notify 10 people

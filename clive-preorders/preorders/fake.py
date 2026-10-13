@@ -60,6 +60,7 @@ class FakeShopify:
         }
         self.calls: list[str] = []
         self._fail: dict[str, str] = {}
+        self._lost: dict[str, bool] = {}
         self.access_denied = False
 
     # --- test helpers
@@ -95,7 +96,14 @@ class FakeShopify:
         )
 
     def fail_next(self, method: str, kind: str = "unknown") -> None:
+        """ "unknown": no answer and nothing done; "refused": refused; "lost": Shopify does the
+        work and the answer never arrives (the hard case)."""
         self._fail[method] = kind
+
+    def _reply(self, method: str) -> None:
+        """After doing the work: a lost reply raises as if the connection dropped."""
+        if self._lost.pop(method, None):
+            raise ShopifyError("The connection dropped; Shopify may have done it.")
 
     def _maybe_fail(self, method: str) -> None:
         self.calls.append(method)
@@ -104,6 +112,8 @@ class FakeShopify:
                 "Access denied for sellingPlanGroupCreate field.", ["ACCESS_DENIED"]
             )
         kind = self._fail.pop(method, None)
+        if kind == "lost":
+            self._lost[method] = True
         if kind == "unknown":
             raise ShopifyError("Shopify answered 502; it may have been done.")
         if kind == "refused":
@@ -246,7 +256,13 @@ class FakeShopify:
         self._maybe_fail("replace_plan")
         g = self.groups[group_id]
         g.plans = [p for p in g.plans if p.id != old_plan_id] + [FakePlan(gid("SellingPlan"), spec)]
+        self._reply("replace_plan")
         return g.plans[-1].id
+
+    def group_plans(self, group_id: str) -> list[str] | None:
+        self._maybe_fail("group_plans")
+        g = self.groups.get(group_id)
+        return [p.id for p in g.plans] if g else None
 
     def group_variants(self, group_id: str) -> set[str] | None:
         self._maybe_fail("group_variants")
@@ -281,6 +297,7 @@ class FakeShopify:
             v.available += delta
             v.on_hand += delta
             self.adjustments[key] = delta
+        self._reply("adjust_available")
         return f"gid://shopify/InventoryAdjustmentGroup/{abs(hash(key)) % 10**8}"
 
     def order(self, order_id: str) -> OrderSnap | None:

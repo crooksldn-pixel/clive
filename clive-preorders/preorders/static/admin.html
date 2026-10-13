@@ -626,7 +626,7 @@ async function withButton(el, fn) {
   finally { el?.removeAttribute("loading"); loading(false); }
 }
 
-const sent = (c) => `${c.SENT} sent${c.ALREADY ? ` · ${c.ALREADY} already had it` : ""}${c.FAILED ? ` · ${c.FAILED} failed` : ""}${c.UNKNOWN ? ` · ${c.UNKNOWN} not confirmed` : ""}`;
+const sent = (c) => `${c.SENT} sent${c.ALREADY ? ` · ${c.ALREADY} already had it` : ""}${c.FAILED ? ` · ${c.FAILED} failed` : ""}${c.UNKNOWN ? ` · ${c.UNKNOWN} not confirmed` : ""}${c.unchanged ? ` · ${c.unchanged} already on this date` : ""}${c.no_email ? ` · ${c.no_email} without an email` : ""}`;
 
 const ACTIONS = {
   "refresh-catalog": (el) => withButton(el, async () => { const r = await api("/catalog/refresh", { method: "POST" }); toast(`${r.variants} variants read from Shopify`); await route(); }),
@@ -709,7 +709,10 @@ const ACTIONS = {
   release: (el) => withButton(el, async () => {
     const r = await api(`/batches/${state.data.id}/release`, { method: "POST" });
     document.getElementById("release-modal")?.hideOverlay?.();
-    toast(`${r.opened.length} released for dispatch${r.already_open.length ? ` · ${r.already_open.length} already open` : ""}${r.skipped.length ? ` · ${r.skipped.length} refused by Shopify` : ""}`); await route();
+    const done = `${r.opened.length} released for dispatch${r.already_open.length ? ` · ${r.already_open.length} already open` : ""}`;
+    if (r.skipped.length) state.flash = { tone: "warning", heading: `${done} · ${r.skipped.length} not released`, text: r.skipped.map((x) => `${x.order}: ${x.why}`).join(" · ") };
+    else toast(done);
+    await route();
   }),
   "cancel-batch": (el) => withButton(el, async () => {
     if (!confirm("Cancel this batch? Its preorders stop selling.")) return;

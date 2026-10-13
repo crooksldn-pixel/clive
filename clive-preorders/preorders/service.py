@@ -13,6 +13,7 @@ import contextlib
 import json
 import logging
 import sqlite3
+import threading
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -82,6 +83,7 @@ class PreordersService:
         self.waitlist: Any = None
         # The last outcome of each background step (inbox, catalogue, sync, reconcile, purge).
         self.health: dict[str, dict[str, Any]] = {}
+        self._offer_locks: dict[str, threading.RLock] = {}
 
     def record_step(self, step: str, error: str | None = None) -> None:
         self.health[step] = {"at": iso(self.clock()), "ok": error is None, "error": error}
@@ -492,6 +494,15 @@ class PreordersService:
                 {"discount": discount_value, "dispatch": dispatch_at, "mode": mode},
                 actor,
             )
+        # Customers who already preordered follow the offer's date (their promise is kept).
+        current_day = self.offer_dispatch(self.offer(oid))
+        if current_day:
+            self.store.x(
+                "UPDATE preorder_lines SET current_dispatch_at = ?, updated_at = ? WHERE "
+                "offer_id = ? AND cancelled_at IS NULL AND state IN ('AWAITING_STOCK', 'READY') "
+                "AND current_dispatch_at != ?",
+                (current_day.isoformat(), iso(self.clock()), oid, current_day.isoformat()),
+            )
         if self.offer(oid)["status"] == OfferStatus.ACTIVE:
             self.sync_offer(oid)
         return self.offer_view(oid)
@@ -644,6 +655,10 @@ class PreordersService:
     def sync_offer(self, offer_id: str) -> dict[str, Any]:
         """Make Shopify match this offer. Order matters for safety: opening attaches the plan
         before allowing sale past zero; closing stops sale past zero before detaching."""
+        with self._offer_locks.setdefault(offer_id, threading.RLock()):  # one pass at a time
+            return self._sync_offer(offer_id)
+
+    def _sync_offer(self, offer_id: str) -> dict[str, Any]:
         o = self.offer(offer_id)
         try:
             result = self._converge(o)
@@ -670,28 +685,44 @@ class PreordersService:
             return {"ok": False, "error": str(exc)}
 
     def _converge(self, o: dict[str, Any]) -> dict[str, Any]:
+        """One pass, in the order that keeps a failure safe: decide what should be on sale; take
+        off sale what shouldn't be (DENY, then out of the group), before any plan is created or
+        changed, so a failed plan change can never keep a size selling; then put on sale (plan,
+        group, then CONTINUE); then give closed sizes their own policy back once. A size another
+        live offer covers belongs to that offer and is left alone."""
         b = self._batch_row(o["batch_id"])
         live = o["status"] == OfferStatus.ACTIVE and b["status"] in OPEN_BATCH
+        selling = self.plans.available
         rows = self.store.all(
             "SELECT ov.*, bl.preorder_allocation FROM offer_variants ov JOIN batch_lines bl "
             "ON bl.id = ov.batch_line_id WHERE ov.offer_id = ?",
             (o["id"],),
         )
+        covered = {
+            r["variant_id"]
+            for r in self.store.all(
+                "SELECT ov.variant_id FROM offer_variants ov JOIN offers x ON x.id = ov.offer_id "
+                "WHERE x.status = 'ACTIVE' AND x.id != ? AND ov.enabled = 1",
+                (o["id"],),
+            )
+        }
         desired: set[str] = set()
-        states: dict[str, CommerceState] = {}
         for r in rows:
-            sold = self.sold_for_line(r["batch_line_id"])
+            vid = r["variant_id"]
             if (
-                live
+                selling
+                and live
                 and r["enabled"]
+                and vid not in covered
                 and r["override_state"] != CommerceState.NOTIFY_ME
-                and domain.remaining(r["preorder_allocation"], sold) > 0
+                and domain.remaining(
+                    r["preorder_allocation"], self.sold_for_line(r["batch_line_id"])
+                )
+                > 0
+                and self.state_of(vid) == CommerceState.PREORDER  # nothing on the shelf
             ):
-                desired.add(r["variant_id"])
-            states[r["variant_id"]] = self.state_of(r["variant_id"])
-        selling = self.plans.available
-        if not selling:
-            desired = set()  # nothing goes on sale; taking things off sale still happens below
+                desired.add(vid)
+
         group = o["selling_plan_group_id"]
         members: set[str] = set()
         if group:
@@ -714,70 +745,99 @@ class PreordersService:
                 return {"ok": False, "error": self.plans.reason}  # can't even read it
             else:
                 members = found
-        spec = self.plan_spec(o)
-        signature = f"{spec.dispatch_at}|{spec.discount_percent}"
-        if selling and group is None and desired:
-            group, plan = self.plans.create(spec, [])
-            self._remember_plan(o["id"], plan, spec)
-            self.store.update(
-                "offers",
-                "id",
-                o["id"],
-                {
-                    "selling_plan_group_id": group,
-                    "selling_plan_id": plan,
-                    "plan_signature": signature,
-                },
-            )
-            self._event("selling_plan_created", o["id"], {"group": group, "plan": plan})
-        elif selling and group and live and o["plan_signature"] != signature:
-            plan = self.plans.replace(group, o["selling_plan_id"], spec)
-            self.store.x(
-                "UPDATE selling_plans SET retired_at = ? WHERE plan_id = ?",
-                (iso(self.clock()), o["selling_plan_id"]),
-            )
-            self._remember_plan(o["id"], plan, spec)
-            self.store.update(
-                "offers", "id", o["id"], {"selling_plan_id": plan, "plan_signature": signature}
-            )
-            self._event("selling_plan_replaced", o["id"], {"plan": plan})
-        # Stop selling past zero first, then detach; attach first, then allow past zero.
-        policies_off, policies_on, restore = {}, {}, {}
+
+        policies_off, policies_on, restore, met = {}, {}, {}, []
         for r in rows:
             vid = r["variant_id"]
             cat = self.store.one("SELECT * FROM catalog WHERE variant_id = ?", (vid,))
-            if cat is None:
+            if cat is None or vid in covered:
                 continue
             current = cat["inventory_policy"]
             if live and r["enabled"]:
-                want = (
-                    "CONTINUE"
-                    if (vid in desired and states[vid] == CommerceState.PREORDER)
-                    else "DENY"
-                )
+                want = "CONTINUE" if vid in desired else "DENY"
                 if r["original_policy"] is None and want != current:
                     self.store.update("offer_variants", "id", r["id"], {"original_policy": current})
                 if want != current:
                     (policies_on if want == "CONTINUE" else policies_off)[vid] = want
-            elif r["original_policy"] and r["original_policy"] != current:
-                restore[vid] = r["original_policy"]
+            elif r["original_policy"]:
+                if r["original_policy"] != current:
+                    restore[vid] = r["original_policy"]
+                else:
+                    met.append(r["id"])
+
+        # Off sale first.
         if policies_off:
             self.shopify.set_inventory_policy(o["product_id"], policies_off)
             self._note_policies(policies_off)
         if group and members - desired:
             self.plans.detach(group, sorted(members - desired))
-        if group and desired - members:
-            self.plans.attach(group, sorted(desired - members))
+
+        # Then on sale.
+        if desired:
+            spec = self.plan_spec(o)
+            signature = f"{spec.dispatch_at}|{spec.discount_percent}"
+            if group is None:
+                group, plan = self.plans.create(spec, [])
+                self._remember_plan(o["id"], plan, spec)
+                self.store.update(
+                    "offers",
+                    "id",
+                    o["id"],
+                    {
+                        "selling_plan_group_id": group,
+                        "selling_plan_id": plan,
+                        "plan_signature": signature,
+                    },
+                )
+                self._event("selling_plan_created", o["id"], {"group": group, "plan": plan})
+            elif o["plan_signature"] != signature:
+                self._replace_plan(o, group, spec, signature)
+            if desired - members:
+                self.plans.attach(group, sorted(desired - members))
         if policies_on:
             self.shopify.set_inventory_policy(o["product_id"], policies_on)
             self._note_policies(policies_on)
+
+        # Closed: each size gets its own policy back, once.
         if restore:
             self.shopify.set_inventory_policy(o["product_id"], restore)
             self._note_policies(restore)
-        self._sync_metafields(o, rows, desired)
+            met += [r["id"] for r in rows if r["variant_id"] in restore]
+        for ov_id in met:
+            self.store.update("offer_variants", "id", ov_id, {"original_policy": None})
+
+        self._sync_metafields(
+            self.offer(o["id"]), [r for r in rows if r["variant_id"] not in covered], desired
+        )
         if live and not selling:  # off sale as it should be, but staff must know why
             return {"ok": False, "error": self.plans.reason, "attached": []}
         return {"ok": True, "attached": sorted(desired)}
+
+    def _replace_plan(self, o: dict[str, Any], group: str, spec: PlanSpec, signature: str) -> None:
+        """A date or discount change: a new plan in the group. If Shopify's answer is lost, the
+        group is read back and the plan Shopify made is adopted, so orders on it are known."""
+        old = o["selling_plan_id"]
+        try:
+            plan = self.plans.replace(group, old, spec)
+        except ShopifyRefused:
+            raise
+        except ShopifyError:
+            now = self.shopify.group_plans(group) or []
+            known = {r["plan_id"] for r in self.store.all("SELECT plan_id FROM selling_plans")}
+            fresh = [p for p in now if p not in known]
+            if old in now or len(fresh) != 1:
+                raise  # not done (or not clear what was): the next pass tries again
+            plan = fresh[0]
+            self._event("selling_plan_adopted", o["id"], {"plan": plan})
+        self.store.x(
+            "UPDATE selling_plans SET retired_at = ? WHERE plan_id = ?",
+            (iso(self.clock()), old),
+        )
+        self._remember_plan(o["id"], plan, spec)
+        self.store.update(
+            "offers", "id", o["id"], {"selling_plan_id": plan, "plan_signature": signature}
+        )
+        self._event("selling_plan_replaced", o["id"], {"plan": plan})
 
     def _note_policies(self, policies: dict[str, str]) -> None:
         for vid, policy in policies.items():
@@ -1258,12 +1318,15 @@ class PreordersService:
                 "unknown",
             ) from exc
         with self.store.tx():
-            self.store.update(
-                "receipts",
-                "id",
-                receipt["id"],
-                {"status": "APPLIED", "applied_at": iso(self.clock()), "error": None},
+            # Counted once, however many requests carried this key (a double click in flight).
+            first = self.store.x(
+                "UPDATE receipts SET status = 'APPLIED', applied_at = ?, error = NULL "
+                "WHERE id = ? AND status != 'APPLIED'",
+                (iso(self.clock()), receipt["id"]),
             )
+            if not first:
+                done = self.store.one("SELECT * FROM receipts WHERE id = ?", (receipt["id"],))
+                return {"receipt": done, "replayed": True, "batch": self.batch(b["id"])}
             self.store.x(
                 "UPDATE batch_lines SET received_quantity = received_quantity + ?, "
                 "updated_at = ? WHERE id = ?",
@@ -1343,17 +1406,23 @@ class PreordersService:
                 lines = set(fo.line_item_ids) & ready
                 if not lines:
                     continue
-                if fo.status == "SCHEDULED":
-                    if not set(fo.line_item_ids) <= ready:
-                        continue  # it also holds lines still waiting for stock
+                if fo.status in ("OPEN", "IN_PROGRESS"):
+                    already.append(snap.name)  # opened by staff, or by Shopify on the date
+                elif fo.status != "SCHEDULED":
+                    why = f"its fulfilment is {fo.status.lower().replace('_', ' ')} in Shopify"
+                    skipped.append({"order": snap.name, "why": why})
+                    continue
+                elif not set(fo.line_item_ids) <= ready:
+                    why = "it ships with items still waiting for stock"
+                    skipped.append({"order": snap.name, "why": why})
+                    continue
+                else:
                     try:
                         self.shopify.open_fulfillment_order(fo.id)
                     except ShopifyRefused as exc:
                         skipped.append({"order": snap.name, "why": str(exc)})
                         continue
                     opened.append(snap.name)
-                else:
-                    already.append(snap.name)
                 self._mark_released(lines)
         if opened or already or skipped:
             self._event(

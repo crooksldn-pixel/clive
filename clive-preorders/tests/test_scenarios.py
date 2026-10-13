@@ -125,11 +125,11 @@ def test_f_delay_keeps_the_original_promise_and_notifies_only_on_request(
     assert c["promised_dispatch_at"] == "2026-11-14"
     assert svc.comms.audience(batch["id"])["customers"] == 3
     sent = svc.comms.notify_delay(batch["id"], "Sam")
-    assert sent["SENT"] == 3
+    assert (sent["SENT"], sent["unchanged"]) == (2, 1)  # c bought on 14 November: no news
     a = next(x for x in mailer.sent if x["to"] == "a@example.com")
     assert "7 November" in a["text"] and "14 November" in a["text"]
     again = svc.comms.notify_delay(batch["id"], "Sam")
-    assert again["SENT"] == 0 and again["ALREADY"] == 3 and len(mailer.sent) == 3
+    assert again["SENT"] == 0 and again["ALREADY"] == 2 and len(mailer.sent) == 2
 
 
 # ------------------------------------------------------------------ G: receiving stock
@@ -451,3 +451,133 @@ def test_classification_never_calls_an_unseen_preorder_in_stock(svc, shopify, jo
     oid = shopify.checkout([(sizes["XS"], 1, None), (sizes["S"], 1, plan(shopify, sizes["S"]))])
     kinds = sorted(x["classification"] for x in svc.classify_order(oid)["lines"])
     assert kinds == ["IN_STOCK", "PREORDER_WAITING"]
+
+
+# ------------------------------------------------------------------ review findings
+
+
+def test_a_lost_reply_on_a_date_change_adopts_the_plan_shopify_made(svc, shopify, jogger):
+    pid, sizes = jogger
+    batch, offer = open_preorder(svc, pid, sizes, s=10, alloc_s=2)
+    s = sizes["S"]
+    shopify.fail_next("replace_plan", "lost")  # Shopify replaced it; the answer was lost
+    svc.change_dispatch(batch["id"], expected_dispatch_at="2026-11-14", actor="Sam")
+    live = plan(shopify, s)
+    assert svc.offer(offer["id"])["selling_plan_id"] == live  # adopted, not orphaned
+    for _ in range(2):
+        svc.ingest_order(shopify.checkout([(s, 1, plan(shopify, s))]))
+    rows = svc.preorder_lines()
+    assert len(rows) == 2 and {r["promised_dispatch_at"] for r in rows} == {"2026-11-14"}
+    assert shopify.variants_by_id[s].inventory_policy == "DENY"  # allocation used: stops
+    with pytest.raises(ValueError):
+        shopify.checkout([(s, 1, None)])
+
+
+def test_a_closed_offer_leaves_the_next_offer_for_the_size_alone(svc, shopify, jogger):
+    pid, sizes = jogger
+    batch_a, offer_a = open_preorder(svc, pid, sizes)
+    svc.close_offer(offer_a["id"], "Sam")
+    batch_b, offer_b = open_preorder(svc, pid, sizes, dispatch="2026-12-05", arrival="2026-12-01")
+    s = sizes["S"]
+    assert shopify.variants_by_id[s].inventory_policy == "CONTINUE"
+    shopify.calls.clear()
+    for _ in range(3):
+        svc.sync_offer(offer_a["id"])
+        svc.sync_all()
+    assert shopify.variants_by_id[s].inventory_policy == "CONTINUE"
+    assert "set_inventory_policy" not in shopify.calls  # nobody fights over the size
+    assert json.loads(shopify.metafields[s])["dispatch_by"] == "2026-12-05"
+
+
+def test_the_same_receipt_twice_at_once_counts_once(svc, shopify, jogger, monkeypatch):
+    pid, sizes = jogger
+    batch, _ = open_preorder(svc, pid, sizes)
+    ln = line_of(svc, batch, sizes["S"])
+    real = shopify.adjust_available
+
+    def double_click(*args):  # the second request arrives while the first is in flight
+        monkeypatch.setattr(shopify, "adjust_available", real)
+        svc.receive(ln["id"], 10, "rcv-double-key", "Sam")
+        return real(*args)
+
+    monkeypatch.setattr(shopify, "adjust_available", double_click)
+    svc.receive(ln["id"], 10, "rcv-double-key", "Sam")
+    assert line_of(svc, svc.batch(batch["id"]), sizes["S"])["received_quantity"] == 10
+    assert shopify.variants_by_id[sizes["S"]].available == 10
+
+
+def test_changing_the_preorders_own_date_moves_customers_and_mails_only_real_changes(
+    svc, shopify, mailer, jogger
+):
+    pid, sizes = jogger
+    batch, offer = open_preorder(svc, pid, sizes)
+    s = sizes["S"]
+    svc.ingest_order(shopify.checkout([(s, 1, plan(shopify, s))], email="a@example.com"))
+    svc.configure_offer(product_id=pid, batch_id=batch["id"], dispatch_at="2026-12-20", actor="Sam")
+    row = svc.preorder_lines()[0]
+    assert (row["promised_dispatch_at"], row["current_dispatch_at"]) == ("2026-11-07", "2026-12-20")
+    svc.comms.notify_delay(batch["id"], "Sam")
+    assert len(mailer.sent) == 1 and "20 December" in mailer.sent[0]["text"]
+    svc.ingest_order(shopify.checkout([(s, 1, plan(shopify, s))], email="b@example.com"))
+    svc.comms.notify_delay(batch["id"], "Sam")
+    assert len(mailer.sent) == 1  # b bought on the new date: nothing changed for them
+
+
+def test_a_size_with_stock_on_the_shelf_is_not_on_the_preorder_plan(svc, shopify, jogger):
+    pid, sizes = jogger
+    batch, offer = open_preorder(svc, pid, sizes)
+    s = sizes["S"]
+    shopify.variants_by_id[s].available = 4  # stock turned up outside the batch
+    svc.refresh_catalog(pid)
+    svc.sync_offer(offer["id"])
+    assert plan(shopify, s) is None
+    assert shopify.variants_by_id[s].inventory_policy == "DENY"
+
+
+def test_release_reports_held_and_mixed_fulfilment_orders(svc, shopify, jogger):
+    pid, sizes = jogger
+    batch, _ = open_preorder(svc, pid, sizes)
+    s, m = sizes["S"], sizes["M"]
+    held = shopify.checkout([(s, 1, plan(shopify, s))])
+    mixed = shopify.checkout([(s, 1, plan(shopify, s)), (m, 1, plan(shopify, m))])
+    for o in (held, mixed):
+        svc.ingest_order(o)
+    shopify.orders[held].fulfillment_orders[0].status = "ON_HOLD"
+    svc.receive(line_of(svc, batch, s)["id"], 2, "rcv-two-s-key", "Sam")
+    out = svc.release_ready(batch["id"], "Sam")
+    assert out["opened"] == [] and out["already_open"] == []
+    assert len(out["skipped"]) == 2  # said, not silently dropped
+    assert svc.release_preview(batch["id"])["orders"] == 2  # still offered
+
+
+def _one_delayed_order(svc, shopify, jogger):
+    pid, sizes = jogger
+    batch, _ = open_preorder(svc, pid, sizes)
+    s = sizes["S"]
+    svc.ingest_order(shopify.checkout([(s, 1, plan(shopify, s))], email="a@example.com"))
+    svc.change_dispatch(batch["id"], expected_dispatch_at="2026-11-14", actor="Sam")
+    return batch
+
+
+def test_an_unconfirmed_email_is_retried_once_within_the_providers_window(
+    svc, shopify, mailer, jogger, clock
+):
+    batch = _one_delayed_order(svc, shopify, jogger)
+    mailer.fail_next = "unknown"  # it went out; the answer was lost
+    assert svc.comms.notify_delay(batch["id"], "Sam")["UNKNOWN"] == 1
+    clock.advance(hours=1)
+    assert svc.comms.notify_delay(batch["id"], "Sam")["SENT"] == 1  # same key: delivered once
+    assert len(mailer.sent) == 1
+
+
+def test_an_unconfirmed_email_is_never_resent_after_the_providers_window(
+    svc, shopify, mailer, jogger, clock
+):
+    batch = _one_delayed_order(svc, shopify, jogger)
+    mailer.fail_next = "unknown"
+    svc.comms.notify_delay(batch["id"], "Sam")
+    clock.advance(hours=30)  # Resend has forgotten the key: a resend could arrive twice
+    mailer.keys.clear()
+    assert svc.comms.notify_delay(batch["id"], "Sam")["UNKNOWN"] == 1
+    assert len(mailer.sent) == 1
+    assert "emails" in {a["kind"] for a in svc.overview()["attention"]}

@@ -99,9 +99,10 @@ Approve the new permissions in Shopify admin. Then:
 
 First-deploy checks:
 
-- The first storefront signup: see in `docker compose logs caddy` which address it came from.
-  If the app proxy delivers Shopify's address rather than the shopper's, the per-address signup
-  limit (`PREORDERS_SIGNUP_IP_LIMIT`, 20 an hour) counts all shoppers together; raise it.
+- Storefront signups are limited per email (`PREORDERS_SIGNUP_EMAIL_LIMIT`, 10 an hour) and,
+  as a flood brake only, per address (`PREORDERS_SIGNUP_IP_LIMIT`, 300 an hour): through the
+  app proxy the address may be Shopify's, shared by every shopper. Signed proxy requests older
+  than 5 minutes, or for another shop, are refused.
 - The theme's product form keeps the selected variant in a field named `id` (all Online Store
   2.0 themes do). The block follows that field.
 
@@ -111,6 +112,13 @@ alert
 carries a one-click unsubscribe. The webhook endpoint also handles `customers/redact`, but the
 app has no compliance webhooks configured today (it is a single-store app, not listed); if they
 are added for App Store listing, Preorders needs the topic too.
+
+When something goes wrong it is shown, not hidden: Overview → Needs attention lists offers out
+of step with Shopify, Shopify updates that couldn't be processed, stock receipts or emails that
+weren't confirmed, failing background work and errors from the last check against Shopify. An
+unconfirmed receipt has **Confirm with Shopify** on its batch page (it resends the same request,
+which can't add stock twice). An email whose outcome is unknown is retried with the same key
+only within 23 hours (Resend remembers a key for 24); after that it stays "not confirmed".
 
 Rollback: `docker compose stop preorders`. Closing every offer first (Stop preorder) puts the
 sizes back to their own inventory policy and removes them from the selling plans.

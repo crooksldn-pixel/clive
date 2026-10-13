@@ -18,6 +18,7 @@ import html
 import json
 import logging
 import sqlite3
+from datetime import timedelta
 from typing import Any, Protocol
 
 import httpx
@@ -25,6 +26,8 @@ import httpx
 from preorders.store import iso, new_id
 
 REDACTED = "[redacted]"  # as set by Waitlist.redact_email
+# Resend keeps an Idempotency-Key for 24 hours; retries stay well inside that.
+RESEND_WINDOW = timedelta(hours=23)
 
 log = logging.getLogger("preorders.comms")
 
@@ -189,6 +192,14 @@ class Communications:
             row = self.store.one("SELECT * FROM communications WHERE dedupe_key = ?", (dedupe_key,))
             if row and row["status"] == "SENT":
                 return "ALREADY"
+            if (
+                row
+                and row["status"] in ("UNKNOWN", "PENDING")
+                and row["created_at"] < iso(self.svc.clock() - RESEND_WINDOW)
+            ):
+                # The provider only remembers a key for 24 hours: sending again now could
+                # deliver it twice. It stays "not confirmed" for a person to look at.
+                return "UNKNOWN"
             if row is None:
                 row = {
                     "id": new_id("msg"),
@@ -213,15 +224,11 @@ class Communications:
                 to=recipient, subject=subject, text=text, html_body=html_body, key=dedupe_key
             )
         except EmailRefused as exc:
-            self.store.update(
-                "communications", "id", row["id"], {"status": "FAILED", "error": str(exc)[:300]}
-            )
+            self._settle(row["id"], "FAILED", str(exc))
             log.info("%s to message %s refused: %s", kind, row["id"], exc)
             return "FAILED"
         except EmailUncertain as exc:
-            self.store.update(
-                "communications", "id", row["id"], {"status": "UNKNOWN", "error": str(exc)[:300]}
-            )
+            self._settle(row["id"], "UNKNOWN", str(exc))
             log.warning("%s message %s outcome unknown: %s", kind, row["id"], exc)
             return "UNKNOWN"
         self.store.update(
@@ -237,6 +244,13 @@ class Communications:
         )
         log.info("%s message %s sent", kind, row["id"])
         return "SENT"
+
+    def _settle(self, message_id: str, status: str, error: str) -> None:
+        """A failure never overwrites SENT (a duplicate request racing a successful one)."""
+        self.store.x(
+            "UPDATE communications SET status = ?, error = ? WHERE id = ? AND status != 'SENT'",
+            (status, error[:300], message_id),
+        )
 
     # --- preorder customers
 
@@ -278,7 +292,7 @@ class Communications:
 
     def notify_delay(self, batch_id: str, actor: str) -> dict[str, int]:
         """'Update to your preorder': each order's original and new expected dispatch."""
-        counts = {"SENT": 0, "ALREADY": 0, "FAILED": 0, "UNKNOWN": 0, "no_email": 0}
+        counts = {"SENT": 0, "ALREADY": 0, "FAILED": 0, "UNKNOWN": 0, "no_email": 0, "unchanged": 0}
         store_url = self.svc.s.store_url
         for o in self._batch_orders(batch_id):
             if not o["email"]:
@@ -286,6 +300,9 @@ class Communications:
                 continue
             new = o["lines"][0]["current_dispatch_at"]
             old = o["lines"][0]["promised_dispatch_at"]
+            if new == old:
+                counts["unchanged"] += 1  # bought on today's date: nothing to tell them
+                continue
             items = [x["title"] for x in o["lines"]]
             text = (
                 f"Hi {o['name'] or 'there'},\n\nThere's an update to your CROOKS preorder "
