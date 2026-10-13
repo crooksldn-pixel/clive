@@ -86,6 +86,9 @@ def proxy_signature_ok(query: list[tuple[str, str]], secret: str) -> bool:
     return bool(given and secret) and hmac.compare_digest(want.encode(), given.encode())
 
 
+PROXY_MAX_AGE_S = 300
+
+
 class RateLimiter:
     def __init__(self, limit: int, window_s: int) -> None:
         self.limit, self.window = limit, window_s
@@ -521,6 +524,15 @@ def proxy_router(svc: PreordersService, settings: Settings) -> APIRouter:
             list(request.query_params.multi_items()), settings.shopify_client_secret
         ):
             raise HTTPException(401, "Not signed by Shopify.")
+        # Shopify signs each request as it forwards it: an old signed URL is a replay.
+        try:
+            age = abs(time.time() - int(request.query_params.get("timestamp", "")))
+        except ValueError:
+            raise HTTPException(401, "Not signed by Shopify.") from None
+        if age > PROXY_MAX_AGE_S:
+            raise HTTPException(401, "This request has expired.")
+        if settings.shop_domain and request.query_params.get("shop") != settings.shop_domain:
+            raise HTTPException(401, "Not this store.")
 
     @router.post("/waitlist", dependencies=[Depends(signed)])
     def signup(body: SignupBody, request: Request) -> JSONResponse:

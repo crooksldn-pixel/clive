@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import time
 from urllib.parse import urlencode
 
 import pytest
@@ -36,6 +37,7 @@ def signed_webhook(client, topic, payload, event_id, secret="test-secret"):
 
 
 def proxy_query(params, secret="test-secret"):
+    params = {"shop": "crooks-test.myshopify.com", "timestamp": str(int(time.time())), **params}
     message = "".join(sorted(f"{k}={v}" for k, v in params.items()))
     sig = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
     return urlencode({**params, "signature": sig})
@@ -70,15 +72,14 @@ def test_storefront_signup_needs_shopifys_signature(client, svc, jogger):
     vid = sizes["L"].rsplit("/", 1)[1]
     body = {"variant_id": vid, "email": "fan@example.com"}
     assert client.post("/proxy/preorders/waitlist", json=body).status_code == 401
-    q = proxy_query(
-        {
-            "shop": "crooks-test.myshopify.com",
-            "path_prefix": "/apps/returns",
-            "timestamp": "1760000000",
-        }
-    )
+    q = proxy_query({"path_prefix": "/apps/returns"})
     r = client.post(f"/proxy/preorders/waitlist?{q}", json=body)
     assert r.status_code == 200 and r.json()["status"] == "joined"
+    # A correctly signed request replayed later, or signed for another shop, is refused.
+    stale = proxy_query({"path_prefix": "/apps/returns", "timestamp": str(int(time.time()) - 600)})
+    assert client.post(f"/proxy/preorders/waitlist?{stale}", json=body).status_code == 401
+    other = proxy_query({"path_prefix": "/apps/returns", "shop": "someone-else.myshopify.com"})
+    assert client.post(f"/proxy/preorders/waitlist?{other}", json=body).status_code == 401
     bad = client.post(f"/proxy/preorders/waitlist?{q}", json={**body, "email": "nope"})
     assert bad.status_code == 422
 
@@ -87,11 +88,9 @@ def test_unsubscribe_link_works_once_and_only_with_its_token(client, svc, jogger
     pid, sizes = jogger
     svc.waitlist.signup(variant_id=sizes["L"], email="fan@example.com")
     sub = svc.waitlist.subscribers(sizes["L"])[0]
-    q = proxy_query({"id": sub["id"], "t": "forged", "shop": "crooks-test.myshopify.com"})
+    q = proxy_query({"id": sub["id"], "t": "forged"})
     assert "isn't valid" in client.get(f"/proxy/preorders/waitlist/unsubscribe?{q}").text
-    q = proxy_query(
-        {"id": sub["id"], "t": svc.waitlist.token(sub["id"]), "shop": "crooks-test.myshopify.com"}
-    )
+    q = proxy_query({"id": sub["id"], "t": svc.waitlist.token(sub["id"])})
     assert "won't get" in client.get(f"/proxy/preorders/waitlist/unsubscribe?{q}").text
     assert svc.waitlist.subscribers(sizes["L"])[0]["status"] == "UNSUBSCRIBED"
 
