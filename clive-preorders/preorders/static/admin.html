@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="shopify-api-key" content="{{CLIENT_ID}}">
+<script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+<script src="https://cdn.shopify.com/shopifycloud/polaris.js"></script>
+<title>CLIVE Preorders</title>
+<style>
+  /* Layout gaps only: everything visible is a Polaris component. */
+  body { margin: 0; }
+  s-app-nav { display: none; }
+  .nowrap { white-space: nowrap; }
+  .wrap-any { overflow-wrap: anywhere; }
+  .num { font-variant-numeric: tabular-nums; }
+  .tabs-select { display: none; }
+  @media (max-width: 700px) { .tabs-row { display: none; } .tabs-select { display: block; } }
+</style>
+</head>
+<body>
+<s-app-nav>
+  <s-link href="/admin" rel="home">Home</s-link>
+  <s-link href="/admin?section=returns">Returns</s-link>
+  <s-link href="/shipping/admin">Shipping</s-link>
+  <s-link href="/preorders/admin">Pre-orders</s-link>
+  <s-link href="/settings">Settings</s-link>
+</s-app-nav>
+<script>
+// CROOKS Operations: each section is its own service. If App Bridge moves the URL to another
+// section without loading it, load that section.
+(() => {
+  const at = (p) => p.replace(/\/+$/, "");
+  const home = at(location.pathname);
+  const check = () => { if (at(location.pathname) !== home) location.reload(); };
+  for (const k of ["pushState", "replaceState"]) {
+    const orig = history[k];
+    history[k] = function (...args) { const r = orig.apply(this, args); check(); return r; };
+  }
+  addEventListener("popstate", check);
+})();
+</script>
+<s-page id="page" heading="Pre-orders"><s-section><s-stack alignItems="center" padding="large"><s-spinner accessibilityLabel="Loading" size="large"></s-spinner></s-stack></s-section></s-page>
+
+<script>
+"use strict";
+/*
+ * CLIVE Preorders, embedded in Shopify admin. Five places: Overview, Products, Pre-orders,
+ * Incoming stock, Notify me; records open in their own page (?variant=, ?batch=, ?setup=,
+ * ?waitlist=, ?new=batch). Every call carries an App Bridge session token. Nothing here emails a
+ * customer or moves stock without a confirmation that says how many are affected.
+ */
+
+const BASE = location.pathname.replace(/\/admin\/?$/, "");
+const EMBEDDED = window.top !== window.self;
+const SECTIONS = [["overview", "Overview"], ["products", "Products"], ["preorders", "Pre-orders"],
+                  ["incoming", "Incoming stock"], ["notify", "Notify me"]];
+const state = { busy: false, flash: null, data: null, q: "" };
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const num = (gid) => String(gid || "").split("/").pop();
+const money = (minor, cur = "GBP") =>
+  new Intl.NumberFormat("en-GB", { style: "currency", currency: cur }).format((minor || 0) / 100);
+const day = (iso) => {
+  if (!iso) return "—";
+  const d = new Date(`${String(iso).slice(0, 10)}T12:00:00Z`);
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+};
+const when = (iso) => iso ? new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+const val = (id) => (document.getElementById(id)?.value ?? "").toString().trim();
+const key = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+const STATUS = {
+  PLANNED: ["Planned", "neutral"], ORDERED: ["Ordered", "info"], IN_TRANSIT: ["In transit", "info"],
+  DELAYED: ["Delayed", "warning"], PARTIALLY_RECEIVED: ["Partly received", "attention"],
+  RECEIVED: ["Received", "success"], CANCELLED: ["Cancelled", "critical"],
+};
+const LINE = {
+  AWAITING_STOCK: ["Awaiting stock", "attention"], READY: ["Ready", "success"],
+  FULFILLED: ["Fulfilled", "neutral"], CANCELLED: ["Cancelled", "critical"],
+};
+const badge = (label, tone) => `<s-badge tone="${esc(tone)}">${esc(label)}</s-badge>`;
+
+async function token() {
+  if (!EMBEDDED || !window.shopify || !shopify.idToken) return "";
+  return await shopify.idToken();
+}
+
+class ApiError extends Error {
+  constructor(status, detail) {
+    const d = typeof detail === "object" && detail ? detail : { message: String(detail || "") };
+    super(d.message || "Something went wrong.");
+    this.status = status; this.code = d.code || "";
+  }
+}
+
+async function api(path, { method = "GET", body } = {}) {
+  const headers = { Accept: "application/json" };
+  const t = await token();
+  if (t) headers.Authorization = `Bearer ${t}`;
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  let res;
+  try {
+    res = await fetch(`${BASE}/admin/api${path}`, { method, headers,
+      body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch (e) {
+    throw new ApiError(0, { message: "The connection dropped before CLIVE answered.", code: "network" });
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, data.detail);
+  return data;
+}
+
+function toast(message, isError = false) {
+  try { if (EMBEDDED && window.shopify?.toast) { shopify.toast.show(message, { isError }); return; } }
+  catch (e) { /* fall back to the page banner */ }
+  state.flash = { tone: isError ? "critical" : "success", heading: message, text: "" };
+}
+
+function loading(on) {
+  state.busy = on;
+  try { if (EMBEDDED && window.shopify?.loading) shopify.loading(on); } catch (e) { /* ignore */ }
+}
+
+function errorBanner(err) {
+  if (err.status === 401) return { tone: "critical", heading: "Open CLIVE Preorders from Shopify admin",
+    text: "Your Shopify session couldn't be checked. Open the app from the Apps menu." };
+  return { tone: "critical", heading: err.status === 503 ? "Couldn't finish that" : "That didn't work",
+           text: err.message };
+}
+
+function banner(b) {
+  return b ? `<s-banner tone="${esc(b.tone)}" heading="${esc(b.heading)}">${esc(b.text || "")}</s-banner>` : "";
+}
+
+function page(heading, slots, body) {
+  const host = document.getElementById("page");
+  const scratch = document.createElement("div");
+  scratch.innerHTML = slots + (state.flash ? banner(state.flash) : "") + body;
+  if (window.customElements && customElements.upgrade) customElements.upgrade(scratch);
+  host.setAttribute("heading", heading);
+  host.replaceChildren(...scratch.childNodes);
+  document.title = `${heading} · CLIVE Preorders`;
+}
+
+function navigate(params, replace = false) {
+  const qs = new URLSearchParams(params).toString();
+  (replace ? history.replaceState : history.pushState).call(history, {}, "", `${BASE}/admin${qs ? "?" + qs : ""}`);
+  state.flash = null;
+  route();
+}
+
+function tabs(current, options, paramName, extra = {}) {
+  const select = `<s-select class="tabs-select" id="tabs-select" data-param="${paramName}" label="Show">${options.map(([k, l]) =>
+    `<s-option value="${k}" ${k === current ? "selected" : ""}>${esc(l)}</s-option>`).join("")}</s-select>`;
+  return `<s-stack gap="small-200">${select}<span class="tabs-row"><s-button-group gap="none" accessibilityLabel="Views">${options.map(([k, l]) => {
+    const on = k === current;
+    const href = `${BASE}/admin?${new URLSearchParams({ ...extra, [paramName]: k })}`;
+    return `<s-button slot="secondary-actions" data-go='${esc(JSON.stringify({ ...extra, [paramName]: k }))}' ${on ? 'icon="check" aria-current="page"' : ""} href="${href}">${esc(l)}</s-button>`;
+  }).join("")}</s-button-group></span></s-stack>`;
+}
+
+function sectionNav(current) {
+  return `<s-section padding="base">${tabs(current, SECTIONS, "view")}</s-section>`;
+}
+
+function plansBanner(d) {
+  if (d.plans_available) return "";
+  return `<s-banner tone="warning" heading="Preorders can't be sold on the storefront yet">${esc(d.plans_reason || "")} Incoming stock, allocations and Notify me all work meanwhile.</s-banner>`;
+}
+
+function empty(heading, text, action = "") {
+  return `<s-section><s-stack gap="base" alignItems="center" padding="large"><s-heading>${esc(heading)}</s-heading><s-paragraph color="subdued">${esc(text)}</s-paragraph>${action}</s-stack></s-section>`;
+}
+
+// ------------------------------------------------------------------ routing
+
+async function route() {
+  const p = new URLSearchParams(location.search);
+  try {
+    loading(true);
+    if (p.get("variant")) return renderVariant(await api(`/variants/${p.get("variant")}`));
+    if (p.get("setup")) return renderSetup(p.get("setup"), p.get("product"));
+    if (p.get("batch")) return renderBatch(await api(`/batches/${encodeURIComponent(p.get("batch"))}`));
+    if (p.get("waitlist")) return renderWaitlist(await api(`/waitlist/${p.get("waitlist")}`));
+    if (p.get("new") === "batch") return renderNewBatch(await api("/products"), p.get("variant_hint"));
+    const view = p.get("view") || "overview";
+    if (view === "products") return renderProducts(await api(`/products?view=${p.get("filter") || "all"}&q=${encodeURIComponent(p.get("q") || "")}`), p);
+    if (view === "preorders") return renderPreorders(await api(`/preorders?view=${p.get("filter") || "all"}&q=${encodeURIComponent(p.get("q") || "")}`), p);
+    if (view === "incoming") return renderIncoming(await api("/batches"));
+    if (view === "notify") return renderDemand(await api(`/waitlist?view=${p.get("filter") || "most_wanted"}`), p);
+    return renderOverview(await api("/overview"));
+  } catch (err) {
+    state.flash = errorBanner(err);
+    page("Pre-orders", "", sectionNav("overview") + `<s-section><s-paragraph>Nothing to show yet.</s-paragraph></s-section>`);
+  } finally { loading(false); }
+}
+
+// ------------------------------------------------------------------ overview
+
+function kpi(label, value, note = "") {
+  return `<s-box padding="base" border="base" borderRadius="base"><s-stack gap="small-100"><s-text color="subdued">${esc(label)}</s-text><s-heading><span class="num">${esc(value)}</span></s-heading>${note ? `<s-text color="subdued">${esc(note)}</s-text>` : ""}</s-stack></s-box>`;
+}
+
+function renderOverview(d) {
+  state.data = d;
+  const attention = d.attention.length
+    ? `<s-section heading="Needs attention"><s-stack gap="small-200">${d.attention.map((a) => `<s-text>${esc(a.text)}</s-text>`).join("")}</s-stack></s-section>` : "";
+  const incoming = d.batches.length ? `<s-section heading="Incoming"><s-table><s-table-header-row>
+      <s-table-header listSlot="primary">Batch</s-table-header><s-table-header listSlot="inline">Status</s-table-header>
+      <s-table-header listSlot="labeled" format="numeric">Preordered</s-table-header><s-table-header listSlot="labeled">Arrives</s-table-header><s-table-header listSlot="labeled">Dispatch</s-table-header>
+    </s-table-header-row><s-table-body>${d.batches.map((b) => `<s-table-row>
+      <s-table-cell><s-link data-go='${esc(JSON.stringify({ batch: b.id }))}' href="${BASE}/admin?batch=${esc(b.id)}">${esc(b.reference)}</s-link></s-table-cell>
+      <s-table-cell>${badge(...(STATUS[b.status] || [b.status, "neutral"]))}</s-table-cell>
+      <s-table-cell><span class="num">${b.totals.sold} / ${b.totals.allocation}</span></s-table-cell>
+      <s-table-cell>${day(b.expected_arrival_at)}</s-table-cell><s-table-cell>${day(b.expected_dispatch_at)}</s-table-cell>
+    </s-table-row>`).join("")}</s-table-body></s-table></s-section>`
+    : empty("No stock on the way", "Create an incoming batch when you order stock: preorders sell against it.",
+            `<s-button variant="primary" data-go='{"new":"batch"}' href="${BASE}/admin?new=batch">Create incoming batch</s-button>`);
+  const reconcile = `<s-section heading="Health"><s-stack gap="small-200">
+      <s-text color="subdued">Email to customers: ${d.email_enabled ? "set up" : "not set up (nothing can be sent)"}.</s-text>
+      <s-button data-action="reconcile">Check everything against Shopify</s-button></s-stack></s-section>`;
+  page("Pre-orders", `<s-button slot="primary-action" variant="primary" data-go='{"new":"batch"}' href="${BASE}/admin?new=batch">Create incoming batch</s-button>`,
+    plansBanner(d) + sectionNav("overview") + `<s-section><s-grid gridTemplateColumns="repeat(auto-fit, minmax(150px, 1fr))" gap="base">
+      ${kpi("Preorder revenue", money(d.revenue_minor), "outstanding")}
+      ${kpi("Preorder units", d.units, `${d.due_7_days} due within 7 days`)}
+      ${kpi("Inbound units", d.inbound_units)}
+      ${kpi("Waitlist", d.waitlist, "people waiting")}
+    </s-grid></s-section>` + attention + incoming + `<div id="most-wanted"></div>` + reconcile);
+  api("/waitlist?view=most_wanted").then((w) => {
+    const host = document.getElementById("most-wanted");
+    if (!host || !w.rows.length) return;
+    const scratch = document.createElement("div");
+    scratch.innerHTML = `<s-section heading="Most wanted">${demandTable(w.rows.slice(0, 5))}</s-section>`;
+    if (customElements.upgrade) customElements.upgrade(scratch);
+    host.replaceWith(...scratch.childNodes); // a direct child of the page, so it is spaced like the rest
+  }).catch(() => {}); // optional panel: the overview stands without it
+}
+
+// ------------------------------------------------------------------ products
+
+const PRODUCT_FILTERS = [["all", "All"], ["in_stock", "In stock"], ["preorder", "Pre-order"], ["waitlist", "Waitlist"], ["sold_out", "Sold out"]];
+
+function renderProducts(d, p) {
+  const filter = p.get("filter") || "all";
+  const rows = d.rows.map((r) => `<s-table-row>
+      <s-table-cell><s-stack gap="small-100"><s-link data-go='${esc(JSON.stringify({ variant: num(r.variant_id) }))}' href="${BASE}/admin?variant=${num(r.variant_id)}">${esc(r.product)}</s-link><s-text color="subdued">${esc(r.variant)}${r.sku ? " · " + esc(r.sku) : ""}</s-text></s-stack></s-table-cell>
+      <s-table-cell>${badge(r.badge, r.tone)}</s-table-cell>
+      <s-table-cell><span class="num">${Math.max(r.available, 0)}</span></s-table-cell>
+      <s-table-cell><span class="num">${r.inbound || "—"}</span></s-table-cell>
+      <s-table-cell><span class="num">${r.allocation ? `${r.preordered} / ${r.allocation}` : "—"}</span></s-table-cell>
+      <s-table-cell><span class="num">${r.allocation ? r.remaining : "—"}</span></s-table-cell>
+      <s-table-cell>${r.dispatch ? day(r.dispatch) : "—"}</s-table-cell>
+      <s-table-cell>${esc(r.discount || "—")}</s-table-cell>
+      <s-table-cell><span class="num">${r.waitlist || "—"}</span></s-table-cell>
+    </s-table-row>`).join("");
+  const table = d.rows.length ? `<s-section padding="none"><s-table>
+    <s-table-header-row>
+      <s-table-header listSlot="primary">Product</s-table-header><s-table-header listSlot="inline">State</s-table-header>
+      <s-table-header listSlot="labeled" format="numeric">Available now</s-table-header><s-table-header listSlot="labeled" format="numeric">Incoming</s-table-header>
+      <s-table-header listSlot="labeled" format="numeric">Preordered</s-table-header><s-table-header listSlot="labeled" format="numeric">Remaining</s-table-header>
+      <s-table-header listSlot="labeled">Dispatch</s-table-header><s-table-header listSlot="labeled">Discount</s-table-header>
+      <s-table-header listSlot="labeled" format="numeric">Notify me</s-table-header>
+    </s-table-header-row><s-table-body>${rows}</s-table-body></s-table></s-section>`
+    : empty("No variants here", filter === "all" ? "Refresh from Shopify to load your products." : "No variant is in this state.");
+  page("Products", `<s-button slot="secondary-actions" data-action="refresh-catalog">Refresh from Shopify</s-button>`,
+    sectionNav("products") + `<s-section><s-stack gap="base">${tabs(filter, PRODUCT_FILTERS, "filter", { view: "products" })}
+      <s-search-field id="search" label="Search products" labelAccessibilityVisibility="exclusive" placeholder="Search by product, size or SKU" value="${esc(p.get("q") || "")}"></s-search-field></s-stack></s-section>` + table);
+}
+
+function renderVariant(d) {
+  state.data = d;
+  const v = d.variant, o = d.offer;
+  const [label, tone] = { IN_STOCK: ["In stock", "success"], PREORDER: ["Pre-order", "info"], NOTIFY_ME: ["Waitlist", "neutral"] }[d.state];
+  const stock = `<s-section heading="Stock in Shopify"><s-grid gridTemplateColumns="repeat(auto-fit, minmax(120px, 1fr))" gap="base">
+      ${kpi("Available", v.available)}${kpi("Committed", v.committed)}${kpi("Incoming (Shopify)", v.incoming)}${kpi("On hand", v.on_hand)}
+    </s-grid><s-text color="subdued">Committed includes preorders: their stock is reserved when they're bought, so arriving stock covers them first.</s-text></s-section>`;
+  let pre;
+  if (o) {
+    const me = o.variants.find((x) => x.variant_id === v.variant_id) || {};
+    pre = `<s-section heading="Preorder">
+      <s-stack gap="base">
+        <s-stack direction="inline" gap="small-200">${badge(...(STATUS[o.status] ? [o.status, "neutral"] : [o.status === "ACTIVE" ? "Live" : o.status === "DRAFT" ? "Not live" : "Stopped", o.status === "ACTIVE" ? "success" : "neutral"]))}<s-text>${esc(o.dispatch_words)}</s-text></s-stack>
+        <s-text><span class="num">${me.sold ?? 0} / ${me.preorder_allocation ?? 0}</span> preordered · ${me.remaining ?? 0} remaining${o.discount_type === "PERCENTAGE" ? ` · ${o.discount_value}% preorder discount` : ""}</s-text>
+        ${o.sync_error ? `<s-banner tone="warning" heading="Not in step with Shopify">${esc(o.sync_error)}</s-banner>` : ""}
+        <s-button-group><s-button slot="secondary-actions" data-go='${esc(JSON.stringify({ setup: o.batch_id, product: num(o.product_id) }))}' href="${BASE}/admin?setup=${esc(o.batch_id)}&product=${num(o.product_id)}">Edit preorder</s-button>
+        <s-button slot="secondary-actions" data-go='${esc(JSON.stringify({ batch: o.batch_id }))}' href="${BASE}/admin?batch=${esc(o.batch_id)}">Open batch</s-button></s-button-group>
+      </s-stack></s-section>`;
+  } else {
+    const open = d.batch_lines.filter((x) => !["RECEIVED", "CANCELLED"].includes(x.status));
+    pre = `<s-section heading="Preorder">${open.length
+      ? `<s-stack gap="base"><s-paragraph>${open.map((x) => `${x.expected_quantity - x.received_quantity} coming in ${esc(x.reference)}`).join(" · ")}.</s-paragraph>
+         <s-button variant="primary" data-go='${esc(JSON.stringify({ setup: open[0].batch_id, product: num(v.product_id) }))}' href="${BASE}/admin?setup=${esc(open[0].batch_id)}&product=${num(v.product_id)}">Set up preorder</s-button></s-stack>`
+      : `<s-stack gap="base"><s-paragraph>No stock of this size is on the way, so it can't be preordered. Customers see Notify me while it's sold out.</s-paragraph>
+         <s-button data-go='${esc(JSON.stringify({ new: "batch", variant_hint: num(v.product_id) }))}' href="${BASE}/admin?new=batch&variant_hint=${num(v.product_id)}">Add to an incoming batch</s-button></s-stack>`}</s-section>`;
+  }
+  const w = d.waitlist;
+  const wait = `<s-section heading="Notify me"><s-stack gap="base"><s-text>${w.count} ${w.count === 1 ? "person is" : "people are"} waiting for this size.</s-text>
+    <s-button data-go='${esc(JSON.stringify({ waitlist: num(v.variant_id) }))}' href="${BASE}/admin?waitlist=${num(v.variant_id)}">View waitlist</s-button></s-stack></s-section>`;
+  page(`${v.product_title} · ${v.variant_title}`, `<s-link slot="breadcrumb-actions" data-go='{"view":"products"}' href="${BASE}/admin?view=products">Products</s-link>`,
+    `<s-section><s-stack direction="inline" gap="small-200">${badge(label, tone)}<s-text color="subdued">${esc(v.sku || "")}</s-text></s-stack></s-section>` + pre + wait + stock);
+}
+
+// The preorder for one product from one batch: sizes, allocation, discount, dispatch.
+async function renderSetup(batchId, productNum) {
+  const b = await api(`/batches/${encodeURIComponent(batchId)}`);
+  const lines = b.lines.filter((x) => num(x.product_id) === productNum);
+  const offer = b.offers.find((x) => num(x.product_id) === productNum);
+  const view = offer ? await api(`/offers/${offer.id}`) : null;
+  state.data = { batch: b, lines, offer: view };
+  if (!lines.length) {
+    page("Set up preorder", "", empty("Nothing from this product in the batch", "Add its sizes to the batch first."));
+    return;
+  }
+  const enabled = new Set(view ? view.variants.filter((x) => x.enabled).map((x) => x.variant_id) : lines.map((x) => x.variant_id));
+  const sizes = lines.map((x) => `<s-table-row>
+      <s-table-cell><s-checkbox id="use-${esc(x.id)}" label="${esc(x.variant_title)}" ${enabled.has(x.variant_id) ? "checked" : ""}></s-checkbox></s-table-cell>
+      <s-table-cell><span class="num">${x.expected_quantity}</span></s-table-cell>
+      <s-table-cell><s-number-field id="alloc-${esc(x.id)}" label="Preorder quantity" labelAccessibilityVisibility="exclusive" min="${x.sold}" max="${x.expected_quantity}" step="1" value="${x.preorder_allocation}"></s-number-field></s-table-cell>
+      <s-table-cell><span class="num">${x.sold}</span></s-table-cell>
+      <s-table-cell><span class="num">${x.remaining}</span></s-table-cell>
+    </s-table-row>`).join("");
+  const live = view && view.status === "ACTIVE";
+  const disc = view ? view.discount_type : "NONE";
+  page(`Preorder · ${lines[0].product_title}`, `<s-link slot="breadcrumb-actions" data-go='${esc(JSON.stringify({ batch: b.id }))}' href="${BASE}/admin?batch=${esc(b.id)}">${esc(b.reference)}</s-link>` +
+    (live ? `<s-button slot="secondary-actions" tone="critical" data-action="close-offer">Stop preorder</s-button>` : ""),
+    (view ? plansBanner(view) : "") +
+    `<s-section heading="Sizes"><s-paragraph color="subdued">Preorder quantity defaults to what's coming; keep some back as safety stock by setting it lower.</s-paragraph>
+      <s-table><s-table-header-row><s-table-header listSlot="primary">Size</s-table-header><s-table-header listSlot="labeled" format="numeric">Arriving</s-table-header>
+      <s-table-header listSlot="labeled">Preorder quantity</s-table-header><s-table-header listSlot="labeled" format="numeric">Preordered</s-table-header><s-table-header listSlot="labeled" format="numeric">Remaining</s-table-header></s-table-header-row>
+      <s-table-body>${sizes}</s-table-body></s-table></s-section>
+    <s-section heading="Customers see"><s-stack gap="base">
+      <s-date-field id="dispatch" label="Expected dispatch" details="Leave empty to use the batch's dispatch date (${esc(day(b.expected_dispatch_at))})." value="${esc(view && view.dispatch_at ? view.dispatch_at : "")}"></s-date-field>
+      <s-select id="discount-type" label="Preorder discount"><s-option value="NONE" ${disc === "NONE" ? "selected" : ""}>No discount</s-option><s-option value="PERCENTAGE" ${disc === "PERCENTAGE" ? "selected" : ""}>Percentage</s-option></s-select>
+      <s-number-field id="discount-value" label="Discount (%)" min="0" max="99" step="1" value="${view ? view.discount_value : 0}"></s-number-field>
+      <s-text color="subdued">Paid in full at checkout. The cart, checkout and order say "Pre-order: expected to dispatch by …", and these items ship separately from anything in stock.</s-text>
+    </s-stack></s-section>
+    <s-section><s-button-group>
+      <s-button ${live ? 'slot="primary-action" variant="primary"' : 'slot="secondary-actions"'} data-action="save-offer">${live ? "Save changes" : "Save"}</s-button>
+      ${live ? "" : `<s-button slot="primary-action" variant="primary" data-action="save-offer" data-activate="1">Save and start preorder</s-button>`}
+    </s-button-group></s-section>`);
+}
+
+// ------------------------------------------------------------------ pre-orders
+
+const LINE_FILTERS = [["all", "All"], ["awaiting", "Awaiting stock"], ["ready", "Ready"], ["delayed", "Delayed"], ["fulfilled", "Fulfilled"], ["cancelled", "Cancelled"]];
+
+function renderPreorders(d, p) {
+  const filter = p.get("filter") || "all";
+  const group = p.get("group") || "";
+  const live = d.rows.filter((r) => ["AWAITING_STOCK", "READY"].includes(r.state));
+  const units = live.reduce((n, r) => n + r.current_quantity - r.fulfilled_quantity, 0);
+  const revenue = live.reduce((n, r) => n + (r.current_quantity - r.fulfilled_quantity) * r.unit_price_minor, 0);
+  const products = new Set(live.map((r) => r.product_id)).size;
+  const soon = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+  const due = live.filter((r) => r.current_dispatch_at && r.current_dispatch_at <= soon).reduce((n, r) => n + r.current_quantity - r.fulfilled_quantity, 0);
+  const delayed = live.filter((r) => r.moved || r.batch_status === "DELAYED").reduce((n, r) => n + r.current_quantity - r.fulfilled_quantity, 0);
+  const row = (r) => `<s-table-row>
+      <s-table-cell><s-link href="shopify://admin/orders/${num(r.order_id)}" target="_top">${esc(r.order_name)}</s-link></s-table-cell>
+      <s-table-cell><span class="wrap-any">${esc(r.customer_name || r.customer_email || "—")}</span></s-table-cell>
+      <s-table-cell><span class="wrap-any">${esc(r.title)}</span></s-table-cell>
+      <s-table-cell><span class="num">${r.current_quantity}</span></s-table-cell>
+      <s-table-cell>${day(r.ordered_at)}</s-table-cell>
+      <s-table-cell>${day(r.promised_dispatch_at)}</s-table-cell>
+      <s-table-cell>${day(r.current_dispatch_at)}${r.late ? " " + badge("Late", "critical") : ""}</s-table-cell>
+      <s-table-cell>${badge(...(LINE[r.state] || [r.state, "neutral"]))}</s-table-cell>
+    </s-table-row>`;
+  const head = `<s-table-header-row><s-table-header listSlot="primary">Order</s-table-header><s-table-header listSlot="secondary">Customer</s-table-header>
+      <s-table-header listSlot="labeled">Product</s-table-header><s-table-header listSlot="labeled" format="numeric">Qty</s-table-header><s-table-header listSlot="kicker">Ordered</s-table-header>
+      <s-table-header listSlot="labeled">Original ETA</s-table-header><s-table-header listSlot="labeled">Current ETA</s-table-header><s-table-header listSlot="inline">Status</s-table-header></s-table-header-row>`;
+  let tables;
+  if (!d.rows.length) {
+    tables = empty("No preorders here", filter === "all" ? "Preorders appear here as customers buy them." : "No preorder is in this state.");
+  } else if (group) {
+    const keyOf = { product: (r) => r.title.split(" · ")[0], batch: (r) => r.batch_reference || "—", order: (r) => `${r.order_name} · ${r.customer_name || ""}` }[group];
+    const groups = {};
+    d.rows.forEach((r) => (groups[keyOf(r)] ||= []).push(r));
+    tables = Object.entries(groups).map(([k, rs]) => `<s-section heading="${esc(k)} (${rs.reduce((n, r) => n + r.current_quantity, 0)})" padding="none"><s-table>${head}<s-table-body>${rs.map(row).join("")}</s-table-body></s-table></s-section>`).join("");
+  } else {
+    tables = `<s-section padding="none"><s-table>${head}<s-table-body>${d.rows.map(row).join("")}</s-table-body></s-table></s-section>`;
+  }
+  page("Pre-orders", "", sectionNav("preorders") + `<s-section><s-grid gridTemplateColumns="repeat(auto-fit, minmax(140px, 1fr))" gap="base">
+      ${kpi("Active preorder units", units)}${kpi("Active preorder revenue", money(revenue))}${kpi("Products on preorder", products)}${kpi("Due within 7 days", due)}${kpi("Delayed units", delayed)}
+    </s-grid></s-section>
+    <s-section><s-stack gap="base">${tabs(filter, LINE_FILTERS, "filter", { view: "preorders", ...(group ? { group } : {}) })}
+      <s-grid gridTemplateColumns="1fr auto" gap="base" alignItems="end">
+        <s-search-field id="search" label="Search preorders" labelAccessibilityVisibility="exclusive" placeholder="Search by order, customer or product" value="${esc(p.get("q") || "")}"></s-search-field>
+        <s-select id="group" label="Group by"><s-option value="" ${group ? "" : "selected"}>No grouping</s-option><s-option value="product" ${group === "product" ? "selected" : ""}>Product</s-option><s-option value="batch" ${group === "batch" ? "selected" : ""}>Inbound batch</s-option><s-option value="order" ${group === "order" ? "selected" : ""}>Customer / order</s-option></s-select>
+      </s-grid></s-stack></s-section>` + tables);
+}
+
+// ------------------------------------------------------------------ incoming stock
+
+function renderIncoming(d) {
+  const rows = d.batches.map((b) => `<s-table-row>
+      <s-table-cell><s-link data-go='${esc(JSON.stringify({ batch: b.id }))}' href="${BASE}/admin?batch=${esc(b.id)}">${esc(b.reference)}</s-link></s-table-cell>
+      <s-table-cell>${badge(...(STATUS[b.status] || [b.status, "neutral"]))}</s-table-cell>
+      <s-table-cell><span class="num">${b.totals.sold} / ${b.totals.allocation} preordered</span></s-table-cell>
+      <s-table-cell><span class="num">${b.totals.remaining}</span></s-table-cell>
+      <s-table-cell><span class="num">${b.totals.received} / ${b.totals.expected}</span></s-table-cell>
+      <s-table-cell>${day(b.expected_arrival_at)}</s-table-cell><s-table-cell>${day(b.expected_dispatch_at)}</s-table-cell>
+    </s-table-row>`).join("");
+  page("Incoming stock", `<s-button slot="primary-action" variant="primary" data-go='{"new":"batch"}' href="${BASE}/admin?new=batch">Create incoming batch</s-button>`,
+    sectionNav("incoming") + (d.batches.length ? `<s-section padding="none"><s-table><s-table-header-row>
+      <s-table-header listSlot="primary">Batch</s-table-header><s-table-header listSlot="inline">Status</s-table-header>
+      <s-table-header listSlot="labeled">Preordered</s-table-header><s-table-header listSlot="labeled" format="numeric">Remaining</s-table-header>
+      <s-table-header listSlot="labeled">Received</s-table-header><s-table-header listSlot="labeled">ETA</s-table-header><s-table-header listSlot="labeled">Dispatch</s-table-header>
+    </s-table-header-row><s-table-body>${rows}</s-table-body></s-table></s-section>`
+    : empty("No incoming stock", "When you order stock from the manufacturer, add it here. Its sizes can then be preordered.",
+            `<s-button variant="primary" data-go='{"new":"batch"}' href="${BASE}/admin?new=batch">Create incoming batch</s-button>`)));
+}
+
+function renderNewBatch(products, productHint) {
+  state.data = { products: products.rows };
+  const byProduct = {};
+  products.rows.forEach((r) => (byProduct[r.product_id] ||= []).push(r));
+  const options = Object.entries(byProduct).map(([pid, rs]) => `<s-option value="${num(pid)}" ${num(pid) === productHint ? "selected" : ""}>${esc(rs[0].product)}</s-option>`).join("");
+  page("Create incoming batch", `<s-link slot="breadcrumb-actions" data-go='{"view":"incoming"}' href="${BASE}/admin?view=incoming">Incoming stock</s-link>`,
+    `<s-section heading="Batch"><s-stack gap="base">
+      <s-text-field id="b-ref" label="Name" placeholder="T-Shirt Restock" required></s-text-field>
+      <s-grid gridTemplateColumns="repeat(auto-fit, minmax(200px, 1fr))" gap="base">
+        <s-date-field id="b-arrival" label="Expected at the warehouse"></s-date-field>
+        <s-date-field id="b-dispatch" label="Expected customer dispatch" details="Customers are told this date."></s-date-field>
+      </s-grid>
+      <s-grid gridTemplateColumns="repeat(auto-fit, minmax(200px, 1fr))" gap="base">
+        <s-select id="b-status" label="Status"><s-option value="ORDERED" selected>Ordered</s-option><s-option value="PLANNED">Planned</s-option><s-option value="IN_TRANSIT">In transit</s-option></s-select>
+        <s-text-field id="b-supplier" label="Supplier reference (optional)"></s-text-field>
+      </s-grid>
+      <s-text-area id="b-notes" label="Notes (optional)" rows="2"></s-text-area>
+    </s-stack></s-section>
+    <s-section heading="What's coming"><s-stack gap="base">
+      <s-select id="b-product" label="Product" placeholder="Choose a product">${options}</s-select>
+      <div id="b-sizes"></div>
+    </s-stack></s-section>
+    <s-section><s-button variant="primary" data-action="create-batch">Create batch</s-button></s-section>`);
+  showSizes();
+}
+
+function showSizes() {
+  const pid = val("b-product");
+  const host = document.getElementById("b-sizes");
+  if (!host) return;
+  const rows = (state.data.products || []).filter((r) => num(r.product_id) === pid);
+  const scratch = document.createElement("div");
+  scratch.innerHTML = rows.length ? `<s-table><s-table-header-row><s-table-header listSlot="primary">Size</s-table-header><s-table-header listSlot="labeled">Arriving</s-table-header><s-table-header listSlot="labeled">Preorder quantity</s-table-header></s-table-header-row><s-table-body>${rows.map((r) => `<s-table-row>
+      <s-table-cell>${esc(r.variant)}<s-text color="subdued"> · ${Math.max(r.available, 0)} in stock</s-text></s-table-cell>
+      <s-table-cell><s-number-field id="q-${num(r.variant_id)}" label="Arriving" labelAccessibilityVisibility="exclusive" min="0" step="1" value="0" data-variant="${num(r.variant_id)}"></s-number-field></s-table-cell>
+      <s-table-cell><s-number-field id="a-${num(r.variant_id)}" label="Preorder quantity" labelAccessibilityVisibility="exclusive" min="0" step="1" placeholder="Same as arriving"></s-number-field></s-table-cell>
+    </s-table-row>`).join("")}</s-table-body></s-table>` : `<s-text color="subdued">Choose a product to add its sizes.</s-text>`;
+  if (customElements.upgrade) customElements.upgrade(scratch);
+  host.replaceChildren(...scratch.childNodes);
+}
+
+function renderBatch(b) {
+  state.data = b;
+  const live = !["RECEIVED", "CANCELLED"].includes(b.status);
+  const lines = b.lines.map((x) => `<s-table-row>
+      <s-table-cell><s-stack gap="small-100"><s-text>${esc(x.product_title)} · ${esc(x.variant_title)}</s-text><s-text color="subdued">${esc(x.sku)}</s-text></s-stack></s-table-cell>
+      <s-table-cell><span class="num">${x.expected_quantity}</span></s-table-cell>
+      <s-table-cell><span class="num">${x.preorder_allocation}</span></s-table-cell>
+      <s-table-cell><span class="num">${x.sold}</span>${x.oversold ? " " + badge(`${x.oversold} over`, "critical") : ""}</s-table-cell>
+      <s-table-cell>${x.preorder_allocation && !x.remaining ? badge("Sold out", "critical") : `<span class="num">${x.remaining}</span>`}</s-table-cell>
+      <s-table-cell><span class="num">${x.received_quantity} / ${x.expected_quantity}</span></s-table-cell>
+      <s-table-cell>${live ? `<s-stack direction="inline" gap="small-200"><s-button variant="tertiary" data-action="adjust" data-line="${esc(x.id)}">Adjust</s-button>${x.outstanding ? `<s-button variant="tertiary" data-action="receive" data-line="${esc(x.id)}">Receive</s-button>` : ""}</s-stack>` : ""}</s-table-cell>
+    </s-table-row>`).join("");
+  const offers = b.offers.length ? b.offers.map((o) => `<s-stack direction="inline" gap="small-200" alignItems="center"><s-link data-go='${esc(JSON.stringify({ setup: b.id, product: num(o.product_id) }))}' href="${BASE}/admin?setup=${esc(b.id)}&product=${num(o.product_id)}">${esc(o.product_title)}</s-link>${badge(o.status === "ACTIVE" ? "Live" : o.status === "DRAFT" ? "Not live" : "Stopped", o.status === "ACTIVE" ? "success" : "neutral")}${o.sync_error ? `<s-text color="subdued">${esc(o.sync_error)}</s-text>` : ""}</s-stack>`).join("")
+    : `<s-text color="subdued">No preorder uses this batch yet.</s-text>`;
+  const products = [...new Set(b.lines.map((x) => num(x.product_id)))];
+  const setupButtons = live ? products.filter((pn) => !b.offers.some((o) => num(o.product_id) === pn)).map((pn) => {
+    const t = b.lines.find((x) => num(x.product_id) === pn).product_title;
+    return `<s-button slot="secondary-actions" data-go='${esc(JSON.stringify({ setup: b.id, product: pn }))}' href="${BASE}/admin?setup=${esc(b.id)}&product=${pn}">Set up preorder: ${esc(t)}</s-button>`;
+  }).join("") : "";
+  const a = b.affected;
+  const receipts = b.receipts.length ? `<s-section heading="Receipts"><s-stack gap="small-200">${b.receipts.map((r) => `<s-text>${when(r.created_at)} · ${r.quantity} received · ${esc(r.status === "APPLIED" ? "added to Shopify" : r.status === "UNKNOWN" ? "Shopify didn't confirm: press Receive again" : r.status.toLowerCase())}</s-text>`).join("")}</s-stack></s-section>` : "";
+  const modals = `
+    <s-modal id="dates-modal" heading="Change dates">
+      <s-stack gap="base">
+        <s-date-field id="d-arrival" label="Expected at the warehouse" value="${esc(b.expected_arrival_at || "")}"></s-date-field>
+        <s-date-field id="d-dispatch" label="Expected customer dispatch" value="${esc(b.expected_dispatch_at || "")}"></s-date-field>
+        <s-checkbox id="d-delayed" label="Mark this batch delayed"></s-checkbox>
+        <s-banner tone="info">${a.units} unfulfilled preorder unit${a.units === 1 ? " is" : "s are"} affected (${a.customers} customer${a.customers === 1 ? "" : "s"}, ${a.orders} order${a.orders === 1 ? "" : "s"}). Each keeps the date they were originally promised; the new date is added beside it.</s-banner>
+        ${b.audience.email_enabled ? "" : `<s-text color="subdued">Email isn't set up on the server, so Save & notify can't send.</s-text>`}
+      </s-stack>
+      <s-button slot="primary-action" variant="primary" data-action="save-dates" data-notify="1" ${a.customers && b.audience.email_enabled ? "" : "disabled"}>Save & notify ${a.customers} customer${a.customers === 1 ? "" : "s"}</s-button>
+      <s-button slot="secondary-actions" data-action="save-dates">Save only</s-button>
+    </s-modal>
+    <s-modal id="update-modal" heading="Send an update to customers">
+      <s-paragraph>"Your CROOKS preorder is still on the way", with the current expected dispatch (${esc(day(b.expected_dispatch_at))}), to ${b.audience.customers} customer${b.audience.customers === 1 ? "" : "s"} (${b.audience.orders} orders).${b.audience.without_email ? ` ${b.audience.without_email} orders have no email and won't get it.` : ""}</s-paragraph>
+      <s-button slot="primary-action" variant="primary" data-action="send-update" ${b.audience.customers && b.audience.email_enabled ? "" : "disabled"}>Send to ${b.audience.customers}</s-button>
+      <s-button slot="secondary-actions" commandFor="update-modal" command="--hide">Cancel</s-button>
+    </s-modal>
+    <s-modal id="line-modal" heading="Size">
+      <div id="line-modal-body"></div>
+    </s-modal>
+    <s-modal id="add-modal" heading="Add a size">
+      <s-stack gap="base">
+        <s-text-field id="add-variant" label="Variant ID" details="From the Products list (the number at the end of the variant's link)."></s-text-field>
+        <s-number-field id="add-qty" label="Arriving" min="1" step="1"></s-number-field>
+        <s-number-field id="add-alloc" label="Preorder quantity" min="0" step="1" placeholder="Same as arriving"></s-number-field>
+      </s-stack>
+      <s-button slot="primary-action" variant="primary" data-action="add-line">Add</s-button>
+      <s-button slot="secondary-actions" commandFor="add-modal" command="--hide">Cancel</s-button>
+    </s-modal>
+    <s-modal id="release-modal" heading="Release ready preorders">
+      <s-paragraph>${b.release.orders} order${b.release.orders === 1 ? "" : "s"} now covered by stock that arrived: open their scheduled fulfilments so they can be dispatched now, before the promised date.</s-paragraph>
+      <s-button slot="primary-action" variant="primary" data-action="release">Release ${b.release.orders}</s-button>
+      <s-button slot="secondary-actions" commandFor="release-modal" command="--hide">Cancel</s-button>
+    </s-modal>`;
+  page(b.reference, `<s-link slot="breadcrumb-actions" data-go='{"view":"incoming"}' href="${BASE}/admin?view=incoming">Incoming stock</s-link>` +
+    (live ? `<s-button slot="secondary-actions" commandFor="dates-modal" command="--show">Edit dates</s-button>
+             <s-button slot="secondary-actions" commandFor="update-modal" command="--show">Update customers</s-button>
+             <s-button slot="secondary-actions" commandFor="add-modal" command="--show">Add a size</s-button>
+             <s-button slot="secondary-actions" tone="critical" data-action="cancel-batch">Cancel batch</s-button>` : ""),
+    `<s-section><s-stack gap="base">
+      <s-stack direction="inline" gap="small-200" alignItems="center">${badge(...(STATUS[b.status] || [b.status, "neutral"]))}<s-text>ETA ${day(b.expected_arrival_at)} · Dispatch ${day(b.expected_dispatch_at)}</s-text></s-stack>
+      <s-text><span class="num">${b.totals.sold} / ${b.totals.allocation}</span> preordered · ${b.totals.remaining} remaining · ${b.totals.received} of ${b.totals.expected} received</s-text>
+      ${b.supplier_reference ? `<s-text color="subdued">Supplier: ${esc(b.supplier_reference)}</s-text>` : ""}${b.notes ? `<s-text color="subdued">${esc(b.notes)}</s-text>` : ""}
+      ${b.release.orders ? `<s-banner tone="success" heading="${b.release.orders} preorder${b.release.orders === 1 ? " is" : "s are"} ready to dispatch"><s-button slot="secondary-actions" commandFor="release-modal" command="--show">Release for dispatch</s-button></s-banner>` : ""}
+    </s-stack></s-section>
+    <s-section heading="Sizes" padding="none"><s-table><s-table-header-row>
+      <s-table-header listSlot="primary">Variant</s-table-header><s-table-header listSlot="labeled" format="numeric">Inbound</s-table-header>
+      <s-table-header listSlot="labeled" format="numeric">For preorder</s-table-header><s-table-header listSlot="labeled" format="numeric">Sold</s-table-header>
+      <s-table-header listSlot="labeled">Remaining</s-table-header><s-table-header listSlot="labeled">Received</s-table-header><s-table-header listSlot="inline"></s-table-header>
+    </s-table-header-row><s-table-body>${lines}</s-table-body></s-table></s-section>
+    <s-section heading="Preorders from this batch"><s-stack gap="base">${offers}${setupButtons ? `<s-button-group>${setupButtons}</s-button-group>` : ""}</s-stack></s-section>` + receipts + modals);
+}
+
+function lineModal(kind, lineId) {
+  const x = state.data.lines.find((l) => l.id === lineId);
+  const body = kind === "receive"
+    ? `<s-stack gap="base"><s-text>${esc(x.product_title)} · ${esc(x.variant_title)}: ${x.outstanding} still expected.</s-text>
+        <s-number-field id="rcv-qty" label="Received now" min="1" max="${x.outstanding}" step="1" value="${x.outstanding}"></s-number-field>
+        <s-text color="subdued">Adds this to Shopify's available stock at the receiving location. Preorders are covered first; anything left sells normally. A partial receipt leaves the rest outstanding.</s-text>
+        <s-button variant="primary" data-action="do-receive" data-line="${esc(x.id)}" data-key="${key()}">Receive</s-button></s-stack>`
+    : `<s-stack gap="base"><s-text>${esc(x.product_title)} · ${esc(x.variant_title)}</s-text>
+        <s-number-field id="adj-qty" label="Arriving" min="${x.received_quantity}" step="1" value="${x.expected_quantity}"></s-number-field>
+        <s-number-field id="adj-alloc" label="Preorder quantity" min="${x.sold}" step="1" value="${x.preorder_allocation}" details="${x.sold} already preordered."></s-number-field>
+        <s-button variant="primary" data-action="do-adjust" data-line="${esc(x.id)}">Save</s-button></s-stack>`;
+  const host = document.getElementById("line-modal-body");
+  const scratch = document.createElement("div");
+  scratch.innerHTML = body;
+  if (customElements.upgrade) customElements.upgrade(scratch);
+  host.replaceChildren(...scratch.childNodes);
+  document.getElementById("line-modal").setAttribute("heading", kind === "receive" ? "Receive stock" : "Adjust quantities");
+  document.getElementById("line-modal").showOverlay?.();
+}
+
+// ------------------------------------------------------------------ notify me
+
+const DEMAND_FILTERS = [["most_wanted", "Most wanted"], ["recent", "Recent"], ["now_available", "Now available"], ["notified", "Notified"]];
+
+function demandTable(rows) {
+  return `<s-table><s-table-header-row><s-table-header listSlot="primary">Product</s-table-header><s-table-header listSlot="labeled" format="numeric">Current stock</s-table-header>
+    <s-table-header listSlot="labeled" format="numeric">Inbound</s-table-header><s-table-header listSlot="labeled" format="numeric">Waiting</s-table-header>
+    <s-table-header listSlot="labeled" format="numeric">7 days</s-table-header><s-table-header listSlot="labeled" format="numeric">30 days</s-table-header><s-table-header listSlot="kicker">Last signup</s-table-header>
+  </s-table-header-row><s-table-body>${rows.map((r) => `<s-table-row>
+    <s-table-cell><s-stack gap="small-100"><s-link data-go='${esc(JSON.stringify({ waitlist: num(r.variant_id) }))}' href="${BASE}/admin?waitlist=${num(r.variant_id)}">${esc(r.product)}</s-link><s-text color="subdued">${esc(r.variant)}</s-text></s-stack></s-table-cell>
+    <s-table-cell><span class="num">${r.stock}</span></s-table-cell><s-table-cell><span class="num">${r.inbound || "—"}</span></s-table-cell>
+    <s-table-cell><span class="num">${r.signups}</span></s-table-cell><s-table-cell><span class="num">${r.d7}</span></s-table-cell><s-table-cell><span class="num">${r.d30}</span></s-table-cell>
+    <s-table-cell>${when(r.last_signup)}</s-table-cell></s-table-row>`).join("")}</s-table-body></s-table>`;
+}
+
+function renderDemand(d, p) {
+  const filter = p.get("filter") || "most_wanted";
+  page("Notify me", "", sectionNav("notify") + `<s-section>${tabs(filter, DEMAND_FILTERS, "filter", { view: "notify" })}</s-section>` +
+    (d.rows.length ? `<s-section padding="none">${demandTable(d.rows)}</s-section>`
+      : empty(filter === "now_available" ? "Nobody is waiting for a size you can sell" : "No signups here yet",
+              "Customers who choose Notify me on a sold-out size appear here, counted by size.")));
+}
+
+function renderWaitlist(d) {
+  state.data = d;
+  const v = d.variant, pv = d.preview;
+  const reason = pv.reason === "PREORDER_OPEN" ? "it's open for preorder" : pv.reason === "BACK_IN_STOCK" ? "it's back in stock" : "";
+  const rows = d.subscribers.map((s) => `<s-table-row>
+      <s-table-cell><span class="wrap-any">${esc(s.email)}</span></s-table-cell>
+      <s-table-cell>${badge(s.status === "ACTIVE" ? "Waiting" : s.status === "NOTIFIED" ? "Notified" : s.status === "CONVERTED" ? "Bought" : "Unsubscribed", s.status === "ACTIVE" ? "info" : s.status === "CONVERTED" ? "success" : "neutral")}</s-table-cell>
+      <s-table-cell>${when(s.subscribed_at)}</s-table-cell>
+      <s-table-cell>${s.notified_at ? `${when(s.notified_at)} · ${esc(s.notification_reason === "PREORDER_OPEN" ? "preorder open" : "back in stock")}` : "—"}</s-table-cell>
+      <s-table-cell><s-button variant="tertiary" tone="critical" data-action="delete-signup" data-id="${esc(s.id)}" accessibilityLabel="Delete ${esc(s.email)}">Delete</s-button></s-table-cell>
+    </s-table-row>`).join("");
+  const can = pv.reason && pv.count && pv.email_enabled;
+  page(`${v.product_title} · ${v.variant_title}`, `<s-link slot="breadcrumb-actions" data-go='{"view":"notify"}' href="${BASE}/admin?view=notify">Notify me</s-link>` +
+    (pv.reason && pv.count ? `<s-button slot="primary-action" variant="primary" commandFor="notify-modal" command="--show" ${can ? "" : "disabled"}>Notify ${pv.count} ${pv.count === 1 ? "person" : "people"}</s-button>` : ""),
+    `<s-section><s-stack gap="small-200"><s-text>${pv.count} ${pv.count === 1 ? "person is" : "people are"} waiting for this size.</s-text>
+      <s-text color="subdued">${pv.reason ? (pv.count ? `You can tell them ${reason}.` : `Everyone waiting has been told ${reason}.`) : "It can't be bought yet, so there's nothing to tell them. Open it for preorder from an incoming batch, or receive stock."}${pv.email_enabled ? "" : " Email isn't set up on the server."}</s-text></s-stack></s-section>` +
+    (d.subscribers.length ? `<s-section padding="none"><s-table><s-table-header-row><s-table-header listSlot="primary">Email</s-table-header><s-table-header listSlot="inline">Status</s-table-header><s-table-header listSlot="labeled">Signed up</s-table-header><s-table-header listSlot="labeled">Notified</s-table-header><s-table-header listSlot="inline"></s-table-header></s-table-header-row><s-table-body>${rows}</s-table-body></s-table></s-section>`
+      : empty("Nobody is waiting", "Signups from the product page appear here.")) +
+    `<s-modal id="notify-modal" heading="Notify ${pv.count} ${pv.count === 1 ? "person" : "people"}">
+      <s-paragraph>One email each, telling them ${esc(reason)}. Each person is told once; it isn't marketing and doesn't sign them up to anything else.</s-paragraph>
+      <s-button slot="primary-action" variant="primary" data-action="notify-waitlist">Send ${pv.count} email${pv.count === 1 ? "" : "s"}</s-button>
+      <s-button slot="secondary-actions" commandFor="notify-modal" command="--hide">Cancel</s-button>
+    </s-modal>`);
+}
+
+// ------------------------------------------------------------------ actions
+
+async function withButton(el, fn) {
+  if (state.busy) return;
+  el?.setAttribute("loading", "");
+  loading(true);
+  try { await fn(); }
+  catch (err) { state.flash = errorBanner(err); await route(); }
+  finally { el?.removeAttribute("loading"); loading(false); }
+}
+
+const sent = (c) => `${c.SENT} sent${c.ALREADY ? ` · ${c.ALREADY} already had it` : ""}${c.FAILED ? ` · ${c.FAILED} failed` : ""}${c.UNKNOWN ? ` · ${c.UNKNOWN} not confirmed` : ""}`;
+
+const ACTIONS = {
+  "refresh-catalog": (el) => withButton(el, async () => { const r = await api("/catalog/refresh", { method: "POST" }); toast(`${r.variants} variants read from Shopify`); await route(); }),
+  reconcile: (el) => withButton(el, async () => {
+    const r = await api("/reconcile", { method: "POST" });
+    toast(r.needs_attention ? "Checked: some things need a look (see Needs attention)" : `Checked ${r.orders} preorder orders: all in step`);
+    await route();
+  }),
+  "create-batch": (el) => withButton(el, async () => {
+    const lines = [...document.querySelectorAll("[data-variant]")].map((f) => {
+      const qty = Number(f.value || 0);
+      const alloc = val(`a-${f.dataset.variant}`);
+      return { variant_id: f.dataset.variant, expected_quantity: qty, preorder_allocation: alloc === "" ? null : Number(alloc) };
+    }).filter((x) => x.expected_quantity > 0);
+    const b = await api("/batches", { method: "POST", body: {
+      reference: val("b-ref"), expected_arrival_at: val("b-arrival") || null, expected_dispatch_at: val("b-dispatch") || null,
+      status: val("b-status") || "ORDERED", supplier_reference: val("b-supplier"), notes: val("b-notes"), lines } });
+    toast("Batch created");
+    navigate({ batch: b.id });
+  }),
+  "save-offer": (el) => withButton(el, async () => {
+    const { batch, lines, offer } = state.data;
+    for (const x of lines) {
+      const want = Number(val(`alloc-${x.id}`));
+      if (Number.isFinite(want) && want !== x.preorder_allocation) {
+        await api(`/batch-lines/${x.id}`, { method: "PATCH", body: { preorder_allocation: want } });
+      }
+    }
+    const chosen = lines.filter((x) => document.getElementById(`use-${x.id}`)?.checked).map((x) => num(x.variant_id));
+    const type = val("discount-type") || "NONE";
+    const saved = await api("/offers", { method: "POST", body: {
+      product_id: num(lines[0].product_id), batch_id: batch.id, variants: chosen,
+      discount_type: type, discount_value: type === "PERCENTAGE" ? Number(val("discount-value") || 0) : 0,
+      dispatch_at: val("dispatch") || null } });
+    if (el.dataset.activate) { await api(`/offers/${saved.id}/activate`, { method: "POST" }); toast("Preorder started"); }
+    else toast("Saved");
+    await route();
+  }),
+  "close-offer": (el) => withButton(el, async () => {
+    if (!confirm("Stop this preorder? Customers can't preorder these sizes any more; orders already placed are kept.")) return;
+    await api(`/offers/${state.data.offer.id}/close`, { method: "POST" }); toast("Preorder stopped"); await route();
+  }),
+  "save-dates": (el) => withButton(el, async () => {
+    const b = state.data;
+    const r = await api(`/batches/${b.id}/dispatch`, { method: "POST", body: {
+      expected_dispatch_at: val("d-dispatch"), expected_arrival_at: val("d-arrival") || null,
+      delayed: !!document.getElementById("d-delayed")?.checked, notify: !!el.dataset.notify } });
+    document.getElementById("dates-modal")?.hideOverlay?.();
+    toast(r.notified ? `Dates saved · ${sent(r.notified)}` : "Dates saved · nobody was emailed");
+    await route();
+  }),
+  "send-update": (el) => withButton(el, async () => {
+    const r = await api(`/batches/${state.data.id}/notify-update`, { method: "POST" });
+    document.getElementById("update-modal")?.hideOverlay?.();
+    toast(sent(r.notified)); await route();
+  }),
+  adjust: (el) => lineModal("adjust", el.dataset.line),
+  receive: (el) => lineModal("receive", el.dataset.line),
+  "do-adjust": (el) => withButton(el, async () => {
+    await api(`/batch-lines/${el.dataset.line}`, { method: "PATCH", body: {
+      expected_quantity: Number(val("adj-qty")), preorder_allocation: Number(val("adj-alloc")) } });
+    document.getElementById("line-modal")?.hideOverlay?.();
+    toast("Saved"); await route();
+  }),
+  // One key per opened dialog: a double click or a retry after a lost reply receives once.
+  "do-receive": (el) => withButton(el, async () => {
+    const r = await api(`/batch-lines/${el.dataset.line}/receive`, { method: "POST", body: {
+      quantity: Number(val("rcv-qty")), key: el.dataset.key } });
+    document.getElementById("line-modal")?.hideOverlay?.();
+    toast(r.replayed ? "Already received" : `${r.receipt.quantity} received and added to Shopify`); await route();
+  }),
+  "add-line": (el) => withButton(el, async () => {
+    const alloc = val("add-alloc");
+    await api(`/batches/${state.data.id}/lines`, { method: "POST", body: {
+      variant_id: val("add-variant"), expected_quantity: Number(val("add-qty")),
+      preorder_allocation: alloc === "" ? null : Number(alloc) } });
+    document.getElementById("add-modal")?.hideOverlay?.();
+    toast("Size added"); await route();
+  }),
+  release: (el) => withButton(el, async () => {
+    const r = await api(`/batches/${state.data.id}/release`, { method: "POST" });
+    document.getElementById("release-modal")?.hideOverlay?.();
+    toast(`${r.opened.length} released for dispatch${r.already_open.length ? ` · ${r.already_open.length} already open` : ""}${r.skipped.length ? ` · ${r.skipped.length} refused by Shopify` : ""}`); await route();
+  }),
+  "cancel-batch": (el) => withButton(el, async () => {
+    if (!confirm("Cancel this batch? Its preorders stop selling.")) return;
+    await api(`/batches/${state.data.id}/status`, { method: "POST", body: { status: "CANCELLED" } });
+    toast("Batch cancelled"); await route();
+  }),
+  "notify-waitlist": (el) => withButton(el, async () => {
+    const r = await api(`/waitlist/${num(state.data.variant.variant_id)}/notify`, { method: "POST" });
+    document.getElementById("notify-modal")?.hideOverlay?.();
+    toast(sent(r.notified)); await route();
+  }),
+  "delete-signup": (el) => withButton(el, async () => {
+    if (!confirm("Delete this signup and its email address?")) return;
+    await api(`/waitlist/subscriptions/${el.dataset.id}`, { method: "DELETE" });
+    toast("Deleted"); await route();
+  }),
+};
+
+document.addEventListener("click", (ev) => {
+  const go = ev.target.closest("[data-go]");
+  if (go) { ev.preventDefault(); navigate(JSON.parse(go.dataset.go)); return; }
+  const el = ev.target.closest("[data-action]");
+  if (!el || el.hasAttribute("disabled")) return;
+  const fn = ACTIONS[el.dataset.action];
+  if (!fn) return;
+  ev.preventDefault();
+  fn(el);
+});
+
+document.addEventListener("change", (ev) => {
+  if (ev.target.id === "tabs-select") {
+    const p = Object.fromEntries(new URLSearchParams(location.search));
+    navigate({ ...p, [ev.target.dataset.param]: ev.target.value });
+  } else if (ev.target.id === "group") {
+    const p = Object.fromEntries(new URLSearchParams(location.search));
+    if (ev.target.value) p.group = ev.target.value; else delete p.group;
+    navigate(p, true);
+  } else if (ev.target.id === "b-product") {
+    showSizes();
+  }
+});
+
+let searchTimer = null;
+document.addEventListener("input", (ev) => {
+  if (ev.target.id !== "search") return;
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    const p = Object.fromEntries(new URLSearchParams(location.search));
+    if (ev.target.value) p.q = ev.target.value; else delete p.q;
+    navigate(p, true);
+  }, 350);
+});
+
+addEventListener("popstate", () => route());
+route();
+</script>
+</body>
+</html>
