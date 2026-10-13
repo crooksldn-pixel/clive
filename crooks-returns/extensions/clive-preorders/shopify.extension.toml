@@ -1,0 +1,5 @@
+# CLIVE Preorders storefront block (theme app extension of CROOKS Operations).
+# Deployed with the app: from crooks-returns/, `npx @shopify/cli app deploy`. The merchant adds
+# the "Pre-order / Notify me" block to the product template's buy area in the theme editor.
+name = "CLIVE Preorders"
+type = "theme"

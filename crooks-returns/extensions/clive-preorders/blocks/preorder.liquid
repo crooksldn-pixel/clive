@@ -1,0 +1,98 @@
+{%- comment -%}
+  CLIVE Preorders: the product page's buy area for each size.
+
+  - In stock: nothing changes; the theme's own Add to cart works as before.
+  - Pre-order: the size has a selling plan from this app (app_id "clive-preorders") and nothing
+    on the shelf. The block says PRE-ORDER, the dispatch date, the price and when it's paid, puts
+    the selling plan on the product form, and the theme's button reads "Pre-order". The cart,
+    checkout and order show the plan's name natively.
+  - Notify me: the size can't be bought; the block offers an email signup (no account needed).
+
+  Everything comes from Shopify's own data for each variant; the script follows the selected
+  variant through the product form's `id` field.
+{%- endcomment -%}
+{%- liquid
+  assign app_groups = ''
+  for group in product.selling_plan_groups
+    if group.app_id == 'clive-preorders'
+      assign app_groups = app_groups | append: group.id | append: ','
+    endif
+  endfor
+-%}
+<div
+  class="clive-preorder"
+  data-clive-preorder
+  data-proxy="{{ routes.root_url | remove_last: '/' }}/apps/returns/preorders"
+  {{ block.shopify_attributes }}
+>
+  <script type="application/json" data-clive-variants>
+    [
+      {%- for variant in product.variants -%}
+        {%- assign plan = nil -%}
+        {%- for allocation in variant.selling_plan_allocations -%}
+          {%- assign gid = allocation.selling_plan.group_id | append: ',' -%}
+          {%- if app_groups contains gid -%}{%- assign plan = allocation -%}{%- endif -%}
+        {%- endfor -%}
+        {
+          "id": {{ variant.id }},
+          "available": {{ variant.available | json }},
+          "quantity": {{ variant.inventory_quantity | default: 0 }},
+          "tracked": {{ variant.inventory_management | json }},
+          "plan": {%- if plan -%}{
+            "id": {{ plan.selling_plan.id }},
+            "name": {{ plan.selling_plan.name | json }},
+            "description": {{ plan.selling_plan.description | json }},
+            "price": {{ plan.price | money | json }},
+            "compare": {% if plan.compare_at_price > plan.price %}{{ plan.compare_at_price | money | json }}{% else %}null{% endif %}
+          }{%- else -%}null{%- endif -%}
+        }{%- unless forloop.last -%},{%- endunless -%}
+      {%- endfor -%}
+    ]
+  </script>
+
+  <div class="clive-preorder__panel" data-clive-panel="preorder" hidden aria-live="polite">
+    <p class="clive-preorder__badge">{{ 'preorder.badge' | t }}</p>
+    <p class="clive-preorder__date" data-clive-date>{{ 'preorder.fallback_date' | t }}</p>
+    <p class="clive-preorder__price">
+      <span data-clive-price></span>
+      <s class="clive-preorder__was" data-clive-was hidden></s>
+    </p>
+    <p class="clive-preorder__note">{{ 'preorder.payment' | t }}</p>
+  </div>
+
+  <div class="clive-preorder__panel" data-clive-panel="notify" hidden>
+    <p class="clive-preorder__note">{{ 'notify.intro' | t }}</p>
+    <button type="button" class="button button--secondary clive-preorder__open" data-clive-open aria-expanded="false">
+      {{- 'notify.button' | t -}}
+    </button>
+    {%- comment -%} Not a <form>: themes may render this block inside their product form, and
+      browsers drop a form nested in another. The script sends it. {%- endcomment -%}
+    <div class="clive-preorder__form" data-clive-form role="group" aria-label="{{ 'notify.button' | t }}" hidden>
+      <label class="clive-preorder__label" for="clive-email-{{ block.id }}">{{ 'notify.email' | t }}</label>
+      <input
+        id="clive-email-{{ block.id }}"
+        class="clive-preorder__input"
+        type="email"
+        name="email"
+        autocomplete="email"
+        required
+        value="{{ customer.email | escape }}"
+      >
+      <button type="button" class="button clive-preorder__submit" data-clive-submit>{{ 'notify.submit' | t }}</button>
+      <p class="clive-preorder__small">{{ 'notify.consent' | t }}</p>
+    </div>
+    <p class="clive-preorder__message" data-clive-message role="status" aria-live="polite" hidden></p>
+    <template data-clive-strings>{{ 'notify.success' | t | json }}|{{ 'notify.error' | t | json }}|{{ 'preorder.button' | t | json }}</template>
+  </div>
+</div>
+
+{% schema %}
+{
+  "name": "Pre-order / Notify me",
+  "target": "section",
+  "enabled_on": { "templates": ["product"] },
+  "javascript": "preorder.js",
+  "stylesheet": "preorder.css",
+  "settings": []
+}
+{% endschema %}

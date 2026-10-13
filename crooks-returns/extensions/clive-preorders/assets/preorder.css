@@ -1,0 +1,21 @@
+/* Inherits the theme's type, colour and spacing; only what the block needs to read clearly. */
+/* `hidden` must win over the display rules below (and over theme rules for buttons). */
+.clive-preorder [hidden] { display: none !important; }
+.clive-preorder__panel { margin: 0.75rem 0; }
+.clive-preorder__panel p { margin: 0.25rem 0; }
+.clive-preorder__badge {
+  display: inline-block;
+  padding: 0.15em 0.6em;
+  border: 1px solid currentColor;
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.clive-preorder__date { font-weight: 600; }
+.clive-preorder__was { opacity: 0.65; margin-left: 0.5em; }
+.clive-preorder__note, .clive-preorder__small { font-size: 0.9em; opacity: 0.8; }
+.clive-preorder__form { display: grid; gap: 0.5rem; margin-top: 0.5rem; max-width: 28rem; }
+.clive-preorder__input { font: inherit; padding: 0.7rem 0.8rem; border: 1px solid currentColor; min-height: 44px; }
+.clive-preorder__open, .clive-preorder__submit { min-height: 44px; width: 100%; }
+.clive-preorder__message { font-weight: 600; }

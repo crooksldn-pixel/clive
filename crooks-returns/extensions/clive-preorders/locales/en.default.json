@@ -1,0 +1,18 @@
+{
+  "preorder": {
+    "badge": "Pre-order",
+    "button": "Pre-order",
+    "normally": "Normally {{ price }}",
+    "payment": "You pay the full price today. This item ships separately from anything in stock.",
+    "fallback_date": "Expected dispatch date to be confirmed"
+  },
+  "notify": {
+    "button": "Notify me",
+    "intro": "This size is sold out. Leave your email and we'll tell you when it's available.",
+    "email": "Email",
+    "submit": "Notify me",
+    "success": "You're on the list. We'll email you when this size becomes available.",
+    "error": "That didn't work. Check the email address and try again.",
+    "consent": "We'll only email you about this size."
+  }
+}
