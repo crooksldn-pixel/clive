@@ -18,7 +18,7 @@ import hmac
 import json
 import logging
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from importlib import resources
@@ -94,13 +94,13 @@ PROXY_MAX_AGE_S = 300
 
 
 class RateLimiter:
-    """At most `limit` hits per key per window. Memory is bounded: expired keys are swept at
-    most once a minute, and past `max_keys` live keys a new key is refused (an attacker can't
-    make it grow without limit, and can't make every request scan the whole table)."""
+    """At most `limit` hits per key per window. Memory is bounded without ever failing closed:
+    past `max_keys` the least recently seen key is forgotten (filling the table can't block
+    genuine signups), and expired keys are swept at most once a minute."""
 
     def __init__(self, limit: int, window_s: int, max_keys: int = 50_000) -> None:
         self.limit, self.window, self.max_keys = limit, window_s, max_keys
-        self.hits: dict[str, deque[float]] = {}
+        self.hits: OrderedDict[str, deque[float]] = OrderedDict()
         self._swept = 0.0
 
     def allow(self, key: str) -> bool:
@@ -111,9 +111,10 @@ class RateLimiter:
                 del self.hits[k]
         q = self.hits.get(key)
         if q is None:
-            if len(self.hits) >= self.max_keys:
-                return False
+            while len(self.hits) >= self.max_keys:
+                self.hits.popitem(last=False)
             q = self.hits[key] = deque()
+        self.hits.move_to_end(key)
         while q and t - q[0] > self.window:
             q.popleft()
         if len(q) >= self.limit:

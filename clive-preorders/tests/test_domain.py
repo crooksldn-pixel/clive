@@ -102,5 +102,5 @@ def test_the_rate_limiter_stays_bounded():
     lim = RateLimiter(limit=2, window_s=3600, max_keys=3)
     assert lim.allow("a") and lim.allow("a") and not lim.allow("a")
     assert lim.allow("b") and lim.allow("c")
-    assert not lim.allow("d")  # full: a new key is refused rather than growing the table
-    assert len(lim.hits) == 3
+    assert lim.allow("d")  # full: the least recently seen key is forgotten, nobody is refused
+    assert len(lim.hits) == 3 and "a" not in lim.hits
