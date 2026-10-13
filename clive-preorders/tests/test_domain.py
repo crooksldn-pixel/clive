@@ -99,10 +99,10 @@ def test_a_version_1_database_upgrades_in_place(tmp_path):
 def test_the_rate_limiter_stays_bounded_without_resetting_or_blocking():
     from preorders.app import RateLimiter
 
-    lim = RateLimiter(limit=2, window_s=3600, max_keys=3, overflow=2)
+    lim = RateLimiter(limit=2, window_s=3600, max_keys=3)
     assert lim.allow("a") and lim.allow("a") and not lim.allow("a")
     assert lim.allow("b") and lim.allow("c")
-    # Full of live keys: newcomers share the overflow allowance; nobody's count is reset.
-    assert lim.allow("d") and lim.allow("e") and not lim.allow("f")
+    # Full of live keys (a flood): newcomers pass untracked; nobody's count is reset.
+    assert lim.allow("d") and lim.allow("d") and lim.allow("d")
     assert not lim.allow("a")  # still limited
-    assert len(lim.hits) <= 4  # three keys and the shared overflow
+    assert len(lim.hits) == 3  # memory stays bounded

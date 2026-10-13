@@ -94,19 +94,17 @@ PROXY_MAX_AGE_S = 300
 
 
 class RateLimiter:
-    """At most `limit` hits per key per window, in bounded memory. A key's count is never reset
-    early: when the table is full, expired keys are swept, and if it is still full, new keys
-    share one overflow allowance (`overflow` hits per window). So filling the table can neither
-    reset someone's limit nor block genuine signups outright."""
+    """At most `limit` hits per key per window, in bounded memory (`max_keys`). A key's count is
+    never reset early. If the table is full of live keys (only a deliberate flood does that),
+    a new key is let through untracked and the overload is logged: a limiter must not become a
+    way to block genuine shoppers, and the per-address flood brake still applies first. The
+    full-table sweep runs at most once a second."""
 
-    OVERFLOW = "\0overflow"
-
-    def __init__(
-        self, limit: int, window_s: int, max_keys: int = 50_000, overflow: int = 100
-    ) -> None:
-        self.limit, self.window, self.max_keys, self.overflow = limit, window_s, max_keys, overflow
+    def __init__(self, limit: int, window_s: int, max_keys: int = 50_000) -> None:
+        self.limit, self.window, self.max_keys = limit, window_s, max_keys
         self.hits: dict[str, deque[float]] = {}
         self._swept = 0.0
+        self._warned = 0.0
 
     def _sweep(self, t: float) -> None:
         self._swept = t
@@ -117,15 +115,21 @@ class RateLimiter:
         t = time.monotonic()
         if t - self._swept > 60:
             self._sweep(t)
-        limit = self.limit
-        if key not in self.hits and len(self.hits) >= self.max_keys:
-            self._sweep(t)
+        q = self.hits.get(key)
+        if q is None:
+            if len(self.hits) >= self.max_keys and t - self._swept > 1:
+                self._sweep(t)
             if len(self.hits) >= self.max_keys:
-                key, limit = self.OVERFLOW, self.overflow
-        q = self.hits.setdefault(key, deque())
+                if t - self._warned > 60:
+                    self._warned = t
+                    log.warning(
+                        "signup limiter full (%d keys): new keys pass untracked", self.max_keys
+                    )
+                return True
+            q = self.hits[key] = deque()
         while q and t - q[0] > self.window:
             q.popleft()
-        if len(q) >= limit:
+        if len(q) >= self.limit:
             return False
         q.append(t)
         return True
