@@ -307,6 +307,7 @@ def parse_fulfillment(
 class ShopifyPort(Protocol):
     def open_fulfillment_orders(self) -> list[FoSnapshot]: ...
     def fulfillment_order(self, fo_id: str) -> FoSnapshot | None: ...
+    def slip_source(self, fo_id: str) -> dict[str, Any] | None: ...
     def item_facts(self, inventory_item_ids: list[str]) -> dict[str, ItemFacts]: ...
     def product_items(self, product_id: str) -> list[str]: ...
     def update_item(
@@ -383,8 +384,58 @@ query ShippingLabelPurchaseResult($id: ID!) {
 API_VERSION = "2026-10"
 
 # Every GraphQL document the app sends, for scripts/validate_graphql.py.
+# The packing slip: this fulfillment order's items, the order's totals as they are now, and the
+# order's returns (an exchange ships as its own fulfillment order; its items are the return's
+# exchange line items). Read when the slip is printed, never stored.
+Q_SLIP = """
+query ShippingSlip($id: ID!) {
+  node(id: $id) {
+    ... on FulfillmentOrder {
+      id
+      lineItems(first: 100) {
+        nodes {
+          id totalQuantity remainingQuantity productTitle variantTitle sku
+          variant { product { id } }
+          lineItem {
+            id quantity
+            discountedUnitPriceAfterAllDiscountsSet { shopMoney { amount currencyCode } }
+          }
+        }
+      }
+      order {
+        id name createdAt currencyCode
+        customer { displayName }
+        shippingAddress { name city zip countryCodeV2 }
+        currentSubtotalPriceSet { shopMoney { amount currencyCode } }
+        currentShippingPriceSet { shopMoney { amount currencyCode } }
+        currentTotalDiscountsSet { shopMoney { amount currencyCode } }
+        currentTotalPriceSet { shopMoney { amount currencyCode } }
+        returns(first: 10) {
+          nodes {
+            id name status
+            returnLineItems(first: 50) {
+              nodes {
+                quantity
+                ... on ReturnLineItem {
+                  returnReasonDefinition { name handle }
+                  fulfillmentLineItem { lineItem { id title variantTitle sku product { id } } }
+                }
+              }
+            }
+            exchangeLineItems(first: 50) {
+              nodes { quantity lineItems { id title variantTitle sku product { id } } }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
 DOCUMENTS = (
     "Q_OPEN_FOS",
+    "Q_SLIP",
     "Q_FO",
     "Q_INVENTORY_ITEMS",
     "Q_PRODUCT_ITEMS",
@@ -588,6 +639,11 @@ class GraphQLShopify:
     def fulfillment_order(self, fo_id: str) -> FoSnapshot | None:
         node = self._call(Q_FO, {"id": fo_id}).get("node")
         return parse_fo(node) if node else None
+
+    def slip_source(self, fo_id: str) -> dict[str, Any] | None:
+        """The fulfillment order as the packing slip needs it (shipping.packing_slip.parse)."""
+        node = self._call(Q_SLIP, {"id": fo_id}).get("node")
+        return node if node and node.get("id") else None
 
     def fulfillment_tracking(self, fulfillment_id: str) -> FulfillmentTracking | None:
         node = self._call(Q_FULFILLMENT_TRACKING, {"id": fulfillment_id}).get("node")

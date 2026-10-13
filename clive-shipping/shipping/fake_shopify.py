@@ -120,6 +120,9 @@ class FakeShopify:
     fo_reads_fail: int = 0  # fulfillment_order() raises this many times
     tracking_reads: list[str] = field(default_factory=list)
     _ids: itertools.count = field(default_factory=lambda: itertools.count(5000))
+    # For the packing slip: order totals and returns by order id (tests and the dev server).
+    order_totals: dict[str, dict[str, str]] = field(default_factory=dict)
+    order_returns: dict[str, list[dict]] = field(default_factory=dict)
 
     def add(self, snap: FoSnapshot) -> FoSnapshot:
         self.fos[snap.id] = snap
@@ -188,6 +191,61 @@ class FakeShopify:
             raise ShopifyError("Shopify could not be reached")
         found = self.fos.get(fo_id)
         return copy.deepcopy(found) if found else None
+
+    def slip_source(self, fo_id: str) -> dict | None:
+        """The packing slip's read, built from the fulfillment order as Shopify would answer.
+        A line's order line id is its fulfillment order line id with LineItem in place."""
+        f = self.fos.get(fo_id)
+        if f is None:
+            return None
+
+        def amount(minor: int) -> dict:
+            return {"shopMoney": {"amount": f"{minor / 100:.2f}", "currencyCode": f.currency}}
+
+        sub = sum(ln.unit_value.minor * ln.quantity for ln in f.lines)
+        totals = self.order_totals.get(f.order_id, {})
+        return {
+            "id": f.id,
+            "lineItems": {
+                "nodes": [
+                    {
+                        "id": ln.id,
+                        "totalQuantity": ln.quantity,
+                        "remainingQuantity": ln.quantity,
+                        "productTitle": ln.title,
+                        "variantTitle": ln.variant_title,
+                        "sku": ln.sku,
+                        "variant": {"product": {"id": ln.product_id}},
+                        "lineItem": {
+                            "id": ln.id.replace("FulfillmentOrderLineItem", "LineItem"),
+                            "quantity": ln.quantity,
+                            "discountedUnitPriceAfterAllDiscountsSet": amount(ln.unit_value.minor),
+                        },
+                    }
+                    for ln in f.lines
+                ]
+            },
+            "order": {
+                "id": f.order_id,
+                "name": f.order_name,
+                "createdAt": f.order_created_at,
+                "currencyCode": f.currency,
+                "customer": {"displayName": f.customer_name} if f.customer_name else None,
+                "shippingAddress": {
+                    "name": f.destination.name,
+                    "city": f.destination.city,
+                    "zip": f.destination.postcode,
+                    "countryCodeV2": f.destination.country,
+                },
+                "currentSubtotalPriceSet": amount(int(totals.get("subtotal", sub))),
+                "currentShippingPriceSet": amount(int(totals.get("shipping", 395))),
+                "currentTotalDiscountsSet": amount(int(totals.get("discounts", 0))),
+                "currentTotalPriceSet": amount(
+                    int(totals.get("total", sub + int(totals.get("shipping", 395))))
+                ),
+                "returns": {"nodes": copy.deepcopy(self.order_returns.get(f.order_id, []))},
+            },
+        }
 
     def item_facts(self, inventory_item_ids: list[str]) -> dict[str, ItemFacts]:
         return {i: copy.deepcopy(self.items[i]) for i in inventory_item_ids if i in self.items}

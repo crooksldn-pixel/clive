@@ -192,8 +192,40 @@ class PhysicalPrinting:
             False,
         )
 
+    def print_slip(self, shop: str, sid: str, actor: str, key: str, body: bytes):
+        """The packing slip to the label printer. Same request key: answered from its record;
+        another press is another copy (a slip is paper, nothing is bought)."""
+        s = self.store.get(shop, sid)
+        if s is None:
+            raise PrintError("Shipment not found.", 404)
+        validate_label(body)
+        return self._send(
+            shop,
+            f"slip:{sid}:{key}",
+            sid,
+            s.order_name,
+            None,
+            "packing_slip",
+            body,
+            actor,
+            False,
+            client_key=key,
+            event="packing_slip_printed",
+        )
+
     def _send(
-        self, shop, key, sid, order, artifact_id, kind, body, actor, reprint, client_key=None
+        self,
+        shop,
+        key,
+        sid,
+        order,
+        artifact_id,
+        kind,
+        body,
+        actor,
+        reprint,
+        client_key=None,
+        event=None,
     ):
         if self.provider is None:
             raise PrintError("Direct printing is disabled. Open PDF is still available.", 503)
@@ -247,7 +279,7 @@ class PhysicalPrinting:
                     Event(
                         at=now(),
                         actor=actor,
-                        type="label_reprinted" if reprint else "label_printed",
+                        type=event or ("label_reprinted" if reprint else "label_printed"),
                         detail={
                             "print_intent": record["id"],
                             "provider_job_id": jid,

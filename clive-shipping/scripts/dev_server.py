@@ -321,7 +321,46 @@ def buy(svc: ShippingService, n: int, key: str) -> None:
 def seed_states(svc: ShippingService, shopify: FakeShopify, provider: DevProvider) -> None:
     order(shopify, 2145, [tee_line(qty=2)], "DE")
     order(shopify, 2146, [hoodie_line()], "US")
-    order(shopify, 2147, [tee_line()], "FR")
+    swap = order(shopify, 2147, [tee_line()], "FR")
+    # 2147 ships an exchange: the customer sent a size back (packing slip says so).
+    line = swap.lines[0]
+    shopify.order_returns[swap.order_id] = [
+        {
+            "name": "#2147-R1",
+            "status": "CLOSED",
+            "returnLineItems": {
+                "nodes": [
+                    {
+                        "quantity": 1,
+                        "returnReasonDefinition": {"name": "Size too small", "handle": "too-small"},
+                        "fulfillmentLineItem": {
+                            "lineItem": {
+                                "id": "gid://shopify/LineItem/99147",
+                                "title": line.title,
+                                "variantTitle": "XS",
+                                "product": {"id": line.product_id},
+                            }
+                        },
+                    }
+                ]
+            },
+            "exchangeLineItems": {
+                "nodes": [
+                    {
+                        "quantity": 1,
+                        "lineItems": [
+                            {
+                                "id": line.id.replace("FulfillmentOrderLineItem", "LineItem"),
+                                "title": line.title,
+                                "variantTitle": line.variant_title,
+                                "product": {"id": line.product_id},
+                            }
+                        ],
+                    }
+                ]
+            },
+        }
+    ]
     order(shopify, 2148, [tee_line()], "JP")
     order(shopify, 2149, [tee_line()], "US")
     order(shopify, 2150, [tee_line()], "ES")

@@ -188,9 +188,15 @@ async function route() {
     if (p.get("batch")) {
       state.batch = await api(`/batches/${encodeURIComponent(p.get("batch"))}`);
       renderBatch();
+    } else if (p.get("order")) {
+      // Opened from another section (Returns: "Ship the exchange"): find the order's shipment.
+      const out = await api(`/orders/${encodeURIComponent(p.get("order"))}/shipment`);
+      history.replaceState(null, "", `${BASE}/admin?shipment=${encodeURIComponent(out.shipment_id)}`);
+      return await route();
     } else if (p.get("shipment")) {
       state.shipment = await api(`/shipments/${encodeURIComponent(p.get("shipment"))}`);
       renderShipment();
+      loadExchange(state.shipment.id);  // read from Shopify: never holds the page up
     } else if (view === "setup") {
       state.setup = await api("/setup");
       renderSetup();
@@ -547,7 +553,8 @@ function renderShipment() {
     `<s-button slot="secondary-actions" data-action="${printAction(d, true)}">Reprint</s-button>` : "";
   const statusButton = d.print_method === "printnode" && d.print_status?.job_id ?
     `<s-button slot="secondary-actions" data-action="print-status">Check print status</s-button>` : "";
-  const slots = statusButton + reprintButton + `<s-link slot="breadcrumb-actions" data-action="go-inbox" href="${BASE}/admin">Shipping</s-link>` +
+  const slipButton = `<s-button slot="secondary-actions" data-action="packing-slip">Packing slip</s-button>`;
+  const slots = statusButton + reprintButton + slipButton + `<s-link slot="breadcrumb-actions" data-action="go-inbox" href="${BASE}/admin">Shipping</s-link>` +
     primary +
     (acts.has("refresh") ? `<s-button slot="secondary-actions" data-action="refresh">Refresh from Shopify</s-button>` : "") +
     (acts.has("retry_shopify") ? `<s-button slot="secondary-actions" data-action="${printAction(d, false)}">Print label</s-button>` : "") +
@@ -566,6 +573,12 @@ function renderShipment() {
     top += banner({ tone: "warning", heading: "Last attempt", text: d.error });
   }
   for (const a of d.alerts) top += banner({ tone: "warning", heading: "Check this order", text: a });
+  const ex = state.exchange && state.exchange.sid === d.id ? state.exchange.exchange : null;
+  if (ex) {
+    top += banner({ tone: "info", heading: `Exchange order${ex.return_name ? ` · Return ${ex.return_name}` : ""}`,
+      text: ex.swaps.map((x) => `${x.quantity > 1 ? `${x.quantity} × ` : ""}${x.words} (${[x.kind, x.reason].filter(Boolean).join(" · ")})`).join("; ") +
+        ". The packing slip says so at the bottom." });
+  }
   if (!d.buy_authorised && acts.has("preview")) {
     top += banner({ tone: "info", heading: "Buying is not authorised for this order",
       text: `You can check everything${d.domestic ? "" : " and see the exact price"}. A label can only be bought once the owner authorises this order on the server.` });
@@ -909,6 +922,27 @@ async function printJobs(path, win) {
 
 // Retain the same intent across network errors / reloads. A successful deliberate reprint
 // clears its key; a later deliberate click creates one additional copy.
+// Whether this parcel is an exchange (from Shopify's returns), shown above the order.
+async function loadExchange(sid) {
+  try {
+    const out = await api(`/shipments/${sid}/exchange`);
+    state.exchange = { sid, exchange: out.exchange };
+    if (out.exchange && state.shipment?.id === sid) renderShipment();
+  } catch { /* the order shows without it; the slip reads it again when printed */ }
+}
+
+async function sendSlip(sid) {
+  const storageKey = `crooks-slip:${BASE}:${sid}`;
+  let key = sessionStorage.getItem(storageKey);
+  if (!key) { key = crypto.randomUUID(); sessionStorage.setItem(storageKey, key); }
+  const out = await api(`/shipments/${sid}/print-slip`, { method: "POST", body: { idempotency_key: key } });
+  // Uncertain keeps its key (pressing again replays it); otherwise the next press is a new copy.
+  if (out.outcome !== "unknown") sessionStorage.removeItem(storageKey);
+  toast(out.outcome === "failed" || out.outcome === "unknown" ? out.message : "Packing slip sent to the printer",
+    ["failed", "unknown"].includes(out.outcome));
+  return out;
+}
+
 async function sendPhysical(path) {
   const storageKey = `crooks-print:${BASE}:${path}`;
   let key = sessionStorage.getItem(storageKey);
@@ -1082,7 +1116,7 @@ async function openPdf(win, path, body) {
   const res = await fetch(`${BASE}/admin/api${path}`, { method: "POST", headers, body: body ? JSON.stringify(body) : undefined });
   if (!res.ok) {
     win.close();
-    let message = "The label couldn't be opened.";
+    let message = "It couldn't be opened.";
     try { const j = await res.json(); message = j.detail?.message || j.detail || message; } catch { /* keep */ }
     throw new Error(message);
   }
@@ -1176,6 +1210,21 @@ const ACTIONS = {
       state.shipment = await api(`/shipments/${state.shipment.id}`);
       renderShipment();
     });
+  },
+  async "packing-slip"(el) {
+    if (state.busy) return;
+    const d = state.shipment;
+    if (d.print_method === "printnode") {
+      await withButton(el, async () => {
+        await sendSlip(d.id);
+        state.shipment = await api(`/shipments/${d.id}`);
+        renderShipment();
+      });
+      return;
+    }
+    const win = openPrintWindow();
+    if (!win) return;
+    await withButton(el, () => openPdf(win, `/shipments/${d.id}/packing-slip`));
   },
   async "physical-print"(el) {
     let out;

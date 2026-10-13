@@ -62,6 +62,23 @@ label: Easyship's Royal Mail label + CN23 is two 4×6 labels, both for the parce
 labels go unchanged. A4 customs papers (commercial invoice copies) are named beside Print and
 printed from Documents.
 
+## Packing slip
+
+Every order has **Packing slip** at the top of its page. It is a CROOKS slip on the 4x6 label
+roll: order number and date, who it goes to, each item with its size, SKU, quantity and price,
+then subtotal, discounts, shipping and the order total. With PrintNode it goes to the label
+printer (a timeline line records it; the label's own print state is unaffected); without, it
+opens as a PDF to print. It is read from Shopify when it is made, so it shows the order as it is
+now; if Shopify doesn't answer, no slip is made up.
+
+**Exchanges.** When Returns processes a size swap, Shopify releases the replacement as its own
+shipment on the same order. Shipping recognises it from the order's returns and shows
+"Exchange order · Return #…" above it; the slip then has an **EXCHANGE ORDER** box at the
+bottom instead of the totals: "Blue Jeans XS > S · Size swap · Size too small", or for a
+different item "Joggers XS > Blue Jeans S · Credit swap". Returns links straight here with
+**Ship the exchange** (`/shipping/admin?order=<number>`), which opens the order's shipment still
+to be sent, after asking Shopify for new ones if needed.
+
 ## Durable batch safety
 
 `fulfilment_batches` stores the batch and child outcomes in the existing SQLite store. Each child has an independent stable purchase key and reviewed basis. Review calls existing preview; execution calls existing buy, retaining fresh Shopify checks, authorisation, hold/cancel guards, price validation, provider ownership, one-payment-attempt limits and reconciliation. Print children use existing stable first-print identities.

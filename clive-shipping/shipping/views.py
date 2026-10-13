@@ -449,6 +449,7 @@ TIMELINE = {
     "fulfillment_failed": "Shopify update failed",
     "fulfillment_retry_failed": "Shopify update failed again",
     "label_printed": "Label sent to the printer (PrintNode)",
+    "packing_slip_printed": "Packing slip sent to the printer (PrintNode)",
     "label_reprinted": "Extra copy sent to the printer (PrintNode)",
     "label_print_done": "Printer finished printing the label",
     "carrier_scan": "Carrier update",

@@ -21,7 +21,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
-from shipping import lifecycle, views
+from shipping import lifecycle, packing_slip, views
 from shipping.auth import BadToken, verify_session_token
 from shipping.commodity import spaced
 from shipping.models import Address
@@ -29,7 +29,7 @@ from shipping.money import Money
 from shipping.operations import Operations
 from shipping.physical_printing import PhysicalPrinting, intent_state
 from shipping.print_provider import PrintNodeProvider
-from shipping.printing import PrintError, Printing
+from shipping.printing import PrintError, Printing, order_number
 from shipping.providers.base import ProviderError
 from shipping.purchase import ActionError, Stale
 from shipping.service import ShippingService
@@ -597,6 +597,91 @@ def build_admin_router(
         out, done, skipped = act(lambda: physical.print_view_many(shop, body.shipment_ids, who))
         left = "; ".join(f"{x['order']}: {x['reason']}" for x in skipped)
         return pdf(out, f"Left out: {left}" if left else "", **{"X-Print-Count": str(len(done))})
+
+    def slip_of(sid: str) -> packing_slip.Slip:
+        """The packing slip, read from Shopify now (order totals and returns as they are)."""
+        s = shipment(sid)
+        try:
+            node = svc.shopify.slip_source(s.fulfillment_order_id)
+        except ShopifyError as exc:
+            log.error("packing slip %s: %s", sid, exc)
+            raise HTTPException(
+                503,
+                {
+                    "message": "Shopify didn't answer just now, so the slip can't be made. "
+                    "Try again in a minute.",
+                    "code": "shopify_unavailable",
+                },
+            ) from exc
+        if node is None:
+            raise HTTPException(
+                404,
+                {"message": "Shopify no longer has this order's fulfilment.", "code": "not_found"},
+            )
+        return packing_slip.parse(node)
+
+    @router.post("/api/shipments/{sid}/packing-slip")
+    def packing_slip_view(sid: str, who: str = Depends(staff)) -> Response:
+        """The packing slip as a 4x6 PDF for the browser's print dialog."""
+        return pdf(packing_slip.render(slip_of(sid)))
+
+    @router.post("/api/shipments/{sid}/print-slip")
+    def packing_slip_print(sid: str, body: PrintBody, who: str = Depends(staff)):
+        """The packing slip to the label printer through PrintNode."""
+        out = packing_slip.render(slip_of(sid))
+        return sent_result(
+            act(lambda: physical.print_slip(shop, sid, who, body.idempotency_key, out))
+        )
+
+    @router.get("/api/orders/{ref}/shipment")
+    def shipment_for_order(ref: str, who: str = Depends(staff)) -> dict[str, Any]:
+        """The shipment to open for an order number (Returns links here to ship an exchange):
+        the newest one still to be sent, else the newest. Not found: ask Shopify once."""
+
+        def find():
+            number = order_number(ref)
+            mine = [
+                s
+                for s in svc.store.shipments(shop)
+                if number and order_number(s.order_name) == number
+            ]
+            waiting = [s for s in mine if s.label is None]
+            pick = waiting or mine
+            return max(pick, key=lambda s: s.updated_at) if pick else None
+
+        found = find()
+        if found is None:
+            try:
+                svc.sync(shop)
+            except ShopifyError as exc:
+                log.error("sync for %s: %s", ref, exc)
+            found = find()
+        if found is None:
+            raise HTTPException(
+                404,
+                {
+                    "message": f"Nothing to send for order {ref} yet. An exchange appears here "
+                    "once Returns has processed it in Shopify.",
+                    "code": "not_found",
+                },
+            )
+        return {"shipment_id": found.id}
+
+    @router.get("/api/shipments/{sid}/exchange")
+    def exchange_of(sid: str, who: str = Depends(staff)) -> dict[str, Any]:
+        """Whether this parcel is an exchange, and what for: shown above the order."""
+        ex = slip_of(sid).exchange
+        return {
+            "exchange": None
+            if ex is None
+            else {
+                "return_name": ex.return_name,
+                "swaps": [
+                    {"words": x.words, "kind": x.kind, "reason": x.reason, "quantity": x.quantity}
+                    for x in ex.swaps
+                ],
+            }
+        }
 
     @router.get("/api/print/connection")
     def print_connection(who: str = Depends(staff)) -> dict[str, Any]:
