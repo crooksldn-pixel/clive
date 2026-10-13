@@ -78,7 +78,7 @@ curl -s https://returns.crooksldn.com/preorders/health     # {"ok":true}
 service if a named env file is missing.
 
 Then deploy the app configuration and the theme extension from where `shopify.app.toml` lives
-(copy the new scopes, webhook subscription and metafield block from
+(copy the new scopes and webhook subscription from
 `crooks-returns/shopify.app.toml.example`):
 
 ```bash

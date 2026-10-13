@@ -225,6 +225,9 @@ always derived (`SUM(current_quantity)` of uncancelled lines). Migration 2 adds
   safe to repeat and a released order isn't offered again.
 - A size added to a batch without a preorder quantity preorders all that's coming (as when the
   batch is created); 0 is only ever an explicit choice.
+- The `$app:preorder` variant metafield is written without a declared definition: the Shopify
+  CLI refused `[product_variant.metafields.app.preorder]` in `shopify.app.toml` ("Unsupported
+  section"). Nothing depends on it (the storefront block reads selling-plan allocations).
 - `customers/redact` is handled by the webhook endpoint, but the app has no compliance
   webhooks configured, so nothing sends it yet (README).
 - PREORDER_ONLY and NOTIFY_ONLY modes and per-variant overrides exist in the domain and

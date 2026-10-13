@@ -52,11 +52,3 @@ api_version = "2026-10"
   [[webhooks.subscriptions]]
   topics = ["orders/create", "orders/updated", "inventory_levels/update"]
   uri = "https://<RETURNS HOST>/preorders/webhooks/shopify"
-
-# CLIVE Preorders: a small storefront-readable summary per variant (state, dispatch date, selling
-# plan). The operational data stays in the Preorders database.
-[product_variant.metafields.app.preorder]
-type = "json"
-name = "Pre-order"
-description = "CLIVE Preorders: state, expected dispatch and selling plan for this variant"
-access.storefront = "public_read"
