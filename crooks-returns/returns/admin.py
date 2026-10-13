@@ -168,11 +168,13 @@ def detail(svc: ReturnsService, ret: Return) -> dict[str, Any]:
     }
 
 
+# Returns staff left out (tests) are only in their own view (and in a search).
 VIEWS = {
-    "todo": lambda r, a: bool(a),
-    "open": lambda r, a: r.status in OPEN_STATUSES,
-    "done": lambda r, a: r.status not in OPEN_STATUSES,
-    "all": lambda r, a: True,
+    "todo": lambda r, a: bool(a) and r.left_out is None,
+    "open": lambda r, a: r.status in OPEN_STATUSES and r.left_out is None,
+    "done": lambda r, a: r.status not in OPEN_STATUSES and r.left_out is None,
+    "all": lambda r, a: r.left_out is None,
+    "left_out": lambda r, a: r.left_out is not None,
 }
 
 
@@ -193,6 +195,10 @@ def matches(ret: Return, q: str) -> bool:
 class AdminAction(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
     idempotency_key: str = Field(default="", max_length=120)
+
+
+class LeaveOutBody(BaseModel):
+    reason: str = Field(default="Test return", max_length=200)
 
 
 class PilotBody(BaseModel):
@@ -290,6 +296,21 @@ def build_admin_router(svc: ReturnsService) -> APIRouter:
         if ret is None:
             raise HTTPException(404, "Return not found.")
         return detail(svc, ret)
+
+    # Before the general action routes, which would otherwise take these paths.
+    @router.post("/api/returns/{return_id}/leave-out")
+    def leave_out(return_id: str, body: LeaveOutBody, who: str = Depends(staff)) -> dict[str, Any]:
+        try:
+            return detail(svc, svc.leave_out(return_id, who, body.reason))
+        except ActionError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+
+    @router.post("/api/returns/{return_id}/put-back")
+    def put_back(return_id: str, who: str = Depends(staff)) -> dict[str, Any]:
+        try:
+            return detail(svc, svc.put_back(return_id, who))
+        except ActionError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
 
     @router.post("/api/returns/{return_id}/{action}/preview")
     def preview(

@@ -300,6 +300,7 @@
   };
   const EVENT = {
     requested: "Customer asked for a return", approved: "Approved", approve_failed: "Approval failed",
+    left_out: "Left out of the lists and statistics", put_back: "Put back into the lists and statistics",
     awaiting_label: "Waiting for a label", shipping_attached: "Label / tracking added to Shopify",
     shipping_attach_failed: "Couldn't add label to Shopify", no_return: "Approved, nothing to send back",
     declined: "Declined", in_transit: "Customer posted it", received: "Arrived back",
@@ -384,11 +385,12 @@
   function renderList(loading) {
     const o = state.overview, st = o.stats, c = o.counts;
     const share = st.kept_share == null ? "–" : Math.round(st.kept_share * 100) + "%";
-    const tabs = [["todo", "Needs you"], ["open", "Open"], ["done", "Finished"], ["all", "All"]];
+    const tabs = [["todo", "Needs you"], ["open", "Open"], ["done", "Finished"], ["all", "All"], ...(c.left_out ? [["left_out", "Left out"]] : [])];
     const empty = {
       todo: ["Nothing needs you", "New requests, problems and overdue labels show up here."],
       open: ["No open returns", "Approved returns on their way back show up here."],
       done: ["Nothing finished yet", ""], all: ["No returns yet", "Requests from the returns page show up here."],
+      left_out: ["Nothing left out", "Test returns you leave out of the statistics show up here."],
     }[state.view];
     const rows = state.list || [];
     shell("list", `
@@ -491,6 +493,7 @@
         <a class="btn small" href="${esc(r.links.order)}" target="_top">Open order in Shopify</a>
       </div>
       ${r.last_error ? `<div class="banner bad"><div class="grow"><b>Something didn't go through</b>${esc(r.last_error)}</div></div>` : ""}
+      ${r.left_out ? `<div class="banner info"><div class="grow"><b>Left out of the lists and statistics</b>${esc(r.left_out.reason || "Test return")} · ${esc(r.left_out.by)}, ${when(r.left_out.at)}. Nothing was changed in Shopify.</div><button class="btn small" data-put-back>Put back</button></div>` : ""}
       <div class="grid">
         <div>
           ${nextSay ? `<div class="card card-pad next">
@@ -500,7 +503,7 @@
               ${r.actions.filter((a) => a !== "note").map((a) => `<button class="btn ${a === primary ? "primary" : ""} ${a === "decline" || a === "cancel" ? "danger" : ""}" data-act="${a}">${ACTION[a]}</button>`).join("")}
               <button class="btn" data-act="note">${ACTION.note}</button>
             </div>
-          </div>` : `<div class="card card-pad"><div class="actions" style="justify-content:space-between;align-items:center"><span class="muted">${r.status === "completed" ? "All done. Nothing more to do." : "Closed."}</span><button class="btn small" data-act="note">${ACTION.note}</button></div></div>`}
+          </div>` : `<div class="card card-pad"><div class="actions" style="justify-content:space-between;align-items:center"><span class="muted">${r.status === "completed" ? "All done. Nothing more to do." : "Closed."}</span><span class="actions">${r.left_out ? "" : `<button class="btn small" data-leave-out>Leave out (test return)</button>`}<button class="btn small" data-act="note">${ACTION.note}</button></span></div></div>`}
           <div class="card card-pad">
             <h2>Items</h2>
             ${r.lines.map((l) => `
@@ -565,6 +568,25 @@
         </div>
       </div>`);
     app.querySelectorAll("[data-act]").forEach((b) => b.onclick = () => openAction(b.dataset.act));
+    const leave = app.querySelector("[data-leave-out]");
+    if (leave) leave.onclick = async () => {
+      if (!(await ask("Leave this return out of Finished and the statistics? Use it for test returns. Nothing changes in Shopify or for the customer, and you can put it back.", "Leave out"))) return;
+      await changeListing(leave, "/leave-out", { reason: "Test return" });
+    };
+    const back = app.querySelector("[data-put-back]");
+    if (back) back.onclick = () => changeListing(back, "/put-back", {});
+  }
+
+  async function changeListing(button, path, body) {
+    button.disabled = true;
+    try {
+      state.current = await api("/returns/" + encodeURIComponent(state.current.id) + path, body);
+      state.overview = null; state.list = null;  // counts and statistics change
+      renderReturn();
+    } catch (err) {
+      button.disabled = false;
+      shell("list", `<div class="banner bad"><div class="grow"><b>Not changed</b>${esc(err.message)}</div><a class="btn small" href="#/">Back to returns</a></div>`);
+    }
   }
 
   // ---------------------------------------------------------------- actions

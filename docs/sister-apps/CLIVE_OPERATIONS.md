@@ -109,6 +109,10 @@ Both `/events` feeds are each record's own history, flattened, oldest first, at 
 
 `verified: true` means the outcome was read back from Shopify or the provider and matched.
 
+A finished Returns case staff mark as a test ("Leave out") keeps its record and timeline
+(`left_out`, `put_back` events) and carries `left_out: {at, by, reason}`; it is left out of
+`GET /stats` and of the admin lists until it is put back. Nothing changes in Shopify.
+
 ## The boundary between Returns and Shipping
 
 They stay separate services with separate databases, joined only through Shopify:

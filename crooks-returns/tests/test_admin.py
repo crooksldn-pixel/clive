@@ -170,3 +170,51 @@ def test_a_failed_staff_name_lookup_is_not_repeated_on_every_tap(admin, shop, mo
     for _ in range(3):
         assert admin.get("/admin/api/overview").json()["me"] == "Staff 42"
     assert len(asked) == 1
+
+
+def finish(admin, rid, n):
+    admin.post(
+        f"/admin/api/returns/{rid}/approve",
+        json={"params": {"postage_mode": "self_ship"}, "idempotency_key": f"ap{n}"},
+    )
+    done = admin.post(
+        f"/admin/api/returns/{rid}/receive",
+        json={"params": {"condition": "ok"}, "idempotency_key": f"rc{n}"},
+    ).json()
+    assert done["status"] == "completed"
+
+
+def test_a_test_return_can_be_left_out_of_finished_and_the_statistics(admin, svc, shop):
+    rid = request_credit(admin)
+    finish(admin, rid, 1)
+    ov = admin.get("/admin/api/overview").json()
+    assert ov["counts"]["done"] == 1 and ov["stats"]["by_resolution"] == {"store_credit": 1}
+
+    calls = len(shop.calls)
+    out = admin.post(f"/admin/api/returns/{rid}/leave-out", json={"reason": "Test return"})
+    assert out.status_code == 200 and out.json()["left_out"]["by"] == "Sam Staff"
+    assert len(shop.calls) == calls  # nothing in Shopify changes
+    again = admin.post(f"/admin/api/returns/{rid}/leave-out", json={"reason": "Test return"})
+    assert again.status_code == 200  # pressing twice is harmless
+
+    ov = admin.get("/admin/api/overview").json()
+    assert ov["counts"]["done"] == 0 and ov["counts"]["all"] == 0
+    assert ov["counts"]["left_out"] == 1
+    assert ov["stats"]["returns"] == 0 and ov["stats"]["by_resolution"] == {}
+    assert not admin.get("/admin/api/returns?view=done").json()["returns"]
+    assert admin.get("/admin/api/returns?view=left_out").json()["returns"][0]["id"] == rid
+    assert admin.get("/admin/api/returns?q=1939").json()["returns"]  # still findable
+    doc = admin.get(f"/admin/api/returns/{rid}").json()
+    assert [e["type"] for e in doc["timeline"]][-1] == "left_out"
+    assert sum(e["type"] == "left_out" for e in doc["timeline"]) == 1
+
+    back = admin.post(f"/admin/api/returns/{rid}/put-back", json={})
+    assert back.status_code == 200 and back.json()["left_out"] is None
+    ov = admin.get("/admin/api/overview").json()
+    assert ov["counts"]["done"] == 1 and ov["stats"]["by_resolution"] == {"store_credit": 1}
+
+
+def test_an_open_return_cant_be_left_out(admin):
+    rid = request_credit(admin)
+    out = admin.post(f"/admin/api/returns/{rid}/leave-out", json={"reason": "Test return"})
+    assert out.status_code == 409 and "finished" in out.json()["detail"]

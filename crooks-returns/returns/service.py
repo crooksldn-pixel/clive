@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import json
 import logging
+import threading
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -23,8 +24,10 @@ import httpx
 from returns import policy, verify
 from returns.labels import Label, LabelError, LabelPort, tracking_url
 from returns.models import (
+    OPEN_STATUSES,
     REASON_LABELS,
     Event,
+    LeftOut,
     Money,
     Order,
     Postage,
@@ -155,6 +158,7 @@ class ReturnsService:
         self.clock = clock
         self.by_order = verify.RateLimiter(limit=settings.lookup_order_limit, window_s=900)
         self.by_ip = verify.RateLimiter(limit=settings.lookup_ip_limit, window_s=900)
+        self._lock = threading.Lock()  # leave out / put back: one change at a time
 
     # ===================================================================== the portal
 
@@ -1356,8 +1360,49 @@ class ReturnsService:
 
     # ===================================================================== reporting
 
+    def leave_out(self, return_id: str, actor: str, reason: str, source: str = "ui") -> Return:
+        """Leave a finished return out of the lists and statistics (a test). Nothing changes in
+        Shopify or with the customer; the record stays and can be put back."""
+        with self._lock:
+            ret = self.store.get(return_id)
+            if ret is None:
+                raise ActionError("Return not found.", 404)
+            if ret.status in OPEN_STATUSES:
+                raise ActionError(
+                    "Only a finished return can be left out; finish or cancel it first."
+                )
+            if ret.left_out is None:
+                ret.left_out = LeftOut(at=self.clock(), by=actor, reason=reason.strip()[:200])
+                ret.timeline.append(
+                    Event(
+                        at=self.clock(),
+                        type="left_out",
+                        actor=actor,
+                        source=source,
+                        detail={"reason": ret.left_out.reason},
+                    )
+                )
+                ret.updated_at = self.clock()
+                self.store.save(ret)
+            return ret
+
+    def put_back(self, return_id: str, actor: str, source: str = "ui") -> Return:
+        with self._lock:
+            ret = self.store.get(return_id)
+            if ret is None:
+                raise ActionError("Return not found.", 404)
+            if ret.left_out is not None:
+                ret.left_out = None
+                ret.timeline.append(
+                    Event(at=self.clock(), type="put_back", actor=actor, source=source)
+                )
+                ret.updated_at = self.clock()
+                self.store.save(ret)
+            return ret
+
     def stats(self, since: datetime | None = None) -> dict[str, Any]:
-        rows = self.store.search(since=since, limit=100_000)
+        # Returns staff left out (tests) don't count.
+        rows = [r for r in self.store.search(since=since, limit=100_000) if r.left_out is None]
         live = [r for r in rows if r.status.value not in ("declined", "cancelled")]
         value = sum(r.money.items_pence for r in live)
         kept = sum(r.money.items_pence for r in live if r.resolution != Resolution.refund)

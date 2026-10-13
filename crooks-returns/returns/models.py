@@ -272,6 +272,15 @@ class Event(BaseModel):
     source: str = ""
 
 
+class LeftOut(BaseModel):
+    """A finished return staff marked as not real (a test): kept, with its record and timeline,
+    but left out of the lists and statistics until it is put back."""
+
+    at: datetime
+    by: str
+    reason: str = ""
+
+
 class Return(BaseModel):
     id: str
     order_id: str
@@ -293,6 +302,7 @@ class Return(BaseModel):
     last_error: str | None = None
     shopify: ShopifyRefs = Field(default_factory=ShopifyRefs)
     timeline: list[Event] = Field(default_factory=list)
+    left_out: LeftOut | None = None
 
     @property
     def seller_fault(self) -> bool:
