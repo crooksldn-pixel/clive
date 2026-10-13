@@ -104,7 +104,11 @@ First-deploy checks:
   app proxy the address may be Shopify's, shared by every shopper. Signed proxy requests older
   than 5 minutes, or for another shop, are refused.
 - The theme's product form keeps the selected variant in a field named `id` (all Online Store
-  2.0 themes do). The block follows that field.
+  2.0 themes do). The block follows that field. A theme that empties it for a size it can't sell
+  (the CROOKS "Product Record" section does, so its Notify me would never show) must also put the
+  chosen variant's id in a `data-clive-variant` attribute inside the section, empty when no size
+  is chosen. While the theme disables its button ("Adding…", "Sold out") the block leaves the
+  button's words alone.
 - The block may sit inside the theme's add-to-cart form (the CROOKS "Product Record" section puts
   app blocks there). It has no `<form>` and its email field belongs to no form, so it never stops
   Add to cart or rides along with it. The theme must send the form's own fields (it may add its

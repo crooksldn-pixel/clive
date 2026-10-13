@@ -1,5 +1,7 @@
 /* CLIVE Preorders storefront block. No framework; follows the selected variant through the
- * product form's `id` field, which every Online Store 2.0 theme keeps current.
+ * product form's `id` field, which every Online Store 2.0 theme keeps current. A theme that
+ * empties that field for a size it can't sell (the CROOKS "Product Record" section does) names
+ * the chosen size in a `data-clive-variant` attribute inside the section instead.
  *
  * Themes like Horizon re-render the product area when the size changes (they fetch the section
  * and morph it in), which can replace the form, its `id` field and the button, and drop inputs
@@ -72,7 +74,9 @@
       }
       const host = label(form);
       if (!host || !buttonText) return;
-      if (state === "preorder" && host.textContent.trim() !== buttonText) {
+      const button = host.closest("button") || host;
+      // A disabled button is the theme's to word ("Adding…", "Sold out"): leave it alone.
+      if (state === "preorder" && !button.disabled && host.textContent.trim() !== buttonText) {
         original = host.textContent;
         host.textContent = buttonText;
       } else if (state !== "preorder" && original !== null && host.textContent.trim() === buttonText) {
@@ -85,8 +89,12 @@
       if (!root.isConnected) return clearInterval(timer); // re-rendered: the new copy takes over
       const form = cartForm(section) || cartForm(document);
       if (!form) return;
-      const id = Number(form.querySelector('[name="id"]')?.value);
-      if (id && id !== current) {
+      const id =
+        Number(form.querySelector('[name="id"]')?.value) ||
+        Number(section.querySelector("[data-clive-variant]")?.getAttribute("data-clive-variant")) ||
+        0;
+      if (id !== current) {
+        // No size chosen (0) or one this block doesn't know: no panel, no plan.
         current = id;
         const v = variants.find((x) => x.id === id);
         state = stateOf(v);
