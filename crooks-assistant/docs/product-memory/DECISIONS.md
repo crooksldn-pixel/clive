@@ -67,7 +67,7 @@ Preserve:
 
 ## DEC-006 — Voice “yes” is not sufficient for sensitive authorisation
 **Date:** 2026-09-19  
-**Status:** ACTIVE / SAFETY-CRITICAL
+**Status:** ACTIVE / SAFETY-CRITICAL until [DEC-079](#dec-079--the-owners-rulings-of-14-october-what-held-clive-back-decided) ruling 8 is built. Its absolute rule is then replaced by a context-bound approval model: a spoken approval counts only for one specific pending action CLIVE has presented, and only when the reply can be reliably attributed to that confirmation. Until that model is built, reviewed and deployed, a spoken yes approves nothing.
 
 Sensitive writes require the appropriate bound approval mechanism.
 
@@ -83,7 +83,7 @@ Do not allow models to improvise arbitrary write operations outside known capabi
 
 ## DEC-008 — Autonomy is narrow and earned
 **Date:** 2026-09-19  
-**Status:** ACTIVE
+**Status:** ACTIVE. Confirmed on 14 Oct 2026 ([DEC-079](#dec-079--the-owners-rulings-of-14-october-what-held-clive-back-decided) ruling 6): narrow, proven classes of outward action may one day run without a gesture each time, with ceilings and revocable. Nothing is built while DEC-018 stands.
 
 No blanket “full autonomy.”
 
@@ -180,7 +180,7 @@ Only explicit owner approval promotes them into committed roadmap/feature work.
 
 ## DEC-018 — Current product quality comes before major V2 expansion
 **Date:** 2026-09-19  
-**Status:** ACTIVE
+**Status:** ACTIVE. Reaffirmed in full by the owner on 14 Oct 2026 ([DEC-079](#dec-079--the-owners-rulings-of-14-october-what-held-clive-back-decided)): not waived, not superseded, until he says so.
 
 Before building the full World/automation/self-improvement system, finish:
 - always-on deployment,
@@ -931,7 +931,7 @@ The unrestricted-English prose-freeze parser experiment is therefore parked as h
 ## DEC-063 — The 2026-09-28 owner decisions join the log: every sentence is a model turn
 
 **Date:** 2026-09-28 (recorded in this log on 2026-10-05)
-**Status:** ACTIVE
+**Status:** ACTIVE. Every sentence is a model turn: reaffirmed on 14 Oct 2026 ([DEC-079](#dec-079--the-owners-rulings-of-14-october-what-held-clive-back-decided) ruling 7). Its kept line that a spoken yes never applies a change is superseded by [DEC-079](#dec-079--the-owners-rulings-of-14-october-what-held-clive-back-decided) ruling 8 once that ruling's approval model is built.
 **Source:** [OWNER_DECISIONS_2026-09-28.md](./OWNER_DECISIONS_2026-09-28.md), "recorded from the owner's explicit instructions in the Opus 5.5 engineering session", which remains the full text.
 
 **Decision:** The owner, verbatim:
@@ -964,7 +964,7 @@ The unrestricted-English prose-freeze parser experiment is therefore parked as h
 ## DEC-064 — The 2026-09-30 owner decisions join the log: the ship rule, acceptance, skills, capacity, the re-pin, filing and landing
 
 **Date:** 2026-09-30 (recorded in this log on 2026-10-05)
-**Status:** ACTIVE
+**Status:** ACTIVE, except two parts changed on 14 Oct 2026 by [DEC-079](#dec-079--the-owners-rulings-of-14-october-what-held-clive-back-decided). Parallel builders are allowed: there is no owner-imposed limit of one (ruling 4). "Every filing waits for his hold" gives way to a narrower filing-authority model (ruling 9) once that model is built; until then every filing still waits for his hold. One Max plan is reaffirmed (ruling 5).
 **Source:** [OWNER_DECISIONS_2026-09-30.md](./OWNER_DECISIONS_2026-09-30.md), "recorded from the owner's explicit answers in the Opus 5.5 engineering session", which remains the full text.
 
 **Decision:**
@@ -1179,7 +1179,7 @@ He wants "the flow from actually asking a question to the action happening to be
 ## DEC-071 — The owner's rulings of 8 October: 43 questions answered
 
 **Date:** 2026-10-08
-**Status:** ACTIVE
+**Status:** ACTIVE. Rulings 1, 4 and 17 were reaffirmed on 14 Oct 2026 as "not yet", not as permanent refusals ([DEC-079](#dec-079--the-owners-rulings-of-14-october-what-held-clive-back-decided)).
 **Source:** the owner's answers in the Director's session on 8 October 2026 (12:34 and 12:43 London), to 43 numbered yes/no questions. Every open owner decision the records held was put to him; his answers are quoted as he gave them.
 
 **Decision:**
@@ -1394,3 +1394,82 @@ He wants "the flow from actually asking a question to the action happening to be
 **Reason:** his words above. On his six reports, DEC-070 kept 115 of about 353 recommendations: about 43 were cut by its cap, about 190 were never picked up, and 11 were dropped when the quote check failed. Repeats were matched by word overlap, so almost none were found, and "park" hid "DEC-018 says not now" behind "this direction is right".
 
 **Consequences:** no new authority, no new service, no embeddings and no API key: every judgement is Claude on the Max plan through `app/research/model.py`, with no tools and the research only as data. One new store on the server, `research/synthesis/`. A new answer kind in the judgment ledger, `research-idea`. Not built: re-judging ideas a new document did not touch, scores, and any screen per recommendation. The check of the rules that never bend still matches words, so it can miss a rule broken in other words: his answer and his hold on every card decide, as in DEC-070.
+
+---
+
+## DEC-079 — The owner's rulings of 14 October: what held CLIVE back, decided
+
+**Date:** 2026-10-14
+**Status:** ACTIVE. It records decisions; nothing in it is built yet. Rulings 4, 8 and 9 change what CLIVE does only once the work that carries each one is built, reviewed and deployed. Until then CLIVE behaves as before.
+**Source:** the owner on 14 October 2026. He was answering the Director's list of decisions that may hold CLIVE back, each with what it costs. His reason for asking, verbatim: "the thing is that wasnt clearly explain to me, as with some of these decisions which can prove beneficial." Each ruling quotes his answer verbatim. Earlier the same evening: "keep DEC-018 fully in force for now. I am not waiving or superseding it. I will waive or amend it only when I believe the system has earned that step." With these rulings: "DEC-018 remains in force unless I explicitly waive it later."
+
+**Decision:**
+
+| # | Question | His answer | What it means |
+|---|---|---|---|
+| 0 | Does DEC-018 (finish first) still hold? | "keep DEC-018 fully in force for now. I am not waiving or superseding it." | DEC-018 stands unchanged, and none of the rulings below waives it. Making what he has already approved work correctly goes ahead. New kinds of autonomy wait until he changes DEC-018. |
+| 1 | Make the repository private? | "NOT YET. Keep the CLIVE repo public for now. Do not treat this as a permanent rejection; revisit later." | It stays public. DEC-071 ruling 1 stands, to be revisited. |
+| 2 | Move Returns/Shipping into its own private repository? | "NOT YET. Leave the current structure in place for now. Keep the migration as future work." | It stays on its branch. The move is future work (DEC-071 ruling 4). |
+| 3 | Apply for Instagram Advanced Access? | "NOT YET. Do not start Meta App Review/business verification yet. Keep this as a future action." | Not applied for (DEC-071 ruling 17). A future action. |
+| 4 | Keep CLIVE to one builder at a time? | "REMOVE THE LIMIT. Supersede the decision that CLIVE is restricted to one builder at a time. Parallel engineering work is allowed. This does not mean “run as many as possible”: retain resource/usage/safety controls and avoid starving live CLIVE, but there should no longer be an owner-imposed fixed concurrency=1 rule." | See ruling 4 below. |
+| 5 | Keep one Max plan? | "YES, KEEP FOR NOW. Continue using one Max plan. Revisit adding another when engineering usage materially competes with live CLIVE/staff usage." | One Max plan (DEC-064). The trigger to revisit is engineering usage materially competing with his and his staff's live use. |
+| 6 | May narrow outward actions one day run without a gesture each time? | "YES IN PRINCIPLE. I agree with the principle that specific, narrow, proven classes of outward action may eventually operate without an individual gesture every time, with bounded authority, ceilings and revocability. Do not implement that expansion yet. DEC-018 remains in force." | The direction of DEC-008 is confirmed for outward actions under rule 2. Nothing is built and no class is named while DEC-018 stands. |
+| 7 | Keep every sentence a model turn? | "KEEP FOR NOW. Keep DEC-063 for now. Do not reintroduce general shortcut/keyword routing yet." | DEC-063 stands. |
+| 8 | Keep "a spoken yes can never approve"? | "NO, CHANGE THIS. I no longer want a blanket rule that spoken confirmation can never approve something. Replace the absolute prohibition with a safe, context-bound approval model. A random or ambient “yes” must obviously not authorize an action; approval should only count when CLIVE has presented a specific pending action and the response can reliably be attributed to that confirmation context." | See ruling 8 below. |
+| 9 | Keep "every engineering filing needs his hold"? | "NO, CHANGE THIS. I do not want every engineering request to require an individual hold from me. Remove that blanket requirement. This is not permission for unrestricted autonomous engineering and does not waive DEC-018. Design a narrower filing-authority model consistent with DEC-018: CLIVE should be able to file work that is clearly within an already-authorised engineering intention/scope without making me tap every child request, while genuinely new scope, expanded authority, consequential ambiguity, protected changes or other owner-level decisions still come back to me." | See ruling 9 below. |
+
+**Ruling 4: parallel engineering.**
+- There is no owner-imposed limit of one builder. DEC-064's answer on parallel builders (offered on 30 September, not accepted) is superseded.
+- How many run at once is an engineering setting, chosen from measurement. Three things bound it:
+  - the host's resources;
+  - the one Max plan's usage, with his and his staff's live use first;
+  - the isolation rules that stand: a worktree of its own for every worker (DEC-012), and parallel work only where the scope is separable, with an integration gate (DEC-043).
+- It grants no authority. Parallel builders build only what has been filed. Exact-SHA review, acceptance and landing are unchanged.
+
+**Ruling 8: spoken approval.**
+- It replaces the absolute rule with a context-bound approval model, which is still to be designed and built. The absolute rule appears in three places:
+  - DEC-006;
+  - MAP rule 2's "a spoken 'yes' never applies a change";
+  - DEC-063's kept line that a spoken yes never applies a change.
+- His conditions:
+  - approval counts only when CLIVE has presented one specific pending action;
+  - it counts only when the reply can be reliably attributed to that confirmation;
+  - a random or ambient "yes" never authorises anything.
+- Two things come back to him with the design: which actions voice may approve (money and the strongest gestures included or not), and how attribution is proved.
+- Until the model is built, reviewed and deployed, a spoken yes still applies nothing, and MAP rule 2 stays as written.
+
+**Ruling 9: engineering filing authority.**
+- It replaces two things with a narrower filing-authority model, which is still to be designed and built:
+  - DEC-064's "Every filing still waits for his hold on its card";
+  - MAP rule 2's "anything outward waits for a gesture on its card", for engineering requests only.
+- His conditions:
+  - CLIVE may file work clearly within an engineering intention or scope he has already authorised, without a tap for each child request;
+  - genuinely new scope, expanded authority, consequential ambiguity, protected changes and other owner-level decisions still come to him.
+- It is not unrestricted autonomous engineering, and it does not waive DEC-018.
+- Until the model is built, every filing waits for his hold as today.
+- Unchanged:
+  - exact-SHA review, green acceptance, protected paths and the landing rules (DEC-064);
+  - deploy authority (DEC-072; DEC-071 rulings 6–8);
+  - his hold on every change to the shop, every message and every payment.
+
+**Supersedes:**
+- **DEC-064:** its answer on parallel builders (ruling 4). Its "every filing waits for his hold" gives way to ruling 9's model once that is built.
+- **DEC-006, DEC-063 and MAP rule 2:** their absolute rule on a spoken yes gives way to ruling 8's model once that is built. MAP describes CLIVE as it runs, so its text changes with that build.
+- **MAP rule 2 for engineering requests:** gives way to ruling 9's model once that is built.
+
+**Reaffirmed, not changed:**
+- DEC-018 (ruling 0);
+- DEC-071 rulings 1, 4 and 17, as "not yet" rather than permanent refusals;
+- DEC-064's one Max plan, now with a trigger to revisit;
+- DEC-063's main rule;
+- DEC-008's direction.
+
+**Reason:** his rulings.
+
+**Consequences:**
+- **MAP rule 8 forbids anyone weakening an approval.** Rulings 8 and 9 are the owner's own changes, made here, and each comes into force only through a reviewed build.
+- **Where DEC-018 bounds ruling 9.** The authorised scope is what he has approved: a request, or a plan or set of requests he saw and approved together, with their allowed paths and acceptance criteria. Inside that scope, retries, repairs, splits and dependency-ordered requests can be filed without a tap. A system that turns an intention into new engineering work he has not seen is the expansion DEC-018 still holds. That covers automatic decomposition, proactive filing and policy that adjusts itself.
+- **Ruling 4 and DEC-018.** Ruling 4 adds capacity to work he has authorised. It is not new autonomy, so it does not touch DEC-018.
+- **Two questions are answered.** The research synthesis's two "needs you" questions:
+  - DEC-018 stays fully in force (ruling 0);
+  - rule 2 may bend one day for a narrow class, yes in principle, with nothing built (ruling 6).
