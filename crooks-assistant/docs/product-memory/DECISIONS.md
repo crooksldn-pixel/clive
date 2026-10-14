@@ -1446,7 +1446,7 @@ He wants "the flow from actually asking a question to the action happening to be
   - CLIVE may file work clearly within an engineering intention or scope he has already authorised, without a tap for each child request;
   - genuinely new scope, expanded authority, consequential ambiguity, protected changes and other owner-level decisions still come to him.
 - It is not unrestricted autonomous engineering, and it does not waive DEC-018.
-- Until the model is built, every filing waits for his hold as today.
+- Until the model is built, every filing waits for his hold as today. One case is his own reading, also of 14 October, verbatim: "If I press Try again on a specific failed item, that interaction can constitute my hold for that exact re-file because I have explicitly chosen it. It does not mean: I approved the overall project therefore CLIVE may file unlimited future child work unless I separately change that rule." So a confirmed "Try again" on one build may file that exact build again, same title and same allowed paths, with no second card.
 - Unchanged:
   - exact-SHA review, green acceptance, protected paths and the landing rules (DEC-064);
   - deploy authority (DEC-072; DEC-071 rulings 6–8);
