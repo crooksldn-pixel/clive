@@ -1,0 +1,184 @@
+--- orig/sections/crooks-exhibit-record.liquid	2026-10-14 20:37:33.857528810 +0000
++++ new/sections/crooks-exhibit-record.liquid	2026-10-14 20:42:19.439130329 +0000
+@@ -1,4 +1,5 @@
+ {{ 'crooks.css' | asset_url | stylesheet_tag }}
++{{ 'crooks-record-buy.css' | asset_url | stylesheet_tag }}
+ <script src="{{ 'crooks-record.js' | asset_url }}" defer></script>
+ <script src="{{ 'crooks-set.js' | asset_url }}" defer></script>
+ 
+@@ -192,7 +193,7 @@
+       {%- comment -%} ---------- record panel ---------- {%- endcomment -%}
+       <div class="crk-panel crk-panel-record crk-panel-sticky">
+         <h1 class="crk-display crk-title">{% render 'crooks-title', product: product %}</h1>
+-        <div class="crk-display crk-price" style="margin-top: 4px;" data-crk-price>{{ crk_price_display }}</div>
++        <div class="crk-display crk-price" style="margin-top: 8px;" data-crk-price>{{ crk_price_display }}</div>
+ 
+         {%- if product.available -%}
+           {%- form 'product', product, id: 'crk-product-form' -%}
+@@ -228,6 +229,21 @@
+                 Every option renders, whatever it is called and whatever order it
+                 comes in. Nothing here assumes "Size" or a single option.
+               {%- endcomment -%}
++              {%- comment -%}
++                The size guide is a link on the size option's label row, not a
++                boxed button under the stock line. The row whose name says "size"
++                carries it; failing that, the first.
++              {%- endcomment -%}
++              {%- liquid
++                assign guide_oi = 0
++                for option in product.options_with_values
++                  assign oname = option.name | downcase
++                  if oname contains 'size'
++                    assign guide_oi = forloop.index0
++                    break
++                  endif
++                endfor
++              -%}
+               {%- for option in product.options_with_values -%}
+                 {%- liquid
+                   assign oi = forloop.index0
+@@ -248,7 +264,12 @@
+                   endfor
+                 -%}
+                 <div class="crk-optgroup" data-crk-optgroup="{{ oi }}" data-crk-optname="{{ option.name | escape }}">
+-                  <div class="crk-label" style="display: block; margin-bottom: 8px;">{{ option.name }}</div>
++                  <div class="crk-label crk-optlabel">
++                    <span>{{ option.name }}</span>
++                    {%- if has_measurements and oi == guide_oi -%}
++                      <button type="button" class="crk-sizeguide-link" data-crk-size-guide>{{ section.settings.size_guide_label }}</button>
++                    {%- endif -%}
++                  </div>
+                   <div class="crk-sizes{% if wide %} crk-sizes--wide{% endif %}" role="group" aria-label="{{ option.name | escape }}">
+                     {%- for value in option.values -%}
+                       {%- liquid
+@@ -291,11 +312,6 @@
+                   {{ section.settings.label_in_stock }}
+                 {%- endif -%}
+               </p>
+-              {%- if has_measurements -%}
+-                <button type="button" class="crk-textbtn" style="margin-top: 8px;" data-crk-size-guide>
+-                  {{ section.settings.size_guide_label }}
+-                </button>
+-              {%- endif -%}
+ 
+               <noscript>
+                 <p class="crk-micro" style="margin-top: 8px;">{{ section.settings.nojs_note }}</p>
+--- orig/assets/crooks-record.js	2026-10-14 20:37:33.860204325 +0000
++++ new/assets/crooks-record.js	2026-10-14 20:43:47.925582398 +0000
+@@ -375,12 +375,9 @@
+       root.setAttribute('data-clive-variant', v ? v.id : '');
+ 
+       if (idInput) idInput.value = (v && v.available) ? v.id : '';
+-      if (priceEl && v && v.price) priceEl.textContent = v.price;
+-      if (stickyMeta && v && v.price) {
+-        clearStickyFlash();
+-        var chosen = selected.filter(function (x) { return x; }).join(' · ');
+-        stickyMeta.textContent = v.price + (chosen ? ' · ' + chosen : '');
+-      }
++      current = v;
++      if (stickyMeta && v && v.price) clearStickyFlash();
++      paintPrice();
+ 
+       if (stockLine) {
+         if (!complete) {
+@@ -407,7 +404,7 @@
+         var missing = firstMissingOptionName();
+         setBuy(missing ? L.selectOption.replace('[option]', missing) : L.select, true);
+       }
+-      else if (v && v.available) setBuy(L.add, false);
++      else if (v && v.available) setBuy(isPreorder(v) ? preSeen.label : L.add, false);
+       else setBuy(L.sold, true);
+ 
+       /* Hook for optional add-ons that need the last word on the buy state —
+@@ -456,6 +453,8 @@
+         }
+         rows[r].setAttribute('data-active', hit ? 'true' : 'false');
+       }
++
++      followApp();
+     }
+ 
+     for (var gg = 0; gg < nOpts; gg++) {
+@@ -486,6 +485,82 @@
+     var sNow = root.querySelector('[data-crk-sticky-now]');
+     if (sNow) sNow.addEventListener('click', function () { checkoutNow(sNow); });
+ 
++    /* ---- pre-order and Notify me (CROOKS Operations app block) ----
++       The app shows a panel for the chosen size and words the buy button. The
++       record follows what it shows: [data-crk-preorder] / [data-crk-notify] on
++       the root let crooks-record-buy.css drop the lines that stop being true
++       (IN STOCK, ships today, Buy it now, a second sold-out message), and the
++       pre-order price - the one checkout charges - becomes the main price and
++       the sticky bar's. Read from the app's own DOM, so with no app block, or
++       one that changes shape, the page behaves exactly as before. */
++    var app = root.querySelector('[data-clive-preorder]');
++    var appSection = app && app.closest('.shopify-section, section');
++    var current = null;
++    var preSeen = null; // what the app showed for the last pre-order size
++
++    function isPreorder(v) {
++      return !!(v && preSeen && root.hasAttribute('data-crk-preorder') && String(preSeen.id) === String(v.id));
++    }
++
++    function paintPrice() {
++      var v = current;
++      if (!v || !v.price) return;
++      var pre = isPreorder(v);
++      var now = pre ? preSeen.now : v.price;
++      var was = pre ? preSeen.was : '';
++      if (priceEl) {
++        priceEl.textContent = now;
++        if (was) {
++          var s = document.createElement('s');
++          s.className = 'crk-price-was';
++          s.textContent = was;
++          priceEl.appendChild(s);
++        }
++      }
++      if (stickyMeta && !stickyMeta.hasAttribute('data-crk-flash')) {
++        var chosen = selected.filter(function (x) { return x; }).join(' · ');
++        stickyMeta.textContent = now + (chosen ? ' · ' + chosen : '');
++      }
++    }
++
++    function syncApp() {
++      if (!app) return;
++      var pre = app.querySelector('[data-clive-panel="preorder"]');
++      var ntf = app.querySelector('[data-clive-panel="notify"]');
++      var isPre = !!(pre && !pre.hidden);
++      root.toggleAttribute('data-crk-preorder', isPre);
++      root.toggleAttribute('data-crk-notify', !!(ntf && !ntf.hidden));
++      if (isPre) {
++        var nowEl = pre.querySelector('[data-clive-price]');
++        var wasEl = pre.querySelector('[data-clive-was]');
++        preSeen = {
++          id: root.getAttribute('data-clive-variant'),
++          now: (nowEl && nowEl.textContent.trim()) || (current && current.price) || '',
++          was: wasEl && !wasEl.hidden ? wasEl.textContent.trim() : '',
++          label: (buyBtn && !buyBtn.disabled && buyBtn.textContent.trim()) || (preSeen && preSeen.label) || L.add
++        };
++        var sticky = root.querySelector('[data-crk-sticky-add]');
++        if (sticky && buyBtn && !buyBtn.disabled && !sticky.disabled) sticky.textContent = buyBtn.textContent;
++      }
++      paintPrice();
++    }
++
++    /* The app checks the size every 300ms; a change event on its section makes
++       it check now. Not bubbled, so nothing else hears it. syncApp is queued
++       behind the app's own check, so it reads the panel for this size. */
++    function followApp() {
++      if (!app) return;
++      if (appSection) appSection.dispatchEvent(new Event('change'));
++      setTimeout(syncApp, 0);
++    }
++
++    /* Whatever the app changes, it changes in one pass for one size (panel,
++       then button words), so reading after it settles is always consistent. */
++    if (app && window.MutationObserver) {
++      new MutationObserver(function () { syncApp(); })
++        .observe(app, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden'] });
++    }
++
+     if (nOpts) render();
+     else renderDispatch(false);
+ 

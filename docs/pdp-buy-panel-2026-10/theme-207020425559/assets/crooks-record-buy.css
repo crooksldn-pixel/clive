@@ -1,0 +1,178 @@
+/* CROOKSLDN — exhibit record buy panel: spacing, size-guide link, and the
+   CROOKS Operations "Pre-order / Notify me" app block in the house voice.
+   Loaded after crooks.css by sections/crooks-exhibit-record.liquid.
+
+   One line of state at a time. A pre-order size used to show IN STOCK, the
+   ships-today promise, the app's own price and a Buy it now box carrying the
+   deferred-purchase disclaimer, all at once. crooks-record.js marks the record
+   [data-crk-preorder] or [data-crk-notify] from the app's panels; these rules
+   leave only what is true for that size. Checkout states the pre-order terms. */
+
+/* ---- rhythm ---- */
+.crk-record [data-crk-optgroup="0"] { margin-top: 24px; }
+.crk-record [data-crk-price] .crk-price-was {
+  margin-left: 12px;
+  font-family: var(--crk-font-mono);
+  font-size: 14px;
+  letter-spacing: .02em;
+  vertical-align: middle;
+  color: var(--crk-dim);
+}
+.crk-record [data-crk-buy] { margin-top: 20px; }
+
+/* ---- option label row: SIZE on the left, size guide as a link on the right ---- */
+.crk-record .crk-optlabel {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.crk-record .crk-sizeguide-link {
+  position: relative;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--crk-accent);
+  font: inherit;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+/* A 44px target without moving the row. */
+.crk-record .crk-sizeguide-link:after {
+  content: "";
+  position: absolute;
+  left: -8px;
+  right: -8px;
+  top: 50%;
+  height: 44px;
+  transform: translateY(-50%);
+}
+.crk-record .crk-sizeguide-link:hover { color: var(--crk-text); }
+
+/* ---- delivery: the live dispatch line replaces the static rule, not repeats it ---- */
+.crk-record [data-crk-delivery]:has(+ [data-crk-dispatch]:not([hidden]):not(:empty)) { display: none; }
+
+/* ---- Buy it now (in-stock sizes): a second button, not a box round one ----
+   [data-crk-buynow] outranks crooks.css, which the footer links again later. */
+.crk-record .crk-buynow[data-crk-buynow]:has(button, iframe, [role=button]) {
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  --shopify-accelerated-checkout-button-block-size: 52px;
+  --shopify-accelerated-checkout-button-border-radius: 0px;
+  --shopify-accelerated-checkout-inline-alignment: center;
+}
+/* Shopify's unbranded "Buy it now" arrives unstyled; give it the secondary
+   button's shape. Wallet buttons (Shop Pay, Apple Pay) keep their own chrome. */
+.crk-record .crk-buynow .shopify-payment-button__button--unbranded {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  background: none;
+  border: 1px solid var(--crk-line);
+  color: var(--crk-text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.crk-record .crk-buynow .shopify-payment-button__button--unbranded:hover { border-color: var(--crk-accent); background: var(--crk-press); }
+
+/* ---- pre-order size ---- */
+.crk-record[data-crk-preorder] [data-crk-stockline],
+.crk-record[data-crk-preorder] [data-crk-delivery],
+.crk-record[data-crk-preorder] [data-crk-dispatch],
+.crk-record[data-crk-preorder] [data-crk-buynow],
+.crk-record[data-crk-preorder] [data-crk-sticky-now] { display: none !important; }
+
+.crk-record .clive-preorder__panel { margin: 16px 0 0; }
+.crk-record .clive-preorder__panel p { margin: 0; }
+.crk-record .clive-preorder__badge {
+  display: block;
+  padding: 0;
+  border: 0;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .24em;
+  text-transform: uppercase;
+  color: var(--crk-accent);
+}
+.crk-record .clive-preorder__date {
+  margin-top: 6px !important;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--crk-text);
+}
+/* The price lives in the main price line above (crooks-record.js moves it). */
+.crk-record .clive-preorder__price { display: none; }
+.crk-record .clive-preorder__note {
+  margin-top: 4px !important;
+  font-size: 12px;
+  opacity: 1;
+  color: var(--crk-dim);
+}
+
+/* ---- sold-out size: one message, one action ---- */
+.crk-record[data-crk-notify] [data-crk-buy],
+.crk-record[data-crk-notify] [data-crk-sticky-now],
+.crk-record[data-crk-notify] [data-clive-panel="notify"] > .clive-preorder__note { display: none !important; }
+.crk-record [data-clive-panel="notify"] { margin-top: 20px; }
+.crk-record .clive-preorder__open,
+.crk-record .clive-preorder__submit {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  background: none;
+  border: 1px solid var(--crk-accent);
+  border-radius: 0;
+  color: var(--crk-text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.crk-record .clive-preorder__submit { background: var(--crk-purple); color: var(--crk-onpurple); }
+.crk-record .clive-preorder__open:hover { background: var(--crk-press); }
+.crk-record .clive-preorder__submit:disabled { opacity: .6; cursor: progress; }
+.crk-record .clive-preorder__form { max-width: none; gap: 8px; margin-top: 0; }
+.crk-record .clive-preorder__label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .24em;
+  text-transform: uppercase;
+  color: var(--crk-accent);
+}
+.crk-record .clive-preorder__input {
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 52px;
+  padding: 0 16px;
+  background: var(--crk-panel);
+  border: 1px solid var(--crk-line);
+  border-radius: 0;
+  color: var(--crk-text);
+  font-family: inherit;
+  font-size: 16px;
+}
+.crk-record .clive-preorder__input:focus { border-color: var(--crk-accent); outline: none; }
+.crk-record .clive-preorder__small { font-size: 12px; opacity: 1; color: var(--crk-dim); }
+.crk-record .clive-preorder__message { margin-top: 8px !important; font-weight: 400; color: var(--crk-accent); }
+.crk-record .clive-preorder__message:before { content: "> "; }
+
+@media (min-width: 768px) {
+  .crk-record .clive-preorder__badge, .crk-record .clive-preorder__label { font-size: 11px; }
+  .crk-record .clive-preorder__date { font-size: 15px; }
+  .crk-record .clive-preorder__note, .crk-record .clive-preorder__small { font-size: 13px; }
+}
