@@ -55,60 +55,63 @@ It writes nothing and sets `GIT_OPTIONAL_LOCKS=0` first.
 
 ---
 
-## Step 3 — RP1, the re-pin (worker-01; only after step 2 says "expected path")
+## Step 3 — RP1, the re-pin (worker-01; step 2 found the expected path on 2026-10-15)
 
-Run as root on worker-01. `<…>` placeholders come from the A1 output.
+### How the actual script works (read on 2026-10-15; sha256 `ab569848…8bab`)
 
-1. **Run the re-pin review.**
-   - Command: `sudo bash /home/george/clive-review/repin/root-repin.sh`, targeting `ef204bc2`.
-   - The script reviews the loop's code from the current pin to the target, and continues only on
-     READY. Its result is kept at `/home/george/clive-review/repin/out/review-<sha>.json`.
-   - **If it returns CHANGES_REQUIRED: stop and paste the findings back.** No waiver is assumed.
-2. **Set the unit flags** with `systemctl edit --full clive-remote-engineering`, then
-   `systemctl daemon-reload`:
-   - **Keep everything else as it is.** That includes the inbox and status branches,
-     `--publish-remote`, the store, runtime and token-file paths, and `--gpt-api-key-file` (it is
-     harmless while GPT is collect-only, and useful for a rollback).
-   - **`--reviewer claude`.**
-   - **`--max-concurrent 2`.** This is an engineering setting under DEC-079 ruling 4. It is not
-     raised during Stage A.
-   - **`--default-repair-rounds 2`.**
-   - **The private channel (DEC-068):**
-     - `--private-listen <worker-01's tailnet address>:<port>`;
-     - `--private-allow-node <production's full tailnet name>`.
+`/home/george/clive-review/repin/root-repin.sh` takes **no arguments**. `SHA` (the target) and `PIN`
+(the current pin) are hard-coded from the 1 Oct re-pin: `SHA=718fbc41…`, `PIN=b577bc97…`.
 
-     Production is the only node allowed. The supervisor's own read access comes at RP2 through the
-     read group (O-2).
-   - **`--sandbox-browsers <path>` and `--sandbox-node-path <path>`**, only if A1 found Chromium and
-     node.
-   - **The workspace root on the same filesystem as the repository (`--repo`).** This is the EXDEV
-     fix.
-   - **`--no-builder-skills`**, unless the CLI is 2.1.285 or 2.1.293.
-3. **Run the probes.** Run them as the unit's user, with the same global flags as the new `ExecStart`.
-   Both must print PASS.
-   - `<python> <pinned tree>/crooks-assistant/scripts/engineering_dispatcher.py <global flags> probe-launch`
-   - `<python> <pinned tree>/crooks-assistant/scripts/engineering_dispatcher.py <global flags> probe-review --turn`
-4. **Restart:** `systemctl restart clive-remote-engineering`. Then run
-   `systemctl status clive-remote-engineering --no-pager | head -15`.
-5. **Rollback rehearsal**, side effect free:
-   - copy the store to a scratch folder;
-   - run the **old** pin's `remote_engineering.py status` against the copy;
-   - run the old pin's `engineering_dispatcher.py tick --no-land` against the copy, with:
-     - a scratch `--runtime-root` and `--workspace-root`;
-     - `--publish-remote` pointing at a throwaway local bare repository;
-     - `--worker-cli /bin/false`;
-     - no network needed.
+**What it does, in order:**
 
-   Both must run without refusing a record. Delete the scratch folder afterwards. If either refuses,
-   record the refusal; the rollback target then becomes the oldest pin that passes.
+1. fetches trunk with the loop's credential;
+2. checks that `SHA` is on trunk and `PIN` is an ancestor;
+3. asks the GitHub gate at `SHA`;
+4. runs a gpt-6-luna smoke request;
+5. runs an exact-SHA review of `PIN..SHA` on gpt-6-sol, with the old pin's reviewer;
+6. **requires READY.** The 1 Oct owner waiver applies only to `SHA=718fbc41`;
+7. re-asks the gate;
+8. builds `/srv/clive-engineering/remote-control/$SHA`;
+9. backs up the unit and **rewrites only the pin and the product-memory ref**;
+10. runs `daemon-reload`;
+11. restarts once no builder or review is running;
+12. reports.
 
-### Paste back
-- the re-pin script's verdict line;
-- `systemctl cat clive-remote-engineering`, with credential paths redacted and the private-listen
-  address replaced by "present";
-- the two probe verdicts;
-- `systemctl status` (the first 15 lines);
-- the rehearsal result.
+**So RP1 is the script with two variables changed, followed by a separate flag change.** The flag
+change is needed because the script deliberately changes nothing else.
+
+**What the new pin does differently** (verified against `ef204bc2`'s source):
+- Every flag `718fbc41` accepts still exists, so the current `ExecStart` parses.
+- With a flag omitted, the defaults change: the reviewer becomes `claude`, repair rounds become 2, and
+  **builder skills come on**. On CLI 2.1.280 that would make every build launch refused, so
+  `--no-builder-skills` is required.
+- Placement:
+  - `--reviewer`, `--max-concurrent` and `--no-builder-skills` go **before** `run`;
+  - `--default-repair-rounds`, `--private-listen` and `--private-allow-node` go **after** `run`.
+- Outside the loop, the code imports only `app.logging.turnlog`. The only new dependency, `pypdf`, is
+  research-only, so the unpinned venv is not at risk.
+
+### The procedure (root on worker-01; the exact commands are in the planning session's reply of 2026-10-15)
+
+| Step | What | Detail |
+|---|---|---|
+| R0 | Read-only pre-checks | Pinned trees present; `packet-head.md` names no SHA or PR (if it does: stop and paste it); port 8765 free; worker-01's tailnet IPv4; tmux available |
+| R1 | Copy the script | `root-repin-ef204bc2.sh` with exactly two lines changed: `SHA=ef204bc2…` and `PIN=718fbc41…`. The diff must show only those, and the original's checksum is unchanged |
+| R2 | Run the copy | Run it in the foreground, inside tmux if present, logged with `tee`. **Any `== STOPPED`, or a verdict other than READY, means stop and paste it.** On success the loop restarts on `ef204bc2` with its old flags; it is idle, so nothing is filed until R5 |
+| R3 | Change the flags | A Python edit that asserts the unit is exactly as audited and at the new pin. It backs up the unit, then: `--max-concurrent 8` → `2`; adds `--reviewer claude` and `--no-builder-skills` (before `run`); adds `--default-repair-rounds 2`, `--private-listen <worker tailnet IPv4>:8765` and `--private-allow-node <production's full tailnet name>` (after `run`). Then `systemd-analyze verify` and `daemon-reload` |
+| R4 | Probes from the new tree | `engineering_dispatcher.py … --no-builder-skills probe-launch` and `… --reviewer claude probe-review --turn`. Both must PASS |
+| R5 | Restart when idle | The unit's cgroup holds only the main process; then `systemctl restart` |
+| R6 | Verify | Active state; cwd is the new tree; the cmdline shows the new flags; the pinned tree's HEAD is `ef204bc2`; the first tick shows no intake, publish or private error; the private port is bound |
+| R7 | Rollback rehearsal, after the smoke request | The old pin's `remote_engineering.py status` against a **copy** of the store. **Deviation:** `tick` is omitted. The store is idle, and a side-effect-free tick would need a copy of the 53 GB runtime; `status` parses every record the old code would read |
+
+**Rollback:**
+- **The flags only:** restore `….service.bak-flags-<ts>`, then `daemon-reload` and restart.
+- **The whole re-pin:** restore the script's `….service.bak-718fbc41…-<ts>`, then `daemon-reload` and
+  restart. The old tree is kept.
+
+**Not done:** no reboot, no installs, no SSH, Tailscale or firewall changes. If production cannot
+reach the private channel (for example, a firewall), that row is marked deferred. The firewall is not
+changed.
 
 ## Step 4 — the smoke request (George, in CLIVE)
 
@@ -162,8 +165,8 @@ write that Stage A does not need. A stopped unit cannot poll, and that is eviden
 | Step | When (UTC) | Result | Evidence |
 |---|---|---|---|
 | Readiness | 2026-10-15 16:10 | Target `ef204bc2` green; worker-01 alive; no route from production | This page, "Readiness" |
-| 1 (A1) | — | **Waiting for George's run on worker-01** | — |
-| 2 | — | — | — |
+| 1 (A1) | 2026-10-15 16:31 | Run by George as root on worker-01 | His pasted output (kept in this conversation, not in the repository) |
+| 2 | 2026-10-15 | **Expected path; no material drift.** Pin `718fbc41` (an ancestor of `ef204bc2` by 58 commits); unit active since 1 Oct 22:04, 0 restarts; `--max-concurrent 8`; GPT reviewer through `--gpt-api-key-file` (no `--reviewer` at that pin); CLI 2.1.280 (`--no-builder-skills` needed); no browser; no `--worker-bash-prefix`; `--check-ro-path` is the venv and `/opt/node22` only; branches `worker-01-inbox` and `worker-01-status`; repo and workers on a 52G tmpfs, the store and the 53G runtime on disk (3.4T free); 0 lease cancellations; 0 rate-limit lines; 0 stop reports. **Minor note:** the code records worker-01 on CLI 2.1.285 on 30 Sep; it is 2.1.280 now. Not material: skills are off, and the probes test the real binary | A1 output; `git merge-base --is-ancestor` |
 | 3 (RP1) | — | — | — |
 | 4 (smoke) | — | — | — |
 | 5 | — | — | — |

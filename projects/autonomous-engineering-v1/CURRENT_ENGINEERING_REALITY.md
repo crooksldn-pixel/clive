@@ -53,6 +53,20 @@
 | Trunk SHA | — | **`ef204bc2`** (DEC-079, a docs-only PR #125; 1 ahead of production) | — | DEC-080 to DEC-082 are not on trunk yet (the Director's, in progress) | `origin/clive/trunk`, refreshed every 5 min |
 | Release service | ✔ (PRs #101, #116) | ✘ not installed | ✘ | — | No units on prod |
 
+## worker-01, from George's A1 audit (2026-10-15 16:31 UTC)
+
+| Fact | Value |
+|---|---|
+| Unit | `clive-remote-engineering` active, running since 2026-10-01 22:04 UTC, 0 restarts, peak memory 17 GB |
+| Pin | `718fbc41` (PR #88), 58 commits behind trunk `ef204bc2`. **DEC-068 and DEC-076 are confirmed not in force** |
+| Reviewer | GPT through `--gpt-api-key-file`; there is no `--reviewer` flag at that pin |
+| Concurrency | `--max-concurrent 8` |
+| Claude CLI | 2.1.280 (`/srv/clive-engineering/bin/claude`): not a skills-gated version |
+| Browser | None configured. Node at `/opt/node22` (v22.23.3) |
+| Layout | Repo and workers on a 52G tmpfs, re-cloned at boot by `clive-repo-clone.service`; the store (20 MB) and runtime (53 GB) on disk; 3.4 TB free; 32 cores, 125 GiB RAM |
+| Health | 0 lease cancellations, 0 rate-limit lines (14 days), 0 stop reports (that pin predates DEC-068) |
+| Users | The unit runs as root. `clive-trunk-fetch.timer` every 5 min |
+
 ## Host identity
 
 | Field | Value |
