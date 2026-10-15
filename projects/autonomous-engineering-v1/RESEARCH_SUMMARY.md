@@ -44,3 +44,28 @@ The planning session must prove which are live and exercised on the worker.
 For coding agents, current Playwright MCP guidance notes that CLI + skills can be more token-efficient than MCP for high-throughput coding workflows. Therefore V1 should not automatically make Playwright MCP a universal worker dependency. CLIVE already has browser-capable tests; planning should decide whether exploratory browser work uses Playwright CLI, existing tests, or MCP only on a narrow verifier/supervisor path.
 
 Context7 is useful for current external library/API documentation, but it is supporting evidence, not authority over CLIVE's source or decisions.
+
+## Reconciliation with source and host (2026-10-14)
+
+| Research claim | Verdict | Evidence |
+|---|---|---|
+| Dispatcher lifecycle and repair | Held: BUILT and PROVEN | 26 COMPLETE and 12 self-landings on worker-01 |
+| Separate workspaces and fresh builder sessions | Held: BUILT; PROVEN on the production-host loop | audit/REPO_AUDIT §2 |
+| Configurable concurrency | Held. **Already above 1 on worker-01, and unratified** | CONCURRENCY_PLAN |
+| Candidate check sandbox | Held: BUILT and PROVEN | — |
+| Exact-SHA GitHub acceptance | Held: PROVEN. It already includes browser tests | `acceptance.yml` |
+| Fresh independent reviewers | **Partly held.** The Claude reviewer is BUILT but not in force; worker-01 still reviews with GPT | Projection: 44 GPT verdicts |
+| Remote engineering inbox and status | Held. **Hard 100-record intake bound, 75 used** | `inbox.py:35` |
+| Builds surfaces | Held. Decision answers are not acted on | `decisions.py:28-33` |
+| Behavioural Bench | Held, CLI only. Cannot run in the sandbox | `docs/BENCH.md` |
+| Hash-pinned builder skills | Held. Gated to CLI 2.1.285 and 2.1.293; no per-task routing | `workers/skills.py` |
+| "Desktop-as-Supervisor" | Confirmed by Anthropic's documentation on Desktop SSH sessions | audit/CLAUDE_CODE_CAPABILITIES |
+| "CLI + skills over MCP" | Confirmed by the Playwright MCP README | — |
+
+**Not in the research and found by the audit:**
+
+- the loop cannot build its own control plane, because the files are protected paths;
+- a second, stale loop still runs on production;
+- about half of all stops are spec or environment;
+- 49 of 101 requests are re-files;
+- the planning SSH host is production.

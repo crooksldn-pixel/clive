@@ -32,3 +32,25 @@ Do not advance a level because the code exists. Require:
 - owner-attention benefit;
 - rollback path;
 - explicit authority boundary.
+
+## Where CLIVE stands on 2026-10-14 (evidence: CURRENT_ENGINEERING_REALITY, audit/BASELINE_EVIDENCE)
+
+| Level | Status | Why |
+|---|---|---|
+| 1 Delegated build | **Reached** | One bounded change completes without the owner present: 26 COMPLETE on worker-01 |
+| 2 Closed-loop engineering | **Partly reached** | Build, checks, exact-SHA CI, review, repair and landing run with no relay: 12 loop self-landings since 1 Oct. But only 35% of requests complete, and 49 of 101 requests were hand-written re-files, so the Director and George are still couriers for scope and environment stops |
+| 3 Concurrent engineering | **Running without promotion** | At least 4 overlapping builders observed, but never owner-ratified, never measured against a baseline, and with no plan-limit pause or review cap |
+| 4 Project orchestration | Not reached | No dependency, priority or project grouping in the loop |
+| 5–6 | Not started | — |
+
+V1's targets:
+
+- **Level 2 fully:** review convergence restored by the re-pin, spec and environment stops caught by
+  the preflight, and owner answers acted on.
+- **Level 3 by measurement:** under DEC-079 ruling 4.
+- **Level 4 for authorised plans of 2–6 requests on a build objective.**
+
+**DEC-018 stays in force** (DEC-079 ruling 0). Levels 5 and 6 (proactive proposals, bounded
+continuous improvement) are the expansion it holds back: automatic decomposition, proactive filing and
+self-adjusting policy. They are not part of V1, and are not built until George changes DEC-018. The promotion rule above still
+applies: no level is claimed until its drills and measurements pass.

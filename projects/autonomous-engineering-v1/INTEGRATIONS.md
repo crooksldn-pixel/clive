@@ -26,6 +26,20 @@ For exploratory coding-agent browser work, evaluate Playwright CLI + skill befor
 
 ### Claude Desktop / SSH
 This is the interactive supervisor surface. It must never hold durable project state exclusively.
+Anthropic's documentation (audit/CLAUDE_CODE_CAPABILITIES.md) says a Desktop SSH session may outlive
+a dropped connection but should not be counted on overnight, and ends on a host restart. That
+confirms P-001.
+
+Today the supervisor runs **as root on the production host**. In V1 (O-2), Claude Desktop on
+George's Mac is the client. It runs commands on clive-worker-01 as a non-root, read-only user that
+cannot read the loop's token. It has no GitHub write credential, and submits drafts only through
+CLIVE's filing path (FILING_AUTHORITY).
+
+### Claude Code CLI and the Agent SDK
+V1 keeps driving the Claude Code CLI, as the loop does today: headless, `--permission-mode dontAsk`,
+`--tools`, `--strict-mcp-config`, `--setting-sources ""`, and an environment built from scratch with an
+OAuth token file only. The Agent SDK is **not** adopted, because its support for subscription login is
+not clearly documented and MAP rule 5 forbids API keys. `--bare` is ruled out for the same reason.
 
 ## Not required for V1
 - new database merely for orchestration;

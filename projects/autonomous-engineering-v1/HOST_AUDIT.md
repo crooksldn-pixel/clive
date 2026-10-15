@@ -4,6 +4,13 @@ Run from the isolated planning worktree over SSH. Read only. Do not install, res
 
 Record evidence in CURRENT_ENGINEERING_REALITY.md.
 
+**Run 2026-10-14:** the results are in [audit/HOST_AUDIT_RESULTS.md](audit/HOST_AUDIT_RESULTS.md).
+The host turned out to be production (`crooks-os-prod-1`). The worker host's own audit is
+[WORKER01_AUDIT.md](WORKER01_AUDIT.md).
+
+**Lesson from that run:** set `export GIT_OPTIONAL_LOCKS=0` before the first git command. Otherwise a
+read-only `git status` can refresh another checkout's index file.
+
 ## Repository identity
 
 ```bash

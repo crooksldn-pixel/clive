@@ -1,5 +1,19 @@
 # CLIVE Autonomous Engineering V1 — planning package
 
+**Status (2026-10-15):** revision 4. Audits complete; reconciled with the CLIVE Director's cross-check and DEC-079; final plan written and awaiting owner approval. Start with
+[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) (its last section is the recommendation), then
+[CURRENT_ENGINEERING_REALITY.md](CURRENT_ENGINEERING_REALITY.md) and
+[DECISIONS.md](DECISIONS.md) (three open owner decisions: O-1, the ruling-9 filing-authority design in [FILING_AUTHORITY.md](FILING_AUTHORITY.md); O-2, the supervisor's identity; O-3, the OAMAB threshold, after measurement). The evidence is in
+[`audit/`](audit/); the plan's review is in [PLAN_REVIEW.md](PLAN_REVIEW.md).
+
+**Audit disclosure:** the host audit was read-only except for one incidental write. A `git status`
+on the production checkout refreshed git's index stat cache (`/opt/crooks-os/.git/index`, 2026-10-14
+11:40:50 UTC). HEAD, refs, the working tree and the service were unchanged.
+
+**Correction to the original brief:** the SSH host this package was planned from is
+`crooks-os-prod-1`, the **production** host, not the engineering worker. The loop runs on
+clive-worker-01, which was observed only through its public status branch.
+
 This branch is the starting environment for a fresh Claude Code session connected over SSH to the real CLIVE engineering host.
 
 It exists to turn the research and product philosophy into one repo-specific implementation plan. It is intentionally plan first. It does not authorize code changes to CLIVE, worker re-pins, service changes or production deployment.
@@ -21,11 +35,11 @@ George should be able to describe an engineering intention once, then leave the 
 9. `IMPLEMENTATION_SEQUENCE.md`
 10. remaining topic documents as needed
 
-## What is already believed to exist
+## What is already believed to exist (now verified: see CURRENT_ENGINEERING_REALITY)
 
 The repository appears to already contain most of the durable engineering kernel: dispatcher/lifecycle, isolated workspaces, bounded repair, candidate sandbox checks, exact-SHA GitHub acceptance, fresh independent reviewers, remote engineering/status bridge, Builds, Bench, and hash-pinned builder skills. These are source-level findings, not proof of live worker state.
 
-## What this project should add
+## What this project should add (original brief; superseded in part: the "durable Project object" is CLIVE's existing `Objective(kind=build)`, see DECISIONS P-011)
 
 Only missing layers: a durable Project object above objectives, intent-to-spec compilation, dependency-aware scheduling on top of the existing dispatcher, targeted skill/context routing, measured concurrency, quality-gate routing, owner-interruption classification/batching, a small deterministic Desktop supervisor interface, and project-first evidence/status presentation.
 
