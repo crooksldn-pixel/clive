@@ -1,0 +1,19 @@
+products 21: offers 119, with shippingDetails 119, seller @id 119, brand @id on 21, material on 9, unresolved refs 0, availability {'InStock': 101, 'OutOfStock': 18}
+pages with Organization legalName: 50
+pages with crooksldn@gmail.com: ['/policies/refund-policy', '/policies/shipping-policy', '/policies/terms-of-service', '/policies/privacy-policy']
+LCP / high-priority imgs: [('sldn.com/cdn/shop/files/IMG_2393.jpg?v=1784545522&width=1200', 'eager')]
+LCP /collections/denim high-priority imgs: [('a51a6-44dd-409c-b1dc-6c0ae2156781.png?v=1788187446&width=800', 'eager')]
+LCP /collections/all high-priority imgs: [('ooksldn-black-baggy-fleece-hoodie.png?v=1788192310&width=800', 'eager')]
+LCP /products/blue-wash-yard-jeans high-priority imgs: [('c148-f3ca-448a-8c9a-30ff0047564d.png?v=1788194148&width=1400', 'eager')]
+collection denim: intro words 4 | product links 1 | Jorts, jeans and denim.
+collection tees: intro words 3 | product links 3 | All CROOKSLDN tees.
+collection sweats: intro words 5 | product links 8 | Hoodies, crewnecks, joggers and shorts.
+collection tracksuits: intro words 0 | product links 6 | -
+collection accessories: intro words 4 | product links 2 | Socks, bags and extras.
+collection new: intro words 3 | product links 19 | The latest drop.
+collection all: intro words 0 | product links 20 | -
+home imgs with empty alt: ['88b52784-5698-4f8d-bd88-a47e712b4e7f.png', 'D787E520-B547-4893-BD87-188531749668_82149d90-2ba1-432e-b71c-9a1f9b8c9bb1.png', 'IMG-1223.png', 'IMG-1248.png', 'IMG-1255.png', 'IMG-3995.png', 'crooksldn-blue-wash-straight-denim-jeans.png', 'crooksldn-charcoal-cellblock-shorts.png', 'crooksldn-charcoal-fleece-shorts_42086ef5-6b8e-4751-a4f4-2cd220ee8660.png', 'crooksldn-grey-convict-hoodie-back.png', 'crooksldn-grey-wash-denim-jorts_a2e4085a-a36f-4452-88d3-adfce6d6915f.png', 'crooksldn-og-baggy-denim-jeans.png']
+pages with AggregateRating/Review: 0
+blog article links: 0
+variant canonical: https://crooksldn.com/products/blue-wash-yard-jeans
+FAQ questions: 15
