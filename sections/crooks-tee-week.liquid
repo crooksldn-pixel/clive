@@ -1,5 +1,22 @@
 {{ 'crooks.css' | asset_url | stylesheet_tag }}
 {{ 'crooks-tee-week.css' | asset_url | stylesheet_tag }}
+
+{%- comment -%}
+  Switched off in Theme settings (CROOKS — T-shirt Week): the page stays at its
+  address but says the week isn't on and points at the tees. No case files, no
+  script, and the site's own shipping banner is left alone.
+{%- endcomment -%}
+{%- unless settings.crk_tw_on -%}
+  <div class="ctw ctw--off" data-crk-section="tee-week" {{ section.shopify_attributes }}>
+    <div class="ctw-wrap">
+      <h1 class="ctw-h1">{{ section.settings.heading | escape }}</h1>
+      <p class="ctw-off__msg">{{ settings.crk_tw_off_text | escape }}</p>
+      {%- if settings.crk_tw_off_label != blank -%}
+        <a class="ctw-off__btn" href="{{ settings.crk_tw_off_url | default: '/collections/tees' }}">{{ settings.crk_tw_off_label | escape }}</a>
+      {%- endif -%}
+    </div>
+  </div>
+{%- else -%}
 <script src="{{ 'crooks-tee-week.js' | asset_url }}" defer></script>
 
 {%- comment -%}
@@ -119,6 +136,15 @@
     }
   </script>
 </div>
+{%- endunless -%}
+
+{% stylesheet %}
+  /* T-shirt Week switched off: the heading, one line and a way to the tees. */
+  .ctw--off .ctw-wrap { padding-top: 32px; gap: 16px; }
+  .ctw-off__msg { font-size: 14px; color: var(--ctw-text2); }
+  .ctw-off__btn { align-self: flex-start; display: inline-flex; align-items: center; min-height: 52px; padding: 0 24px; background: var(--ctw-purple); border: 1px solid var(--ctw-lav); color: var(--ctw-white); font-size: 13px; font-weight: 500; letter-spacing: .16em; text-decoration: none; text-transform: uppercase; }
+  .ctw-off__btn:hover { background: var(--ctw-folder-lt); }
+{% endstylesheet %}
 
 {% schema %}
 {

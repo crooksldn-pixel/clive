@@ -2624,5 +2624,42 @@
         "default": "14 days from delivery. Faulty or wrong items: 30 days, always free."
       }
     ]
+  },
+  {
+    "name": "CROOKS — T-shirt Week",
+    "settings": [
+      {
+        "type": "paragraph",
+        "content": "One switch for T-shirt Week. On: T-SHIRT WEEK shows in the header and the T-shirt Week page opens the case files. Off: the header link goes, and the page says T-shirt Week isn't on, with a button to the tees. Free shipping and prices are set in Shopify admin, not here: check them match the page before switching on."
+      },
+      {
+        "type": "checkbox",
+        "id": "crk_tw_on",
+        "label": "T-shirt Week is on",
+        "default": true
+      },
+      {
+        "type": "header",
+        "content": "While it's off"
+      },
+      {
+        "type": "text",
+        "id": "crk_tw_off_text",
+        "label": "Message on the T-shirt Week page",
+        "default": "T-shirt Week isn't on right now. The tees are in the shop."
+      },
+      {
+        "type": "text",
+        "id": "crk_tw_off_label",
+        "label": "Button label",
+        "default": "SHOP T-SHIRTS"
+      },
+      {
+        "type": "url",
+        "id": "crk_tw_off_url",
+        "label": "Button link",
+        "info": "Leave empty for the T-shirts collection (/collections/tees)."
+      }
+    ]
   }
 ]

@@ -65,9 +65,10 @@
         Featured link beside the catalogue, for a drop like T-shirt Week. Off by
         default, so it only shows where the header group switches it on. Each
         word is kept whole, so on a phone it stacks as T-SHIRT over WEEK rather
-        than breaking at the hyphen.
+        than breaking at the hyphen. It also needs T-shirt Week switched on in
+        Theme settings, so the drop is turned on and off in one place.
       {%- endcomment -%}
-      {%- if section.settings.show_feature and section.settings.feature_url != blank -%}
+      {%- if section.settings.show_feature and section.settings.feature_url != blank and settings.crk_tw_on -%}
         {%- assign crk_feature_words = section.settings.feature_label | split: ' ' -%}
         <a class="crk-header__link crk-header__link--feature" href="{{ section.settings.feature_url }}">
           <span class="crk-header__words">
@@ -290,7 +291,7 @@
     { "type": "checkbox", "id": "show_catalogue", "label": "Show the catalogue link", "default": true },
     { "type": "text", "id": "catalogue_label", "label": "Catalogue label", "default": "CATALOGUE" },
     { "type": "url", "id": "catalogue_url", "label": "Catalogue link", "info": "Shopify rejects a shopify:// default on a url setting, so the value is set on the header group rather than here." },
-    { "type": "checkbox", "id": "show_feature", "label": "Show a featured link beside the catalogue", "default": false },
+    { "type": "checkbox", "id": "show_feature", "label": "Show a featured link beside the catalogue", "info": "Shows only while T-shirt Week is on (Theme settings › CROOKS — T-shirt Week).", "default": false },
     { "type": "text", "id": "feature_label", "label": "Featured link label", "default": "T-SHIRT WEEK" },
     { "type": "url", "id": "feature_url", "label": "Featured link" },
     { "type": "text", "id": "search_label", "label": "Search label", "default": "SEARCH" },
