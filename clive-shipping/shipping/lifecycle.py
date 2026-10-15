@@ -81,3 +81,8 @@ def may_bulk_buy(stage_name: str) -> bool:
 def may_bulk_first_print(stage_name: str, print_summary: dict[str, Any] | None) -> bool:
     """Only labels not printed (or whose prints all failed), and not already with the carrier."""
     return stage_name == "bought" and bool(print_summary and print_summary["first_print_available"])
+
+
+def may_bulk_reprint(stage_name: str) -> bool:
+    """Printed labels may be sent again (label, customs form and slip): nothing is bought."""
+    return stage_name == "printed"

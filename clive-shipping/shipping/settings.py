@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     # How often the service reconciles purchases, retries Shopify and refreshes open orders,
     # in seconds. 0 turns the timer off.
     tick_interval_s: int = 60
+    # Bulk print sends one person's set (label, customs form, slip) at a time: after PrintNode
+    # says a set is done, each 4x6 page gets this long to come out before the next set is sent,
+    # and a set not done within print_wait_seconds holds the rest.
+    print_page_seconds: float = 4.0
+    print_wait_seconds: float = 90.0
     # Local development only: open the admin screen without a Shopify admin session.
     dev_skip_admin_auth: bool = False
     # With global buying disabled, orders a label may be bought for (comma-separated). Empty:

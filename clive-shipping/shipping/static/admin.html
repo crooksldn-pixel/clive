@@ -263,11 +263,32 @@ function renderBatch() {
   const ready = b.children.filter(c => c.state === 'review').length;
   const complete = b.children.filter(c => !['queued', 'running', 'review'].includes(c.state)).length;
   const slots = `<s-link slot="breadcrumb-actions" data-action="go-inbox" href="${BASE}/admin">Shipping</s-link>` +
-    (b.state === 'review' && ready ? `<s-button slot="primary-action" variant="primary" data-action="confirm-batch">${b.kind === 'buy' ? 'Buy' : 'Print'} ${ready} labels</s-button>` : '');
-  const rows = b.children.map((c,i) => `<s-table-row><s-table-cell>${i+1}. ${esc(c.order)}</s-table-cell><s-table-cell>${esc(c.provider || '—')} · ${esc(c.service || '—')}</s-table-cell><s-table-cell>${b.kind === 'buy' ? (c.price_known === false ? 'Set by Shopify Shipping' : new Intl.NumberFormat('en-GB',{style:'currency',currency:c.currency}).format(c.amount_minor/100)) : '1 first copy'}</s-table-cell><s-table-cell>${esc(c.state)}${c.message ? ` — ${esc(c.message)}` : ''}</s-table-cell></s-table-row>`).join('');
-  const counts = Object.fromEntries(['purchased','printed','sent','failed','uncertain','excluded','skipped'].map(k => [k,b.children.filter(c => c.state === k).length]));
-  page(b.state === 'review' ? 'Review selected labels' : 'Bulk operation progress', slots,
-    `<s-section><s-stack gap="base"><s-text>${b.state === 'review' ? `${ready} ready to ${b.kind === 'buy' ? 'buy' : 'print'}${b.children.length > ready ? ` · ${b.children.length - ready} changed since you selected them (not included)` : ''}` : `${complete} / ${b.children.length} completed`} · ${b.kind === 'buy' ? `Total ${batchMoney(b)}` : 'Print order is shown below.'}</s-text><s-text>${b.state === 'review' ? 'Review the exclusions and each provider/service before confirming. No action has run yet.' : (b.kind === 'buy' ? `${counts.purchased} purchased` : `${counts.printed} printed · ${counts.sent} printing`) + ` · ${counts.failed} failed · ${counts.uncertain} uncertain · ${counts.excluded+counts.skipped} excluded/skipped`}</s-text><s-text color="subdued">Each order is independent. Uncertain outcomes are not automatically retried.</s-text><s-table><s-table-header-row><s-table-header>Order</s-table-header><s-table-header>Service</s-table-header><s-table-header>Price / copies</s-table-header><s-table-header>Outcome</s-table-header></s-table-header-row><s-table-body>${rows}</s-table-body></s-table></s-stack></s-section>`);
+    (b.state === 'review' && ready ? `<s-button slot="primary-action" variant="primary" data-action="confirm-batch">${{buy: `Buy ${ready} labels`, print: `Print ${ready} orders`, reprint: `Reprint ${ready} orders`}[b.kind]}</s-button>` : '');
+  const printing = b.kind !== 'buy';
+  const what = c => printing ? esc((c.documents || ['Shipping label']).join(', then ')) + (b.kind === 'reprint' ? ' (another copy)' : '')
+    : (c.price_known === false ? 'Set by Shopify Shipping' : new Intl.NumberFormat('en-GB',{style:'currency',currency:c.currency}).format(c.amount_minor/100));
+  const rows = b.children.map((c,i) => `<s-table-row><s-table-cell>${i+1}. ${esc(c.order)}</s-table-cell><s-table-cell>${esc(c.provider || '—')} · ${esc(c.service || '—')}</s-table-cell><s-table-cell>${what(c)}</s-table-cell><s-table-cell>${esc(c.state)}${c.message ? ` — ${esc(c.message)}` : ''}</s-table-cell></s-table-row>`).join('');
+  const counts = Object.fromEntries(['purchased','printed','sent','failed','uncertain','excluded','skipped','held'].map(k => [k,b.children.filter(c => c.state === k).length]));
+  const verb = {buy: 'buy', print: 'print', reprint: 'reprint'}[b.kind];
+  const how = printing ? 'One order at a time: each order’s label, customs form (international) and packing slip print together, and the next order starts once the last has come out. Nothing is bought.'
+    : 'Each order is independent. Uncertain outcomes are not automatically retried.';
+  page(b.state === 'review' ? (printing ? 'Review what prints' : 'Review selected labels') : 'Bulk operation progress', slots,
+    `<s-section><s-stack gap="base"><s-text>${b.state === 'review' ? `${ready} ready to ${verb}${b.children.length > ready ? ` · ${b.children.length - ready} changed since you selected them (not included)` : ''}` : `${complete} / ${b.children.length} completed`} · ${b.kind === 'buy' ? `Total ${batchMoney(b)}` : 'Print order is shown below.'}</s-text><s-text>${b.state === 'review' ? 'Review the exclusions before confirming. No action has run yet.' : (b.kind === 'buy' ? `${counts.purchased} purchased` : `${counts.printed} printed · ${counts.sent} printing · ${counts.held} held`) + ` · ${counts.failed} failed · ${counts.uncertain} uncertain · ${counts.excluded+counts.skipped} excluded/skipped`}</s-text><s-text color="subdued">${how}</s-text><s-table><s-table-header-row><s-table-header listSlot="primary">Order</s-table-header><s-table-header>Service</s-table-header><s-table-header>${printing ? 'Prints' : 'Price'}</s-table-header><s-table-header>Outcome</s-table-header></s-table-header-row><s-table-body>${rows}</s-table-body></s-table></s-stack></s-section>`);
+}
+// Each person's set (label, customs form, packing slip), one person after another: through
+// PrintNode as a reviewed batch, else as one PDF for the browser's print dialog.
+function bulkPrint(el, kind) {
+  if (state.inbox.print_method === 'printnode') return withButton(el, () => reviewSelected(kind));
+  const ids = visibleInboxRows().filter(r => state.selected.has(r.id)).map(r => r.id);
+  if (!ids.length || state.busy) return;
+  const win = openPrintWindow();
+  if (!win) return;
+  return withButton(el, async () => {
+    const out = await openPdf(win, '/print-view', { shipment_ids: ids });
+    toast(`${out.count} order${out.count === 1 ? '' : 's'} opened to print (label, then packing slip)${out.note ? `. ${out.note}` : ''}`, Boolean(out.note));
+    state.selected.clear();
+    state.inbox = await loadInbox(); renderInbox();
+  });
 }
 async function reviewSelected(kind) {
   const ids = visibleInboxRows().filter(r => state.selected.has(r.id)).map(r => r.id);
@@ -314,8 +335,11 @@ function purchasedText(iso, tz) {
 // What bulk action this tab offers, and which rows may take it (the server says, per row).
 function bulkPick(ib) {
   if (ib.stage === "ready") return { flag: "can_buy", noun: "ready", action: "bulk-buy", label: "Buy labels — review" };
+  const review = ib.print_method === "printnode" ? " — review" : "";
   if (ib.stage === "bought") return { flag: "can_first_print", noun: "unprinted", action: "bulk-print",
-    label: ib.print_method === "printnode" ? "Print labels — review" : "Print labels" };
+    label: `Print labels and slips${review}` };
+  if (ib.stage === "printed") return { flag: "can_reprint", noun: "printed", action: "bulk-reprint",
+    label: `Reprint labels and slips${review}` };
   return null;
 }
 
@@ -450,7 +474,7 @@ function renderInbox() {
       ? `<s-box id="bulk-bar" paddingInline="base" paddingBlock="small-200">${bulkBar(pick)}</s-box>` : "";
     body = `<s-section padding="none">${bar}${inboxTable(rows, pick)}</s-section>`;
   }
-  const recent = (ib.batches || []).length ? `<s-section heading="Recent bulk operations">${ib.batches.map(b => `<s-link href="${BASE}/admin?batch=${esc(b.id)}">${esc(b.kind === 'buy' ? 'Label purchase' : 'Label print')} · ${esc(b.state)} · ${esc(new Date(b.created_at).toLocaleString('en-GB'))}</s-link><br>`).join('')}</s-section>` : '';
+  const recent = (ib.batches || []).length ? `<s-section heading="Recent bulk operations">${ib.batches.map(b => `<s-link href="${BASE}/admin?batch=${esc(b.id)}">${esc({buy: 'Label purchase', print: 'Print', reprint: 'Reprint'}[b.kind] || b.kind)} · ${esc(b.state)} · ${esc(new Date(b.created_at).toLocaleString('en-GB'))}</s-link><br>`).join('')}</s-section>` : '';
   page(ib.domestic ? "Shipping" : "International shipping", slots, top + filters + body + recent);
   const head = document.getElementById("pick-all");
   if (head && pick) head.indeterminate = pickedState(rows.filter((r) => r[pick.flag])).some;
@@ -1171,19 +1195,8 @@ const ACTIONS = {
   }),
   'clear-selection': () => {state.selected.clear(); refreshSelection();},
   'bulk-buy': el => withButton(el, () => reviewSelected('buy')),
-  'bulk-print': el => {
-    if (state.inbox.print_method === 'printnode') return withButton(el, () => reviewSelected('print'));
-    const ids = visibleInboxRows().filter(r => state.selected.has(r.id)).map(r => r.id);
-    if (!ids.length || state.busy) return;
-    const win = openPrintWindow();
-    if (!win) return;
-    return withButton(el, async () => {
-      const out = await openPdf(win, '/print-view', { shipment_ids: ids });
-      toast(`${out.count} label${out.count === 1 ? '' : 's'} opened to print${out.note ? `. ${out.note}` : ''}`, Boolean(out.note));
-      state.selected.clear();
-      state.inbox = await loadInbox(); renderInbox();
-    });
-  },
+  'bulk-print': el => bulkPrint(el, 'print'),
+  'bulk-reprint': el => bulkPrint(el, 'reprint'),
   'confirm-batch': el => withButton(el, async () => {
     state.batch = await api(`/batches/${state.batch.id}/confirm`, {method:'POST', body:{confirm:true}}); renderBatch();
   }),

@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from shipping.app import create_app
 from shipping.fake_shopify import fo, tee_line
 from shipping.models import DocumentKind, ShipmentStatus
-from shipping.operations import Operations
+from shipping.operations import Operations, Pacer
 from shipping.physical_printing import PhysicalPrinting
 from shipping.print_provider import PrintProviderError
 from shipping.purchase import ActionError
@@ -36,7 +36,7 @@ def sender():
 
 @pytest.fixture
 def ops(svc, sender):
-    return Operations(svc, PhysicalPrinting(svc.store, sender, 75883753))
+    return Operations(svc, PhysicalPrinting(svc.store, sender, 75883753), pacer=Pacer.immediate())
 
 
 def ready(svc, shopify, count=10):
@@ -159,7 +159,7 @@ def test_restart_unclaimed_resume_and_interrupted_child_no_retry(svc, shopify, o
     previous = svc.store
     svc.store = reopened
     try:
-        recovered = Operations(svc, ops.physical)
+        recovered = Operations(svc, ops.physical, pacer=Pacer.immediate())
         recovered.resume(SHOP)
         result = recovered.get(SHOP, b["id"])
         assert result["children"][0]["state"] == "uncertain"
@@ -225,7 +225,8 @@ def test_bulk_print_independent_intents_and_no_postage(
     doc.pages = 2
     svc.store.save(first)
     b = batch(ops, rows, "print")
-    assert all(c["state"] == "sent" for c in b["children"])
+    # Each waits for PrintNode's "done" before the next is sent, so each ends printed.
+    assert all(c["state"] == "printed" for c in b["children"])
     assert sender.print_pdf.call_count == 5
     from io import BytesIO
 
@@ -246,7 +247,7 @@ def test_bulk_print_skips_three_sent_and_unknown(svc, shopify, ops, sender):
     for s in rows[:3]:
         ops.physical.print_label(SHOP, s.id, "staff", "first-request")
     b = batch(ops, rows, "print")
-    assert sum(c["state"] == "sent" for c in b["children"]) == 2
+    assert sum(c["state"] == "printed" for c in b["children"]) == 2
     assert sum(c["state"] == "excluded" for c in b["children"]) == 3
     assert sender.print_pdf.call_count == 5
     # A lost submission is permanently protected from bulk first-print retries.
@@ -395,7 +396,7 @@ def test_bulk_print_never_calls_real_postage_adapters(svc, shopify, ops, monkeyp
     forbidden = Mock(side_effect=AssertionError("Postage transport must not be called"))
     monkeypatch.setattr(Easyship, "_call", forbidden)
     monkeypatch.setattr(Parcel2Go, "_call", forbidden)
-    assert batch(ops, rows, "print")["children"][0]["state"] == "sent"
+    assert batch(ops, rows, "print")["children"][0]["state"] == "printed"
     forbidden.assert_not_called()
 
 

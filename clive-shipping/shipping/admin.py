@@ -26,7 +26,7 @@ from shipping.auth import BadToken, verify_session_token
 from shipping.commodity import spaced
 from shipping.models import Address
 from shipping.money import Money
-from shipping.operations import Operations
+from shipping.operations import Operations, Pacer
 from shipping.physical_printing import PhysicalPrinting, intent_state
 from shipping.print_provider import PrintNodeProvider
 from shipping.printing import PrintError, Printing, order_number
@@ -225,7 +225,31 @@ def build_admin_router(
             for p in cfg.packages
         ]
 
-    operations = Operations(svc, physical)
+    def slip_pdf(_shop: str, sid: str) -> bytes:
+        """The packing slip as it prints in a person's set, read from Shopify now (order totals
+        and returns as they are)."""
+        s = svc.store.get(shop, sid)
+        if s is None:
+            raise PrintError("shipment not found", 404)
+        try:
+            node = svc.shopify.slip_source(s.fulfillment_order_id)
+        except ShopifyError as exc:
+            log.error("packing slip %s: %s", sid, exc)
+            raise PrintError("Shopify didn't answer just now") from exc
+        if node is None:
+            raise PrintError("Shopify no longer has this order's fulfilment")
+        try:
+            return packing_slip.render(packing_slip.parse(node))
+        except Exception as exc:
+            log.exception("packing slip %s", sid)
+            raise PrintError("the order's details couldn't be read") from exc
+
+    operations = Operations(
+        svc,
+        physical,
+        slips=slip_pdf,
+        pacer=Pacer(page_s=settings.print_page_seconds, wait_s=settings.print_wait_seconds),
+    )
     if operations_ready:
         operations_ready(operations)
 
@@ -303,7 +327,8 @@ def build_admin_router(
             r["print_status"] = printed
             r["can_buy"] = lifecycle.may_bulk_buy(where) and svc.may_buy(s)
             r["can_first_print"] = lifecycle.may_bulk_first_print(where, printed)
-            r["can_select"] = r["can_buy"] or r["can_first_print"]
+            r["can_reprint"] = lifecycle.may_bulk_reprint(where)
+            r["can_select"] = r["can_buy"] or r["can_first_print"] or r["can_reprint"]
             rows.append(r)
         if not q and stage in ("delivered", "all"):
             rows = rows[:100]  # the newest; search finds older ones
@@ -593,8 +618,11 @@ def build_admin_router(
 
     @router.post("/api/print-view")
     def print_view_many(body: PrintViewBody, who: str = Depends(staff)) -> Response:
-        """Several labels as one PDF, as Shopify prints labels in bulk."""
-        out, done, skipped = act(lambda: physical.print_view_many(shop, body.shipment_ids, who))
+        """Several orders as one PDF, as Shopify prints labels in bulk: each person's label (and
+        customs form) then their packing slip."""
+        out, done, skipped = act(
+            lambda: physical.print_view_many(shop, body.shipment_ids, who, slips=slip_pdf)
+        )
         left = "; ".join(f"{x['order']}: {x['reason']}" for x in skipped)
         return pdf(out, f"Left out: {left}" if left else "", **{"X-Print-Count": str(len(done))})
 

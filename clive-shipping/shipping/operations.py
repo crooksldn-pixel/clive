@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -18,10 +21,63 @@ from shipping.store import new_id, now
 
 log = logging.getLogger("shipping.operations")
 
+PRINT_KINDS = ("print", "reprint")
+
+HELD = (
+    "Not sent: the order before it hadn't finished printing, so nothing was sent for this one. "
+    "Check the printer, then select it and print again."
+)
+
+
+@dataclass
+class Pacer:
+    """One person's set at a time. PrintNode's "done" means the job reached the printer's
+    computer, not that paper came out: six jobs sent together reached the JADENS 85 ms apart and
+    printed garbled (15 Oct 2026). So each set waits for "done", then `page_s` per page to come
+    out, before the next is sent. A set that doesn't reach "done" within `wait_s` holds the rest."""
+
+    page_s: float = 4.0
+    wait_s: float = 90.0
+    poll_s: float = 1.0
+    sleep: Callable[[float], None] = time.sleep
+    clock: Callable[[], float] = time.monotonic
+
+    @classmethod
+    def immediate(cls) -> Pacer:
+        """No waiting (tests of other things)."""
+        return cls(page_s=0, wait_s=0, poll_s=0, sleep=lambda _s: None)
+
 
 class Operations:
-    def __init__(self, service: ShippingService, physical: PhysicalPrinting):
+    def __init__(
+        self,
+        service: ShippingService,
+        physical: PhysicalPrinting,
+        slips: Callable[[str, str], bytes] | None = None,
+        pacer: Pacer | None = None,
+    ):
         self.service, self.physical, self.store = service, physical, service.store
+        # The packing slip for a shipment (4x6 PDF), read from Shopify when it prints. None:
+        # bulk print sends labels alone.
+        self.slips = slips
+        self.pacer = pacer or Pacer()
+
+    def _finish(self, shop: str, intent: dict[str, Any]) -> str:
+        """Wait for PrintNode to finish this set, then for its pages to come out: "printed",
+        "failed", or "waiting" (it never said done, so nothing more may be sent)."""
+        p = self.pacer
+        deadline = p.clock() + p.wait_s
+        while True:
+            record = self.physical.status(shop, intent["id"])
+            outcome = intent_state(record)
+            if outcome == "printed":
+                p.sleep(p.page_s * (record.get("pages") or 1))
+                return "printed"
+            if outcome in ("failed", "unknown"):
+                return "failed"
+            if p.clock() >= deadline:
+                return "waiting"
+            p.sleep(p.poll_s)
 
     @staticmethod
     def safe_problem(exc: ActionError | PrintError) -> str:
@@ -37,8 +93,9 @@ class Operations:
         return record
 
     def preview(self, shop: str, kind: str, ids: list[str], actor: str, key: str):
-        if kind not in ("buy", "print") or not 1 <= len(ids) <= 100 or len(set(ids)) != len(ids):
-            raise ActionError("Choose 1–100 distinct shipments and Buy or Print.", 422)
+        distinct = len(set(ids)) == len(ids)
+        if kind not in ("buy", *PRINT_KINDS) or not 1 <= len(ids) <= 100 or not distinct:
+            raise ActionError("Choose 1–100 distinct shipments and Buy, Print or Reprint.", 422)
         old = self.store.batch_by_key(shop, key)
         if old:
             if old["kind"] != kind or [c["shipment_id"] for c in old["children"]] != ids:
@@ -47,7 +104,7 @@ class Operations:
         children = []
         for sid in ids:
             s = self.store.get(shop, sid)
-            child = dict(
+            child: dict[str, Any] = dict(
                 shipment_id=sid,
                 order=s.order_name if s else "Not found",
                 key=new_id("child"),
@@ -98,12 +155,17 @@ class Operations:
                             f"{lifecycle.TITLES[where]}: the carrier already has it. "
                             "Use explicit Reprint if a copy is needed."
                         )
-                    if not status or not status["first_print_available"]:
+                    if kind == "print" and (not status or not status["first_print_available"]):
                         raise ActionError(
                             "Already attempted/sent or uncertain. "
                             "Use explicit Reprint for an additional attempt."
                         )
+                    if kind == "reprint" and where not in ("bought", "printed"):
+                        raise ActionError(f"In {lifecycle.TITLES[where]}: nothing to reprint.")
                     self.physical.validate_for_print(shop, sid)
+                    child["documents"] = self.physical.set_names(
+                        shop, sid, slip=self.slips is not None
+                    )
                     if s.label is None:
                         raise ActionError("No purchased label.")
                     child.update(provider=s.label.provider, service=s.label.service_name)
@@ -171,8 +233,11 @@ class Operations:
                 child.update(state="running", started_at=now().isoformat())
                 self.store.save_batch(shop, b)
                 c = dict(child)
+            stop = False
             try:
-                if datetime.fromisoformat(b["expires_at"]) <= now():
+                # A price may change after the review, so a buy must start within it. A print
+                # has no price; paced sets can take longer than the review lasts.
+                if b["kind"] == "buy" and datetime.fromisoformat(b["expires_at"]) <= now():
                     raise ActionError("Review expired before execution. Review this row again.")
                 if b["kind"] == "buy":
                     out = self.service.buy(
@@ -191,15 +256,30 @@ class Operations:
                         "failed": "Not purchased. Check shipment details.",
                     }[c["state"]]
                 else:
+                    reprint = b["kind"] == "reprint"
                     status = self.physical.summary(shop, c["shipment_id"])
-                    if not status or not status["first_print_available"]:
+                    if not reprint and (not status or not status["first_print_available"]):
                         c.update(
                             state="skipped",
                             message="Already attempted/sent; no additional copy submitted.",
                         )
                     else:
+                        slip = None
+                        if self.slips is not None:
+                            try:
+                                slip = self.slips(shop, c["shipment_id"])
+                            except PrintError as exc:
+                                raise PrintError(
+                                    f"The packing slip couldn't be made ({exc}). Nothing was "
+                                    "printed for this order; print it again."
+                                ) from exc
                         intent = self.physical.print_label(
-                            shop, c["shipment_id"], b["confirmed_by"], c["key"]
+                            shop,
+                            c["shipment_id"],
+                            b["confirmed_by"],
+                            c["key"],
+                            reprint=reprint,
+                            slip=slip,
                         )
                         c.update(
                             state={
@@ -209,11 +289,31 @@ class Operations:
                             }.get(intent["state"], "uncertain"),
                             print_intent=intent["id"],
                             job_id=intent["provider_job_id"],
+                            documents=intent.get("documents") or ["Shipping label"],
                             message="Sent to the printer; printing…"
                             if intent["state"] == "accepted"
                             else intent.get("error")
                             or "Print failed or uncertain. Check shipment; no automatic retry.",
                         )
+                        if intent["state"] == "accepted":
+                            # Still "running" while it prints: no other runner starts the next.
+                            outcome = self._finish(shop, intent)
+                            if outcome == "printed":
+                                c.update(state="printed", message="Printed")
+                            elif outcome == "failed":
+                                record = self.store.print_intent(shop, intent["id"]) or {}
+                                c.update(
+                                    state="failed",
+                                    message=record.get("error")
+                                    or "PrintNode reported failure; print it again.",
+                                )
+                            else:
+                                c["message"] = (
+                                    "Sent; the printer hasn't confirmed it yet. Check it before "
+                                    "printing again."
+                                )
+                        if c["state"] != "printed":
+                            stop = True
             except (ActionError, PrintError) as exc:
                 c.update(state="failed", message=self.safe_problem(exc))
             except Exception:
@@ -222,6 +322,7 @@ class Operations:
                     state="uncertain",
                     message="Outcome uncertain. Check this shipment; no automatic retry.",
                 )
+                stop = b["kind"] in PRINT_KINDS
             c["finished_at"] = now().isoformat()
             with self.store.atomic():
                 current = self.get(shop, bid)
@@ -231,6 +332,11 @@ class Operations:
                     if x["shipment_id"] == c["shipment_id"]
                 )
                 current["children"][index] = c
+                if stop:
+                    # The printer didn't finish (or failed): nothing more goes on top of it.
+                    for x in current["children"]:
+                        if x["state"] == "queued":
+                            x.update(state="held", message=HELD, finished_at=now().isoformat())
                 self.store.save_batch(shop, current)
 
     def resume(self, shop: str):

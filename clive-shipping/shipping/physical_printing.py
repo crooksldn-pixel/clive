@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Any
@@ -31,6 +32,44 @@ def validate_label(body: bytes) -> None:
             "Use a portrait 4x6 label PDF (the label and its customs form); "
             "A4 paperwork cannot go to JD-168BT."
         ) from None
+
+
+# A person's set: the label file (with any customs page), a separate 4x6 customs form, the
+# packing slip. More than this isn't one parcel's paperwork.
+MAX_SET_PAGES = 12
+
+
+def combine(parts: list[bytes]) -> bytes:
+    """The parts' pages, in order, as one PDF (nothing scaled, turned or dropped)."""
+    writer = PdfWriter()
+    for part in parts:
+        for page in PdfReader(BytesIO(part)).pages:
+            writer.add_page(page)
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def validate_set(body: bytes) -> None:
+    """Every page of a person's set is a portrait 4x6 label page, as made."""
+    try:
+        reader = PdfReader(BytesIO(body), strict=True)
+        if reader.is_encrypted or not 1 <= len(reader.pages) <= MAX_SET_PAGES:
+            raise ValueError()
+        if not all(label_page(p) for p in reader.pages):
+            raise ValueError()
+    except Exception:
+        raise PrintError(
+            "This order's documents aren't all 4x6 pages, so they can't go to JD-168BT together; "
+            "print them from the order."
+        ) from None
+
+
+def pages_of(body: bytes) -> int:
+    try:
+        return len(PdfReader(BytesIO(body)).pages)
+    except Exception:
+        return 1
 
 
 def test_pdf() -> bytes:
@@ -136,10 +175,60 @@ class PhysicalPrinting:
     def validate_for_print(self, shop: str, sid: str) -> None:
         self._label_input(shop, sid)
 
+    def _customs_forms(self, shop: str, s) -> list[bytes]:
+        """A customs form that is its own 4x6 file (Shopify Shipping's CUSTOMS_FORM) goes on
+        the parcel with the label. Easyship's CN23 is already page 2 of the label file; A4
+        paperwork never goes to the label printer."""
+        forms = []
+        for d in s.label.documents:
+            if (
+                d.kind != DocumentKind.customs_declaration
+                or not d.artifact_id
+                or d.page_size != PageSize.label_4x6
+            ):
+                continue
+            artifact = self.store.get_artifact(shop, d.artifact_id)
+            if artifact and artifact[1] == "application/pdf":
+                validate_label(artifact[2])
+                forms.append(artifact[2])
+        return forms
+
+    def parcel_set(self, shop: str, sid: str, slip: bytes) -> tuple[Any, Any, bytes, list[str]]:
+        """One person's documents in the order they go on and in the parcel: the shipping label,
+        the customs form (international), then the packing slip."""
+        s, doc, label = self._label_input(shop, sid)
+        forms = self._customs_forms(shop, s)
+        body = combine([label, *forms, slip])
+        validate_set(body)
+        return s, doc, body, self._names(label, forms, slip=True)
+
+    @staticmethod
+    def _names(label: bytes, forms: list[bytes], slip: bool) -> list[str]:
+        names = ["Shipping label"]
+        if forms or pages_of(label) > 1:  # Easyship's CN23 is page 2 of the label file
+            names.append("Customs form")
+        return [*names, "Packing slip"] if slip else names
+
+    def set_names(self, shop: str, sid: str, slip: bool) -> list[str]:
+        """What a person's set holds, for the review before anything prints."""
+        s, _, label = self._label_input(shop, sid)
+        return self._names(label, self._customs_forms(shop, s), slip)
+
     def print_label(
-        self, shop: str, sid: str, actor: str, key: str, reprint: bool = False
+        self,
+        shop: str,
+        sid: str,
+        actor: str,
+        key: str,
+        reprint: bool = False,
+        slip: bytes | None = None,
     ) -> dict[str, Any]:
-        s, doc, body = self._label_input(shop, sid)
+        """The label, or with `slip` the person's whole set (label, customs, slip) as one job."""
+        if slip is None:
+            s, doc, body = self._label_input(shop, sid)
+            names = None
+        else:
+            s, doc, body, names = self.parcel_set(shop, sid, slip)
         mine = [
             p
             for p in self.store.print_intents_for(shop, sid)
@@ -176,6 +265,7 @@ class PhysicalPrinting:
             actor,
             reprint,
             client_key=key,
+            documents=names,
         )
         return result
 
@@ -226,6 +316,7 @@ class PhysicalPrinting:
         reprint,
         client_key=None,
         event=None,
+        documents=None,
     ):
         if self.provider is None:
             raise PrintError("Direct printing is disabled. Open PDF is still available.", 503)
@@ -242,6 +333,8 @@ class PhysicalPrinting:
                 document_id=artifact_id,
                 document_kind=kind,
                 document_sha256=hashlib.sha256(body).hexdigest(),
+                pages=pages_of(body),
+                documents=documents,
                 provider="printnode",
                 printer_id=self.printer_id,
                 printer_name="JD-168BT",
@@ -347,18 +440,28 @@ class PhysicalPrinting:
         return body, note
 
     def print_view_many(
-        self, shop: str, sids: list[str], actor: str
+        self,
+        shop: str,
+        sids: list[str],
+        actor: str,
+        slips: Callable[[str, str], bytes] | None = None,
     ) -> tuple[bytes, list[str], list[dict[str, str]]]:
-        """Several labels as one PDF, in the order given, for one print. Orders that can't print
-        are left out and named."""
+        """Several orders as one PDF, in the order given, for one print: each person's label (and
+        customs form) then, with `slips`, their packing slip. An order whose documents can't all
+        be made is left out whole and named."""
         writer = PdfWriter()
         done: list[str] = []
         skipped: list[dict[str, str]] = []
         for sid in dict.fromkeys(sids):
             try:
                 body, _ = self._view_body(shop, sid)
-                for page in PdfReader(BytesIO(body)).pages:
-                    writer.add_page(page)
+                parts = [body]
+                if slips is not None:
+                    s = self.store.get(shop, sid)
+                    parts += [*self._customs_forms(shop, s), slips(shop, sid)]
+                for part in parts:
+                    for page in PdfReader(BytesIO(part)).pages:
+                        writer.add_page(page)
                 done.append(sid)
             except PrintError as exc:
                 s = self.store.get(shop, sid)

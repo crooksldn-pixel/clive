@@ -79,6 +79,25 @@ different item "Joggers XS > Blue Jeans S · Credit swap". Returns links straigh
 **Ship the exchange** (`/shipping/admin?order=<number>`), which opens the order's shipment still
 to be sent, after asking Shopify for new ones if needed.
 
+## Bulk printing: one person's set at a time
+
+**Print labels and slips** (Labels bought) and **Reprint labels and slips** (Printed) print each
+selected order as one set, in the order it goes on and in the parcel:
+
+- UK: shipping label, then packing slip.
+- International: shipping label, customs form, then packing slip. Easyship's CN23 is page 2
+  of its label file; a customs form Shopify gives as its own 4x6 file is added after the label.
+  A4 paperwork (a commercial invoice) never goes to the label printer; print it from the order.
+
+With PrintNode each set is one job, and the next set is sent only after PrintNode says the last
+one is done and its pages have had time to come out (`SHIPPING_PRINT_PAGE_SECONDS`, default 4
+per page). On 15 Oct 2026 six labels sent as six jobs within half a second reached the JADENS
+85 ms apart and fed through garbled. If a set fails, or isn't done within
+`SHIPPING_PRINT_WAIT_SECONDS` (default 90), the rest are **held**: nothing more is sent, and a
+held order can be printed again. An order whose slip can't be read from Shopify prints nothing
+(never a label without its slip) and says so. Reprinting buys nothing. Without PrintNode, the
+same sets open as one PDF, each person's label followed by their slip.
+
 ## Durable batch safety
 
 `fulfilment_batches` stores the batch and child outcomes in the existing SQLite store. Each child has an independent stable purchase key and reviewed basis. Review calls existing preview; execution calls existing buy, retaining fresh Shopify checks, authorisation, hold/cancel guards, price validation, provider ownership, one-payment-attempt limits and reconciliation. Print children use existing stable first-print identities.

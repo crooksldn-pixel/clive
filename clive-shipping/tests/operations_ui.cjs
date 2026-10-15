@@ -58,7 +58,7 @@ context.button=button;
   assert.ok(requests.slice(asked).some(r => r.url.includes('/inbox?stage=ready')));
   assert.equal(execute('state.selected.size'),2);
   assert.ok(rendered.includes('Buy labels — review'));
-  assert.ok(!rendered.includes('Print labels — review')); // never Buy & Print together
+  assert.ok(!rendered.includes('Print labels and slips — review')); // never Buy & Print together
   assert.ok(rendered.includes('aria-current="page"') && rendered.includes('Ready to ship (2)'));
   await execute('ACTIONS["bulk-buy"](button)');
   await new Promise(resolve=>setImmediate(resolve));
@@ -78,13 +78,16 @@ context.button=button;
   assert.ok(rendered.includes('Not printed') && rendered.includes('Select all unprinted'));
   await execute('ACTIONS["select-stage"](button)');
   assert.equal(execute('state.selected.size'),1);
-  assert.ok(rendered.includes('Print labels — review') && !rendered.includes('Buy labels — review'));
+  assert.ok(rendered.includes('Print labels and slips — review') && !rendered.includes('Buy labels — review'));
   location.search='?stage=printed';
   execute('state.selected.clear(); state.inbox=data.printed_inbox; renderInbox();');
   assert.equal(execute('visibleInboxRows().length'),1);
   assert.ok(rendered.includes('Printed'));
-  assert.ok(!rendered.includes('type="checkbox"'));  // Printed: no bulk reprint, only explicit Reprint
-  assert.ok(!rendered.includes('select-stage'));
+  // Printed: a reviewed bulk reprint (label, customs form, slip again; nothing bought).
+  assert.ok(rendered.includes('type="checkbox"') && rendered.includes('Select all printed'));
+  await execute('ACTIONS["select-stage"](button)');
+  assert.equal(execute('state.selected.size'),1);
+  assert.ok(rendered.includes('Reprint labels and slips') && !rendered.includes('Print labels and slips'));
   execute('state.shipment=data.sent; renderShipment();');
   assert.ok(rendered.includes('Reprint label'));
   assert.ok(!rendered.includes('variant="primary" data-action="physical-print"'));

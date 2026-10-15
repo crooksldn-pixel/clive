@@ -13,7 +13,7 @@ from pypdf import PdfReader
 
 from shipping.fake_shopify import label_pdf
 from shipping.models import DocumentKind, PageSize
-from shipping.operations import Operations
+from shipping.operations import Operations, Pacer
 from shipping.physical_printing import PhysicalPrinting
 from shipping.printing import PrintError, Printing
 
@@ -30,6 +30,7 @@ def w(store, clock) -> World:
 def sender():
     p = Mock()
     p.print_pdf.side_effect = range(100, 120)
+    p.get_job_states.return_value = [dict(state="done", at="2026-10-15T10:18:21Z", message="")]
     return p
 
 
@@ -107,7 +108,7 @@ def test_a_zpl_label_is_kept_and_said_to_be_unprintable_here(w):
 
 def test_bulk_buy_then_bulk_print_through_printnode(w, sender):
     a, b = w.ready(n=3001), w.ready(n=3002)
-    ops = Operations(w.svc, PhysicalPrinting(w.store, sender, 75883753))
+    ops = Operations(w.svc, PhysicalPrinting(w.store, sender, 75883753), pacer=Pacer.immediate())
     review = ops.preview(SHOP, "buy", [a.id, b.id], "george", "bulk-buy-1")
     children = cast(list[dict], review["children"])
     assert [c["state"] for c in children] == ["review", "review"]
@@ -122,7 +123,7 @@ def test_bulk_buy_then_bulk_print_through_printnode(w, sender):
     review = ops.preview(SHOP, "print", [a.id, b.id], "george", "bulk-print-1")
     ops.confirm(SHOP, review["id"], "george")
     ops.run(SHOP, review["id"])
-    assert [c["state"] for c in ops.get(SHOP, review["id"])["children"]] == ["sent", "sent"]
+    assert [c["state"] for c in ops.get(SHOP, review["id"])["children"]] == ["printed", "printed"]
     assert sender.print_pdf.call_count == 2
     assert all(call.args[0] == w.ss.label_file for call in sender.print_pdf.call_args_list)
     assert len(w.ss.purchases) == 2
