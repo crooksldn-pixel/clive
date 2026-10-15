@@ -1,6 +1,6 @@
 # CLIVE Autonomous Engineering V1 — planning package
 
-**Status (2026-10-15):** revision 4. Audits complete; reconciled with the CLIVE Director's cross-check and DEC-079; final plan written and awaiting owner approval. Start with
+**Status (2026-10-15):** revision 4 **APPROVED by George; Stage A only is authorised.** O-1 and O-2 are approved, and O-3 is deferred until the baseline (DECISIONS.md). Stage A's progress is in [STAGE_A_RUNBOOK.md](STAGE_A_RUNBOOK.md). Start with
 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) (its last section is the recommendation), then
 [CURRENT_ENGINEERING_REALITY.md](CURRENT_ENGINEERING_REALITY.md) and
 [DECISIONS.md](DECISIONS.md) (three open owner decisions: O-1, the ruling-9 filing-authority design in [FILING_AUTHORITY.md](FILING_AUTHORITY.md); O-2, the supervisor's identity; O-3, the OAMAB threshold, after measurement). The evidence is in

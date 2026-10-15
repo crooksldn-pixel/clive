@@ -128,13 +128,70 @@ This plan rebases on DEC-081 and calls DEC-082's hook rather than duplicating it
 
 ---
 
-## Open owner decisions (needed for V1)
+## Owner decisions, recorded 2026-10-15
 
-| # | Decision | Needed before | Recommendation |
-|---|---|---|---|
-| **O-1** | **Approve the ruling-9 filing-authority model** ([FILING_AUTHORITY.md](FILING_AUTHORITY.md)). This covers: plan cards on build objectives; the FILE / HOLD / REFUSE rules; filings he gestured are never held again; the bounds (2 untapped retries per item, splits one level deep, 4 untapped filings per item, counting only filings without his gesture); verification against the judgment ledger; archive housekeeping by CLIVE's bridge; Actions read on the production filer's token, only if the repository goes private | Stage D (PRs 7, 8) | Approve as written. Until it is built, every filing waits for his hold |
-| **O-2** | **The supervisor's identity.** Claude Desktop on his Mac connects to clive-worker-01 as a new non-root user, which cannot read the loop's token. It has: read access to the repository and the public status; read access to the DEC-068 stop reports; no GitHub write; one credential for CLIVE's draft channel (`POST /engineering/drafts`, tailnet only); and no production access beyond his deploys. **Stop reports are written 0700/0600 for the loop's user only** (`dispatcher.py:2328-2337`), so there are two routes: (a) from RP1, `--private-allow-node` naming worker-01 itself (a unit flag; anything on worker-01 able to make tailnet requests could then read them, and builders and checks cannot); or (b) from RP2, PR 6's `--stops-read-group` (files 0640 to one group) | PR 10a (reads); PR 8 and PR 10b (drafts) | **Approve with (b) for reads**, the narrower one, and (a) only to start before RP2. The draft credential is approved with it |
-| **O-3** | **The OAMAB threshold** | After V1-real | Set it from B0 and V1-real; there is no number before |
+**George approved the plan (revision 4, planning commit `701a27a8`) and authorised Stage A only.**
+DEC-018 remains fully in force. These are his rulings, as given:
+
+### O-1 — APPROVED: the ruling-9 filing-authority model ([FILING_AUTHORITY.md](FILING_AUTHORITY.md))
+
+**Bounds, as proposed:**
+- at most 2 retries;
+- splits one level deep;
+- at most 4 untapped filings per approved item.
+
+**His conditions:**
+- Retries, repairs, approved splits and dependency-ordered requests may file without another gesture
+  **only while they stay inside the exact scope he already approved**.
+- **The authorised boundary is determined from structured plan and request fields, allowed paths and
+  acceptance criteria.**
+- These **remain owner-gated under DEC-018**:
+  - new scope;
+  - new protected paths;
+  - materially new acceptance objectives;
+  - authority expansion;
+  - proactive work;
+  - decomposition he has not seen.
+- **"Stop filing for this" immediately revokes the remaining authority.**
+
+It is built in Stage D (PRs 7 and 8). Until then every filing waits for his hold, as today.
+
+### O-2 — APPROVED, with the recommended design: the supervisor's identity
+
+- A dedicated non-root supervisor identity on worker-01.
+- **A narrow read group** for the owner-only stop reports (PR 6's `--stops-read-group`, at RP2),
+  rather than loosening general permissions.
+- **Only the minimum credential** needed to use CLIVE's legitimate filing and draft path.
+- **It never receives** the engineering loop's token, production credentials, production secrets, or
+  general production access.
+- **It never pushes directly to the engineering inbox.**
+- Claude Desktop on his Mac is the interactive client. Durable execution remains in CLIVE's worker and
+  dispatcher.
+
+### O-3 — DEFERRED until baseline: the OAMAB threshold
+
+OAMAB is measured during V1 (B0, then V1-real) before a numerical threshold is chosen. It does not
+block implementation. The baseline will be recorded and a threshold recommended from the measured
+results.
+
+### The audit disclosure — ACCEPTED
+
+The incidental production `.git/index` refresh is accepted as an audit disclosure and does not block
+Stage A. **It is not permission for any further production mutation.**
+
+### Stage A authorisation, in his order
+1. Run the read-only worker-01 audit (WORKER01_AUDIT.md).
+2. Compare the actual pin, Claude Code version, concurrency, reviewer, service state and configuration
+   with revision 4.
+3. **On material unexpected drift: stop and report before changing the worker.**
+4. Otherwise perform RP1 exactly as specified, at concurrency 2. That is an engineering setting, not
+   a new owner-imposed limit, and it is not raised during Stage A.
+5. Verify the re-pinned loop is healthy **before** disabling the stale production-host loop.
+6. Then stop and disable the production-host loop (ruling 11).
+7. Verify there is one canonical engineering loop.
+8. Report the evidence.
+
+Stage B and any V1 application code are not authorised yet.
 
 **Open calls that V1 does not need** (listed so nothing is lost; no answer is required to start):
 

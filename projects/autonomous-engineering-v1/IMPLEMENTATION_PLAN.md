@@ -1,7 +1,8 @@
 # Final implementation plan — CLIVE Autonomous Engineering V1
 
-**Status:** FINAL DRAFT FOR OWNER APPROVAL. Revision 4, 2026-10-15.
-**No implementation starts until George approves it.**
+**Status:** APPROVED by George on 2026-10-15 (revision 4). **Stage A only is authorised.** Stage B and
+any V1 application code wait for his further go. O-1 and O-2 are approved, and O-3 is deferred
+until the baseline (DECISIONS.md).
 
 **Written against:**
 - trunk `ef204bc2` (DEC-079);
