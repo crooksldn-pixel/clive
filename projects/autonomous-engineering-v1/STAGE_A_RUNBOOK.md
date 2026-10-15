@@ -167,8 +167,56 @@ write that Stage A does not need. A stopped unit cannot poll, and that is eviden
 | Readiness | 2026-10-15 16:10 | Target `ef204bc2` green; worker-01 alive; no route from production | This page, "Readiness" |
 | 1 (A1) | 2026-10-15 16:31 | Run by George as root on worker-01 | His pasted output (kept in this conversation, not in the repository) |
 | 2 | 2026-10-15 | **Expected path; no material drift.** Pin `718fbc41` (an ancestor of `ef204bc2` by 58 commits); unit active since 1 Oct 22:04, 0 restarts; `--max-concurrent 8`; GPT reviewer through `--gpt-api-key-file` (no `--reviewer` at that pin); CLI 2.1.280 (`--no-builder-skills` needed); no browser; no `--worker-bash-prefix`; `--check-ro-path` is the venv and `/opt/node22` only; branches `worker-01-inbox` and `worker-01-status`; repo and workers on a 52G tmpfs, the store and the 53G runtime on disk (3.4T free); 0 lease cancellations; 0 rate-limit lines; 0 stop reports. **Minor note:** the code records worker-01 on CLI 2.1.285 on 30 Sep; it is 2.1.280 now. Not material: skills are off, and the probes test the real binary | A1 output; `git merge-base --is-ancestor` |
-| 3 (RP1) | — | — | — |
+| 3 (RP1), attempt 1 | 2026-10-15 16:50–16:52 | **STOPPED by the re-pin review. The worker was not re-pinned.** Details below the table | George's transcript; `out/review-ef204bc2….json` on worker-01 |
 | 4 (smoke) | — | — | — |
 | 5 | — | — | — |
 | 6 | — | — | — |
 | 7 | — | — | — |
+
+
+### RP1 attempt 1, 2026-10-15: what happened
+
+**R0.** The `packet-head.md` check printed matches, which was the stop point. The reviewer
+instructions are still the 1 Oct ones:
+
+- "Current pin (base): b577bc97…";
+- "Candidate: 718fbc41… (PR #88)";
+- the PR #87 and #88 answers.
+
+**R1.** Correct: exactly two lines differ, and the original script's checksum is unchanged.
+
+**R2.**
+- Trunk head `ef204bc2`; `718fbc41` is an ancestor; gate GREEN (run 38638076616); gpt-6-luna smoke OK.
+- The packet was 868,465 bytes covering 40 files.
+- **The review returned CHANGES_REQUIRED** on gpt-6-sol, response `resp_0a856dcb…`. Its one finding,
+  F-01, says the packet named `b577bc97` as the running pin but supplied only the `718fbc41..ef204bc2`
+  diff.
+- **This is a defect in the stale packet head, not in the candidate.** It is a verifier-apparatus
+  defect in the sense of ENGINEERING_CONTROL_PLANE_VNEXT §8.1.
+- The script stopped: "nothing the loop uses was changed".
+
+**R3–R7 were run anyway, outside the runbook's order.**
+
+- **R3:** the Python assertion refused ("unit is not at the new pin"), so the unit was not touched.
+  The following `systemctl daemon-reload` reloaded unchanged unit files.
+- **R4:** both probes failed with "No such file", because the new tree was never built.
+- **R5: an unplanned restart of the *old* loop** at 16:51:52 UTC. It came back on the same pin and the
+  same flags, and its first tick showed `intake_error: null`.
+- **R6:** confirmed the old pin and `--max-concurrent 8`; nothing listens on 8765.
+- **R7:** the old pin's `status` on a store copy exited 0. Not meaningful, since nothing new had been
+  written. It left `/root/rp1-rehearsal` (a 20 MB copy of the state) to be removed.
+
+**State after attempt 1:**
+
+| Item | State |
+|---|---|
+| worker-01 | Active on `718fbc41`, flags as audited |
+| Production-host loop | Still active (correct: the re-pin is not done) |
+| Created on worker-01 | `root-repin-ef204bc2.sh` (the two-line copy); the script's mirror fetch, archive tree `/var/lib/clive-review/tree-ef204bc2…`, packet and review record; `/root/rp1-rehearsal` |
+
+**Next:**
+
+1. Write a correct packet head for `718fbc41 → ef204bc2`, from the old file's contract text with only
+   the re-pin-specific facts replaced, and **shown to George before use**.
+2. Re-run `root-repin-ef204bc2.sh`.
+3. **Run R3 onwards only if R2 prints `== REPORT` with the pin at `ef204bc2`.**
