@@ -13,6 +13,9 @@ Learning from research as ideas (DEC-078, app/research/synthesis, docs/RESEARCH.
     python scripts/research.py --synthesise    a new generation of ideas from every document read: not
                                                live; prints progress, then the eight-item report
     python scripts/research.py --synthesise --resume   carry on the run that stopped
+    python scripts/research.py --synthesise --most-ideas N
+                                               stop before judging when more than N ideas are left after
+                                               joining them (90 unless given); --resume joins them again
     python scripts/research.py --export-synthesis PATH [--generation GEN]
                                                one generation (the newest, unless named) as a .tgz at
                                                PATH, never inside the repository
@@ -22,7 +25,8 @@ Learning from research as ideas (DEC-078, app/research/synthesis, docs/RESEARCH.
     python scripts/research.py --ideas         the live ideas, with their four answers
     python scripts/research.py --status [--generation GEN]
                                                how the newest run stands: stage, how far, calls, problems,
-                                               documents not in it, and whether a run is going now
+                                               documents not in it, its shape in counts, and whether a
+                                               run is going now
     --call-timeout SECONDS                     one time limit for every model call of a run
 
 Why this exists: the server folder (<research dir>/inbox/, docs/RESEARCH.md) is otherwise swept
@@ -86,7 +90,8 @@ async def _main(args: argparse.Namespace) -> int:
         print(f"research: {exc}", file=sys.stderr)
         return 2
     if args.synthesise:
-        return await _synthesise(research, resume=args.resume, timeout_s=args.call_timeout)
+        return await _synthesise(research, resume=args.resume, timeout_s=args.call_timeout,
+                                 most_ideas=getattr(args, "most_ideas", None))
     if args.apply:
         return await _apply(research, args.apply, accept_unmatched=getattr(args, "accept_unmatched", False))
     for name in args.files:
@@ -150,17 +155,24 @@ def _print(text: str) -> None:
     print(text, flush=True)
 
 
-async def _synthesise(research, *, resume: bool, timeout_s: float | None) -> int:
+async def _synthesise(research, *, resume: bool, timeout_s: float | None, most_ideas: int | None = None) -> int:
     from app.research import model as model_module
     from app.research.rules import read_map
     from app.research.synthesis import run as run_module
-    from app.research.synthesis.store import synthesis_store
+    from app.research.synthesis import shape
+    from app.research.synthesis.store import ReadProblem, synthesis_store
 
     try:
         gen = await run_module.synthesise(research, model=model_module.current(), the_map=read_map(), resume=resume,
-                                          timeout_s=timeout_s, say=_print)
+                                          timeout_s=timeout_s, most_ideas=most_ideas or run_module.MOST_IDEAS, say=_print)
     except run_module.Stopped as exc:
         print(f"research: {exc}", file=sys.stderr)
+        try:
+            stopped = (synthesis_store(research).run(exc.generation) or {}) if exc.generation else {}
+        except ReadProblem:
+            stopped = {}
+        for line in shape.lines(stopped.get("shape")):      # where it got to, in counts
+            _print(line)
         return 1
     run = synthesis_store(research).run(gen) or {}
     _print(f"\nGeneration {gen} is ready, not live. {run.get('calls', 0)} model calls; "
@@ -200,6 +212,7 @@ async def _apply(research, gen: str, *, accept_unmatched: bool = False) -> int:
 
 
 def _export(research, path: str, gen: str) -> int:
+    from app.research.synthesis import shape
     from app.research.synthesis.apply import export
     from app.research.synthesis.ask import SynthesisError
     from app.research.synthesis.store import ReadProblem, synthesis_store
@@ -213,13 +226,16 @@ def _export(research, path: str, gen: str) -> int:
         return 1
     _print(f"{gen} exported to {written}")
     try:
-        missing = list(((synth.run(gen) or {}).get("failed") or {}).values())
+        run = synth.run(gen) or {}
     except ReadProblem as exc:
         _print(f"Which documents are missing from it couldn't be read: {exc}")
         return 0
+    missing = list((run.get("failed") or {}).values())
     _print(f"Not in it: {len(missing)} document(s) Claude couldn't read." if missing else "Every document read is in it.")
     for gone in missing:
         _print(f"  - {gone['name']}: {gone['why']}")
+    for line in shape.lines(run.get("shape")):
+        _print(line)
     return 0
 
 
@@ -283,9 +299,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="the newest synthesis run (or --generation) in words, and whether a run is going now")
     parser.add_argument("--call-timeout", type=float, default=None, metavar="SECONDS",
                         help="one time limit for every model call of a synthesis run")
+    parser.add_argument("--most-ideas", type=int, default=None, metavar="N",
+                        help="with --synthesise: stop before judging when more than N ideas are left after joining them "
+                             "(90 unless given)")
     args = parser.parse_args(argv)
     if args.resume and not args.synthesise:
         parser.error("--resume goes with --synthesise")
+    if args.most_ideas is not None and (not args.synthesise or args.most_ideas < 1):
+        parser.error("--most-ideas N goes with --synthesise, and N is 1 or more")
     if args.accept_unmatched and not args.apply:
         parser.error("--accept-unmatched goes with --apply")
     return asyncio.run(_main(args))

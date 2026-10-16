@@ -1372,7 +1372,7 @@ He wants "the flow from actually asking a question to the action happening to be
 ## DEC-078 — Research is evidence for CLIVE's understanding: one idea per proposition, with four separate answers, not a list of proposals per document
 
 **Date:** 2026-10-09
-**Status:** ACTIVE. Built in the repository (`claude/d4-synthesis`, the screen on `claude/d4-research-screen`). Live once deployed and a synthesis generation is applied on the server; the Director compares the first generation with the old screen before it is applied.
+**Status:** ACTIVE. Built in the repository (`claude/d4-synthesis`, the screen on `claude/d4-research-screen`). Live once deployed and a synthesis generation is applied on the server; the Director compares the first generation with the old screen before it is applied. Changed on 16 Oct 2026 (`claude/d4-synth-merge`), after the first full run on the server (gen-20261014T195016) made 403 ideas from six documents and stopped judging at idea 51 on one unreadable answer: an answer that isn't readable JSON is asked again once; a claim that details, narrows or is a step towards an idea joins it, and ideas that are one, or one a part of the other, are joined in rounds on groups of at most 60; a run that still has more than 90 ideas stops before judging, and says so; and each run's record keeps its shape in counts only. That generation is never applied: a new run replaces it.
 **Source:** George, 9 October 2026, verbatim:
 - "Research documents should be evidence contributing to CLIVE's understanding. They should not each independently become roadmaps."
 - "DEC-018 should be capable of preventing implementation without preventing CLIVE from learning that a direction is correct."

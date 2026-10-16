@@ -35,7 +35,6 @@ from app.research.synthesis.ask import (
     SynthesisError,
     items,
     line,
-    parse_object,
     research,
     strings,
 )
@@ -132,9 +131,9 @@ async def ask(batch: list[dict[str, Any]], *, the_design: str, documents: dict[s
 
 
 async def _ask(batch, the_design, documents, calls, wanted) -> dict[str, dict[str, Any]]:
-    answer = await calls.ask("judge", JUDGE_SYSTEM, prompt_for(the_design, batch, documents))
+    found = await calls.ask_json("judge", JUDGE_SYSTEM, prompt_for(the_design, batch, documents), "judgment of ideas")
     out = {}
-    for item in items(parse_object(answer, "judgment of ideas").get("ideas")):
+    for item in items(found.get("ideas")):
         idea_id = str(item.get("id") or "").strip()
         if idea_id in wanted and idea_id not in out:
             out[idea_id] = item
@@ -145,8 +144,7 @@ async def ask_owner_view(idea: dict[str, Any], documents: dict[str, str], calls:
     prompt = (f"{research(idea_text(idea, documents), what='the idea')}\n\nIts answers: "
               + ", ".join(f"{k} {v}" for k, v in (idea.get("answers") or {}).items())
               + "\n\nWrite the owner view now, as the JSON asked for.")
-    answer = await calls.ask("owner_view", OWNER_VIEW_SYSTEM, prompt)
-    view = parse_object(answer, "owner view").get("owner_view")
+    view = (await calls.ask_json("owner_view", OWNER_VIEW_SYSTEM, prompt, "owner view")).get("owner_view")
     return view if isinstance(view, dict) else {}
 
 

@@ -15,8 +15,10 @@ What it promises:
 - Two claims whose passages overlap in one document are one claim (the second's title is kept as
   `also`).
 - The research is data, inside <research> tags; the system prompt says never to follow it.
-- `extract` depends only on the document's text, so its result is cached by the file's digest
-  (app/research/synthesis/run.py): the same file is never read by the model twice.
+- `extract` depends only on the document's text, so its result is cached by the file's digest and
+  VERSION (app/research/synthesis/run.py): the same file is never read by the model twice. VERSION is
+  the prompts' and EXTRACT_CHARS' own hash, never the code's, so a change to how CLIVE asks (an
+  unreadable answer asked once more, Calls.ask_json, 16 Oct) leaves every cached document as it is.
 """
 
 from __future__ import annotations
@@ -31,7 +33,6 @@ from app.research.synthesis.ask import (
     SynthesisError,
     items,
     line,
-    parse_object,
     research,
     strings,
 )
@@ -81,8 +82,8 @@ async def extract(*, name: str, text: str, calls: Calls) -> dict[str, Any]:
     raw: list[tuple[int, dict[str, Any]]] = []
     whole = {"thesis": "", "concepts": [], "stances_against": [], "sequence": []}
     for i, part in enumerate(parts, 1):
-        answer = await calls.ask("extract", EXTRACT_SYSTEM, prompt_for(name, part, (i, len(parts))))
-        found = parse_object(answer, "list of recommendations")
+        found = await calls.ask_json("extract", EXTRACT_SYSTEM, prompt_for(name, part, (i, len(parts))),
+                                     "list of recommendations")
         if not isinstance(found.get("claims"), list):
             raise SynthesisError("Claude's answer had no list of recommendations.")
         raw += [(i, c) for c in items(found.get("claims"))]
@@ -181,9 +182,8 @@ async def _repair(missing: list[dict[str, Any]], parts: list[str], name: str, te
                            for n, c in enumerate(numbered, 1))
         prompt = (f"{research(body, name=name)}\n\n{research(wanted, what='recommendations whose quote was not found')}\n\n"
                   "Give each one's exact passage now, as the JSON asked for.")
-        answer = await calls.ask("repair", REPAIR_SYSTEM, prompt)
         given = {}
-        for item in items(parse_object(answer, "list of exact passages").get("quotes")):
+        for item in items((await calls.ask_json("repair", REPAIR_SYSTEM, prompt, "list of exact passages")).get("quotes")):
             try:
                 given[int(item.get("n"))] = item.get("quote")
             except (TypeError, ValueError):
