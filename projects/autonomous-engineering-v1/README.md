@@ -1,6 +1,6 @@
 # CLIVE Autonomous Engineering V1 — planning package
 
-**Status (2026-10-15):** revision 4 **APPROVED by George; Stage A only is authorised.** O-1 and O-2 are approved, and O-3 is deferred until the baseline (DECISIONS.md). Stage A's progress is in [STAGE_A_RUNBOOK.md](STAGE_A_RUNBOOK.md). Start with
+**Status (2026-10-16):** revision 4 **APPROVED by George.** **The Stage A steps he authorised are done:** A1, RP1 (worker-01 on `ef204bc2` with the Claude reviewer) and retiring the production-host loop. The record is in [STAGE_A_RUNBOOK.md](STAGE_A_RUNBOOK.md). The rest of the plan's Stage A (PR 0, PR 1, B0) and Stage B wait for his go. O-1 and O-2 are approved, and O-3 is deferred until the baseline (DECISIONS.md). Start with
 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) (its last section is the recommendation), then
 [CURRENT_ENGINEERING_REALITY.md](CURRENT_ENGINEERING_REALITY.md) and
 [DECISIONS.md](DECISIONS.md) (three open owner decisions: O-1, the ruling-9 filing-authority design in [FILING_AUTHORITY.md](FILING_AUTHORITY.md); O-2, the supervisor's identity; O-3, the OAMAB threshold, after measurement). The evidence is in

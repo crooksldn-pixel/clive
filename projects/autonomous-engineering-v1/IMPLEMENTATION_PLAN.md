@@ -4,6 +4,10 @@
 any V1 application code wait for his further go. O-1 and O-2 are approved, and O-3 is deferred
 until the baseline (DECISIONS.md).
 
+**Progress (2026-10-16):** A1, RP1 and retiring the production-host loop are done
+([STAGE_A_RUNBOOK.md](STAGE_A_RUNBOOK.md)). Two of RP1's DEC-068 rows wait for the first real repair or
+re-file. PR 0, PR 1 and B0 were not in George's Stage A order and have not started.
+
 **Written against:**
 - trunk `ef204bc2` (DEC-079);
 - production `dc59047e` (deployed 2026-10-14 19:45 UTC);

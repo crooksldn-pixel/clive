@@ -67,6 +67,28 @@
 | Health | 0 lease cancellations, 0 rate-limit lines (14 days), 0 stop reports (that pin predates DEC-068) |
 | Users | The unit runs as root. `clive-trunk-fetch.timer` every 5 min |
 
+## After Stage A (2026-10-16): what changed
+
+The record of each step is in [STAGE_A_RUNBOOK.md](STAGE_A_RUNBOOK.md). Where the A1 table above and this
+one differ, this one is current.
+
+| Fact | Before | Now | Evidence |
+|---|---|---|---|
+| worker-01 pin | `718fbc41` | **`ef204bc2`** (RP1, review READY on gpt-6-sol with no waiver) | `/proc` cwd; the tree's HEAD |
+| Reviewer | GPT | **Claude (`claude-reviewer`)**: ACTIVE and PROVEN by the smoke request | Its verdict and acceptance on `cdee8fce` |
+| `--max-concurrent` | 8 | **2** (an engineering setting; not raised in Stage A) | `/proc` cmdline |
+| Builder skills | on by default | **off** (`--no-builder-skills`; CLI 2.1.280 is not gated) | `/proc` cmdline; `probe-launch` PASS |
+| Repair rounds | — | **`--default-repair-rounds 2`**, in force | The smoke request's `max_repair_rounds: 2` |
+| Private stops channel (DEC-068) | absent | **ACTIVE**: listens on worker-01's tailnet address, allows production only; answered production with 46 reports; folder `700`, reports `600` | R6; George's `stat` |
+| `earlier_try`, findings reaching a repair | not in force | BUILT and running; **not yet PROVEN** (no repair or re-file since) | — |
+| Loop landing | 12 self-landings to 8 Oct | **PROVEN again**: `cdee8fce` landed by the loop | Status `landing.by: loop` |
+| Trunk | `ef204bc2` | **`cdee8fce`** (the smoke request) | `origin/clive/trunk` |
+| Production-host loop | active, enabled, pin `4c32bb3d` | **inactive and disabled** since 2026-10-16 13:13:06 UTC; its directories kept | `systemctl`; no process |
+| Rollback target for RP1 | — | `718fbc41`, rehearsed (R7) | R7 |
+
+Facts 2 and 3 under "Facts that change the plan" are resolved by this: one loop runs, and worker-01 runs
+trunk's DEC-068 and DEC-076.
+
 ## Host identity
 
 | Field | Value |

@@ -2,6 +2,10 @@
 
 **Authorised by George on 2026-10-15** (DECISIONS.md, "Stage A authorisation"). Stage A only.
 
+**Done 2026-10-16** (steps 1–7; see "Record of execution"). worker-01 runs `ef204bc2` with the Claude
+reviewer. The production-host loop is inactive and disabled. Two DEC-068 rows wait for the first real
+repair or re-file.
+
 ## Why this runbook exists
 
 The planning session runs on `crooks-os-prod-1`. It **has no route to clive-worker-01**:
@@ -193,10 +197,29 @@ write that Stage A does not need. A stopped unit cannot poll, and that is eviden
 | R4 | 2026-10-16 | `probe-launch --no-builder-skills` exit 0; `probe-review --turn` exit 0 (exit 0 only on PASS) | George's report |
 | R6 (from production) | 2026-10-16 11:50 UTC | Heartbeat 11:46:41 UTC: 74 requests, none waiting, `intake_error` null. **The private channel answered production:** `GET /v1/stops` returned HTTP 200 with 46 stop reports (`clive.remote_engineering_private.v1`), matching 44 BLOCKED and 2 OWNER_GATE. The local copy was deleted straight after the check | Planning session, read-only |
 | Handoff guard | 2026-10-16 | **Satisfied:** the configuration step is applied and both probes pass. Filing may resume, still with George's hold (ruling 9's model is not built) | — |
-| 4 (smoke) | — | **Waiting for George's held filing** | — |
-| 5 | — | — | — |
-| 6 | — | — | — |
-| 7 | — | — | — |
+| 4 (smoke) | 2026-10-16 12:27:53–13:09:27 | **COMPLETE.** Filed from CLIVE with George's hold (inbox commit `25dd4d67`); received 12:27:58. One attempt: candidate `cdee8fce` (revision 2) at 12:30:32. Exact-SHA acceptance run 38901003272 green. Review dispatched to **`claude-reviewer`** 13:08:31, verdict **READY** 13:09:20, and acceptance recorded by `claude-reviewer` on the exact SHA. Fast-forward integration 13:09:22; **landed by the loop** 13:09:27 ("fast-forwarded by the loop with a plain push"). Repairs: CI 0, review 0, max 2. `cdee8fce` is the `clive/trunk` head: `CURRENT_TRUTH.md` +9/−4 and a new 109-line test | worker-01's public status (`generated_at` 13:09:27); `git merge-base --is-ancestor` |
+| 5 | 2026-10-16 13:12 | **Healthy** on every criterion (the checklist results are below the table) | — |
+| R7 | 2026-10-16 13:2x | **Passed.** The old pin `718fbc41`'s `status`, run on a copy of the store that now holds the `claude-reviewer` verdict, the acceptance and the loop landing written by `ef204bc2`, **exited 0** and reads the smoke request as COMPLETE, with acceptance green on `cdee8fce`. The copy was removed. Checked first: worker-01 has been up since 2026-09-25 13:38:03 (no reboot), and the unit is active since 11:48:22 UTC, 0 restarts, cwd the `ef204bc2` tree, after George's SSH session dropped. `tick` is omitted, as recorded under R7 above. **The RP1 rollback target stays `718fbc41`** | George's pane |
+| 6 | 2026-10-16 13:13:05–13:34:31 | **The production-host loop is retired.** Checked idle first: the unit's cgroup held only its main process (pid 786, cwd the `4c32bb3d` tree, running since 3 Oct); its last tick, 13:12:56, had no dispatcher events and `intake_error` null. `systemctl disable --now clive-remote-engineering` at 13:13:05; stopped cleanly 13:13:06 ("Deactivated successfully"). After: `inactive` / `disabled`, `Result=success`, no `remote_engineering.py` process. `/srv/clive-engineering/{state,runtime,workers,repo}` kept; nothing deleted. **No heartbeat for 21 minutes:** `clive/control/status` had published every ~10 min (12:47:23, 12:57:36, 13:07:49) and has nothing after 13:07:49 by 13:34:31 | Planning session on production: `systemctl`, `journalctl`, `git log origin/clive/control/status` |
+| 7 | 2026-10-16 13:34 | **One canonical loop.** worker-01: active on `ef204bc2`, heartbeating (13:19:53, 13:30:05). Production host: `clive-remote-engineering` inactive and disabled; no other engineering loop unit. Only `worker-01-status` heartbeats. **Left as found:** production's `clive-trunk-fetch.timer` (it fetches `clive/trunk` every 5 min; it builds nothing). Retiring it is a separate call, because what else reads that checkout was not traced in Stage A | Same |
+
+**Step 5 checklist, as found:**
+
+| DEC | Behaviour | Result |
+|---|---|---|
+| DEC-076 | Claude reviewer | ✔ The verdict and the acceptance are by `claude-reviewer` |
+| — | Loop landing | ✔ Landed by the loop; `cdee8fce` is on `clive/trunk` |
+| — | Heartbeat | ✔ 13:09:27 UTC, fresh (11:36:39 and 11:46:41 before it) |
+| DEC-068 | Stop reports kept private, served to production only | ✔ HTTP 200 from production, 46 reports (row R6). On worker-01: `runtime/stops` is `700 root`; all 46 reports are `600 root` (George's `stat`, 13:23 UTC) |
+| DEC-068 | Repair rounds | ✔ The setting is in force: the request carries `max_repair_rounds: 2` from `--default-repair-rounds 2` |
+| DEC-068 | Findings reach the repair; `earlier_try` | **Pending first repair or re-file.** The smoke request needed no repair |
+| DEC-068 | Skills | Not applicable on this host: CLI 2.1.280, `--no-builder-skills` |
+| DEC-068 | Browser in checks | Not applicable: none bound |
+
+**Seen, not blocking:** CLIVE's filer redacted "crooks-assistant" to "[name]-assistant" in the request's
+`requested_outcome`. `allowed_paths` kept the real path, so the builder was not misled. Which scrubber did
+it is not traced in Stage A (`app/support/redact.py` replaces learned names as whole words, which matches
+this). It is flagged for the Director, not fixed here.
 
 
 ### RP1 attempt 1, 2026-10-15: what happened
