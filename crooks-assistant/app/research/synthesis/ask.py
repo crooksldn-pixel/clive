@@ -1,9 +1,12 @@
 """How every synthesis step asks the model, and reads what it says.
 
-Why this exists: five steps of the synthesis (extract, match, consolidate, judge, summary) ask Claude
-on the Max plan (app/research/model.py). They share the same three needs: research goes in only as
-data, inside <research> tags it cannot close; each call has a time limit of its own and is counted for
-run.json; and an answer that is not the JSON asked for is an error with words, never "nothing".
+Why this exists: every step of the synthesis (extract, repair, match, consolidate, judge, owner_view,
+summary) asks Claude on the Max plan (app/research/model.py). They share the same needs: research goes
+in only as data, inside <research> tags it cannot close; each call has a time limit of its own and is
+counted for run.json; and an answer that is not the JSON asked for is asked for once more, then is an
+error with words, never "nothing". [16 Oct] The first full run on the server stopped at idea 51 of 403
+on one answer that wasn't readable JSON, which was never asked again: `ask_json` is why that can't
+happen now.
 
 What it promises:
 - `research(...)` is the only way research text enters a prompt. Inside it, anything that looks like a
@@ -13,7 +16,12 @@ What it promises:
 - [review 14] A call that fails (a ModelError, or a timeout) is asked once more after a pause
   (RETRY_PAUSE_S, 30 seconds; a model may say its own, as the tests' scripted one does), so an
   unattended run on the server rides out one bad call. A second failure is the run's to say.
-- `parse_object` returns the JSON object in an answer (fenced or bare) or raises SynthesisError.
+- `Calls.ask_json` is the one way a step asks for JSON: it asks, reads the object, and when the answer
+  isn't readable JSON or isn't an object, asks once more with the same system prompt and the same
+  prompt plus one line (REASK). That second ask is a call of the stage and one "asked again"
+  (`retries`), so --status shows it. A second unreadable answer raises Unreadable, the SynthesisError
+  `parse_object` gives today, word for word.
+- `parse_object` returns the JSON object in an answer (fenced or bare) or raises Unreadable.
 """
 
 from __future__ import annotations
@@ -33,7 +41,13 @@ class SynthesisError(Exception):
     """A synthesis step could not finish, said in words."""
 
 
+class Unreadable(SynthesisError):
+    """Claude's answer wasn't the JSON object asked for (after `ask_json`, not even when asked again)."""
+
+
 RETRY_PAUSE_S = 30.0
+# The one line added to a prompt whose answer wasn't readable JSON, when it is asked once more.
+REASK = "Your last answer wasn't readable JSON. Answer with the JSON object only."
 
 
 class Calls:
@@ -69,6 +83,17 @@ class Calls:
                 await asyncio.sleep(float(getattr(self.model, "retry_pause_s", RETRY_PAUSE_S)))
         raise AssertionError("unreachable")
 
+    async def ask_json(self, stage: str, system: str, prompt: str, what: str) -> dict[str, Any]:
+        """The JSON object Claude answers with. An answer that isn't one is asked for once more (the same
+        system prompt, the prompt plus REASK), counted as a call of `stage` and one asked again; a second
+        is Unreadable, said as `parse_object` says it."""
+        answer = await self.ask(stage, system, prompt)
+        try:
+            return parse_object(answer, what)
+        except Unreadable:
+            self.retries += 1
+        return parse_object(await self.ask(stage, system, f"{prompt}\n\n{REASK}"), what)
+
 
 _TAG = re.compile(r"<(/?)(research\b)", re.IGNORECASE)
 
@@ -85,20 +110,20 @@ def research(body: str, **attrs: str) -> str:
 
 
 def parse_object(answer: str, what: str) -> dict[str, Any]:
-    """The JSON object in the model's answer, or SynthesisError naming `what` was asked for."""
+    """The JSON object in the model's answer, or Unreadable (a SynthesisError) naming `what` was asked for."""
     text = str(answer or "").strip()
     fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
     if fenced:
         text = fenced.group(1).strip()
     start, end = text.find("{"), text.rfind("}")
     if start < 0 or end < start:
-        raise SynthesisError(f"Claude's answer wasn't the {what} CLIVE asked for.")
+        raise Unreadable(f"Claude's answer wasn't the {what} CLIVE asked for.")
     try:
         found = json.loads(text[start:end + 1])
     except ValueError:
-        raise SynthesisError(f"Claude's answer ({what}) wasn't readable JSON.") from None
+        raise Unreadable(f"Claude's answer ({what}) wasn't readable JSON.") from None
     if not isinstance(found, dict):
-        raise SynthesisError(f"Claude's answer ({what}) wasn't a JSON object.")
+        raise Unreadable(f"Claude's answer ({what}) wasn't a JSON object.")
     return found
 
 

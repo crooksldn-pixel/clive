@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.research.synthesis.ask import Calls, line, parse_object, research, strings
+from app.research.synthesis.ask import Calls, line, research, strings
 from app.research.synthesis.ideas import documents_backing, judged
 from app.research.synthesis.words import AXES, words
 
@@ -73,8 +73,7 @@ def prompt_for(ideas: dict[str, dict[str, Any]], documents: int) -> str:
 
 async def write(ideas: dict[str, dict[str, Any]], claims: dict[str, dict[str, Any]], calls: Calls, at: str,
                 generation: str) -> dict[str, Any]:
-    answer = await calls.ask("summary", SUMMARY_SYSTEM, prompt_for(ideas, len(claims)))
-    found = parse_object(answer, "summary")
+    found = await calls.ask_json("summary", SUMMARY_SYSTEM, prompt_for(ideas, len(claims)), "summary")
     return {"generation": generation, "at": at, "points": strings(found.get("points"), 300, MAX_POINTS),
             "before": line(found.get("before"), 300), "after": line(found.get("after"), 300),
             "counts": counts(ideas, claims), "model": calls.name}

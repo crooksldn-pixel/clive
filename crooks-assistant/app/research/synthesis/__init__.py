@@ -10,16 +10,19 @@ card and his hold; research stays on the server (DEC-070).
     words.py        every enum and the words George is shown for it
     store.py        <research dir>/synthesis/: generations, ideas, the append-only history
     quotes.py       find_quote: where a quote sits in the research, in the research's own words
-    ask.py          how each step asks the model: research only as data, a time limit, counted
+    ask.py          how each step asks the model: research only as data, a time limit, counted, an
+                    unreadable answer asked once more
     extract.py      1-2. every recommendation in a document, no cap, each pinned to its words
-    match.py        3. which idea each recommendation belongs to
-    consolidate.py  4. ideas that are the same proposition become one
+    match.py        3. which idea each recommendation belongs to; a detail joins the idea it details
+    consolidate.py  4. ideas that are one, or one a part of another, become one: in rounds, in groups
     judge.py        5. the four answers, enforced in code
     summary.py      6. what the research says CLIVE should become, and the counts
     ideas.py        the idea record: made, hashed, fingerprinted
     answers.py      his answers to ideas, in the owner judgment ledger
     migrate.py      the old screen's proposals, linked to their ideas
-    run.py          a full run (resumable), one new document into the live generation, apply, export
+    run.py          a full run (resumable; it stops before judging too many ideas), one new document
+                    into the live generation, apply, export
+    shape.py        a run in counts only (run.json's `shape`), never research text
 
 How to give CLIVE research, and how a synthesis is run and applied: docs/RESEARCH.md.
 """

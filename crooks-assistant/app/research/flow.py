@@ -155,6 +155,7 @@ async def _review(store: ResearchStore, record: dict[str, Any], text: str, *, mo
     """Before a synthesis is live: proposals, as DEC-070 made them; and, once a synthesis has been run,
     what the document says kept for the first one to be applied."""
     from app.research.review import review
+    from app.research.synthesis.ask import SynthesisError
     from app.research.synthesis.run import keep_claims
 
     earlier = _earlier(store, record["id"])
@@ -167,7 +168,9 @@ async def _review(store: ResearchStore, record: dict[str, Any], text: str, *, mo
         kept = await keep_claims(store, record, text, model=model)
     except Exception as exc:  # noqa: BLE001 - its proposals stand; applying a synthesis reads it then
         log.info("research document %s: claims not kept for the synthesis", record.get("id"), exc_info=True)
-        record["notes"].append(f"What it recommends couldn't be kept for the first synthesis yet ({type(exc).__name__}); "
+        # [synth-merge review] Said by the kind of error, as before: an unreadable answer is a SynthesisError.
+        kind = SynthesisError.__name__ if isinstance(exc, SynthesisError) else type(exc).__name__
+        record["notes"].append(f"What it recommends couldn't be kept for the first synthesis yet ({kind}); "
                                "it will be read when one is applied.")
         return
     if kept is not None:

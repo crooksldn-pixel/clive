@@ -3,17 +3,34 @@ making a generation live, and packing one up for the Director.
 
 Why this exists: DEC-078. A full run (`scripts/research.py --synthesise`) reads every document that
 was read (`done`) again from the digester's store, and takes each through extract, match and, when it
-started an idea, consolidate; then consolidates once more, links the old screen's proposals, judges
-every idea and sums up. Once a generation is live, each new document goes the same way into it
-(app/research/flow.py), and only the ideas it touched are judged again.
+started an idea, one round of consolidate; then joins ideas in rounds until a round joins nothing (at
+most consolidate.ROUNDS), links the old screen's proposals, judges every idea and sums up. Once a
+generation is live, each new document goes the same way into it (app/research/flow.py, one round of
+consolidate), and only the ideas it touched are judged again.
+
+[16 Oct] The first full run on the server made 403 ideas from six documents and stopped judging at
+idea 51 on one unreadable answer. Unreadable answers are now asked again (ask.Calls.ask_json); ideas
+join in rounds on groups the model can handle (consolidate.py); and a run with too many ideas to judge
+well stops before judging, so it never spends a hundred judge calls and hundreds of questions for
+George on ideas that should have been one.
 
 What it promises:
 - A full run is never live: `apply` makes it live, after taking in any document read since.
 - A run is resumable after any model failure: run.json says the stage it reached, which documents
   are in, and every error in words; `--resume` carries on from there.
-- What a file said is read by the model once: extraction is cached by the file's digest, so reading
-  the same document again makes no model call and no event.
-- Every call is counted in run.json, by stage.
+- What a file said is read by the model once: extraction is cached by the file's digest and
+  extract.VERSION, so reading the same document again, or a new full run over the same documents,
+  makes no extract or repair call and no event.
+- Every call is counted in run.json, by stage; an answer asked again counts as a call and as one
+  asked again.
+- More than `most_ideas` (MOST_IDEAS, 90) active ideas after the consolidate stage stops the run there,
+  with why in words: nothing is linked or judged, and `--resume` tries joining them again. [review 1]
+  The same check is made at the top of the judge stage, so resuming a run that stopped while judging
+  (as the server's first run did, with 403 ideas) judges nothing while there are too many: it goes back
+  to joining them, said. `most_ideas` is kept in run.json from the run's start; `--resume` uses it
+  unless `--most-ideas` is given again. A new document into the live generation is never held by it.
+- run.json's `shape` (shape.py) says the run in counts only, never research text, kept up to date
+  whenever run.json is saved: at the end of each stage, and as it goes.
 - Only one full run at a time on a server (a lock file in the synthesis folder).
 """
 
@@ -31,13 +48,18 @@ from app.research.synthesis import consolidate as consolidate_step
 from app.research.synthesis import judge as judge_step
 from app.research.synthesis import match as match_step
 from app.research.synthesis import migrate
+from app.research.synthesis import shape as shape_step
 from app.research.synthesis import summary as summary_step
-from app.research.synthesis.ask import Calls, SynthesisError
+from app.research.synthesis.ask import Calls, SynthesisError, Unreadable
 from app.research.synthesis.extract import VERSION, extract
 from app.research.synthesis.ideas import evidence_hash, finish, has_claim, judged, new_idea
 from app.research.synthesis.store import ReadProblem, SynthesisStore, now, synthesis_store
 
 STAGES = ("documents", "consolidate", "migrate", "judge", "summary", "done")
+# The most active ideas a full run goes on to judge (`scripts/research.py --most-ideas N`). DEC-078
+# aimed at 25-60; at three ideas a judge call, more than 90 is too many calls and too many questions.
+MOST_IDEAS = 90
+AIM = "25–60"
 # How far a run has got, as the screen says it ("judging, 31 of 42"); `done` and `of` count only in the
 # stages that have something to count (documents, judging), and are 0 in the others.
 STAGE_WORDS = {"documents": "reading documents", "consolidate": "joining ideas that are the same",
@@ -46,7 +68,12 @@ STAGE_WORDS = {"documents": "reading documents", "consolidate": "joining ideas t
 
 
 class Stopped(Exception):
-    """A run that stopped part-way, said in words; `--resume` carries on."""
+    """A run that stopped part-way, said in words; `--resume` carries on. `generation` is the run's, when
+    it got as far as having one."""
+
+    def __init__(self, said: str, generation: str = "") -> None:
+        super().__init__(said)
+        self.generation = generation
 
 
 def _say_nothing(_text: str) -> None:
@@ -71,6 +98,7 @@ class Work:
         self.changed = False
         self.say = say
         self.base: tuple[int, dict[str, int], int] = (0, {}, 0)
+        self.order: list[str] = []      # the documents' ids in the order a full run reads them, for its shape
 
     def active(self) -> list[dict[str, Any]]:
         return [i for i in self.ideas.values() if i.get("status") == "active"]
@@ -213,7 +241,7 @@ def _new_ideas(work: Work, landing, doc: dict[str, Any]) -> dict[str, str]:
         if not any(ref == key for ref, _s, _c in landing.claims.values()):
             continue
         idea = new_idea(work.synth.next_idea_id(work.gen), name=given.get("name") or "", statement=given.get("statement") or "",
-                        kind=given.get("kind") or "", at=now())
+                        kind=given.get("kind") or "", at=now(), started_by=given.get("started_by") or "")
         work.ideas[idea["id"]] = idea
         made[key] = idea["id"]
         work.event("created", idea=idea["id"], doc_id=doc["doc_id"], said=f"Created from {doc['document']}: {idea['name']}.")
@@ -227,20 +255,44 @@ def _n(count: int, noun: str) -> str:
 # ------------------------------------------------------------------ step 4: the same proposition, once
 
 
-async def consolidate(work: Work) -> set[str]:
-    merges = await consolidate_step.propose(work.active(), work.merge_answers(), work.calls)
-    touched = set()
-    for merge in merges:
-        keep = work.ideas[merge["keep"]]
-        for other_id in merge["merge"]:
-            other = work.ideas[other_id]
-            consolidate_step.merge_into(keep, other)
-            work.save(other)
-            work.event("merged", idea=other_id, into=keep["id"], said=f"Joined {keep['id']} ({keep['name']}): {merge['why']}")
-            work.event("merged", idea=keep["id"], merged=other_id, said=f"{other_id} ({other['name']}) joined it: {merge['why']}")
-        work.save(keep)
-        touched.add(keep["id"])
-    return touched
+async def consolidate(work: Work, *, rounds: int = 1) -> set[str]:
+    """Ideas that are one, or one a part of the other, joined: round after round until one joins
+    nothing, at most `rounds`. Returns the active ideas that took others in."""
+    touched: set[str] = set()
+    for round_no in range(1, max(1, rounds) + 1):
+        joined = await _round(work, round_no)
+        touched |= joined
+        if not joined:
+            break
+    return {i for i in touched if work.ideas[i].get("status") == "active"}
+
+
+async def _round(work: Work, round_no: int = 1) -> set[str]:
+    """One round: each call of consolidate.calls_of, shown only the ideas still active when it is made."""
+    joined: set[str] = set()
+    for ids, names_only in consolidate_step.calls_of(work.active(), round_no):
+        still = [work.ideas[i] for i in ids if work.ideas[i].get("status") == "active"]
+        for merge in await consolidate_step.propose(still, work.merge_answers(), work.calls, names_only=names_only):
+            _join(work, merge)
+            joined.add(merge["keep"])
+    return joined
+
+
+def _join(work: Work, merge: dict[str, Any]) -> None:
+    keep = work.ideas[merge["keep"]]
+    for other_id in merge["merge"]:
+        other = work.ideas[other_id]
+        consolidate_step.merge_into(keep, other)
+        work.save(other)
+        work.event("merged", idea=other_id, into=keep["id"], said=f"Joined {keep['id']} ({keep['name']}): {merge['why']}")
+        work.event("merged", idea=keep["id"], merged=other_id, said=f"{other_id} ({other['name']}) joined it: {merge['why']}")
+    rename = merge.get("rename")
+    if rename and (rename["name"], rename["statement"]) != (keep["name"], keep["statement"]):
+        was, was_statement = keep["name"], keep["statement"]
+        keep["name"], keep["statement"] = rename["name"], rename["statement"]
+        work.event("renamed", idea=keep["id"], was_name=was, was_statement=was_statement,
+                   said=f"Renamed when ideas joined it: {was} → {keep['name']}")
+    work.save(keep)
 
 
 # ------------------------------------------------------------------ step 5: the four answers
@@ -397,6 +449,10 @@ def status_lines(synth: SynthesisStore, gen: str = "") -> list[str]:
         doing += f", {run.get('done', 0)} of {run['of']}"
     where = "live" if gen == live else f"not live; the live one is {live}" if live else "not live; none is live yet"
     out = [f"Synthesis {gen}: {doing} ({where})."]
+    held = run.get("too_many") if stage == "consolidate" else None
+    if held:
+        out.append(f"Held before judging: {held['ideas']} ideas is more than {held['most']}, too many to judge well "
+                   f"(the aim is {AIM}). Nothing was judged; --resume tries joining them again.")
     out.append(f"Started {run.get('started_at') or 'unknown'}; " + (f"finished {run['finished_at']}." if run.get("finished_at")
                                                                     else "not finished."))
     by = ", ".join(f"{k} {v}" for k, v in (run.get("calls_by_stage") or {}).items())
@@ -407,6 +463,7 @@ def status_lines(synth: SynthesisStore, gen: str = "") -> list[str]:
     failed = list((run.get("failed") or {}).values())
     out.append(f"Documents not in it: {len(failed)}" + (" (--resume tries them again)" if failed else ""))
     out += [f"  - {f['name']}: {f['why']}" for f in failed]
+    out += shape_step.lines(run.get("shape"))
     out.append(going)
     return out
 
@@ -425,9 +482,10 @@ def unfinished(synth: SynthesisStore) -> str:
 
 
 async def synthesise(research_store, *, model, the_map, resume: bool = False, timeout_s: float | None = None,
-                     say: Callable[[str], None] = _say_nothing) -> str:
+                     most_ideas: int | None = None, say: Callable[[str], None] = _say_nothing) -> str:
     """Build a new generation from every document read, or carry on the one that stopped. Not live.
-    Returns its name; raises Stopped with why when it stops part-way."""
+    Returns its name; raises Stopped with why when it stops part-way, and when more than `most_ideas`
+    ideas are left to judge (None: the run's own, kept in run.json, else MOST_IDEAS)."""
     synth = synthesis_store(research_store)
     with run_lock(synth):
         gen = unfinished(synth) if resume else ""
@@ -451,14 +509,16 @@ async def synthesise(research_store, *, model, the_map, resume: bool = False, ti
             # [review 15] --resume tries the documents that failed again, then carries every later step on.
             say(f"Trying again: {', '.join(f['name'] for f in run['failed'].values())}")
             run["stage"], run["done"], run["of"], run["finished_at"] = STAGES[0], 0, 0, ""
+        if most_ideas is not None or not run.get("most_ideas"):
+            run["most_ideas"] = int(most_ideas or MOST_IDEAS)      # [review 1] kept, so --resume holds to it
         work.changed = bool(run.get("changed"))
         work.base = (int(run.get("calls") or 0), dict(run.get("calls_by_stage") or {}), int(run.get("retries") or 0))
         say(f"Synthesis {gen}: {'carrying on from ' + STAGE_WORDS[run['stage']] if resume else 'started'}.")
         try:
-            await _stages(research_store, work, run, say)
+            await _stages(research_store, work, run, say, int(run["most_ideas"]))
         except (SynthesisError, ReadProblem, ModelError) as exc:
             _error(work, run, str(exc))
-            raise Stopped(f"It stopped while {STAGE_WORDS[run['stage']]}: {exc} Run it again with --resume.") from None
+            raise Stopped(f"It stopped while {STAGE_WORDS[run['stage']]}: {exc} Run it again with --resume.", gen) from None
         finally:
             _count(work, run)
             synth.save_run(gen, run)
@@ -466,10 +526,18 @@ async def synthesise(research_store, *, model, the_map, resume: bool = False, ti
 
 
 async def extract_twice(work: Work, record: dict[str, Any], text: str) -> None:
-    """What the document says, read (and cached) before it is matched: an answer that isn't the JSON asked
-    for is asked for once more, whole (a failed or timed-out call is already asked again by Calls)."""
+    """What the document says, read (and cached) before it is matched. A failed or timed-out call is
+    asked again by Calls.ask, and an answer that isn't readable JSON by Calls.ask_json, each once; so an
+    answer still unreadable after that (Unreadable) is not asked a third time here. A readable answer
+    that has no list of recommendations has the whole document read once more.
+
+    So one document's extraction makes at most 2 readings, each of at most 4 calls per part (2 answers,
+    each asked once more after a failure) and 4 per batch of repairs: for a one-part document with one
+    repair batch, 16 calls at the very most."""
     try:
         await read_claims(work.synth, record, text, work.calls)
+    except Unreadable:
+        raise
     except SynthesisError:
         await read_claims(work.synth, record, text, work.calls)
 
@@ -485,16 +553,41 @@ def _error(work: Work, run: dict[str, Any], said: str) -> None:
 
 
 def _count(work: Work, run: dict[str, Any]) -> None:
-    """The calls made so far: those before this process (a resumed run) and this process's own."""
+    """The calls made so far (those before this process, a resumed run, and this process's own), and
+    the run's shape as it stands."""
     before, by, retried = work.base
     run["calls"] = before + work.calls.made
     run["calls_by_stage"] = {k: by.get(k, 0) + work.calls.by_stage.get(k, 0) for k in sorted({*by, *work.calls.by_stage})}
     run["retries"] = retried + work.calls.retries
     run["changed"] = work.changed
+    run["shape"] = shape_step.of(work.ideas, work.claims, work.order)
 
 
-async def _stages(research_store, work: Work, run: dict[str, Any], say) -> None:
+def too_many(active: int, most: int, judged_before: int = 0) -> str:
+    nothing = f"Nothing more was judged ({judged_before} already were)." if judged_before else "Nothing was judged."
+    return (f"It stopped after joining ideas: {active} ideas is more than {most}, too many to judge well (the aim is "
+            f"{AIM}). {nothing} Tell the Director; --resume tries joining them again.")
+
+
+def _hold(work: Work, run: dict[str, Any], most_ideas: int, save: Callable[[], None]) -> None:
+    """Too many ideas to judge well: said, the run set back to joining them (so --resume joins them again),
+    and stopped before any judge call. Made after the consolidate stage, and at the top of the judge
+    stage [review 1], so a run that stopped while judging is held as well."""
+    active = work.active()
+    if len(active) <= most_ideas:
+        run.pop("too_many", None)
+        return
+    said = too_many(len(active), most_ideas, sum(1 for i in active if judged(i)))
+    run["too_many"] = {"ideas": len(active), "most": most_ideas}
+    _error(work, run, said)
+    run["stage"], run["done"], run["of"] = "consolidate", 0, 0
+    save()
+    raise Stopped(said, work.gen)
+
+
+async def _stages(research_store, work: Work, run: dict[str, Any], say, most_ideas: int = MOST_IDEAS) -> None:
     synth = work.synth
+    work.order = [r["id"] for r in documents_done(research_store)]
 
     def save() -> None:
         _count(work, run)
@@ -531,7 +624,8 @@ async def _stages(research_store, work: Work, run: dict[str, Any], say) -> None:
         save()
     if run["stage"] == "consolidate":
         say("Joining ideas that are the same")
-        await consolidate(work)
+        await consolidate(work, rounds=consolidate_step.ROUNDS)
+        _hold(work, run, most_ideas, save)
         run["stage"], run["done"], run["of"] = "migrate", 0, 0
         save()
     if run["stage"] == "migrate":
@@ -540,6 +634,8 @@ async def _stages(research_store, work: Work, run: dict[str, Any], say) -> None:
         run["stage"], run["done"], run["of"] = "judge", 0, 0
         save()
     if run["stage"] == "judge":
+        _hold(work, run, most_ideas, save)
+
         def progress(done: int, of: int) -> None:
             run["done"], run["of"] = done, of
             save()
@@ -596,6 +692,7 @@ def report(work: Work, run: dict[str, Any]) -> dict[str, Any]:
         "placed": counts["claims"], "unplaced": counts["unplaced"], "judgments": counts["judgments"],
         "relationships": counts["relationships"], "documents": counts["documents"],
         "missing documents": list((run.get("failed") or {}).values()),
+        "shape": shape_step.of(work.ideas, work.claims, work.order),
     }
 
 
@@ -623,7 +720,7 @@ def report_lines(rep: dict[str, Any]) -> list[str]:
     finish = dec.get("on_its_finish_list") or []
     out.append(f"   not held, because CLIVE reads them as on DEC-018's own finish list: {len(finish)}")
     out += [f"   - {f['idea']} {f['name']} ({f['item'] if f['item'] != 'unnamed' else 'no item named'})" for f in finish]
-    return out
+    return out + shape_step.lines(rep.get("shape"))
 
 
 # ------------------------------------------------------------------ one new document, once a generation is live
