@@ -1,0 +1,82 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "update-current-truth-md-production-at",
+  "title": "Update CURRENT_TRUTH.md: production at dc59047e, trunk adds DEC-079",
+  "requested_outcome": "Update [name]-assistant/docs/product-memory/CURRENT_TRUTH.md so it states: production is at dc59047e, as of 14 October 2026; clive/trunk additionally contains DEC-079. Do not imply DEC-079 is deployed to production — it is on trunk only, not yet in production. Preserve the file's current structure and style exactly. Change only this file; no unrelated edits. This is the Stage A worker-01 smoke test.",
+  "base_ref": "ef204bc29d7e6c6d8e518f62f01c9574a160e23b",
+  "base_sha": "ef204bc29d7e6c6d8e518f62f01c9574a160e23b",
+  "allowed_paths": [
+    "crooks-assistant/docs/product-memory/CURRENT_TRUTH.md",
+    "crooks-assistant/tests/test_update_current_truth_md_production_at.py"
+  ],
+  "acceptance_criteria": [
+    "Only crooks-assistant/docs/product-memory/CURRENT_TRUTH.md is changed; no other file is touched",
+    "The file's existing structure and style (headings, format) are preserved",
+    "The file states production is at dc59047e",
+    "The file states production has been at that commit since 14 October 2026",
+    "The file states clive/trunk additionally contains DEC-079",
+    "The file does not state or imply DEC-079 is deployed to production",
+    "No edits unrelated to these two facts are made",
+    "The change is proven by tests in crooks-assistant/tests/test_update_current_truth_md_production_at.py, and they pass."
+  ],
+  "checks": [
+    {
+      "name": "tests",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_update_current_truth_md_production_at.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "regression",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-m",
+        "not live",
+        "tests/test_gate.py",
+        "tests/test_readonly.py",
+        "tests/test_actions.py",
+        "tests/test_actions_routes.py",
+        "tests/test_engine_hooks.py",
+        "tests/test_batch.py",
+        "tests/test_available.py",
+        "tests/test_judgment.py",
+        "tests/test_judgment_construction.py",
+        "tests/test_judgment_chain.py",
+        "tests/test_judgment_ledger.py",
+        "tests/test_cancel.py",
+        "tests/test_refund.py",
+        "tests/test_address.py",
+        "tests/test_fulfil.py",
+        "tests/test_inventory.py",
+        "tests/test_tracking.py",
+        "tests/test_order_edit.py",
+        "tests/test_gmail_writes.py",
+        "tests/test_compose.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/update-current-truth-md-production-at"
+}
