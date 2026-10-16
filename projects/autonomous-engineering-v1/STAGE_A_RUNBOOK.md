@@ -95,14 +95,33 @@ change is needed because the script deliberately changes nothing else.
 
 | Step | What | Detail |
 |---|---|---|
-| R0 | Read-only pre-checks | Pinned trees present; `packet-head.md` names no SHA or PR (if it does: stop and paste it); port 8765 free; worker-01's tailnet IPv4; tmux available |
+| R0 | Read-only pre-checks | Pinned trees present; `packet-head.md` names no SHA or PR (if it does: stop and paste it); port 8765 free; worker-01's tailnet IPv4; tmux available. **Attempt 2:** `packet-head.md` is replaced first with the reviewed head (`repin/packet-head-718fbc41-ef204bc2.md`, verified by sha256 before and after install) |
 | R1 | Copy the script | `root-repin-ef204bc2.sh` with exactly two lines changed: `SHA=ef204bc2…` and `PIN=718fbc41…`. The diff must show only those, and the original's checksum is unchanged |
-| R2 | Run the copy | Run it in the foreground, inside tmux if present, logged with `tee`. **Any `== STOPPED`, or a verdict other than READY, means stop and paste it.** On success the loop restarts on `ef204bc2` with its old flags; it is idle, so nothing is filed until R5 |
+| R2 | Run the copy | Run it in the foreground, inside tmux if present, logged with `tee`. **Any `== STOPPED`, `CHANGES_REQUIRED` or `== NOT RESTARTED` means stop and paste it.** On success the loop restarts on `ef204bc2` with its old flags. **Nothing may be filed until R3 and R4 are done (the handoff guard below).** R3 onward is given only after the REPORT proves the running cwd is the `ef204bc2` tree |
 | R3 | Change the flags | A Python edit that asserts the unit is exactly as audited and at the new pin. It backs up the unit, then: `--max-concurrent 8` → `2`; adds `--reviewer claude` and `--no-builder-skills` (before `run`); adds `--default-repair-rounds 2`, `--private-listen <worker tailnet IPv4>:8765` and `--private-allow-node <production's full tailnet name>` (after `run`). Then `systemd-analyze verify` and `daemon-reload` |
 | R4 | Probes from the new tree | `engineering_dispatcher.py … --no-builder-skills probe-launch` and `… --reviewer claude probe-review --turn`. Both must PASS |
 | R5 | Restart when idle | The unit's cgroup holds only the main process; then `systemctl restart` |
 | R6 | Verify | Active state; cwd is the new tree; the cmdline shows the new flags; the pinned tree's HEAD is `ef204bc2`; the first tick shows no intake, publish or private error; the private port is bound |
 | R7 | Rollback rehearsal, after the smoke request | The old pin's `remote_engineering.py status` against a **copy** of the store. **Deviation:** `tick` is omitted. The store is idle, and a side-effect-free tick would need a copy of the 53 GB runtime; `status` parses every record the old code would read |
+
+### Operational handoff guard (sequencing, not a safety waiver)
+
+**The gap.** At `ef204bc2`, while the unit still has its existing arguments:
+
+- the reviewer defaults to Claude;
+- builder skills default to on;
+- on Claude Code 2.1.280 those skills cannot be launched, so a builder launch fails closed before any
+  process starts.
+
+**Therefore, after RP1 ends with a successful `== REPORT` at `ef204bc2`, no new engineering request
+may be filed until both of these are done:**
+
+1. the reviewed Stage A configuration step (R3) has applied `--no-builder-skills` and the intended
+   concurrency, reviewer and private-channel flags;
+2. both probes (R4) pass.
+
+This only sequences the steps. The fail-closed behaviour itself stays as it is, and must not be
+weakened to close the gap.
 
 **Rollback:**
 - **The flags only:** restore `….service.bak-flags-<ts>`, then `daemon-reload` and restart.

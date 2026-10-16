@@ -21,8 +21,9 @@ pinned code of the engineering loop (`clive-remote-engineering.service` on clive
 | **Base** (what runs now) | `718fbc41652a47e6538b8e61b3de1a8a290c5b7e`, on `clive/trunk` since 2026-10-01 | The loop process runs this code. Its unit file names this pinned tree, and the process has run it since 2026-10-01 22:04 UTC (one restart on the same code on 2026-10-15 16:51 UTC) |
 | **Candidate** | `ef204bc29d7e6c6d8e518f62f01c9574a160e23b`, the current `clive/trunk` head (2026-10-14) | GitHub acceptance (`acceptance.yml`) on this exact SHA: run `38638076616`, completed, **success**. The gate record that follows this head was asked just now by the candidate's own gate code |
 
-The scoped diff below runs from the base to the candidate (`718fbc41..ef204bc2`). That is the whole
-change the loop takes.
+The script-generated loop-code diff below runs from the base to the candidate (`718fbc41..ef204bc2`).
+Additional candidate files read or imported by the loop, but outside that generated diff, are
+reproduced and reviewed separately below.
 
 ## What the re-pin does, and what it does not
 
