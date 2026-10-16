@@ -259,18 +259,18 @@ async def consolidate(work: Work, *, rounds: int = 1) -> set[str]:
     """Ideas that are one, or one a part of the other, joined: round after round until one joins
     nothing, at most `rounds`. Returns the active ideas that took others in."""
     touched: set[str] = set()
-    for _ in range(max(1, rounds)):
-        joined = await _round(work)
+    for round_no in range(1, max(1, rounds) + 1):
+        joined = await _round(work, round_no)
         touched |= joined
         if not joined:
             break
     return {i for i in touched if work.ideas[i].get("status") == "active"}
 
 
-async def _round(work: Work) -> set[str]:
+async def _round(work: Work, round_no: int = 1) -> set[str]:
     """One round: each call of consolidate.calls_of, shown only the ideas still active when it is made."""
     joined: set[str] = set()
-    for ids, names_only in consolidate_step.calls_of(work.active()):
+    for ids, names_only in consolidate_step.calls_of(work.active(), round_no):
         still = [work.ideas[i] for i in ids if work.ideas[i].get("status") == "active"]
         for merge in await consolidate_step.propose(still, work.merge_answers(), work.calls, names_only=names_only):
             _join(work, merge)

@@ -257,6 +257,33 @@ async def test_more_than_group_ideas_are_asked_about_by_kind_then_all_by_name_on
     assert "idea-0007: TEST capability idea 7\n" in every
 
 
+async def test_after_the_first_round_a_big_kind_is_split_by_stride_so_each_group_mixes_documents(tmp_path, monkeypatch):
+    """[review 4] Ids rise document by document, so groups in id order hold one or two documents each.
+    Round 1 keeps id order; from round 2 on, a kind of more than GROUP is split by stride."""
+    monkeypatch.setattr(consolidate, "GROUP", 3)
+    capability = [f"idea-000{n}" for n in range(1, 8)]
+    assert consolidate.chunks(capability, 1) == [capability[0:3], capability[3:6], capability[6:]]
+    assert consolidate.chunks(capability, 2) == [["idea-0001", "idea-0004", "idea-0007"], ["idea-0002", "idea-0005"],
+                                                 ["idea-0003", "idea-0006"]]
+    assert consolidate.chunks(capability, 4) == consolidate.chunks(capability, 2)
+    assert consolidate.chunks(capability[:3], 2) == [capability[:3]], "a kind of GROUP or fewer is one group"
+    assert all(len(c) <= 3 for n in range(1, 40) for c in consolidate.chunks([f"idea-{i:04d}" for i in range(n)], 2))
+    def join_the_process_ideas(prompt):
+        shown = _shown(prompt)
+        return {"merges": [{"keep": "idea-0008", "merge": ["idea-0009"], "why": "TEST: round 1 joins one"}]
+                if {"idea-0008", "idea-0009"} <= set(shown) else []}
+
+    model = Rounds(*[join_the_process_ideas] * 12)
+    work = _work(tmp_path, model, [*((f"TEST capability idea {n}", "capability") for n in range(1, 8)),
+                                   ("TEST process idea 8", "process"), ("TEST process idea 9", "process")])
+    await run_module.consolidate(work, rounds=consolidate.ROUNDS)
+    assert [_shown(p) for p in model.prompts] == [
+        ["idea-0001", "idea-0002", "idea-0003"], ["idea-0004", "idea-0005", "idea-0006"], ["idea-0008", "idea-0009"],
+        [f"idea-000{n}" for n in range(1, 9)],                                  # round 1, id order (idea-0009 just joined)
+        ["idea-0001", "idea-0004", "idea-0007"], ["idea-0002", "idea-0005"], ["idea-0003", "idea-0006"],
+        [f"idea-000{n}" for n in range(1, 9)]]                                                  # round 2, by stride
+
+
 async def test_the_checks_hold_across_calls_and_rounds(tmp_path, monkeypatch):
     monkeypatch.setattr(consolidate, "GROUP", 3)
     kinds = ["capability", "capability", "capability", "process", "process"]

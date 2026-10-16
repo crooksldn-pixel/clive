@@ -9,8 +9,10 @@ another joins the broader one: the test is whether George would answer them as o
 
 How a round goes (`calls_of`): at most GROUP (60) active ideas are one call over all of them, each with
 its statement. More than that are one call per kind (words.KINDS), a kind of more than GROUP split into
-chunks of GROUP in id order, then one call over every idea still active, by id and name only, for
-merges across kinds. Rounds repeat (run.consolidate) until one joins nothing, or ROUNDS (4) of them, at
+chunks, then one call over every idea still active, by id and name only, for merges across kinds. In
+round 1 the chunks are of GROUP in id order. [review 4] Ids rise document by document, so such a chunk
+holds one or two documents' ideas; from round 2 on, a big kind is split by stride instead (`ids[i::k]`,
+k chunks), so each chunk mixes every document and an idea meets its repeat from another document. Rounds repeat (run.consolidate) until one joins nothing, or ROUNDS (4) of them, at
 the run's `consolidate` stage; after one document during reading, and for a new document into the live
 generation, there is one round.
 
@@ -69,7 +71,18 @@ def _order(idea_id: str) -> tuple[int, str]:
     return (int(digits) if digits else 0, str(idea_id))
 
 
-def calls_of(active: list[dict[str, Any]]) -> list[tuple[list[str], bool]]:
+def chunks(ids: list[str], round_no: int = 1) -> list[list[str]]:
+    """One kind's ideas (in id order) as the groups a round shows: whole when at most GROUP; else chunks
+    of GROUP in id order in round 1, and k chunks by stride (each holding every k-th idea) after."""
+    if len(ids) <= GROUP:
+        return [ids]
+    if round_no <= 1:
+        return [ids[n:n + GROUP] for n in range(0, len(ids), GROUP)]
+    k = -(-len(ids) // GROUP)
+    return [ids[i::k] for i in range(k)]
+
+
+def calls_of(active: list[dict[str, Any]], round_no: int = 1) -> list[tuple[list[str], bool]]:
     """One round's calls, in order: (the ids each is shown, whether by name only). A group of one idea
     can join nothing, so it makes no call of its own."""
     ordered = sorted(active, key=lambda i: _order(i["id"]))
@@ -80,8 +93,7 @@ def calls_of(active: list[dict[str, Any]]) -> list[tuple[list[str], bool]]:
         by_kind.setdefault(idea.get("kind") if idea.get("kind") in KINDS else "capability", []).append(idea["id"])
     out = []
     for kind in KINDS:
-        ids = by_kind.get(kind, [])
-        out += [(ids[n:n + GROUP], False) for n in range(0, len(ids), GROUP) if len(ids[n:n + GROUP]) >= 2]
+        out += [(chunk, False) for chunk in chunks(by_kind.get(kind, []), round_no) if len(chunk) >= 2]
     out.append(([i["id"] for i in ordered], True))
     return out
 
