@@ -507,6 +507,15 @@ def test_extract_version_is_the_one_the_servers_cache_holds():
     assert extract.VERSION == "0447652169d538c7"
 
 
+def test_the_cache_key_is_the_files_digest_and_that_version():
+    """[review 5] What the server's six documents are cached under: sha256 of "<file digest>:<VERSION>". A
+    key salted or reshaped makes the next run read them all again, though both runs of a test would agree."""
+    import hashlib
+
+    assert run_module._cache_key({"file_digest": "x"}) == hashlib.sha256(b"x:0447652169d538c7").hexdigest()
+    assert run_module._cache_key({"file_digest": ""}) == "" and run_module._cache_key({}) == "", "no digest, no cache"
+
+
 async def test_a_second_full_run_over_the_same_documents_makes_no_extract_or_repair_call(place, the_map):
     store, _ledger = place
     model = fx.Scripted()
