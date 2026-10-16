@@ -145,6 +145,8 @@ are kept here as written, with George's timing for each added to it.
 **During B0 (George, 2026-10-16):**
 - documentation-only catch-up, done only if still useful;
 - it must not alter runtime behaviour or B0 measurements;
+- **approved 2026-10-16:** the `CURRENT_TRUTH.md` / `CURRENT_TRUTH_HISTORY.md` catch-up, filed through
+  CLIVE with his hold and counted in B0 as documentation-only;
 - carrying the planning package to trunk waits, because it served PR 1;
 - deploy records and MAP's live block need the Director's deploy evidence, and stay his.
 - **Problem:** CURRENT_TRUTH is stale:
@@ -232,8 +234,9 @@ are kept here as written, with George's timing for each added to it.
 ### PR 1 — Measures that measure; the attention and defect ledgers (loop-eligible)
 **Timing (George, 2026-10-16):** not started until B0 is frozen. The one exception is a required
 baseline metric the existing system literally cannot collect, and even then the missing measurement
-is reported to him first; nothing is added silently. One is reported: OAMAB's relay and
-evidence-review minutes ([B0.md](B0.md)).
+is reported to him first; nothing is added silently. One was reported: OAMAB's relay and
+evidence-review minutes. George approved a manual owner-attention ledger for B0 in its place, with no
+code ([B0.md](B0.md)).
 - **Problem:**
   - OAMAB and ABER have no instrument.
   - `engineering_measures` has four defects (BASELINE_EVIDENCE §4).
@@ -269,8 +272,10 @@ evidence-review minutes ([B0.md](B0.md)).
 - **Metric:** every BASELINE_PLAN metric has a value or a stated reason it has none.
 
 ### B0 — the "before" window
-**ACTIVE since 2026-10-16 13:34:31 UTC.** The system held fixed, the metric sources and the freeze rule
-are in [B0.md](B0.md). PR 1's ledger is not on: B0 uses records the system already keeps.
+**ACTIVE since 2026-10-16 13:34:31 UTC.** It freezes at the later of 7 full days and 10 terminal real
+requests, or at 21 days regardless, with the sample size stated. Interventions are recorded, and a
+material one splits the window. The details are in [B0.md](B0.md). PR 1's ledger is not on: B0 uses
+records the system already keeps, plus a manual owner-attention ledger.
 
 From RP1 until D1 (aim for at least 7 days), real work is filed as today, with the ledger on.
 - **It gives:** OAMAB, chain ETAB, and blocks by cause on the re-pinned loop.

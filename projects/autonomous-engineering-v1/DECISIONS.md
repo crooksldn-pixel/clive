@@ -258,6 +258,54 @@ B0: ACTIVE
 Stage B/application implementation: NOT STARTED
 ```
 
+### Later on 2026-10-16: B0's rules ([B0.md](B0.md))
+
+1. **The B0 freeze rule.** Freeze only when at least 7 full days have elapsed **and** at least 10 real
+   engineering requests have reached a terminal state.
+   - **Terminal:** COMPLETE; BLOCKED; OWNER_GATE where the attempt itself has ended pending him;
+     refused or intake-terminal where relevant.
+   - **Accepted builds are not required.** Failed and blocked work is part of what B0 measures.
+   - The Stage A smoke request stays excluded.
+   - If 21 days elapse first, B0 freezes anyway, with the smaller sample and its uncertainty recorded.
+   - **Separate counts** for code or application builds, documentation-only builds, repairs and
+     re-files, and successful against blocked work.
+2. **A manual owner-attention ledger: approved, and started now.** No application code or
+   instrumentation change.
+   - **It records** only minutes in which he is actively doing something because of an engineering
+     build: never background waiting, model runtime, CI time, or time he has walked away.
+   - **Each record holds:** timestamp, minutes, request or build id if known, category, and a short
+     reason.
+   - **Categories:** approval/hold, relay/copy-paste, SSH/Termius operation, diagnosis/recovery,
+     evidence/review, clarification/decision, other.
+   - **It supplements** the transcript, hold and status data, and never double-counts the same
+     minutes.
+   - **An estimate is marked as estimated,** rather than inventing precision.
+3. **PR 0's documentation catch-up: approved.**
+   - It is filed through CLIVE as a normal documentation-only build with his hold, using the proposed
+     `CURRENT_TRUTH.md` / `CURRENT_TRUTH_HISTORY.md` request.
+   - It is part of B0, tagged documentation-only, so results show both all B0 work and non-docs B0
+     work.
+   - No Director-owned deploy or MAP claims where the evidence is unavailable.
+4. **PR 1 remains held.** None of these until B0 freezes:
+   - measurement application code;
+   - the preflight;
+   - filing-authority implementation;
+   - triage;
+   - the dependency system;
+   - archiving;
+   - `clive-eng`;
+   - plan-limit work;
+   - other Stage B behaviour.
+
+   **Recorded as a B0 intervention:**
+   - any worker re-pin;
+   - a CLI change;
+   - a consequential worker-flag change;
+   - a Director deploy affecting the engineering path.
+
+   If it materially changes behaviour, the baseline is split, never presented as homogeneous.
+5. **O-3 remains deferred** until B0 is frozen and the actual distribution exists.
+
 ## Settled by canonical records (removed from the owner list in revision 4)
 
 | Former question | Settled by |
