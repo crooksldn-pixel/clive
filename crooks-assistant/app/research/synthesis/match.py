@@ -17,7 +17,8 @@ idea of another kind. The checks of the model's answer are all in `read`.
 
 What it promises — the model's word is checked, never taken:
 - Every claim lands in exactly one idea. A claim the answer leaves out, or puts in an idea that does
-  not exist, is asked about once more; still unplaced, it starts an idea of its own.
+  not exist, is asked about once more; still unplaced, it starts an idea of its own, marked
+  `started_by: "unplaced"` [review 6] so the run's shape can count how many ideas that made.
 - A new idea named but never defined gets the claim's own title and words.
 - A choice of tool or vendor is kept apart from the goal it serves (the prompt says so; consolidate
   never merges them back).
@@ -36,6 +37,7 @@ from app.research.synthesis.words import CENTRALITIES, KINDS, STANCES
 
 BATCH = 40
 WHAT = "placing of claims"
+UNPLACED = "unplaced"     # an idea's `started_by` when a claim still unplaced after asking again started it
 
 # How a claim joins an idea, or starts one: the one place this rule is said (MATCH_SYSTEM carries it).
 JOIN_RULE = """An idea is ONE proposition: everything the research says about one thing George would decide on. A claim joins an existing idea when it says the same thing, and also when it details it, narrows it, is a step towards it, or is a way of doing it other than the choice of a tool, vendor or technique: then its stance is refines. Start a new idea only for something George would decide on separately from every idea listed. Claims of this document that make the same new proposition, or detail it, share one new key. A choice of tool, vendor or technique still stays apart from the goal it serves: "work must survive restarts" and "adopt Temporal for it" are two ideas. Use the document's own definitions (its concepts) to tell whether two recommendations mean the same."""
@@ -144,7 +146,8 @@ async def place(*, document: str, concepts: list[dict[str, str]], active: list[d
     for claim in claims:
         if claim["id"] not in landing.claims:
             key = f"new:own-{claim['id']}"
-            landing.new[key] = {}
+            landing.new[key] = {"name": claim["title"], "statement": claim["says"], "kind": _kind_of(claim),
+                                "started_by": UNPLACED}
             landing.claims[claim["id"]] = (key, "supports", "supporting")
     for key, claim_id in ((ref, cid) for cid, (ref, _s, _c) in landing.claims.items()):
         if key.startswith("new:") and not landing.new.get(key):

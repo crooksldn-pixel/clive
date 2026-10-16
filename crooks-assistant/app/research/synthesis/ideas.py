@@ -27,7 +27,9 @@ from app.research.synthesis.words import KINDS
 OWNER_VIEW = ("means", "today", "after", "example", "before_after", "why_care", "notice")
 
 
-def new_idea(idea_id: str, *, name: str, statement: str, kind: str, at: str) -> dict[str, Any]:
+def new_idea(idea_id: str, *, name: str, statement: str, kind: str, at: str, started_by: str = "") -> dict[str, Any]:
+    """A new idea. `started_by` is "unplaced" when a claim matching couldn't place started it (match.py),
+    and "" when the model did; it is bookkeeping for the run's shape, never shown or fingerprinted."""
     return {
         "id": idea_id, "name": words_at_most(line(name, 120), 8) or "An idea from research",
         "statement": line(statement, 500), "kind": kind if kind in KINDS else "capability",
@@ -37,7 +39,7 @@ def new_idea(idea_id: str, *, name: str, statement: str, kind: str, at: str) -> 
         "revisit": "", "needs_you": None, "effects": [], "touches": [], "protected": [], "done_when": [],
         "owner_view": None, "owner_view_complete": False, "checked_by": "", "rule_notes": [], "serves_dec_018": "",
         "evidence_hash": "", "judged_with": None, "status": "active", "merged_into": "", "was": [],
-        "fingerprint": "", "created_at": at, "updated_at": at,
+        "fingerprint": "", "created_at": at, "updated_at": at, "started_by": started_by,
     }
 
 

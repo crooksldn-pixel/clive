@@ -241,7 +241,7 @@ def _new_ideas(work: Work, landing, doc: dict[str, Any]) -> dict[str, str]:
         if not any(ref == key for ref, _s, _c in landing.claims.values()):
             continue
         idea = new_idea(work.synth.next_idea_id(work.gen), name=given.get("name") or "", statement=given.get("statement") or "",
-                        kind=given.get("kind") or "", at=now())
+                        kind=given.get("kind") or "", at=now(), started_by=given.get("started_by") or "")
         work.ideas[idea["id"]] = idea
         made[key] = idea["id"]
         work.event("created", idea=idea["id"], doc_id=doc["doc_id"], said=f"Created from {doc['document']}: {idea['name']}.")

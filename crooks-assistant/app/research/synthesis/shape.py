@@ -14,6 +14,9 @@ What it promises:
   active ideas only (each claim is in exactly one); "started" counts every idea a document started,
   merged ones too, by the document of its first source, as a list in the order the documents were
   read (run.json is written with its keys sorted, so a list is what keeps that order).
+- [review 6] `ideas.started_unplaced` counts the ideas started because a claim couldn't be placed even
+  when asked again (match.py marks them): how many were started, how many are still active, and how
+  many claims those still hold. It says whether that fallback is what makes the ideas many.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from app.research.synthesis.ideas import documents_backing
+from app.research.synthesis.match import UNPLACED
 from app.research.synthesis.words import CENTRALITIES, CLAIM_KINDS, KINDS
 
 
@@ -57,11 +61,15 @@ def of(ideas: dict[str, dict[str, Any]], claims: dict[str, dict[str, Any]], orde
         if idea.get("sources"):
             by_claims[_bucket(len(idea["sources"]), CLAIMS)] += 1
     passing = sum(1 for i in active if i.get("sources") and all(s.get("centrality") == "passing" for s in i["sources"]))
+    fallback = [i for i in ideas.values() if i.get("started_by") == UNPLACED]
+    still = [i for i in fallback if i.get("status") == "active"]
     return {
         "claims": {"total": len(quoted) + unplaced, "placed": sum(1 for c in quoted if c.get("id") in sources),
                    "unplaced": unplaced, "by_centrality": centrality, "by_kind": kinds},
         "ideas": {"active": len(active), "merged": sum(1 for i in ideas.values() if i.get("status") == "merged"),
-                  "by_kind": by_kind, "by_documents": backing, "by_claims": by_claims, "only_passing": passing},
+                  "by_kind": by_kind, "by_documents": backing, "by_claims": by_claims, "only_passing": passing,
+                  "started_unplaced": {"ideas": len(fallback), "active": len(still),
+                                       "claims": sum(len(i.get("sources") or []) for i in still)}},
         "started": _started(ideas, list(order), claims),
     }
 
@@ -89,6 +97,7 @@ def lines(shape: dict[str, Any] | None) -> list[str]:
     waiting = claims["total"] - claims["placed"] - claims["unplaced"]
     docs = ideas["by_documents"]
     by = ideas["by_claims"]
+    unplaced = ideas.get("started_unplaced") or {"ideas": 0, "active": 0, "claims": 0}
     return [
         f"Shape: {claims['total']} recommendations, {claims['placed']} placed in ideas, {claims['unplaced']} couldn't be placed"
         + (f", {waiting} not placed yet" if waiting else "")
@@ -100,4 +109,6 @@ def lines(shape: dict[str, Any] | None) -> list[str]:
         f"{ideas['only_passing']} only from passing mentions.",
         "Ideas started in each document, in the order read: " + (", ".join(str(d["ideas"]) for d in shape["started"]) or "none")
         + ".",
+        f"Ideas started because a recommendation couldn't be placed, even when asked again: {unplaced['ideas']}; "
+        f"{unplaced['active']} still active, holding {unplaced['claims']} recommendation{'' if unplaced['claims'] == 1 else 's'}.",
     ]

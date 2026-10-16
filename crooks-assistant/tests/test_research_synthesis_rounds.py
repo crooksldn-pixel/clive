@@ -554,7 +554,7 @@ async def test_the_shape_of_a_run_is_counted_right_and_is_counts_only(place, the
         "ideas": {"active": 10, "merged": 1,
                   "by_kind": {"foundational": 3, "capability": 3, "safety": 2, "tooling-choice": 1, "process": 1, "meta": 0},
                   "by_documents": {"0": 0, "1": 7, "2": 1, "3+": 2}, "by_claims": {"1": 7, "2-3": 3, "4+": 0},
-                  "only_passing": 3},
+                  "only_passing": 3, "started_unplaced": {"ideas": 0, "active": 0, "claims": 0}},
         "started": [{"doc_id": d, "ideas": n} for d, n in zip(docs, (7, 2, 2), strict=True)],
     }
     assert run["report"]["shape"] == run["shape"]
@@ -573,7 +573,7 @@ async def test_the_shape_of_a_run_is_counted_right_and_is_counts_only(place, the
     shape_words = {"claims", "ideas", "started", "total", "placed", "unplaced", "by_centrality", "by_kind", "active", "merged",
                    "by_documents", "by_claims", "only_passing", "0", "1", "2", "3+", "2-3", "4+", "central", "supporting",
                    "passing", "build", "principle", "avoid", "measure", "sequence", "process", "foundational", "capability",
-                   "safety", "tooling-choice", "meta", "doc_id"}
+                   "safety", "tooling-choice", "meta", "doc_id", "started_unplaced"}
     for path, value in leaves(run["shape"]):
         if path[-1] == "doc_id":
             assert re.fullmatch(r"doc-[0-9a-f]{20}", value), "a document's id, never its name"
@@ -591,16 +591,50 @@ async def test_the_shape_of_a_run_is_counted_right_and_is_counts_only(place, the
         "Ideas: 10 active, 1 merged; by kind: foundational 3, capability 3, safety 2, tooling-choice 1, process 1; backed by "
         "one document 7, two 1, three or more 2; with one recommendation 7, two or three 3, four or more 0; 3 only from "
         "passing mentions.",
-        "Ideas started in each document, in the order read: 7, 2, 2."]
-    assert report_lines(run["report"])[-3:] == lines
+        "Ideas started in each document, in the order read: 7, 2, 2.",
+        "Ideas started because a recommendation couldn't be placed, even when asked again: 0; 0 still active, holding 0 "
+        "recommendations."]
+    assert report_lines(run["report"])[-4:] == lines
     status = status_lines(synth, gen)
-    assert status[-4:-1] == lines and status[-1].endswith("on this server now.")
+    assert status[-5:-1] == lines and status[-1].endswith("on this server now.")
     outside = Path(tempfile.mkdtemp(prefix="clive-export-test-"))
     try:
         assert _script()._export(store, str(outside / "x.tgz"), gen) == 0
     finally:
         shutil.rmtree(outside, ignore_errors=True)
-    assert capsys.readouterr().out.splitlines()[-3:] == lines
+    assert capsys.readouterr().out.splitlines()[-4:] == lines
+
+
+async def test_ideas_a_claim_that_couldnt_be_placed_started_are_marked_and_counted(place, the_map):
+    """[review 6] A claim the model leaves out, or puts in an idea that doesn't exist, even when asked again,
+    starts an idea of its own. It is marked started_by "unplaced", and the shape counts those ideas and the
+    claims they hold: counts only."""
+    store, _ledger = place
+    model = fx.Scripted()
+    model.judge["Keep jobs alive across restarts"] = model.judge["Work survives a restart"]
+    real = model._match
+
+    def stubborn(prompt):
+        out = real(prompt)
+        for placed in out["claims"]:
+            if re.search(rf"(?m)^{placed['c']}: Keep jobs alive across restarts\. ", prompt):
+                placed["idea"] = "idea-9999"
+        return out
+
+    model._match = stubborn
+    await fx.read_old_way(store, model, *FIRST_THREE)
+    gen = await synthesise(store, model=model, the_map=the_map)
+    synth = synthesis_store(store)
+    ideas = synth.ideas(gen).values()
+    (own,) = [i for i in ideas if i.get("started_by") == "unplaced"]
+    assert own["name"] == "Keep jobs alive across restarts" and own["status"] == "active" and len(own["sources"]) == 1
+    assert all(i.get("started_by") == "" for i in ideas if i is not own), "the model started every other idea"
+    run = synth.run(gen)
+    assert run["shape"]["ideas"]["started_unplaced"] == {"ideas": 1, "active": 1, "claims": 1}
+    assert run["shape"]["ideas"]["active"] == 11, "the restart idea was started again by the next document"
+    assert shape.lines(run["shape"])[-1] == ("Ideas started because a recommendation couldn't be placed, even when asked "
+                                             "again: 1; 1 still active, holding 1 recommendation.")
+    assert "Keep jobs alive" not in json.dumps(run["shape"])
 
 
 # ------------------------------------------------------------------ 5. a detail joins the idea it details
