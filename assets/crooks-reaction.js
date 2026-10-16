@@ -76,7 +76,7 @@
     var labelOrig = root.getAttribute('data-crk-rx-label-original') || labelFull;
     var brushShare = (parseFloat(root.getAttribute('data-crk-rx-brush')) || 12) / 100;
     var teaserOn = root.getAttribute('data-crk-rx-teaser') === 'true';
-    var alphaStroke = kind === 'heat' ? 0.16 : 0.3;
+    var alphaStroke = kind === 'heat' ? 0.24 : 0.3;
 
     var ctx = null;
     try { ctx = canvas && canvas.getContext ? canvas.getContext('2d') : null; } catch (x) { ctx = null; }
@@ -421,7 +421,7 @@
         pts.push({ x: (0.3 + 0.4 * t) * mw, y: (0.47 - 0.05 * Math.sin(t * Math.PI)) * mh });
       }
       var r = radiusMask('mouse') * 1.1;
-      var alpha = kind === 'heat' ? 0.24 : 0.36;
+      var alpha = kind === 'heat' ? 0.3 : 0.36;
       var last = pts[0];
       var laid = 0;
       stamp(last.x, last.y, r, alpha, false);

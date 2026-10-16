@@ -6,6 +6,23 @@ the reacted photo comes through where they paint, with a soft edge, and stays.
 VIEW FULL REACTION shows the whole reacted jacket and switches back; RESET
 clears the paint.
 
+## Update, 16 Oct afternoon: real Puffa photo
+
+George supplied the heated Puffa photo (black shell → metallic silver),
+1122×1402, transparent background. It lines up with the product's front photo
+(98.9% silhouette overlap, at most 1 px off).
+
+| | |
+|---|---|
+| File | Content › Files: `crooksldn-double-agent-puffa-heat-reacted.webp`, alt "CROOKSLDN Double-Agent Puffa with heat applied: the black shell shows metallic silver" |
+| Theme | New unpublished copy of live, #207338668375 "CROOKSLDN — Puffa heat reaction (from live 16 Oct)". The live theme is read-only to me, so the photo is set there |
+| On that copy | `templates/product.reaction-puffa.json` uses the real photo (no placeholder tag); the `pending/` sizes tweak is applied; the heat brush is stronger (0.16 → 0.24 per stamp, sample stroke 0.24 → 0.30), because with the real photo one stroke only half-revealed the silver and read as a sheen. Copies in `theme-207338668375/` |
+| Tested on the copy | Desktop and phone runs as below, all passing; a phone now downloads the 1000 px reacted file on first load |
+| Still to do | George publishes the copy; then the Puffa's theme template is set to `reaction-puffa`. Until that, customers see nothing new |
+
+The HydroCuff template on the copy still has its placeholder and stays
+unassigned.
+
 ## Where it is
 
 | | |
