@@ -1,0 +1,217 @@
+{%- comment -%}
+  CROOKSLDN — reaction test, standalone. For any page: a landing page, the
+  homepage, or a product template where it should sit away from the buy
+  panel. On the product record itself, use the "Reaction test" block of
+  Crooks — Product Record instead (it sits under the buy panel).
+  Everything is in snippets/crooks-reaction.liquid.
+{%- endcomment -%}
+<div class="crk-root crk-record crk-rx-section">
+  <div class="crk-wrap">
+    {%- render 'crooks-reaction',
+      s: section.settings,
+      product: product,
+      rx_id: section.id,
+      sizes: '(min-width: 1180px) 580px, (min-width: 960px) 47vw, (min-width: 768px) calc(100vw - 132px), calc(100vw - 100px)',
+      layout: 'wide',
+      placement: 'section'
+    -%}
+  </div>
+</div>
+
+{% schema %}
+{
+  "name": "Crooks — Reaction test",
+  "tag": "section",
+  "class": "crk-rx-section-wrap",
+  "settings": [
+    {
+      "type": "header",
+      "content": "Photos"
+    },
+    {
+      "type": "image_picker",
+      "id": "image_normal",
+      "label": "Normal image",
+      "info": "Before the reaction. Leave blank on a product page to use the product's first photo. Same size and framing as the reacted image."
+    },
+    {
+      "type": "image_picker",
+      "id": "image_reacted",
+      "label": "Reacted image",
+      "info": "The same shot, same size and framing, in its reacted state. The test only shows once this is set."
+    },
+    {
+      "type": "text",
+      "id": "reacted_alt",
+      "label": "Reacted image description",
+      "info": "Read out to screen readers. Say what changes, e.g. \"a handcuff pattern shows on the wet shell\"."
+    },
+    {
+      "type": "checkbox",
+      "id": "eager",
+      "label": "Load the photos straight away",
+      "info": "Only when the test sits at the very top of a page. Otherwise they load as the shopper scrolls near.",
+      "default": false
+    },
+    {
+      "type": "header",
+      "content": "Reaction"
+    },
+    {
+      "type": "select",
+      "id": "reaction",
+      "label": "Reaction type",
+      "options": [
+        {
+          "value": "water",
+          "label": "Water"
+        },
+        {
+          "value": "heat",
+          "label": "Heat"
+        }
+      ],
+      "default": "water"
+    },
+    {
+      "type": "range",
+      "id": "brush",
+      "label": "Brush size",
+      "min": 6,
+      "max": 24,
+      "step": 1,
+      "unit": "%",
+      "info": "Share of the photo's width. Never smaller than a fingertip on touch screens.",
+      "default": 12
+    },
+    {
+      "type": "checkbox",
+      "id": "teaser",
+      "label": "Draw one sample stroke when the test comes into view",
+      "default": true
+    },
+    {
+      "type": "header",
+      "content": "Text"
+    },
+    {
+      "type": "text",
+      "id": "eyebrow",
+      "label": "Eyebrow",
+      "default": "Material evidence"
+    },
+    {
+      "type": "text",
+      "id": "test_word",
+      "label": "Test word",
+      "default": "Test"
+    },
+    {
+      "type": "text",
+      "id": "test_number",
+      "label": "Test / evidence number",
+      "default": "01"
+    },
+    {
+      "type": "text",
+      "id": "reaction_label",
+      "label": "Reaction label",
+      "info": "Blank: Water-reactive or Heat-reactive."
+    },
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "info": "Blank: the reaction label."
+    },
+    {
+      "type": "richtext",
+      "id": "copy",
+      "label": "Supporting copy"
+    },
+    {
+      "type": "text",
+      "id": "hint",
+      "label": "Interaction label",
+      "info": "On the photo until the shopper paints. Blank: Swipe to apply water → or Drag to apply heat →."
+    },
+    {
+      "type": "text",
+      "id": "states",
+      "label": "Status words",
+      "info": "Before / while painting / full reaction, split by /. Blank: Dry / Wet / Fully wet or Ambient / Warm / Full heat."
+    },
+    {
+      "type": "text",
+      "id": "status_word",
+      "label": "Status label",
+      "default": "Status"
+    },
+    {
+      "type": "text",
+      "id": "full_label",
+      "label": "Full reaction button",
+      "default": "View full reaction"
+    },
+    {
+      "type": "text",
+      "id": "original_label",
+      "label": "Back button",
+      "default": "View original"
+    },
+    {
+      "type": "text",
+      "id": "reset_label",
+      "label": "Reset button",
+      "default": "Reset"
+    },
+    {
+      "type": "text",
+      "id": "sr_text",
+      "label": "Screen reader instructions",
+      "default": "The photo is interactive: drag across it to see the reaction. View full reaction shows the whole reacted garment."
+    },
+    {
+      "type": "header",
+      "content": "Style"
+    },
+    {
+      "type": "color",
+      "id": "accent",
+      "label": "Accent colour",
+      "info": "Blank: the theme accent."
+    },
+    {
+      "type": "range",
+      "id": "space_top",
+      "label": "Space above",
+      "min": 0,
+      "max": 80,
+      "step": 4,
+      "unit": "px",
+      "default": 0
+    },
+    {
+      "type": "range",
+      "id": "space_bottom",
+      "label": "Space below",
+      "min": 0,
+      "max": 80,
+      "step": 4,
+      "unit": "px",
+      "default": 0
+    }
+  ],
+  "presets": [
+    {
+      "name": "Crooks — Reaction test"
+    }
+  ],
+  "disabled_on": {
+    "groups": [
+      "header",
+      "footer"
+    ]
+  }
+}
+{% endschema %}

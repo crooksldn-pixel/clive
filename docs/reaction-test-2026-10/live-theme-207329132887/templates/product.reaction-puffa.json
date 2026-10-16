@@ -1,0 +1,219 @@
+/*
+ * ------------------------------------------------------------
+ * IMPORTANT: The contents of this file are auto-generated.
+ *
+ * This file may be updated by the Shopify admin theme editor
+ * or related systems. Please exercise caution as any changes
+ * made to this file may be overwritten.
+ * ------------------------------------------------------------
+ */
+{
+  "sections": {
+    "carriage": {
+      "type": "crooks-cart-progress",
+      "settings": {
+        "allow_size_change": true,
+        "size_change_label": "CHANGE SIZE",
+        "size_close_label": "KEEP THIS SIZE",
+        "size_legend": "Change size",
+        "size_gone_label": "GONE",
+        "size_working_label": "CHANGING…",
+        "size_failed_label": "That size just went. Nothing has changed in your bag.",
+        "country_code": "GB",
+        "tier_1_threshold": 30,
+        "tier_1_label": "Tracked 48 free",
+        "tier_2_threshold": 80,
+        "tier_2_label": "Tracked 24 free",
+        "label_to_tier_1": "[amount] to free Tracked 48",
+        "label_to_tier_2": "[amount] to free Tracked 24",
+        "label_complete": "Free Tracked 24 — unlocked",
+        "progress_label": "Progress toward free carriage"
+      }
+    },
+    "main": {
+      "type": "crooks-exhibit-record",
+      "blocks": {
+        "crooks_operations_preorder_DgGNfe": {
+          "type": "shopify://apps/crooks-operations/blocks/preorder/01a135eb-4bae-72e0-b4f4-5beaf5fabe15",
+          "settings": {}
+        },
+        "s1": {
+          "type": "custody_step",
+          "settings": {
+            "label": "Logged",
+            "body": "Orders placed before 18:00 are dispatched the same day, Monday to Saturday. After 18:00, the next dispatch day."
+          }
+        },
+        "s2": {
+          "type": "custody_step",
+          "settings": {
+            "label": "Dispatched",
+            "body": "Shipped with Royal Mail Tracked. Free UK shipping over £30, and free Tracked 24 over £80."
+          }
+        },
+        "s3": {
+          "type": "custody_step",
+          "settings": {
+            "label": "In transit",
+            "body": "Tracking issued by email. UK 1–2 working days. International 7–14 working days."
+          }
+        },
+        "s4": {
+          "type": "custody_step",
+          "settings": {
+            "label": "Delivered",
+            "body": "You have 14 days from delivery to send back unworn pieces with tags on. Faulty or wrong items: 30 days, always free."
+          }
+        },
+        "reaction": {
+          "type": "reaction",
+          "settings": {
+            "image_reacted": "shopify://shop_images/crooks-reaction-placeholder-puffa-heat.png",
+            "reacted_alt": "",
+            "eager": false,
+            "brush": 12,
+            "teaser": true,
+            "eyebrow": "Material evidence",
+            "test_word": "Test",
+            "reaction_label": "",
+            "hint": "",
+            "states": "",
+            "status_word": "Status",
+            "full_label": "View full reaction",
+            "original_label": "View original",
+            "reset_label": "Reset",
+            "sr_text": "The photo is interactive: drag across it to see the reaction. View full reaction shows the whole reacted garment.",
+            "space_top": 0,
+            "space_bottom": 0,
+            "reaction": "heat",
+            "test_number": "01",
+            "heading": "Changes with temperature",
+            "copy": "<p>The Double-Agent shell is heat-reactive: its appearance changes with temperature. Drag across the photo to apply heat.</p>"
+          }
+        }
+      },
+      "block_order": [
+        "crooks_operations_preorder_DgGNfe",
+        "reaction",
+        "s1",
+        "s2",
+        "s3",
+        "s4"
+      ],
+      "settings": {
+        "collection": "all",
+        "back_label": "← Catalogue",
+        "exhibit_word": "PRODUCT",
+        "case_word": "CASE",
+        "show_texture": true,
+        "photo_label": "Photo [i] of [n]",
+        "gallery_label": "Evidence photographs",
+        "size_group_label": "Select a size",
+        "label_add": "Add to bag",
+        "label_checkout_now": "Checkout now",
+        "show_dynamic_checkout": true,
+        "label_added": "Added — [n] in bag",
+        "label_added_plain": "Added to bag",
+        "label_adding": "Adding…",
+        "label_add_error": "Could not add that. Refresh and try again.",
+        "label_view_bag": "View bag",
+        "label_select": "Select a size",
+        "label_select_option": "Select [option]",
+        "label_sold": "SOLD OUT",
+        "label_in_stock": "IN STOCK",
+        "label_low": "[n] LEFT IN SIZE [size]",
+        "label_sold_size": "SIZE [size] IS SOLD OUT",
+        "low_stock_threshold": 3,
+        "size_guide_label": "Size guide",
+        "sr_sold_out": "sold out",
+        "sr_left": "left",
+        "nojs_note": "CHOOSE A SIZE:",
+        "in_stock_text": "Order before 18:00 and it ships today (Mon–Sat)",
+        "made_to_order_text": "Made to order · Ships in 9–16 days",
+        "made_to_order_tag": "made-to-order",
+        "dispatch_show": true,
+        "dispatch_cutoff_hour": 18,
+        "dispatch_days": "1,2,3,4,5,6",
+        "dispatch_timezone": "Europe/London",
+        "dispatch_today": "Ordered now — leaves today",
+        "dispatch_tomorrow": "Ordered now — leaves tomorrow",
+        "dispatch_next_open": "Ordered now — leaves Monday",
+        "released_text": "RELEASED — NO LONGER IN CUSTODY",
+        "notify_variant_label": "Tell me when this size is back",
+        "notify_placeholder": "email address",
+        "notify_button": "Notify me",
+        "notify_email_label": "Email address",
+        "notify_subject": "Restock request",
+        "notify_ok": "Logged. We will email you when this exhibit returns.",
+        "notify_err": "Submission rejected — check the address.",
+        "spec_heading": "Specification",
+        "row_size": "Size",
+        "one_size_text": "One size",
+        "row_fabric": "Fabric",
+        "row_cut": "Cut",
+        "row_wash": "Wash code",
+        "row_origin": "Origin",
+        "row_care": "Care",
+        "row_case": "Case ref",
+        "spec_open": false,
+        "measure_open": false,
+        "provenance_open": false,
+        "custody_open": false,
+        "set_collapsed_text": "Cop the full fit — add the matching [partner]. Save [saving].",
+        "set_partner_size_label": "[partner] size",
+        "set_pick_text": "Pick a [partner] size",
+        "set_main_first_text": "Pick your size first",
+        "set_sold_text": "[partner] sold out in [size] — pick another size",
+        "set_price_label": "[price] for the set",
+        "set_shipping_text": "Free UK Tracked 24 included",
+        "set_cta": "ADD THE FULL FIT — [price]",
+        "provenance_heading": "Item description",
+        "measure_heading": "Measurements",
+        "measure_caption_cm": "True to size. These are the garment's own full measurements.",
+        "measure_caption_in": "True to size. These are the garment's own full measurements.",
+        "units_label": "Measurement units",
+        "measure_region_label": "Measurements table",
+        "unit_cm": "CM",
+        "unit_in": "IN",
+        "custody_heading": "Chain of custody — shipping & returns",
+        "related_heading": "More from this drop",
+        "related_sizes_label": "[n] OF [m] SIZES LEFT"
+      }
+    },
+    "17920079549f293de5": {
+      "type": "_blocks",
+      "settings": {
+        "content_direction": "column",
+        "vertical_on_mobile": true,
+        "horizontal_alignment": "flex-start",
+        "vertical_alignment": "center",
+        "align_baseline": false,
+        "horizontal_alignment_flex_direction_column": "flex-start",
+        "vertical_alignment_flex_direction_column": "center",
+        "gap": 12,
+        "section_width": "page-width",
+        "section_height": "",
+        "section_height_custom": 50,
+        "color_scheme": "",
+        "background_media": "none",
+        "video_position": "cover",
+        "background_image_position": "cover",
+        "border": "none",
+        "border_width": 1,
+        "border_opacity": 100,
+        "border_radius": 0,
+        "toggle_overlay": false,
+        "overlay_color": "#00000026",
+        "overlay_style": "solid",
+        "gradient_direction": "to top",
+        "padding-block-start": 0,
+        "padding-block-end": 0
+      }
+    }
+  },
+  "order": [
+    "carriage",
+    "main",
+    "17920079549f293de5"
+  ]
+}

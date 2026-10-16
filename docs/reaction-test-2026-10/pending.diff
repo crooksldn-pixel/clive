@@ -1,0 +1,60 @@
+--- sections/crooks-exhibit-record.liquid (live)
++++ sections/crooks-exhibit-record.liquid (pending)
+@@ -534,6 +534,7 @@
+             product: product,
+             rx_id: crk_rx.id,
+             sizes: '(min-width: 960px) 55vw, 100vw',
++            sizes_reacted: '(min-width: 1180px) 560px, (min-width: 960px) 46vw, (min-width: 768px) calc(100vw - 132px), calc(100vw - 100px)',
+             placement: 'product'
+           -%}
+         </div>
+--- snippets/crooks-reaction.liquid (live)
++++ snippets/crooks-reaction.liquid (pending)
+@@ -17,7 +17,9 @@
+     s          block.settings or section.settings (same schema in both callers)
+     product    the product: image fallback and analytics (optional)
+     rx_id      unique id (block.id / section.id)
+-    sizes      sizes attribute for both photos
++    sizes          sizes attribute for the normal photo (on a product page, the
++                   gallery's, so the same file is reused from cache)
++    sizes_reacted  sizes attribute for the reacted photo (blank: sizes)
+     layout     'stack' (default) or 'wide' (photo left, text right from 960px)
+     placement  analytics label: 'product' or 'section'
+ 
+@@ -103,6 +105,7 @@
+       assign rx_load = 'eager'
+     endif
+     assign rx_sizes = sizes | default: '(min-width: 960px) 55vw, 100vw'
++    assign rx_sizes_r = sizes_reacted | default: rx_sizes
+ 
+     assign rx_placeholder = false
+     if rx_src contains 'placeholder'
+@@ -177,7 +180,7 @@
+           | image_url: width: 1400
+           | image_tag:
+             widths: '400, 600, 800, 1000, 1400',
+-            sizes: rx_sizes,
++            sizes: rx_sizes_r,
+             loading: rx_load,
+             class: rx_react_cls,
+             alt: rx_react_alt,
+@@ -215,7 +218,7 @@
+           | image_url: width: 1400
+           | image_tag:
+             widths: '400, 600, 800, 1000, 1400',
+-            sizes: rx_sizes,
++            sizes: rx_sizes_r,
+             loading: 'lazy',
+             alt: rx_react_alt
+         }}
+--- sections/crooks-reaction.liquid (live)
++++ sections/crooks-reaction.liquid (pending)
+@@ -11,7 +11,7 @@
+       s: section.settings,
+       product: product,
+       rx_id: section.id,
+-      sizes: '(min-width: 1180px) 640px, (min-width: 960px) 55vw, calc(100vw - 32px)',
++      sizes: '(min-width: 1180px) 580px, (min-width: 960px) 47vw, (min-width: 768px) calc(100vw - 132px), calc(100vw - 100px)',
+       layout: 'wide',
+       placement: 'section'
+     -%}
