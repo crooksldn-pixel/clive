@@ -77,10 +77,13 @@ Shopify admin -> **Apps -> CROOKS Returns** opens `/admin` inside the admin
   any return. Pressing Create again (a lost answer, a double click) never makes a second return
   or buys a second label; the same items can't be returned twice.
 - **Label email** (on a return staff issued): sent, not confirmed yet, or why not (email off,
-  no address, refused), and **Send again** (a new email; the same label, nothing bought). An
-  email whose outcome is unknown is retried by itself with the same key for up to a day
-  (delivered once); after that it says "Not confirmed". Needs `RETURNS_EMAIL_PROVIDER=resend`
-  and a Resend key; without them Shopify's own label email (a link, no QR) goes instead.
+  no address, refused), and **Send again** (a new email; the same label, nothing bought),
+  offered only once the first has settled. The email is written once; an unknown outcome is
+  retried by itself with the same key and the same email for up to a day from the first try
+  (delivered once), then says "Not confirmed". If Resend can't be reached it is tried again
+  on each tick, up to 12 times. One that didn't go is flagged "Label email not sent" in the
+  list. Needs `RETURNS_EMAIL_PROVIDER=resend` and a Resend key; without them Shopify's own
+  label email (a link, no QR) goes instead.
 - **Setup**: the same health check as `returns-ctl check`, and the test order list (which
   overrides `RETURNS_PILOT_ORDER_NUMBERS` once saved there).
 

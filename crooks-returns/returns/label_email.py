@@ -12,10 +12,11 @@ from returns.models import Resolution, Return, gbp
 QR_CID = "return-qr"
 
 
-def _miles(metres: int | None) -> str:
-    if metres is None:
+def _miles(metres: Any) -> str:
+    try:
+        miles = float(metres) / 1609.344
+    except (TypeError, ValueError):
         return ""
-    miles = metres / 1609.344
     return f"{miles:.1f} miles away" if miles >= 0.1 else "under 0.1 miles away"
 
 
@@ -24,9 +25,25 @@ def _item(ln: Any) -> str:
     return f"{ln.quantity} × {ln.title}{size}"
 
 
+def _text(v: Any) -> str:
+    return "" if v is None else str(v)
+
+
+def attachments(qr_png: bytes | None, label_pdf: bytes | None) -> list[dict[str, Any]]:
+    """The QR code (shown inline) and the printable label, from the stored files."""
+    found: list[dict[str, Any]] = []
+    if qr_png:
+        found.append({"filename": "return-qr.png", "content": qr_png, "content_id": QR_CID})
+    if label_pdf:
+        found.append({"filename": "return-label.pdf", "content": label_pdf})
+    return found
+
+
 def compose(
     ret: Return, qr_png: bytes | None, label_pdf: bytes | None, label_url: str | None
 ) -> dict[str, Any]:
+    if not (qr_png or label_pdf or label_url):
+        raise ValueError("There's no label to send.")
     first = (ret.customer_name or "").split(" ")[0] or "there"
     order = ret.order_name if ret.order_name.startswith("#") else f"#{ret.order_name}"
     p = ret.postage
@@ -50,14 +67,18 @@ def compose(
         t.append(f"Show the QR code in this email (also attached) at {where}. No printing needed.")
         if p.drop_off_text:
             t.append(f"If it can't be scanned, give them this code: {p.drop_off_text}")
-    else:
+    elif label_pdf:
         t.append("Print the attached label and stick it on the parcel.")
+    else:
+        t.append("Print the label from the link below and stick it on the parcel.")
     if shops:
         t += ["", "Your nearest drop-off points:"]
         for sh in shops:
-            line = f"  {sh.get('name')}, {sh.get('address')}"
-            extra = ", ".join(x for x in (_miles(sh.get("distance_m")), sh.get("hours")) if x)
-            t.append(line + (f" ({extra})" if extra else ""))
+            line = ", ".join(x for x in (_text(sh.get("name")), _text(sh.get("address"))) if x)
+            extra = ", ".join(
+                x for x in (_miles(sh.get("distance_m")), _text(sh.get("hours"))) if x
+            )
+            t.append(f"  {line}" + (f" ({extra})" if extra else ""))
     if p.tracking:
         t += ["", f"Tracking: {p.tracking}"]
     if label_url:
@@ -85,15 +106,17 @@ def compose(
                 f"<p>If it can't be scanned, give them this code: "
                 f"<strong>{e(p.drop_off_text)}</strong></p>"
             )
-    else:
+    elif label_pdf:
         h.append("<p>Print the attached label and stick it on the parcel.</p>")
+    else:
+        h.append("<p>Print the label from the link below and stick it on the parcel.</p>")
     if shops:
         rows = "".join(
-            f'<li style="margin-bottom:8px"><strong>{e(str(sh.get("name") or ""))}</strong><br>'
-            f"{e(str(sh.get('address') or ''))}"
+            f'<li style="margin-bottom:8px"><strong>{e(_text(sh.get("name")))}</strong><br>'
+            f"{e(_text(sh.get('address')))}"
             + "".join(
                 f'<br><span style="color:#555">{e(x)}</span>'
-                for x in (_miles(sh.get("distance_m")), sh.get("hours"))
+                for x in (_miles(sh.get("distance_m")), _text(sh.get("hours")))
                 if x
             )
             + "</li>"
@@ -109,14 +132,9 @@ def compose(
         h.append(f'<p><a href="{e(label_url)}">Open the label</a></p>')
     h.append("<p>Thanks,<br>CROOKS</p></div>")
 
-    attachments = []
-    if qr_png:
-        attachments.append({"filename": "return-qr.png", "content": qr_png, "content_id": QR_CID})
-    if label_pdf:
-        attachments.append({"filename": "return-label.pdf", "content": label_pdf})
     return {
         "subject": f"Your CROOKS return label — order {order}",
         "text": "\n".join(t),
         "html_body": "".join(h),
-        "attachments": attachments,
+        "attachments": attachments(qr_png, label_pdf),
     }

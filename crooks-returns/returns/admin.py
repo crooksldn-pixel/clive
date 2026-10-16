@@ -35,7 +35,7 @@ from returns.models import (
     gbp,
 )
 from returns import policy
-from returns.service import ActionError, ReturnsService
+from returns.service import EMAIL_IN_FLIGHT, ActionError, ReturnsService
 
 LEEWAY_S = 10
 NAME_RETRY_S = 600  # a failed staff-name lookup is tried again after 10 minutes
@@ -104,11 +104,8 @@ def actions_for(ret: Return) -> list[str]:
     if (
         ret.origin == "staff"
         and ret.email is not None
-        and ret.status
-        in (
-            Status.awaiting_shipment,
-            Status.in_transit,
-        )
+        and ret.email.status not in EMAIL_IN_FLIGHT  # never a second while the first may go
+        and ret.status in (Status.awaiting_shipment, Status.in_transit)
     ):
         out.append("resend_email")
     return [*out, "note"]

@@ -21,6 +21,10 @@ class EmailRefused(Exception):
     """A definite refusal: not sent."""
 
 
+class EmailNotReached(Exception):
+    """The email service was never reached: not sent, and safe to try again."""
+
+
 class EmailUncertain(Exception):
     """No clear answer: it may have been sent."""
 
@@ -53,14 +57,18 @@ class DisabledMailer:
 
 class RecordingMailer:
     """For the tests and the dev server: keeps what would have been sent, delivering each
-    key once, as Resend does."""
+    key once, as Resend does, and answering a key reused for a different email as Resend
+    does (409, so no clear answer)."""
 
     name, enabled = "recording", True
 
     def __init__(self) -> None:
         self.sent: list[dict[str, Any]] = []
         self.delivered_keys: set[str] = set()
-        self.fail_next: str | None = None  # "refused" | "unknown" | None
+        self.bodies: dict[str, tuple[Any, ...]] = {}
+        # "refused" | "unknown" | "unreached" | None: the next send only, or every send.
+        self.fail_next: str | None = None
+        self.fail_all: str | None = None
 
     def send(
         self,
@@ -72,9 +80,14 @@ class RecordingMailer:
         key: str,
         attachments: list[Attachment],
     ) -> str:
-        kind, self.fail_next = self.fail_next, None
+        kind, self.fail_next = self.fail_next or self.fail_all, None
         if kind == "refused":
             raise EmailRefused("The address was refused (test).")
+        if kind == "unreached":
+            raise EmailNotReached("The email service couldn't be reached (test).")
+        body = (to, subject, text, html_body, tuple(a["filename"] for a in attachments))
+        if self.bodies.setdefault(key, body) != body:
+            raise EmailUncertain("409: that key was used for a different email (test).")
         if key not in self.delivered_keys:
             self.delivered_keys.add(key)
             self.sent.append(
@@ -143,7 +156,7 @@ class ResendMailer:
             )
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
             # Never connected: nothing reached Resend.
-            raise EmailRefused(f"Resend couldn't be reached ({type(exc).__name__}).") from exc
+            raise EmailNotReached(f"Resend couldn't be reached ({type(exc).__name__}).") from exc
         except httpx.HTTPError as exc:
             raise EmailUncertain(f"No answer from Resend ({type(exc).__name__}).") from exc
         if r.status_code in (200, 201):

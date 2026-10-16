@@ -266,3 +266,152 @@ def test_the_admin_routes_find_quote_create_and_resend(svc, mailer):
     resent = c.post(f"/admin/api/returns/{made['id']}/resend-email").json()
     assert resent["email"]["ok"] and len(mailer.sent) == 2
     assert c.get("/admin/api/new-return/order", params={"ref": "999999"}).status_code == 404
+
+
+# --------------------------------------------------------------------------- review findings
+
+
+def test_an_unknown_email_stops_a_day_after_the_first_try_not_the_last(svc, mailer, clock):
+    mailer.fail_all = "unknown"  # never a clear answer
+    ret = create(svc)
+    first = ret.email.first_try_at
+    for _ in range(14):  # every two hours, past the day the provider keeps a key
+        clock.now += timedelta(hours=2)
+        svc.tick()
+    ret = svc.store.get(ret.id)
+    assert ret.email.status == "unconfirmed" and ret.email.first_try_at == first
+    assert ret.email.last_try_at - first <= timedelta(hours=23)
+
+
+def test_a_retry_after_a_lost_reply_sends_the_same_email(svc, mailer, clock):
+    mailer.fail_next = "unknown"
+    ret = create(svc)
+    clock.now += timedelta(hours=1)  # the label link is signed afresh each hour it is made
+    svc.tick()
+    ret = svc.store.get(ret.id)
+    assert ret.email.status == "sent" and len(mailer.sent) == 1
+
+
+def test_never_reaching_the_email_service_is_tried_again(svc, mailer):
+    mailer.fail_next = "unreached"
+    ret = create(svc)
+    assert ret.email.status == "pending" and ret.email.error
+    svc.tick()
+    assert svc.store.get(ret.id).email.status == "sent" and len(mailer.sent) == 1
+
+
+def test_never_reaching_it_at_all_ends_as_not_sent(svc, mailer):
+    mailer.fail_all = "unreached"
+    ret = create(svc)
+    for _ in range(20):
+        svc.tick()
+    ret = svc.store.get(ret.id)
+    assert ret.email.status == "failed" and mailer.sent == []
+    assert "email_problem" in svc.staff(ret)["attention"]
+
+
+@pytest.mark.parametrize("kind", ["refused", "no_address"])
+def test_staff_see_an_email_that_didnt_go(svc, shop, mailer, kind):
+    if kind == "no_address":
+        shop.orders[ORDER].email = shop.orders[ORDER].customer_email = None
+    else:
+        mailer.fail_next = kind
+    ret = create(svc)
+    assert "email_problem" in svc.staff(ret)["attention"]
+
+
+def test_a_sent_email_needs_no_attention_and_isnt_in_the_staff_doc(svc):
+    ret = create(svc)
+    doc = svc.staff(ret)
+    assert "email_problem" not in doc["attention"]
+    assert "message" not in (doc["email"] or {})  # the body and its signed link stay inside
+
+
+@pytest.mark.parametrize("state", ["unknown", "unreached"])
+def test_send_again_waits_while_the_first_email_is_still_going(svc, mailer, state):
+    mailer.fail_next = state
+    ret = create(svc)
+    with pytest.raises(ActionError, match="still"):
+        svc.resend_label_email(ret.id, "Sam")
+    assert svc.store.get(ret.id).email.key == ret.email.key
+
+
+def test_a_label_handed_to_shopify_later_is_emailed_by_crooks_not_shopify(svc, shop, mailer):
+    shop.fail.add("attach_shipping")
+    ret = create(svc)
+    assert ret.status == Status.awaiting_label and ret.postage.qr_file_id
+    shop.fail.discard("attach_shipping")
+    ret.postage.label_ref = "p2g:1"  # collected labels are Parcel2Go's
+    svc.store.save(ret)
+    svc.tick()
+    ret = svc.store.get(ret.id)
+    assert ret.status == Status.awaiting_shipment
+    attaches = [c[1] for c in shop.calls if c[0] == "reverseDeliveryCreateWithShipping"]
+    assert attaches[-1]["notify"] is False
+    assert ret.email.status == "sent" and len(mailer.sent) == 1
+
+
+def test_shipping_is_given_back_once_across_staff_returns(svc, shop):
+    ship = shop.orders[ORDER].shipping_pence
+    create(svc, key="a", refund=2500 + ship)
+    jeans = [Selection(fulfillment_line_item_id=JEANS, quantity=1, reason=Reason.faulty)]
+    q = svc.staff_quote(ORDER, jeans)
+    assert q["max_refund_pence"] == q["items_pence"]  # the shipping went back already
+    with pytest.raises(ActionError, match="at most"):
+        create(svc, key="b", sel=jeans, refund=q["items_pence"] + 1)
+
+
+def test_an_email_that_cant_be_written_is_not_sent_and_says_so(svc, mailer, monkeypatch):
+    def broken(*_a, **_k):
+        raise ValueError("bad shop data")
+
+    monkeypatch.setattr("returns.label_email.compose", broken)
+    ret = create(svc)
+    assert ret.email.status == "failed" and "couldn't be written" in ret.email.error
+    assert mailer.sent == []
+
+
+def test_the_email_reads_right_with_odd_shop_data_and_no_qr():
+    from returns.label_email import compose
+    from datetime import UTC, datetime
+
+    from returns.models import Money, Postage, PostageState, Resolution, Return, ReturnLine
+
+    ret = Return(
+        id="ret_x",
+        order_id=ORDER,
+        order_name="1939",
+        customer_name="Ann",
+        currency="GBP",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+        status=Status.awaiting_shipment,
+        resolution=Resolution.refund,
+        lines=[
+            ReturnLine(
+                fulfillment_line_item_id=TEE,
+                line_item_id="li",
+                title="Docket Tee",
+                quantity=1,
+                unit_paid_pence=2500,
+                reason=Reason.faulty,
+            )
+        ],
+        money=Money(items_pence=2500, refund_pence=2500),
+        postage=PostageState(
+            chosen=Postage.free_label, shops=[{"name": None, "address": 12, "hours": None}]
+        ),
+    )
+    msg = compose(ret, None, None, "https://x/files/f?t=1")
+    assert "None" not in msg["text"] and "Print the attached label" not in msg["text"]
+    assert "https://x/files/f?t=1" in msg["text"]
+
+
+def test_the_screen_offers_send_again_only_once_the_email_has_settled(svc, mailer):
+    from returns.admin import actions_for
+
+    mailer.fail_next = "unknown"
+    ret = create(svc)
+    assert "resend_email" not in actions_for(ret)
+    svc.tick()
+    assert "resend_email" in actions_for(svc.store.get(ret.id))

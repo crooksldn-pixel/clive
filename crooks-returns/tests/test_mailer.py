@@ -9,7 +9,13 @@ import pytest
 
 from pydantic import SecretStr
 
-from returns.mailer import EmailRefused, EmailUncertain, ResendMailer, build_mailer
+from returns.mailer import (
+    EmailNotReached,
+    EmailRefused,
+    EmailUncertain,
+    ResendMailer,
+    build_mailer,
+)
 from returns.settings import Settings
 
 MSG: dict[str, Any] = dict(
@@ -73,7 +79,7 @@ def test_never_connecting_is_not_sent_but_a_lost_reply_is_unknown():
     def lost(r):
         raise httpx.ReadTimeout("timed out")
 
-    with pytest.raises(EmailRefused):
+    with pytest.raises(EmailNotReached):
         mailer(refused).send(**MSG)
     with pytest.raises(EmailUncertain):
         mailer(lost).send(**MSG)

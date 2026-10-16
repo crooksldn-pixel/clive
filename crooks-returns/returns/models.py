@@ -285,14 +285,21 @@ class LabelEmail(BaseModel):
     """The CROOKS email that carries a staff-issued return's label to the customer.
 
     pending → sending → sent; or unknown (no clear answer: retried with the same key within a
-    day), unconfirmed (still unknown after that), failed (refused), off (email not set up),
-    no_address (the order has no email). Resend is a new email with a new key."""
+    day of the first try), unconfirmed (still unknown after that), failed (refused, or the
+    email service never reached), off (email not set up), no_address (the order has no email).
+    The email service not being reached puts it back to pending, tried again a few times.
+    Resend is a new email with a new key."""
 
     status: str = "pending"
     key: str
     to: str | None = None
     attempts: int = 0
+    first_try_at: datetime | None = None  # the provider keeps a key for a day from here
     last_try_at: datetime | None = None
+    maybe_sent: bool = False  # an earlier try had no clear answer
+    # Subject, text and HTML as first written: every retry sends the same email (a key
+    # reused with a different body is refused). Kept out of what staff and CLIVE are sent.
+    message: dict[str, str] | None = None
     sent_at: datetime | None = None
     provider_id: str | None = None
     error: str | None = None
