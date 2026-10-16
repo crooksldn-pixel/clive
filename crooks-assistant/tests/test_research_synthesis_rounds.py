@@ -336,6 +336,26 @@ async def test_a_kept_idea_is_renamed_said_in_plain_words_and_never_when_he_answ
     assert not [e for e in work.synth.events(work.gen) if e["type"] == "renamed"]
 
 
+async def test_the_names_only_call_never_renames(tmp_path, monkeypatch):
+    """[review 2] The call that shows ideas by name only never saw their statements: its shape asks for no
+    name or statement, and a rename it gives anyway changes nothing but the merge."""
+    monkeypatch.setattr(consolidate, "GROUP", 2)
+    model = Rounds(_named("TEST a name from names alone", "TEST: a statement written from names alone."))
+    work = _work(tmp_path, model, [("TEST jobs survive a restart", "foundational"), ("TEST save each step", "process"),
+                                   ("TEST a third idea", "safety")])
+    assert consolidate.calls_of(work.active()) == [(["idea-0001", "idea-0002", "idea-0003"], True)], "one kind each: by name only"
+    await run_module.consolidate(work)
+    kept = work.ideas["idea-0001"]
+    assert work.ideas["idea-0002"]["merged_into"] == "idea-0001", "the merge stands"
+    assert (kept["name"], kept["statement"]) == ("TEST jobs survive a restart", "TEST: TEST jobs survive a restart, invented for CLIVE's tests.")
+    assert not [e for e in work.synth.events(work.gen) if e["type"] == "renamed"]
+    (prompt,) = model.prompts
+    asked = prompt.split("</research>", 1)[1]
+    assert "leave name and statement out" in asked and '"name"' not in asked and '"statement"' not in asked
+    full = consolidate.prompt_for(work.active()).split("</research>", 1)[1]
+    assert '"name": "only when renamed", "statement": "only when renamed"' in full, "a call that shows statements may rename"
+
+
 async def test_reading_makes_one_round_a_document_and_the_stage_stops_when_a_round_joins_nothing(place, the_map):
     store, _ledger = place
     model = fx.Scripted()
