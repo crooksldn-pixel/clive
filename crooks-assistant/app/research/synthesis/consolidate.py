@@ -18,6 +18,8 @@ What it promises — the model proposes, code decides:
 - Only ids that exist and are active are merged; an idea is merged at most once per call, and never
   into itself. An idea merged earlier in a round, or in an earlier round, is never offered again.
 - Two ideas George answered differently are never merged, and the one he answered is the one kept.
+- [review 3] A tool stays apart from its goal in code too: a `tooling-choice` idea and an idea of any
+  other kind are never merged (two tooling-choice ideas may be).
 - Merging moves the sources and what argues against them into the idea kept; the other becomes
   `status: merged, merged_into` and stays on disk. Nothing is ever split.
 - The idea kept may be renamed when it takes in ideas wider than its name: a name of at most
@@ -45,6 +47,7 @@ NAME_CHARS = 120
 STATEMENT_SENTENCES = 2
 STATEMENT_CHARS = 300
 WHAT = "list of merges"
+TOOL = "tooling-choice"
 
 CONSOLIDATE_SYSTEM = """You look after the list of ideas CLIVE, a business assistant for George, the owner of a small London streetwear label, has drawn from research.
 
@@ -115,6 +118,7 @@ def read(answer: str | dict[str, Any], active: list[dict[str, Any]], answered: d
     object Calls.ask_json read from it."""
     found = answer if isinstance(answer, dict) else parse_object(answer, WHAT)
     known = {i["id"] for i in active}
+    tool = {i["id"]: i.get("kind") == TOOL for i in active}
     used: set[str] = set()
     out = []
     for item in items(found.get("merges")):
@@ -127,6 +131,8 @@ def read(answer: str | dict[str, Any], active: list[dict[str, Any]], answered: d
             other = str(other or "").strip()
             if other not in known or other == keep or other in used or other in merge:
                 continue
+            if tool[other] != tool[keep]:
+                continue      # a tool, vendor or technique stays apart from the goal it serves
             theirs = answered.get(other, "")
             if said and theirs and theirs != said:
                 continue      # George answered them differently: they stay two ideas

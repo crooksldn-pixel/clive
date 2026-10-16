@@ -573,13 +573,34 @@ async def test_the_shape_of_a_run_is_counted_right_and_is_counts_only(place, the
 def test_the_joining_rule_is_one_constant_in_the_match_prompt():
     rule = match.JOIN_RULE
     assert rule in match.MATCH_SYSTEM and match.MATCH_SYSTEM.count("accepting one means accepting the other") == 0
-    assert "details it, narrows it, is a step towards it, or is a way of doing it: then its stance is refines" in rule
+    assert ("details it, narrows it, is a step towards it, or is a way of doing it other than the choice of a tool, vendor or "
+            "technique: then its stance is refines") in rule
     assert "Start a new idea only for something George would decide on separately" in rule
     assert '"work must survive restarts" and "adopt Temporal for it" are two ideas' in rule
     system = consolidate.CONSOLIDATE_SYSTEM
     assert "When in doubt" not in system and "Merge when George would answer them as one question." in system
     assert "a part, a detail, a step or a narrower form of the other: keep the broader one" in system
     assert "Never merge a goal with a tool or vendor" in system and "Never merge ideas that only touch the same part" in system
+
+
+def test_a_tool_is_never_merged_into_its_goal():
+    """[review 3] Whatever the answer says, a tooling-choice idea and an idea of another kind stay apart."""
+    active = [{"id": "idea-0001", "kind": "foundational"}, {"id": "idea-0002", "kind": "tooling-choice"},
+              {"id": "idea-0003", "kind": "foundational"}, {"id": "idea-0004", "kind": "tooling-choice"}]
+    answer = {"merges": [{"keep": "idea-0001", "merge": ["idea-0002", "idea-0003"], "why": "TEST"},
+                         {"keep": "idea-0004", "merge": ["idea-0002"], "why": "TEST"}]}
+    assert consolidate.read(answer, active, {}) == [{"keep": "idea-0001", "merge": ["idea-0003"], "why": "TEST"},
+                                                    {"keep": "idea-0004", "merge": ["idea-0002"], "why": "TEST"}]
+    tool_keeps = {"merges": [{"keep": "idea-0002", "merge": ["idea-0001"], "why": "TEST"}]}
+    assert consolidate.read(tool_keeps, active, {}) == [], "either way round"
+
+
+async def test_a_scripted_merge_of_a_tool_into_its_goal_is_refused(tmp_path):
+    model = Rounds({"merges": [{"keep": "idea-0001", "merge": ["idea-0002"], "why": "TEST: the engine is how jobs survive"}]})
+    work = _work(tmp_path, model, [("TEST work survives a restart", "foundational"), ("TEST adopt TestQueue for it", "tooling-choice")])
+    await run_module.consolidate(work)
+    assert {i["id"] for i in work.active()} == {"idea-0001", "idea-0002"}
+    assert not [e for e in work.synth.events(work.gen) if e["type"] == "merged"]
 
 
 async def test_a_claim_that_details_an_idea_joins_it_as_refines(place, the_map):
