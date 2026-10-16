@@ -7,6 +7,8 @@ answers a different question:
    It needs no new runs. Numbers are in [audit/BASELINE_EVIDENCE.md](audit/BASELINE_EVIDENCE.md).
 2. **B0: the owner's "before".** Real work done as today, on the re-pinned loop (after RP1) until D1, with the
    attention ledger on. This is the OAMAB and chain-ETAB baseline that **V1-real** is judged against.
+   **ACTIVE since 2026-10-16 13:34:31 UTC, without PR 1's ledger.** It runs on records the system already keeps; one OAMAB part has
+   no source. See [B0.md](B0.md).
 3. **B1: the machine "before".** The replay set, run twice on the RP2 loop with single requests. It
    isolates the loop's machine-side behaviour on the new pin (Claude reviewer, FIFO, plan pause) from
    the historical era, and anchors the concurrency ladder.

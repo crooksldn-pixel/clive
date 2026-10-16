@@ -1,12 +1,19 @@
 # Final implementation plan — CLIVE Autonomous Engineering V1
 
-**Status:** APPROVED by George on 2026-10-15 (revision 4). **Stage A only is authorised.** Stage B and
-any V1 application code wait for his further go. O-1 and O-2 are approved, and O-3 is deferred
-until the baseline (DECISIONS.md).
+**Status:** APPROVED by George on 2026-10-15 (revision 4). O-1 and O-2 are approved; O-3 is deferred
+until B0 gives the distribution (DECISIONS.md).
 
-**Progress (2026-10-16):** A1, RP1 and retiring the production-host loop are done
-([STAGE_A_RUNBOOK.md](STAGE_A_RUNBOOK.md)). Two of RP1's DEC-068 rows wait for the first real repair or
-re-file. PR 0, PR 1 and B0 were not in George's Stage A order and have not started.
+```
+Stage A: COMPLETE      (planning commit d4319a01; George closed it 2026-10-16 at the completed re-pin)
+B0: ACTIVE             (since 2026-10-16 13:34:31 UTC; B0.md)
+Stage B/application implementation: NOT STARTED
+```
+
+Stage A is A1, RP1 and retiring the production-host loop ([STAGE_A_RUNBOOK.md](STAGE_A_RUNBOOK.md)).
+Two of RP1's DEC-068 rows wait for the first real repair or re-file. PR 0 and PR 1, grouped under Stage A
+below, are **not** part of it (George, 2026-10-16):
+- PR 0 is a documentation-only catch-up during B0, done only if still useful;
+- PR 1 waits until B0 is frozen.
 
 **Written against:**
 - trunk `ef204bc2` (DEC-079);
@@ -118,7 +125,10 @@ are filed to worker-01 as ordinary requests.
 
 ---
 
-## Stage A — now: truth, the re-pin, and measurement
+## Stage A — truth, the re-pin, and measurement
+
+**COMPLETE 2026-10-16, closed at the completed re-pin** (A1 and RP1). The PR 0, PR 1 and B0 sections
+are kept here as written, with George's timing for each added to it.
 
 ### A1 — worker-01 read-only audit
 - **Who:** George, or a session he authorises on clive-worker-01.
@@ -132,6 +142,11 @@ are filed to worker-01 as ordinary requests.
 - **Why first:** the RP1 rollback target is the pin it records.
 
 ### PR 0 — Current truth catches up; the planning package reaches trunk (docs; Director)
+**During B0 (George, 2026-10-16):**
+- documentation-only catch-up, done only if still useful;
+- it must not alter runtime behaviour or B0 measurements;
+- carrying the planning package to trunk waits, because it served PR 1;
+- deploy records and MAP's live block need the Director's deploy evidence, and stay his.
 - **Problem:** CURRENT_TRUTH is stale:
   - it says production is `b33ccbc2` and not the `dc59047e` deployed on 14 Oct;
   - it says the loop has been "quiet since 1 Oct";
@@ -215,6 +230,10 @@ are filed to worker-01 as ordinary requests.
 - **Owner-visible:** the reviewer he chose; repairs that know why they failed; one loop.
 
 ### PR 1 — Measures that measure; the attention and defect ledgers (loop-eligible)
+**Timing (George, 2026-10-16):** not started until B0 is frozen. The one exception is a required
+baseline metric the existing system literally cannot collect, and even then the missing measurement
+is reported to him first; nothing is added silently. One is reported: OAMAB's relay and
+evidence-review minutes ([B0.md](B0.md)).
 - **Problem:**
   - OAMAB and ABER have no instrument.
   - `engineering_measures` has four defects (BASELINE_EVIDENCE §4).
@@ -250,6 +269,9 @@ are filed to worker-01 as ordinary requests.
 - **Metric:** every BASELINE_PLAN metric has a value or a stated reason it has none.
 
 ### B0 — the "before" window
+**ACTIVE since 2026-10-16 13:34:31 UTC.** The system held fixed, the metric sources and the freeze rule
+are in [B0.md](B0.md). PR 1's ledger is not on: B0 uses records the system already keeps.
+
 From RP1 until D1 (aim for at least 7 days), real work is filed as today, with the ledger on.
 - **It gives:** OAMAB, chain ETAB, and blocks by cause on the re-pinned loop.
 - **What it isolates:** DEC-068's and DEC-076's effect on "review not converging", before any V1
@@ -842,7 +864,8 @@ E:  RP1 ─► PR 12 (F1)    RP2 ─► PR 11 (B1 ×2) ─► PR 13 (ladder)    
 | When | Gesture |
 |---|---|
 | Decisions | **O-1** (the filing-authority design) and **O-2** (the supervisor's identity), before Stage D. **O-3** (the OAMAB threshold), after V1-real |
-| Stage A | Run the A1 audit; the RP1 Termius session, including stopping the production-host loop; the holds for PR 1's and the smoke request's filings |
+| Stage A (done) | Ran the A1 audit; the RP1 Termius session; the hold for the smoke request. The production-host loop was stopped by the planning session |
+| B0 | Real work filed as today, each with his hold; the freeze call after at least 7 days; the hold for PR 1's filing after the freeze |
 | Stage B | Decide and run D1; phone check |
 | Stage C | The RP2 Termius session |
 | Stage D | Decide and run D2; set the private URL; phone check; the first plan card |
@@ -975,7 +998,7 @@ A1, PR 0, RP1, PR 1, B0, PRs 2–3, D1, PRs 4–6, RP2, PRs 7–10b, D2, PRs 11�
 ## Final GO / REVISE / STOP
 
 **GO, staged:**
-1. **Now:** Stage A. RP1 needs no new code, and it is the largest lever on the largest bottleneck.
+1. **Done:** Stage A (2026-10-16). **Now:** B0, on the re-pinned loop, with nothing changed during it.
 2. **Stage B** after B0 has at least 7 days.
 3. **Stage C** when PRs 4–6 have READY reviews.
 4. **Stage D** when George approves FILING_AUTHORITY (O-1) and the supervisor identity (O-2).

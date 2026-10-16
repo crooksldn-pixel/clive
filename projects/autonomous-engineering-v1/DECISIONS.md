@@ -203,6 +203,61 @@ Stage B and any V1 application code are not authorised yet.
 | Workspace cleanup policy | NEXT; proposed 14 days for terminal objectives |
 | Carrying `.mcp.json`, the planning agents or skills to trunk | Not done. An MCP server for every session would be his (DEC-064) |
 
+## Owner decisions, recorded 2026-10-16
+
+**George closed Stage A and started B0.** These are his rulings, as given.
+
+### Stage A: COMPLETE, at the completed re-pin and migration state (planning commit `d4319a01`)
+Its scope is not extended because further items were grouped under Stage A in the plan.
+
+### B0: ACTIVE ([B0.md](B0.md))
+**During B0:**
+- the current worker-01 system is used as it is now;
+- concurrency stays 2;
+- Claude stays the reviewer;
+- builder skills stay off on this worker;
+- default repair rounds stay 2.
+
+**Not during B0:**
+- no change to filing authority;
+- no tuning of retry or repair behaviour;
+- no preflight, triage, `depends_on`, archiving, `clive-eng`, plan limits or other V1 behaviour;
+- no deploy of PR 1's measurement or application-code changes.
+
+**Real engineering work continues as normal,** so that the baseline reflects genuine use rather than
+synthetic tests.
+
+### What B0 records
+The metrics the plan already defines, particularly:
+- OAMAB;
+- elapsed time to accepted build;
+- completion and block rate;
+- repair rounds;
+- re-files;
+- owner interruptions and actions;
+- CI and check failures;
+- reviewer stops and non-convergence;
+- environment and base failures;
+- scope failures;
+- queue and concurrency behaviour.
+
+### PR 0 and PR 1
+- **PR 0:** only a genuinely documentation-only catch-up, if still useful. It must not alter runtime
+  behaviour or B0 measurements.
+- **PR 1:** not started until B0 is frozen, unless the existing system literally cannot collect a
+  required baseline metric. In that case the missing measurement is reported to him first, rather
+  than instrumentation being added silently.
+
+### O-3
+Remains deferred. No OAMAB target is invented before B0 gives the distribution.
+
+### Plan state
+```
+Stage A: COMPLETE
+B0: ACTIVE
+Stage B/application implementation: NOT STARTED
+```
+
 ## Settled by canonical records (removed from the owner list in revision 4)
 
 | Former question | Settled by |
