@@ -134,6 +134,13 @@ A finished Returns case staff mark as a test ("Leave out") keeps its record and 
 (`left_out`, `put_back` events) and carries `left_out: {at, by, reason}`; it is left out of
 `GET /stats` and of the admin lists until it is put back. Nothing changes in Shopify.
 
+A return staff issue from the admin (**New return**) carries `origin: "staff"` (a customer's:
+`"portal"`), its `requested` event has `issued_by_staff: true`, and it is approved with a label
+in the same step. Its refund is the amount staff set (`money.refund_pence`; any part above the
+items is `money.shipping_refund_pence`). It also carries `email: {status, to, sent_at, ...}`
+for the CROOKS label email, with `label_emailed`, `label_email_unknown`, `label_email_failed`
+and `label_email_requested` events.
+
 ## The boundary between Returns and Shipping
 
 They stay separate services with separate databases, joined only through Shopify:

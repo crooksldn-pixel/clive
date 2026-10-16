@@ -6,7 +6,8 @@
     http://127.0.0.1:8114/apps/returns/admin     the staff screen (admin auth skipped)
 
 The store is the built-in fixture (order #1939, proof E1 6AN or customer@example.com) and
-labels are test labels, so nothing real is booked. Two returns are seeded, one waiting for a
+labels are test labels with drop-off points and a QR code, so nothing real is booked. Emails
+are kept, never sent: the last one is at /apps/returns/dev/emails. Two returns are seeded, one waiting for a
 decision and one approved, so the list and detail screens have something to show. The data
 lives in a throwaway SQLite file and is rebuilt on every start.
 
@@ -16,6 +17,8 @@ to talk to, so expect its console warnings, not app errors.
 
 from __future__ import annotations
 
+import base64
+import html
 import os
 import re
 import sys
@@ -34,6 +37,8 @@ from fastapi.responses import HTMLResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 from returns.app import build_service, create_app  # noqa: E402
+from returns.fake import FakeLabels  # noqa: E402
+from returns.mailer import RecordingMailer  # noqa: E402
 from returns.models import Postage, Reason, Resolution, Selection  # noqa: E402
 from returns.settings import Settings  # noqa: E402
 
@@ -93,6 +98,9 @@ def portal_page() -> str:
 def build(port: int) -> FastAPI:
     s = settings(port)
     svc = build_service(s)
+    svc.labels = FakeLabels(drop_off=True)  # drop-off points and a QR code, as Parcel2Go
+    outbox = RecordingMailer()
+    svc.mailer = outbox  # kept, never sent
     seed(svc)
     root = FastAPI()
     root.mount("/assets", StaticFiles(directory=str(REPO / "assets")), name="assets")
@@ -100,6 +108,23 @@ def build(port: int) -> FastAPI:
     @root.get("/", response_class=HTMLResponse)
     def index() -> str:
         return portal_page()
+
+    @root.get("/apps/returns/dev/emails", response_class=HTMLResponse)
+    def emails() -> str:
+        sent = outbox.sent
+        if not sent:
+            return "<p>No email yet.</p>"
+        last = sent[-1]
+        page = last["html"]
+        for f in last["files"]:
+            if f.get("content_id"):
+                data = base64.b64encode(f["content"]).decode()
+                page = page.replace(f"cid:{f['content_id']}", f"data:image/png;base64,{data}")
+        names = ", ".join(a["filename"] for a in last["attachments"])
+        return (
+            f"<p style='font:13px sans-serif;color:#666'>To {html.escape(last['to'])} · "
+            f"{html.escape(last['subject'])} · attached: {html.escape(names)}</p><hr>{page}"
+        )
 
     root.mount("/apps/returns", create_app(s, svc))
     return root

@@ -287,11 +287,83 @@ class FakeShopify:
 
 
 class FakeLabels:
+    """Test labels. With drop_off, it offers drop-off networks with their nearest shops and
+    gives a QR code, as Parcel2Go does. lose_next: the next purchase happens but its answer is
+    lost (the retry settles it)."""
+
     name = "Test labels"
 
-    def __init__(self, ok: bool = True) -> None:
+    def __init__(self, ok: bool = True, drop_off: bool = False) -> None:
         self.ok = ok
+        self.drop_off = drop_off
+        self.lose_next = False
         self.made: list[str] = []
+        if drop_off:
+            self.options = self._options
+
+    def _options(
+        self, postcode: str, value_pence: int = 2500, with_shops: bool = True
+    ) -> list[Any]:
+        from returns.parcel2go import DropOption, DropShop
+
+        def shops(kind: str) -> list[DropShop]:
+            return [
+                DropShop(
+                    name=f"{kind} {n}",
+                    address=f"{n} High Street, London",
+                    postcode=postcode,
+                    distance_m=250 * n,
+                    hours="Mon–Sat 8am–9pm",
+                )
+                for n in (1, 2, 3)
+            ]
+
+        return [
+            DropOption(
+                courier="evri",
+                courier_name="Evri",
+                service="evri-parcelshop-dropoff",
+                service_name="Evri ParcelShop drop-off",
+                price_pence=299,
+                price_ex_vat_pence=249,
+                printer=False,
+                locker=False,
+                drop_off_code=None,
+                print_in_store=True,
+                shops=shops("Evri ParcelShop") if with_shops else [],
+            ),
+            DropOption(
+                courier="inpost",
+                courier_name="InPost",
+                service="inpost-locker",
+                service_name="InPost Locker",
+                price_pence=275,
+                price_ex_vat_pence=229,
+                printer=False,
+                locker=True,
+                drop_off_code=None,
+                print_in_store=False,
+                shops=shops("InPost Locker") if with_shops else [],
+            ),
+        ]
+
+    def _label(self, ret: Return, ref: str) -> Label:
+        if not self.drop_off:
+            return Label(tracking=f"RT{int(ref):09d}GB", pdf=b"%PDF-1.4 fake label", ref=ref)
+        from returns.parcel2go import qr_png
+
+        code = f"CRK{int(ref):06d}"
+        return Label(
+            tracking=f"RT{int(ref):09d}GB",
+            pdf=b"%PDF-1.4 fake label",
+            ref=ref,
+            carrier="Evri" if ret.postage.service != "inpost" else "InPost",
+            qr_png=qr_png(code),
+            drop_off_code=code,
+            service=ret.postage.service,
+            service_name=ret.postage.service_name,
+            price_pence=299,
+        )
 
     def available(self) -> tuple[bool, str]:
         return (True, "") if self.ok else (False, "Click & Drop is not connected (test).")
@@ -301,14 +373,9 @@ class FakeLabels:
             raise LabelError(self.available()[1])
         if ret.postage.label_ref:
             # Like Parcel2Go: an order from an earlier try is settled, never bought again.
-            return Label(
-                tracking=f"RT{int(ret.postage.label_ref):09d}GB",
-                pdf=b"%PDF-1.4 fake label",
-                ref=ret.postage.label_ref,
-            )
+            return self._label(ret, ret.postage.label_ref)
         self.made.append(ret.id)
-        return Label(
-            tracking=f"RT{len(self.made):09d}GB",
-            pdf=b"%PDF-1.4 fake label",
-            ref=str(len(self.made)),
-        )
+        if self.lose_next:
+            self.lose_next = False
+            raise LabelError("No answer from the label service (test).", ref=str(len(self.made)))
+        return self._label(ret, str(len(self.made)))

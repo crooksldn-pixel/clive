@@ -21,12 +21,14 @@ from typing import Any
 
 import httpx
 
-from returns import policy, verify
+from returns import label_email, policy, verify
 from returns.labels import Label, LabelError, LabelPort, tracking_url
+from returns.mailer import DisabledMailer, EmailOff, EmailRefused, EmailUncertain, Mailer
 from returns.models import (
     OPEN_STATUSES,
     REASON_LABELS,
     Event,
+    LabelEmail,
     LeftOut,
     Money,
     Order,
@@ -35,6 +37,7 @@ from returns.models import (
     PostageState,
     Resolution,
     Return,
+    ReturnLine,
     Selection,
     Status,
     declared_value_pence,
@@ -149,6 +152,7 @@ class ReturnsService:
         labels: LabelPort,
         notifier: Notifier | None = None,
         clock: Callable[[], datetime] = now,
+        mailer: Mailer | None = None,
     ) -> None:
         self.s = settings
         self.store = store
@@ -156,6 +160,8 @@ class ReturnsService:
         self.labels = labels
         self.notifier = notifier or Notifier(settings)
         self.clock = clock
+        # Email CROOKS sends itself (a staff-issued return's label). Off: nothing is sent.
+        self.mailer: Mailer = mailer or DisabledMailer()
         self.by_order = verify.RateLimiter(limit=settings.lookup_order_limit, window_s=900)
         self.by_ip = verify.RateLimiter(limit=settings.lookup_ip_limit, window_s=900)
         self._lock = threading.Lock()  # leave out / put back: one change at a time
@@ -343,6 +349,274 @@ class ReturnsService:
             self.store.save(ret)
         self.notifier.send("return.requested", ret)
         return ret
+
+    # ============================================================ returns staff issue
+
+    def staff_order(self, ref: str) -> Order:
+        """An order by its number, for staff (no proof, no pilot list: a person is signed in)."""
+        digits = verify.normalise_order_number(ref)
+        found = self.shopify.find_orders(digits) if digits else []
+        if not found:
+            raise ActionError(f"No order {ref.strip() or '(blank)'} was found in Shopify.", 404)
+        return self.available(found[0])
+
+    def staff_quote(self, order_id: str, selections: list[Selection]) -> dict[str, Any]:
+        """What a staff return for these items would refund by default (the customer's own
+        refund offer) and the most it may refund (the items and the order's shipping)."""
+        order = self._staff_get_order(order_id)
+        lines = self._staff_lines(order, selections)
+        items = sum(ln.unit_paid_pence * ln.quantity for ln in lines)
+        shipping = (
+            order.shipping_pence
+            if self.s.refund_outbound_shipping_on_full_return
+            and policy.is_full_return(order, lines)
+            else 0
+        )
+        return {
+            "items_pence": items,
+            "default_refund_pence": items + shipping,
+            "max_refund_pence": items + order.shipping_pence,
+        }
+
+    def _staff_get_order(self, order_id: str) -> Order:
+        order = self.shopify.get_order(order_id)
+        if order is None:
+            raise ActionError("That order isn't in Shopify any more.", 404)
+        return self.available(order)
+
+    def _staff_lines(self, order: Order, selections: list[Selection]) -> list[ReturnLine]:
+        try:
+            return policy.staff_lines(order, selections)
+        except policy.PolicyError as exc:
+            raise ActionError(str(exc), 422) from exc
+
+    def create_for_customer(
+        self,
+        order_id: str,
+        selections: list[Selection],
+        refund_pence: int,
+        courier: str | None,
+        actor: str,
+        key: str,
+    ) -> Return:
+        """A return staff issue for a customer: created, approved with a label bought through
+        the same steps as any approval, and the label emailed to the customer by CROOKS. The
+        same key replays (a lost reply or a double click never makes a second return); a new
+        key for the same items is refused because they are no longer returnable."""
+        if not key:
+            raise ActionError("An idempotency key is required.", 422)
+        scoped = f"staff-return:{key}"
+        asked = hashlib.sha256(
+            json.dumps(
+                {
+                    "order": order_id,
+                    "lines": [x.model_dump(mode="json") for x in selections],
+                    "refund": refund_pence,
+                    "courier": courier,
+                },
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        done = self.store.remembered(scoped)
+        if done is None:
+            order = self._staff_get_order(order_id)
+            drop_off = None
+            options = self.drop_off_options(order)
+            if options:
+                drop_off = next((o for o in options if o["courier"] == courier), None)
+                if drop_off is None:
+                    raise ActionError("Choose one of the drop-off options offered.", 422)
+            with self.store.lock:
+                done = self.store.remembered(scoped)  # a twin request got here first
+                if done is None:
+                    ret = self._new_staff_return(
+                        order_id, selections, refund_pence, drop_off, actor
+                    )
+                    self.store.remember(scoped, {"return_id": ret.id, "_params": asked})
+                    done = {"return_id": ret.id, "_params": asked, "new": True}
+            if done.get("new"):
+                self.notifier.send("return.requested", self._get(done["return_id"]))
+        if done.get("_params", asked) != asked:
+            raise ActionError(
+                "That key was already used for a different request. Use a new key.", 409
+            )
+        rid = done["return_id"]
+        if self._get(rid).status == Status.requested:
+            self.execute(
+                rid,
+                "approve",
+                {"postage_mode": PostageMode.label_now.value},
+                actor,
+                f"staff-create:{key}",
+                source="ui",
+            )
+        self.send_label_email(rid)
+        return self._get(rid)
+
+    def _new_staff_return(
+        self,
+        order_id: str,
+        selections: list[Selection],
+        refund_pence: int,
+        drop_off: dict[str, Any] | None,
+        actor: str,
+    ) -> Return:
+        order = self._staff_get_order(order_id)  # under the lock: quantities as they are now
+        lines = self._staff_lines(order, selections)
+        items = sum(ln.unit_paid_pence * ln.quantity for ln in lines)
+        most = items + order.shipping_pence
+        if refund_pence < 0:
+            raise ActionError("The refund can't be negative.", 422)
+        if refund_pence > most:
+            raise ActionError(
+                f"The refund can be at most {gbp(most)}: the items and the order's shipping.", 422
+            )
+        at = self.clock()
+        ret = Return(
+            id=new_id("ret"),
+            order_id=order.id,
+            order_name=order.name,
+            customer_id=order.customer_id,
+            customer_name=order.customer_name,
+            customer_email=order.email or order.customer_email,
+            currency=order.currency,
+            created_at=at,
+            updated_at=at,
+            status=Status.requested,
+            resolution=Resolution.refund,
+            lines=lines,
+            money=Money(
+                items_pence=items,
+                refund_pence=refund_pence,
+                # The part above the items is the order's shipping, refunded as shipping.
+                shipping_refund_pence=max(0, refund_pence - items),
+            ),
+            postage=PostageState(
+                chosen=Postage.free_label,
+                paid_by="crooks",
+                service=drop_off["courier"] if drop_off else None,
+                service_name=drop_off["name"] if drop_off else None,
+                carrier=drop_off["courier_name"] if drop_off else None,
+                shops=drop_off["shops"] if drop_off else [],
+            ),
+            origin="staff",
+        )
+        self._event(
+            ret,
+            "requested",
+            actor,
+            {
+                "issued_by_staff": True,
+                "refund": gbp(refund_pence),
+                "drop_off": ret.postage.service_name,
+                "summary": self.summary(ret),
+            },
+        )
+        self._stamp(ret, 0, "ui")
+        self.store.save(ret)
+        return ret
+
+    # ---------------------------------------------------------------- the label email
+
+    def send_label_email(self, return_id: str) -> Return:
+        """Send a staff-issued return's label email if it is due: once the label exists, once.
+        An unknown outcome is retried with the same key (delivered once) within a day."""
+        with self.store.lock:
+            ret = self._get(return_id)
+            e = ret.email
+            if e is None or ret.status not in (Status.awaiting_shipment, Status.in_transit):
+                return ret
+            if (
+                e.status == "sending"
+                and e.last_try_at
+                and self.clock() - e.last_try_at > timedelta(minutes=10)
+            ):
+                e.status = "unknown"  # interrupted mid-send: may have gone
+            if (
+                e.status == "unknown"
+                and e.last_try_at
+                and (self.clock() - e.last_try_at > timedelta(hours=23))
+            ):
+                e.status = "unconfirmed"
+                e.error = "Not confirmed by the email service. Resend it if the customer has none."
+                self.store.save(ret)
+                return ret
+            if e.status not in ("pending", "unknown"):
+                return ret
+            if not self.mailer.enabled:
+                e.status, e.error = "off", "Email isn't set up on the server, so CROOKS sent none."
+                self.store.save(ret)
+                return ret
+            if not e.to:
+                e.status, e.error = "no_address", "The order has no email address."
+                self.store.save(ret)
+                return ret
+            e.status, e.attempts, e.last_try_at = "sending", e.attempts + 1, self.clock()
+            self.store.save(ret)  # written down before it is sent
+            message = self._label_message(ret)
+            to, key = e.to, e.key
+        try:
+            pid = self.mailer.send(to=to, key=key, **message)
+            outcome, error = "sent", None
+        except EmailUncertain as exc:
+            pid, outcome, error = None, "unknown", str(exc)
+        except (EmailRefused, EmailOff) as exc:
+            pid, outcome, error = None, "failed", str(exc)
+        except Exception as exc:  # after the send may have happened: never "failed"
+            log.exception("label email for %s", return_id)
+            pid, outcome, error = None, "unknown", type(exc).__name__
+        with self.store.lock:
+            ret = self._get(return_id)
+            assert ret.email is not None
+            if ret.email.key == key:
+                ret.email.status, ret.email.error = outcome, error
+                if outcome == "sent":
+                    ret.email.sent_at, ret.email.provider_id = self.clock(), pid
+                self._event(
+                    ret,
+                    {"sent": "label_emailed", "unknown": "label_email_unknown"}.get(
+                        outcome, "label_email_failed"
+                    ),
+                    "system",
+                    {"to": to, "error": error},
+                    verified=outcome == "sent",
+                )
+                self.store.save(ret)
+        return ret
+
+    def resend_label_email(self, return_id: str, actor: str) -> Return:
+        """Staff send the label email again: a new email (new key), never a retry of the old."""
+        with self.store.lock:
+            ret = self._get(return_id)
+            if ret.origin != "staff" or ret.email is None:
+                raise ActionError("Only returns staff issued are emailed by CROOKS.", 409)
+            if ret.status not in (Status.awaiting_shipment, Status.in_transit):
+                raise ActionError("There's no label to email for this return now.", 409)
+            if ret.email.status == "sending":
+                raise ActionError("The email is being sent now.", 409)
+            n = int(ret.email.key.rsplit(":", 1)[-1]) + 1 if ret.email.key[-1].isdigit() else 2
+            ret.email = LabelEmail(key=f"{ret.id}:label-email:{n}", to=ret.customer_email)
+            self._event(ret, "label_email_requested", actor, {"to": ret.customer_email})
+            self.store.save(ret)
+        ret = self.send_label_email(return_id)
+        if ret.email and ret.email.status == "sent":
+            with self.store.lock:
+                ret = self._get(return_id)
+                last = next(e for e in reversed(ret.timeline) if e.type == "label_emailed")
+                last.actor = actor
+                self.store.save(ret)
+        return ret
+
+    def _label_message(self, ret: Return) -> dict[str, Any]:
+        p = ret.postage
+        qr = self.store.get_file(p.qr_file_id) if p.qr_file_id else None
+        pdf = self.store.get_file(p.label_file_id) if p.label_file_id else None
+        return label_email.compose(
+            ret,
+            qr[1] if qr else None,
+            pdf[1] if pdf else None,
+            self.label_link(p.label_file_id) if p.label_file_id else None,
+        )
 
     def drop_off_options(self, order: Order) -> list[dict[str, Any]]:
         """Where the customer could drop a free label return, with the nearest shops, when
@@ -898,8 +1172,14 @@ class ReturnsService:
         self._label_attached(ret, actor, self.label_link(file_id) if file_id else None)
 
     def _label_attached(self, ret: Return, actor: str, label_url: str | None) -> None:
-        if self._attach(ret, actor, label_url=label_url, notify=self.s.shopify_notify_customer):
+        # A staff-issued return gets the CROOKS label email (QR, drop-off points, refund)
+        # instead of Shopify's, when email is set up: the customer gets one email.
+        ours = ret.origin == "staff" and self.mailer.enabled
+        notify = self.s.shopify_notify_customer and not ours
+        if self._attach(ret, actor, label_url=label_url, notify=notify):
             ret.status = Status.awaiting_shipment
+            if ret.origin == "staff" and ret.email is None:
+                ret.email = LabelEmail(key=f"{ret.id}:label-email:1", to=ret.customer_email)
         else:
             self._await_label(ret, actor, ret.last_error or "Label not attached.")
 
@@ -1316,6 +1596,12 @@ class ReturnsService:
             self.collect_labels()
         except Exception:  # one bad return must not stop the overdue check
             log.exception("collecting labels")
+        for ret in self.store.search(open_only=True, limit=5000):
+            if ret.email is not None and ret.email.status in ("pending", "unknown", "sending"):
+                try:
+                    self.send_label_email(ret.id)
+                except Exception:  # one email never holds up the others
+                    log.exception("label email for %s", ret.id)
         flagged = []
         for ret in self.store.search(status=[Status.awaiting_label.value], limit=1000):
             due = ret.postage.label_due_at

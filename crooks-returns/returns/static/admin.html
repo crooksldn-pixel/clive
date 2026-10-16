@@ -158,7 +158,20 @@
   .checks .grp { font-size: 11px; font-weight: 650; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; padding-top: 12px; border: 0; }
   .field { display: block; margin-top: 10px; }
   .field > span { display: block; font-weight: 550; margin-bottom: 4px; }
-  .field input, .field textarea { width: 100%; padding: 7px 10px; border: 1px solid #8a8a8a66; border-radius: 8px; background: #fff; }
+  .field input, .field textarea, .field select { width: 100%; padding: 7px 10px; border: 1px solid #8a8a8a66; border-radius: 8px; background: #fff; }
+  /* a return staff issue */
+  .find { display: flex; gap: 8px; align-items: flex-end; }
+  .find .field { flex: 1; margin-top: 0; }
+  .pick { display: grid; grid-template-columns: auto 1fr; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line-2); }
+  .pick:first-of-type { border-top: 0; }
+  .pick.off { opacity: .55; }
+  .pick .sel { display: grid; grid-template-columns: 90px 1fr; gap: 8px; margin-top: 8px; }
+  .pick select { width: 100%; padding: 6px 8px; border: 1px solid #8a8a8a66; border-radius: 8px; background: #fff; }
+  .field > .money-in { display: flex; align-items: center; gap: 6px; max-width: 200px; margin-bottom: 0; font-weight: 600; }
+  .money-in input { text-align: right; }
+  .shops { margin: 8px 0 0; padding: 0; list-style: none; }
+  .shops li { color: var(--ink-2); font-size: 12px; margin-top: 4px; }
+  .shops li b { color: var(--ink); font-weight: 600; display: inline; }
   .field textarea { min-height: 70px; resize: vertical; }
   .hint { color: var(--ink-3); font-size: 12px; margin-top: 4px; }
 
@@ -311,6 +324,8 @@
     approve_unknown: "Shopify didn't answer: checked before trying again",
     approve_reconciled: "Checked in Shopify", shipping_attach_unknown: "Shopify didn't answer: label checked before sending again", cancel_unknown: "Shopify didn't answer the cancel",
     action_interrupted: "Interrupted: what was done is kept", label_paid_not_collected: "Label paid, not yet collected",
+    label_emailed: "Label emailed to the customer", label_email_unknown: "Label email not confirmed yet: checking",
+    label_email_failed: "Label email not sent", label_email_requested: "Label email sent again",
   };
   const ACTION = {
     approve: "Approve", decline: "Decline", label: "Add label", tracking: "Add tracking",
@@ -336,6 +351,7 @@
   function route() {
     const h = location.hash.replace(/^#\/?/, "");
     if (h === "setup") return showSetup();
+    if (h === "new") return showNewReturn();
     if (h.startsWith("r/")) return showReturn(decodeURIComponent(h.slice(2)));
     return showList();
   }
@@ -350,6 +366,7 @@
         <span class="who">${o ? "Signed in as " + esc(o.me) : ""}</span>
         <nav class="nav">
           <a href="#/" ${active === "list" ? 'aria-current="page"' : ""}>Returns</a>
+          <a href="#/new" ${active === "new" ? 'aria-current="page"' : ""}>New return</a>
           <a href="#/setup" ${active === "setup" ? 'aria-current="page"' : ""}>Setup</a>
         </nav>
       </div>
@@ -505,7 +522,7 @@
             <h2>Next step</h2>
             <p class="say muted">${esc(nextSay)}</p>
             <div class="actions">
-              ${r.actions.filter((a) => a !== "note").map((a) => `<button class="btn ${a === primary ? "primary" : ""} ${a === "decline" || a === "cancel" ? "danger" : ""}" data-act="${a}">${ACTION[a]}</button>`).join("")}
+              ${r.actions.filter((a) => a !== "note" && a !== "resend_email").map((a) => `<button class="btn ${a === primary ? "primary" : ""} ${a === "decline" || a === "cancel" ? "danger" : ""}" data-act="${a}">${ACTION[a]}</button>`).join("")}
               <button class="btn" data-act="note">${ACTION.note}</button>
             </div>
           </div>` : `<div class="card card-pad"><div class="actions" style="justify-content:space-between;align-items:center"><span class="muted">${shipSwap(r) ? "Swap done. The replacement is ready to send: buy its label and print it, with its packing slip, in Shipping." : r.status === "completed" ? "All done. Nothing more to do." : "Closed."}</span>${shipSwap(r) ? `<a class="btn primary small" href="/shipping/admin?order=${encodeURIComponent(r.order_name.replace(/\D/g, ""))}">Ship the exchange</a>` : ""}<span class="actions">${r.left_out ? "" : `<button class="btn small" data-leave-out>Leave out (test return)</button>`}<button class="btn small" data-act="note">${ACTION.note}</button></span></div></div>`}
@@ -528,7 +545,7 @@
             <ul class="tl">
               ${r.timeline.slice().reverse().map((e) => `
                 <li class="${e.verified ? "ok" : /failed|overdue/.test(e.type) ? "fail" : ""}">
-                  <div class="what">${esc(EVENT[e.type] || e.type)}${e.verified ? ` <span class="ok-tick">· confirmed ${e.type === "label_bought" || e.actor === "Parcel2Go" ? "by Parcel2Go" : "in Shopify"}</span>` : ""}</div>
+                  <div class="what">${esc(e.type === "requested" && (e.detail || {}).issued_by_staff ? "Return issued by staff" : EVENT[e.type] || e.type)}${e.verified ? ` <span class="ok-tick">· confirmed ${e.type === "label_bought" || e.actor === "Parcel2Go" ? "by Parcel2Go" : e.type === "label_emailed" ? "by the email service" : "in Shopify"}</span>` : ""}</div>
                   <div class="meta">${when(e.at)} · ${esc(e.actor)}</div>
                   ${eventDetail(e) ? `<div class="det">${esc(eventDetail(e))}</div>` : ""}
                 </li>`).join("")}
@@ -543,7 +560,7 @@
           <div class="card card-pad">
             <h2>Postage</h2>
             <dl class="kv">
-              <dt>Customer chose</dt><dd>${esc(POSTAGE[p.chosen] || p.chosen)}${r.label.courier && !r.label.cost ? " · " + esc(r.label.courier) : ""}</dd>
+              <dt>${r.origin === "staff" ? "Issued as" : "Customer chose"}</dt><dd>${esc(POSTAGE[p.chosen] || p.chosen)}${r.label.courier && !r.label.cost ? " · " + esc(r.label.courier) : ""}</dd>
               <dt>Approved as</dt><dd>${esc(p.mode ? POSTAGE[p.mode] || p.mode : "–")}</dd>
               <dt>Tracking</dt><dd>${tracking}</dd>
               ${r.label.cost ? `<dt>Label</dt><dd>${esc(r.label.service || r.label.courier || "")} · ${esc(r.label.cost)}</dd>` : ""}
@@ -554,6 +571,17 @@
               ${p.label_due_at && r.status === "awaiting_label" ? `<dt>Label due</dt><dd>${when(p.label_due_at)}</dd>` : ""}
             </dl>
           </div>
+          ${r.email ? `<div class="card card-pad">
+            <h2>Label email</h2>
+            <dl class="kv">
+              <dt>Status</dt><dd>${badge([r.email.words, r.email.ok ? "good" : ["failed", "unconfirmed", "no_address"].includes(r.email.status) ? "bad" : r.email.status === "off" ? "" : "warn"])}</dd>
+              <dt>To</dt><dd>${esc(r.email.to || "–")}</dd>
+              ${r.email.sent_at ? `<dt>Sent</dt><dd>${when(r.email.sent_at)}</dd>` : ""}
+            </dl>
+            ${r.email.error ? `<div class="hint">${esc(r.email.error)}</div>` : ""}
+            <div class="hint">QR code, nearest drop-off points, items and refund, from CROOKS.</div>
+            ${r.actions.includes("resend_email") ? `<div class="actions" style="margin-top:10px"><button class="btn small" data-resend>${r.email.ok ? "Send again" : "Send it"}</button></div>` : ""}
+          </div>` : ""}
           <div class="card card-pad">
             <h2>Customer</h2>
             <div>${esc(r.customer_name || "Guest")}</div>
@@ -580,6 +608,175 @@
     };
     const back = app.querySelector("[data-put-back]");
     if (back) back.onclick = () => changeListing(back, "/put-back", {});
+    const resend = app.querySelector("[data-resend]");
+    if (resend) resend.onclick = async () => {
+      if (!(await ask(`Email the label to ${r.email.to} again? It's a new email; the label is the same and nothing is bought.`, "Send email"))) return;
+      resend.disabled = true;
+      try {
+        state.current = await api("/returns/" + encodeURIComponent(r.id) + "/resend-email", {});
+        renderReturn();
+        toast(state.current.email.ok ? "Label emailed" : state.current.email.words, !state.current.email.ok);
+      } catch (err) { resend.disabled = false; toast(err.message, true); }
+    };
+  }
+
+  // ---------------------------------------------------------------- a return staff issue
+  // Find the order, choose what comes back and the refund, pick the drop-off network: the
+  // return is created and approved with a label, and the customer is emailed its QR code.
+  const draft = { ref: "", order: null, picks: {}, refund: "", touched: false, courier: null, quote: null, key: key(), error: "" };
+
+  async function showNewReturn() {
+    try {
+      if (!state.overview) await loadOverview();
+      renderNewReturn();
+    } catch (err) { failed(err); }
+  }
+
+  function pounds(text) {
+    const v = String(text || "").replace(/[£,\s]/g, "");
+    if (!/^\d+(\.\d{1,2})?$/.test(v)) return null;
+    return Math.round(parseFloat(v) * 100);
+  }
+
+  function chosenLines() {
+    return Object.entries(draft.picks).filter(([, x]) => x.on).map(([id, x]) => ({ id, quantity: Number(x.qty), reason: x.reason }));
+  }
+
+  function renderNewReturn() {
+    const o = draft.order;
+    const lines = chosenLines();
+    const refund = pounds(draft.refund);
+    const q = draft.quote;
+    const noLabels = o && !o.labels.automatic;
+    const needCourier = o && o.drop_offs.length > 0;
+    const problems = [];
+    if (o) {
+      if (!lines.length) problems.push("Choose what's coming back.");
+      if (lines.some((l) => !l.reason)) problems.push("Give a reason for each item.");
+      if (refund == null) problems.push("Enter the refund (0 for none).");
+      else if (q && refund > q.max_refund_pence) problems.push(`The refund can be at most ${q.max_refund}.`);
+      if (needCourier && !draft.courier) problems.push("Choose a drop-off option.");
+      if (noLabels) problems.push("Labels aren't connected.");
+    }
+    const drop = o && o.drop_offs.find((d) => d.courier === draft.courier);
+    shell("new", `
+      <div class="crumbs"><a class="back" href="#/" aria-label="Back to returns">←</a><h1>New return</h1></div>
+      <p class="muted" style="margin:-4px 0 14px">Issue a return for a customer: a drop-off label is bought and emailed to them with its QR code, the nearest drop-off points, what's coming back and their refund.</p>
+      ${draft.error ? `<div class="banner bad"><div class="grow"><b>Not done</b>${esc(draft.error)}</div></div>` : ""}
+      <div class="grid">
+        <div>
+          <div class="card card-pad">
+            <h2>Order</h2>
+            <form class="find" id="find">
+              <label class="field"><span>Order number</span><input id="ref" inputmode="numeric" autocomplete="off" placeholder="e.g. 2190" value="${esc(draft.ref)}"></label>
+              <button class="btn ${o ? "" : "primary"}" type="submit">Find</button>
+            </form>
+            ${o ? `<div class="hint" style="margin-top:8px">${esc(o.order_name)} · ${esc(o.customer)}${o.postcode ? " · " + esc(o.postcode) : ""}</div>` : ""}
+          </div>
+          ${o ? `<div class="card card-pad">
+            <h2>What's coming back</h2>
+            ${o.lines.map((l) => {
+              const x = draft.picks[l.id] || {}, off = l.returnable_qty < 1;
+              return `<div class="pick ${off ? "off" : ""}">
+                <input type="checkbox" data-pick="${esc(l.id)}" ${x.on ? "checked" : ""} ${off ? "disabled" : ""} aria-label="Return ${esc(l.title)}">
+                <div><div class="t"><b>${esc(l.title)}</b></div>
+                  <div class="muted">${esc(l.variant || "")} · ${esc(l.price)} paid${off ? " · already returned or being returned" : ""}</div>
+                  ${x.on ? `<div class="sel">
+                    <select data-qty="${esc(l.id)}" aria-label="How many">${Array.from({ length: l.returnable_qty }, (_, i) => `<option ${Number(x.qty) === i + 1 ? "selected" : ""}>${i + 1}</option>`).join("")}</select>
+                    <select data-reason="${esc(l.id)}" aria-label="Reason"><option value="">Reason…</option>${o.reasons.map((rs) => `<option value="${esc(rs.id)}" ${x.reason === rs.id ? "selected" : ""}>${esc(rs.label)}</option>`).join("")}</select>
+                  </div>` : ""}
+                </div></div>`;
+            }).join("")}
+          </div>
+          <div class="card card-pad">
+            <h2>Drop-off</h2>
+            ${noLabels ? `<div class="banner warn"><div class="grow"><b>Labels aren't connected</b>${esc(o.labels.why_not || "")}</div></div>` : needCourier ? `<div class="opts">${o.drop_offs.map((d) => `
+              <label class="opt"><input type="radio" name="courier" value="${esc(d.courier)}" ${draft.courier === d.courier ? "checked" : ""}>
+                <span><b>${esc(d.courier_name)} · ${esc(d.name)}</b><small>Label costs CROOKS ${esc(d.price)}${d.locker ? " · a locker" : ""}${d.printer ? " · they print it" : " · no printing: they show the QR code"}</small>
+                ${d.shops.length ? `<ul class="shops">${d.shops.map((sh) => `<li><b>${esc(sh.name)}</b> · ${esc(sh.address)}${sh.distance_m != null ? ` · ${(sh.distance_m / 1609.344).toFixed(1)} mi` : ""}</li>`).join("")}</ul>` : ""}</span></label>`).join("")}</div>`
+              : `<p class="muted">A ${esc(o.labels.name)} label: the customer prints it and drops the parcel at a post office.</p>`}
+          </div>` : ""}
+        </div>
+        <div>
+          ${o ? `<div class="card card-pad">
+            <h2>Refund</h2>
+            <label class="field" style="margin-top:0"><span>Refund to their payment method</span>
+              <span class="money-in">£<input id="refund" inputmode="decimal" autocomplete="off" value="${esc(draft.refund)}" placeholder="0.00"></span></label>
+            <div class="hint">${q ? `Their usual refund for this is ${esc(q.default_refund)}; at most ${esc(q.max_refund)} (the items and the order's delivery).` : "Choose the items first."} It's paid when the return arrives and you mark it received.</div>
+          </div>
+          <div class="card card-pad">
+            <h2>Email</h2>
+            ${!o.email ? `<p class="muted">The order has no email address, so nothing can be sent. The label and QR code will be on the return to send yourself.</p>`
+              : o.email_on ? `<p>The QR code, the nearest drop-off points, what's coming back and the refund go to <b>${esc(o.email)}</b>.</p>`
+              : `<p class="muted">Email isn't set up on the server (RETURNS_EMAIL_PROVIDER), so CROOKS sends none: Shopify emails its own label link to ${esc(o.email)}, without the QR code or drop-off points.</p>`}
+          </div>
+          <div class="card card-pad">
+            <div class="actions" style="justify-content:flex-end;align-items:center;gap:10px">
+              <span class="hint" style="margin:0" role="status">${esc(problems[0] || "")}</span>
+              <button class="btn primary" id="create" ${problems.length ? "disabled" : ""}>Create return and email label</button>
+            </div>
+          </div>` : ""}
+        </div>
+      </div>`);
+
+    const find = app.querySelector("#find");
+    find.onsubmit = async (e) => {
+      e.preventDefault();
+      draft.ref = app.querySelector("#ref").value.trim();
+      if (!draft.ref) return;
+      const btn = find.querySelector("button"); btn.disabled = true;
+      try {
+        draft.order = await api("/new-return/order?ref=" + encodeURIComponent(draft.ref));
+        Object.assign(draft, { picks: {}, refund: "", touched: false, courier: draft.order.drop_offs.length === 1 ? draft.order.drop_offs[0].courier : null, quote: null, key: key(), error: "" });
+      } catch (err) { draft.order = null; draft.error = err.message; }
+      renderNewReturn();
+    };
+    app.querySelectorAll("[data-pick]").forEach((b) => b.onchange = () => {
+      draft.picks[b.dataset.pick] = { ...(draft.picks[b.dataset.pick] || { qty: 1, reason: "" }), on: b.checked };
+      requote();
+    });
+    app.querySelectorAll("[data-qty]").forEach((b) => b.onchange = () => { draft.picks[b.dataset.qty].qty = b.value; requote(); });
+    app.querySelectorAll("[data-reason]").forEach((b) => b.onchange = () => { draft.picks[b.dataset.reason].reason = b.value; requote(); });
+    app.querySelectorAll("input[name=courier]").forEach((b) => b.onchange = () => { draft.courier = b.value; renderNewReturn(); });
+    const refundIn = app.querySelector("#refund");
+    if (refundIn) refundIn.onchange = () => { draft.refund = refundIn.value.trim(); draft.touched = true; renderNewReturn(); };
+    const create = app.querySelector("#create");
+    if (create) create.onclick = async () => {
+      const items = lines.map((l) => `${l.quantity}× ${o.lines.find((x) => x.id === l.id).title}`).join(", ");
+      const text = `Create a return for ${items} on ${o.order_name}, refund ${gbp(refund)} when it arrives, `
+        + (drop ? `buy the ${drop.courier_name} drop-off label (${drop.price}) ` : "buy a return label ")
+        + (o.email && o.email_on ? `and email it to ${o.email}?` : "?");
+      if (!(await ask(text, "Create return"))) return;
+      create.disabled = true; create.innerHTML = `<span class="spin"></span>`;
+      try {
+        const made = await api("/new-return", { order_id: o.order_id, lines, refund_pence: refund, courier: draft.courier, idempotency_key: draft.key });
+        Object.assign(draft, { ref: "", order: null, picks: {}, refund: "", touched: false, courier: null, quote: null, key: key(), error: "" });
+        state.current = made; state.overview = null; state.list = null;
+        location.hash = "#/r/" + encodeURIComponent(made.id);
+        toast(made.email && made.email.ok ? "Return created and label emailed" : made.status === "awaiting_shipment" ? "Return created" : "Return created: see what's left to do", !(made.email && made.email.ok));
+      } catch (err) {
+        // The same key goes with every press, so pressing again never makes a second return.
+        draft.error = err.status ? err.message : "No answer. Pressing Create again is safe: it won't make a second return.";
+        renderNewReturn();
+      }
+    };
+  }
+
+  let quoteSeq = 0;
+  async function requote() {
+    const lines = chosenLines();
+    draft.quote = null;
+    renderNewReturn();
+    if (!lines.length || lines.some((l) => !l.reason)) return;
+    const mine = ++quoteSeq;
+    try {
+      const q = await api("/new-return/quote", { order_id: draft.order.order_id, lines });
+      if (mine !== quoteSeq) return;
+      draft.quote = q;
+      if (!draft.touched) draft.refund = (q.default_refund_pence / 100).toFixed(2);
+      draft.error = "";
+    } catch (err) { if (mine === quoteSeq) draft.error = err.message; }
+    renderNewReturn();
   }
 
   async function changeListing(button, path, body) {

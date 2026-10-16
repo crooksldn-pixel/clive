@@ -65,6 +65,22 @@ Shopify admin -> **Apps -> CROOKS Returns** opens `/admin` inside the admin
 - **One return**: the items, reasons and notes, the swap, the money, postage, the customer and
   the timeline. The buttons for the next step (approve, decline, add label or tracking, mark
   as received, complete, cancel, note) each show "This will..." before anything happens.
+- **New return**: issue a return for a customer yourself. Find the order (any order, inside
+  the return window or not), tick what's coming back with how many and why, set the refund
+  (pre-filled with what the customer would be offered; at most the items and the order's
+  delivery), and pick the drop-off network from the options for their address, each with its
+  nearest shops. **Create return and email label** asks you to confirm, then creates the return,
+  approves it with a label exactly as **Approve** does (the Shopify return, the label bought
+  once through the same ledger), and emails the customer from CROOKS: the QR code to show at
+  the shop (and its code as text), the nearest drop-off points, what's coming back and the
+  refund, with the label PDF attached. The refund is paid when you mark it received, as for
+  any return. Pressing Create again (a lost answer, a double click) never makes a second return
+  or buys a second label; the same items can't be returned twice.
+- **Label email** (on a return staff issued): sent, not confirmed yet, or why not (email off,
+  no address, refused), and **Send again** (a new email; the same label, nothing bought). An
+  email whose outcome is unknown is retried by itself with the same key for up to a day
+  (delivered once); after that it says "Not confirmed". Needs `RETURNS_EMAIL_PROVIDER=resend`
+  and a Resend key; without them Shopify's own label email (a link, no QR) goes instead.
 - **Setup**: the same health check as `returns-ctl check`, and the test order list (which
   overrides `RETURNS_PILOT_ORDER_NUMBERS` once saved there).
 

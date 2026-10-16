@@ -238,6 +238,45 @@ def build_lines(
     return out
 
 
+def staff_lines(order: Order, selections: list[Selection]) -> list[ReturnLine]:
+    """A return staff issue: the item must be on the order, chosen once, and no more than is
+    still returnable. The return window and excluded tags don't apply (a person decided)."""
+    if not selections:
+        raise PolicyError("Choose at least one item to return.")
+    by_id = {line.fulfillment_line_item_id: line for line in order.lines}
+    seen: set[str] = set()
+    out = []
+    for sel in selections:
+        line = by_id.get(sel.fulfillment_line_item_id)
+        if line is None or sel.fulfillment_line_item_id in seen:
+            raise PolicyError("That item is not on this order.")
+        seen.add(sel.fulfillment_line_item_id)
+        if sel.quantity < 1 or sel.quantity > line.returnable_qty:
+            left = line.returnable_qty
+            raise PolicyError(
+                f"Only {left} of {line.title} can be returned."
+                if left
+                else f"{line.title} is already being returned or was returned."
+                " Only 0 of it can be returned."
+            )
+        out.append(
+            ReturnLine(
+                fulfillment_line_item_id=line.fulfillment_line_item_id,
+                line_item_id=line.line_item_id,
+                title=line.title,
+                variant_title=line.variant_title,
+                sku=line.sku,
+                variant_id=line.variant_id,
+                quantity=sel.quantity,
+                reason=sel.reason,
+                note=sel.note.strip(),
+                unit_paid_pence=line.unit_paid_pence,
+                unit_price_pence=line.variant_price_pence or None,
+            )
+        )
+    return out
+
+
 def is_full_return(order: Order, lines: list[ReturnLine]) -> bool:
     chosen = {line.fulfillment_line_item_id: line.quantity for line in lines}
     return all(

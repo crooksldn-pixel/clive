@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -82,6 +83,15 @@ class Settings(BaseSettings):
     # Let Shopify send its own return emails (label, refund). Edit them in Shopify admin ->
     # Settings -> Notifications so they carry the CROOKS look.
     shopify_notify_customer: bool = True
+
+    # --- email CROOKS sends itself ---
+    # A return staff issue gets one email from CROOKS with its QR code, the nearest drop-off
+    # points, the items and the refund (Shopify's own label email isn't sent for it then).
+    # "off": nothing is sent and the return says so. "resend": Resend's API with this key.
+    email_provider: str = "off"
+    resend_api_key: SecretStr = SecretStr("")
+    email_from: str = "CROOKS <orders@crooksldn.com>"
+    email_reply_to: str = ""
 
     # --- return labels ---
     # Who books return labels: "parcel2go", "clickdrop", or "none" (staff add tracking by hand).

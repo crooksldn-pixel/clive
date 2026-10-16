@@ -27,11 +27,14 @@ from returns.models import (
     OPEN_STATUSES,
     REASON_LABELS,
     PostageMode,
+    Reason,
     Resolution,
     Return,
+    Selection,
     Status,
     gbp,
 )
+from returns import policy
 from returns.service import ActionError, ReturnsService
 
 LEEWAY_S = 10
@@ -97,7 +100,44 @@ def actions_for(ret: Return) -> list[str]:
         Status.in_transit: ["receive"],
         Status.received: ["complete"],
     }
-    return [*by_status.get(ret.status, []), "note"]
+    out = [*by_status.get(ret.status, [])]
+    if (
+        ret.origin == "staff"
+        and ret.email is not None
+        and ret.status
+        in (
+            Status.awaiting_shipment,
+            Status.in_transit,
+        )
+    ):
+        out.append("resend_email")
+    return [*out, "note"]
+
+
+EMAIL_WORDS = {
+    "pending": "Waiting to send",
+    "sending": "Sending",
+    "sent": "Sent",
+    "unknown": "Not confirmed yet: checking",
+    "unconfirmed": "Not confirmed",
+    "failed": "Not sent",
+    "off": "Not sent: email isn't set up",
+    "no_address": "Not sent: no email address",
+}
+
+
+def email_view(ret: Return) -> dict[str, Any] | None:
+    e = ret.email
+    if e is None:
+        return None
+    return {
+        "status": e.status,
+        "words": EMAIL_WORDS.get(e.status, e.status),
+        "to": e.to,
+        "sent_at": e.sent_at.isoformat() if e.sent_at else None,
+        "error": e.error,
+        "ok": e.status == "sent",
+    }
 
 
 def outcome(ret: Return) -> str:
@@ -121,6 +161,7 @@ def row(svc: ReturnsService, ret: Return) -> dict[str, Any]:
         ),
         "reasons": sorted({REASON_LABELS[ln.reason] for ln in ret.lines}),
         "resolution": ret.resolution.value,
+        "origin": ret.origin,
         "outcome": outcome(ret),
         "status": ret.status.value,
         "attention": staff["attention"],
@@ -147,6 +188,8 @@ def detail(svc: ReturnsService, ret: Return) -> dict[str, Any]:
     return {
         **doc,
         "row": row(svc, ret),
+        "origin": ret.origin,
+        "email": email_view(ret),
         "actions": actions_for(ret),
         "customer_message": svc.public(ret)["message"],
         "links": {
@@ -199,6 +242,32 @@ class AdminAction(BaseModel):
 
 class LeaveOutBody(BaseModel):
     reason: str = Field(default="Test return", max_length=200)
+
+
+class StaffLine(BaseModel):
+    id: str = Field(max_length=200)
+    quantity: int = Field(ge=1, le=100)
+    reason: Reason
+    note: str = Field(default="", max_length=500)
+
+
+class NewReturnQuote(BaseModel):
+    order_id: str = Field(max_length=200)
+    lines: list[StaffLine] = Field(min_length=1, max_length=50)
+
+    def selections(self) -> list[Selection]:
+        return [
+            Selection(
+                fulfillment_line_item_id=x.id, quantity=x.quantity, reason=x.reason, note=x.note
+            )
+            for x in self.lines
+        ]
+
+
+class NewReturnBody(NewReturnQuote):
+    refund_pence: int = Field(ge=0, le=10_000_000)
+    courier: str | None = Field(default=None, max_length=60)
+    idempotency_key: str = Field(min_length=8, max_length=120)
 
 
 class PilotBody(BaseModel):
@@ -296,6 +365,83 @@ def build_admin_router(svc: ReturnsService) -> APIRouter:
         if ret is None:
             raise HTTPException(404, "Return not found.")
         return detail(svc, ret)
+
+    # ------------------------------------------------ a return staff issue for a customer
+
+    @router.get("/api/new-return/order")
+    def new_return_order(ref: str, who: str = Depends(staff)) -> dict[str, Any]:
+        """The order to issue a return on: its items still returnable, the customer, and the
+        drop-off options for their address (with the nearest shops)."""
+        try:
+            order = svc.staff_order(ref)
+        except ActionError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+        labels_ok, labels_why = svc.labels.available()
+        address = order.shipping_address or {}
+        return {
+            "order_id": order.id,
+            "order_name": order.name,
+            "customer": order.customer_name or "Guest",
+            "email": order.email or order.customer_email,
+            "postcode": address.get("zip") or order.shipping_zip,
+            "lines": [
+                {
+                    "id": ln.fulfillment_line_item_id,
+                    "title": ln.title,
+                    "variant": ln.variant_title,
+                    "image": ln.image_url,
+                    "price": gbp(ln.unit_paid_pence),
+                    "returnable_qty": ln.returnable_qty,
+                }
+                for ln in order.lines
+            ],
+            "reasons": policy.reason_list(),
+            "drop_offs": [
+                {**o, "price": gbp(o["price_pence"])} for o in svc.drop_off_options(order)
+            ],
+            "labels": {
+                "automatic": labels_ok,
+                "why_not": labels_why or None,
+                "name": getattr(svc.labels, "name", "Labels"),
+            },
+            "email_on": svc.mailer.enabled,
+        }
+
+    @router.post("/api/new-return/quote")
+    def new_return_quote(body: NewReturnQuote, who: str = Depends(staff)) -> dict[str, Any]:
+        try:
+            q = svc.staff_quote(body.order_id, body.selections())
+        except ActionError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+        return {
+            **q,
+            "default_refund": gbp(q["default_refund_pence"]),
+            "max_refund": gbp(q["max_refund_pence"]),
+        }
+
+    @router.post("/api/new-return")
+    def new_return(body: NewReturnBody, who: str = Depends(staff)) -> dict[str, Any]:
+        """Create the return, approve it with a label (bought once, as any approval), and email
+        the customer its QR code and drop-off points."""
+        try:
+            ret = svc.create_for_customer(
+                body.order_id,
+                body.selections(),
+                body.refund_pence,
+                body.courier,
+                who,
+                body.idempotency_key,
+            )
+        except ActionError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+        return detail(svc, ret)
+
+    @router.post("/api/returns/{return_id}/resend-email")
+    def resend_email(return_id: str, who: str = Depends(staff)) -> dict[str, Any]:
+        try:
+            return detail(svc, svc.resend_label_email(return_id, who))
+        except ActionError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
 
     # Before the general action routes, which would otherwise take these paths.
     @router.post("/api/returns/{return_id}/leave-out")

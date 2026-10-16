@@ -281,6 +281,23 @@ class LeftOut(BaseModel):
     reason: str = ""
 
 
+class LabelEmail(BaseModel):
+    """The CROOKS email that carries a staff-issued return's label to the customer.
+
+    pending → sending → sent; or unknown (no clear answer: retried with the same key within a
+    day), unconfirmed (still unknown after that), failed (refused), off (email not set up),
+    no_address (the order has no email). Resend is a new email with a new key."""
+
+    status: str = "pending"
+    key: str
+    to: str | None = None
+    attempts: int = 0
+    last_try_at: datetime | None = None
+    sent_at: datetime | None = None
+    provider_id: str | None = None
+    error: str | None = None
+
+
 class Return(BaseModel):
     id: str
     order_id: str
@@ -303,6 +320,9 @@ class Return(BaseModel):
     shopify: ShopifyRefs = Field(default_factory=ShopifyRefs)
     timeline: list[Event] = Field(default_factory=list)
     left_out: LeftOut | None = None
+    # "portal" (the customer asked) or "staff" (issued by staff for the customer).
+    origin: str = "portal"
+    email: LabelEmail | None = None
 
     @property
     def seller_fault(self) -> bool:

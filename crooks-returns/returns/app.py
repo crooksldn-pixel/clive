@@ -46,7 +46,11 @@ def build_service(settings: Settings) -> ReturnsService:
         )
     else:
         shopify, labels = GraphQLShopify(settings), label_provider(settings)
-    return ReturnsService(settings, Store(settings.db_path), shopify, labels)
+    from returns.mailer import build_mailer
+
+    return ReturnsService(
+        settings, Store(settings.db_path), shopify, labels, mailer=build_mailer(settings)
+    )
 
 
 def create_app(settings: Settings | None = None, service: ReturnsService | None = None) -> FastAPI:
