@@ -6,7 +6,7 @@ export const pw = require(require('child_process').execSync('npm root -g').toStr
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 
-export const THEME = '207329132887';
+export const THEME = process.env.THEME || '207329132887';
 export const BUILD = new URL('./build/', import.meta.url).pathname;
 
 export async function open({ url, width = 1440, height = 900, mobile = false, js = true, local = false, jar, net, init = [], reduced = false }) {

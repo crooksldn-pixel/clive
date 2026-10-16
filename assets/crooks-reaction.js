@@ -6,9 +6,11 @@
    reacted photo is drawn through it with 'destination-in'. Revealed areas
    stay until RESET.
 
-   - Pointer Events for mouse, pen and touch. The frame has touch-action:
-     pan-y, so a vertical swipe still scrolls the page; a touch paints once it
-     moves sideways, or on a tap.
+   - Pointer Events for mouse, pen and touch. A finger that lands on the
+     garment paints in any direction and never moves the page (its touch
+     events are cancelled). A finger on the empty ground around it, or on the
+     text and buttons, scrolls as usual; there the frame's touch-action: pan-y
+     lets a vertical swipe scroll, and only a sideways one paints.
    - Nothing runs at rest. A frame is requested only when there is new paint,
      plus a loop that lives only while a pointer is held down (holding still
      soaks or heats the spot a little more).
@@ -297,6 +299,64 @@
       return { x: ((x - L.dx) / L.dw) * mw, y: ((y - L.dy) / L.dh) * mh };
     }
 
+    /* ---- where the garment is: a coarse map of the normal photo's alpha ----
+       Built once the photo has loaded, grown by one cell so the edge counts.
+       Until then, or for a photo with no transparency, or if the image cannot
+       be read, the whole photo counts as garment. */
+    var base = root.querySelector('.crk-rx__base');
+    var hit = null;
+    function buildHit() {
+      if (!base || !base.naturalWidth) return;
+      var gw = 48, gh = Math.max(1, Math.round(48 / ratio));
+      try {
+        var c = document.createElement('canvas');
+        c.width = gw; c.height = gh;
+        var g = c.getContext('2d');
+        g.drawImage(base, 0, 0, gw, gh);
+        var d = g.getImageData(0, 0, gw, gh).data;
+        var m = new Uint8Array(gw * gh), x, y, i, j;
+        for (i = 0; i < gw * gh; i++) m[i] = d[i * 4 + 3] > 24 ? 1 : 0;
+        var grown = new Uint8Array(gw * gh);
+        for (y = 0; y < gh; y++) {
+          for (x = 0; x < gw; x++) {
+            for (j = Math.max(0, y - 1); j <= Math.min(gh - 1, y + 1) && !grown[y * gw + x]; j++) {
+              for (i = Math.max(0, x - 1); i <= Math.min(gw - 1, x + 1); i++) {
+                if (m[j * gw + i]) { grown[y * gw + x] = 1; break; }
+              }
+            }
+          }
+        }
+        hit = { w: gw, h: gh, m: grown };
+      } catch (x) { hit = null; }
+    }
+    if (base) {
+      base.addEventListener('load', buildHit);
+      if (base.complete) buildHit();
+    }
+    function onGarment(clientX, clientY) {
+      if (!L.w) measure();
+      if (!L.w) return false;
+      var p = toMask(clientX, clientY);
+      var nx = p.x / mw, ny = p.y / mh;
+      if (nx < 0 || ny < 0 || nx >= 1 || ny >= 1) return false;
+      if (!hit) return true;
+      return !!hit.m[Math.floor(ny * hit.h) * hit.w + Math.floor(nx * hit.w)];
+    }
+
+    /* A finger that lands on the garment owns the gesture: cancelling its
+       touch events stops the page scrolling. Pointer events still arrive. */
+    var touchLock = false;
+    function onTouchStart(e) {
+      touchLock = e.touches.length === 1 && onGarment(e.touches[0].clientX, e.touches[0].clientY);
+      if (touchLock && e.cancelable) e.preventDefault();
+    }
+    function onTouchMove(e) {
+      if (touchLock && e.cancelable) e.preventDefault();
+    }
+    function onTouchEnd(e) {
+      if (!e.touches || !e.touches.length) touchLock = false;
+    }
+
     /* ---- pointer ---- */
     function now() { return window.performance && performance.now ? performance.now() : Date.now(); }
 
@@ -360,9 +420,11 @@
         armed: false, last: null, cur: null, r: 0,
         movedAt: now(), heldAt: 0
       };
-      // A mouse or pen paints at once. A finger waits to see whether it is
-      // scrolling the page (vertical) or painting (sideways, or a tap).
+      // A mouse or pen paints at once, and so does a finger on the garment.
+      // A finger on the empty ground waits to see whether it is scrolling the
+      // page (vertical) or painting (sideways, or a tap).
       if (ptr.type !== 'touch') { e.preventDefault(); arm(); }
+      else if (onGarment(e.clientX, e.clientY)) arm();
     }
 
     function onMove(e) {
@@ -470,6 +532,10 @@
       frame.addEventListener('pointercancel', onCancel);
       frame.addEventListener('lostpointercapture', onCancel);
       frame.addEventListener('pointerleave', hideRing);
+      frame.addEventListener('touchstart', onTouchStart, { passive: false });
+      frame.addEventListener('touchmove', onTouchMove, { passive: false });
+      frame.addEventListener('touchend', onTouchEnd);
+      frame.addEventListener('touchcancel', onTouchEnd);
       if (window.ResizeObserver) {
         var pending = 0;
         ro = new ResizeObserver(function () {

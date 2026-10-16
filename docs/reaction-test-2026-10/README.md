@@ -23,6 +23,16 @@ George supplied the heated Puffa photo (black shell → metallic silver),
 The HydroCuff template on the copy still has its placeholder and stays
 unassigned.
 
+**Touch, changed at George's request:** on a phone, a finger that lands on
+the garment now paints in any direction and never moves the page (its touch
+events are cancelled). A finger on the empty ground around the jacket, or on
+the title, copy, status line or buttons, scrolls as before. The garment is
+found from the normal photo's transparency (a 48-cell-wide map, grown by one
+cell); a photo with no transparency counts as garment everywhere. Tested on
+both jackets (`tools/t-touch.mjs`): straight up, straight down, sideways and
+diagonal on the jacket all paint with 0 px scroll; empty ground, title and
+status line all scroll.
+
 ## Where it is
 
 | | |
@@ -131,9 +141,11 @@ WARM / FULL HEAT).
   reacted photo is drawn through it. Water: a wetter core, a short feathered
   edge, slightly uneven like water in a weave. Heat: a long, even falloff.
   Holding still soaks or warms the spot a little more.
-- Vertical swipes on a phone scroll the page (CSS `touch-action: pan-y`); a
-  finger paints once it moves sideways, or on a tap. Mouse and pen paint at
-  once; a thin ring shows the brush on desktop.
+- On a phone, a finger on the garment paints in any direction and the page
+  stays put; a finger on the empty ground around it scrolls vertically
+  (`touch-action: pan-y`) and paints only when moved sideways or tapped; the
+  text and buttons scroll as normal. Mouse and pen paint at once; a thin ring
+  shows the brush on desktop.
 - No loop at rest. Frames are drawn only when there is new paint, plus a
   short loop while a pointer is held down. Canvas resolution capped at 2×.
   The mask is kept in image space, so a resize or rotation keeps every
@@ -229,8 +241,9 @@ editor changes are lost.
   is worth doing before assigning the templates.
 - The theme editor itself was not opened (it needs George's login); Shopify
   accepted the schema, and every setting was checked by rendering.
-- On a phone, painting is sideways or diagonal; a stroke that starts
-  straight down scrolls the page instead. That is what keeps scrolling free.
+- On a phone, a finger on the jacket does not scroll the page (by request).
+  The shopper scrolls past by touching the text, the buttons or the space
+  around the jacket. On the Puffa the jacket fills most of the photo.
 - Pre-existing, all product pages: on desktop the sticky buy panel sticks
   16 px from the top, under the 86 px pinned header, so the product title
   slides behind the header while scrolling. The card makes the panel stick
