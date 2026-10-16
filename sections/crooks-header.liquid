@@ -69,8 +69,20 @@
         Theme settings, so the drop is turned on and off in one place.
       {%- endcomment -%}
       {%- if section.settings.show_feature and section.settings.feature_url != blank and settings.crk_tw_on -%}
-        {%- assign crk_feature_words = section.settings.feature_label | split: ' ' -%}
-        <a class="crk-header__link crk-header__link--feature" href="{{ section.settings.feature_url }}">
+        {%- liquid
+          comment
+            T-shirt Week has its own page (/pages/t-shirt-week) with its own title
+            and description; the FAQ view it started on points search engines at
+            the FAQ. While that page is visible the link goes there, otherwise
+            to the address set here.
+          endcomment
+          assign crk_feature_url = section.settings.feature_url
+          if crk_feature_url contains 'view=crooks-tshirt-week' and pages['t-shirt-week'].url != blank
+            assign crk_feature_url = pages['t-shirt-week'].url
+          endif
+          assign crk_feature_words = section.settings.feature_label | split: ' '
+        -%}
+        <a class="crk-header__link crk-header__link--feature" href="{{ crk_feature_url }}">
           <span class="crk-header__words">
             {%- for word in crk_feature_words -%}
               <span>{{ word }}</span>{% unless forloop.last %} {% endunless %}

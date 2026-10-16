@@ -1,0 +1,39 @@
+{%- comment -%}
+  Availability and price for one variant's Offer, as the shopper meets them.
+  Used by crooks-schema-product.
+
+  A size the CROOKS Operations app sells as a pre-order (stock tracked, none on
+  the shelf, still for sale, and one of that app's selling plans on the variant)
+  is PreOrder at the plan's price: that is what the product page shows and what
+  checkout charges. Anything else is InStock or OutOfStock at the variant price.
+  The test is the app's own (preorder.js stateOf), so data and page agree.
+
+  Only the app's own plans count (selling plan group app id 'clive-preorders').
+  An older app's "preorder" group (app id 'ReStock') is still attached to most
+  variants, and the CROOKS app ignores it, so this does too.
+
+  Accepts: variant, product. Prints: availability URL|price in minor units|true or false (pre-order).
+{%- endcomment -%}
+{%- liquid
+  assign crk_s_avail = 'https://schema.org/OutOfStock'
+  if variant.available
+    assign crk_s_avail = 'https://schema.org/InStock'
+  endif
+  assign crk_s_price = variant.price
+  assign crk_s_pre = false
+  if variant.available and variant.inventory_management == 'shopify' and variant.inventory_quantity <= 0
+    for crk_alloc in variant.selling_plan_allocations
+      for crk_s_group in product.selling_plan_groups
+        if crk_s_group.id == crk_alloc.selling_plan_group_id and crk_s_group.app_id == 'clive-preorders'
+          assign crk_s_avail = 'https://schema.org/PreOrder'
+          assign crk_s_price = crk_alloc.price
+          assign crk_s_pre = true
+        endif
+      endfor
+      if crk_s_pre
+        break
+      endif
+    endfor
+  endif
+  echo crk_s_avail | append: '|' | append: crk_s_price | append: '|' | append: crk_s_pre
+-%}

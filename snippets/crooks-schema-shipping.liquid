@@ -8,7 +8,11 @@
   policy's numbers. The rate is worked out for this item bought on its own,
   which is what a product listing describes.
 
-  Accepts: price (number, minor units), free_from (number, minor units), rate (string, e.g. '3.00').
+  A pre-order ships on its plan's date, not in 0-2 days, so a pre-order offer
+  states the rate and leaves the delivery time out.
+
+  Accepts: price (number, minor units), free_from (number, minor units), rate (string, e.g. '3.00'),
+  preorder (true to leave out deliveryTime).
 {%- endcomment -%}
 {%- liquid
   assign crk_ship_rate = rate
@@ -19,10 +23,10 @@
 {
   "@type": "OfferShippingDetails",
   "shippingDestination": { "@type": "DefinedRegion", "addressCountry": "GB" },
-  "shippingRate": { "@type": "MonetaryAmount", "value": {{ crk_ship_rate | json }}, "currency": "GBP" },
+  "shippingRate": { "@type": "MonetaryAmount", "value": {{ crk_ship_rate | json }}, "currency": "GBP" }{% unless preorder %},
   "deliveryTime": {
     "@type": "ShippingDeliveryTime",
     "handlingTime": { "@type": "QuantitativeValue", "minValue": 0, "maxValue": 2, "unitCode": "DAY" },
     "transitTime": { "@type": "QuantitativeValue", "minValue": 1, "maxValue": 2, "unitCode": "DAY" }
-  }
+  }{% endunless %}
 }

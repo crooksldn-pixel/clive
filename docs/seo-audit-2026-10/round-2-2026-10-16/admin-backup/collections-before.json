@@ -1,0 +1,9 @@
+{"note": "Admin API view 15 Oct 2026 before changes. The storefront also has all (690352980311), denim (688184099159), new (688184197463), sweats (688184131927), tees (688184066391), which the connector's Admin API cannot see.",
+ "duplicates_published_to": ["Online Store", "Shop", "Google & YouTube"],
+ "tees-1": {"id": "gid://shopify/Collection/692807237975", "rule": "TYPE = T-Shirt", "products": 3},
+ "denim-1": {"id": "gid://shopify/Collection/692807270743", "rule": "TYPE = Denim", "products": 0},
+ "sweats-1": {"id": "gid://shopify/Collection/692807303511", "rule": "TYPE = Sweats", "products": 0},
+ "new-1": {"id": "gid://shopify/Collection/692807336279", "rule": "TAG = new", "products": 11},
+ "accessories": {"id": "gid://shopify/Collection/688184164695", "descriptionHtml": "Socks, bags and extras.", "seo": {"title": "Socks & Accessories | CROOKSLDN", "description": "MotionTec socks and accessories from Crooks London. Cotton-blend socks with a reinforced heel, in single pairs or packs of 3, 6 or 12. Free UK shipping over £30."}},
+ "tracksuits": {"id": "gid://shopify/Collection/687058518359", "descriptionHtml": "", "seo": {"title": "Convict Tracksuits: Matching Fleece Sets | CROOKSLDN", "description": "Crooks London Convict tracksuits: 550gsm brushed fleece hoodies and baggy joggers, sold as matching Black, Grey and Pink sets. Free UK shipping over £30."}},
+ "redirects_existing": {"/collections/tees-1": "/collections/tees", "/collections/denim-1": "/collections/denim", "/collections/sweats-1": "/collections/sweats", "/collections/new-1": "/collections/new"}}

@@ -1,0 +1,20 @@
+--- orig/templates/index.json	2026-10-16 11:52:36.429469471 +0000
++++ new/templates/index.json	2026-10-16 11:54:21.009002727 +0000
+@@ -68,7 +68,7 @@
+           "type": "frame",
+           "settings": {
+             "image": "shopify://shop_images/IMG_2393.jpg",
+-            "image_alt": "",
++            "image_alt": "Two people in white CROOKSLDN tees and baggy denim shorts on worn concrete steps by a graffiti wall at night, one in a black balaclava.",
+             "focal_x": 50,
+             "focal_y": 50,
+             "timecode": "",
+@@ -82,7 +82,7 @@
+           "type": "frame",
+           "settings": {
+             "image": "shopify://shop_images/8I2A9051-2-Edit_copy.jpg",
+-            "image_alt": "",
++            "image_alt": "A man with long locs points to his grill, wearing a white tee with the CROOKS logo and a red star.",
+             "focal_x": 50,
+             "focal_y": 50,
+             "timecode": "",

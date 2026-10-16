@@ -116,9 +116,12 @@
 {%- capture crk_offers -%}
   {%- for variant in product.variants -%}
     {%- unless forloop.first -%},{%- endunless -%}
-    {%- assign crk_avail = 'https://schema.org/OutOfStock' -%}
-    {%- if variant.available -%}{%- assign crk_avail = 'https://schema.org/InStock' -%}{%- endif -%}
-    {%- assign crk_price = variant.price | money_without_currency | replace: ',', '' -%}
+    {%- capture crk_state -%}{%- render 'crooks-schema-offer-state', variant: variant, product: product -%}{%- endcapture -%}
+    {%- assign crk_state = crk_state | strip | split: '|' -%}
+    {%- assign crk_avail = crk_state[0] -%}
+    {%- assign crk_price_minor = crk_state[1] | plus: 0 -%}
+    {%- assign crk_price = crk_price_minor | money_without_currency | replace: ',', '' -%}
+    {%- assign crk_pre = false -%}{%- if crk_state[2] == 'true' -%}{%- assign crk_pre = true -%}{%- endif -%}
     {%- assign crk_bc = variant.barcode | strip -%}
     {%- assign crk_bc_rest = crk_bc | remove: '0' | remove: '1' | remove: '2' | remove: '3' | remove: '4' | remove: '5' | remove: '6' | remove: '7' | remove: '8' | remove: '9' -%}
     {
@@ -142,11 +145,18 @@
         "availability": {{ crk_avail | json }},
         "itemCondition": "https://schema.org/NewCondition",
         "seller": { "@type": "Organization", "@id": {{ crk_org_id | json }}, "name": {{ shop.name | json }} }{% if crk_gbp %},
-        "shippingDetails": {% render 'crooks-schema-shipping', price: variant.price, free_from: crk_free_from, rate: crk_rate %}{% endif %}
+        "shippingDetails": {% render 'crooks-schema-shipping', price: crk_price_minor, free_from: crk_free_from, rate: crk_rate, preorder: crk_pre %}{% endif %}
       }
     }
   {%- endfor -%}
 {%- endcapture -%}
+
+{%- unless crk_multi -%}
+  {%- capture crk_state1 -%}{%- render 'crooks-schema-offer-state', variant: product.selected_or_first_available_variant, product: product -%}{%- endcapture -%}
+  {%- assign crk_state1 = crk_state1 | strip | split: '|' -%}
+  {%- assign crk_price1_minor = crk_state1[1] | plus: 0 -%}
+  {%- assign crk_pre1 = false -%}{%- if crk_state1[2] == 'true' -%}{%- assign crk_pre1 = true -%}{%- endif -%}
+{%- endunless -%}
 
 <script type="application/ld+json">
 {%- if crk_multi -%}
@@ -193,12 +203,12 @@
   "offers": {
     "@type": "Offer",
     "url": {{ crk_url | json }},
-    "price": {{ product.selected_or_first_available_variant.price | money_without_currency | replace: ',', '' | json }},
+    "price": {{ crk_price1_minor | money_without_currency | replace: ',', '' | json }},
     "priceCurrency": {{ cart.currency.iso_code | json }},
-    "availability": {% if product.available %}"https://schema.org/InStock"{% else %}"https://schema.org/OutOfStock"{% endif %},
+    "availability": {{ crk_state1[0] | json }},
     "itemCondition": "https://schema.org/NewCondition",
     "seller": { "@type": "Organization", "@id": {{ crk_org_id | json }}, "name": {{ shop.name | json }} }{% if crk_gbp %},
-    "shippingDetails": {% render 'crooks-schema-shipping', price: product.selected_or_first_available_variant.price, free_from: crk_free_from, rate: crk_rate %}{% endif %}
+    "shippingDetails": {% render 'crooks-schema-shipping', price: crk_price1_minor, free_from: crk_free_from, rate: crk_rate, preorder: crk_pre1 %}{% endif %}
   }
 }
 {%- endif -%}

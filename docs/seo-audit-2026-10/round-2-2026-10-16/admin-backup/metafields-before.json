@@ -1,0 +1,6 @@
+{"note": "crooks.* product metafields before 16 Oct changes; null = not set (deleting the new value restores it)",
+ "v2-baggies (Grey Convict Sweats)": {"crooks.fabric": "500gsm cotton", "crooks.cut": "Wide, full length", "crooks.origin": "Made in Portugal", "crooks.care": "Cold wash. Hang dry."},
+ "v1-hoodie": {"crooks.fabric": null, "crooks.cut": null}, "convict-hoodie-1": {"crooks.fabric": null, "crooks.cut": null}, "pink-crsdr-hoodie": {"crooks.fabric": null, "crooks.cut": null},
+ "black-joggers": {"crooks.fabric": null, "crooks.cut": null}, "pink-crsdr-joggers": {"crooks.fabric": null, "crooks.cut": null},
+ "og-jeans": {"crooks.fabric": null, "crooks.cut": null}, "crx-garms-t-shirt": {"crooks.fabric": null, "crooks.cut": null},
+ "crooks-express-t-shirt": {"crooks.fabric": null}, "crxst-rz-t-shirt": {"crooks.fabric": null}, "double-agent-puffa": {"crooks.cut": null}}

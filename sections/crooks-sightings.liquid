@@ -136,6 +136,13 @@
             if crk_alt == blank
               assign crk_alt = block.settings.image.alt
             endif
+            comment
+              With neither set, the img went out with no alt at all and screen
+              readers read the file name. Name the piece the frame links to.
+            endcomment
+            if crk_alt == blank and crk_redacted == false
+              assign crk_alt = crk_piece
+            endif
           -%}
 
           {%- if crk_i == crk_active -%}
