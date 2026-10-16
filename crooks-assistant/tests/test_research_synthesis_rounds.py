@@ -122,6 +122,20 @@ async def test_two_unreadable_answers_stop_the_run_as_before_and_it_resumes(plac
     assert synth.run(gen)["stage"] == "done"
 
 
+async def test_a_document_whose_claims_couldnt_be_kept_says_so_as_before(place, the_map):
+    """Before a synthesis is live, a new document's claims are kept for it; when Claude's answer can't be read
+    even when asked again, the document's note names the error as it did before Unreadable existed."""
+    store, _ledger = place
+    model = Garbles()
+    await fx.read_old_way(store, model, *FIRST_THREE)
+    await synthesise(store, model=model, the_map=the_map)
+    model.garble = {"extract": 2}
+    (delta,) = await fx.read_old_way(store, model, "test-note-delta.md")
+    assert delta["state"] == "done" and model.garble == {"extract": 0}
+    assert ("What it recommends couldn't be kept for the first synthesis yet (SynthesisError); it will be read when one "
+            "is applied.") in delta["notes"]
+
+
 async def test_one_answer_takes_at_most_four_calls():
     """A failed call is asked once more (Calls.ask) and an unreadable answer is asked once more
     (Calls.ask_json): the most one answer can take is four calls, then it is said."""
