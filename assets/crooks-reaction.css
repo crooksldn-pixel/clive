@@ -93,6 +93,7 @@
 .crk-rx__dot { flex: none; width: 7px; height: 7px; border: 1px solid var(--crk-dim); }
 .crk-rx__status[data-crk-rx-state="active"] .crk-rx__dot,
 .crk-rx__status[data-crk-rx-state="full"] .crk-rx__dot { background: var(--crk-rx-accent); border-color: var(--crk-rx-accent); }
+.crk-rx__status[data-crk-rx-state="cooling"] .crk-rx__dot { border-color: var(--crk-rx-accent); }
 
 .crk-rx__actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; width: 100%; }
 .crk-record .crk-rx .crk-rx__btn { width: 100%; color: var(--crk-rx-accent); }

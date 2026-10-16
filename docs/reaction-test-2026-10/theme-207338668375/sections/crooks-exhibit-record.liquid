@@ -1,0 +1,1097 @@
+{{ 'crooks.css' | asset_url | stylesheet_tag }}
+{{ 'crooks-record-buy.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'crooks-record.js' | asset_url }}" defer></script>
+<script src="{{ 'crooks-set.js' | asset_url }}" defer></script>
+
+{%- assign crk_has_app = section.blocks | where: 'type', '@app' | size -%}
+
+{%- liquid
+  comment
+    No size is chosen for the shopper. `selected_or_first_available_variant`
+    picks the first in-stock variant on their behalf, and a size rendered as
+    already-selected reads as a decision they made — so ADD TO BAG can post a
+    size nobody chose. `selected_variant` is nil unless ?variant= is in the URL,
+    which keeps shared links, the no-JS size links below and the browser Back
+    button working while leaving a cold landing unselected.
+
+    A product with exactly one variant is not a choice, so it stays selected.
+  endcomment
+  assign crk_var = product.selected_variant
+  if product.variants.size == 1
+    assign crk_var = product.variants.first
+  endif
+
+  comment
+    Filter precedence: `money` is formatted into a variable first. Chaining it
+    inside the output tag is the trap this codebase has hit four times.
+  endcomment
+  assign crk_price_display = product.price | money
+  if crk_var
+    assign crk_price_display = crk_var.price | money
+  endif
+
+  assign crk_col = collections[section.settings.collection]
+
+  assign crk_index = 0
+  assign crk_total = crk_col.products_count
+  for p in crk_col.products
+    if p.id == product.id
+      assign crk_index = forloop.index
+      break
+    endif
+  endfor
+
+  comment
+    Size option = the first option that is not Title.
+  endcomment
+  assign crk_size_opt = null
+  for opt in product.options_with_values
+    assign opt_down = opt.name | downcase
+    if opt_down != 'title' and crk_size_opt == null
+      assign crk_size_opt = opt
+    endif
+  endfor
+  comment
+    The pre-JS label has to name the real option too, or socks get a button
+    reading "Select a size" on a product with no sizes. crooks-record.js does
+    the same thing once it runs; this is what the server sends before it does.
+    Formatted into a variable first — filter precedence.
+  endcomment
+  assign crk_single = false
+  assign crk_has_options = true
+  if product.variants.size == 1 and product.variants.first.title == 'Default Title'
+    assign crk_single = true
+    assign crk_has_options = false
+    assign crk_size_opt = null
+  endif
+
+  assign crk_select_label = section.settings.label_select
+  if crk_size_opt and section.settings.label_select_option != blank
+    assign crk_select_label = section.settings.label_select_option | replace: '[option]', crk_size_opt.name
+  endif
+
+  assign mf = product.metafields.crooks
+  assign rows = mf.measurements.value
+  assign has_measurements = false
+  if rows and rows.size > 0
+    assign has_measurements = true
+  endif
+-%}
+
+{%- render 'crooks-schema-product', product: product -%}
+
+<div
+  class="crk-root crk-record"
+  data-crk-section="exhibit-record"
+  data-clive-variant="{% if crk_var %}{{ crk_var.id }}{% endif %}"
+  data-crk-label-add="{{ section.settings.label_add | escape }}"
+  data-crk-label-select="{{ section.settings.label_select | escape }}"
+  data-crk-label-sold="{{ section.settings.label_sold | escape }}"
+  data-crk-label-instock="{{ section.settings.label_in_stock | escape }}"
+  data-crk-label-low="{{ section.settings.label_low | escape }}"
+  data-crk-label-soldsize="{{ section.settings.label_sold_size | escape }}"
+  data-crk-photo-label="{{ section.settings.photo_label | escape }}"
+  data-crk-low-threshold="{{ section.settings.low_stock_threshold }}"
+  data-crk-label-select-option="{{ section.settings.label_select_option | escape }}"
+  data-crk-label-added="{{ section.settings.label_added | escape }}"
+  data-crk-label-added-plain="{{ section.settings.label_added_plain | escape }}"
+  data-crk-label-adderror="{{ section.settings.label_add_error | escape }}"
+  data-crk-label-viewbag="{{ section.settings.label_view_bag | escape }}"
+  data-crk-label-adding="{{ section.settings.label_adding | escape }}"
+  data-crk-cart-url="{{ routes.cart_url }}"
+  {%- unless section.settings.show_texture %} data-crk-texture="off"{% endunless %}
+>
+
+  <div class="crk-wrap">
+    {%- comment -%} ---------- meta strip ---------- {%- endcomment -%}
+    <header class="crk-meta">
+      <a href="{{ crk_col.url | default: routes.root_url }}" class="crk-label">{{ section.settings.back_label }}</a>
+      {%- if crk_index > 0 -%}
+        <span class="crk-display crk-meta-exh">
+          {{ section.settings.exhibit_word }} {% if crk_index < 10 %}0{% endif %}{{ crk_index }} / {{ crk_total }}
+        </span>
+      {%- endif -%}
+      {%- if product.type != blank -%}
+        <span class="crk-data crk-dim">{{ product.type | upcase }}</span>
+      {%- endif -%}
+      {%- if mf.case_ref.value != blank -%}
+        <span class="crk-data crk-dim">{{ section.settings.case_word }} {{ mf.case_ref.value }}</span>
+      {%- endif -%}
+    </header>
+
+    {%- comment -%}
+      Reaction test (snippets/crooks-reaction.liquid). One per page, from a
+      "Reaction test" block. It follows the buy panel on mobile; from 960px
+      it sits under the gallery and the panel spans both rows, so ADD TO BAG
+      stays in view beside it (crooks-reaction.css). No block, no change.
+    {%- endcomment -%}
+    {%- liquid
+      assign crk_rx = nil
+      for block in section.blocks
+        if block.type == 'reaction' and block.settings.image_reacted != blank
+          assign crk_rx = block
+          break
+        elsif block.type == 'reaction' and request.design_mode
+          assign crk_rx = block
+          break
+        endif
+      endfor
+    -%}
+    <div class="crk-grid{% if crk_rx %} crk-grid--rx{% endif %}">
+      {%- comment -%} ---------- gallery ---------- {%- endcomment -%}
+      <div>
+        <div
+          class="crk-tray crk-tray-main"
+          role="group"
+          aria-label="{{ section.settings.gallery_label | escape }}"
+          tabindex="0"
+          data-crk-gallery
+        >
+          {%- for image in product.images -%}
+            {%- liquid
+              comment
+                The first photo is the page's largest paint (measured on the
+                Yard Jeans page): it was already eager, it now also asks for
+                high fetch priority so it is not queued behind scripts
+                (Promptd audit 2026-10, finding I4).
+              endcomment
+              if forloop.first
+                assign img_loading = 'eager'
+                assign img_prio = 'high'
+              else
+                assign img_loading = 'lazy'
+                assign img_prio = 'auto'
+              endif
+              assign img_alt = image.alt | default: product.title
+              assign gal_src = image.src | downcase
+              assign main_img_cls = 'crk-main-img'
+              unless gal_src contains '.jpg' or gal_src contains '.jpeg'
+                assign main_img_cls = main_img_cls | append: ' crk-product-image'
+              endunless
+            -%}
+            <div data-crk-slide {% unless forloop.first %}hidden{% endunless %}>
+              {{
+                image
+                | image_url: width: 1400
+                | image_tag:
+                  widths: '400, 600, 800, 1000, 1400',
+                  sizes: '(min-width: 960px) 55vw, 100vw',
+                  loading: img_loading,
+                  fetchpriority: img_prio,
+                  class: main_img_cls,
+                  alt: img_alt
+              }}
+            </div>
+          {%- endfor -%}
+        </div>
+
+        <div class="crk-gallery-chrome">
+          <span class="crk-counter" data-crk-photo-counter aria-hidden="true">
+            {{ section.settings.photo_label | replace: '[i]', 1 | replace: '[n]', product.images.size }}
+          </span>
+        </div>
+
+        {%- if product.images.size > 1 -%}
+          <div class="crk-thumbs">
+            {%- for image in product.images -%}
+              <button
+                type="button"
+                class="crk-thumb"
+                data-crk-thumb
+                data-active="{% if forloop.first %}true{% else %}false{% endif %}"
+                aria-label="{{ section.settings.photo_label | replace: '[i]', forloop.index | replace: '[n]', product.images.size | escape }}"
+              >
+                {{ image | image_url: width: 128 | image_tag: loading: 'lazy', alt: '' }}
+              </button>
+            {%- endfor -%}
+          </div>
+        {%- endif -%}
+      </div>
+
+      {%- comment -%} ---------- record panel ---------- {%- endcomment -%}
+      <div class="crk-panel crk-panel-record crk-panel-sticky">
+        <h1 class="crk-display crk-title">{% render 'crooks-title', product: product %}</h1>
+        <div class="crk-display crk-price" style="margin-top: 8px;" data-crk-price>{{ crk_price_display }}</div>
+
+        {%- if product.available -%}
+          {%- form 'product', product, id: 'crk-product-form' -%}
+            <input type="hidden" name="id" value="{{ crk_var.id }}" data-crk-variant-id>
+
+            {%- if crk_has_options -%}
+              {%- comment -%}
+                Variant matrix as DOM data, not a JSON blob in a <script> — the
+                house rule forbids Liquid inside script tags. One <span> per
+                variant carrying its option values and buy state.
+              {%- endcomment -%}
+              <div data-crk-variants hidden>
+                {%- for v in product.variants -%}
+                  {%- liquid
+                    assign vq = 0
+                    if v.inventory_quantity > 0
+                      assign vq = v.inventory_quantity
+                    endif
+                  -%}
+                  <span
+                    data-id="{{ v.id }}"
+                    data-o1="{{ v.option1 | escape }}"
+                    data-o2="{{ v.option2 | escape }}"
+                    data-o3="{{ v.option3 | escape }}"
+                    data-available="{{ v.available }}"
+                    data-qty="{{ vq }}"
+                    data-price="{{ v.price | money }}"
+                  ></span>
+                {%- endfor -%}
+              </div>
+
+              {%- comment -%}
+                Every option renders, whatever it is called and whatever order it
+                comes in. Nothing here assumes "Size" or a single option.
+              {%- endcomment -%}
+              {%- comment -%}
+                The size guide is a link on the size option's label row, not a
+                boxed button under the stock line. The row whose name says "size"
+                carries it; failing that, the first.
+              {%- endcomment -%}
+              {%- liquid
+                assign guide_oi = 0
+                for option in product.options_with_values
+                  assign oname = option.name | downcase
+                  if oname contains 'size'
+                    assign guide_oi = forloop.index0
+                    break
+                  endif
+                endfor
+              -%}
+              {%- for option in product.options_with_values -%}
+                {%- liquid
+                  assign oi = forloop.index0
+                  case oi
+                    when 0
+                      assign sel_val = crk_var.option1
+                    when 1
+                      assign sel_val = crk_var.option2
+                    when 2
+                      assign sel_val = crk_var.option3
+                  endcase
+                  assign wide = false
+                  for val in option.values
+                    assign vlen = val | size
+                    if vlen > 3
+                      assign wide = true
+                    endif
+                  endfor
+                -%}
+                <div class="crk-optgroup" data-crk-optgroup="{{ oi }}" data-crk-optname="{{ option.name | escape }}">
+                  <div class="crk-label crk-optlabel">
+                    <span>{{ option.name }}</span>
+                    {%- if has_measurements and oi == guide_oi -%}
+                      <button type="button" class="crk-sizeguide-link" data-crk-size-guide>{{ section.settings.size_guide_label }}</button>
+                    {%- endif -%}
+                  </div>
+                  <div class="crk-sizes{% if wide %} crk-sizes--wide{% endif %}" role="group" aria-label="{{ option.name | escape }}">
+                    {%- for value in option.values -%}
+                      {%- liquid
+                        assign is_sel = false
+                        if value == sel_val
+                          assign is_sel = true
+                        endif
+                      -%}
+                      <button
+                        type="button"
+                        class="crk-size"
+                        data-crk-opt="{{ oi }}"
+                        data-value="{{ value | escape }}"
+                        data-selected="{{ is_sel }}"
+                        data-low="false"
+                        aria-pressed="{{ is_sel }}"
+                        aria-label="{{ option.name | escape }} {{ value | escape }}"
+                      >{{ value }}</button>
+                    {%- endfor -%}
+                  </div>
+                </div>
+              {%- endfor -%}
+
+              {%- comment -%}
+                Mirrors the JS states so the pre-JS render is accurate in all three
+                cases: nothing chosen yet (the cold landing), a chosen size that is
+                sold out (?variant=<sold out>, or the Back button), and a chosen size
+                that is buyable. crooks-record.js reads the selection back out of
+                these buttons on init, so leaving them all unselected here is what
+                makes the shopper's first choice their own.
+              {%- endcomment -%}
+              <p class="crk-stockline" data-crk-stockline data-out="{% if crk_var and crk_var.available == false %}true{% else %}false{% endif %}" aria-live="polite">
+                {%- if crk_var == blank -%}
+                  {{ crk_select_label }}
+                {%- elsif crk_var.available == false -%}
+                  {{ section.settings.label_sold_size | replace: '[size]', crk_var.title }}
+                {%- elsif crk_var.inventory_quantity > 0 and crk_var.inventory_quantity <= section.settings.low_stock_threshold -%}
+                  {{ section.settings.label_low | replace: '[n]', crk_var.inventory_quantity | replace: '[size]', crk_var.title }}
+                {%- else -%}
+                  {{ section.settings.label_in_stock }}
+                {%- endif -%}
+              </p>
+
+              <noscript>
+                <p class="crk-micro" style="margin-top: 8px;">{{ section.settings.nojs_note }}</p>
+                <ul class="crk-sizes crk-sizes--wide">
+                  {%- for v in product.variants -%}
+                    {%- if v.available -%}
+                      <li><a class="crk-size" href="{{ product.url }}?variant={{ v.id }}">{{ v.title }}</a></li>
+                    {%- endif -%}
+                  {%- endfor -%}
+                </ul>
+              </noscript>
+            {%- else -%}
+              <p class="crk-stockline" data-crk-stockline data-out="false" aria-live="polite">
+                {%- if crk_var.inventory_quantity > 0 and crk_var.inventory_quantity <= section.settings.low_stock_threshold -%}
+                  {{ section.settings.label_low | replace: '[n]', crk_var.inventory_quantity | replace: ' IN SIZE [size]', '' }}
+                {%- else -%}
+                  {{ section.settings.label_in_stock }}
+                {%- endif -%}
+              </p>
+            {%- endif -%}
+
+            {%- comment -%}
+              Delivery expectation, carried over from the Horizon PDP's
+              delivery-message block. Real shipping information a customer needs
+              before buying, so it survives the redesign rather than being
+              replaced by flavour.
+            {%- endcomment -%}
+            {%- liquid
+              assign crk_mto = false
+              if product.tags contains section.settings.made_to_order_tag
+                assign crk_mto = true
+              endif
+            -%}
+            {%- comment -%}
+              Hidden while the chosen variant is unavailable: "In stock · Ships within 24
+              hours" sat two lines under "SIZE L IS SOLD OUT" and flatly contradicted it.
+              JS re-evaluates on every size change; this covers the pre-JS render.
+            {%- endcomment -%}
+            {%- if crk_mto and section.settings.made_to_order_text != blank -%}
+              <p class="crk-stockline" data-crk-delivery{% if crk_var and crk_var.available == false %} hidden{% endif %}>{{ section.settings.made_to_order_text }}</p>
+            {%- elsif section.settings.in_stock_text != blank -%}
+              <p class="crk-stockline" data-crk-delivery{% if crk_var and crk_var.available == false %} hidden{% endif %}>{{ section.settings.in_stock_text }}</p>
+
+              {%- comment -%}
+                Dispatch state readout. Deliberately NOT a countdown: a ticking clock is
+                the one urgency pattern the brand rules out, and it is what makes a real
+                shipping promise read as pressure selling. This is a status line in the
+                same voice as "> 14 PRODUCTS AVAILABLE TO PURCHASE" — it reports a fact
+                and stops.
+
+                Computed client-side because Liquid's `now` is server-side and these
+                pages are CDN-cached, so a server-rendered state would go stale and lie.
+                With JS off nothing renders here and the static line above still carries
+                the full, always-true promise.
+
+                Config travels as data-* attributes — no Liquid inside a script tag.
+              {%- endcomment -%}
+              {%- if section.settings.dispatch_show -%}
+                <p
+                  class="crk-stockline crk-dispatch"
+                  data-crk-dispatch
+                  data-crk-cutoff="{{ section.settings.dispatch_cutoff_hour }}"
+                  data-crk-dispatch-days="{{ section.settings.dispatch_days }}"
+                  data-crk-tz="{{ section.settings.dispatch_timezone }}"
+                  data-crk-today="{{ section.settings.dispatch_today | escape }}"
+                  data-crk-tomorrow="{{ section.settings.dispatch_tomorrow | escape }}"
+                  data-crk-nextopen="{{ section.settings.dispatch_next_open | escape }}"
+                  hidden
+                ></p>
+              {%- endif -%}
+            {%- endif -%}
+
+            {%- comment -%}
+              Complete-the-set toggle. Sits here by design: after the shopper
+              knows what it is, that it is in stock and when it ships, and
+              before the button. Renders only for products carrying the set
+              metafields, collapsed, once per page.
+            {%- endcomment -%}
+            {%- render 'crooks-set-toggle', product: product, section: section -%}
+
+            {%- comment -%} App blocks (size charts, reviews) render here. {%- endcomment -%}
+            {%- for block in section.blocks -%}
+              {%- if block.type == '@app' -%}
+                <div {{ block.shopify_attributes }}>{% render block %}</div>
+              {%- endif -%}
+            {%- endfor -%}
+
+            {%- comment -%}
+              The buy spine carries no label. "Release request" sat above ADD TO
+              BAG, which is the one place KEEP.md §2 says fiction must never go:
+              "Never let ADD TO BAG become in-fiction. That rule is the reason
+              the whole aesthetic survives contact with a stranger." The size
+              row, price and button say what this is without a heading.
+            {%- endcomment -%}
+            {%- comment -%}
+              Server-side buy state. Without this a JS-off shopper landing on
+              ?variant=<sold out> got an enabled ADD TO BAG carrying that variant's id.
+              JS re-derives all of this on first render, so this only governs the
+              pre-JS and no-JS case. ADD TO BAG stays plain English either way.
+            {%- endcomment -%}
+            <button type="submit" name="add" class="crk-btn" data-crk-buy{% unless crk_var.available %} disabled{% endunless %}>
+              {%- if crk_var.available == false -%}
+                {{ section.settings.label_sold }}
+              {%- elsif crk_var == blank and crk_has_options -%}
+                {{ crk_select_label }}
+              {%- else -%}
+                {{ section.settings.label_add }}
+              {%- endif -%}
+            </button>
+
+            {%- comment -%}
+              Shopify's dynamic checkout. Its chrome is Shopify-owned and cannot be
+              restyled — Shop Pay purple, PayPal blue — so it is framed rather than
+              faked, the same treatment the cart gets. Deliberate trade: one-tap for
+              anyone with saved details, at the cost of the only non-CROOKSLDN pixels
+              in the buy panel. It disappears by itself when the variant is unbuyable.
+            {%- endcomment -%}
+            {%- if section.settings.show_dynamic_checkout -%}
+              <div class="crk-buynow" data-crk-buynow{% unless crk_var.available %} hidden{% endunless %}>{{ form | payment_button }}</div>
+            {%- endif -%}
+
+            {%- comment -%}
+              Add-to-bag confirmation. A readout, in the same voice as the dispatch
+              line — no overlay, no drawer, nothing to dismiss. aria-live so it is
+              announced rather than only seen.
+            {%- endcomment -%}
+            <p class="crk-stockline crk-added" data-crk-added aria-live="polite" hidden></p>
+          {%- endform -%}
+
+          {%- comment -%}
+            Variant-level sold-out capture. The block below only ever rendered when EVERY
+            variant was gone, so a shopper whose size is sold out while other sizes remain
+            was offered nothing at all — the worst finding in the audit. Same component,
+            same copy, surfaced at the right granularity. It sits outside the product form
+            because HTML forbids nested forms, and starts hidden unless the variant the
+            server selected is itself unavailable, so it is correct before JS runs.
+            When an app block is in this section (CROOKS Operations "Pre-order / Notify
+            me"), the app's own form takes this job, so the page shows one Notify me.
+          {%- endcomment -%}
+          {%- if crk_has_app == 0 -%}
+          <div class="crk-notifypanel" data-crk-notify-panel{% unless crk_var and crk_var.available == false %} hidden{% endunless %}>
+            {%- form 'contact', class: 'crk-notify' -%}
+              <input type="hidden" name="contact[subject]" value="{{ section.settings.notify_subject | escape }}">
+              <input type="hidden" name="contact[product]" value="{{ product.handle }}">
+              <input type="hidden" name="contact[product_url]" value="{{ shop.url }}{{ product.url }}">
+              <input type="hidden" name="contact[variant]" value="{{ crk_var.title | escape }}" data-crk-notify-variant>
+              <label class="crk-label crk-buylabel" for="crk-notify-variant-email">{{ section.settings.notify_variant_label }}</label>
+              <input
+                class="crk-input"
+                id="crk-notify-variant-email"
+                type="email"
+                name="contact[email]"
+                placeholder="{{ section.settings.notify_placeholder | escape }}"
+                autocomplete="email"
+                required
+              >
+              <button class="crk-btn" type="submit" style="margin-top: 8px;">{{ section.settings.notify_button }}</button>
+              {%- if form.posted_successfully? -%}
+                <p class="crk-body" style="margin-top: 16px;" aria-live="polite">{{ section.settings.notify_ok }}</p>
+              {%- elsif form.errors -%}
+                <p class="crk-body" style="margin-top: 16px; color: var(--crk-red);" role="alert">{{ section.settings.notify_err }}</p>
+              {%- endif -%}
+            {%- endform -%}
+          </div>
+          {%- endif -%}
+        {%- else -%}
+          <p class="crk-stockline" data-out="true">{{ section.settings.released_text }}</p>
+          {%- form 'contact', class: 'crk-notify' -%}
+            <input type="hidden" name="contact[subject]" value="{{ section.settings.notify_subject | escape }}">
+            <input type="hidden" name="contact[product]" value="{{ product.handle }}">
+            <input type="hidden" name="contact[product_url]" value="{{ shop.url }}{{ product.url }}">
+            {%- comment -%}
+              This input's accessible name came from buy_label. That setting is
+              gone from the buy spine, so the field gets a label of its own —
+              KEEP.md §4 records "interactive controls with no accessible name:
+              0 of 35", and that number stays 0.
+            {%- endcomment -%}
+            <label class="crk-sr" for="crk-notify-email">{{ section.settings.notify_email_label }}</label>
+            <input
+              class="crk-input"
+              id="crk-notify-email"
+              type="email"
+              name="contact[email]"
+              placeholder="{{ section.settings.notify_placeholder | escape }}"
+              autocomplete="email"
+              required
+            >
+            <button class="crk-btn" type="submit" style="margin-top: 8px;">{{ section.settings.notify_button }}</button>
+            {%- if form.posted_successfully? -%}
+              <p class="crk-body" style="margin-top: 16px;" aria-live="polite">{{ section.settings.notify_ok }}</p>
+            {%- elsif form.errors -%}
+              <p class="crk-body" style="margin-top: 16px; color: var(--crk-red);" role="alert">{{ section.settings.notify_err }}</p>
+            {%- endif -%}
+          {%- endform -%}
+        {%- endif -%}
+      </div>
+
+      {%- if crk_rx -%}
+        <div class="crk-rx-slot" {{ crk_rx.shopify_attributes }}>
+          {%- render 'crooks-reaction',
+            s: crk_rx.settings,
+            product: product,
+            rx_id: crk_rx.id,
+            sizes: '(min-width: 960px) 55vw, 100vw',
+            sizes_reacted: '(min-width: 1180px) 560px, (min-width: 960px) 46vw, (min-width: 768px) calc(100vw - 132px), calc(100vw - 100px)',
+            placement: 'product'
+          -%}
+        </div>
+      {%- endif -%}
+    </div>
+
+    {%- comment -%} ---------- collapsible record sections ---------- {%- endcomment -%}
+    <div class="crk-stack">
+      <div>
+        {%- liquid
+          assign spec_count = 0
+          if crk_single
+            assign spec_count = 1
+          endif
+          if mf.fabric.value != blank
+            assign spec_count = spec_count | plus: 1
+          endif
+          if mf.cut.value != blank
+            assign spec_count = spec_count | plus: 1
+          endif
+          if mf.wash_code.value != blank
+            assign spec_count = spec_count | plus: 1
+          endif
+          if mf.origin.value != blank
+            assign spec_count = spec_count | plus: 1
+          endif
+          if mf.care.value != blank
+            assign spec_count = spec_count | plus: 1
+          endif
+          if mf.case_ref.value != blank
+            assign spec_count = spec_count | plus: 1
+          endif
+        -%}
+        {%- comment -%}
+          Shipping and returns first. The delivery window was the third block
+          inside the fourth panel, and "when will it arrive" is the second
+          question every shopper has after the price. It now opens the list.
+        {%- endcomment -%}
+        {%- if section.blocks.size > 0 -%}
+          <section class="crk-section" id="crk-custody">
+            <h2 class="crk-display crk-h" style="margin: 0;">
+              <button type="button" class="crk-section-head" data-crk-accordion aria-expanded="{% if section.settings.custody_open %}true{% else %}false{% endif %}" aria-controls="crk-custody-body">
+                <span class="crk-display crk-h">{{ section.settings.custody_heading }}</span>
+                <span class="crk-display crk-h" aria-hidden="true" data-crk-accordion-icon>{% if section.settings.custody_open %}−{% else %}+{% endif %}</span>
+              </button>
+            </h2>
+            <div class="crk-section-body" id="crk-custody-body"{% unless section.settings.custody_open %} hidden{% endunless %}>
+              {%- if settings.crk_ret_on_product -%}{{ 'crooks-returns.css' | asset_url | stylesheet_tag }}{%- endif -%}
+              <ol class="crk-custody">
+                {%- comment -%} Numbered by custody steps alone, so an app block in the section does not shift them. {%- endcomment -%}
+                {%- assign crk_step = 0 -%}
+                {%- for block in section.blocks -%}
+                  {%- if block.type != 'custody_step' -%}{%- continue -%}{%- endif -%}
+                  {%- assign crk_step = crk_step | plus: 1 -%}
+                  <li {{ block.shopify_attributes }}>
+                    <span class="crk-label">{% if crk_step < 10 %}0{% endif %}{{ crk_step }} {{ block.settings.label }}</span>
+                    <p class="crk-body">{{ block.settings.body }}</p>
+                  </li>
+                {%- endfor -%}
+                {%- comment -%}
+                  Returns close the chain: after Delivered, what happens if it doesn't
+                  fit. Here rather than under the buy button, so it reassures without
+                  pitching a return. Wording: Theme settings → CROOKS — Returns promise.
+                {%- endcomment -%}
+                {%- if settings.crk_ret_on_product -%}
+                  {%- assign crk_ret_step = crk_step | plus: 1 -%}
+                  {%- render 'crooks-returns-promise', variant: 'custody', step: crk_ret_step -%}
+                {%- endif -%}
+              </ol>
+            </div>
+          </section>
+        {%- endif -%}
+
+        {%- if spec_count > 0 -%}
+          <section class="crk-section" id="crk-specification">
+            <h2 class="crk-display crk-h" style="margin: 0;">
+              <button type="button" class="crk-section-head" data-crk-accordion aria-expanded="{% if section.settings.spec_open %}true{% else %}false{% endif %}" aria-controls="crk-specification-body">
+                <span class="crk-display crk-h">{{ section.settings.spec_heading }}</span>
+                <span class="crk-display crk-h" aria-hidden="true" data-crk-accordion-icon>{% if section.settings.spec_open %}−{% else %}+{% endif %}</span>
+              </button>
+            </h2>
+            <div class="crk-section-body" id="crk-specification-body"{% unless section.settings.spec_open %} hidden{% endunless %}>
+              <dl class="crk-spec">
+                {%- if crk_single -%}<dt>{{ section.settings.row_size }}</dt><dd>{{ section.settings.one_size_text }}</dd>{%- endif -%}
+                {%- if mf.fabric.value != blank -%}<dt>{{ section.settings.row_fabric }}</dt><dd>{{ mf.fabric.value }}</dd>{%- endif -%}
+                {%- if mf.cut.value != blank -%}<dt>{{ section.settings.row_cut }}</dt><dd>{{ mf.cut.value }}</dd>{%- endif -%}
+                {%- if mf.wash_code.value != blank -%}<dt>{{ section.settings.row_wash }}</dt><dd>{{ mf.wash_code.value }}</dd>{%- endif -%}
+                {%- if mf.origin.value != blank -%}<dt>{{ section.settings.row_origin }}</dt><dd>{{ mf.origin.value }}</dd>{%- endif -%}
+                {%- if mf.care.value != blank -%}<dt>{{ section.settings.row_care }}</dt><dd>{{ mf.care.value }}</dd>{%- endif -%}
+                {%- if mf.case_ref.value != blank -%}<dt>{{ section.settings.row_case }}</dt><dd>{{ mf.case_ref.value }}</dd>{%- endif -%}
+              </dl>
+            </div>
+          </section>
+        {%- endif -%}
+
+        {%- if product.description != blank -%}
+          <section class="crk-section" id="crk-provenance">
+            <h2 class="crk-display crk-h" style="margin: 0;">
+              <button type="button" class="crk-section-head" data-crk-accordion aria-expanded="{% if section.settings.provenance_open %}true{% else %}false{% endif %}" aria-controls="crk-provenance-body">
+                <span class="crk-display crk-h">{{ section.settings.provenance_heading }}</span>
+                <span class="crk-display crk-h" aria-hidden="true" data-crk-accordion-icon>{% if section.settings.provenance_open %}−{% else %}+{% endif %}</span>
+              </button>
+            </h2>
+            <div class="crk-section-body" id="crk-provenance-body"{% unless section.settings.provenance_open %} hidden{% endunless %}>
+              <div class="crk-body">{{ product.description }}</div>
+            </div>
+          </section>
+        {%- endif -%}
+
+        {%- if has_measurements -%}
+          <section class="crk-section" id="crk-measurements">
+            <h2 class="crk-display crk-h" style="margin: 0;">
+              <button type="button" class="crk-section-head" data-crk-accordion aria-expanded="{% if section.settings.measure_open %}true{% else %}false{% endif %}" aria-controls="crk-measurements-body">
+                <span class="crk-display crk-h">{{ section.settings.measure_heading }}</span>
+                <span class="crk-display crk-h" aria-hidden="true" data-crk-accordion-icon>{% if section.settings.measure_open %}−{% else %}+{% endif %}</span>
+              </button>
+            </h2>
+            <div class="crk-section-body" id="crk-measurements-body"{% unless section.settings.measure_open %} hidden{% endunless %}>
+              <div class="crk-units" role="group" aria-label="{{ section.settings.units_label | escape }}">
+                <button type="button" class="crk-unit" data-crk-unit="cm" data-selected="true" aria-pressed="true">{{ section.settings.unit_cm }}</button>
+                <button type="button" class="crk-unit" data-crk-unit="in" data-selected="false" aria-pressed="false">{{ section.settings.unit_in }}</button>
+              </div>
+              {%- comment -%}
+                Own scrollport: unwrapped, this table pushed the page to 308px against a
+                195px viewport at 200% zoom (WCAG 1.4.10 reflow). tabindex makes the
+                scrollable region reachable by keyboard, which is why it needs a name.
+              {%- endcomment -%}
+              <div
+                class="crk-tablewrap"
+                tabindex="0"
+                role="region"
+                aria-label="{{ section.settings.measure_region_label | escape }}"
+              >
+              <table class="crk-table">
+                <caption data-crk-measure-caption data-cm="{{ section.settings.measure_caption_cm | escape }}" data-in="{{ section.settings.measure_caption_in | escape }}">
+                  {{ section.settings.measure_caption_cm }}
+                </caption>
+                <thead>
+                  <tr>
+                    {%- for pair in rows.first -%}
+                      <th scope="col">{{ pair[0] }}</th>
+                    {%- endfor -%}
+                  </tr>
+                </thead>
+                <tbody>
+                  {%- for row in rows -%}
+                    <tr data-crk-measure-row="{{ row.size | escape }}" data-active="false">
+                      {%- for pair in row -%}
+                        {%- if forloop.first -%}
+                          <th scope="row">{{ pair[1] }}</th>
+                        {%- else -%}
+                          <td data-cm="{{ pair[1] | escape }}">{{ pair[1] }}</td>
+                        {%- endif -%}
+                      {%- endfor -%}
+                    </tr>
+                  {%- endfor -%}
+                </tbody>
+              </table>
+              </div>
+            </div>
+          </section>
+        {%- endif -%}
+
+      </div>
+
+      {%- comment -%} ---------- filed under the same case ---------- {%- endcomment -%}
+      {%- liquid
+        assign related = ''
+        assign related_n = 0
+        for p in crk_col.products
+          if p.id != product.id and p.type == product.type and related_n < 4
+            assign related = related | append: p.handle | append: '|'
+            assign related_n = related_n | plus: 1
+          endif
+        endfor
+      -%}
+      {%- if related_n >= 2 -%}
+        <section>
+          <h2 class="crk-display crk-h">{{ section.settings.related_heading }}</h2>
+          <div class="crk-related">
+            {%- assign handles = related | split: '|' -%}
+            {%- for h in handles -%}
+              {%- if h != blank -%}
+                {%- assign rp = all_products[h] -%}
+                {%- if rp.id -%}
+                  <a href="{{ rp.url }}" class="crk-related-item">
+                    <span class="crk-tray crk-related-tray">
+                      {{ rp.featured_image | image_url: width: 400 | image_tag: loading: 'lazy', alt: rp.title }}
+                    </span>
+                    <span class="crk-data">{% render 'crooks-title', product: rp %}</span>
+                    <span class="crk-display" style="font-size: 18px;">{{ rp.price | money }}</span>
+                    {%- comment -%}
+                      The rail used to know one thing: gone entirely. A piece
+                      with two of five sizes left looked as buyable here as a
+                      full one, which is the same blindness the register cards
+                      were fixed for. Same snippet, so they cannot drift apart.
+                      The available label is deliberately empty — a rail that
+                      says AVAILABLE under every card is noise; this only speaks
+                      when there is something to warn about.
+                    {%- endcomment -%}
+                    {%- render 'crooks-sizes-left',
+                      product: rp,
+                      class: 'crk-related-soldout',
+                      sizes_left_label: section.settings.related_sizes_label,
+                      sold_label: section.settings.label_sold,
+                      available_label: ''
+                    -%}
+                  </a>
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+          </div>
+        </section>
+      {%- endif -%}
+    </div>
+  </div>
+
+  {%- comment -%} ---------- sticky bar: mobile only, one instance ---------- {%- endcomment -%}
+  {%- if product.available -%}
+    <div class="crk-sticky-spacer" aria-hidden="true" hidden data-crk-sticky-spacer></div>
+    <div class="crk-stickybar" data-crk-buybar hidden>
+      <div style="min-width: 0; flex: 1;">
+        <div class="crk-display" style="font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          {% render 'crooks-title', product: product %}
+        </div>
+        <div class="crk-data crk-dim" data-crk-sticky-meta>{{ crk_price_display }}</div>
+      </div>
+      {%- comment -%}
+        Two actions, mirroring the panel. The bar sits outside the product form, so
+        it cannot host a payment_button — Shopify only renders those inside one.
+        Its CHECKOUT NOW is therefore a theme button that adds and goes straight to
+        checkout: same destination, different mechanism from the wallet row above.
+      {%- endcomment -%}
+      <div class="crk-buybar__actions">
+        <button type="button" class="crk-btn" data-crk-sticky-add>{{ section.settings.label_add }}</button>
+        <button type="button" class="crk-btn crk-btn--now" data-crk-sticky-now>{{ section.settings.label_checkout_now }}</button>
+      </div>
+    </div>
+  {%- endif -%}
+</div>
+
+{% schema %}
+{
+  "name": "Crooks — Product Record",
+  "tag": "section",
+  "settings": [
+    { "type": "collection", "id": "collection", "label": "Collection for product numbering, related items and the back link" },
+    { "type": "text", "id": "back_label", "label": "Back link label", "default": "← Catalogue" },
+    { "type": "text", "id": "exhibit_word", "label": "Product word", "default": "PRODUCT" },
+    { "type": "text", "id": "case_word", "label": "Case word", "default": "CASE" },
+    { "type": "checkbox", "id": "show_texture", "label": "Show scanline texture", "default": true },
+    { "type": "header", "content": "Gallery" },
+    { "type": "text", "id": "photo_label", "label": "Photo counter", "info": "Use [i] and [n].", "default": "Photo [i] of [n]" },
+    { "type": "text", "id": "gallery_label", "label": "Gallery group label (screen readers)", "default": "Evidence photographs" },
+    { "type": "header", "content": "Buying" },
+    { "type": "text", "id": "size_group_label", "label": "Size group label (screen readers)", "default": "Select a size" },
+    { "type": "text", "id": "label_add", "label": "Add to bag", "default": "Add to bag" },
+    { "type": "text", "id": "label_checkout_now", "label": "Checkout now", "default": "Checkout now" },
+    { "type": "checkbox", "id": "show_dynamic_checkout", "label": "Show Shopify dynamic checkout (Shop Pay etc.)", "info": "Shopify-owned chrome; cannot be restyled.", "default": true },
+    { "type": "text", "id": "label_added", "label": "Added confirmation", "info": "Use [n] for the bag count.", "default": "Added — [n] in bag" },
+    { "type": "text", "id": "label_added_plain", "label": "Added confirmation, count unavailable", "info": "Shown when the item went in but the bag count could not be read back.", "default": "Added to bag" },
+    { "type": "text", "id": "label_adding", "label": "While adding", "info": "Shown on the button between the tap and the cart answering. On a slow connection this is the only sign the tap registered.", "default": "Adding\u2026" },
+    { "type": "text", "id": "label_add_error", "label": "Add failed", "default": "Could not add that. Refresh and try again." },
+    { "type": "text", "id": "label_view_bag", "label": "View bag link", "default": "View bag" },
+    { "type": "text", "id": "label_select", "label": "No option chosen", "default": "Select a size" },
+    { "type": "text", "id": "label_select_option", "label": "Prompt naming the missing option", "info": "Use [option].", "default": "Select [option]" },
+    { "type": "text", "id": "label_sold", "label": "Sold out", "default": "SOLD OUT" },
+    { "type": "text", "id": "label_in_stock", "label": "In stock line", "default": "IN STOCK" },
+    { "type": "text", "id": "label_low", "label": "Low stock line", "info": "Use [n] and [size].", "default": "[n] LEFT IN SIZE [size]" },
+    { "type": "text", "id": "label_sold_size", "label": "Sold out size line", "info": "Use [size].", "default": "SIZE [size] IS SOLD OUT" },
+    { "type": "range", "id": "low_stock_threshold", "label": "Low stock threshold", "min": 1, "max": 10, "step": 1, "default": 3 },
+    { "type": "text", "id": "size_guide_label", "label": "Size guide button", "default": "Size guide" },
+    { "type": "text", "id": "sr_sold_out", "label": "\"Sold out\" (screen readers)", "default": "sold out" },
+    { "type": "text", "id": "sr_left", "label": "\"left\" (screen readers)", "default": "left" },
+    { "type": "text", "id": "nojs_note", "label": "No-JavaScript note", "default": "CHOOSE A SIZE:" },
+    { "type": "header", "content": "Delivery" },
+    { "type": "text", "id": "in_stock_text", "label": "In-stock delivery line", "default": "Order before 18:00 and it ships today (Mon–Sat)" },
+    { "type": "text", "id": "made_to_order_text", "label": "Made-to-order delivery line", "default": "Made to order · Ships in 9–16 days" },
+    { "type": "text", "id": "made_to_order_tag", "label": "Made-to-order tag", "default": "made-to-order" },
+    { "type": "header", "content": "Dispatch cutoff" },
+    { "type": "checkbox", "id": "dispatch_show", "label": "Show the dispatch state line", "info": "A status line under the delivery line. Never a countdown.", "default": true },
+    { "type": "range", "id": "dispatch_cutoff_hour", "label": "Cutoff hour (24h, shop time)", "min": 0, "max": 23, "step": 1, "unit": "h", "default": 18 },
+    { "type": "text", "id": "dispatch_days", "label": "Dispatch days", "info": "Day numbers, 1 = Monday. Mon-Sat is 1,2,3,4,5,6.", "default": "1,2,3,4,5,6" },
+    { "type": "text", "id": "dispatch_timezone", "label": "Shop timezone", "info": "IANA name. The cutoff is judged in this zone, not the shopper's.", "default": "Europe/London" },
+    { "type": "text", "id": "dispatch_today", "label": "Before cutoff, on a dispatch day", "default": "Ordered now \u2014 leaves today" },
+    { "type": "text", "id": "dispatch_tomorrow", "label": "After cutoff, next day is a dispatch day", "default": "Ordered now \u2014 leaves tomorrow" },
+    { "type": "text", "id": "dispatch_next_open", "label": "Otherwise (closed tomorrow)", "default": "Ordered now \u2014 leaves Monday" },
+    { "type": "header", "content": "Sold out" },
+    { "type": "text", "id": "released_text", "label": "Released text", "default": "RELEASED — NO LONGER IN CUSTODY" },
+    { "type": "text", "id": "notify_variant_label", "label": "Notify label (size sold out)", "default": "Tell me when this size is back" },
+    { "type": "text", "id": "notify_placeholder", "label": "Notify placeholder", "default": "email address" },
+    { "type": "text", "id": "notify_button", "label": "Notify button", "default": "Notify me" },
+    { "type": "text", "id": "notify_email_label", "label": "Notify email field label (screen readers)", "default": "Email address" },
+    { "type": "text", "id": "notify_subject", "label": "Notify email subject", "default": "Restock request" },
+    { "type": "text", "id": "notify_ok", "label": "Notify success", "default": "Logged. We will email you when this exhibit returns." },
+    { "type": "text", "id": "notify_err", "label": "Notify error", "default": "Submission rejected — check the address." },
+    { "type": "header", "content": "Specification" },
+    { "type": "text", "id": "spec_heading", "label": "Heading", "default": "Specification" },
+    { "type": "text", "id": "row_size", "label": "Size row", "default": "Size" },
+    { "type": "text", "id": "one_size_text", "label": "One size text", "default": "One size" },
+    { "type": "text", "id": "row_fabric", "label": "Fabric row", "default": "Fabric" },
+    { "type": "text", "id": "row_cut", "label": "Cut row", "default": "Cut" },
+    { "type": "text", "id": "row_wash", "label": "Wash code row", "default": "Wash code" },
+    { "type": "text", "id": "row_origin", "label": "Origin row", "default": "Origin" },
+    { "type": "text", "id": "row_care", "label": "Care row", "default": "Care" },
+    { "type": "text", "id": "row_case", "label": "Case ref row", "default": "Case ref" },
+    { "type": "header", "content": "Panels open by default" },
+    { "type": "checkbox", "id": "spec_open", "label": "Specification open", "default": false },
+    { "type": "checkbox", "id": "measure_open", "label": "Measurements (size chart) open", "default": false },
+    { "type": "checkbox", "id": "provenance_open", "label": "Description open", "default": false },
+    { "type": "checkbox", "id": "custody_open", "label": "Chain of custody open", "default": false },
+    { "type": "header", "content": "Complete the set" },
+    { "type": "paragraph", "content": "Shown only on products carrying the crooks.set_partner, set_bundle, set_partner_option and set_short_name metafields. Placeholders: [partner] the other garment, [saving] the amount saved, [price] the set price, [size] the chosen size. Amounts are formatted by Shopify in the shopper's currency." },
+    { "type": "text", "id": "set_collapsed_text", "label": "Collapsed row", "default": "Cop the full fit — add the matching [partner]. Save [saving]." },
+    { "type": "text", "id": "set_partner_size_label", "label": "Second size label", "default": "[partner] size" },
+    { "type": "text", "id": "set_pick_text", "label": "Second size not chosen yet", "info": "Shown in the set panel, and on the button, while the box is ticked but no second size has been picked. [partner] is replaced with the other item's name.", "default": "Pick a [partner] size" },
+    { "type": "text", "id": "set_main_first_text", "label": "Own size not chosen yet", "info": "Shown in the set panel when the box is ticked but no size has been picked for this item yet.", "default": "Pick your size first" },
+    { "type": "text", "id": "set_sold_text", "label": "Partner sold out", "default": "[partner] sold out in [size] — pick another size" },
+    { "type": "text", "id": "set_price_label", "label": "Set price line", "default": "[price] for the set" },
+    { "type": "text", "id": "set_shipping_text", "label": "Shipping line", "default": "Free UK Tracked 24 included" },
+    { "type": "text", "id": "set_cta", "label": "Button when the set is on", "default": "ADD THE FULL FIT — [price]" },
+    { "type": "header", "content": "Other sections" },
+    { "type": "text", "id": "provenance_heading", "label": "Description heading", "default": "Item description" },
+    { "type": "text", "id": "measure_heading", "label": "Measurements heading", "default": "Measurements" },
+    { "type": "text", "id": "measure_caption_cm", "label": "Caption (cm)", "info": "The stored measurements are the garment's FULL measurements, taken all the way round \u2014 do not tell shoppers to double them.", "default": "True to size. These are the garment's own full measurements, taken all the way round \u2014 no doubling needed. In centimetres." },
+    { "type": "text", "id": "measure_caption_in", "label": "Caption (inches)", "default": "True to size. These are the garment's own full measurements, taken all the way round \u2014 no doubling needed. In inches." },
+    { "type": "text", "id": "units_label", "label": "Units group label (screen readers)", "default": "Measurement units" },
+    { "type": "text", "id": "measure_region_label", "label": "Measurements table label (screen readers)", "default": "Measurements table" },
+    { "type": "text", "id": "unit_cm", "label": "Centimetres button", "default": "CM" },
+    { "type": "text", "id": "unit_in", "label": "Inches button", "default": "IN" },
+    { "type": "text", "id": "custody_heading", "label": "Chain of custody heading", "default": "Chain of custody \u2014 shipping & returns" },
+    { "type": "text", "id": "related_heading", "label": "Related heading", "default": "More from this drop" },
+    { "type": "text", "id": "related_sizes_label", "label": "Related: some sizes gone label", "info": "Shown on a related card still buyable but not in every size. [n] is how many sizes are left, [m] how many there are.", "default": "[n] OF [m] SIZES LEFT" }
+  ],
+  "blocks": [
+    { "type": "@app" },
+    {
+      "type": "reaction",
+      "name": "Reaction test",
+      "limit": 1,
+      "settings": [
+        {
+          "type": "header",
+          "content": "Photos"
+        },
+        {
+          "type": "image_picker",
+          "id": "image_normal",
+          "label": "Normal image",
+          "info": "Before the reaction. Leave blank on a product page to use the product's first photo. Same size and framing as the reacted image."
+        },
+        {
+          "type": "image_picker",
+          "id": "image_reacted",
+          "label": "Reacted image",
+          "info": "The same shot, same size and framing, in its reacted state. The test only shows once this is set."
+        },
+        {
+          "type": "text",
+          "id": "reacted_alt",
+          "label": "Reacted image description",
+          "info": "Read out to screen readers. Say what changes, e.g. \"a handcuff pattern shows on the wet shell\"."
+        },
+        {
+          "type": "checkbox",
+          "id": "eager",
+          "label": "Load the photos straight away",
+          "info": "Only when the test sits at the very top of a page. Otherwise they load as the shopper scrolls near.",
+          "default": false
+        },
+        {
+          "type": "header",
+          "content": "Reaction"
+        },
+        {
+          "type": "select",
+          "id": "reaction",
+          "label": "Reaction type",
+          "options": [
+            {
+              "value": "water",
+              "label": "Water"
+            },
+            {
+              "value": "heat",
+              "label": "Heat"
+            }
+          ],
+          "default": "water"
+        },
+        {
+          "type": "range",
+          "id": "brush",
+          "label": "Brush size",
+          "min": 6,
+          "max": 24,
+          "step": 1,
+          "unit": "%",
+          "info": "Share of the photo's width. Never smaller than a fingertip on touch screens.",
+          "default": 12
+        },
+        {
+          "type": "checkbox",
+          "id": "teaser",
+          "label": "Draw one sample stroke when the test comes into view",
+          "default": true
+        },
+        {
+          "type": "checkbox",
+          "id": "fade",
+          "label": "Reaction wears off",
+          "info": "Painted areas ease back to the normal photo on their own, like the shell cooling or drying. Off: they stay until RESET.",
+          "default": false
+        },
+        {
+          "type": "range",
+          "id": "fade_time",
+          "label": "Time to wear off",
+          "min": 1,
+          "max": 6,
+          "step": 0.5,
+          "unit": "s",
+          "info": "From painting to fully back. Each spot holds for a moment first.",
+          "default": 2
+        },
+        {
+          "type": "header",
+          "content": "Text"
+        },
+        {
+          "type": "text",
+          "id": "eyebrow",
+          "label": "Eyebrow",
+          "default": "Material evidence"
+        },
+        {
+          "type": "text",
+          "id": "test_word",
+          "label": "Test word",
+          "default": "Test"
+        },
+        {
+          "type": "text",
+          "id": "test_number",
+          "label": "Test / evidence number",
+          "default": "01"
+        },
+        {
+          "type": "text",
+          "id": "reaction_label",
+          "label": "Reaction label",
+          "info": "Blank: Water-reactive or Heat-reactive."
+        },
+        {
+          "type": "text",
+          "id": "heading",
+          "label": "Heading",
+          "info": "Blank: the reaction label."
+        },
+        {
+          "type": "richtext",
+          "id": "copy",
+          "label": "Supporting copy"
+        },
+        {
+          "type": "text",
+          "id": "hint",
+          "label": "Interaction label",
+          "info": "On the photo until the shopper paints. Blank: Swipe to apply water → or Drag to apply heat →."
+        },
+        {
+          "type": "text",
+          "id": "states",
+          "label": "Status words",
+          "info": "Before / while painting / full reaction / wearing off, split by /. Blank: Dry / Wet / Fully wet / Drying or Ambient / Warm / Full heat / Cooling."
+        },
+        {
+          "type": "text",
+          "id": "status_word",
+          "label": "Status label",
+          "default": "Status"
+        },
+        {
+          "type": "text",
+          "id": "full_label",
+          "label": "Full reaction button",
+          "default": "View full reaction"
+        },
+        {
+          "type": "text",
+          "id": "original_label",
+          "label": "Back button",
+          "default": "View original"
+        },
+        {
+          "type": "text",
+          "id": "reset_label",
+          "label": "Reset button",
+          "default": "Reset"
+        },
+        {
+          "type": "text",
+          "id": "sr_text",
+          "label": "Screen reader instructions",
+          "default": "The photo is interactive: drag across it to see the reaction. View full reaction shows the whole reacted garment."
+        },
+        {
+          "type": "header",
+          "content": "Style"
+        },
+        {
+          "type": "color",
+          "id": "accent",
+          "label": "Accent colour",
+          "info": "Blank: the theme accent."
+        },
+        {
+          "type": "range",
+          "id": "space_top",
+          "label": "Space above",
+          "min": 0,
+          "max": 80,
+          "step": 4,
+          "unit": "px",
+          "default": 0
+        },
+        {
+          "type": "range",
+          "id": "space_bottom",
+          "label": "Space below",
+          "min": 0,
+          "max": 80,
+          "step": 4,
+          "unit": "px",
+          "default": 0
+        }
+      ]
+    },
+    {
+      "type": "custody_step",
+      "name": "Custody step",
+      "settings": [
+        { "type": "text", "id": "label", "label": "Label", "default": "Logged" },
+        { "type": "textarea", "id": "body", "label": "Body", "default": "Orders are logged same day." }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "Crooks — Product Record",
+      "blocks": [
+        { "type": "custody_step", "settings": { "label": "Logged", "body": "Orders placed before 18:00 are dispatched the same day, Monday to Saturday. After 18:00, the next dispatch day." } },
+        { "type": "custody_step", "settings": { "label": "Dispatched", "body": "Shipped with Royal Mail Tracked. Free UK shipping over \u00a330, and free Tracked 24 over \u00a380." } },
+        { "type": "custody_step", "settings": { "label": "In transit", "body": "Tracking issued by email. UK 1–2 working days. International 7–14 working days." } },
+        { "type": "custody_step", "settings": { "label": "Delivered", "body": "You have 14 days from delivery to send back unworn pieces with tags on. Faulty or wrong items: 30 days, always free." } }
+      ]
+    }
+  ]
+}
+{% endschema %}

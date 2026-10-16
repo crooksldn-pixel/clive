@@ -14,6 +14,11 @@
    - Nothing runs at rest. A frame is requested only when there is new paint,
      plus a loop that lives only while a pointer is held down (holding still
      soaks or heats the spot a little more).
+   - Optional fade (data-crk-rx-fade, seconds): each dab holds for a moment,
+     then eases back to the normal photo, like the shell cooling or drying.
+     The stroke behind a moving finger cools first. The loop that does this
+     runs only while something is still fading. Reduced motion: the paint
+     holds, then goes in one step.
    - Canvas resolution is capped at 2x. The mask lives in image space, so a
      resize or rotation keeps every revealed area where it was.
    - The canvas is set up only when the card nears the viewport.
@@ -78,7 +83,14 @@
     var labelOrig = root.getAttribute('data-crk-rx-label-original') || labelFull;
     var brushShare = (parseFloat(root.getAttribute('data-crk-rx-brush')) || 12) / 100;
     var teaserOn = root.getAttribute('data-crk-rx-teaser') === 'true';
-    var alphaStroke = kind === 'heat' ? 0.24 : 0.3;
+    var fadeMs = (parseFloat(root.getAttribute('data-crk-rx-fade')) || 0) * 1000;
+    var holdMs = Math.min(700, fadeMs * 0.35);
+    // A fading mask is redrawn every frame, so it is kept lighter: a coarser
+    // mask and wider stamp spacing. Paint that wears off cannot build up over
+    // many passes, so one stroke lands at close to full strength.
+    var maskLong = fadeMs ? 400 : MASK_LONG;
+    var stepShare = fadeMs ? 0.3 : STEP;
+    var alphaStroke = fadeMs ? 0.5 : (kind === 'heat' ? 0.24 : 0.3);
 
     var ctx = null;
     try { ctx = canvas && canvas.getContext ? canvas.getContext('2d') : null; } catch (x) { ctx = null; }
@@ -131,12 +143,14 @@
     var holdReq = 0;
     var teaserReq = 0;
     var ptr = null;
+    var teasing = false;
     var io = null, ioTeaser = null, ro = null;
 
     /* ---- views and status ---- */
     function refresh() {
-      var state = view === 'full' ? 'full' : (painted ? 'active' : 'idle');
-      var w = states[state === 'full' ? 2 : (state === 'active' ? 1 : 0)] || '';
+      var heating = (ptr && ptr.armed) || teasing;
+      var state = view === 'full' ? 'full' : (!painted ? 'idle' : (fadeMs && !heating ? 'cooling' : 'active'));
+      var w = states[{ idle: 0, active: 1, full: 2, cooling: 3 }[state]] || states[1] || '';
       if (status && status.getAttribute('data-crk-rx-state') !== state) {
         status.setAttribute('data-crk-rx-state', state);
         if (word) word.textContent = w;
@@ -173,8 +187,8 @@
     /* ---- canvas, mask and layout ---- */
     var mask = document.createElement('canvas');
     var mw, mh;
-    if (ratio >= 1) { mw = MASK_LONG; mh = Math.max(1, Math.round(MASK_LONG / ratio)); }
-    else { mh = MASK_LONG; mw = Math.max(1, Math.round(MASK_LONG * ratio)); }
+    if (ratio >= 1) { mw = maskLong; mh = Math.max(1, Math.round(maskLong / ratio)); }
+    else { mh = maskLong; mw = Math.max(1, Math.round(maskLong * ratio)); }
     mask.width = mw; mask.height = mh;
     var mctx = mask.getContext('2d');
     var brush = makeBrush(kind);
@@ -252,18 +266,79 @@
         x += (Math.random() - 0.5) * r * 0.3;
         y += (Math.random() - 0.5) * r * 0.3;
       }
-      mctx.globalAlpha = a;
-      mctx.drawImage(brush, x - r, y - r, r * 2, r * 2);
-      grow(x - r, y - r, x + r, y + r);
+      if (fadeMs) {
+        trail.push({ x: x, y: y, r: r, a: a, t: now() });
+        if (!fadeReq) fadeReq = requestAnimationFrame(fadeTick);
+        return markAndFlag(x, y, r, byShopper);
+      } else {
+        mctx.globalAlpha = a;
+        mctx.drawImage(brush, x - r, y - r, r * 2, r * 2);
+        grow(x - r, y - r, x + r, y + r);
+      }
+      markAndFlag(x, y, r, byShopper);
+    }
+    function markAndFlag(x, y, r, byShopper) {
       if (byShopper) mark(x, y, r * 0.7);
       painted = true;
+    }
+
+    /* ---- fade: the mask is redrawn from the recent dabs, each by its age ----
+       Only the box around the live dabs (and last frame's box, to clear what
+       has gone) is redrawn and recomposited. */
+    var trail = [];
+    var trailHead = 0;
+    var fadeReq = 0;
+    var lastBox = null;
+    function fadeTick() {
+      fadeReq = 0;
+      var t = now();
+      var instant = prefersReducedMotion();
+      while (trailHead < trail.length && t - trail[trailHead].t >= fadeMs) trailHead++;
+      if (trailHead > 1024) { trail = trail.slice(trailHead); trailHead = 0; }
+      var box = null, i, d;
+      for (i = trailHead; i < trail.length; i++) {
+        d = trail[i];
+        if (!box) box = { x0: d.x - d.r, y0: d.y - d.r, x1: d.x + d.r, y1: d.y + d.r };
+        else {
+          if (d.x - d.r < box.x0) box.x0 = d.x - d.r;
+          if (d.y - d.r < box.y0) box.y0 = d.y - d.r;
+          if (d.x + d.r > box.x1) box.x1 = d.x + d.r;
+          if (d.y + d.r > box.y1) box.y1 = d.y + d.r;
+        }
+      }
+      var reg = box;
+      if (lastBox) {
+        reg = reg ? { x0: Math.min(reg.x0, lastBox.x0), y0: Math.min(reg.y0, lastBox.y0), x1: Math.max(reg.x1, lastBox.x1), y1: Math.max(reg.y1, lastBox.y1) } : lastBox;
+      }
+      lastBox = box;
+      if (reg) {
+        var rx = Math.max(0, Math.floor(reg.x0) - 1), ry = Math.max(0, Math.floor(reg.y0) - 1);
+        mctx.clearRect(rx, ry, Math.min(mw, Math.ceil(reg.x1) + 1) - rx, Math.min(mh, Math.ceil(reg.y1) + 1) - ry);
+        for (i = trailHead; i < trail.length; i++) {
+          d = trail[i];
+          var age = t - d.t;
+          var f = 1;
+          if (!instant && age > holdMs) {
+            var u = (age - holdMs) / (fadeMs - holdMs);
+            f = 1 - u * u * (3 - 2 * u);
+          }
+          if (f <= 0.004) continue;
+          mctx.globalAlpha = d.a * f;
+          mctx.drawImage(brush, d.x - d.r, d.y - d.r, d.r * 2, d.r * 2);
+        }
+        grow(reg.x0, reg.y0, reg.x1, reg.y1);
+      }
+      if (trailHead >= trail.length) { trail = []; trailHead = 0; painted = false; }
+      draw();
+      refresh();
+      if (painted || lastBox) fadeReq = requestAnimationFrame(fadeTick);
     }
 
     // Lays stamps from a to b at a fixed spacing; returns where the last one landed.
     function segment(a, b, r, alpha, byShopper) {
       var dx = b.x - a.x, dy = b.y - a.y;
       var dist = Math.sqrt(dx * dx + dy * dy);
-      var step = Math.max(0.5, r * STEP);
+      var step = Math.max(0.5, r * stepShare);
       if (dist < step) return a;
       var n = Math.floor(dist / step);
       for (var i = 1; i <= n; i++) {
@@ -277,6 +352,8 @@
     function clearPaint() {
       if (!mctx) return;
       if (teaserReq) { cancelAnimationFrame(teaserReq); teaserReq = 0; }
+      if (fadeReq) { cancelAnimationFrame(fadeReq); fadeReq = 0; }
+      trail = []; trailHead = 0; lastBox = null; teasing = false;
       mctx.clearRect(0, 0, mw, mh);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       painted = false;
@@ -367,6 +444,7 @@
       if (view === 'full') setView('paint', false);
       if (teaserReq) { cancelAnimationFrame(teaserReq); teaserReq = 0; }
       teaserDone = true;
+      teasing = false;
       if (!touched) { touched = true; root.setAttribute('data-crk-rx-touched', 'true'); }
       if (!started) { started = true; track('interaction_start', { input: ptr.type }); }
       try { frame.setPointerCapture(ptr.id); } catch (x) { /* already released */ }
@@ -483,12 +561,14 @@
         pts.push({ x: (0.3 + 0.4 * t) * mw, y: (0.47 - 0.05 * Math.sin(t * Math.PI)) * mh });
       }
       var r = radiusMask('mouse') * 1.1;
-      var alpha = kind === 'heat' ? 0.3 : 0.36;
+      var alpha = fadeMs ? 0.5 : (kind === 'heat' ? 0.3 : 0.36);
       var last = pts[0];
       var laid = 0;
+      teasing = true;
       stamp(last.x, last.y, r, alpha, false);
       function upto(k) {
         while (laid < k) { laid++; last = segment(last, pts[laid], r, alpha, false); }
+        if (laid >= n) teasing = false;
         schedule();
         refresh();
       }
@@ -496,7 +576,7 @@
       var t0 = 0;
       function step(ts) {
         teaserReq = 0;
-        if (touched) return;
+        if (touched) { teasing = false; return; }
         if (!t0) t0 = ts;
         upto(Math.min(n, Math.floor(((ts - t0) / 900) * n)));
         if (laid < n) teaserReq = requestAnimationFrame(step);
@@ -576,6 +656,7 @@
         if (frameReq) cancelAnimationFrame(frameReq);
         if (holdReq) cancelAnimationFrame(holdReq);
         if (teaserReq) cancelAnimationFrame(teaserReq);
+        if (fadeReq) cancelAnimationFrame(fadeReq);
       }
     };
   }

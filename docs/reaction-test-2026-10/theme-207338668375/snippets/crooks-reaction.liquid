@@ -1,0 +1,230 @@
+{%- comment -%}
+  CROOKSLDN — reaction test.
+
+  A material-evidence card for reactive fabrics. The shopper drags across the
+  photo and the reacted state comes through where the pointer passes, like
+  water or heat on the shell; VIEW FULL REACTION shows the whole reacted
+  garment, RESET clears the paint. assets/crooks-reaction.js does the painting
+  (Canvas 2D), assets/crooks-reaction.css the look, on the crooks.css tokens.
+
+  Rendered by:
+  - the "Reaction test" block of sections/crooks-exhibit-record.liquid, which
+    puts it directly under the buy panel on mobile and under the gallery on
+    desktop (the buy panel stays sticky beside it);
+  - sections/crooks-reaction.liquid, for any other page.
+
+  Params
+    s          block.settings or section.settings (same schema in both callers)
+    product    the product: image fallback and analytics (optional)
+    rx_id      unique id (block.id / section.id)
+    sizes          sizes attribute for the normal photo (on a product page, the
+                   gallery's, so the same file is reused from cache)
+    sizes_reacted  sizes attribute for the reacted photo (blank: sizes)
+    layout     'stack' (default) or 'wide' (photo left, text right from 960px)
+    placement  analytics label: 'product' or 'section'
+
+  The two photos must share framing and aspect ratio: the reacted one is drawn
+  exactly over the normal one. Nothing renders until a reacted photo is set,
+  so an empty block costs nothing; in the theme editor it says what is missing.
+{%- endcomment -%}
+{%- liquid
+  assign rx_base = s.image_normal
+  if rx_base == blank and product != blank
+    assign rx_base = product.featured_image
+  endif
+  assign rx_react = s.image_reacted
+  assign rx_layout = layout | default: 'stack'
+-%}
+
+{%- if rx_base == blank or rx_react == blank -%}
+  {%- if request.design_mode -%}
+    <div class="crk-rx-empty">
+      Reaction test: add a reacted image{% if rx_base == blank %} and a normal image{% endif %} to show it. It stays hidden on the live page until then.
+    </div>
+  {%- endif -%}
+{%- else -%}
+  {%- liquid
+    if s.reaction == 'heat'
+      assign rx_type = 'heat'
+      assign rx_kind = 'Heat-reactive'
+      assign rx_hint = 'Drag to apply heat →'
+      assign rx_states = 'Ambient / Warm / Full heat / Cooling'
+      assign rx_agent = 'heat'
+    else
+      assign rx_type = 'water'
+      assign rx_kind = 'Water-reactive'
+      assign rx_hint = 'Swipe to apply water →'
+      assign rx_states = 'Dry / Wet / Fully wet / Drying'
+      assign rx_agent = 'water'
+    endif
+    if s.reaction_label != blank
+      assign rx_kind = s.reaction_label
+    endif
+    if s.hint != blank
+      assign rx_hint = s.hint
+    endif
+    if s.states != blank
+      assign rx_states = s.states
+    endif
+    assign rx_st = rx_states | split: '/'
+    assign rx_st0 = rx_st[0] | strip
+    assign rx_st1 = rx_st[1] | strip | default: rx_st0
+    assign rx_st2 = rx_st[2] | strip | default: rx_st1
+    assign rx_st3 = rx_st[3] | strip | default: rx_st1
+
+    assign rx_full_label = s.full_label | default: 'View full reaction'
+    assign rx_orig_label = s.original_label | default: 'View original'
+    assign rx_reset_label = s.reset_label | default: 'Reset'
+
+    assign rx_name = product.title | default: s.heading | default: 'The garment'
+    capture rx_alt_before
+      echo rx_name | append: ', before ' | append: rx_agent | append: ' is applied'
+    endcapture
+    capture rx_alt_after
+      echo rx_name | append: ', after ' | append: rx_agent | append: ' is applied'
+    endcapture
+    assign rx_base_alt = rx_base.alt | default: rx_alt_before
+    assign rx_react_alt = s.reacted_alt | default: rx_react.alt | default: rx_alt_after
+
+    comment
+      Same outline rule as the gallery: transparent PNGs get the alpha trace
+      (dark mode only, crooks.css), photos with a baked-in ground do not.
+    endcomment
+    assign rx_base_cls = 'crk-rx__img crk-rx__base'
+    assign rx_src = rx_base.src | downcase
+    unless rx_src contains '.jpg' or rx_src contains '.jpeg'
+      assign rx_base_cls = rx_base_cls | append: ' crk-product-image'
+    endunless
+    assign rx_react_cls = 'crk-rx__img crk-rx__full'
+    assign rx_src = rx_react.src | downcase
+    unless rx_src contains '.jpg' or rx_src contains '.jpeg'
+      assign rx_react_cls = rx_react_cls | append: ' crk-product-image'
+    endunless
+
+    assign rx_load = 'lazy'
+    if s.eager
+      assign rx_load = 'eager'
+    endif
+    assign rx_sizes = sizes | default: '(min-width: 960px) 55vw, 100vw'
+    assign rx_sizes_r = sizes_reacted | default: rx_sizes
+
+    assign rx_placeholder = false
+    if rx_src contains 'placeholder'
+      assign rx_placeholder = true
+    endif
+
+    assign rx_ratio_gap = rx_base.aspect_ratio | minus: rx_react.aspect_ratio | abs
+  -%}
+  {{ 'crooks-reaction.css' | asset_url | stylesheet_tag }}
+  <script src="{{ 'crooks-reaction.js' | asset_url }}" defer></script>
+
+  <section
+    class="crk-panel crk-rx crk-rx--{{ rx_layout }}"
+    id="crk-rx-{{ rx_id }}"
+    aria-labelledby="crk-rx-{{ rx_id }}-title"
+    data-crk-reaction
+    data-crk-rx-type="{{ rx_type }}"
+    data-crk-rx-ratio="{{ rx_base.aspect_ratio }}"
+    data-crk-rx-states="{{ rx_st0 | escape }}|{{ rx_st1 | escape }}|{{ rx_st2 | escape }}|{{ rx_st3 | escape }}"
+    data-crk-rx-label-full="{{ rx_full_label | escape }}"
+    data-crk-rx-label-original="{{ rx_orig_label | escape }}"
+    data-crk-rx-brush="{{ s.brush | default: 12 }}"
+    data-crk-rx-teaser="{{ s.teaser }}"
+    data-crk-rx-fade="{% if s.fade %}{{ s.fade_time | default: 2 }}{% else %}0{% endif %}"
+    data-crk-rx-test="{{ s.test_number | escape }}"
+    data-crk-rx-placement="{{ placement | default: 'section' }}"
+    {%- if product != blank %}
+      data-crk-rx-product="{{ product.id }}"
+      data-crk-rx-handle="{{ product.handle }}"
+    {%- endif %}
+    data-crk-rx-view="paint"
+    style="--crk-rx-mt: {{ s.space_top | default: 0 }}px; --crk-rx-mb: {{ s.space_bottom | default: 0 }}px;{% if s.accent != blank %} --crk-rx-accent: {{ s.accent }};{% endif %}"
+  >
+    <div class="crk-rx__head">
+      <div class="crk-rx__meta">
+        <span class="crk-label">{{ s.eyebrow }}</span>
+        <span class="crk-rx__file">
+          {%- if s.test_number != blank -%}
+            {{ s.test_word | default: 'Test' }} / {{ s.test_number }} /{{ ' ' -}}
+          {%- endif -%}
+          <span class="crk-rx__kind">{{ rx_kind }}</span>
+        </span>
+      </div>
+      <h2 class="crk-display crk-h crk-rx__title" id="crk-rx-{{ rx_id }}-title">
+        {%- if s.heading != blank -%}{{ s.heading }}{%- else -%}{{ rx_kind }}{%- endif -%}
+      </h2>
+      {%- if s.copy != blank -%}
+        <div class="crk-body crk-rx__copy">{{ s.copy }}</div>
+      {%- endif -%}
+      {%- if request.design_mode and rx_ratio_gap > 0.01 -%}
+        <p class="crk-rx__warn">
+          Editor only: the two images have different shapes ({{ rx_base.width }}×{{ rx_base.height }} and {{ rx_react.width }}×{{ rx_react.height }}). Use the same size and framing or the reaction will not line up.
+        </p>
+      {%- endif -%}
+    </div>
+
+    <div class="crk-tray crk-rx__stage" style="aspect-ratio: {{ rx_base.width }} / {{ rx_base.height }};">
+      <div class="crk-rx__frame" data-crk-rx-frame>
+        {{
+          rx_base
+          | image_url: width: 1400
+          | image_tag:
+            widths: '400, 600, 800, 1000, 1400',
+            sizes: rx_sizes,
+            loading: rx_load,
+            class: rx_base_cls,
+            alt: rx_base_alt,
+            draggable: 'false'
+        }}
+        <canvas class="crk-rx__canvas" data-crk-rx-canvas aria-hidden="true"></canvas>
+        {{
+          rx_react
+          | image_url: width: 1400
+          | image_tag:
+            widths: '400, 600, 800, 1000, 1400',
+            sizes: rx_sizes_r,
+            loading: rx_load,
+            class: rx_react_cls,
+            alt: rx_react_alt,
+            draggable: 'false'
+        }}
+        <span class="crk-rx__ring" data-crk-rx-ring aria-hidden="true" hidden></span>
+      </div>
+      <p class="crk-rx__hint" data-crk-rx-hint aria-hidden="true">{{ rx_hint }}</p>
+      {%- if rx_placeholder -%}
+        <p class="crk-rx__flag">Placeholder · not a real photo</p>
+      {%- endif -%}
+    </div>
+    {%- if s.sr_text != blank -%}
+      <p class="crk-sr" data-crk-rx-js>{{ s.sr_text }}</p>
+    {%- endif -%}
+
+    <div class="crk-rx__bar">
+      <p class="crk-rx__status" data-crk-rx-status data-crk-rx-state="idle" aria-live="polite">
+        <span class="crk-rx__dot" aria-hidden="true"></span>
+        <span>{{ s.status_word | default: 'Status' }}</span>
+        <span class="crk-rx__word" data-crk-rx-word>{{ rx_st0 }}</span>
+      </p>
+      <div class="crk-rx__actions" data-crk-rx-js>
+        <button type="button" class="crk-textbtn crk-rx__btn" data-crk-rx-toggle>{{ rx_full_label }}</button>
+        <button type="button" class="crk-textbtn crk-rx__btn" data-crk-rx-reset aria-disabled="true">{{ rx_reset_label }}</button>
+      </div>
+    </div>
+
+    <noscript>
+      <style>.crk-rx [data-crk-rx-js], .crk-rx [data-crk-rx-hint], .crk-rx .crk-rx__bar { display: none !important; }</style>
+      <details class="crk-rx__nojs">
+        <summary class="crk-textbtn">{{ rx_full_label }}</summary>
+        {{
+          rx_react
+          | image_url: width: 1400
+          | image_tag:
+            widths: '400, 600, 800, 1000, 1400',
+            sizes: rx_sizes_r,
+            loading: 'lazy',
+            alt: rx_react_alt
+        }}
+      </details>
+    </noscript>
+  </section>
+{%- endif -%}

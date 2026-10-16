@@ -48,13 +48,13 @@
       assign rx_type = 'heat'
       assign rx_kind = 'Heat-reactive'
       assign rx_hint = 'Drag to apply heat →'
-      assign rx_states = 'Ambient / Warm / Full heat'
+      assign rx_states = 'Ambient / Warm / Full heat / Cooling'
       assign rx_agent = 'heat'
     else
       assign rx_type = 'water'
       assign rx_kind = 'Water-reactive'
       assign rx_hint = 'Swipe to apply water →'
-      assign rx_states = 'Dry / Wet / Fully wet'
+      assign rx_states = 'Dry / Wet / Fully wet / Drying'
       assign rx_agent = 'water'
     endif
     if s.reaction_label != blank
@@ -70,6 +70,7 @@
     assign rx_st0 = rx_st[0] | strip
     assign rx_st1 = rx_st[1] | strip | default: rx_st0
     assign rx_st2 = rx_st[2] | strip | default: rx_st1
+    assign rx_st3 = rx_st[3] | strip | default: rx_st1
 
     assign rx_full_label = s.full_label | default: 'View full reaction'
     assign rx_orig_label = s.original_label | default: 'View original'
@@ -124,11 +125,12 @@
     data-crk-reaction
     data-crk-rx-type="{{ rx_type }}"
     data-crk-rx-ratio="{{ rx_base.aspect_ratio }}"
-    data-crk-rx-states="{{ rx_st0 | escape }}|{{ rx_st1 | escape }}|{{ rx_st2 | escape }}"
+    data-crk-rx-states="{{ rx_st0 | escape }}|{{ rx_st1 | escape }}|{{ rx_st2 | escape }}|{{ rx_st3 | escape }}"
     data-crk-rx-label-full="{{ rx_full_label | escape }}"
     data-crk-rx-label-original="{{ rx_orig_label | escape }}"
     data-crk-rx-brush="{{ s.brush | default: 12 }}"
     data-crk-rx-teaser="{{ s.teaser }}"
+    data-crk-rx-fade="{% if s.fade %}{{ s.fade_time | default: 2 }}{% else %}0{% endif %}"
     data-crk-rx-test="{{ s.test_number | escape }}"
     data-crk-rx-placement="{{ placement | default: 'section' }}"
     {%- if product != blank %}

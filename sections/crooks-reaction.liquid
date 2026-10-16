@@ -91,6 +91,24 @@
       "default": true
     },
     {
+      "type": "checkbox",
+      "id": "fade",
+      "label": "Reaction wears off",
+      "info": "Painted areas ease back to the normal photo on their own, like the shell cooling or drying. Off: they stay until RESET.",
+      "default": false
+    },
+    {
+      "type": "range",
+      "id": "fade_time",
+      "label": "Time to wear off",
+      "min": 1,
+      "max": 6,
+      "step": 0.5,
+      "unit": "s",
+      "info": "From painting to fully back. Each spot holds for a moment first.",
+      "default": 2
+    },
+    {
       "type": "header",
       "content": "Text"
     },
@@ -139,7 +157,7 @@
       "type": "text",
       "id": "states",
       "label": "Status words",
-      "info": "Before / while painting / full reaction, split by /. Blank: Dry / Wet / Fully wet or Ambient / Warm / Full heat."
+      "info": "Before / while painting / full reaction / wearing off, split by /. Blank: Dry / Wet / Fully wet / Drying or Ambient / Warm / Full heat / Cooling."
     },
     {
       "type": "text",

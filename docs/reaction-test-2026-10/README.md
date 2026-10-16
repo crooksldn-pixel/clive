@@ -23,6 +23,21 @@ George supplied the heated Puffa photo (black shell → metallic silver),
 The HydroCuff template on the copy still has its placeholder and stays
 unassigned.
 
+**Wears off (Puffa), at George's request:** new setting "Reaction wears off"
+with "Time to wear off" (1–6 s), on the block and the section. On the Puffa it
+is on, 2 s: each spot of a stroke lands at close to full strength (87%
+measured), holds about 0.7 s, then eases back to black, so the stroke cools
+from the end it started and is gone about 1.9 s after the finger lifts. The
+status reads WARM while painting, COOLING while it fades (a hollow square),
+AMBIENT once it is back; RESET is only active while something shows. The
+fourth status word is new: "Dry / Wet / Fully wet / Drying" and "Ambient /
+Warm / Full heat / Cooling" by default. The redraw loop runs only while
+something is fading, and redraws only the box around the stroke: 16 ms frames
+at normal speed; under a 4× slower CPU with no GPU, 23 ms on a phone-sized
+screen and 52 ms on desktop for a scribble over the whole jacket. Reduced
+motion: the paint holds, then goes in one step. Off (the HydroCuff),
+painted areas stay until RESET, as before.
+
 **Touch, changed at George's request:** on a phone, a finger that lands on
 the garment now paints in any direction and never moves the page (its touch
 events are cancelled). A finger on the empty ground around the jacket, or on

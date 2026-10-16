@@ -79,7 +79,9 @@
             "reaction": "heat",
             "test_number": "01",
             "heading": "Changes with temperature",
-            "copy": "<p>The Double-Agent shell is heat-reactive: its appearance changes with temperature. Drag across the photo to apply heat.</p>"
+            "copy": "<p>The Double-Agent shell is heat-reactive: its appearance changes with temperature. Drag across the photo to apply heat.</p>",
+            "fade": true,
+            "fade_time": 2
           }
         }
       },
