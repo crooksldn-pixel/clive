@@ -411,6 +411,46 @@ async def test_too_many_ideas_stop_the_run_before_judging_and_resume_joins_them_
         script.main(["--most-ideas", "5"])
 
 
+async def test_resuming_a_run_that_stopped_while_judging_is_held_by_the_ceiling_too(place, the_map):
+    """[review 1] The server's first run stopped while judging, with 403 ideas. Resumed with too many active
+    ideas, a run judges nothing: it is held, said, and set back to joining them. The ceiling is kept in
+    run.json from the run's start, and --resume holds to it unless it is given again."""
+    store, _ledger = place
+    model = fx.Scripted()
+    model.judge["Keys show a last-checked time"] = model.judge["Each key shows when it was checked"]
+    await fx.read_old_way(store, model, "test-note-gamma.md", "test-note-epsilon.md")
+    model.fail_at = "judge"
+    with pytest.raises(Stopped, match="^It stopped while judging: "):
+        await synthesise(store, model=model, the_map=the_map)
+    synth = synthesis_store(store)
+    (gen,) = synth.generations()
+    run = synth.run(gen)
+    assert run["stage"] == "judge" and run["most_ideas"] == 90 and run["shape"]["ideas"]["active"] == 5
+    asked = {step: len(model.asked(step)) for step in ("judge", "owner_view", "summary")}
+    with pytest.raises(Stopped) as held:
+        await synthesise(store, model=model, the_map=the_map, resume=True, most_ideas=3)
+    assert str(held.value) == ("It stopped after joining ideas: 5 ideas is more than 3, too many to judge well (the aim is "
+                               "25–60). Nothing was judged. Tell the Director; --resume tries joining them again.")
+    assert {step: len(model.asked(step)) for step in asked} == asked, "no judge, owner view or summary call"
+    run = synth.run(gen)
+    assert run["stage"] == "consolidate" and run["too_many"] == {"ideas": 5, "most": 3} and run["most_ideas"] == 3
+    assert run["errors"][-1]["stage"] == "judge" and run["errors"][-1]["said"] == str(held.value)
+    assert status_lines(synth, gen)[1].startswith("Held before judging: 5 ideas is more than 3")
+    with pytest.raises(Stopped, match="^It stopped after joining ideas: 5 ideas is more than 3,"):
+        await synthesise(store, model=model, the_map=the_map, resume=True)
+    assert {step: len(model.asked(step)) for step in asked} == asked, "--resume holds to the ceiling it was given"
+    assert await synthesise(store, model=model, the_map=the_map, resume=True, most_ideas=5) == gen
+    run = synth.run(gen)
+    assert run["stage"] == "done" and run["most_ideas"] == 5 and "too_many" not in run
+    assert len(model.asked("judge")) > asked["judge"]
+
+
+def test_a_run_too_big_that_has_judged_some_says_so():
+    assert run_module.too_many(403, 90, 51) == (
+        "It stopped after joining ideas: 403 ideas is more than 90, too many to judge well (the aim is 25–60). "
+        "Nothing more was judged (51 already were). Tell the Director; --resume tries joining them again.")
+
+
 # ------------------------------------------------------------------ the cache: the re-run reads nothing again
 
 

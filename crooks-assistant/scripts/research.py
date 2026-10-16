@@ -15,7 +15,9 @@ Learning from research as ideas (DEC-078, app/research/synthesis, docs/RESEARCH.
     python scripts/research.py --synthesise --resume   carry on the run that stopped
     python scripts/research.py --synthesise --most-ideas N
                                                stop before judging when more than N ideas are left after
-                                               joining them (90 unless given); --resume joins them again
+                                               joining them (90 unless given; kept in the run's run.json,
+                                               so --resume holds to it unless given again); --resume
+                                               joins them again
     python scripts/research.py --export-synthesis PATH [--generation GEN]
                                                one generation (the newest, unless named) as a .tgz at
                                                PATH, never inside the repository
@@ -164,7 +166,7 @@ async def _synthesise(research, *, resume: bool, timeout_s: float | None, most_i
 
     try:
         gen = await run_module.synthesise(research, model=model_module.current(), the_map=read_map(), resume=resume,
-                                          timeout_s=timeout_s, most_ideas=most_ideas or run_module.MOST_IDEAS, say=_print)
+                                          timeout_s=timeout_s, most_ideas=most_ideas, say=_print)
     except run_module.Stopped as exc:
         print(f"research: {exc}", file=sys.stderr)
         try:
