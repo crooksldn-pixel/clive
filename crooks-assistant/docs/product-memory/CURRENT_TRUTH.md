@@ -2,7 +2,7 @@
 
 **Purpose:** what is true now, in one place. Read [`MAP.md`](../../MAP.md) first; this file is its live state.
 **Status:** ACTIVE. Rewrite it whenever production, the trunk, the loop or an owner decision changes, and move what it said before into the history file.
-**As of:** 2026-10-09 (production is `b33ccbc2`; the trunk is twenty-five merged PRs and five of the loop's own landings ahead of it, none recorded as deployed).
+**As of:** 2026-10-14 (production is `dc59047e`; `clive/trunk` additionally contains DEC-079, which is on the trunk only and not in production).
 
 Everything this file said before 5 October 2026 is kept word for word in [`docs/history/CURRENT_TRUTH_HISTORY.md`](../history/CURRENT_TRUTH_HISTORY.md), including the doctrine summary it used to carry. Decisions and their reasons are in [DECISIONS.md](./DECISIONS.md). How production is run and deployed is [`docs/DEPLOY_LINUX.md`](../DEPLOY_LINUX.md).
 
@@ -12,11 +12,12 @@ Everything this file said before 5 October 2026 is kept word for word in [`docs/
 
 | | SHA | What it is |
 |---|---|---|
-| **Production** (`crooks-os-prod-1`, `/opt/crooks-os`) | `b33ccbc2` | Live since **3 Oct, 17:48 UTC**. It is PR #95: the six notes of the post-deploy review of `cac1a9e7`, plus one found on the way. That review's verdict was **KEEP** (PR #95's description). The fixes: a voice's settings are never invented, and shipped, refunded or cancelled orders stay off the packing board. Deployed on **the owner's waiver** of the exact-SHA review. GitHub acceptance was green on the exact SHA (run `37128652668`). `/health` answered 200 with all 12 checks `ok` (build `83524b275b07`). `.env`, the unit and the drop-ins were unchanged. Record: [`reports/deploy-b33ccbc2.md`](../../reports/deploy-b33ccbc2.md). Rollback: `cac1a9e7` plus `/root/crooks-unit-before-b33ccbc2.main.service`. |
-| **Trunk** (`clive/trunk`) | head | `b33ccbc2` plus twenty-five merged PRs on 7–9 Oct (#96 to #120) and five builds the loop landed itself on 7–8 Oct. None is recorded as deployed ("Merged, not deployed" below). |
+| **Production** (`crooks-os-prod-1`, `/opt/crooks-os`) | `dc59047e` | Live since **14 Oct 2026**. No deploy record for it is in the repository yet. |
+| **Trunk** (`clive/trunk`) | head | `dc59047e` plus [DEC-079](./DECISIONS.md) (the owner's rulings of 14 Oct). DEC-079 is on the trunk only; it is not deployed to production. |
 | **The loop** (clive-worker-01) | not recorded | See "The build loop" below. |
 
 The deploys before it, newest first:
+- **`b33ccbc2`**, 3 Oct 17:48 UTC. PR #95: the six notes of the post-deploy review of `cac1a9e7`, plus one found on the way. That review's verdict was **KEEP** (PR #95's description). The fixes: a voice's settings are never invented, and shipped, refunded or cancelled orders stay off the packing board. Deployed on **the owner's waiver** of the exact-SHA review. GitHub acceptance was green on the exact SHA (run `37128652668`). `/health` answered 200 with all 12 checks `ok` (build `83524b275b07`). `.env`, the unit and the drop-ins were unchanged. Record: [`reports/deploy-b33ccbc2.md`](../../reports/deploy-b33ccbc2.md). Rollback: `cac1a9e7` plus `/root/crooks-unit-before-b33ccbc2.main.service`.
 - **`cac1a9e7`**, 3 Oct 13:01 UTC. PR #94, the overnight build: Connections, the interaction record, the team, customers and the Builds screen. It merged with no review and was deployed on the owner's waiver. The post-deploy review that followed said KEEP. Record: [`reports/deploy-cac1a9e7.md`](../../reports/deploy-cac1a9e7.md).
 - **`4d2dc00f`** (voice settings on Connections, labelled orders kept on the list): live before `cac1a9e7`, deployed between 2 Oct 14:08 and 3 Oct 13:01 UTC, with no record of its own.
 - **`66d3e05d`**, 2 Oct 13:49–14:08 UTC. PR #89 (settings and team sign-in) and PR #90 (Ship24), on the owner's waiver. His phone check passed. Record: [`reports/deploy-66d3e05d.md`](../../reports/deploy-66d3e05d.md).
@@ -47,7 +48,7 @@ CROOKS Returns is the owner's own returns and exchanges service, and it replaces
 
 ### Merged, not deployed
 
-Production stays on `b33ccbc2` until these are deployed. It is the last deploy on record: whether `a68536c6` (the trunk after PR #99) was deployed on 7 Oct is not recorded. None of these changes CLIVE's own unit. Some reach past the app, each said on its line: the release service's own units under `deploy/release/` (PRs #101 and #116, not installed), the loop's code (PRs #102 and #114, in force only at worker-01's re-pin), and new server steps or settings (PRs #110, #113, #115 and #120).
+These were not deployed while production was on `b33ccbc2`. Production has been at `dc59047e` since 14 Oct; which of these it carries is not yet set out here. Whether `a68536c6` (the trunk after PR #99) was deployed on 7 Oct is not recorded. None of these changes CLIVE's own unit. Some reach past the app, each said on its line: the release service's own units under `deploy/release/` (PRs #101 and #116, not installed), the loop's code (PRs #102 and #114, in force only at worker-01's re-pin), and new server steps or settings (PRs #110, #113, #115 and #120).
 
 - **PR #96** (7 Oct): CROOKS Returns in CLIVE, and the design pass (the answer in full on the phone, Home, approval weights and "Not now", the dock on every tablet, colour). Both halves were reviewed SHIP before merging.
 - **PR #97** (7 Oct, docs only): one map (`MAP.md`), this file rewritten for what is live, DEC-062 to DEC-066 caught up, and the deploy records landed.
