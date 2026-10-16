@@ -24,6 +24,7 @@ from shipping.models import (
     DocumentKind,
     Event,
     PackagePlan,
+    ProviderFailure,
     Question,
     Quote,
     Shipment,
@@ -296,7 +297,8 @@ class ShippingService:
                 s.destination,
                 customs=not s.domestic,
             )
-            + self._domestic_questions(s)
+            # Going with another courier (s.service_choice): no Shopify Shipping service needed.
+            + ([] if s.domestic and s.service_choice else self._domestic_questions(s))
         )
         if s.questions:
             s.quote = None
@@ -308,11 +310,18 @@ class ShippingService:
             )
             return self.store.save(s)
         s.provider_failures = []
+        if s.domestic and s.service_choice:
+            return self._prepare_other_courier(s)
+        return self._prepare_shopify_shipping(s)
+
+    def _prepare_shopify_shipping(self, s: Shipment) -> Shipment:
+        """Price the parcel the usual way: Shopify Shipping's mapped service for a UK order,
+        else every international courier and the recommendation."""
         try:
             quote_all = getattr(self.provider, "quote_all", None)
             if s.domestic:
-                # Only Shopify Shipping sells UK labels here; the international providers are
-                # never asked about a UK parcel.
+                # The owner's Shopify Shipping service. The other couriers are asked about a UK
+                # parcel only when a person wants them (other_services).
                 if self.domestic_provider is None:  # switched on without the provider built
                     raise ProviderRefused("Shopify Shipping isn't set up here.", code="provider")
                 options, s.rates_unavailable = self.domestic_provider.quotes(s), []
@@ -395,6 +404,55 @@ class ShippingService:
         with its own country code stay international, as before."""
         origin_country = (cfg.origin.country if cfg.origin else "") or snap.origin.country
         return bool(origin_country) and snap.destination.country == origin_country
+
+    def _other_quotes(self, s: Shipment) -> tuple[list[Quote], list[ProviderFailure]]:
+        """Prices for this parcel from every connected courier except Shopify Shipping. Raises
+        ProviderError when none of them answered."""
+        quote_all = getattr(self.provider, "quote_all", None)
+        if quote_all is not None:
+            return quote_all(s)
+        if getattr(self.provider, "domestic_only", False):
+            return [], []
+        return self.provider.quotes(s), []
+
+    def _prepare_other_courier(self, s: Shipment) -> Shipment:
+        """A UK order a person sent with another courier: re-price that courier's service. If
+        the courier answers without it, the choice ends and Shopify Shipping decides again; if
+        it doesn't answer, the order waits: it is never bought on a service no one chose."""
+        try:
+            others, failures = self._other_quotes(s)
+        except ProviderError as exc:
+            others, failures = [], exc.failures or [quote_failure(self.provider.name, exc)]
+        chosen = next((q for q in others if q.service_code == s.service_choice), None)
+        if chosen is not None:
+            s.rates, s.quote, s.provider_failures = others, chosen, failures
+            s.rates_unavailable = [f.provider for f in failures]
+            self._to(
+                s, S.ready, "ready", detail={"service": chosen.title, "price": str(chosen.amount)}
+            )
+            return self.store.save(s)
+        if failures:
+            s.quote, s.rates, s.provider_failures = None, others, failures
+            s.rates_unavailable = [f.provider for f in failures]
+            why = " ".join(f.safe_message for f in failures)
+            s.questions = [
+                Question(
+                    kind="provider_unavailable",
+                    subject="rates",
+                    text=f"{why} The courier chosen for this order can't be priced just now; "
+                    "try again shortly, or go back to Shopify Shipping.",
+                )
+            ]
+            self._to(s, S.needs_attention, "provider_unavailable", detail={"why": why})
+            return self.store.save(s)
+        self._event(s, "service_choice_dropped", "system", {"was": s.service_choice})
+        s.service_choice = None
+        s.questions = self._domestic_questions(s)
+        if s.questions:
+            s.quote = None
+            self._to(s, S.needs_attention, "needs_attention", detail={"questions": ["domestic"]})
+            return self.store.save(s)
+        return self._prepare_shopify_shipping(s)
 
     def _domestic_service(self, s: Shipment) -> str | None:
         """The service for a UK order: a person's choice for this order if one was made (only
@@ -895,12 +953,49 @@ class ShippingService:
         self.store.save(s)
         return self.prepare(shop, sid)
 
+    def other_services(self, shop: str, sid: str) -> Shipment:
+        """A UK parcel's prices from the other connected couriers (Parcel2Go, Easyship), asked
+        when a person wants them, e.g. for Special Delivery Guaranteed by 1pm. Nothing changes
+        until one is chosen; Shopify Shipping stays the order's service."""
+        s = self._get(shop, sid)
+        if not s.domestic or not self.domestic.enabled:
+            raise ActionError("Other couriers are offered for UK orders here.", 422)
+        if s.status not in PRE_PURCHASE:
+            raise ActionError("This order is past the point of changing its service.")
+        if not s.package:
+            raise ActionError("Choose the package first: couriers price by size and weight.", 422)
+        try:
+            others, failures = self._other_quotes(s)
+        except ProviderError as exc:
+            raise ActionError(
+                " ".join(f.safe_message for f in exc.failures)
+                or f"{self.provider.name} didn't answer. Try again shortly.",
+                503,
+                "provider_unavailable",
+            ) from exc
+        uk = getattr(self.domestic_provider, "name", "Shopify Shipping")
+
+        def record(x: Shipment) -> None:
+            if x.status not in PRE_PURCHASE:
+                raise ActionError("This order is past the point of changing its service.")
+            # The order's current choice stays offered, beside the other couriers' services.
+            kept = [q for q in x.rates if q.provider == uk or q.service_code == x.service_choice]
+            fresh = {q.service_code for q in others}
+            x.rates = [q for q in kept if q.service_code not in fresh] + others
+            x.provider_failures = failures
+            x.rates_unavailable = [f.provider for f in failures]
+
+        return self._commit(s, record)
+
     def choose_service(self, shop: str, sid: str, service_code: str, actor: str) -> Shipment:
         """Use another quoted service instead of the recommendation. Changes what a preview
-        shows, so any earlier preview no longer buys."""
+        shows, so any earlier preview no longer buys. A UK order: another courier's service,
+        or "" for the owner's Shopify Shipping service."""
         s = self._get(shop, sid)
         if s.status not in PRE_PURCHASE:
             raise ActionError("This order is past the point of changing its service.")
+        if s.domestic:
+            return self._choose_uk_courier(shop, s, service_code, actor)
         chosen = next((q for q in s.rates if q.service_code == service_code), None)
         if chosen is None:
             raise ActionError("That service isn't offered for this parcel any more.", 422)
@@ -917,6 +1012,26 @@ class ShippingService:
             self._event(x, "service_chosen", actor, {"service": chosen.title})
 
         return self._commit(s, record)
+
+    def _choose_uk_courier(self, shop: str, s: Shipment, code: str, actor: str) -> Shipment:
+        uk = getattr(self.domestic_provider, "name", "Shopify Shipping")
+        chosen = next((q for q in s.rates if q.service_code == code), None) if code else None
+        if code and (chosen is None or chosen.provider == uk):
+            if chosen is None:
+                raise ActionError("That service isn't offered for this parcel any more.", 422)
+            code = ""  # Shopify Shipping's own service: the default, not a choice
+
+        def record(x: Shipment) -> None:
+            if x.status not in PRE_PURCHASE:
+                raise ActionError("This order is past the point of changing its service.")
+            x.service_choice = code or None
+            what = f"{chosen.provider} {chosen.title}" if code and chosen else uk
+            self._event(x, "service_chosen", actor, {"service": what})
+
+        self._commit(s, record)
+        # Priced afresh: the chosen courier now, or Shopify Shipping's mapped service (which may
+        # ask which Royal Mail service again).
+        return self.prepare(shop, s.id)
 
     def _learn_paperwork(self, shop: str, sid: str) -> None:
         """Once a label's customs settle, remember them for this service and destination."""

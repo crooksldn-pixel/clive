@@ -605,7 +605,7 @@ function renderShipment() {
   }
   if (!d.buy_authorised && acts.has("preview")) {
     top += banner({ tone: "info", heading: "Buying is not authorised for this order",
-      text: `You can check everything${d.domestic ? "" : " and see the exact price"}. A label can only be bought once the owner authorises this order on the server.` });
+      text: `You can check everything${d.domestic && !d.domestic.other ? "" : " and see the exact price"}. A label can only be bought once the owner authorises this order on the server.` });
   }
 
   let main = top;
@@ -643,17 +643,26 @@ function renderShipment() {
           <s-text color="subdued">Reprinting uses the same label; nothing is bought.</s-text></s-stack>
       </s-stack></s-section>`;
   } else if (d.domestic) {
-    // UK: the one service the owner's mapping (or a person) chose, from Shopify Shipping. No
-    // alternatives and no price to show before buying. Until a service is chosen, the question
-    // above says everything.
+    // UK: the owner's Shopify Shipping service (from the checkout delivery method), or another
+    // courier a person chose for this order. Other couriers' prices are asked for on request.
     const u = d.domestic;
-    if (u.service) main += `<s-section heading="Shipping">
-      <s-stack gap="small-300">
-        <s-text type="strong">${esc(u.service)} · via ${esc(u.provider)}</s-text>
-        <s-text color="subdued">${[u.days, "Tracked", "No customs (UK parcel)"].filter(Boolean).map(esc).join(" · ")}</s-text>
+    const can = acts.has("couriers");
+    const others = d.shipping.options.filter((o) => !o.chosen && o.provider !== "Shopify Shipping");
+    const current = u.service ? `<s-stack gap="small-300">
+        <s-text type="strong">${esc(u.service)} · via ${esc(u.provider)}${u.other ? ` — ${esc(u.price)}` : ""}</s-text>
+        <s-text color="subdued">${[u.days, u.tracked, "No customs (UK parcel)"].filter(Boolean).map(esc).join(" · ")}</s-text>
         <s-text color="subdued">${esc(u.why)}</s-text>
-        <s-text color="subdued">${esc(u.price_note)}</s-text>
-      </s-stack></s-section>`;
+        ${u.price_note ? `<s-text color="subdued">${esc(u.price_note)}</s-text>` : ""}
+      </s-stack>` : (u.other ? `<s-text color="subdued">${esc(u.why)}. ${esc(u.price)}.</s-text>` : "");
+    const buttons = can ? `<s-stack direction="inline" gap="small-300">
+        <s-button data-action="other-couriers">${others.length ? "Refresh other couriers" : "Other couriers"}</s-button>
+        ${u.other ? `<s-button variant="tertiary" data-action="choose" data-code="">Back to Shopify Shipping</s-button>` : ""}
+      </s-stack>` : "";
+    const list = others.length ? `<s-divider></s-divider><s-stack gap="base"><s-text type="strong">Other couriers</s-text>
+        ${others.map((o) => optionLine(o, "", can)).join("<s-divider></s-divider>")}
+        <s-text color="subdued">Using one buys this order's label from that courier instead of Shopify Shipping, at the price shown.</s-text></s-stack>` : "";
+    if (current || buttons) main += `<s-section heading="Shipping">
+      <s-stack gap="base">${current}${buttons}${list}</s-stack></s-section>`;
   } else if (d.shipping.chosen && !acts.has("service")) {
     // Being bought or checked: show what was chosen, offer no changes.
     main += `<s-section heading="Shipping">${optionLine(d.shipping.chosen, "", false)}</s-section>`;
@@ -1324,6 +1333,15 @@ const ACTIONS = {
     const i = Number(el.dataset.q);
     const f = document.getElementById(`q${i}-hs`);
     if (f) f.value = state.shipment.questions[i].suggestion;
+  },
+  async "other-couriers"(el) {
+    await withButton(el, async () => {
+      state.preview = null;
+      await shipmentAction("/other-services");
+      if (!state.shipment.shipping.options.some((o) => o.provider !== "Shopify Shipping")) {
+        toast("No other courier offered a service for this parcel.", true);
+      }
+    });
   },
   async choose(el) {
     await withButton(el, async () => {

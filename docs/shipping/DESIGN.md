@@ -20,6 +20,7 @@
 | Printer | JADENS roll-fed thermal on a Windows laptop via PrintNode. Prefer 4×6 in (~100×150 mm) labels. Printing comes later, but the label is stored once as an artifact (`label_4x6` first). Reprint renders that stored file and has no path to a purchase. | `Label.artifacts`, `Purchases.reprint()` |
 | Setup | Progressive: nothing catalogue-wide up front. A fact is asked only when a real shipment needs it. | readiness questions |
 | UK labels (2026-10-09) | Bought through the store's Shopify Shipping account, Royal Mail Tracked 24 or Tracked 48 only, decided by the checkout delivery method through an explicit mapping; an unmapped method waits for a person. Never guessed, never Shopify's default rate selection. No price before buying: accepted for now. | `domestic.py`, `providers/shopify_shipping.py`, `SHIPPING_DOMESTIC_*` |
+| UK orders with another courier (2026-10-16) | Per order, a person may use a Parcel2Go or Easyship service instead (e.g. Special Delivery Guaranteed by 1pm): **Other couriers** asks them only on request, a chosen one is re-priced on each refresh and bought at its shown price; Shopify Shipping stays the default. A chosen courier that stops offering the service hands back to Shopify Shipping with a timeline line; one that isn't answering keeps the order waiting, never swapped. UK lines send no HS code or origin. | `service.other_services`, `_prepare_other_courier`, `views.domestic_view` |
 
 **Thesis:** international orders ship like domestic ones. CLIVE absorbs the complexity; the merchant sees one decision, "Buy label — £X?", and the occasional single question it can't answer itself.
 
@@ -772,7 +773,7 @@ The sandbox proves why this matters: paying order 26633 twice charged twice.
 
 ## J. Scope guard: not building
 
-Warehouse/inventory, ERP, automation-rule builder, workflow canvas, carrier contract portal, branded tracking pages, insurance marketplace, analytics suite, returns (Returns owns it), 3PL, multi-warehouse optimisation, enterprise permissions, many carriers, settings beyond the one Setup page, SaaS billing (Phase 4), UK services beyond Royal Mail Tracked 24 / 48 (UK labels themselves are built: H, stage 9), autonomous purchasing (the authority policy hook exists; v1 always asks).
+Warehouse/inventory, ERP, automation-rule builder, workflow canvas, carrier contract portal, branded tracking pages, insurance marketplace, analytics suite, returns (Returns owns it), 3PL, multi-warehouse optimisation, enterprise permissions, many carriers, settings beyond the one Setup page, SaaS billing (Phase 4), UK services through Shopify Shipping beyond Royal Mail Tracked 24 / 48 (UK labels themselves are built: H, stage 9; other UK services come from Parcel2Go/Easyship per order), autonomous purchasing (the authority policy hook exists; v1 always asks).
 
 ## Open product questions for George
 

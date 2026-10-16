@@ -660,3 +660,20 @@ def test_easyship_refuses_to_delete_a_shipment_with_a_label(purchases, ready, es
     with pytest.raises(ProviderRefused):
         es.discard("es:ESGG1001")
     assert es_server.charges == ["ESGG1001"] and "ESGG1001" in es_server.shipments
+
+
+def test_a_uk_parcel_sends_no_empty_customs_facts(es, es_server, store, provider):
+    """A UK order sent with Easyship (chosen instead of Shopify Shipping) has no HS code or
+    origin: they're left out, never sent blank, and the request still fits Easyship's schema."""
+    s = make_shipment(store, provider)
+    s.destination = Address(
+        name="Ann", line1="1 High St", city="Manchester", postcode="M1 1AE", country="GB"
+    )
+    for ln in s.lines:
+        ln.hs_code, ln.origin_country = None, None
+    es.quotes(s)
+    _, body = es_server.bodies[-1]
+    item = body["parcels"][0]["items"][0]
+    assert "hs_code" not in item and "origin_country_alpha2" not in item
+    assert body["destination_address"]["country_alpha2"] == "GB"
+    assert spec_errors("rates", body) == []

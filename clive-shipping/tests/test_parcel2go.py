@@ -279,3 +279,19 @@ def test_region_rules(country, postcode, expected):
 def test_a_region_parcel2go_stopped_listing_is_refused_not_priced_as_mainland(p2g):
     with pytest.raises(ProviderRefused, match="region"):
         p2g._subdivision("IT", "90133")  # Sicily isn't in this stand-in list
+
+
+def test_a_uk_parcel_sends_no_empty_customs_facts(p2g, store, provider, server, cfg):
+    """A UK order sent with Parcel2Go (chosen instead of Shopify Shipping) was never asked for
+    an HS code or origin: nothing blank or made up goes in their place."""
+    s = make_shipment(store, provider)
+    s.destination.country, s.destination.postcode = "GB", "M1 1AE"
+    s.domestic = True
+    for ln in s.lines:
+        ln.hs_code, ln.origin_country = None, None
+    p2g.create_order(s, p2g.quotes(s)[0], "op_1")
+    item = server.bodies[-1]["Items"][0]
+    assert item["Parcels"][0]["DeliveryAddress"]["CountryIsoCode"] == "GBR"
+    assert item["Parcels"][0]["Contents"] == [
+        {"Description": "Men's cotton T-shirt", "Quantity": 2, "EstimatedValue": 74.0}
+    ]

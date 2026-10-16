@@ -40,6 +40,7 @@ from shipping.documents import (
 from shipping.models import (
     Address,
     Country,
+    CustomsLine,
     CustomsMode,
     DocumentKind,
     PackagePlan,
@@ -512,6 +513,21 @@ class Parcel2Go:
 
     # ------------------------------------------------------------------ the order
 
+    def _contents(self, ln: CustomsLine) -> dict[str, Any]:
+        """One line of the parcel. A UK parcel's lines have no HS code or origin (never asked):
+        those are left out, never sent blank."""
+        out: dict[str, Any] = {
+            "Description": ln.customs_description[:100],
+            "Quantity": ln.quantity,
+            "EstimatedValue": float(ln.unit_value.minor * ln.quantity) / 100,
+        }
+        if ln.hs_code:
+            out["TariffCode"] = ln.hs_code
+        if ln.origin_country:
+            # Parcel2Go wants the country's name here, not its code.
+            out["OriginCountry"] = self._country_name(ln.origin_country)
+        return out
+
     def _order(self, s: Shipment, quote: Quote, reference: str) -> dict[str, Any]:
         cfg = self.config(s.shop)
         ship = quote.ship_date or next_working_day(self.clock().date()).isoformat()
@@ -533,17 +549,7 @@ class Parcel2Go:
                     "ContentsSummary": ", ".join(
                         sorted({ln.customs_description for ln in s.lines})
                     )[:100],
-                    "Contents": [
-                        {
-                            "Description": ln.customs_description[:100],
-                            "Quantity": ln.quantity,
-                            "EstimatedValue": float(ln.unit_value.minor * ln.quantity) / 100,
-                            "TariffCode": ln.hs_code,
-                            # Parcel2Go wants the country's name here, not its code.
-                            "OriginCountry": self._country_name(ln.origin_country or ""),
-                        }
-                        for ln in s.lines
-                    ],
+                    "Contents": [self._contents(ln) for ln in s.lines],
                 }
             ],
         }

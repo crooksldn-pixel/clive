@@ -510,6 +510,12 @@ def build_admin_router(
         act(lambda: svc.choose_service(shop, sid, body.service_code, who))
         return detail_of(sid)
 
+    @router.post("/api/shipments/{sid}/other-services")
+    def other_services(sid: str, who: str = Depends(staff)) -> dict[str, Any]:
+        """A UK order's prices from the other connected couriers (nothing is chosen or bought)."""
+        act(lambda: svc.other_services(shop, sid))
+        return detail_of(sid)
+
     @router.post("/api/shipments/{sid}/preview")
     def preview(sid: str, who: str = Depends(staff)) -> dict[str, Any]:
         out = act(lambda: svc.preview(shop, sid))

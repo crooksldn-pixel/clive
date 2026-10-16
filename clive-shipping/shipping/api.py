@@ -212,6 +212,8 @@ def build_api_router(
                 {
                     "name": getattr(p, "name", "Provider"),
                     "orders": "international",
+                    # A UK order too, when a person chooses it for that order.
+                    "uk_when_chosen": uk.enabled,
                     "price_before_buying": True,
                 }
                 for p in getattr(svc.provider, "quoting", None) or [svc.provider]

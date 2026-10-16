@@ -264,6 +264,31 @@ def domestic_view(s: Shipment) -> dict[str, Any] | None:
     """A UK order's service, where it came from and who sells it; None for international."""
     if not s.domestic:
         return None
+    if s.service_choice:
+        # Another courier, chosen for this order instead of Shopify Shipping.
+        q = s.quote
+        who = next((e.actor for e in reversed(s.timeline) if e.type == "service_chosen"), None)
+        days = None
+        if q and q.est_days_max:
+            days = (
+                f"{q.est_days_min}–{q.est_days_max} days"
+                if q.est_days_min and q.est_days_min != q.est_days_max
+                else f"Up to {q.est_days_max} days"
+            )
+        return {
+            "service": q.title if q else None,
+            "provider": q.provider if q else None,
+            "other": True,
+            "shipping_line": s.shipping_line,
+            "why": "Chosen for this order instead of Shopify Shipping"
+            + (f" by {who}" if who and who != "system" else ""),
+            "days": days,
+            "tracked": None
+            if q is None or q.tracked is None
+            else ("Tracked" if q.tracked else "Untracked"),
+            "price": price_text(q) if q else "Not priced just now",
+            "price_note": "",
+        }
     service = domestic.title(s.domestic_service) if s.domestic_service else None
     if s.domestic_service_by and s.domestic_service_line == s.shipping_line:
         why = f"Chosen for this order by {s.domestic_service_by}"
@@ -278,6 +303,8 @@ def domestic_view(s: Shipment) -> dict[str, Any] | None:
     return {
         "service": f"{domestic.CARRIER} {service}" if service else None,
         "provider": "Shopify Shipping",
+        "other": False,
+        "tracked": "Tracked",
         "shipping_line": s.shipping_line,
         "why": why,
         "days": domestic.DAYS_TEXT.get(s.domestic_service or ""),
@@ -292,20 +319,24 @@ def shipping_view(s: Shipment, rec: Recommendation) -> dict[str, Any]:
         return option_view(o, s.quote) if o else None
 
     if s.domestic:
-        # One service, the owner's mapping: no recommendation, no alternatives to choose.
+        # The owner's Shopify Shipping service, or a courier a person chose for this order;
+        # the other couriers' services when a person asked for them. No recommendation.
+        def uk(o: Option) -> dict[str, Any]:
+            v = option_view(o, s.quote)
+            v.update(paperwork="No customs (UK parcel)", reason="", roles=[])
+            return v
+
         mine = next((o for o in rec.options if s.quote and o.quote is s.quote), None) or next(
             (o for o in rec.options if s.quote and o.quote.service_code == s.quote.service_code),
             None,
         )
-        chosen = one(mine)
-        if chosen is not None:
-            chosen.update(paperwork="No customs (UK parcel)", reason="", roles=[])
+        chosen = uk(mine) if mine else None
         return {
             "chosen": chosen,
             "recommended": None,
             "cheapest": None,
             "fastest": None,
-            "options": [chosen] if chosen else [],
+            "options": [uk(o) for o in rec.options],
             "overridden": False,
             "provider_failures": [f.model_dump(mode="json") for f in s.provider_failures],
             "note": " ".join(f.safe_message for f in s.provider_failures) or None,
@@ -423,6 +454,17 @@ def actions(s: Shipment) -> list[str]:
         S.purchasing: [],
     }
     out = list(by_status.get(s.status, []))
+    if (
+        s.domestic
+        and s.label is None
+        and s.package is not None
+        and s.status
+        in (
+            S.needs_attention,
+            S.ready,
+        )
+    ):
+        out.append("couriers")  # another courier instead of Shopify Shipping, for this order
     if s.label is not None and s.label.file_note:
         # Bought, but its file isn't here (it says where to print it): nothing to print.
         return [a for a in out if a != "print"]

@@ -79,6 +79,20 @@ different item "Joggers XS > Blue Jeans S · Credit swap". Returns links straigh
 **Ship the exchange** (`/shipping/admin?order=<number>`), which opens the order's shipment still
 to be sent, after asking Shopify for new ones if needed.
 
+## UK orders: another courier for one order
+
+A UK order uses the owner's Shopify Shipping service (Royal Mail Tracked 24 or 48, from the
+checkout delivery method). For an order that needs something else (Special Delivery Guaranteed
+by 1pm, a next-day courier), **Other couriers** on the order asks Parcel2Go and Easyship for
+their prices for this parcel; **Use this** on one switches the order to it, shown with its
+price, and **Buy label** then buys from that courier (charged to its account, not Shopify).
+**Back to Shopify Shipping** undoes it. Nothing is asked until the button is pressed. The chosen
+courier is re-priced whenever the order is refreshed: if it no longer offers the service, the
+order goes back to Shopify Shipping and the history says so; if it isn't answering, the order
+waits in Needs attention (it is never bought on a service nobody chose). An order whose
+delivery method isn't mapped can also go with another courier instead of choosing Tracked 24 or
+48. Labels, packing slips, bulk print and tracking work the same either way.
+
 ## Bulk printing: one person's set at a time
 
 **Print labels and slips** (Labels bought) and **Reprint labels and slips** (Printed) print each
