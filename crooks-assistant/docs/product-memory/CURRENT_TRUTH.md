@@ -2,7 +2,7 @@
 
 **Purpose:** what is true now, in one place. Read [`MAP.md`](../../MAP.md) first; this file is its live state.
 **Status:** ACTIVE. Rewrite it whenever production, the trunk, the loop or an owner decision changes, and move what it said before into the history file.
-**As of:** 2026-10-14 (production is `dc59047e`; `clive/trunk` additionally contains DEC-079, which is on the trunk only and not in production).
+**As of:** 2026-10-16 (production is `dc59047e`, live since 2026-10-14; `clive/trunk` additionally contains DEC-079, which is on the trunk only and not in production).
 
 Everything this file said before 5 October 2026 is kept word for word in [`docs/history/CURRENT_TRUTH_HISTORY.md`](../history/CURRENT_TRUTH_HISTORY.md), including the doctrine summary it used to carry. Decisions and their reasons are in [DECISIONS.md](./DECISIONS.md). How production is run and deployed is [`docs/DEPLOY_LINUX.md`](../DEPLOY_LINUX.md).
 
@@ -14,7 +14,7 @@ Everything this file said before 5 October 2026 is kept word for word in [`docs/
 |---|---|---|
 | **Production** (`crooks-os-prod-1`, `/opt/crooks-os`) | `dc59047e` | Live since **14 Oct 2026**. No deploy record for it is in the repository yet. |
 | **Trunk** (`clive/trunk`) | head | `dc59047e` plus [DEC-079](./DECISIONS.md) (the owner's rulings of 14 Oct). DEC-079 is on the trunk only; it is not deployed to production. |
-| **The loop** (clive-worker-01) | not recorded | See "The build loop" below. |
+| **The loop** (clive-worker-01) | `ef204bc2` | Re-pinned on **16 Oct 2026**. Its re-pin review was READY, with no waiver. [DEC-068](./DECISIONS.md) and [DEC-076](./DECISIONS.md) are in force there, and it runs the only loop. See "The build loop" below. |
 
 The deploys before it, newest first:
 - **`b33ccbc2`**, 3 Oct 17:48 UTC. PR #95: the six notes of the post-deploy review of `cac1a9e7`, plus one found on the way. That review's verdict was **KEEP** (PR #95's description). The fixes: a voice's settings are never invented, and shipped, refunded or cancelled orders stay off the packing board. Deployed on **the owner's waiver** of the exact-SHA review. GitHub acceptance was green on the exact SHA (run `37128652668`). `/health` answered 200 with all 12 checks `ok` (build `83524b275b07`). `.env`, the unit and the drop-ins were unchanged. Record: [`reports/deploy-b33ccbc2.md`](../../reports/deploy-b33ccbc2.md). Rollback: `cac1a9e7` plus `/root/crooks-unit-before-b33ccbc2.main.service`.
@@ -86,22 +86,19 @@ The loop landed five builds itself on 7–8 Oct, also not deployed:
 
 ### The build loop
 
-- **Back at work on 7–8 Oct:** it landed the five builds listed under "Merged, not deployed". The counts in the next point stop at 7 Oct and are not updated here.
-- **Quiet since 1 Oct.** Since 25 Sep, the loop on clive-worker-01 has taken 65 requests:
-  - 21 COMPLETE;
-  - 40 BLOCKED: 17 at the repair-round limit, 10 reported blocked by their builder, 7 on a red GitHub run, 4 on workspace errors and 2 on failed checks;
-  - 2 OWNER_GATE;
-  - 2 refused at intake.
-
-  The last request was recorded on **1 Oct at 22:08 UTC**. It still publishes its status to `clive/control/worker-01-status` about every ten minutes (still on 7 Oct).
-- **The loop landed 7 builds itself on 1 Oct.** Every trunk change after its last landing (`8ad7477d`, 1 Oct 22:27 UTC) came from builders outside it: PRs #89–#95, and two direct landings (`1d03efd6`, `4d2dc00f`).
-- **Its pin is not recorded.** PR #72 records a re-pin to `b577bc97` on 1 Oct, at which the owner waived two findings. A later re-pin review of `b577bc97..4daf49e1` asked for changes, which PR #88 (`718fbc41`) answered. Which SHA the loop runs now is not recorded in the repository.
-- **The loop upgrade of 7 Oct is on the trunk and not in force** ([DEC-068](./DECISIONS.md)). It takes effect only at clive-worker-01's re-pin, which the owner approved on the Director's go. From then:
-  - why a build stopped (the reviewer's findings, the failing output, the builder's words) is kept on worker-01 and served over the tailnet only, to `crooks-os-prod-1` named by its full tailnet name. The Builds screen shows it once `CROOKS_ENGINEERING_PRIVATE_URL` is set in production's `.env`; until then it says the wording is kept on the build server;
-  - a build filed again starts with the earlier try's findings, and a request without its own number gets the host's default repair rounds;
-  - builders get the four design skills, but only on Claude CLI 2.1.285 or 2.1.293. On any other version the loop runs with `--no-builder-skills`;
+- **Re-pinned on 16 Oct 2026.** clive-worker-01's loop runs `ef204bc2`. Its re-pin review was READY, with no waiver.
+- **It is the only loop.** The production host's own engineering loop was stopped and disabled on 16 Oct 2026 under [DEC-071](./DECISIONS.md) ruling 11, so worker-01 runs the only loop.
+- **DEC-068 and DEC-076 are in force there** ([DEC-068](./DECISIONS.md), [DEC-076](./DECISIONS.md), PRs #102 and #114). Since the re-pin:
+  - Claude on the owner's plan reviews the loop's candidates as `claude-reviewer`, in place of GPT. It is read-only, in a session and room of its own, and the review contract is unchanged. `--reviewer gpt` falls back. The re-pin's own review (`root-repin.sh`) stays GPT until he decides otherwise;
+  - why a build stopped (the reviewer's findings, the failing output, the builder's words) is kept on worker-01 and served to production over the tailnet only, to `crooks-os-prod-1` named by its full tailnet name. The Builds screen shows it once `CROOKS_ENGINEERING_PRIVATE_URL` is set in production's `.env`; until then it says the wording is kept on the build server;
+  - builder skills are off. Builders get the four design skills only on Claude CLI 2.1.285 or 2.1.293, and the worker CLI is 2.1.280, so the loop runs with `--no-builder-skills`;
+  - a build filed again starts with the earlier try's findings, and a request without its own number gets the host's default of 2 repair rounds;
+  - it runs 2 builders at once;
   - checks can drive Chromium once it is installed on worker-01.
-- **The Claude reviewer is built and not in force** ([DEC-076](./DECISIONS.md), PR #114). At the next re-pin of clive-worker-01, Claude on the owner's plan reviews the loop's candidates in place of GPT. It is read-only, in a session and room of its own, and the review contract is unchanged. `--reviewer gpt` falls back. The re-pin's own review (`root-repin.sh`) stays GPT until he decides otherwise.
+- **Its first build on the new pin,** `cdee8fce`, was reviewed by `claude-reviewer` and landed by the loop.
+- **76 requests since 25 Sep.** Before the request that wrote this line, the loop on clive-worker-01 had taken 76 requests: 27 COMPLETE, 45 BLOCKED, 2 at an owner gate and 2 refused.
+- **Back at work on 7–8 Oct:** it landed the five builds listed under "Merged, not deployed".
+- **The loop landed 7 builds itself on 1 Oct.** Every trunk change after its last landing (`8ad7477d`, 1 Oct 22:27 UTC) came from builders outside it: PRs #89–#95, and two direct landings (`1d03efd6`, `4d2dc00f`).
 - **GitHub Apps for the Director and CLIVE** are specified in [`GITHUB_IDENTITY.md`](../GITHUB_IDENTITY.md); George creates them. The loop switches by configuration alone. CLIVE's production filing and the Director are follow-ups.
 
 ### Recorded in DECISIONS on 5 October
@@ -121,7 +118,6 @@ On 8 October he answered 43 open questions at once ([DEC-071](./DECISIONS.md)): 
 
 ### Not verified from here
 
-- The loop's current pin.
 - The owner's phone check for `b33ccbc2`.
 - Whether `a68536c6` was deployed on 7 Oct: no deploy record says so.
 - Whether any item carried from 30 Sep has been settled outside the repository.

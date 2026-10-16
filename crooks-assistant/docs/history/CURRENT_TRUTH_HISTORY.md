@@ -2,6 +2,53 @@
 
 Moved here on 5 October 2026 from `docs/product-memory/CURRENT_TRUTH.md` as it stood at `clive/trunk` `b33ccbc2`, so that CURRENT_TRUTH can say only what is true now. Everything below the line is that file word for word and byte for byte, its own title and its old "Now — 2026-09-30" included: none of it is current. Its relative links (`./NAME.md`) were written from `docs/product-memory/`; the documents they name are there. What is true now: [`../product-memory/CURRENT_TRUTH.md`](../product-memory/CURRENT_TRUTH.md) and [`../../MAP.md`](../../MAP.md).
 
+## Replaced on 16 October 2026
+
+On 16 October 2026 CURRENT_TRUTH's "As of" line, its loop row and its "The build loop" section were rewritten for the loop's re-pin to `ef204bc2`, and "The loop's current pin." was taken off its "Not verified from here" list. Each block below is the text that rewrite replaced or removed, word for word, in the order it stood in the file. None of it is current.
+
+The "As of" line:
+
+```markdown
+**As of:** 2026-10-14 (production is `dc59047e`; `clive/trunk` additionally contains DEC-079, which is on the trunk only and not in production).
+```
+
+The loop row of "What is live":
+
+```markdown
+| **The loop** (clive-worker-01) | not recorded | See "The build loop" below. |
+```
+
+"The build loop", its first and second points (the first was kept without its last sentence):
+
+```markdown
+- **Back at work on 7–8 Oct:** it landed the five builds listed under "Merged, not deployed". The counts in the next point stop at 7 Oct and are not updated here.
+- **Quiet since 1 Oct.** Since 25 Sep, the loop on clive-worker-01 has taken 65 requests:
+  - 21 COMPLETE;
+  - 40 BLOCKED: 17 at the repair-round limit, 10 reported blocked by their builder, 7 on a red GitHub run, 4 on workspace errors and 2 on failed checks;
+  - 2 OWNER_GATE;
+  - 2 refused at intake.
+
+  The last request was recorded on **1 Oct at 22:08 UTC**. It still publishes its status to `clive/control/worker-01-status` about every ten minutes (still on 7 Oct).
+```
+
+"The build loop", its fourth, fifth and sixth points (its third, "The loop landed 7 builds itself on 1 Oct.", and its seventh, "GitHub Apps for the Director and CLIVE", were kept unchanged):
+
+```markdown
+- **Its pin is not recorded.** PR #72 records a re-pin to `b577bc97` on 1 Oct, at which the owner waived two findings. A later re-pin review of `b577bc97..4daf49e1` asked for changes, which PR #88 (`718fbc41`) answered. Which SHA the loop runs now is not recorded in the repository.
+- **The loop upgrade of 7 Oct is on the trunk and not in force** ([DEC-068](./DECISIONS.md)). It takes effect only at clive-worker-01's re-pin, which the owner approved on the Director's go. From then:
+  - why a build stopped (the reviewer's findings, the failing output, the builder's words) is kept on worker-01 and served over the tailnet only, to `crooks-os-prod-1` named by its full tailnet name. The Builds screen shows it once `CROOKS_ENGINEERING_PRIVATE_URL` is set in production's `.env`; until then it says the wording is kept on the build server;
+  - a build filed again starts with the earlier try's findings, and a request without its own number gets the host's default repair rounds;
+  - builders get the four design skills, but only on Claude CLI 2.1.285 or 2.1.293. On any other version the loop runs with `--no-builder-skills`;
+  - checks can drive Chromium once it is installed on worker-01.
+- **The Claude reviewer is built and not in force** ([DEC-076](./DECISIONS.md), PR #114). At the next re-pin of clive-worker-01, Claude on the owner's plan reviews the loop's candidates in place of GPT. It is read-only, in a session and room of its own, and the review contract is unchanged. `--reviewer gpt` falls back. The re-pin's own review (`root-repin.sh`) stays GPT until he decides otherwise.
+```
+
+"Not verified from here", its first point:
+
+```markdown
+- The loop's current pin.
+```
+
 ---
 
 # CLIVE — Current Truth
