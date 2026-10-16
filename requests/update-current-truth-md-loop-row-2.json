@@ -1,0 +1,84 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "update-current-truth-md-loop-row-2",
+  "title": "Update CURRENT_TRUTH.md loop row and As-of line for 16 Oct 2026",
+  "requested_outcome": "Documentation only. Update CURRENT_TRUTH.md's loop row, its \"As of\" line, and its \"The build loop\" section to what is true on 16 Oct 2026:\n\n- clive-worker-01's loop was re-pinned to ef204bc2 on 16 Oct 2026; its re-pin review was READY with no waiver.\n- DEC-068 and DEC-076 are in force there: Claude reviews as claude-reviewer in place of GPT; stop reports are served to production over the tailnet only; builder skills are off because the worker CLI is 2.1.280; repair rounds default to 2; it runs 2 builders at once.\n- The production host's own engineering loop was stopped and disabled on 16 Oct 2026 under DEC-071 ruling 11, so worker-01 runs the only loop.\n- Its first build on the new pin, cdee8fce, was reviewed by claude-reviewer and landed by the loop.\n- Before this request, it had taken 76 requests since 25 Sep: 27 COMPLETE, 45 BLOCKED, 2 at an owner gate, 2 refused.\n- \"As of\" line updated to 16 Oct 2026.\n- Remove \"The loop's current pin\" from the \"what is still open\" list.\n\nMove every word of the text these changes replace, unchanged, into docs/history/CURRENT_TRUTH_HISTORY.md. Change nothing else in CURRENT_TRUTH.md.",
+  "base_ref": "5368b7196ce656e238b7d3a0a6e77010e1b158c0",
+  "base_sha": "5368b7196ce656e238b7d3a0a6e77010e1b158c0",
+  "allowed_paths": [
+    "crooks-assistant/docs/product-memory/CURRENT_TRUTH.md",
+    "crooks-assistant/docs/history/CURRENT_TRUTH_HISTORY.md",
+    "crooks-assistant/tests/test_current_truth_md.py"
+  ],
+  "acceptance_criteria": [
+    "CURRENT_TRUTH.md's loop row states clive-worker-01 re-pinned to ef204bc2 on 16 Oct 2026, re-pin review READY, no waiver.",
+    "The row or section states DEC-068 and DEC-076 are in force: claude-reviewer in place of GPT; stop reports served to production over the tailnet only; builder skills off (worker CLI 2.1.280); repair rounds default 2; 2 builders concurrent.",
+    "The build loop section states the production host's own loop was stopped and disabled on 16 Oct 2026 under DEC-071 ruling 11, and that worker-01 runs the only loop.",
+    "The build loop section states the first build on the new pin, cdee8fce, was reviewed by claude-reviewer and landed by the loop.",
+    "The 'As of' line reads 16 Oct 2026.",
+    "The build loop section states 76 requests since 25 Sep: 27 COMPLETE, 45 BLOCKED, 2 at an owner gate, 2 refused.",
+    "'The loop's current pin' is removed from the 'what is still open' list.",
+    "Every word of text removed or replaced in CURRENT_TRUTH.md appears unchanged in docs/history/CURRENT_TRUTH_HISTORY.md.",
+    "No other content in CURRENT_TRUTH.md is changed."
+  ],
+  "checks": [
+    {
+      "name": "tests",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_current_truth_md.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "regression",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-m",
+        "not live",
+        "tests/test_gate.py",
+        "tests/test_readonly.py",
+        "tests/test_actions.py",
+        "tests/test_actions_routes.py",
+        "tests/test_engine_hooks.py",
+        "tests/test_batch.py",
+        "tests/test_available.py",
+        "tests/test_judgment.py",
+        "tests/test_judgment_construction.py",
+        "tests/test_judgment_chain.py",
+        "tests/test_judgment_ledger.py",
+        "tests/test_cancel.py",
+        "tests/test_refund.py",
+        "tests/test_address.py",
+        "tests/test_fulfil.py",
+        "tests/test_inventory.py",
+        "tests/test_tracking.py",
+        "tests/test_order_edit.py",
+        "tests/test_gmail_writes.py",
+        "tests/test_compose.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/update-current-truth-md-loop-row-2"
+}
