@@ -3144,6 +3144,26 @@ async function recoverActionState(proposalId) {
   return null;
 }
 
+// A change the Mac answered at once and goes on making: asked about every two seconds until it
+// has settled, for as long as the Mac said it may take. Never tapped again.
+async function followInFlight(proposalId, waitS) {
+  const until = Date.now() + Math.max(10, Number(waitS) || 0) * 1000;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 2000));
+    // One ask at a time, and none that waits for ever.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(`/actions/${encodeURIComponent(proposalId)}?session_id=${encodeURIComponent(sessionId)}`, { cache: 'no-store', signal: controller.signal });
+      const data = await response.json();
+      if (data && data.status && data.status !== 'executing' && data.status !== 'executed') return data;
+    } catch { /* still unreachable; try again */ } finally {
+      clearTimeout(timer);
+    }
+  }
+  return null;
+}
+
 // Everything on screen follows from what the Mac answered. Success is shown only when the
 // Mac says VERIFIED; anything else is shown as exactly what it is.
 function settleAction(node, payload, status) {
@@ -3164,8 +3184,12 @@ function settleAction(node, payload, status) {
     // The Mac is still proving the change: ask again until it knows, never tap again. The
     // surface says so in its own state — sent, being proven — rather than staying in the one
     // that means "this page is still waiting for an answer to its own request".
-    settleActionNode(node, 'verifying', 'Applying…');
-    recoverActionState(node.dataset.proposal || '').then((later) => settleAction(node, later ? Object.assign({ _recovered: true }, later) : null, 200));
+    // [shipping] A change the Mac answered at once and is still making (a label buy waits on the
+    // courier) says what is under way, and is asked about for as long as the Mac said it may take.
+    const flight = payload.in_flight && typeof payload.in_flight === 'object' ? payload.in_flight : null;
+    settleActionNode(node, 'verifying', flight && flight.label ? String(flight.label) : 'Applying…');
+    const asking = flight ? followInFlight(node.dataset.proposal || '', flight.wait_s) : recoverActionState(node.dataset.proposal || '');
+    asking.then((later) => settleAction(node, later ? Object.assign({ _recovered: true }, later) : null, 200));
     return;
   }
   const items = Array.isArray(payload.ui) ? payload.ui : [];

@@ -375,8 +375,35 @@ async def _execute_buy(execution: dict) -> dict:
     return {"status": str(answer.get("status") or ""), "done": answer.get("charged") is True}
 
 
+# A buy that was not confirmed, by order, and why: the next card for the same label says it before
+# anything else, so a second hold is never a blind retry of the first (George, #2202).
+_UNCONFIRMED: OrderedDict[str, str] = OrderedDict()
+DO_NOT_RETRY = "Don't buy it again until Shipping shows whether it was bought."
+
+
+def unconfirmed_reason(note: str) -> str:
+    """The one line a buy that was not confirmed is shown with: what its proof found, and that it is
+    not to be bought again blind."""
+    said = str(note or "").strip() or "CLIVE Shipping didn't confirm the label."
+    if "again" not in said.lower():
+        said = f"{said} {DO_NOT_RETRY}"
+    return f"Not confirmed: {said}"
+
+
 def verify_buy(before: dict, observed: dict, execution: dict) -> tuple[bool, str]:
     """Proven when the order, read back, shows the label the service says it bought."""
+    ok, note = _verify_buy(before, observed, execution)
+    shipment = str(execution.get("shipment_id") or "")
+    if ok:
+        _UNCONFIRMED.pop(shipment, None)
+    elif shipment:
+        _UNCONFIRMED[shipment] = unconfirmed_reason(note)
+        while len(_UNCONFIRMED) > MAX_OUTCOMES:
+            _UNCONFIRMED.popitem(last=False)
+    return ok, note
+
+
+def _verify_buy(before: dict, observed: dict, execution: dict) -> tuple[bool, str]:
     out = _OUTCOMES.get(str(execution.get("idempotency_key") or ""))
     bought = bool(observed.get("bought"))
     if out is None or out.get("lost"):
@@ -402,6 +429,9 @@ def _present_buy(proposal) -> dict:
     number = str(s.get("order_number") or proposal.entity_label or "")
     facts = [{"label": "Order", "value": number}, {"label": "To", "value": str(s.get("country") or "")},
              {"label": "Service", "value": str(s.get("service") or "")}]
+    if s.get("unconfirmed"):
+        # The last buy of this label wasn't confirmed: said first, and why, whole, as the card's summary.
+        facts.insert(0, {"label": "Last try", "value": "Not confirmed: read why before holding", "tone": "bad"})
     if s.get("days"):
         facts.append({"label": "Delivery", "value": str(s.get("days"))})
     facts.append({"label": "Price", "value": str(s.get("price") or "")})
@@ -412,7 +442,7 @@ def _present_buy(proposal) -> dict:
     will = [str(w) for w in s.get("will") or []]
     return {
         "title": f"Buy the label for {number}",
-        "summary": str(s.get("charged") or ""),
+        "summary": " ".join(str(x) for x in (s.get("unconfirmed"), s.get("charged")) if x),
         # The service's own preview, line for line: what the hold authorises.
         "body": "\n".join(will),
         "detail": "CLIVE Shipping buys at this price or not at all: if the order or the price has changed, nothing is bought.",
@@ -508,6 +538,7 @@ async def shipping_label_buy(shipment_id: str) -> Prepared:
             "emails_customer": any("email the customer" in w for w in will),
             "read_back": f"buy the label for order {number.lstrip('#')} at {price}",
             "ledger": {"amount_minor": minor, "currency": currency},
+            **({"unconfirmed": _UNCONFIRMED[str(d.get("id"))]} if str(d.get("id")) in _UNCONFIRMED else {}),
         },
     )
 
@@ -663,3 +694,29 @@ async def shipping_label_print(shipment_id: str) -> Prepared:
 )
 async def shipping_label_reprint(shipment_id: str) -> Prepared:
     return await _stage_print(shipment_id, reprint=True)
+
+
+# ------------------------------------------------------------------ the tap, answered (app/routes/actions.py)
+
+# A buy waits on the courier for ten seconds or more: the tap is answered at once with what is under
+# way, and the tablet asks how it stands for as long as the buy may take (the order read, the buy
+# and its one resend with the same key, the read that proves it).
+IN_FLIGHT = {BUY: {"label": "Buying the label…",
+                   "wait_s": int(2 * client.BUY_TIMEOUT_S + 3 * client.READ_TIMEOUT_S)}}
+# The step a proven change offers next, on the same screen: a label bought is a label to print.
+NEXT_STEP = {BUY: PRINT}
+
+
+def in_flight(operation: str) -> dict[str, Any] | None:
+    return dict(IN_FLIGHT[operation]) if operation in IN_FLIGHT else None
+
+
+def with_failure_reason(items: list[dict[str, Any]], proposal) -> list[dict[str, Any]]:
+    """A buy that was not confirmed says why on its card, the proof's own finding, whole: the generic
+    line before it had cut the reason short at the card's bound."""
+    if proposal.operation != BUY or proposal.status.value != "UNVERIFIED" or not proposal.note:
+        return items
+    for item in items:
+        if item.get("type") == "error" and isinstance(item.get("data"), dict):
+            item["data"]["recovery"] = unconfirmed_reason(proposal.note)[:300]
+    return items

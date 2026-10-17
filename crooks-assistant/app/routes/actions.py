@@ -13,12 +13,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import OrderedDict
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse
 
 from app import readonly, screen
 from app.actions import grammar
+from app.actions.models import ActionStatus
 from app.observability import timeline
 from app.presentation import present, present_action, present_proposal_state
 from app.speech.speakable import to_speakable
@@ -594,7 +596,86 @@ async def commit(request: Request, proposal_id: str, session_id: str = Form(defa
                           code="already_made", ms=_elapsed(started))
             return _refuse(409, "already_made", already)
         workspaces.before_commit(pending)
-    result = await runtime.actions.commit(proposal_id, session_id.strip(), caller=caller, spec_lookup=spec_lookup, nonce=nonce)
+    committing = runtime.actions.commit(proposal_id, session_id.strip(), caller=caller, spec_lookup=spec_lookup, nonce=nonce)
+    flight = _in_flight(pending)
+    if flight is None:
+        result = await committing
+    else:
+        # [shipping] Answered at once, made on a task of its own: the engine commits it exactly as it
+        # would here, and the tablet asks how it stands until it has settled (`state`, below).
+        landing = {"answered": False}
+        task = asyncio.create_task(_land(committing, landing, runtime=runtime, proposal_id=proposal_id,
+                                         session_id=session_id.strip(), owner_session=owner_session, nonce=nonce,
+                                         started=started, caller=caller))
+        _LANDING.add(task)
+        task.add_done_callback(_LANDING.discard)
+        try:
+            done, _waiting = await asyncio.wait({task}, timeout=IN_FLIGHT_AFTER_S)
+        except asyncio.CancelledError:
+            landing["answered"] = True   # nobody is waiting here now: the task records its own outcome
+            raise
+        if not done:
+            landing["answered"] = True
+            proposal = runtime.actions.state(proposal_id, session_id.strip()) or pending
+            timeline.emit("action_commit_in_flight", session_id=session_id.strip(), proposal_id=proposal_id,
+                          turn_id=proposal.turn_id or None, operation=proposal.operation, ms=_elapsed(started))
+            return {**proposal.public(), "code": "in_progress", "spoken": "", "ui": [], "undo": None, "in_flight": flight}
+        result = task.result()
+    outcome = _after_commit(result, runtime=runtime, proposal_id=proposal_id, session_id=session_id.strip(),
+                            owner_session=owner_session, nonce=nonce, started=started, caller=caller)
+    if isinstance(outcome, JSONResponse):
+        return outcome
+    return await _answer(request, result, outcome)
+
+
+# [shipping] A change the tablet is answered about at once while the Mac goes on making it: a label
+# buy waits on the courier for nine seconds or more, and the tap sat that long with nothing to show
+# (George, three labels). Past this the tap is answered as in flight; a refusal the engine reaches
+# before anything leaves (not armed, read-only, moved on) is still answered as it always was.
+IN_FLIGHT_AFTER_S = 0.25
+# Commits answered in flight and settled since, by proposal id, for the tablet's next ask; and the
+# tasks still making them, held so that nothing collects one half-way.
+_LANDED: OrderedDict[str, tuple] = OrderedDict()
+MAX_LANDED = 64
+_LANDING: set[asyncio.Task] = set()
+# The next step a proven change offered (a label's print), by the change's proposal id: offered once.
+_OFFERED: OrderedDict[str, str] = OrderedDict()
+
+
+def _in_flight(pending) -> dict | None:
+    """What the tablet is told while this change is made, when it is one answered at once."""
+    if pending is None or pending.status is not ActionStatus.PENDING:
+        return None
+    from app.tools import shipping_tools
+
+    return shipping_tools.in_flight(pending.operation)
+
+
+async def _land(committing, landing: dict, **tail):
+    """The commit, to its end. Once the tap has been answered in flight, the outcome is recorded here,
+    as the route would have recorded it, and kept for the tablet's next ask."""
+    try:
+        result = await committing
+    except Exception:
+        if not landing["answered"]:
+            raise
+        log.exception("a commit answered in flight failed")
+        return None
+    if landing["answered"] and result.proposal is not None:
+        outcome = _after_commit(result, **tail)
+        if not isinstance(outcome, JSONResponse):
+            _LANDED[result.proposal.proposal_id] = (result, outcome)
+            while len(_LANDED) > MAX_LANDED:
+                _LANDED.popitem(last=False)
+    return result
+
+
+def _after_commit(result, *, runtime, proposal_id: str, session_id: str, owner_session, nonce: str, started: float,
+                  caller: str) -> JSONResponse | dict:
+    """Everything a commit records once the engine has answered: a refusal to send back, or the
+    outcome (what to say, to which conversation, with which undo)."""
+    from app.families import _workspace as workspaces
+
     if result.proposal is not None:
         workspaces.after_commit(result.proposal, session=owner_session)
     if result.proposal is None:
@@ -652,22 +733,71 @@ async def commit(request: Request, proposal_id: str, session_id: str = Form(defa
         undo_proposal = session.proposal(proposal.undo_id)
         if undo_proposal is not None:
             undo = undo_proposal.public()
+    return {"code": code, "spoken": spoken, "unconfirmed": unconfirmed, "session": session, "undo": undo}
+
+
+async def _answer(request: Request, result, outcome: dict) -> dict:
+    """What the tablet is sent about a commit the engine has answered: by the commit itself, or by
+    the tablet's next ask when the tap was answered in flight."""
+    proposal, session = result.proposal, outcome["session"]
     writes = await writes_context(request, proposal.operation)
+    from app.tools import shipping_tools
+
+    items = shipping_tools.with_failure_reason(present_action(result, session=session, writes=writes), proposal)
+    items += await _next_step(request, proposal, session, writes)
     # The record the change was about stays where the owner left it, redrawn with its new
     # state — as the workspace it was shown as, with what can be done with it now — and the
     # half's own copy of its screen is settled to match what the tablet draws (app/screen.py).
     ui = screen.after_gesture(
-        present_action(result, session=session, writes=writes), session=session, proposal_id=proposal.proposal_id,
+        items, session=session, proposal_id=proposal.proposal_id,
         undo_of=proposal.undo_of or "", entity=proposal.entity, entity_kind=proposal.entity_kind, writes=writes,
     )
     return {
         **proposal.public(),
-        **({"status": "unverified"} if unconfirmed else {}),
-        "code": code,
-        "spoken": spoken,
+        **({"status": "unverified"} if outcome["unconfirmed"] else {}),
+        "code": outcome["code"],
+        "spoken": outcome["spoken"],
         "ui": ui,
-        "undo": undo,
+        "undo": outcome["undo"],
     }
+
+
+async def _next_step(request: Request, proposal, session, writes: dict) -> list[dict]:
+    """[shipping] A label proven bought offers its print on the same screen: the print card is staged
+    here, through the gate as any change is, for the owner's own gesture. Nothing is printed by it.
+    Nothing is offered to a caller who could not apply it, or when the order shows nothing to print."""
+    from app.tools import shipping_tools
+
+    step = shipping_tools.NEXT_STEP.get(proposal.operation)
+    if not step or session is None or proposal.status is not ActionStatus.VERIFIED or not writes.get("allowed"):
+        return []
+    runtime = request.app.state.runtime
+    if proposal.proposal_id in _OFFERED:
+        # Offered once: the same card while it waits, and nothing more once it has been used or let go.
+        offered = runtime.actions.state(_OFFERED[proposal.proposal_id], session.session_id)
+        if offered is None or offered.status is not ActionStatus.PENDING:
+            return []
+        return present_proposal_state(offered, session=session, writes=writes)
+    from app.tools.context import CURRENT_BRANCH
+    from app.tools.dispatch import dispatch
+
+    calls: list = []
+    # The half the label was bought in, as a row's change belongs to the row's half.
+    token = CURRENT_BRANCH.set(proposal.branch_id) if proposal.branch_id else None
+    try:
+        await dispatch(step, {"shipment_id": str(proposal.execution.get("shipment_id") or proposal.entity_ref)},
+                       session=session, timeout_s=runtime.settings.tool_timeout_s, calls=calls)
+    finally:
+        if token is not None:
+            CURRENT_BRANCH.reset(token)
+    offered_id = next((c.proposal_id for c in calls if getattr(c, "proposal_id", None)), "")
+    offered = runtime.actions.deliver(offered_id) if offered_id else None
+    if offered is None or offered.status is not ActionStatus.PENDING:
+        return []
+    _OFFERED[proposal.proposal_id] = offered.proposal_id
+    while len(_OFFERED) > MAX_LANDED:
+        _OFFERED.popitem(last=False)
+    return present_proposal_state(offered, session=session, writes=writes)
 
 
 # How many live surfaces one reconciliation may ask about. A screen shows a handful; a
@@ -830,6 +960,10 @@ async def state(request: Request, proposal_id: str, session_id: str = "") -> JSO
         session = None
     if session is not None and not session_matches(session, request):
         return _refuse(403, "wrong_session", "That conversation belongs to another login.")
+    landed = _LANDED.get(proposal.proposal_id)
+    if landed is not None and landed[0].proposal is proposal:
+        # A tap answered in flight that has settled since: told as the commit would have told it.
+        return await _answer(request, *landed)
     # The same preflight the commit route runs: a card recovered after a lost connection is
     # only shown as tappable when a tap from this request could actually work.
     writes = await writes_context(request, proposal.operation)
