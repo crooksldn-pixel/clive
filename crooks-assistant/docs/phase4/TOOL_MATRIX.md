@@ -199,7 +199,7 @@ registries and of source text, so it is safe against a shop it may not touch.
 | `shipment_tracking` | family:shipping_reads | test_crooks_shipping_contract.py | — |
 | `shipments_open` | family:shipping_reads | test_crooks_shipping_contract.py | — |
 | `shipping_events` | family:shipping_reads | test_crooks_shipping_contract.py | — |
-| `shipping_label_buy` | family:shipping_labels | test_crooks_shipping.py, test_crooks_shipping_contract.py | — |
+| `shipping_label_buy` | family:shipping_labels | test_crooks_shipping.py, test_crooks_shipping_contract.py, test_shipping_label_buy_print_instant_feedback.py | — |
 | `shipping_label_print` | family:shipping_labels | test_crooks_shipping.py, test_crooks_shipping_contract.py | — |
 | `shipping_label_reprint` | family:shipping_labels | test_crooks_shipping.py, test_crooks_shipping_contract.py | — |
 | `shopify_abandoned_checkouts` | family:abandoned_checkouts | test_abandoned.py, test_followups_reads.py, test_r11_families.py | abandoned_checkouts, abandoned_window |
