@@ -1,0 +1,85 @@
+{
+  "schema_version": "clive.remote_engineering_request.v1",
+  "request_id": "shipping-label-buy-print-instant-feedback",
+  "title": "Shipping label buy/print: instant feedback, clear failure reason, offer print after buy",
+  "requested_outcome": "George asked why buying and printing three ready labels was slow, why he couldn't print right after buying, and why the #2202 label broke. Each action_commit tap for shipping_label_buy took nine to eleven seconds to answer with nothing shown while it worked — the tap should answer at once and show the work under way. The #2202 label buy failed as \"unverified\" and was retried, failing the same way again, with no reason shown at the control — it should say the specific reason once (e.g. \"unverified, confirming with provider, do not retry\") and not invite a blind retry. There is no path from a successful label buy straight to printing it: buying and printing are two separate gestures with no prompt offering the print once the buy lands. Fix: immediate in-flight feedback on the buy tap; the specific failure reason surfaced on the card instead of a generic refusal; and after a label buy is confirmed bought, offer the print step on the same card or chain to it. Nothing else about shipping should change.",
+  "base_ref": "bfc366bdb517f9ed24cc7da8cd512d7f52b8b9f3",
+  "base_sha": "bfc366bdb517f9ed24cc7da8cd512d7f52b8b9f3",
+  "allowed_paths": [
+    "crooks-assistant/app/tools/shipping_tools.py",
+    "crooks-assistant/app/tools/shipping_views.py",
+    "crooks-assistant/app/shipping",
+    "crooks-assistant/app/tools/dispatch.py",
+    "crooks-assistant/app/routes/actions.py",
+    "crooks-assistant/web",
+    "crooks-assistant/tests/test_shipping_label_buy_print_instant_feedback.py"
+  ],
+  "acceptance_criteria": [
+    "A shipping_label_buy action_commit tap shows an in-flight state immediately, before the provider call resolves.",
+    "A failed/unverified label buy shows its specific reason on the card and does not let the same tap retry blindly without that reason shown.",
+    "After a shipping_label_buy is confirmed bought, the card offers the print step (shipping_label_print) without a separate request.",
+    "No other shipping behaviour changes.",
+    "The change is proven by tests in crooks-assistant/tests/test_shipping_label_buy_print_instant_feedback.py, and they pass."
+  ],
+  "checks": [
+    {
+      "name": "tests",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_shipping_label_buy_print_instant_feedback.py",
+        "tests/test_web.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "regression",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-m",
+        "not live",
+        "tests/test_gate.py",
+        "tests/test_readonly.py",
+        "tests/test_actions.py",
+        "tests/test_actions_routes.py",
+        "tests/test_engine_hooks.py",
+        "tests/test_batch.py",
+        "tests/test_available.py",
+        "tests/test_judgment.py",
+        "tests/test_judgment_construction.py",
+        "tests/test_judgment_chain.py",
+        "tests/test_judgment_ledger.py",
+        "tests/test_cancel.py",
+        "tests/test_refund.py",
+        "tests/test_address.py",
+        "tests/test_fulfil.py",
+        "tests/test_inventory.py",
+        "tests/test_tracking.py",
+        "tests/test_order_edit.py",
+        "tests/test_gmail_writes.py",
+        "tests/test_compose.py"
+      ],
+      "cwd": "crooks-assistant"
+    },
+    {
+      "name": "ruff",
+      "argv": [
+        "/home/user/clive/crooks-assistant/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "app",
+        "config",
+        "scripts",
+        "tests"
+      ],
+      "cwd": "crooks-assistant"
+    }
+  ],
+  "target_branch": "clive/objective/shipping-label-buy-print-instant-feedback"
+}
